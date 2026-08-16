@@ -163,6 +163,9 @@ function App() {
          * tankstage.ts has its own Tank type.
          * The actual Firebase object is compatible at runtime.
          */
+        if (Number(tank.tankNumber) === 1) {
+          return;
+        }
         const stageInfo =
           getTankStage(
             tank as Parameters<
@@ -276,6 +279,9 @@ function App() {
       }
 
       return brews.filter((tank) => {
+        if (Number(tank.tankNumber) === 1) {
+          return false;
+        }
         const stageInfo =
           getTankStage(
             tank as Parameters<
@@ -297,7 +303,10 @@ function App() {
 
   const totalTanks =
     brews.length;
-
+  const filteredTankCount =
+    filteredBrews.filter(
+      (tank) => Number(tank.tankNumber) !== 1
+    ).length;
   // ==========================================================
   // LOADING
   // ==========================================================
@@ -366,7 +375,7 @@ function App() {
               </span>
 
               <span className="status-filter-count">
-                {totalTanks-1}
+                {totalTanks - 1}
               </span>
 
             </button>
@@ -434,7 +443,7 @@ function App() {
         </strong>
 
         <span className="filter-count-badge">
-          · {filteredBrews.length-1} מיכלים
+          · {filteredTankCount} מיכלים
         </span>
 
       </div>
