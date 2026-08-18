@@ -1104,7 +1104,7 @@ export default function TankCard({
               aria-label="הצגת המלצות סלרינג"
               onClick={handleOpenInfo}
             >
-              🛈
+              i
             </button>
             }
           </span>

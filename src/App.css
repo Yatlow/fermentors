@@ -523,33 +523,39 @@ body {
    ========================================================= */
 
 .tankInfo {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-left: 8px;
 
   display: inline-flex;
   align-items: center;
   justify-content: center;
 
-  padding: 0;
-  margin-right: 4px;
-
-  border: none;
+  border: 2px solid currentColor;
   border-radius: 50%;
 
-  background: rgba(255, 255, 255, 0.75);
+  background: transparent;
+  color: inherit;
 
-  color: #475569;
-
-  font-size: 1.25rem;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
   line-height: 1;
 
   cursor: pointer;
+  vertical-align: middle;
 
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.tankInfo:hover {
+  opacity: 0.75;
+}
+
+.tankInfo:active {
+  transform: scale(0.92);
 }
 
 .tankInfo:hover {
