@@ -1,49 +1,55 @@
 // ============================================================
-// DAILY BREW SYNC SERVICE
+// DAILY HISTORICAL DATA SERVICE
 // ============================================================
 //
 // PURPOSE:
 //
-// Synchronize all brew Google Sheets with Firestore.
+// Synchronize existing brews from Firestore with their
+// original Google Sheets.
 //
-// This service updates:
+// IMPORTANT:
 //
-//   brews/{batchNumber}
+// This service DOES NOT scan Google Drive.
 //
-// and:
+// Instead:
 //
-//   brews/{batchNumber}/measurements/{measurementId}
+//   Firestore
+//      ↓
+//   brews collection
+//      ↓
+//   sheetUrl
+//      ↓
+//   extractBrew()
+//      ↓
+//   update brews/{batchNumber}
+//      ↓
+//   update historical measurements
 //
+//
+// FIRESTORE STRUCTURE:
+//
+// brews/{batchNumber}
+//
+// brews/{batchNumber}/measurements/{measurementId}
 //
 //
 // IMPORTANT:
 //
-// This service DOES NOT update fermentors.
+// This service DOES NOT update:
 //
-// Fermentor state is controlled separately by
-// BREW ACTION SERVICE / FERMENTOR ACTION SERVICE.
+//   fermentors/*
 //
+// Fermentor state is controlled separately by:
 //
-//
-// FLOW:
-//
-// dailyBrewSyncService()
-//        |
-//        v
-// collect all Google Sheets recursively
-//        |
-//        v
-// syncBrewToFirebase(sheetUrl)
-//        |
-//        +----> update brews/{batchNumber}
-//        |
-//        +----> update historical measurements
+//   BREW ACTION SERVICE
+//   FERMENTOR ACTION SERVICE
 //
 // ============================================================
 
 
+
 // ============================================================
-// DAILY BREW SYNC SERVICE
+// MAIN DAILY SERVICE
 // ============================================================
 
 function dailyBrewSyncService() {
@@ -54,31 +60,16 @@ function dailyBrewSyncService() {
 
 
   // ----------------------------------------------------------
-  // ROOT FOLDER
+  // GET EXISTING BREWS FROM FIRESTORE
   // ----------------------------------------------------------
 
-  const rootFolder =
-    DriveApp.getFolderById(
-      BREW_FOLDER_ID
-    );
-
-
-  // ----------------------------------------------------------
-  // COLLECT ALL GOOGLE SHEETS
-  // ----------------------------------------------------------
-
-  const files = [];
-
-
-  collectGoogleSheetsRecursive(
-    rootFolder,
-    files
-  );
+  const brews =
+    getAllBrewsFromFirebase();
 
 
   Logger.log(
-    "Google Sheets found: " +
-    files.length
+    "Brews found in Firestore: " +
+    brews.length
   );
 
 
@@ -89,29 +80,59 @@ function dailyBrewSyncService() {
 
 
   // ----------------------------------------------------------
-  // PROCESS EACH SHEET
+  // PROCESS EACH BREW
   // ----------------------------------------------------------
 
-  files.forEach(
-    function(file) {
+  brews.forEach(
+    function(brew) {
 
       processed++;
 
 
-      const fileName =
-        file.getName();
-
-      const sheetUrl =
-        file.getUrl();
+      const batchNumber =
+        String(
+          brew.batchNumber ||
+          brew.uid ||
+          ""
+        ).trim();
 
 
       Logger.log("----------------------------------------");
 
       Logger.log(
-        "Processing: " +
-        fileName
+        "Processing brew: " +
+        batchNumber
       );
 
+
+      // ------------------------------------------------------
+      // VALIDATE SHEET URL
+      // ------------------------------------------------------
+
+      const sheetUrl =
+        String(
+          brew.sheetUrl ||
+          ""
+        ).trim();
+
+
+      if (!sheetUrl) {
+
+        Logger.log(
+          "SKIPPED brew " +
+          batchNumber +
+          " - no sheetUrl."
+        );
+
+        skipped++;
+
+        return;
+      }
+
+
+      // ------------------------------------------------------
+      // SYNC
+      // ------------------------------------------------------
 
       try {
 
@@ -128,9 +149,19 @@ function dailyBrewSyncService() {
 
           synced++;
 
+          Logger.log(
+            "SYNCED brew " +
+            batchNumber
+          );
+
         } else {
 
           skipped++;
+
+          Logger.log(
+            "UNCHANGED brew " +
+            batchNumber
+          );
         }
 
 
@@ -142,8 +173,8 @@ function dailyBrewSyncService() {
 
 
         Logger.log(
-          "FAILED: " +
-          fileName
+          "FAILED brew " +
+          batchNumber
         );
 
         Logger.log(
@@ -169,7 +200,7 @@ function dailyBrewSyncService() {
   );
 
   Logger.log(
-    "Files processed: " +
+    "Brews processed: " +
     processed
   );
 
@@ -194,30 +225,200 @@ function dailyBrewSyncService() {
 
 
 // ============================================================
-// SYNC BREW TO FIREBASE
+// GET ALL BREWS FROM FIRESTORE
 // ============================================================
 //
-// PURPOSE:
+// Reads:
 //
-// Read one Google Sheet and synchronize:
+//   brews/*
+//
+// Does NOT scan Google Drive.
+//
+// Only returns documents that contain a valid sheetUrl.
+//
+// ============================================================
+
+function getAllBrewsFromFirebase() {
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/brews";
+
+
+  const response =
+    UrlFetchApp.fetch(
+      url,
+      {
+
+        method: "get",
+
+        headers: {
+
+          Authorization:
+            "Bearer " +
+            ScriptApp.getOAuthToken()
+        },
+
+        muteHttpExceptions: true
+      }
+    );
+
+
+  const code =
+    response.getResponseCode();
+
+
+  if (
+    code < 200 ||
+    code >= 300
+  ) {
+
+    throw new Error(
+      "Failed to get brews: " +
+      code +
+      " " +
+      response.getContentText()
+    );
+  }
+
+
+  const data =
+    JSON.parse(
+      response.getContentText()
+    );
+
+
+  const documents =
+    data.documents || [];
+
+
+  const result = [];
+
+
+  documents.forEach(
+    function(document) {
+
+      const fields =
+        document.fields || {};
+
+
+      const brew = {};
+
+
+      // ------------------------------------------------------
+      // CONVERT FIRESTORE VALUES
+      // ------------------------------------------------------
+
+      for (
+        const key in fields
+      ) {
+
+        brew[key] =
+          normalizeFirestoreValue(
+            fields[key]
+          );
+      }
+
+
+      // ------------------------------------------------------
+      // FALLBACK UID FROM DOCUMENT NAME
+      // ------------------------------------------------------
+
+      if (!brew.uid) {
+
+        const parts =
+          String(
+            document.name || ""
+          ).split("/");
+
+
+        brew.uid =
+          parts[
+            parts.length - 1
+          ] || null;
+      }
+
+
+      // ------------------------------------------------------
+      // ONLY REAL BREWS
+      // ------------------------------------------------------
+      //
+      // We require a sheetUrl.
+      //
+      // This prevents documents such as:
+      //
+      //   טמפ
+      //   תאריך
+      //   סטטוס טמפרטורה
+      //
+      // from entering the sync process.
+      //
+      // ------------------------------------------------------
+
+      const sheetUrl =
+        String(
+          brew.sheetUrl ||
+          ""
+        ).trim();
+
+
+      if (!sheetUrl) {
+
+        return;
+      }
+
+
+      // ------------------------------------------------------
+      // OPTIONAL BATCH VALIDATION
+      // ------------------------------------------------------
+
+      const batchNumber =
+        String(
+          brew.batchNumber ||
+          brew.uid ||
+          ""
+        ).trim();
+
+
+      if (!batchNumber) {
+
+        return;
+      }
+
+
+      brew.batchNumber =
+        batchNumber;
+
+
+      result.push(
+        brew
+      );
+    }
+  );
+
+
+  return result;
+}
+
+
+
+// ============================================================
+// SYNC ONE BREW
+// ============================================================
+//
+// Reads the Google Sheet.
+//
+// Updates:
 //
 //   brews/{batchNumber}
 //
-// and:
+// Then ALWAYS checks:
 //
-//   brews/{batchNumber}/measurements/*
+//   historical measurements
 //
-//
-//
-// IMPORTANT:
-//
-// This function DOES NOT update:
-//
-//   fermentors/*
-//
-//
-//
-// That is intentional.
+// This is important because measurements can change while
+// the main brew information stays exactly the same.
 //
 // ============================================================
 
@@ -234,7 +435,7 @@ function syncBrewToFirebase(
 
 
   Logger.log(
-    "Syncing brew: " +
+    "Syncing sheet: " +
     sheetUrl
   );
 
@@ -261,7 +462,13 @@ function syncBrewToFirebase(
   // VALIDATE BATCH
   // ==========================================================
 
-  if (!brew.batchNumber) {
+  if (
+    brew.batchNumber === null ||
+    brew.batchNumber === undefined ||
+    String(
+      brew.batchNumber
+    ).trim() === ""
+  ) {
 
     throw new Error(
       "No batch number found in sheet."
@@ -275,14 +482,6 @@ function syncBrewToFirebase(
     ).trim();
 
 
-  if (!documentId) {
-
-    throw new Error(
-      "Invalid batch number."
-    );
-  }
-
-
   // ==========================================================
   // UID
   // ==========================================================
@@ -292,7 +491,7 @@ function syncBrewToFirebase(
 
 
   // ==========================================================
-  // FIRESTORE URL
+  // FIRESTORE BREW URL
   // ==========================================================
 
   const url =
@@ -302,25 +501,6 @@ function syncBrewToFirebase(
     encodeURIComponent(
       documentId
     );
-
-
-  // ==========================================================
-  // PREPARE COMPARISON OBJECT
-  // ==========================================================
-//
-// We don't compare uid because uid is derived from
-// batchNumber and is not meaningful for change detection.
-//
-
-  const brewForComparison =
-    JSON.parse(
-      JSON.stringify(
-        brew
-      )
-    );
-
-
-  delete brewForComparison.uid;
 
 
   // ==========================================================
@@ -358,8 +538,25 @@ function syncBrewToFirebase(
 
 
   // ==========================================================
-  // CHECK IF BREW CHANGED
+  // PREPARE COMPARISON
   // ==========================================================
+  //
+  // uid is derived from batchNumber.
+  //
+  // Therefore it should not cause a change.
+  //
+  // ==========================================================
+
+  const brewForComparison =
+    JSON.parse(
+      JSON.stringify(
+        brew
+      )
+    );
+
+
+  delete brewForComparison.uid;
+
 
   let brewChanged =
     true;
@@ -389,7 +586,7 @@ function syncBrewToFirebase(
 
 
   // ==========================================================
-  // UPDATE BREW DOCUMENT
+  // UPDATE MAIN BREW DOCUMENT
   // ==========================================================
 
   if (
@@ -410,8 +607,7 @@ function syncBrewToFirebase(
         url,
         {
 
-          method:
-            "patch",
+          method: "patch",
 
           contentType:
             "application/json",
@@ -428,8 +624,7 @@ function syncBrewToFirebase(
               firestoreDocument
             ),
 
-          muteHttpExceptions:
-            true
+          muteHttpExceptions: true
         }
       );
 
@@ -469,28 +664,21 @@ function syncBrewToFirebase(
   // ==========================================================
   // HISTORICAL MEASUREMENTS
   // ==========================================================
-//
-// IMPORTANT:
-//
-// Even if the main brew document didn't change,
-// we ALWAYS check measurements.
-//
-// This is critical.
-//
-// Example:
-//
-// Yesterday:
-//
-//   measurements:
-//      15/08 10:00
-//
-// Today the brewer added:
-//
-//      16/08 10:00
-//
-// The brew document itself may be unchanged,
-// but the new measurement must still be uploaded.
-//
+  //
+  // IMPORTANT:
+  //
+  // We ALWAYS execute this.
+  //
+  // Even if the main brew document did not change,
+  // the Google Sheet may contain new measurements.
+  //
+  // ==========================================================
+
+  Logger.log(
+    "Checking historical measurements for brew " +
+    documentId
+  );
+
 
   uploadHistoricalMeasurements(
     FIREBASE_PROJECT_ID,
@@ -500,7 +688,7 @@ function syncBrewToFirebase(
 
 
   // ==========================================================
-  // FINISHED
+  // RESULT
   // ==========================================================
 
   Logger.log(
@@ -522,17 +710,17 @@ function syncBrewToFirebase(
 
 
 // ============================================================
-// TEST SINGLE BREW SYNC
+// TEST ONE BREW
 // ============================================================
 //
-// Use this to test ONE sheet before creating the trigger.
+// Use this first before running the full daily service.
 //
 // ============================================================
 
 function testSyncBrewToFirebase() {
 
   const sheetUrl =
-    "https://docs.google.com/spreadsheets/d/140dqVSyz4UCVFFgxVTVGgQoBlZYGqYF9jaybWr6lulk/edit?usp=drive_link";
+    "https://docs.google.com/spreadsheets/d/1rUF3AsqGkJng9Z_0OoyJUVpPPtXcDHF3r7W49kOy30A/edit";
 
 
   const result =
@@ -542,9 +730,12 @@ function testSyncBrewToFirebase() {
 
 
   Logger.log(
-    "TEST RESULT:"
+    "========================================"
   );
 
+  Logger.log(
+    "TEST RESULT"
+  );
 
   Logger.log(
     JSON.stringify(
@@ -554,6 +745,10 @@ function testSyncBrewToFirebase() {
     )
   );
 
+  Logger.log(
+    "========================================"
+  );
+
 
   return result;
 }
@@ -561,11 +756,7 @@ function testSyncBrewToFirebase() {
 
 
 // ============================================================
-// TEST DAILY BREW SYNC
-// ============================================================
-//
-// Runs the complete daily synchronization manually.
-//
+// TEST DAILY SERVICE
 // ============================================================
 
 function testDailyBrewSyncService() {
@@ -580,13 +771,10 @@ function testDailyBrewSyncService() {
 // CREATE DAILY TRIGGER
 // ============================================================
 //
-// Creates ONE trigger that runs once per day.
+// Run this function ONCE manually.
 //
-// IMPORTANT:
-//
-// Run this function manually ONCE.
-//
-// Do not run it every day.
+// It deletes existing triggers for the same service and
+// creates one daily trigger.
 //
 // ============================================================
 
@@ -597,7 +785,7 @@ function createDailyBrewSyncTrigger() {
 
 
   // ----------------------------------------------------------
-  // REMOVE EXISTING TRIGGERS FOR THIS FUNCTION
+  // DELETE EXISTING TRIGGERS
   // ----------------------------------------------------------
 
   const triggers =
@@ -621,12 +809,13 @@ function createDailyBrewSyncTrigger() {
 
 
   // ----------------------------------------------------------
-  // CREATE DAILY TRIGGER
+  // CREATE NEW DAILY TRIGGER
   // ----------------------------------------------------------
 
-  ScriptApp.newTrigger(
-    functionName
-  )
+  ScriptApp
+    .newTrigger(
+      functionName
+    )
     .timeBased()
     .everyDays(1)
     .atHour(3)

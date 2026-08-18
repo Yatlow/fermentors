@@ -55,6 +55,7 @@ function extractBrew(spreadSheetId) {
       date: null,
       temp: null,
       plato: null,
+      pressure:null,
       carbonation: null,
       pH: null,
       notes: ""
@@ -251,9 +252,9 @@ function extractBrew(spreadSheetId) {
 
     const volumeText =
       values[
-        volumeLocation.row
+      volumeLocation.row
       ][
-        volumeLocation.col + 1
+      volumeLocation.col + 1
       ];
 
     brew.beerVolume =
@@ -279,9 +280,9 @@ function extractBrew(spreadSheetId) {
 
     const statusVal =
       values[
-        statusLocation.row
+      statusLocation.row
       ][
-        statusLocation.col + 1
+      statusLocation.col + 1
       ];
 
     brew.tankStatus =
@@ -307,9 +308,9 @@ function extractBrew(spreadSheetId) {
 
     const startingPlatoValue =
       values[
-        startingPlatoLocation.row
+      startingPlatoLocation.row
       ][
-        startingPlatoLocation.col + 1
+      startingPlatoLocation.col + 1
       ];
 
     const startingPlatoText =
@@ -603,6 +604,7 @@ function findLatestAvailableMeasurements(
     date: null,
     temp: null,
     plato: null,
+    pressure: null,
     carbonation: null,
     pH: null,
     notes: null
@@ -612,6 +614,7 @@ function findLatestAvailableMeasurements(
 
     temp: null,
     plato: null,
+    pressure: null,
     carbonation: null,
     pH: null,
     notes: null
@@ -709,6 +712,37 @@ function findLatestAvailableMeasurements(
           plato;
 
         latest.plato = {
+          date: date,
+          dateText: dateText
+        };
+      }
+    }
+
+    // --------------------------------------------------------
+    // PRESSURE
+    // --------------------------------------------------------
+
+    if (
+      values[r][4]
+    ) {
+
+      const pressure =
+        extractNumber(
+          values[r][4]
+        );
+
+      if (
+        pressure !== null &&
+        (
+          !latest.pressure ||
+          date > latest.pressure.date
+        )
+      ) {
+
+        result.pressure =
+          pressure;
+
+        latest.pressure = {
           date: date,
           dateText: dateText
         };
@@ -1216,9 +1250,9 @@ function objectsEqual(
   return JSON.stringify(
     normalizeForComparison(a)
   ) ===
-  JSON.stringify(
-    normalizeForComparison(b)
-  );
+    JSON.stringify(
+      normalizeForComparison(b)
+    );
 }
 
 
@@ -1412,6 +1446,7 @@ function uploadHistoricalMeasurements(
     if (
       !values[r][2] &&
       !values[r][3] &&
+      !values[r][4] &&
       !values[r][5] &&
       !values[r][6] &&
       !values[r][7]
@@ -1438,7 +1473,10 @@ function uploadHistoricalMeasurements(
         extractNumber(
           values[r][2]
         ),
-
+      pressure:
+        extractNumber(
+          values[r][4]
+        ),
       carbonation:
         extractNumber(
           values[r][6]
@@ -1738,10 +1776,10 @@ function uploadFermentorToFirebase(
   let existingComparable =
     existingData
       ? JSON.parse(
-          JSON.stringify(
-            existingData
-          )
+        JSON.stringify(
+          existingData
         )
+      )
       : null;
 
 
@@ -2465,7 +2503,7 @@ function findNextBrewForTank(
       }
 
     } catch (
-      error
+    error
     ) {
 
       Logger.log(
