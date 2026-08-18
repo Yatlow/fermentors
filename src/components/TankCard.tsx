@@ -1,17 +1,20 @@
 import {
   useEffect,
   useState,
+  useRef,
   type ChangeEvent,
 } from "react";
 
-import { getTankStage } from "../tankstage";
-import { updateTankStatus } from "../updateTank";
+import { getTankStage } from "../SERVICES/tankstage";
+import { updateTankStatus } from "../SERVICES/updateTank";
+import { isCarbonationOutOfRange, isPressureOutOfRange } from "../SERVICES/calculateCelleringRecomendations"
 
 import type {
   Fermentor,
   FirestoreTimestamp,
 } from "../App";
 
+import FermentorInfoBox from "./FermentorInfoBox";
 // ============================================================
 // PROPS
 // ============================================================
@@ -24,6 +27,8 @@ type TankCardProps = {
     newDate: string
   ) => Promise<void>;
 };
+
+
 
 
 // ============================================================
@@ -42,6 +47,82 @@ type TankState = {
 // ============================================================
 // COMPONENT
 // ============================================================
+export function getBrewAge(
+  brewDate:
+    | string
+    | null
+    | undefined
+): number | null {
+
+  if (!brewDate) {
+    return null;
+  }
+
+  const parts =
+    String(
+      brewDate
+    ).split("/");
+
+  if (
+    parts.length !== 3
+  ) {
+    return null;
+  }
+
+  const day =
+    Number(parts[0]);
+
+  const month =
+    Number(parts[1]) - 1;
+
+  let year =
+    Number(parts[2]);
+
+  if (year < 100) {
+    year += 2000;
+  }
+
+  const brew =
+    new Date(
+      year,
+      month,
+      day
+    );
+
+  if (
+    Number.isNaN(
+      brew.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  const today =
+    new Date();
+
+  brew.setHours(
+    0,
+    0,
+    0,
+    0
+  );
+
+  today.setHours(
+    0,
+    0,
+    0,
+    0
+  );
+
+  const diff =
+    today.getTime() -
+    brew.getTime();
+
+  return Math.floor(
+    diff /
+    (1000 * 60 * 60 * 24)
+  );
+}
 
 export default function TankCard({
   tank,
@@ -266,7 +347,7 @@ export default function TankCard({
   // ==========================================================
   // LOCAL STATE
   // ==========================================================
-
+  const [showInfo, setShowInfo] = useState(false);
   const [state, setState] =
     useState<TankState>({
       action:
@@ -280,6 +361,12 @@ export default function TankCard({
       editPasivationDate:
         false,
     });
+  const infoButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const [infoPosition, setInfoPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
 
   // ==========================================================
@@ -362,6 +449,81 @@ export default function TankCard({
   // 5 = מחוטא
   // ==========================================================
 
+
+  const handleOpenInfo = (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+
+    event.stopPropagation();
+
+    const rect =
+      event.currentTarget.getBoundingClientRect();
+
+    const popupWidth = 330;
+    const gap = 10;
+    const margin = 12;
+
+    let left =
+      rect.left - popupWidth - gap;
+
+    // אין מקום משמאל → עבור לימין
+    if (left < margin) {
+
+      left =
+        rect.right + gap;
+    }
+
+    // עדיין אין מקום מימין → הצמד לצד המסך
+    if (
+      left + popupWidth >
+      window.innerWidth - margin
+    ) {
+
+      left =
+        window.innerWidth -
+        popupWidth -
+        margin;
+    }
+
+    /*
+     * נתחיל בגובה של כפתור ה-info.
+     * כלומר החלון יהיה ממש ליד המיכל.
+     */
+    let top =
+      rect.top - 10;
+
+    /*
+     * הגנה מלמטה.
+     * אנחנו לא מניחים גובה קבוע מדויק,
+     * אלא משתמשים בגובה משוער.
+     */
+    const estimatedHeight = 420;
+
+    if (
+      top + estimatedHeight >
+      window.innerHeight - margin
+    ) {
+
+      top =
+        window.innerHeight -
+        estimatedHeight -
+        margin;
+    }
+
+    /*
+     * הגנה מלמעלה.
+     */
+    if (top < margin) {
+      top = margin;
+    }
+
+    setInfoPosition({
+      top,
+      left,
+    });
+
+    setShowInfo(true);
+  };
   async function handleStageChange(
     event: ChangeEvent<HTMLSelectElement>
   ): Promise<void> {
@@ -399,11 +561,7 @@ export default function TankCard({
         null
       );
 
-      console.log(
-        "Tank status updated:",
-        fermentorID,
-        newAction
-      );
+
 
     } catch (error) {
 
@@ -476,11 +634,7 @@ export default function TankCard({
       }
 
 
-      console.log(
-        "Pasivation date updated:",
-        fermentorID,
-        newPasivationDate
-      );
+
 
     } catch (error) {
 
@@ -493,88 +647,6 @@ export default function TankCard({
         previousState
       );
     }
-  }
-
-
-  // ==========================================================
-  // BREW AGE
-  // ==========================================================
-
-  function getBrewAge(
-    brewDate:
-      | string
-      | null
-      | undefined
-  ): number | null {
-
-    if (!brewDate) {
-      return null;
-    }
-
-    const parts =
-      String(
-        brewDate
-      ).split("/");
-
-    if (
-      parts.length !== 3
-    ) {
-      return null;
-    }
-
-    const day =
-      Number(parts[0]);
-
-    const month =
-      Number(parts[1]) - 1;
-
-    let year =
-      Number(parts[2]);
-
-    if (year < 100) {
-      year += 2000;
-    }
-
-    const brew =
-      new Date(
-        year,
-        month,
-        day
-      );
-
-    if (
-      Number.isNaN(
-        brew.getTime()
-      )
-    ) {
-      return null;
-    }
-
-    const today =
-      new Date();
-
-    brew.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    today.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    const diff =
-      today.getTime() -
-      brew.getTime();
-
-    return Math.floor(
-      diff /
-      (1000 * 60 * 60 * 24)
-    );
   }
 
 
@@ -924,7 +996,7 @@ export default function TankCard({
       } else {
 
         pasivationText =
-          `${overdueDays} ימים עברו ממועד ה ${tank.tankNumber === "1" ? "CIP" : "חומצה ניטרית"}`;
+          `${overdueDays} ימים עברו ממועד ה${tank.tankNumber === "1" ? "CIP" : "חומצה ניטרית"}`;
       }
     }
   }
@@ -947,394 +1019,445 @@ export default function TankCard({
       stageInfo.name === "מחוטא"
     );
 
+  const pressureIsOk = isPressureOutOfRange(
+    tank?.currentData?.pressure,
+    tank?.beerStyle ?? null
+  );
 
+  const CarbIsOk = isCarbonationOutOfRange(
+    tank?.currentData?.carbonation,
+    tank?.beerStyle ?? ""
+  );
   // ==========================================================
   // RENDER
   // ==========================================================
   return (
-
-    <div
-      className={`tank-card ${isCLT
+    <>
+      {(showInfo && Number(tank.tankNumber) !== 1) && (
+        <FermentorInfoBox
+          tank={tank}
+          onClose={() => {
+            setShowInfo(false);
+            setInfoPosition(null);
+          }}
+          position={infoPosition}
+        />
+      )}
+      <div
+        className={`tank-card ${isCLT
           ? "clt"
           : stageInfo.className
-        }`}
-      onClick={() => {
-        if (tank.sheetUrl) {
-          const url = String(tank.sheetUrl);
+          }`}
+        onClick={() => {
+          if (tank.sheetUrl) {
+            const url = String(tank.sheetUrl);
 
-          const isMobile =
-            /Android|iPhone|iPad|iPod/i.test(
-              navigator.userAgent
-            );
+            const isMobile =
+              /Android|iPhone|iPad|iPod/i.test(
+                navigator.userAgent
+              );
 
-          if (isMobile) {
-            window.location.href = url;
-          } else {
-            window.open(url, "_blank");
+            if (isMobile) {
+              window.location.href = url;
+            } else {
+              window.open(url, "_blank");
+            }
           }
-        }
-      }}
+        }}
 
-    >
+      >
 
-      {/* ==================================================== */}
-      {/* HEADER */}
-      {/* ==================================================== */}
+        {/* ==================================================== */}
+        {/* HEADER */}
+        {/* ==================================================== */}
 
-      <div className="tank-header">
+        <div className="tank-header">
 
-        <span className="tank-number">
-          מיכל
-          {tank.id === "1" ? " 1- CLT" : `  ${tank.tankNumber}-`}
+          <span className="tank-number">
+            מיכל
+            {tank.id === "1" ? " 1- CLT" : `  ${tank.tankNumber}-`}
+
+            {" "}
+
+            {Number(tank.tankNumber) === 1
+              ? ""
+              : Number(tank.tankNumber) < 5
+                ? "בודד"
+                : Number(tank.tankNumber) < 9
+                  ? "כפול"
+                  : "משולש"}
+
+          </span>
+
+          <span>
+            {Number(tank.tankNumber) > 1 && <span className="stage-info-name">
+
+              {stageInfo.icon}
+              {"  "}
+              {stageInfo.name}
+
+            </span>}
+            {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && <button
+              ref={infoButtonRef}
+              type="button"
+              className="tankInfo"
+              aria-label="הצגת המלצות סלרינג"
+              onClick={handleOpenInfo}
+            >
+              🛈
+            </button>
+            }
+          </span>
+        </div>
+
+
+
+        {/* ==================================================== */}
+        {/* BATCH */}
+        {/* ==================================================== */}
+
+        {Number(tank.tankNumber) > 1 && <div className="batch-number">
+
+          #
+          {tank.batchNumber ??
+            "—"}
 
           {" "}
 
-          {Number(tank.tankNumber) === 1
-            ? ""
-            : Number(tank.tankNumber) < 5
-              ? "בודד"
-              : Number(tank.tankNumber) < 9
-                ? "כפול"
-                : "משולש"}
+          {tank.beerStyle ??
+            ""}
 
-        </span>
+        </div>}
 
 
-        {Number(tank.tankNumber) > 1 && <span className="stage-info-name">
+        {/* ==================================================== */}
+        {/* BREW DATE */}
+        {/* ==================================================== */}
 
-          {stageInfo.icon}
-
-          {stageInfo.name}
-
-        </span>}
-
-      </div>
-
-
-      {/* ==================================================== */}
-      {/* BATCH */}
-      {/* ==================================================== */}
-
-      {Number(tank.tankNumber) > 1 && <div className="batch-number">
-
-        #
-        {tank.batchNumber ??
-          "—"}
-
-        {" "}
-
-        {tank.beerStyle ??
-          ""}
-
-      </div>}
-
-
-      {/* ==================================================== */}
-      {/* BREW DATE */}
-      {/* ==================================================== */}
-
-      {Number(tank.tankNumber) > 1 && stageInfo.name !==
-        "בישול חדש" && (
-
-          <div>
-
-            בישול:{" "}
-
-            {tank.brewDate ??
-              "—"}
-
-            {brewAge !== null
-              ? ` - ${brewAge} ימים`
-              : ""}
-
-          </div>
-
-        )}
-
-
-      {/* ==================================================== */}
-      {/* DATA */}
-      {/* ==================================================== */}
-
-      {Number(tank.tankNumber) > 1 && stageInfo.name !==
-        "בישול חדש" && (
-
-          <div className="tank-data">
+        {Number(tank.tankNumber) > 1 && stageInfo.name !==
+          "בישול חדש" && (
 
             <div>
 
-              <span>
-                טמפ':
-              </span>{" "}
+              בישול:{" "}
 
-              {
-                tank.currentData
-                  ?.temp ?? "—"
-              }
+              {tank.brewDate ??
+                "—"}
 
-              °C
+              {brewAge !== null
+                ? ` - ${brewAge} ימים`
+                : ""}
 
             </div>
 
-
-            <div>
-
-              <span>
-                סוכר:
-              </span>{" "}
-
-              {
-                tank.currentData
-                  ?.plato ?? "—"
-              }
-
-              °P
-
-            </div>
+          )}
 
 
-            <div>
+        {/* ==================================================== */}
+        {/* DATA */}
+        {/* ==================================================== */}
 
-              <span>
-                pH:
-              </span>{" "}
+        {Number(tank.tankNumber) > 1 && stageInfo.name !==
+          "בישול חדש" && (
 
-              {
-                tank.currentData
-                  ?.pH ?? "—"
-              }
+            <div className="tank-data">
 
-            </div>
+              <div>
 
+                <span>
+                  טמפ':
+                </span>{" "}
 
-            <div>
+                {
+                  tank.currentData
+                    ?.temp ?? "—"
+                }
 
-              <span>
-                נפח:
-              </span>{" "}
+                °C
 
-              {
-                tank.beerVolume ??
-                "—"
-              }
-
-              {" "}ל'
-
-            </div>
+              </div>
 
 
-            {stageInfo.name ===
-              "קר" && (
+              <div>
 
-                <div>
+                <span>
+                  סוכר:
+                </span>{" "}
 
-                  <span>
-                    גיזוז:
-                  </span>{" "}
+                {
+                  tank.currentData
+                    ?.plato ?? "—"
+                }
 
-                  {
-                    tank.currentData
-                      ?.carbonation ??
+                °P
+
+              </div>
+
+
+              <div>
+
+                <span>
+                  pH:
+                </span>{" "}
+
+                {
+                  tank.currentData
+                    ?.pH ?? "—"
+                }
+
+              </div>
+
+
+              <div>
+
+                <span>
+                  נפח:
+                </span>{" "}
+
+                {
+                  tank.beerVolume ??
+                  "—"
+                }
+
+                {" "}ל'
+
+              </div>
+
+
+              {stageInfo.name ===
+                "קר" && (
+
+                  <div>
+
+                    <span>
+                      גיזוז:
+                    </span>{" "}
+
+                    <span className={`carbPressureDisplay-${CarbIsOk.importance}`}>
+                      {
+                        tank.currentData
+                          ?.carbonation ??
+                        "—"
+                      }
+                    </span>
+
+                  </div>
+
+                )}
+              <div>
+                <span>
+                  לחץ:
+                </span>{" "}
+
+                {
+                  stageInfo.name === "בתסיסה" && tank?.currentData?.pressure ? (<span className={`carbPressureDisplay-${pressureIsOk.howBad}`}>{tank.currentData?.pressure ??
+                    "—"}</span>) :
+                    tank.currentData?.pressure ??
                     "—"
-                  }
+                }
 
-                </div>
+                {" "}bar
 
-              )}
-
-          </div>
-
-        )}
+              </div>
+            </div>
 
 
-      {/* ==================================================== */}
-      {/* STATUS SELECT */}
-      {/* ONLY EMPTY / CLEAN / SANITIZED */}
-      {/* ==================================================== */}
-
-      {Number(tank.tankNumber) > 1 && showEmptyTankSelect && (
-
-        <div
-          className="tank-stage-control"
-
-          onClick={(event) =>
-            event.stopPropagation()
-          }
-        >
-
-          <label>
-            סטטוס:
-          </label>
+          )}
 
 
-          <select
-            className={`stage-select ${stageInfo.className}`}
+        {/* ==================================================== */}
+        {/* STATUS SELECT */}
+        {/* ONLY EMPTY / CLEAN / SANITIZED */}
+        {/* ==================================================== */}
 
-            value={String(
-              state.action
-            )}
+        {Number(tank.tankNumber) > 1 && showEmptyTankSelect && (
 
-            onChange={
-              handleStageChange
-            }
-          >
-
-            <option disabled value="3">
-              ⚪ מלוכלך
-            </option>
-
-            <option value="4">
-              🟢 נקי
-            </option>
-
-            <option value="5">
-              🟡 מחוטא
-            </option>
-
-          </select>
-
-        </div>
-
-      )}
-
-
-      {/* ==================================================== */}
-      {/* PASIVATION DATE */}
-      {/* ==================================================== */}
-
-      <div className="pasivation-date-row">
-
-        <span className="pasivation-date-label">
-          {Number(tank.tankNumber) > 1 ? `תאריך חומצה ניטרית:` : "תאריך CIP + ניטרית"}
-        </span>
-
-
-        {/* EMPTY / CLEAN / SANITIZED */}
-
-        {showEmptyTankSelect && (
-
-          <input
-            type="date"
-
-            className="tank-status-input"
-
-            value={
-              state.pasivationDate
-            }
-
-            onChange={
-              handlePasivationDateChange
-            }
+          <div
+            className="tank-stage-control"
 
             onClick={(event) =>
               event.stopPropagation()
             }
-          />
+          >
+
+            <label>
+              סטטוס:
+            </label>
+
+
+            <select
+              className={`stage-select ${stageInfo.className}`}
+
+              value={String(
+                state.action
+              )}
+
+              onChange={
+                handleStageChange
+              }
+            >
+
+              <option value="3">
+                ⚪ מלוכלך
+              </option>
+
+              <option value="4">
+                🟢 נקי
+              </option>
+
+              <option value="5">
+                🟡 מחוטא
+              </option>
+
+            </select>
+
+          </div>
 
         )}
 
 
-        {/* FULL TANK */}
+        {/* ==================================================== */}
+        {/* PASIVATION DATE */}
+        {/* ==================================================== */}
 
-        {!showEmptyTankSelect && (
+        <div className="pasivation-date-row">
 
-          <>
-
-            {!state.editPasivationDate ? (
-
-              <div className="pasivation-display">
-
-                <span className="pasivation-date-value">
-
-                  {state.pasivationDate ||
-                    "אין תאריך"}
-
-                </span>
+          <span className="pasivation-date-label">
+            {Number(tank.tankNumber) > 1 ? `תאריך חומצה ניטרית:` : "תאריך CIP + ניטרית"}
+          </span>
 
 
-                <button
-                  type="button"
+          {/* EMPTY / CLEAN / SANITIZED */}
 
-                  className="pasivation-edit-button"
+          {showEmptyTankSelect && (
 
-                  title="עריכת תאריך"
+            <input
+              type="date"
 
-                  onClick={(event) => {
+              className="tank-status-input"
 
-                    event.stopPropagation();
+              value={
+                state.pasivationDate
+              }
+
+              onChange={
+                handlePasivationDateChange
+              }
+
+              onClick={(event) =>
+                event.stopPropagation()
+              }
+            />
+
+          )}
+
+
+          {/* FULL TANK */}
+
+          {!showEmptyTankSelect && (
+
+            <>
+
+              {!state.editPasivationDate ? (
+
+                <div className="pasivation-display">
+
+                  <span className="pasivation-date-value">
+
+                    {state.pasivationDate
+                      ? state.pasivationDate
+                        .split("-")
+                        .reverse()
+                        .join("/")
+                      : "אין תאריך"}
+
+                  </span>
+
+
+                  <button
+                    type="button"
+
+                    className="pasivation-edit-button"
+
+                    title="עריכת תאריך"
+
+                    onClick={(event) => {
+
+                      event.stopPropagation();
+
+                      setState(
+                        (prev) => ({
+                          ...prev,
+
+                          editPasivationDate:
+                            true,
+                        })
+                      );
+
+                    }}
+                  >
+
+                    ✎
+
+                  </button>
+
+                </div>
+
+              ) : (
+
+                <input
+                  type="date"
+
+                  className="tank-status-input"
+
+                  value={
+                    state.pasivationDate
+                  }
+
+                  onChange={
+                    handlePasivationDateChange
+                  }
+
+                  onClick={(event) =>
+                    event.stopPropagation()
+                  }
+
+                  onBlur={() => {
 
                     setState(
                       (prev) => ({
                         ...prev,
 
                         editPasivationDate:
-                          true,
+                          false,
                       })
                     );
 
                   }}
-                >
 
-                  ✎
+                  autoFocus
+                />
 
-                </button>
+              )}
 
-              </div>
+            </>
 
-            ) : (
+          )}
 
-              <input
-                type="date"
+        </div>
 
-                className="tank-status-input"
 
-                value={
-                  state.pasivationDate
-                }
+        {/* ==================================================== */}
+        {/* PASIVATION STATUS */}
+        {/* ==================================================== */}
 
-                onChange={
-                  handlePasivationDateChange
-                }
-
-                onClick={(event) =>
-                  event.stopPropagation()
-                }
-
-                onBlur={() => {
-
-                  setState(
-                    (prev) => ({
-                      ...prev,
-
-                      editPasivationDate:
-                        false,
-                    })
-                  );
-
-                }}
-
-                autoFocus
-              />
-
-            )}
-
-          </>
-
-        )}
+        <div
+          className={`pasivation-status ${pasivationClass}`}
+        >
+          {pasivationText}
+        </div>
 
       </div>
-
-
-      {/* ==================================================== */}
-      {/* PASIVATION STATUS */}
-      {/* ==================================================== */}
-
-      <div
-        className={`pasivation-status ${pasivationClass}`}
-      >
-        {pasivationText}
-      </div>
-
-    </div>
+    </>
   );
 }

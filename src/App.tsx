@@ -6,7 +6,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { getTankStage } from "./tankstage";
+import { getTankStage } from "./SERVICES/tankstage"
 import TankCard from "./components/TankCard";
 
 import "./App.css";
@@ -51,6 +51,7 @@ export type Fermentor = {
     temp?: string | number | null;
     plato?: string | number | null;
     pH?: string | number | null;
+    pressure?: string | number | null;
     carbonation?: string | number | null;
     volume?: string | number | null;
   } | null;
@@ -74,6 +75,8 @@ function App() {
   const [selectedStatuses, setSelectedStatuses] =
     useState<string[]>(["הכל"]);
 
+  const [selectedStyles, setSelectedStyles] =
+    useState<string[]>(["הכל"]);
   // ==========================================================
   // LOAD FERMENTORS
   // ==========================================================
@@ -150,6 +153,30 @@ function App() {
     }
   };
 
+  const handleStyleToggle = (style: string): void => {
+    if (style === "הכל") {
+      setSelectedStyles(["הכל"]);
+      return;
+    }
+
+    setSelectedStyles((prev) => {
+      let nextState = prev.includes("הכל")
+        ? []
+        : [...prev];
+
+      if (nextState.includes(style)) {
+        nextState = nextState.filter(
+          (s) => s !== style
+        );
+      } else {
+        nextState.push(style);
+      }
+
+      return nextState.length === 0
+        ? ["הכל"]
+        : nextState;
+    });
+  };
   // ==========================================================
   // STATUS COUNTS
   // ==========================================================
@@ -164,6 +191,7 @@ function App() {
          * The actual Firebase object is compatible at runtime.
          */
         if (Number(tank.tankNumber) === 1) {
+
           return;
         }
         const stageInfo =
@@ -262,44 +290,49 @@ function App() {
       const volume = Number(brew.beerVolume ?? 0);
 
       if (!style) return;
-
+      if (Number(brew.action) > 2) return;
       vols[style] = (vols[style] || 0) + volume;
     });
     return vols;
   }, [brews]);
 
-  const filteredBrews =
-    useMemo<Fermentor[]>(() => {
-      if (
-        selectedStatuses.includes(
-          "הכל"
-        )
-      ) {
-        return brews;
+  const filteredBrews = useMemo<Fermentor[]>(() => {
+
+    return brews.filter((tank) => {
+
+      if (Number(tank.tankNumber) === 1) {
+        return false;
       }
 
-      return brews.filter((tank) => {
-        if (Number(tank.tankNumber) === 1) {
-          return false;
-        }
-        const stageInfo =
-          getTankStage(
-            tank as Parameters<
-              typeof getTankStage
-            >[0]
-          );
+      // STATUS
+      const stageInfo = getTankStage(
+        tank as Parameters<typeof getTankStage>[0]
+      );
 
-        return (
+      const matchesStatus =
+        selectedStatuses.includes("הכל") ||
+        (
           stageInfo?.name !== undefined &&
-          selectedStatuses.includes(
-            stageInfo.name
-          )
+          selectedStatuses.includes(stageInfo.name)
         );
-      });
-    }, [
-      brews,
-      selectedStatuses,
-    ]);
+
+      // STYLE
+      const style = String(
+        tank.beerStyle ?? ""
+      ).trim();
+
+      const matchesStyle =
+        selectedStyles.includes("הכל") ||
+        selectedStyles.includes(style);
+
+      return matchesStatus && matchesStyle;
+    });
+
+  }, [
+    brews,
+    selectedStatuses,
+    selectedStyles,
+  ]);
 
   const totalTanks =
     brews.length;
@@ -448,15 +481,38 @@ function App() {
 
       </div>
       <div className="volumeCounter">
-        <span>סיכום נפחים במיכלים:</span>
+
+        <span>
+          סיכום נפחים במיכלים:
+        </span>
+
         {Object.entries(totalVolumes).map(
           ([style, volume]) => (
-            <div key={style}>
-              <span>{style}:</span> {volume} ל'
+            <div
+              key={style}
+              className={`volume-filter ${selectedStyles.includes(style)
+                  ? "active"
+                  : ""
+                }`}
+              onClick={() =>
+                handleStyleToggle(style)
+              }
+            >
+              <span>{style}:</span>{" "}
+              {volume} ל'
             </div>
           )
         )}
-        <div className="totalVolume">
+
+        <div
+          className={`totalVolume ${selectedStyles.includes("הכל")
+              ? "active"
+              : ""
+            }`}
+          onClick={() =>
+            handleStyleToggle("הכל")
+          }
+        >
           סה״כ:{" "}
           {Object.values(totalVolumes).reduce(
             (total, volume) => total + volume,
@@ -464,6 +520,7 @@ function App() {
           )}{" "}
           ל'
         </div>
+
       </div>
 
       {/* TANK GRID */}
