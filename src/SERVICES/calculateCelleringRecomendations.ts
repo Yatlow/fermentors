@@ -60,11 +60,11 @@ export function isCarbonationOutOfRange(
 }
 
 export function isPressureOutOfRange(
-    
-        pressure: string | number | null | undefined,
-        style:string|null
-    ): { onSpec: boolean, howBad: number } {
-        const pressureSpecs: Record<string, number> = {
+
+    pressure: string | number | null | undefined,
+    style: string | null
+): { onSpec: boolean, howBad: number } {
+    const pressureSpecs: Record<string, number> = {
         ipa: 1.6,
         פייל: 1.7,
         לאגר: 1.1,
@@ -74,37 +74,37 @@ export function isPressureOutOfRange(
         other: 1.5
     };
 
-        const value = Number(pressure);
+    const value = Number(pressure);
 
-        if (!Number.isFinite(value)) {
-            return { howBad: 0, onSpec: false };
-        }
+    if (!Number.isFinite(value)) {
+        return { howBad: 0, onSpec: false };
+    }
 
-        const normalizedStyle =
+    const normalizedStyle =
         String(style || "")
             .trim()
             .toLowerCase()
             .split(/\s+/)[0];;
-        const target =
-            pressureSpecs[normalizedStyle] ?? pressureSpecs.other;
-        const tolerance = 0.01;
-        const onSpec = value >= target + tolerance ||
-            value <= target - tolerance;
-        let howBad = 0;
-        if (onSpec) howBad = 1;
-        if (value >= target + 0.1 || value <= target - 0.1) {
-            howBad = 3
-        } else if (value >= target + tolerance + 0.03 || value <= target - tolerance + 0.03) {
-            howBad = 2
-        }
-
-        const resault = {
-            onSpec,
-            howBad
-        }
-        return resault;
+    const target =
+        pressureSpecs[normalizedStyle] ?? pressureSpecs.other;
+    const tolerance = 0.01;
+    const onSpec = value >= target + tolerance ||
+        value <= target - tolerance;
+    let howBad = 0;
+    if (onSpec) howBad = 1;
+    if (value >= target + 0.1 || value <= target - 0.1) {
+        howBad = 3
+    } else if (value >= target + tolerance + 0.03 || value <= target - tolerance + 0.03) {
+        howBad = 2
     }
-export function calcCelleringRecomendations(measurements: Measurement[], beerStyle: string | number | undefined| null, batchId: string | number | null, brewDate: string) {
+
+    const resault = {
+        onSpec,
+        howBad
+    }
+    return resault;
+}
+export function calcCelleringRecomendations(measurements: Measurement[], beerStyle: string | number | undefined | null, batchId: string | number | null, brewDate: string) {
     const sortedMeasurements = [...measurements].sort((a, b) => {
 
         const dateA = String(a.id ?? "");
@@ -135,11 +135,34 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
 
         return null
     }
+    // ============================================================
+    // CHECK IF LAST MEASUREMENT IS FROM TODAY
+    // ============================================================
+
+
+
+
+    function getTodayDateString(): string {
+
+        const today = new Date();
+
+        const year =
+            today.getFullYear();
+
+        const month =
+            String(today.getMonth() + 1)
+                .padStart(2, "0");
+
+        const day =
+            String(today.getDate())
+                .padStart(2, "0");
+
+        return `${year}-${month}-${day}`;
+    }
     function getMeasurementDate(id: string | number | null | undefined): string | null {
         if (id === null || id === undefined) {
             return null;
         }
-
         const idString = String(id);
 
         // Expected format:
@@ -154,6 +177,38 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
 
         return match[1];
     }
+
+    const lastMeasurementDate =
+        getMeasurementDate(
+            lastMeasurement?.id
+        );
+
+    const todayDate =
+        getTodayDateString();
+
+
+    // ============================================================
+    // LAST MEASUREMENT UP TO DATE
+    // ============================================================
+
+    const lastMessurmentUpToDate = {
+
+        req:
+            !!lastMeasurementDate &&
+            lastMeasurementDate !== todayDate,
+
+        reason:
+            lastMeasurementDate &&
+                lastMeasurementDate !== todayDate
+                ? `שים לב - המדידה האחרונה היא מתאריך ${lastMeasurementDate} ולא מהיום. ההמלצות הן בהתאם למדידה האחרונה. מומלץ לבצע סבב מדידות יומי בטרם בדיקת המלצות.`
+                : "",
+
+        importance:
+            lastMeasurementDate &&
+                lastMeasurementDate !== todayDate
+                ? 2
+                : 0
+    };
     function getDaysSinceDate(dateString: string): number {
         const date = new Date(`${dateString}T00:00:00`);
         const today = new Date();
@@ -310,10 +365,10 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
             Number.isFinite(currentPlato) &&
             yesterdayPlato - currentPlato < 1.5
         ) {
-
             requiresWarmYeastDrop = {
                 req: true,
-                reason:
+                reason: lastMessurmentUpToDate.req ?
+                    `מומלצת הורדת שמרים - הסוכר במדידה אחרונה ${currentPlato}P°, במדידה קודמת ${yesterdayPlato}P°` :
                     `מומלצת הורדת שמרים - הסוכר היום ${currentPlato}P°, אתמול ${yesterdayPlato}P°`,
                 importance: 1
             };
@@ -358,11 +413,15 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
         if (yesterdayMeasurement?.carbonation && !lastMeasurement?.carbonation) {
             if (CarbonationSpecYesterday.outOfSpec) {
                 requiresCarbTest.req = true;
-                requiresCarbTest.reason = `הגיזוז אתמול היה לא תקין(${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר גיזוז חוזר `,
+                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
+                    `הגיזוז במדידה אחרונה היה לא תקין(${yesterdayMeasurement?.carbonation})- מומלץ לבצע גיזוז חוזר ` :
+                    `הגיזוז אתמול היה לא תקין(${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר גיזוז חוזר `,
                     requiresCarbTest.importance = CarbonationSpecYesterday.importance
             } else {
                 requiresCarbTest.req = true;
-                requiresCarbTest.reason = `הגיזוז אתמול היה תקין(${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקה נוספת`
+                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
+                    `הגיזוז במדידה אחרונה היה תקין(${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקה נוספת` :
+                    `הגיזוז אתמול היה תקין(${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקה נוספת`
 
             }
         }
@@ -370,11 +429,15 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
         if (toDaysAgoMeasurement?.carbonation && !lastMeasurement?.carbonation) {
             if (carbonationSpecToDaysAgo?.outOfSpec) {
                 requiresCarbTest.req = true;
-                requiresCarbTest.reason = `הגיזוז לפני יומיים לא תקין(${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע גיזוז חוזר `
+                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
+                    `הגיזוז במדידה שלפני האחרונה לא תקין(${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע גיזוז חוזר ` :
+                    `הגיזוז לפני יומיים לא תקין(${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע גיזוז חוזר `
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             } else {
                 requiresCarbTest.req = true;
-                requiresCarbTest.reason = `הגיזוז לפני יומיים תקין(${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקה נוספת`
+                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
+                    `הגיזוז במדידה שלפני האחרונה תקין(${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקה נוספת` :
+                    `הגיזוז לפני יומיים תקין(${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקה נוספת`
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             }
         }
@@ -382,15 +445,70 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
         if (lastMeasurement?.carbonation) {
             if (carbonationSpecToDay.outOfSpec) {
                 requiresCarbTest.req = true;
-                requiresCarbTest.reason = `הגיזוז היום לא תקין(${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם `
+                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
+                    `הגיזוז במדידה האחרונה לא תקין(${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם ` :
+                    `הגיזוז היום לא תקין(${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם `
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             } else {
                 requiresCarbTest.req = true;
-                requiresCarbTest.reason = `הגיזוז היום תקין(${lastMeasurement?.carbonation})-ניתן להמתין עם בדיקה נוספת `
+                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
+                    `הגיזוז במדידה אחרונה תקין(${lastMeasurement?.carbonation})-ניתן להמתין עם בדיקה נוספת ` :
+                    `הגיזוז היום תקין(${lastMeasurement?.carbonation})-ניתן להמתין עם בדיקה נוספת `
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             }
         }
+        // ============================================================
+        // LAST INVALID CARBONATION - NO TEST FOR MORE THAN 2 DAYS
+        // ============================================================
+
+        if (!requiresCarbTest.req) {
+            const lastCarbonationMeasurement =
+                [...sortedMeasurements]
+                    .reverse()
+                    .find(
+                        measurement =>
+                            measurement.carbonation !== null &&
+                            measurement.carbonation !== undefined &&
+                            Number.isFinite(
+                                Number(measurement.carbonation)
+                            )
+                    );
+
+            if (lastCarbonationMeasurement) {
+
+                const lastCarbonationDate =
+                    getMeasurementDate(
+                        lastCarbonationMeasurement.id
+                    );
+
+                const carbonationAge =
+                    lastCarbonationDate !== null
+                        ? getDaysSinceDate(lastCarbonationDate)
+                        : null;
+
+                const lastCarbonationSpec =
+                    isCarbonationOutOfRange(
+                        lastCarbonationMeasurement.carbonation,
+                        style
+                    );
+
+                if (
+                    carbonationAge !== null &&
+                    carbonationAge > 2 &&
+                    lastCarbonationSpec.outOfSpec
+                ) {
+                    requiresCarbTest.req = true;
+
+                    requiresCarbTest.reason =
+                        `הגיזוז האחרון לא תקין (${lastCarbonationMeasurement.carbonation})- לא נמדד יותר מיומיים, מומלץ לבצע בדיקת גיזוז`;
+
+                    requiresCarbTest.importance =
+                        lastCarbonationSpec.importance;
+                }
+            }
+        }
     }
+
     const normalizedStyle = String(style || "").trim().toLowerCase();
     const isLager = normalizedStyle.includes("לאגר");
     const requiersDiacytelRest = {
@@ -607,13 +725,13 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
         other: 1.5
     };
 
-    
-    const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure,style)
+
+    const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style)
     const requiredPressureAdjustment = {
         req: Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && isPressureOutOfRangeVal.onSpec,
         reason: `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: isPressureOutOfRangeVal.howBad
     }
 
-    return { requiresDryHop, requiresPresureClose, requiresWarmYeastDrop, requiersYeastDropAfterCooling, requiresCarbTest, requiersDiacytelRest, neglectedStatus, requiresToCoolDown, requiredPressureAdjustment }
+    return { lastMessurmentUpToDate, requiresDryHop, requiresPresureClose, requiresWarmYeastDrop, requiersYeastDropAfterCooling, requiresCarbTest, requiersDiacytelRest, neglectedStatus, requiresToCoolDown, requiredPressureAdjustment }
 }

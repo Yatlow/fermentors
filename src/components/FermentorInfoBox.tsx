@@ -22,6 +22,7 @@ type Recommendation = {
 };
 
 type Recomendations = {
+    lastMessurmentUpToDate:Recommendation;
     requiresDryHop: Recommendation;
     requiresPresureClose: Recommendation;
     requiresWarmYeastDrop: Recommendation;
@@ -217,6 +218,7 @@ export default function FermentorInfoBox({
     const recommendationList: Recommendation[] =
         recomendations
             ? [
+                recomendations.lastMessurmentUpToDate,
                 recomendations.requiresDryHop,
                 recomendations.requiresPresureClose,
                 recomendations.requiresWarmYeastDrop,
