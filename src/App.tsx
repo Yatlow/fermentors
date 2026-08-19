@@ -300,8 +300,12 @@ function App() {
 
     return brews.filter((tank) => {
 
+      // מיכל 1 מוצג רק כאשר לא נבחר שום פילטר
       if (Number(tank.tankNumber) === 1) {
-        return false;
+        return (
+          selectedStatuses.includes("הכל") &&
+          selectedStyles.includes("הכל")
+        );
       }
 
       // STATUS
@@ -491,8 +495,8 @@ function App() {
             <div
               key={style}
               className={`volume-filter ${selectedStyles.includes(style)
-                  ? "active"
-                  : ""
+                ? "active"
+                : ""
                 }`}
               onClick={() =>
                 handleStyleToggle(style)
@@ -506,8 +510,8 @@ function App() {
 
         <div
           className={`totalVolume ${selectedStyles.includes("הכל")
-              ? "active"
-              : ""
+            ? "active"
+            : ""
             }`}
           onClick={() =>
             handleStyleToggle("הכל")

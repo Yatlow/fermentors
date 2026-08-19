@@ -1097,7 +1097,9 @@ export default function TankCard({
               {stageInfo.name}
 
             </span>}
-            {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && <button
+            {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") &&
+             <span className="tanInfoBox"> 
+             <button
               ref={infoButtonRef}
               type="button"
               className="tankInfo"
@@ -1106,6 +1108,7 @@ export default function TankCard({
             >
               i
             </button>
+            </span>
             }
           </span>
         </div>

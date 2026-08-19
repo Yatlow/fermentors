@@ -253,19 +253,76 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border: 1px solid;
+  max-height: 25px;
+  overflow-y: hidden;
 }
 
 .tank-number {
   font-size: 0.85rem;
   font-weight: 800;
   color: var(--text-main);
+  border: #c75402 solid;
 }
 
 .stage-info-name {
+  border: #0284c7 solid;
   font-size: 0.7rem;
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 1px 3px;
   border-radius: 4px;
+}
+.tanInfoBox{
+  border: red solid;
+}
+.tankInfo {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-left: 8px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 2px solid currentColor;
+  border-radius: 50%;
+
+  background: transparent;
+  color: inherit;
+
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+
+  cursor: pointer;
+  vertical-align: middle;
+
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.tankInfo:hover {
+  opacity: 0.75;
+}
+
+.tankInfo:active {
+  transform: scale(0.92);
+}
+
+.tankInfo:hover {
+  background: #dbeafe;
+  color: #2563eb;
+
+  transform: scale(1.08);
+
+  box-shadow:
+    0 2px 6px rgba(37, 99, 235, 0.15);
+}
+
+.tankInfo:active {
+  transform: scale(0.94);
 }
 
 .stage-brewing {
@@ -518,59 +575,6 @@ body {
   background-color: #075985;
 }
 
-/* =========================================================
-   INFO BUTTON
-   ========================================================= */
-
-.tankInfo {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  margin-left: 8px;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  border: 2px solid currentColor;
-  border-radius: 50%;
-
-  background: transparent;
-  color: inherit;
-
-  font-family: Arial, sans-serif;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-
-  cursor: pointer;
-  vertical-align: middle;
-
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.tankInfo:hover {
-  opacity: 0.75;
-}
-
-.tankInfo:active {
-  transform: scale(0.92);
-}
-
-.tankInfo:hover {
-  background: #dbeafe;
-  color: #2563eb;
-
-  transform: scale(1.08);
-
-  box-shadow:
-    0 2px 6px rgba(37, 99, 235, 0.15);
-}
-
-.tankInfo:active {
-  transform: scale(0.94);
-}
 
 /* =========================================================
    FERMENTOR INFO / RECOMMENDATIONS POPUP
