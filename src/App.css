@@ -254,8 +254,6 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-
-  border: 1px solid;
   height: 26px;
   min-height: 26px;
 
@@ -269,8 +267,6 @@ body {
   font-size: 0.78rem;
   font-weight: 800;
   color: var(--text-main);
-
-  border: #c75402 solid;
 
   white-space: nowrap;
   overflow: hidden;
@@ -296,7 +292,6 @@ body {
   min-width: 0;
   max-width: 100%;
 
-  border: #0284c7 solid;
   font-size: 0.65rem;
   font-weight: 700;
   padding: 1px 3px;
@@ -309,7 +304,6 @@ body {
 
 .tanInfoBox {
   flex: 0 0 auto;
-  border: red solid;
   display: flex;
   align-items: center;
 }
@@ -344,7 +338,6 @@ body {
   appearance: none;
 }
 .tank-header-left {
-  border: #22c55e solid;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -366,7 +359,6 @@ body {
 
 .tankInfo:hover {
   background: #dbeafe;
-  color: #2563eb;
 
   transform: scale(1.08);
 
@@ -723,6 +715,81 @@ body {
 
   .recommendation {
     font-size: 0.82rem;
+  }
+}
+@media (max-width: 599px) {
+
+  .tank-header {
+    height: auto;
+    min-height: 44px;
+
+    display: flex;
+    flex-direction: column;
+
+    align-items: stretch;
+    justify-content: center;
+
+    gap: 2px;
+
+    overflow: visible;
+    white-space: normal;
+
+    padding: 2px 3px;
+  }
+
+  .tank-number {
+    order: 2;
+
+    width: 100%;
+
+    font-size: 0.78rem;
+    line-height: 20px;
+
+    text-align: right;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tank-header-left {
+    order: 1;
+
+    width: 100%;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    flex: none;
+
+    min-width: 0;
+
+    overflow: visible;
+    white-space: nowrap;
+  }
+
+  .stage-info-name {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    font-size: 0.65rem;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tanInfoBox {
+    flex: 0 0 auto;
+  }
+
+  .tankInfo {
+    width: 19px;
+    height: 19px;
+
+    margin-left: 2px;
+
+    font-size: 12px;
   }
 }
 
