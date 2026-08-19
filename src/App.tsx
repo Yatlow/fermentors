@@ -190,10 +190,7 @@ function App() {
          * tankstage.ts has its own Tank type.
          * The actual Firebase object is compatible at runtime.
          */
-        if (Number(tank.tankNumber) === 1) {
 
-          return;
-        }
         const stageInfo =
           getTankStage(
             tank as Parameters<
@@ -297,7 +294,6 @@ function App() {
   }, [brews]);
 
   const filteredBrews = useMemo<Fermentor[]>(() => {
-
     return brews.filter((tank) => {
 
       // מיכל 1 מוצג רק כאשר לא נבחר שום פילטר
@@ -308,7 +304,10 @@ function App() {
         );
       }
 
+      // ========================================================
       // STATUS
+      // ========================================================
+
       const stageInfo = getTankStage(
         tank as Parameters<typeof getTankStage>[0]
       );
@@ -320,7 +319,10 @@ function App() {
           selectedStatuses.includes(stageInfo.name)
         );
 
+      // ========================================================
       // STYLE
+      // ========================================================
+
       const style = String(
         tank.beerStyle ?? ""
       ).trim();
@@ -331,19 +333,33 @@ function App() {
 
       return matchesStatus && matchesStyle;
     });
-
   }, [
     brews,
     selectedStatuses,
     selectedStyles,
   ]);
 
-  const totalTanks =
-    brews.length;
-  const filteredTankCount =
-    filteredBrews.filter(
-      (tank) => Number(tank.tankNumber) !== 1
-    ).length;
+  console.log(
+  "ACTION 4 TANKS:",
+  brews.filter(
+    (tank) => Number(tank.action) === 4
+  )
+);
+console.log(
+  "FILTERED:",
+  filteredBrews.map(tank => ({
+    id: tank.id,
+    uid: tank.uid,
+    tankNumber: tank.tankNumber,
+    action: tank.action,
+    beerStyle: tank.beerStyle
+  }))
+);
+
+  const totalTanks = brews.filter(
+    (tank) => Number(tank.tankNumber) !== 1
+  ).length;
+  const filteredTankCount = filteredBrews.length;
   // ==========================================================
   // LOADING
   // ==========================================================
@@ -412,7 +428,7 @@ function App() {
               </span>
 
               <span className="status-filter-count">
-                {totalTanks - 1}
+                {totalTanks}
               </span>
 
             </button>
@@ -497,6 +513,8 @@ function App() {
               className={`volume-filter ${selectedStyles.includes(style)
                 ? "active"
                 : ""
+                ? "active"
+                : ""
                 }`}
               onClick={() =>
                 handleStyleToggle(style)
@@ -510,6 +528,8 @@ function App() {
 
         <div
           className={`totalVolume ${selectedStyles.includes("הכל")
+            ? "active"
+            : ""
             ? "active"
             : ""
             }`}
