@@ -340,21 +340,21 @@ function App() {
   ]);
 
   console.log(
-  "ACTION 4 TANKS:",
-  brews.filter(
-    (tank) => Number(tank.action) === 4
-  )
-);
-console.log(
-  "FILTERED:",
-  filteredBrews.map(tank => ({
-    id: tank.id,
-    uid: tank.uid,
-    tankNumber: tank.tankNumber,
-    action: tank.action,
-    beerStyle: tank.beerStyle
-  }))
-);
+    "ACTION 4 TANKS:",
+    brews.filter(
+      (tank) => Number(tank.action) === 4
+    )
+  );
+  console.log(
+    "FILTERED:",
+    filteredBrews.map(tank => ({
+      id: tank.id,
+      uid: tank.uid,
+      tankNumber: tank.tankNumber,
+      action: tank.action,
+      beerStyle: tank.beerStyle
+    }))
+  );
 
   const totalTanks = brews.filter(
     (tank) => Number(tank.tankNumber) !== 1
@@ -513,8 +513,6 @@ console.log(
               className={`volume-filter ${selectedStyles.includes(style)
                 ? "active"
                 : ""
-                ? "active"
-                : ""
                 }`}
               onClick={() =>
                 handleStyleToggle(style)
@@ -528,8 +526,6 @@ console.log(
 
         <div
           className={`totalVolume ${selectedStyles.includes("הכל")
-            ? "active"
-            : ""
             ? "active"
             : ""
             }`}
