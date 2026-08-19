@@ -339,23 +339,6 @@ function App() {
     selectedStyles,
   ]);
 
-  console.log(
-    "ACTION 4 TANKS:",
-    brews.filter(
-      (tank) => Number(tank.action) === 4
-    )
-  );
-  console.log(
-    "FILTERED:",
-    filteredBrews.map(tank => ({
-      id: tank.id,
-      uid: tank.uid,
-      tankNumber: tank.tankNumber,
-      action: tank.action,
-      beerStyle: tank.beerStyle
-    }))
-  );
-
   const totalTanks = brews.filter(
     (tank) => Number(tank.tankNumber) !== 1
   ).length;

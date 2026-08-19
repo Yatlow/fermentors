@@ -251,35 +251,77 @@ body {
 
 .tank-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+
   border: 1px solid;
-  max-height: 25px;
-  overflow-y: hidden;
+  height: 26px;
+  min-height: 26px;
+
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .tank-number {
-  font-size: 0.85rem;
+  flex: 0 0 auto;
+
+  font-size: 0.78rem;
   font-weight: 800;
   color: var(--text-main);
+
   border: #c75402 solid;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tank-header > span:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  min-width: 0;
+  flex: 1 1 auto;
+
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .stage-info-name {
+  display: inline-flex;
+  align-items: center;
+
+  min-width: 0;
+  max-width: 100%;
+
   border: #0284c7 solid;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 700;
   padding: 1px 3px;
   border-radius: 4px;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.tanInfoBox{
+
+.tanInfoBox {
+  flex: 0 0 auto;
   border: red solid;
+  display: flex;
+  align-items: center;
 }
+
 .tankInfo {
-  width: 22px;
-  height: 22px;
+  flex: 0 0 auto;
+
+  width: 20px;
+  height: 20px;
+
   padding: 0;
-  margin-left: 8px;
+  margin-left: 4px;
 
   display: inline-flex;
   align-items: center;
@@ -292,15 +334,26 @@ body {
   color: inherit;
 
   font-family: Arial, sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
 
   cursor: pointer;
-  vertical-align: middle;
 
   -webkit-appearance: none;
   appearance: none;
+}
+.tank-header-left {
+  border: #22c55e solid;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  flex: 1 1 auto;
+  min-width: 0;
+
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .tankInfo:hover {

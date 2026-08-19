@@ -1089,7 +1089,7 @@ export default function TankCard({
 
           </span>
 
-          <span>
+          <span className="tank-header-left">
             {Number(tank.tankNumber) > 1 && <span className="stage-info-name">
 
               {stageInfo.icon}
