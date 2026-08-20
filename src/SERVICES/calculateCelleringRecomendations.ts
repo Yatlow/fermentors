@@ -1,4 +1,5 @@
 import { getBrewAge } from "../components/TankCard";
+import {  type SpecChart } from "./getSpecsFromFb";
 
 export type Measurement = {
     id?: string | number | null;
@@ -10,12 +11,33 @@ export type Measurement = {
     notes?: string | number | null;
     volume?: string | number | null;
 };
+// let specsFB: SpecChart = {
+//     carbonation: {
+//         ipa: 2.45,
+//         פייל: 2.4,
+//         לאגר: 2.5,
+//         הופי: 2.5,
+//         חיטה: 2.5,
+//         סטאוט: 2.2,
+//         other: 2.45
+//     },
+
+//     pressure: {
+//         ipa: 1.6,
+//         פייל: 1.7,
+//         לאגר: 1.1,
+//         הופי: 1.1,
+//         חיטה: 1.6,
+//         סטאוט: 1.5,
+//         other: 1.5
+//     }
+// };
 export function isCarbonationOutOfRange(
     carbonation: string | number | null | undefined,
-    style: string
+    style: string,
+    givenSpecs:SpecChart
 ): { outOfSpec: boolean, importance: number } {
-
-    const specs: Record<string, number> = {
+    const specs: Record<string, number> = givenSpecs?.carbonation || {
         ipa: 2.45,
         פייל: 2.4,
         לאגר: 2.5,
@@ -39,7 +61,7 @@ export function isCarbonationOutOfRange(
 
     const target =
         specs[normalizedStyle] ?? specs.other;
-    const tolerance = 0.04;
+    const tolerance = givenSpecs.tolorances.carbonation ?? 0.04;
     const outOfSpec =
         value >= target + tolerance ||
         value <= target - tolerance;
@@ -62,9 +84,10 @@ export function isCarbonationOutOfRange(
 export function isPressureOutOfRange(
 
     pressure: string | number | null | undefined,
-    style: string | null
+    style: string | null,
+    givenSpecs: SpecChart
 ): { onSpec: boolean, howBad: number } {
-    const pressureSpecs: Record<string, number> = {
+    const pressureSpecs: Record<string, number> = givenSpecs?.pressure || {
         ipa: 1.6,
         פייל: 1.7,
         לאגר: 1.1,
@@ -87,7 +110,7 @@ export function isPressureOutOfRange(
             .split(/\s+/)[0];;
     const target =
         pressureSpecs[normalizedStyle] ?? pressureSpecs.other;
-    const tolerance = 0.01;
+    const tolerance = givenSpecs.tolorances.pressure?? 0.01;
     const onSpec = value >= target + tolerance ||
         value <= target - tolerance;
     let howBad = 0;
@@ -104,7 +127,7 @@ export function isPressureOutOfRange(
     }
     return resault;
 }
-export function calcCelleringRecomendations(measurements: Measurement[], beerStyle: string | number | undefined | null, batchId: string | number | null, brewDate: string) {
+export async function calcCelleringRecomendations(measurements: Measurement[], beerStyle: string | number | undefined | null, batchId: string | number | null, brewDate: string,givenSpecs:SpecChart) {
     const sortedMeasurements = [...measurements].sort((a, b) => {
 
         const dateA = String(a.id ?? "");
@@ -177,6 +200,22 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
 
         return match[1];
     }
+    function formatDateToDDMMYYYY(date: string | null | undefined): string | null {
+        if (!date) {
+            return null;
+        }
+
+        const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+        if (!match) {
+            console.warn("Invalid date format:", date);
+            return null;
+        }
+
+        const [, year, month, day] = match;
+
+        return `${day}/${month}/${year}`;
+    }
 
     const lastMeasurementDate =
         getMeasurementDate(
@@ -200,7 +239,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
         reason:
             lastMeasurementDate &&
                 lastMeasurementDate !== todayDate
-                ? `שים לב - המדידה האחרונה היא מתאריך ${lastMeasurementDate} ולא מהיום. ההמלצות הן בהתאם למדידה האחרונה. מומלץ לבצע סבב מדידות יומי בטרם בדיקת המלצות.`
+                ? `שים לב - המדידה האחרונה היא מתאריך ${formatDateToDDMMYYYY(lastMeasurementDate)} ולא מהיום. ההמלצות הן בהתאם למדידה האחרונה. מומלץ לבצע סבב מדידות יומי בטרם בדיקת המלצות.`
                 : "",
 
         importance:
@@ -273,7 +312,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
 
     const requiresDryHop = {
         req: isHoppy &&
-            Number(lastMeasurement?.plato) < 8 &&
+            Number(lastMeasurement?.plato) < (givenSpecs.tolorances.dryHopMinPlato || 8) &&
             Number(lastMeasurement?.temp) > 9 &&
             Number(lastMeasurement?.pressure) <= 0 &&
             !dryhopped,
@@ -283,7 +322,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
 
     const requiresPresureClose = {
         req: !isHoppy &&
-            Number(lastMeasurement?.plato) < 5 &&
+            Number(lastMeasurement?.plato) < (givenSpecs.tolorances.shutTankMinPlato || 5) &&
             Number(lastMeasurement?.temp) > 9 &&
             Number(lastMeasurement?.pressure) <= 0,
         reason: "מומלץ לבצע סגירת לחץ",
@@ -353,7 +392,8 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
         !dryhopped &&
         !yeastDroppedOnce &&
         !requiresDryHop.req &&
-        yesterdayMeasurement
+        yesterdayMeasurement &&
+        Number(currentPlato) < (givenSpecs.tolorances.yeastDropMinPlato || 6)
     ) {
 
         const yesterdayPlato =
@@ -409,7 +449,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
     }
 
     if (CoolAge !== null && CoolAge > 1) {
-        const CarbonationSpecYesterday = isCarbonationOutOfRange(yesterdayMeasurement?.carbonation, style)
+        const CarbonationSpecYesterday = isCarbonationOutOfRange(yesterdayMeasurement?.carbonation, style,givenSpecs)
         if (yesterdayMeasurement?.carbonation && !lastMeasurement?.carbonation) {
             if (CarbonationSpecYesterday.outOfSpec) {
                 requiresCarbTest.req = true;
@@ -425,7 +465,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
 
             }
         }
-        const carbonationSpecToDaysAgo = isCarbonationOutOfRange(toDaysAgoMeasurement?.carbonation, style)
+        const carbonationSpecToDaysAgo = isCarbonationOutOfRange(toDaysAgoMeasurement?.carbonation, style,givenSpecs)
         if (toDaysAgoMeasurement?.carbonation && !lastMeasurement?.carbonation) {
             if (carbonationSpecToDaysAgo?.outOfSpec) {
                 requiresCarbTest.req = true;
@@ -441,7 +481,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             }
         }
-        const carbonationSpecToDay = isCarbonationOutOfRange(lastMeasurement?.carbonation, style)
+        const carbonationSpecToDay = isCarbonationOutOfRange(lastMeasurement?.carbonation, style,givenSpecs)
         if (lastMeasurement?.carbonation) {
             if (carbonationSpecToDay.outOfSpec) {
                 requiresCarbTest.req = true;
@@ -489,7 +529,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
                 const lastCarbonationSpec =
                     isCarbonationOutOfRange(
                         lastCarbonationMeasurement.carbonation,
-                        style
+                        style,givenSpecs
                     );
 
                 if (
@@ -512,7 +552,7 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
     const normalizedStyle = String(style || "").trim().toLowerCase();
     const isLager = normalizedStyle.includes("לאגר");
     const requiersDiacytelRest = {
-        req: isLager && Number(lastMeasurement?.plato) < 9 && Number(lastMeasurement?.temp) > 9 && Number(lastMeasurement?.temp) < 13 &&
+        req: isLager && Number(lastMeasurement?.plato) < (givenSpecs.tolorances.dycitalRestMinPlato || 9) && Number(lastMeasurement?.temp) > 9 && Number(lastMeasurement?.temp) < 13 &&
             !measurements.some(
                 measurement =>
                     String(
@@ -715,23 +755,25 @@ export function calcCelleringRecomendations(measurements: Measurement[], beerSty
         importance: !readyToCoolDown ? 0 : 1,
     }
 
-    const pressureSpecs: Record<string, number> = {
-        ipa: 1.6,
-        פייל: 1.7,
-        לאגר: 1.1,
-        הופי: 1.1,
-        חיטה: 1.6,
-        סטאוט: 1.5,
-        other: 1.5
-    };
+    const pressureSpecs: Record<string, number> = givenSpecs.pressure;
 
 
-    const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style)
+    const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style,givenSpecs)
     const requiredPressureAdjustment = {
         req: Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && isPressureOutOfRangeVal.onSpec,
         reason: `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: isPressureOutOfRangeVal.howBad
     }
+    const today = new Date().getDay();
+    const corrected = today === 0 ? 1 : today + 1;
+    const requiresDailyActions = {
+        req:Number(lastMeasurement.temp)<9 && (corrected=== 1 || corrected ===  4 || corrected===5),
+        reason:
+        corrected===1?"מומלץ ביום ראשון לבצע הורדת שמקים ובדיקת גיזוז לכל מיכל קר":
+        corrected===4?"מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת":
+        corrected===5?"מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת":"",
+        importance:0
+    }
 
-    return { lastMessurmentUpToDate, requiresDryHop, requiresPresureClose, requiresWarmYeastDrop, requiersYeastDropAfterCooling, requiresCarbTest, requiersDiacytelRest, neglectedStatus, requiresToCoolDown, requiredPressureAdjustment }
+    return {requiresDailyActions, lastMessurmentUpToDate, requiresDryHop, requiresPresureClose, requiresWarmYeastDrop, requiersYeastDropAfterCooling, requiresCarbTest, requiersDiacytelRest, neglectedStatus, requiresToCoolDown, requiredPressureAdjustment }
 }

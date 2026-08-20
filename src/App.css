@@ -51,6 +51,167 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* =========================================================
+   VIEWS NAVIGATION
+   ========================================================= */
+
+.views-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 4px;
+
+  /* background: #f1f5f9; */
+  /* border: 1px solid #e2e8f0; */
+  /* border-radius: 10px; */
+
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 1px 2px rgba(15, 23, 42, 0.03);
+
+  direction: rtl;
+}
+
+/* =========================================================
+   VIEW ITEM
+   ========================================================= */
+
+.views-item {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 34px;
+  padding: 6px 14px;
+
+  border-radius: 7px;
+  color: #64748b;
+  background: transparent;
+  border: #64748b 0.4px solid;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+
+  white-space: nowrap;
+
+  
+  user-select: none;
+  
+  transition:
+  background-color 0.18s ease,
+  color 0.18s ease,
+  box-shadow 0.18s ease,
+  transform 0.12s ease;
+}
+
+
+.views-item:hover {
+  color: #334155;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+
+.views-item.active {
+  color: #ffffff;
+  background: var(--primary);
+
+  box-shadow:
+    0 2px 5px rgba(43, 108, 176, 0.25);
+
+  font-weight: bold;
+}
+
+
+.views-item.active:hover {
+  color: #ffffff;
+  background: #245f9e;
+}
+
+
+.views-item:active {
+  transform: scale(0.97);
+}
+
+
+/* =========================================================
+   HEADER BRAND
+   ========================================================= */
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  min-width: 0;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 700px) {
+
+  .views-box {
+    width: 100%;
+
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+
+    gap: 3px;
+
+    padding: 3px;
+
+    border-radius: 9px;
+  }
+
+  .views-item {
+    min-width: 0;
+
+    padding: 7px 5px;
+
+    font-size: 0.68rem;
+
+    text-align: center;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+}
+
+
+@media (max-width: 480px) {
+
+  .header-brand {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .header-logo {
+    width: 34px;
+    height: 34px;
+  }
+
+  .views-box {
+    width: 100%;
+  }
+
+  .views-item {
+    min-height: 32px;
+
+    padding: 6px 3px;
+
+    font-size: 0.62rem;
+  }
+
+}
+
 .dashboard {
   max-width: 1600px;
   margin: 0 auto;
@@ -609,17 +770,22 @@ body {
 }
 
 .volume-filter:hover,
-.totalVolume:hover {
+.totalVolume:hover,
+.send-messurment:hover {
   opacity: 0.75;
 }
 
 .volume-filter.active,
-.totalVolume.active {
+.totalVolume.active,
+.send-messurment {
   font-weight: 700;
   color: #ffffff;
   background-color: #075985;
 }
-
+.send-messurment{
+  margin:2px 20px;
+  padding: 10px !important;
+}
 
 /* =========================================================
    FERMENTOR INFO / RECOMMENDATIONS POPUP
@@ -1061,4 +1227,329 @@ body {
   font-weight: 700;
 
   text-align: center;
+}
+/* =========================================================
+   MEASUREMENTS
+   ========================================================= */
+
+.write-messurmant {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 8px 12px;
+}
+
+/* Grid */
+
+.measurement-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(auto-fill, minmax(180px, 1fr));
+
+  gap: 7px;
+}
+
+
+/* =========================================================
+   CARD
+   ========================================================= */
+
+.measurement-card {
+  position: relative;
+
+  background: var(--bg-card);
+
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+
+  padding: 7px 9px;
+
+  box-shadow: var(--shadow-sm);
+
+  min-width: 0;
+
+  transition:
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.measurement-card:hover {
+  border-color: #cbd5e1;
+
+  box-shadow:
+    0 2px 7px rgba(15, 23, 42, 0.08);
+}
+
+
+/* Accent */
+
+.measurement-card::before {
+  content: "";
+
+  position: absolute;
+
+  top: 0;
+  right: 0;
+  bottom: 0;
+
+  width: 3px;
+
+  background: #cbd5e1;
+
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.measurement-card.stage-brewing::before {
+  background: #eab308;
+}
+
+.measurement-card.stage-fermenting::before {
+  background: #f97316;
+}
+
+.measurement-card.stage-cold::before {
+  background: #0284c7;
+}
+
+.measurement-card.clt::before {
+  background: #656565;
+}
+
+.measurement-card.stage-clean::before {
+  background: #22c55e;
+}
+
+.measurement-card.stage-sanitized::before {
+  background: #ec4899;
+}
+
+.measurement-input input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.measurement-input input:disabled {
+  color: #cbd5e1;
+  border: #b91c1c 0.5px solid;
+}
+
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.measurement-header {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 5px;
+
+  min-width: 0;
+}
+
+.measurement-tank {
+  font-size: 0.78rem;
+  font-weight: 800;
+
+  color: var(--text-main);
+
+  white-space: nowrap;
+}
+
+.measurement-style {
+  min-width: 0;
+
+  padding: 2px 5px;
+
+  background: #f1f5f9;
+
+  border-radius: 4px;
+
+  font-size: 0.62rem;
+  font-weight: 700;
+
+  color: #475569;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* =========================================================
+   BATCH
+   ========================================================= */
+
+.measurement-batch {
+  margin-top: 1px;
+
+  color: var(--text-muted);
+
+  font-size: 0.62rem;
+}
+
+
+/* =========================================================
+   LAST READING
+   ========================================================= */
+
+.measurement-last {
+  display: flex;
+
+  align-items: center;
+
+  gap: 8px;
+
+  margin-top: 5px;
+
+  padding: 3px 5px;
+
+  background: #f8fafc;
+
+  border: 1px solid #f1f5f9;
+
+  border-radius: 5px;
+
+  color: var(--text-muted);
+
+  font-size: 0.62rem;
+
+  white-space: nowrap;
+}
+
+.measurement-last strong {
+  color: #334155;
+
+  font-size: 0.68rem;
+}
+
+
+/* =========================================================
+   INPUTS
+   ========================================================= */
+
+.measurement-inputs {
+  display: grid;
+
+  grid-template-columns: 1fr 1fr;
+
+  gap: 5px;
+
+  margin-top: 5px;
+}
+
+.measurement-input {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+}
+
+.measurement-input input {
+  width: 100%;
+
+  height: 27px;
+
+  padding: 3px 7px;
+
+  border: 1px solid #dbe3ec;
+
+  border-radius: 5px;
+
+  background: #ffffff;
+
+  color: var(--text-main);
+
+  font-size: 0.7rem;
+
+  outline: none;
+}
+
+.measurement-input input::placeholder {
+  color: #94a3b8;
+}
+
+.measurement-input input:focus {
+  border-color: var(--primary);
+
+  box-shadow:
+    0 0 0 2px rgba(43, 108, 176, 0.10);
+}
+
+
+/* degree sign */
+
+.measurement-input span {
+  position: absolute;
+
+  right: 30px;
+
+  color: #000000;
+
+  font-size: 0.65rem;
+
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (min-width: 1100px) {
+  .measurement-grid {
+    grid-template-columns:
+      repeat(6, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1400px) {
+  .measurement-grid {
+    grid-template-columns:
+      repeat(8, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .measurement-grid {
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr));
+
+    gap: 5px;
+  }
+
+  .measurement-card {
+    padding: 6px 7px;
+  }
+
+  .measurement-last {
+    gap: 4px;
+    font-size: 0.58rem;
+  }
+
+  .measurement-last strong {
+    font-size: 0.62rem;
+  }
+
+  .measurement-input input {
+    height: 25px;
+  }
+}
+
+@media (max-width: 480px) {
+  .measurement-grid {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+
+    gap: 5px;
+  }
+
+  .write-messurmant {
+    padding: 6px;
+  }
 }

@@ -115,7 +115,7 @@ function doGet(e) {
 
 
 function doPost(e) {
-
+  Logger.log(e)
   try {
 
     if (
@@ -223,9 +223,9 @@ function doPost(e) {
       const result =
         addFermentationMeasurement(
           data.sheetUrl,
-          data.temperature,
+          data.temp,
           data.pressure,
-          data.sugar,
+          data.plato,
           data.pH,
           data.carbonation,
           data.notes

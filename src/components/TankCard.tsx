@@ -7,7 +7,7 @@ import {
 
 import { getTankStage } from "../SERVICES/tankstage";
 import { updateTankStatus } from "../SERVICES/updateTank";
-import { isCarbonationOutOfRange, isPressureOutOfRange } from "../SERVICES/calculateCelleringRecomendations"
+import { isCarbonationOutOfRange, isPressureOutOfRange } from "../SERVICES/calculateCelleringRecomendations";
 
 import type {
   Fermentor,
@@ -15,6 +15,7 @@ import type {
 } from "../App";
 
 import FermentorInfoBox from "./FermentorInfoBox";
+import type { SpecChart } from "../SERVICES/getSpecsFromFb";
 // ============================================================
 // PROPS
 // ============================================================
@@ -26,6 +27,7 @@ type TankCardProps = {
     tankId: string,
     newDate: string
   ) => Promise<void>;
+  specs:SpecChart
 };
 
 
@@ -127,6 +129,7 @@ export function getBrewAge(
 export default function TankCard({
   tank,
   onUpdatePasivation,
+  specs
 }: TankCardProps) {
 
   // ==========================================================
@@ -392,6 +395,7 @@ export default function TankCard({
     tank.action,
     tank.pasivationDate,
   ]);
+  
 
 
   // ==========================================================
@@ -1018,16 +1022,28 @@ export default function TankCard({
       stageInfo.name === "נקי" ||
       stageInfo.name === "מחוטא"
     );
-
-  const pressureIsOk = isPressureOutOfRange(
-    tank?.currentData?.pressure,
-    tank?.beerStyle ?? null
-  );
-
-  const CarbIsOk = isCarbonationOutOfRange(
-    tank?.currentData?.carbonation,
-    tank?.beerStyle ?? ""
-  );
+  const pressureIsOk =
+    specs && tank.currentData?.pressure != null
+      ? isPressureOutOfRange(
+        tank.currentData.pressure,
+        tank.beerStyle ?? null,
+        specs
+      )
+      : {
+        onSpec: false,
+        howBad: 0,
+      };
+  const CarbIsOk =
+    specs && tank.currentData?.carbonation != null
+      ? isCarbonationOutOfRange(
+        tank.currentData.carbonation,
+        tank.beerStyle ?? "",
+        specs
+      )
+      : {
+        outOfSpec: false,
+        importance: 1,
+      };  
   // ==========================================================
   // RENDER
   // ==========================================================
@@ -1035,6 +1051,7 @@ export default function TankCard({
     <>
       {(showInfo && Number(tank.tankNumber) !== 1) && (
         <FermentorInfoBox
+          specs={specs}
           tank={tank}
           onClose={() => {
             setShowInfo(false);
@@ -1098,17 +1115,17 @@ export default function TankCard({
 
             </span>}
             {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") &&
-             <span className="tanInfoBox"> 
-             <button
-              ref={infoButtonRef}
-              type="button"
-              className="tankInfo"
-              aria-label="הצגת המלצות סלרינג"
-              onClick={handleOpenInfo}
-            >
-              i
-            </button>
-            </span>
+              <span className="tanInfoBox">
+                <button
+                  ref={infoButtonRef}
+                  type="button"
+                  className="tankInfo"
+                  aria-label="הצגת המלצות סלרינג"
+                  onClick={handleOpenInfo}
+                >
+                  i
+                </button>
+              </span>
             }
           </span>
         </div>

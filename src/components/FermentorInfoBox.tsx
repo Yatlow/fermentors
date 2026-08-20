@@ -4,6 +4,7 @@ import { getMeasurementsByBatch } from "../SERVICES/gettAllDataByBatch";
 import { calcCelleringRecomendations } from "../SERVICES/calculateCelleringRecomendations";
 import { getBrewAge } from "./TankCard";
 import type { Measurement } from "../SERVICES/calculateCelleringRecomendations";
+import type { SpecChart } from "../SERVICES/getSpecsFromFb";
 
 type FermentorInfoBoxProps = {
     tank: Fermentor;
@@ -13,6 +14,7 @@ type FermentorInfoBoxProps = {
         top: number;
         left: number;
     } | null;
+    specs:SpecChart
 };
 
 type Recommendation = {
@@ -22,6 +24,7 @@ type Recommendation = {
 };
 
 type Recomendations = {
+    requiresDailyActions:Recommendation;
     lastMessurmentUpToDate:Recommendation;
     requiresDryHop: Recommendation;
     requiresPresureClose: Recommendation;
@@ -37,7 +40,8 @@ type Recomendations = {
 export default function FermentorInfoBox({
     tank,
     onClose,
-    position
+    position,
+    specs
 }: FermentorInfoBoxProps) {
 
     const [measurements, setMeasurements] =
@@ -154,9 +158,7 @@ export default function FermentorInfoBox({
                         // tank.beerStyle,
                         // tank.brewDate
                     );
-
                 setMeasurements(data);
-
                 // -------------------------------------------------
                 // CALCULATE RECOMMENDATIONS
                 // -------------------------------------------------
@@ -166,11 +168,11 @@ export default function FermentorInfoBox({
                         data,
                         tank.beerStyle,
                         tank.batchNumber,
-                        tank.brewDate
+                        tank.brewDate,specs
                     );
 
                 setRecomendations(
-                    calculatedRecommendations
+                    await calculatedRecommendations
                 );
             } catch (err) {
                 if (brewAge !== null && brewAge >= 2) {
@@ -218,6 +220,7 @@ export default function FermentorInfoBox({
     const recommendationList: Recommendation[] =
         recomendations
             ? [
+                recomendations.requiresDailyActions,
                 recomendations.lastMessurmentUpToDate,
                 recomendations.requiresDryHop,
                 recomendations.requiresPresureClose,
