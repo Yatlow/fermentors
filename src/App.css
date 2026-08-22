@@ -97,14 +97,14 @@ body {
 
   white-space: nowrap;
 
-  
+
   user-select: none;
-  
+
   transition:
-  background-color 0.18s ease,
-  color 0.18s ease,
-  box-shadow 0.18s ease,
-  transform 0.12s ease;
+    background-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.12s ease;
 }
 
 
@@ -381,7 +381,7 @@ body {
 }
 
 .tank-card.fermenting::before,
-.tank-card.stage-fermenting::before {
+.tank-card.stage-fermenting::before{
   background: #f97316;
 }
 
@@ -418,7 +418,7 @@ body {
   height: 26px;
   min-height: 28x;
 
-  overflow: hidden;
+  /* overflow: hidden; */
   white-space: nowrap;
 }
 
@@ -434,7 +434,7 @@ body {
   text-overflow: ellipsis;
 }
 
-.tank-header > span:last-child {
+.tank-header>span:last-child {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -467,13 +467,14 @@ body {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  padding: 2px;
 }
 
 .tankInfo {
   flex: 0 0 auto;
 
-  width: 20px;
-  height: 20px;
+  width: 30px;
+  height: 30px;
 
   padding: 0;
   margin-left: 4px;
@@ -489,7 +490,7 @@ body {
   color: inherit;
 
   font-family: Arial, sans-serif;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1;
 
@@ -498,6 +499,7 @@ body {
   -webkit-appearance: none;
   appearance: none;
 }
+
 .tank-header-left {
   display: flex;
   align-items: center;
@@ -782,9 +784,25 @@ body {
   color: #ffffff;
   background-color: #075985;
 }
-.send-messurment{
-  margin:2px 20px;
-  padding: 10px !important;
+
+.send-messurment {
+  margin: 2px 5px;
+  padding: 8px !important;
+}
+
+.disabled-send:hover {
+  opacity: 1;
+}
+
+.disabled-send {
+  background: #eef1f5;
+  color: #a0aec0;
+  border: 1px solid #e2e8f0;
+  font-weight: 600;
+  box-shadow: none;
+  pointer-events: none;
+  cursor: not-allowed;
+  opacity: 1; /* לא צריך opacity, הצבעים כבר "דהויים" */
 }
 
 /* =========================================================
@@ -883,6 +901,7 @@ body {
     font-size: 0.82rem;
   }
 }
+
 @media (max-width: 599px) {
 
   .tank-header {
@@ -952,7 +971,6 @@ body {
   .tankInfo {
     width: 19px;
     height: 19px;
-
     margin-left: 2px;
 
     font-size: 12px;
@@ -1228,6 +1246,7 @@ body {
 
   text-align: center;
 }
+
 /* =========================================================
    MEASUREMENTS
    ========================================================= */
@@ -1488,12 +1507,14 @@ body {
   position: absolute;
 
   right: 30px;
-
   color: #000000;
 
   font-size: 0.65rem;
 
   pointer-events: none;
+}
+.platoInputSpan{
+  right: 35px !important;
 }
 
 
@@ -1551,5 +1572,959 @@ body {
 
   .write-messurmant {
     padding: 6px;
+  }
+}
+
+/* =========================================================
+   SEND READINGS MODALS (confirm missing / status)
+   ========================================================= */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+
+  z-index: 2000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 16px;
+
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+
+  direction: rtl;
+}
+
+.modal-box {
+  position: relative;
+
+  width: 660px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  background: var(--bg-card);
+
+  border: 1px solid #dbe3ec;
+  border-radius: 14px;
+
+  padding: 18px;
+
+  box-shadow:
+    0 20px 50px rgba(15, 23, 42, 0.20),
+    0 6px 16px rgba(15, 23, 42, 0.08);
+
+  color: var(--text-main);
+  font-size: 0.85rem;
+  line-height: 1.5;
+
+  animation: recommendationPopupIn 0.18s ease-out;
+}
+
+.modal-box p {
+  margin: 0 0 10px;
+}
+
+.modal-box p:last-of-type {
+  margin-bottom: 0;
+}
+
+.modal-box strong {
+  color: #334155;
+}
+
+/* =========================================================
+   MISSING TANKS LIST / RESULTS LIST
+   ========================================================= */
+
+.send-results-list {
+  list-style: none;
+
+  margin: 10px 0;
+  padding: 0;
+
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.send-results-list li {
+  padding: 6px 9px;
+
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 6px;
+
+  font-size: 0.75rem;
+  color: #334155;
+}
+
+/* =========================================================
+   ACTIONS
+   ========================================================= */
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+
+  margin-top: 14px;
+
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 8px 16px;
+
+  border-radius: 7px;
+  border: 1px solid transparent;
+
+  font-size: 0.78rem;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease,
+    opacity 0.15s ease;
+}
+.btn-close-modal-Box{
+  position: sticky;
+  top: 0;
+}
+.btn-close-modal {
+  padding: 8px 16px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background-color: #a95252;
+  color: #e0f2fe;
+  width: 20px;
+  display: flex;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  position: relative;
+  z-index: 3000;
+  right: 95%;
+  cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease,
+    opacity 0.15s ease;
+
+}
+
+.sentBox {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.sentBox>.btn-primary {
+  max-width: 20%;
+  align-self: flex-end;
+  margin: 0 20px;
+}
+
+.btn-primary:hover {
+  background: #245f9e;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: var(--border-color);
+}
+
+.btn-secondary:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+/* =========================================================
+   STATUS STATES (loading / sent / error)
+   ========================================================= */
+
+.modal-box .status-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  padding: 10px 0;
+
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.modal-box .status-loading::before {
+  content: "";
+
+  width: 16px;
+  height: 16px;
+
+  border: 2px solid #dbe3ec;
+  border-top-color: var(--primary);
+  border-radius: 50%;
+
+  animation: modalSpin 0.7s linear infinite;
+}
+
+
+@keyframes modalSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.modal-box .status-sent {
+  padding: 8px 10px;
+
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+
+  color: #166534;
+  font-weight: 700;
+  text-align: center;
+
+}
+
+.modal-box .status-error {
+  padding: 8px 10px;
+
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+
+  color: #b91c1c;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 480px) {
+  .modal-box {
+    width: 100%;
+    padding: 15px;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    justify-content: center;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    width: 100%;
+    text-align: center;
+  }
+
+  .btn-close-modal {
+    right: 90%;
+  }
+}
+
+/* =========================================================
+   TANK RECOMMENDATIONS - SEND RESULTS
+   ========================================================= */
+
+.tank-recommendations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  margin: 14px 0;
+}
+
+
+/* =========================================================
+   GLOBAL DAILY RECOMMENDATION
+   ========================================================= */
+
+.daily-recommendation {
+  margin: 12px 0 14px;
+
+  padding: 11px 13px;
+
+  background: #edf9ff;
+  border: 1px solid #aad3fe;
+  border-right: 5px solid #1678f9;
+
+  border-radius: 9px;
+
+  color: #2704a6;
+}
+
+.daily-recommendation-title {
+  font-size: 0.82rem;
+  font-weight: bold;
+
+  margin-bottom: 3px;
+}
+
+.daily-recommendation-reason {
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+
+/* =========================================================
+   TANK RECOMMENDATION CARD
+   ========================================================= */
+
+.tank-recommendation-card {
+  background: #f8fafc;
+
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+
+  padding: 9px;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.recommendation-stage-fermenting{
+  border-right: #f97316 5px solid;
+  border-radius: 9px;
+  background-color: var(--stage-fermenting);
+}
+.recommendation-stage-cold{
+  background-color: var(--stage-cold);
+  border-right: #0284c7 5px solid;
+  border-radius: 9px;
+}
+.rec-label-fermenting{
+  color: #f97316;
+}
+.rec-label-cold{
+  color: #0284c7;
+}
+
+
+/* =========================================================
+   TANK HEADER
+   ========================================================= */
+   
+   .tank-recommendation-header {
+     display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+  
+  gap: 8px;
+  
+  margin-bottom: 7px;
+  
+  padding-bottom: 6px;
+  
+  border-bottom: 1px solid #e2e8f0;
+}
+.recomendations_cell{
+  border-bottom: transparent;
+}
+
+.tank-recommendation-header {
+  font-size: 0.82rem;
+  font-weight: bold;
+
+  color: #1e293b;
+}
+
+
+/* =========================================================
+   STAGE
+   ========================================================= */
+
+.tank-recommendation-stage {
+  display: inline-flex;
+
+  align-items: center;
+
+  padding: 3px 7px;
+
+  border-radius: 5px;
+
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+
+/*
+   Reuse the existing stage colors
+*/
+
+.tank-recommendation-stage.stage-fermenting,
+.tank-recommendation-stage.fermenting {
+  background: var(--stage-fermenting);
+  color: var(--stage-fermenting-text);
+}
+
+.tank-recommendation-stage.stage-cold,
+.tank-recommendation-stage.cold {
+  background: var(--stage-cold);
+  color: var(--stage-cold-text);
+}
+
+
+/* =========================================================
+   TANK RECOMMENDATIONS
+   ========================================================= */
+
+.tank-recommendations {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 5px;
+}
+
+
+/*
+   Smaller recommendation cards
+   because they are now inside a tank
+*/
+
+.tank-recommendations .recommendation {
+  padding: 7px 10px 7px 9px;
+
+  font-size: 0.76rem;
+
+  line-height: 1.4;
+
+  border-radius: 7px;
+}
+
+
+/* =========================================================
+   NO RECOMMENDATIONS
+   ========================================================= */
+
+.tank-no-recommendations {
+  padding: 7px 9px;
+
+  background: #f0fdf4;
+
+  border: 1px solid #bbf7d0;
+
+  border-radius: 7px;
+
+  color: #166534;
+
+  font-size: 0.75rem;
+
+  font-weight: 700;
+
+  text-align: center;
+}
+
+
+/* =========================================================
+   IMPORTANCE COLORS
+   ========================================================= */
+
+/* 0 - informational */
+
+.tank-recommendations .recommendation.level-0 {
+  background: #eff6ff;
+
+  border-color: #bfdbfe;
+
+  color: #1e40af;
+}
+.recommendation-cell.level-0{
+  color: #1e40af;
+}
+
+.tank-recommendations .recommendation.level-0::before {
+  background: #3b82f6;
+}
+
+
+/* 1 - low */
+
+.tank-recommendations .recommendation.level-1 {
+  background: #f0fdf4;
+
+  border-color: #bbf7d0;
+
+  color: #166534;
+}
+.recommendation-cell.level-1{
+  color: #166534;
+}
+
+.tank-recommendations .recommendation.level-1::before {
+  background: #22c55e;
+}
+
+
+/* 2 - medium */
+
+.tank-recommendations .recommendation.level-2 {
+  background: #fff7ed;
+
+  border-color: #fed7aa;
+
+  color: #c2410c;
+}
+.recommendation-cell.level-2{
+  color: #c2410c;
+}
+.tank-recommendations .recommendation.level-2::before {
+  background: #f97316;
+}
+
+
+/* 3 - high */
+
+.tank-recommendations .recommendation.level-3 {
+  background: #fef2f2;
+
+  border-color: #fecaca;
+
+  color: #b91c1c;
+}
+.recommendation-cell.level-3{
+  color: #b91c1c;
+}
+
+.tank-recommendations .recommendation.level-3::before {
+  background: #dc2626;
+}
+
+
+.stage-fermenting {
+  background: var(--stage-fermenting);
+}
+
+.stage-cold {
+  background: var(--stage-cold);
+}
+
+
+
+/* =========================================================
+   DESKTOP - WIDER MODAL
+   ========================================================= */
+
+@media (min-width: 800px) {
+
+  .modal-box {
+    width: 720px;
+
+    max-width: calc(100vw - 60px);
+
+    padding: 20px;
+  }
+
+}
+
+
+@media (min-width: 1200px) {
+
+  .modal-box {
+    width: 850px;
+  }
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 480px) {
+
+  .tank-recommendation-header {
+    align-items: flex-start;
+  }
+
+  .tank-recommendation-stage {
+    font-size: 0.62rem;
+  }
+
+  .tank-recommendations .recommendation {
+    font-size: 0.72rem;
+
+    padding: 7px 9px;
+  }
+
+}
+/* =========================================================
+   NOTE TO FERMENTOR
+   ========================================================= */
+
+.note-RowsBox {
+  width: 100%;
+  margin-top: 8px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.write-note-row {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  padding: 7px 9px;
+
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-right: 4px solid #cbd5e1;
+  border-radius: var(--radius);
+
+  box-shadow: var(--shadow-sm);
+
+  direction: rtl;
+
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.note-value-slot{
+  width: 50%;
+}
+
+.write-note-row.note-warm {
+  border-right-color: #f97316;
+  background: var(--stage-fermenting);
+}
+
+.write-note-row.note-cold {
+  border-right-color: #0284c7;
+  background: var(--stage-cold);
+}
+
+/* Label */
+
+.write-note-row > span {
+  flex: 0 0 auto;
+
+  font-size: 0.72rem;
+  font-weight: 700;
+
+  color: #475569;
+
+  white-space: nowrap;
+}
+
+.write-note-row.note-warm > span {
+  color: var(--stage-fermenting-text);
+}
+
+.write-note-row.note-cold > span {
+  color: var(--stage-cold-text);
+}
+
+/* =========================================================
+   SELECTS
+   ========================================================= */
+
+.write-note-row select {
+  height: 26px;
+
+  min-width: 80px;
+  flex: 0 0 auto;
+
+  padding: 2px 20px 2px 6px;
+
+  border: 1px solid #dbe3ec;
+  border-radius: 5px;
+
+  background-color: #ffffff;
+  color: #334155;
+
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+
+  cursor: pointer;
+  outline: none;
+
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.select-batch {
+  width: 130px;
+}
+
+.select-tank {
+  width: 130px;
+}
+
+.select-notetype {
+  width: 130px;
+}
+
+.write-note-row.note-warm select {
+  border-color: #fdba74;
+}
+
+.write-note-row.note-cold select {
+  border-color: #7dd3fc;
+}
+
+.write-note-row select:hover {
+  border-color: #94a3b8;
+}
+
+.write-note-row select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.1);
+}
+.note-style {
+  display: inline-block;
+  width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  color: #475569;
+}
+/* =========================================================
+   INPUT
+   ========================================================= */
+
+.write-note-row input {
+  height: 26px;
+
+  padding: 2px 6px;
+
+  border: 1px solid #dbe3ec;
+  border-radius: 5px;
+
+  background: #ffffff;
+  color: var(--text-main);
+
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+
+  outline: none;
+
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.write-note-row input[type="number"] {
+  width: 46px;
+  flex: 0 0 46px;
+  text-align: center;
+}
+
+.bucket_input {
+  width: 60px !important;
+  /* flex: 1 1 140px; */
+  /* min-width: 100px; */
+}
+.shortTxtInput{
+  width: 100%;
+  border: 2px solid;
+}
+
+.write-note-row.note-warm input {
+  border-color: #fdba74;
+}
+
+.write-note-row.note-cold input {
+  border-color: #7dd3fc;
+}
+
+.write-note-row input::placeholder {
+  color: #94a3b8;
+}
+
+.write-note-row input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.1);
+}
+
+.write-note-row input::-webkit-outer-spin-button,
+.write-note-row input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.write-note-row input[type="number"] {
+  appearance: textfield;
+}
+
+/* =========================================================
+   ADD ROW BUTTON
+   ========================================================= */
+
+.btn-add-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+
+  width: 100%;
+  padding: 6px;
+
+  border: 1.5px dashed #94a3b8;
+  border-radius: 6px;
+  background: transparent;
+
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+.btn-add-row:hover {
+  background: #eff6ff;
+  border-color: var(--primary);
+}
+
+.btn-add-row:active {
+  transform: scale(0.98);
+}
+
+/* =========================================================
+   REMOVE ROW BUTTON
+   ========================================================= */
+
+.btn-remove-row {
+  flex: 0 0 auto;
+
+  width: 18px;
+  height: 18px;
+  margin-right: auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: none;
+  border-radius: 50%;
+
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+
+  cursor: pointer;
+
+  transition: background-color 0.15s ease, transform 0.12s ease;
+}
+
+.btn-remove-row:hover {
+  background: rgba(220, 38, 38, 0.2);
+}
+
+.btn-remove-row:active {
+  transform: scale(0.9);
+}
+
+/* =========================================================
+   MOBILE - COMPACT
+   ========================================================= */
+
+@media (max-width: 600px) {
+  .note-value-slot{
+    margin-top: 3px;
+  width: 100%;
+}
+  .select-batch { width: 72px; }
+  .select-tank { width: 60px; }
+  .select-notetype { width: 100px; }
+  .note-style { width: 44px; }
+
+  .note-RowsBox {
+    gap: 4px;
+  }
+
+  .write-note-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+
+    padding: 5px 6px;
+    border-right-width: 3px;
+  }
+
+  .write-note-row > span:first-child {
+    display: none;
+  }
+
+  .write-note-row select {
+    flex: 1 1 70px;
+    min-width: 0;
+
+    height: 24px;
+    padding: 2px 16px 2px 4px;
+
+    font-size: 0.64rem;
+  }
+
+  .write-note-row input[type="number"] {
+    width: 40px;
+    flex: 0 0 40px;
+
+    height: 24px;
+    padding: 2px 3px;
+
+    font-size: 0.64rem;
+  }
+
+  .write-note-row input[type="text"] {
+    flex: 1 1 100%;
+
+    height: 24px;
+    padding: 2px 5px;
+
+    font-size: 0.64rem;
+  }
+
+  .write-note-row > span:not(:first-child) {
+    font-size: 0.6rem;
+  }
+
+  .btn-remove-row {
+    width: 16px;
+    height: 16px;
+    margin-right: 0;
+    margin-left: auto;
   }
 }

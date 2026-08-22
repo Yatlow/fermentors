@@ -14,27 +14,15 @@ type FermentorInfoBoxProps = {
         top: number;
         left: number;
     } | null;
-    specs:SpecChart
+    specs: SpecChart
 };
 
+type Recomendations = Awaited<ReturnType<typeof calcCelleringRecomendations>>;
 type Recommendation = {
     req: boolean;
     reason?: string;
     importance: number;
-};
-
-type Recomendations = {
-    requiresDailyActions:Recommendation;
-    lastMessurmentUpToDate:Recommendation;
-    requiresDryHop: Recommendation;
-    requiresPresureClose: Recommendation;
-    requiresWarmYeastDrop: Recommendation;
-    requiersYeastDropAfterCooling: Recommendation;
-    requiresCarbTest: Recommendation;
-    requiersDiacytelRest: Recommendation;
-    neglectedStatus: Recommendation;
-    requiresToCoolDown: Recommendation;
-    requiredPressureAdjustment: Recommendation;
+    display: boolean;
 };
 
 export default function FermentorInfoBox({
@@ -151,7 +139,12 @@ export default function FermentorInfoBox({
                 // -------------------------------------------------
                 // GET MEASUREMENTS
                 // -------------------------------------------------
-
+                if (!tank.stage) {
+                    setRecomendations(null);
+                    setError("לא ניתן לחשב המלצות: שלב המיכל אינו מוגדר");
+                    setLoading(false);
+                    return;
+                }
                 const data =
                     await getMeasurementsByBatch(
                         tank.batchNumber,
@@ -168,7 +161,8 @@ export default function FermentorInfoBox({
                         data,
                         tank.beerStyle,
                         tank.batchNumber,
-                        tank.brewDate,specs
+                        tank.brewDate, specs,
+                        tank.stage
                     );
 
                 setRecomendations(
@@ -209,7 +203,9 @@ export default function FermentorInfoBox({
     }, [
         tank.batchNumber,
         tank.beerStyle,
-        tank.brewDate
+        tank.brewDate,
+        tank.stage,
+        specs
     ]);
 
 
@@ -218,29 +214,36 @@ export default function FermentorInfoBox({
     // =========================================================
 
     const recommendationList: Recommendation[] =
-        recomendations
-            ? [
-                recomendations.requiresDailyActions,
-                recomendations.lastMessurmentUpToDate,
-                recomendations.requiresDryHop,
-                recomendations.requiresPresureClose,
-                recomendations.requiresWarmYeastDrop,
-                recomendations.requiersYeastDropAfterCooling,
-                recomendations.requiresCarbTest,
-                recomendations.requiersDiacytelRest,
-                recomendations.neglectedStatus,
-                recomendations.requiresToCoolDown,
-                recomendations.requiredPressureAdjustment
-            ]
-            : [];
+    recomendations
+        ? [
+            recomendations.requiresDailyActions,
+            recomendations.lastMessurmentUpToDate,
+            recomendations.requiresDryHop,
+            recomendations.requiresPresureClose,
+            recomendations.requiresWarmYeastDrop,
+            recomendations.requiersYeastDropAfterCooling,
+            recomendations.requiresCarbTest,
+            recomendations.requiersDiacytelRest,
+            recomendations.neglectedStatus,
+            recomendations.requiresToCoolDown,
+            recomendations.requiredPressureAdjustment
+        ]
+            .filter(Boolean)
+            .map((rec) => ({
+                req: Boolean(rec.req),
+                reason: rec.reason,
+                importance: rec.importance,
+                display: true,
+            }))
+        : [];
 
 
     const activeRecommendations =
         recommendationList
-            .filter(rec => rec.req)
+            .filter(rec => rec?.req)
             .sort(
                 (a, b) =>
-                    b.importance - a.importance
+                    b?.importance - a?.importance
             );
 
 

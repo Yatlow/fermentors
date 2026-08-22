@@ -5,7 +5,6 @@ import {
   type ChangeEvent,
 } from "react";
 
-import { getTankStage } from "../SERVICES/tankstage";
 import { updateTankStatus } from "../SERVICES/updateTank";
 import { isCarbonationOutOfRange, isPressureOutOfRange } from "../SERVICES/calculateCelleringRecomendations";
 
@@ -16,9 +15,7 @@ import type {
 
 import FermentorInfoBox from "./FermentorInfoBox";
 import type { SpecChart } from "../SERVICES/getSpecsFromFb";
-// ============================================================
-// PROPS
-// ============================================================
+
 
 type TankCardProps = {
   tank: Fermentor;
@@ -31,12 +28,6 @@ type TankCardProps = {
 };
 
 
-
-
-// ============================================================
-// STATE
-// ============================================================
-
 type TankState = {
   action: string | number;
 
@@ -46,9 +37,6 @@ type TankState = {
 };
 
 
-// ============================================================
-// COMPONENT
-// ============================================================
 export function getBrewAge(
   brewDate:
     | string
@@ -132,9 +120,6 @@ export default function TankCard({
   specs
 }: TankCardProps) {
 
-  // ==========================================================
-  // NORMALIZE PASIVATION DATE
-  // ==========================================================
 
   function normalizePasivationDate(
     value:
@@ -148,11 +133,6 @@ export default function TankCard({
     if (!value) {
       return "";
     }
-
-
-    // --------------------------------------------------------
-    // JavaScript Date
-    // --------------------------------------------------------
 
     if (value instanceof Date) {
 
@@ -397,20 +377,6 @@ export default function TankCard({
   ]);
   
 
-
-  // ==========================================================
-  // DISPLAY TANK
-  // ==========================================================
-
-  const displayTank = {
-    ...tank,
-
-    action:
-      state.action,
-
-    pasivationDate:
-      state.pasivationDate,
-  };
   const isCLT = Number(tank.tankNumber) === 1;
 
 
@@ -426,11 +392,7 @@ export default function TankCard({
       icon: "🧼",
       className: "clt",
     }
-    : getTankStage(
-      displayTank as Parameters<
-        typeof getTankStage
-      >[0]
-    );
+    :{... tank.stage};
 
   // ==========================================================
   // TANK ID
@@ -924,11 +886,6 @@ export default function TankCard({
       daysSincePasivation
       : null;
 
-
-  // ==========================================================
-  // PASIVATION STATUS
-  // ==========================================================
-
   let pasivationClass =
     "pasivation-none";
 
@@ -1005,15 +962,6 @@ export default function TankCard({
     }
   }
 
-
-  // ==========================================================
-  // EMPTY TANK SELECT
-  //
-  // ONLY:
-  // ריק
-  // נקי
-  // מחוטא
-  // ==========================================================
 
   const showEmptyTankSelect =
     !isCLT &&

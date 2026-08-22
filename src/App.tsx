@@ -6,21 +6,19 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { getTankStage } from "./SERVICES/tankstage"
-import TankCard from "./components/TankCard";
+import { getTankStage, type TankStageInfo } from "./SERVICES/tankstage"
 
 import "./App.css";
 import shpiro from "./assets/shpiro.jpeg";
-import { writeReadingsToSheets } from "./SERVICES/writeReadingToSheets";
-import {
-  getSpecsFromFb,
-  type SpecChart
-} from "../src/SERVICES/getSpecsFromFb";
+import DashboardHeader from "./components/DashboardHeader";
+import Dashboard from "./components/Dashboard";
+import DailyPressureAndTemp from "./components/DailyPressureAndTemp";
+import SendMessurmentsHeader from "./components/SendMessurmentsHeader";
+import DailyPlatoPH from "./components/DailyPlatoPH";
+import NoteToFermentor from "./components/NoteToFermentor";
+import PackagingForm from "./components/PackagingForm";
 
 
-// ============================================================
-// TYPES
-// ============================================================
 
 export type FirestoreTimestamp = {
   seconds?: number;
@@ -60,12 +58,14 @@ export type Fermentor = {
     pressure?: string | number | null;
     carbonation?: string | number | null;
     volume?: string | number | null;
+    notes?: string | null;
   } | null;
 
   [key: string]: unknown;
+  stage?: TankStageInfo;
 };
 
-type NewReading = {
+export type NewReading = {
   temp?: string | number | null;
   plato?: string | number | null;
   pH?: string | number | null;
@@ -73,6 +73,9 @@ type NewReading = {
   carbonation?: string | number | null;
   volume?: string | number | null;
   notes?: string | null;
+  isEmpty?: boolean;
+  kegs?: string | number;
+  crates?: string | number;
 };
 export type ReadingToSend = NewReading & {
   tankId: string;
@@ -97,16 +100,16 @@ function App() {
     useState<string[]>(["הכל"]);
 
   const [selectedWrites, setSelectedWrites] =
-    useState<string>("לחץ");
+    useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
 
   const [newReadings, setNewReadings] =
     useState<Record<string, NewReading>>({});
 
-  const [specs, setSpecs] = useState<SpecChart | null>(null);
+  const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
 
-  // ==========================================================
-  // LOAD FERMENTORS
-  // ==========================================================
+
+
   useEffect(() => {
     const fermentorsRef = collection(db, "fermentors");
 
@@ -154,119 +157,44 @@ function App() {
     return () => unsubscribe();
   }, []);
   useEffect(() => {
+    if (brews.length === 0) return;
 
-    async function loadSpecs() {
+    // אם כבר לכולם יש stage מחושב (למשל אחרי שהעשרנו בעצמנו), לא לרוץ שוב
+    const needsStage = brews.some((tank) => tank.stage === undefined);
+    if (!needsStage) return;
 
-      try {
+    let cancelled = false;
 
-        const data = await getSpecsFromFb();
-
-        setSpecs(data);
-
-      } catch (error) {
-
-        console.error(
-          "Failed to load specs:",
-          error
-        );
-
-      }
-
-    }
-
-    loadSpecs();
-
-  }, []);
-
-  // ==========================================================
-  // UPDATE PASIVATION DATE
-  // ==========================================================
-
-  const handleUpdatePasivation = async (
-    tankId: string,
-    newDate: string
-  ): Promise<void> => {
-    try {
-      const tankRef = doc(
-        db,
-        "fermentors",
-        tankId
+    (async () => {
+      const enriched = await Promise.all(
+        brews.map(async (tank) => {
+          const stage = await getTankStage(
+            tank as Parameters<typeof getTankStage>[0]
+          ).catch(() => undefined);
+          return { ...tank, stage };
+        })
       );
 
-      await updateDoc(tankRef, {
-        pasivationDate: newDate,
-      });
-    } catch (error) {
-      console.error(
-        "Error updating pasivation date:",
-        error
-      );
-    }
-  };
-
-  const handleStyleToggle = (style: string): void => {
-    if (style === "הכל") {
-      setSelectedStyles(["הכל"]);
-      return;
-    }
-
-    setSelectedStyles((prev) => {
-      let nextState = prev.includes("הכל")
-        ? []
-        : [...prev];
-
-      if (nextState.includes(style)) {
-        nextState = nextState.filter(
-          (s) => s !== style
-        );
-      } else {
-        nextState.push(style);
+      if (!cancelled) {
+        setBrews(enriched);
       }
+    })();
 
-      return nextState.length === 0
-        ? ["הכל"]
-        : nextState;
+    return () => {
+      cancelled = true;
+    };
+  }, [brews]);
+
+
+  const statusCounts = useMemo<StatusCounts>(() => {
+    const counts: StatusCounts = {};
+    brews.forEach((tank) => {
+      if (Number(tank.tankNumber) === 1) return;
+      const status = tank.stage?.name || "לא ידוע";
+      counts[status] = (counts[status] || 0) + 1;
     });
-  };
-  // ==========================================================
-  // STATUS COUNTS
-  // ==========================================================
-
-  const statusCounts =
-    useMemo<StatusCounts>(() => {
-      const counts: StatusCounts = {};
-
-      brews.forEach((tank) => {
-        /*
-         * tankstage.ts has its own Tank type.
-         * The actual Firebase object is compatible at runtime.
-         */
-        if (Number(tank.tankNumber) === 1) {
-          return;
-        }
-        const stageInfo =
-          getTankStage(
-            tank as Parameters<
-              typeof getTankStage
-            >[0]
-          );
-
-        const status =
-          stageInfo?.name ||
-          "לא ידוע";
-
-        counts[status] =
-          (counts[status] || 0) + 1;
-      });
-
-      return counts;
-    }, [brews]);
-
-
-
-  // ==========================================================
-  // STATUS ORDER
-  // ==========================================================
+    return counts;
+  }, [brews]);
 
   const statuses =
     useMemo<string[]>(() => {
@@ -296,45 +224,30 @@ function App() {
       ];
     }, [statusCounts]);
 
+  const handleUpdatePasivation: (
+    tankId: string,
+    newDate: string
+  ) => Promise<void> = async (
+    tankId,
+    newDate
+  ) => {
+      try {
+        const tankRef = doc(
+          db,
+          "fermentors",
+          tankId
+        );
 
-
-
-  // ==========================================================
-  // STATUS FILTER
-  // ==========================================================
-
-
-
-  const handleStatusToggle = (
-    status: string
-  ): void => {
-    if (status === "הכל") {
-      setSelectedStatuses(["הכל"]);
-      return;
-    }
-
-    setSelectedStatuses((prev) => {
-      let nextState =
-        prev.includes("הכל")
-          ? []
-          : [...prev];
-
-      if (
-        nextState.includes(status)
-      ) {
-        nextState =
-          nextState.filter(
-            (s) => s !== status
-          );
-      } else {
-        nextState.push(status);
+        await updateDoc(tankRef, {
+          pasivationDate: newDate,
+        });
+      } catch (error) {
+        console.error(
+          "Error updating pasivation date:",
+          error
+        );
       }
-
-      return nextState.length === 0
-        ? ["הכל"]
-        : nextState;
-    });
-  };
+    };
 
   const updateReading = (
     tankId: string,
@@ -349,40 +262,9 @@ function App() {
       },
     }));
   };
-  const handleSendReadings = async () => {
-    const readingsToSend = brews
-      .filter((fv) => Number(fv.tankNumber) !== 1)
-      .map((fv) => {
-        const reading = newReadings[fv.id] ?? {};
 
-        return {
-          tankId: fv.id,
-          ...reading,
-          sheetUrl: fv.sheetUrl ?? null,
-        };
-      })
-      .filter(
-        (reading) =>
-          reading.temp !== undefined ||
-          reading.pressure !== undefined ||
-          reading.pH !== undefined ||
-          reading.plato !== undefined ||
-          reading.carbonation !== undefined ||
-          reading.notes !== undefined
-      );
-    // console.log(readingsToSend)
-    try {
-      await writeReadingsToSheets(readingsToSend);
 
-      setNewReadings({});
-    } catch (error) {
-      console.error("Failed to send readings:", error);
-    } setNewReadings({})
 
-  }
-  // ==========================================================
-  // FILTERED TANKS
-  // ==========================================================
   const totalVolumes = useMemo<Record<string, number>>(() => {
     const vols: Record<string, number> = {};
 
@@ -399,49 +281,20 @@ function App() {
 
   const filteredBrews = useMemo<Fermentor[]>(() => {
     return brews.filter((tank) => {
-
-      // מיכל 1 מוצג רק כאשר לא נבחר שום פילטר
       if (Number(tank.tankNumber) === 1) {
-        return (
-          selectedStatuses.includes("הכל") &&
-          selectedStyles.includes("הכל")
-        );
+        return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
       }
-
-      // ========================================================
-      // STATUS
-      // ========================================================
-
-      const stageInfo = getTankStage(
-        tank as Parameters<typeof getTankStage>[0]
-      );
 
       const matchesStatus =
         selectedStatuses.includes("הכל") ||
-        (
-          stageInfo?.name !== undefined &&
-          selectedStatuses.includes(stageInfo.name)
-        );
+        (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
 
-      // ========================================================
-      // STYLE
-      // ========================================================
-
-      const style = String(
-        tank.beerStyle ?? ""
-      ).trim();
-
-      const matchesStyle =
-        selectedStyles.includes("הכל") ||
-        selectedStyles.includes(style);
+      const style = String(tank.beerStyle ?? "").trim();
+      const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
 
       return matchesStatus && matchesStyle;
     });
-  }, [
-    brews,
-    selectedStatuses,
-    selectedStyles,
-  ]);
+  }, [brews, selectedStatuses, selectedStyles]);
 
   const totalTanks = brews.filter(
     (tank) => Number(tank.tankNumber) !== 1
@@ -450,9 +303,8 @@ function App() {
     filteredBrews.filter(
       (tank) => Number(tank.tankNumber) !== 1
     ).length;
-  // ==========================================================
-  // LOADING
-  // ==========================================================
+
+  // לדוגמה, איפה שכרגע יש: setBrews(fetchedTanks)
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -463,9 +315,6 @@ function App() {
     );
   }
 
-  // ==========================================================
-  // RENDER
-  // ==========================================================
 
   return (
     <div>
@@ -484,98 +333,62 @@ function App() {
             <div className="views-box">
               <div className={`views-item ${selectedView === "דאשבורד"
                 ? "active" : ""}`}
-                onClick={() => setSelectedView("דאשבורד")}
+                onClick={() => {
+                  setSelectedView("דאשבורד")
+                  setSelectedStatuses(["הכל"])
+                  setSelectedStyles(["הכל"])
+                  setSelectedWrites("לחץ")
+                  setNewReadings({})
+                }
+                }
               >
                 דאשבורד
               </div>
               <div className={`views-item ${selectedView === "רישום"
                 ? "active" : ""}`}
-                onClick={() => setSelectedView("רישום")}
+                onClick={() => {
+                  setSelectedView("רישום")
+                  setSelectedStatuses(["הכל"])
+                  setSelectedStyles(["הכל"])
+                  setSelectedWrites("לחץ")
+                  setNewReadings({})
+                }
+                }
               >
-                רישום פעולות סלרינג
+                פעולות סלרינג
               </div>
-              <div className={`views-item ${selectedView === "דוחות"
+              {/* <div className={`views-item ${selectedView === "דוחות"
                 ? "active" : ""}`}
-                onClick={() => setSelectedView("דוחות")}
+                onClick={() => {
+                setSelectedView("דוחות")
+               setSelectedStatuses(["הכל"])
+setSelectedStyles(["הכל"])
+setSelectedWrites("לחץ")
+setNewReadings({}) 
+              }}
               >
                 דוחות
               </div>
               <div className={`views-item ${selectedView === "ניהול" ?
                 "active" : ""}`}
-                onClick={() => setSelectedView("ניהול")}
+                onClick={() => {
+                setSelectedView("ניהול")
+               //setSelectedStatuses(["הכל"])
+setSelectedStyles(["הכל"])
+setSelectedWrites("לחץ")
+setNewReadings({}) 
+              }}
               >
                 פעולות ניהול
-              </div>
+              </div> */}
             </div>
           </div>
 
 
           {selectedView === "דאשבורד" &&
-            <div className="status-filter">
-
-              <button
-                type="button"
-                className={`status-filter-button ${selectedStatuses.includes(
-                  "הכל"
-                )
-                  ? "active"
-                  : ""
-                  }`}
-                onClick={() =>
-                  handleStatusToggle(
-                    "הכל"
-                  )
-                }
-              >
-
-                <span>
-                  הכל
-                </span>
-
-                <span className="status-filter-count">
-                  {totalTanks}
-                </span>
-
-              </button>
-
-
-              {statuses.map(
-                (status) => (
-
-                  <button
-                    key={status}
-                    type="button"
-                    className={`status-filter-button ${selectedStatuses.includes(
-                      status
-                    )
-                      ? "active"
-                      : ""
-                      }`}
-                    onClick={() =>
-                      handleStatusToggle(
-                        status
-                      )
-                    }
-                  >
-
-                    <span>
-                      {status}
-                    </span>
-
-                    <span className="status-filter-count">
-                      {
-                        statusCounts[
-                        status
-                        ]
-                      }
-                    </span>
-
-                  </button>
-
-                )
-              )}
-
-            </div>
+            <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses}
+              selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses}
+            ></DashboardHeader>
           }
 
 
@@ -587,10 +400,12 @@ function App() {
                   ? "active"
                   : ""
                   }`}
-                onClick={() =>
+                onClick={() => {
                   setSelectedWrites(
                     "לחץ"
                   )
+                  setNewReadings({})
+                }
                 }
               >
                 <span>
@@ -603,10 +418,12 @@ function App() {
                   ? "active"
                   : ""
                   }`}
-                onClick={() =>
+                onClick={() => {
                   setSelectedWrites(
                     "חם"
                   )
+                  setNewReadings({})
+                }
                 }
               >
                 <span>
@@ -615,34 +432,38 @@ function App() {
               </button>
               <button
                 type="button"
-                className={`status-filter-button ${selectedWrites === "אריזה"
-                  ? "active"
-                  : ""
-                  }`}
-                onClick={() =>
-                  setSelectedWrites(
-                    "אריזה"
-                  )
-                }
-              >
-                <span>
-                  דיווח אריזה
-                </span>
-              </button>
-              <button
-                type="button"
                 className={`status-filter-button ${selectedWrites === "פעולות"
                   ? "active"
                   : ""
                   }`}
-                onClick={() =>
+                onClick={() => {
                   setSelectedWrites(
                     "פעולות"
                   )
+                  setNewReadings({})
+                }
                 }
               >
                 <span>
                   דיווח פעולות סלרינג
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`status-filter-button ${selectedWrites === "אריזה"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedWrites(
+                    "אריזה"
+                  )
+                  setNewReadings({})
+                }
+                }
+              >
+                <span>
+                  דיווח אריזה
                 </span>
               </button>
             </div>
@@ -652,231 +473,57 @@ function App() {
 
       </header>
       {selectedView === "דאשבורד" &&
-        <div className="dashboard">
-
-
-
-
-          {/* FILTER INFO */}
-
-          <div className="dashboard-filter-info">
-
-            <span>
-              מציג מסננים:
-            </span>
-
-            <strong>
-              {selectedStatuses.includes(
-                "הכל"
-              )
-                ? "הכל"
-                : selectedStatuses.join(
-                  ", "
-                )}
-            </strong>
-
-            <span className="filter-count-badge">
-              · {filteredTankCount} מיכלים
-            </span>
-
-          </div>
-          <div className="volumeCounter">
-
-            <span>
-              סיכום נפחים במיכלים:
-            </span>
-
-            {Object.entries(totalVolumes).map(
-              ([style, volume]) => (
-                <div
-                  key={style}
-                  className={`volume-filter ${selectedStyles.includes(style)
-                    ? "active"
-                    : ""
-                    }`}
-                  onClick={() =>
-                    handleStyleToggle(style)
-                  }
-                >
-                  <span>{style}:</span>{" "}
-                  {volume} ל'
-                </div>
-              )
-            )}
-
-            <div
-              className={`totalVolume ${selectedStyles.includes("הכל")
-                ? "active"
-                : ""
-                }`}
-              onClick={() =>
-                handleStyleToggle("הכל")
-              }
-            >
-              סה״כ:{" "}
-              {Object.values(totalVolumes).reduce(
-                (total, volume) => total + volume,
-                0
-              )}{" "}
-              ל'
-            </div>
-
-          </div>
-
-          {/* TANK GRID */}
-
-          <div className="tank-grid">
-
-            {filteredBrews.map(
-              (fermentor) => (
-
-                <TankCard
-                  key={fermentor.id}
-                  tank={fermentor}
-                  onUpdatePasivation={
-                    handleUpdatePasivation
-                  }
-                  specs={specs}
-                />
-
-              )
-            )}
-
-          </div>
-
-
-          {/* NO RESULTS */}
-
-          {filteredBrews.length ===
-            0 && (
-
-              <div className="no-tanks">
-
-                <p>
-                  אין מיכלים העונים על
-                  הסינון שנבחר
-                </p>
-
-              </div>
-
-            )}
-
-        </div>}
+        <Dashboard
+          filteredBrews={filteredBrews}
+          filteredTankCount={filteredTankCount}
+          handleUpdatePasivation={handleUpdatePasivation}
+          selectedStatuses={selectedStatuses}
+          selectedStyles={selectedStyles}
+          setSelectedStyles={setSelectedStyles}
+          totalVolumes={totalVolumes}
+        ></Dashboard>
+      }
 
       {selectedView === "רישום" &&
         <>
-          <div className="volumeCounter">
-            <div className="send-messurment"
-              onClick={() => handleSendReadings()}
-            >
-              שלח נתוני מדידה
-            </div>
-
-          </div>
-
+          <SendMessurmentsHeader
+            brews={brews}
+            newReadings={newReadings}
+            setNewReadings={setNewReadings}
+            reportName={selectedWrites}
+            hasIncompleteNotes={hasIncompleteNotes}
+            onResetAll={() => setResetKey((k) => k + 1)}
+          ></SendMessurmentsHeader>
           {selectedWrites === "לחץ" && (
-            <div className="write-messurmant">
-              <div className="measurement-grid">
-                {brews
-                  .filter((fv) => Number(fv.tankNumber) !== 1)
-                  .map((fv) => {
-                    const reading = newReadings[fv.id] ?? {};
-                    const stageInfo = getTankStage(
-                      fv as Parameters<typeof getTankStage>[0]
-                    );
-                    const stageClass = stageInfo?.className ?? "";
-                    return (
-                      <div className={`measurement-card ${stageClass}`} key={fv.id}>
-                        <div className="measurement-header">
-                          <div className="measurement-tank">
-                            מיכל {fv.tankNumber}
-                          </div>
-                          {Number(fv.action) === 1 &&
-                            <div className="measurement-style">
-                              {fv.beerStyle ?? "-"}
-                            </div>}
-                        </div>
-
-
-                        <div className="measurement-batch">
-                          {Number(fv.action) === 1 ? `אצווה #${fv.batchNumber ?? "-"}` : `מיכל ${stageInfo.name}`}
-                        </div>
-
-                        <div className="measurement-last">
-                          <span>קריאה קודמת- </span>
-                          <span>
-                            טמפ׳:{" "}
-                            <strong>
-                              {Number(fv.action) === 1 ? fv.currentData?.temp ?? "-" : "-"}°
-                            </strong>
-                          </span>
-
-                          <span>
-                            לחץ:{" "}
-                            <strong>
-                              {Number(fv.action) === 1 ? fv.currentData?.pressure ?? "-" : "-"}
-                            </strong>
-                          </span>
-                        </div>
-
-                        <div className="measurement-inputs">
-
-                          <div className="measurement-input">
-                            <input
-                              min={0}
-                              max={100}
-                              type="number"
-                              value={reading.temp ?? ""}
-                              placeholder={Number(fv.action) !== 1 ? "  /" : "טמפ׳"}
-                              disabled={Number(fv.action) !== 1}
-                              onChange={(e) =>
-                                updateReading(
-                                  fv.id,
-                                  "temp",
-                                  e.target.value
-                                )
-                              }
-                            />
-                            <span>°</span>
-                          </div>
-
-                          <div className="measurement-input">
-                            <input
-                              min={0}
-                              max={3}
-                              type="number"
-                              value={reading.pressure ?? ""}
-                              placeholder={Number(fv.action) !== 1 ? "  /" : "לחץ"}
-                              disabled={Number(fv.action) !== 1}
-                              onChange={(e) =>
-                                updateReading(
-                                  fv.id,
-                                  "pressure",
-                                  e.target.value
-                                )
-                              }
-                            />
-                            <span>bar</span>
-                          </div>
-
-                        </div>
-
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
+            <DailyPressureAndTemp
+              brews={brews}
+              newReadings={newReadings}
+              updateReading={updateReading}
+            ></DailyPressureAndTemp>
           )}
           {selectedWrites === "חם" &&
-            <div className="write-messurmant">
-              סוכר וPH
-            </div>
+            <DailyPlatoPH
+              brews={brews}
+              newReadings={newReadings}
+              updateReading={updateReading}
+            ></DailyPlatoPH>
           }
           {selectedWrites === "פעולות" &&
-            <div className="write-messurmant">
-              גיזוז.שמרים.העלאת.הורדת.לחץ.דיאציטיל.כיוון פורק
-            </div>
-          };
+            <NoteToFermentor
+              brews={brews}
+              updateReading={updateReading}
+              onValidityChange={setHasIncompleteNotes}
+              key={resetKey}
+            >
+            </NoteToFermentor>}
+          {selectedWrites === "אריזה" &&
+            <PackagingForm
+              brews={brews}
+              updateReading={updateReading}
+              onValidityChange={setHasIncompleteNotes}
+              key={resetKey}
+            >
+            </PackagingForm>}
         </>
       }
     </div>

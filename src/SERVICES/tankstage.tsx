@@ -1,3 +1,5 @@
+import { getMeasurementsByBatch } from "./gettAllDataByBatch";
+
 export const TANK_STAGES = {
   0: "BREWING",
   1: "FERMENTING",
@@ -60,7 +62,7 @@ type Tank = {
   };
 };
 
-export function getTankStage(tank: Tank): TankStageInfo {
+export async function getTankStage(tank: Tank): Promise<TankStageInfo> {
   // console.log(tank)
   if (!tank.batchNumber) {
     return STAGE_INFO[3];
@@ -87,8 +89,19 @@ export function getTankStage(tank: Tank): TankStageInfo {
   if (tank.currentData?.temp && !Number.isNaN(temperature) && temperature < 9) {
     return STAGE_INFO[2];
   }
+  if (tank.batchNumber) {
+    const measurements = await getMeasurementsByBatch(Number(tank.batchNumber))
 
-  if (tank.currentData?.temp===null || (!Number.isNaN(temperature) && temperature > 8)) {
+    const cooled =measurements.some(
+        measurement =>
+            String(measurement.notes || "").includes("קירור")
+    );
+    if (cooled) {
+      return STAGE_INFO[2];
+    }
+  }
+
+  if (tank.currentData?.temp === null || (!Number.isNaN(temperature) && temperature > 8)) {
     return STAGE_INFO[1];
   }
 

@@ -1,6 +1,15 @@
-import type { ReadingToSend } from "../App";
+export type PackagingEntry = {
+    tankId: string | number;
+    tankNumber?: string | number;
+    sheetUrl: string | null;
+    isEmpty?: boolean;
+    kegs?: string | number;
+    crates?: string | number; // בפועל: כמות בקבוקים
+    totalLiters?: Number;
+    shrinkagePercent?: Number;
+};
 
-export type writeReadingResult = {
+export type updatePackagingResult = {
     success: boolean;
     tankId: string | number;
     message?: string;
@@ -11,16 +20,23 @@ export type writeReadingResult = {
 const GOOGLE_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
 
-
-export async function writeReadingsToSheets(
-    readings: ReadingToSend[]
+export async function updatePackagingInfo(
+    entries: PackagingEntry[]
 ) {
     const results = await Promise.all(
-        readings.map(async (reading) => {
+        entries.map(async (entry) => {
             const payload = {
-                ...reading,
-                action: "addFermentationMeasurement",
+                sheetUrl: entry.sheetUrl,
+                isEmpty: entry.isEmpty,
+                kegs: entry.kegs,
+                crates: entry.crates,
+                totalLiters: entry.totalLiters,
+                shrinkagePercent: entry.shrinkagePercent,
+                action: "updatePackagingInfo",
+
+
             };
+
             const response = await fetch(GOOGLE_SCRIPT_URL, {
                 method: "POST",
                 headers: {
@@ -45,21 +61,20 @@ export async function writeReadingsToSheets(
                 throw new Error(
                     parsed.error ||
                     parsed.message ||
-                    "Tank update failed"
+                    "Packaging update failed"
                 );
             }
 
-            const flat: writeReadingResult = {
+            const flat: updatePackagingResult = {
                 ...(parsed.result ?? {}),
                 success: parsed.success,
-                tankId: reading.tankId,
-                tankNumber: (reading as any).tankNumber,
+                tankId: entry.tankId,
+                tankNumber: entry.tankNumber,
             };
-            
 
             console.log(
-                "Tank successfully updated:",
-                reading.tankId
+                "Tank packaging successfully updated:",
+                entry.tankId
             );
 
             return flat;
