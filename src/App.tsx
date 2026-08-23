@@ -5,7 +5,11 @@ import {
   doc,
   updateDoc,
 } from "firebase/firestore";
-import { db } from "./firebase";
+// import { onAuthStateChanged } from "firebase/auth";
+// import { auth, db, googleProvider } from "./firebase";
+// import { auth, db } from "./firebase";
+import {  db } from "./firebase";
+
 import { getTankStage, type TankStageInfo } from "./SERVICES/tankstage"
 
 import "./App.css";
@@ -17,6 +21,9 @@ import SendMessurmentsHeader from "./components/SendMessurmentsHeader";
 import DailyPlatoPH from "./components/DailyPlatoPH";
 import NoteToFermentor from "./components/NoteToFermentor";
 import PackagingForm from "./components/PackagingForm";
+// import { signOut } from "firebase/auth";
+// import { signInWithRedirect, signOut } from "firebase/auth";
+import { getSpecsFromFb, type SpecChart } from "./SERVICES/getSpecsFromFb";
 
 
 
@@ -76,6 +83,9 @@ export type NewReading = {
   isEmpty?: boolean;
   kegs?: string | number;
   crates?: string | number;
+  refreshTank?: boolean;      // מהתשובה הקודמת (חלק א')
+  dryHopGrams?: number;       // חדש
+  dryHopType?: string;
 };
 export type ReadingToSend = NewReading & {
   tankId: string;
@@ -107,6 +117,7 @@ function App() {
 
   const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
   const [resetKey, setResetKey] = useState(0);
+  const [specs, setSpecs] = useState<SpecChart | null>(null);
 
 
 
@@ -185,7 +196,17 @@ function App() {
       cancelled = true;
     };
   }, [idsNeedingStage]);
-
+  useEffect(() => {
+    async function loadSpecs() {
+      try {
+        const data = await getSpecsFromFb();
+        setSpecs(data);
+      } catch (error) {
+        console.error("Failed to load specs:", error);
+      }
+    }
+    loadSpecs();
+  }, []);
 
   const statusCounts = useMemo<StatusCounts>(() => {
     const counts: StatusCounts = {};
@@ -305,7 +326,16 @@ function App() {
       (tank) => Number(tank.tankNumber) !== 1
     ).length;
 
-  // לדוגמה, איפה שכרגע יש: setBrews(fetchedTanks)
+  // function login(){
+  //   signInWithRedirect(auth,googleProvider).then((result)=>{
+  //     console.log("logged in:",result.user)
+  //   }).catch((e)=>console.log(e))
+  // }
+
+  // function logout() {
+  //   signOut(auth)
+  // }
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -515,6 +545,7 @@ setNewReadings({})
               updateReading={updateReading}
               onValidityChange={setHasIncompleteNotes}
               key={resetKey}
+              specs={specs}
             >
             </NoteToFermentor>}
           {selectedWrites === "אריזה" &&

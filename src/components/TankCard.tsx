@@ -15,6 +15,7 @@ import type {
 
 import FermentorInfoBox from "./FermentorInfoBox";
 import type { SpecChart } from "../SERVICES/getSpecsFromFb";
+import QuickTankReportBox from "./QuickTankReportBox";
 
 
 type TankCardProps = {
@@ -24,7 +25,7 @@ type TankCardProps = {
     tankId: string,
     newDate: string
   ) => Promise<void>;
-  specs:SpecChart
+  specs: SpecChart
 };
 
 
@@ -113,6 +114,8 @@ export function getBrewAge(
     (1000 * 60 * 60 * 24)
   );
 }
+
+
 
 export default function TankCard({
   tank,
@@ -344,14 +347,34 @@ export default function TankCard({
       editPasivationDate:
         false,
     });
-  const infoButtonRef = useRef<HTMLButtonElement | null>(null);
-
   const [infoPosition, setInfoPosition] = useState<{
     top: number;
     left: number;
   } | null>(null);
+  const infoButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [showQuickReport, setShowQuickReport] = useState(false);
+  const [quickReportPosition, setQuickReportPosition] = useState<{ top: number; left: number } | null>(null);
 
+  function computePopupPosition(rect: DOMRect): { top: number; left: number } {
+    const popupWidth = 330;
+    const gap = 10;
+    const margin = 12;
 
+    let left = rect.left - popupWidth - gap;
+    if (left < margin) left = rect.right + gap;
+    if (left + popupWidth > window.innerWidth - margin) {
+      left = window.innerWidth - popupWidth - margin;
+    }
+
+    let top = rect.top - 10;
+    const estimatedHeight = 420;
+    if (top + estimatedHeight > window.innerHeight - margin) {
+      top = window.innerHeight - estimatedHeight - margin;
+    }
+    if (top < margin) top = margin;
+
+    return { top, left };
+  }
   // ==========================================================
   // SYNC FIREBASE
   // ==========================================================
@@ -375,7 +398,7 @@ export default function TankCard({
     tank.action,
     tank.pasivationDate,
   ]);
-  
+
 
   const isCLT = Number(tank.tankNumber) === 1;
 
@@ -392,7 +415,7 @@ export default function TankCard({
       icon: "🧼",
       className: "clt",
     }
-    :{... tank.stage};
+    : { ...tank.stage };
 
   // ==========================================================
   // TANK ID
@@ -404,16 +427,6 @@ export default function TankCard({
       tank.uid ??
       tank.id
     );
-
-
-  // ==========================================================
-  // STATUS SELECT
-  //
-  // ONLY:
-  // 3 = ריק
-  // 4 = נקי
-  // 5 = מחוטא
-  // ==========================================================
 
 
   const handleOpenInfo = (
@@ -540,12 +553,7 @@ export default function TankCard({
         previousState
       );
     }
-  }
-
-
-  // ==========================================================
-  // PASIVATION DATE CHANGE
-  // ==========================================================
+  };
 
   async function handlePasivationDateChange(
     event: ChangeEvent<HTMLInputElement>
@@ -613,12 +621,15 @@ export default function TankCard({
         previousState
       );
     }
-  }
+  };
 
+  const handleOpenQuickReport = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setQuickReportPosition(computePopupPosition(rect));
+    setShowQuickReport(true);
+  };
 
-  // ==========================================================
-  // PARSE PASIVATION DATE
-  // ==========================================================
 
   function parsePasivationDate(
     value:
@@ -818,10 +829,6 @@ export default function TankCard({
   }
 
 
-  // ==========================================================
-  // DAYS SINCE PASIVATION
-  // ==========================================================
-
   function getDaysSinceDate(
     date: Date | null
   ): number | null {
@@ -861,9 +868,6 @@ export default function TankCard({
   }
 
 
-  // ==========================================================
-  // CALCULATIONS
-  // ==========================================================
 
   const brewAge =
     getBrewAge(
@@ -991,10 +995,7 @@ export default function TankCard({
       : {
         outOfSpec: false,
         importance: 1,
-      };  
-  // ==========================================================
-  // RENDER
-  // ==========================================================
+      };
   return (
     <>
       {(showInfo && Number(tank.tankNumber) !== 1) && (
@@ -1006,6 +1007,15 @@ export default function TankCard({
             setInfoPosition(null);
           }}
           position={infoPosition}
+        />
+      )}
+
+      {showQuickReport && Number(tank.tankNumber) !== 1 && (
+        <QuickTankReportBox
+          tank={tank}
+          specs={specs}
+          position={quickReportPosition}
+          onClose={() => { setShowQuickReport(false); setQuickReportPosition(null); }}
         />
       )}
       <div
@@ -1072,6 +1082,9 @@ export default function TankCard({
                   onClick={handleOpenInfo}
                 >
                   i
+                </button>
+                <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
+                  ⚐
                 </button>
               </span>
             }

@@ -7,6 +7,8 @@ import { getSpecsFromFb, type SpecChart } from "../SERVICES/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../SERVICES/gettAllDataByBatch";
 import { updatePackagingInfo } from "../SERVICES/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../SERVICES/resolveFinalPackagingTotal";
+import { refreshSingleTank } from "../SERVICES/refreshSingleTank";
+import { assignDryHopToHopsTable } from "../SERVICES/assignDryHop";
 
 export type SendMessurmentsHeaderProps = {
     brews: Fermentor[],
@@ -318,6 +320,33 @@ export default function SendMessurmentsHeader({
             const res = await writeReadingsToSheets(readingsToSend);
             setSendResults(res);
 
+            if (reportName === "פעולות") {
+                const dryHopEntries = readingsToSend.filter(
+                    (r) => (r as any).dryHopGrams && (r as any).dryHopType
+                );
+
+                if (dryHopEntries.length > 0) {
+                    await Promise.all(
+                        dryHopEntries.map(async (r) => {
+                            if (!r.sheetUrl) return;
+                            try {
+                                await assignDryHopToHopsTable(
+                                    String(r.sheetUrl),
+                                    Number((r as any).dryHopGrams),
+                                    String((r as any).dryHopType)
+                                );
+                            } catch (error) {
+                                console.error(
+                                    "Failed to assign dry hop to hops table for tank",
+                                    r.tankId,
+                                    error
+                                );
+                            }
+                        })
+                    );
+                }
+            }
+
             if (reportName === "אריזה") {
                 try {
                     const packagingResults = await updatePackagingInfo(packagingEntries);
@@ -336,6 +365,15 @@ export default function SendMessurmentsHeader({
                 triggerTankUpdate().catch((error) => {
                     console.error("Background tank update failed:", error);
                 });
+            } else {
+                readingsToSend
+                    .filter((r) => (r as any).refreshTank === true)
+                    .forEach((r) => {
+                        if (!r.sheetUrl) return;
+                        refreshSingleTank(String(r.tankId), String(r.sheetUrl)).catch((error) => {
+                            console.error("Failed to refresh tank", r.tankId, error);
+                        });
+                    });
             }
             if (reportName === "חם" || reportName === "לחץ") {
                 if (!specs) {
@@ -482,8 +520,8 @@ export default function SendMessurmentsHeader({
                 const previus = byTank[fv.tankNumber]
                 return { tankNumber: fv.tankNumber, new: reading, current, previus }
             }).filter(
-        (r): r is NonNullable<typeof r> => r !== null
-    );
+                (r): r is NonNullable<typeof r> => r !== null
+            );
         readingsToCheck.map((readingSet) => {
             const previusMeasurements = readingSet.previus ?? [];
             const sortedMeasurements = [...previusMeasurements].sort((a, b) => {

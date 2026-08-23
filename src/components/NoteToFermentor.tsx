@@ -1,10 +1,20 @@
 import { useEffect, useState } from "react";
 import type { Fermentor } from "../App";
+import type { SpecChart } from "../SERVICES/getSpecsFromFb";
+import {
+    isDryHopAllowedForStyle,
+    getDryHopStyleCategory,
+    calcDryHopDose,
+    roundGramsUp5,
+    getClosingPressureForStyle,
+    buildDryHopNoteText,
+} from "../SERVICES/dryHopLogic";
 
 export type NoteToFermentorProps = {
     brews: Fermentor[];
     updateReading: Function;
     onValidityChange?: (hasIncompleteRow: boolean) => void;
+    specs: SpecChart | null;
 };
 
 type NoteRow = {
@@ -23,6 +33,7 @@ const NOTE_TYPES = [
     { value: "פורק", label: "כיוון פורק", stage: "warm" },
     { value: "דיאציטיל", label: "מנוחת דיאציטיל", stage: "warm" },
     { value: "קירור", label: "קירור", stage: "warm" },
+    { value: "דרייהופ", label: "דרייהופ", stage: "warm" },
     { value: "אחר", label: "אחר", stage: "both" },
 ];
 
@@ -33,12 +44,15 @@ function makeEmptyRow(): NoteRow {
 
 const EMPTY_VALUES = { value: "", value2: "", direction: "" };
 
+
 export default function NoteToFermentor({
     brews,
     updateReading,
     onValidityChange,
+    specs
 }: NoteToFermentorProps) {
 
+    const REFRESH_TRIGGER_TYPES = new Set(["גיזוז", "קירור", "דיאציטיל"]);
     const [rows, setRows] = useState<NoteRow[]>([makeEmptyRow()]);
 
     const availableTanks = brews.filter(
@@ -68,7 +82,7 @@ export default function NoteToFermentor({
         );
     }
 
-    function buildNoteText(row: NoteRow): string | null {
+    function buildNoteText(row: NoteRow, fermentor: Fermentor | undefined): string | null {
         switch (row.noteType) {
             case "גיזוז":
                 if (row.value === "") return null;
@@ -89,35 +103,68 @@ export default function NoteToFermentor({
             case "אחר":
                 if (row.value === "") return null;
                 return row.value;
+            case "דרייהופ": {
+                if (!fermentor || !specs) return null;
+
+                const category = getDryHopStyleCategory(fermentor.beerStyle);
+                const calc = calcDryHopDose(category, fermentor.beerVolume);
+
+                const grams = calc.needsManualInput ? Number(row.value) : roundGramsUp5(calc.grams);
+                const hopType = calc.needsManualInput ? row.value2.trim() : calc.hopType;
+
+                if (calc.needsManualInput && (row.value === "" || row.value2.trim() === "")) return null;
+                if (!grams || grams <= 0 || !hopType) return null;
+
+                const pressure = getClosingPressureForStyle(fermentor.beerStyle, specs);
+                if (pressure === null) return null;
+
+                return buildDryHopNoteText(grams, hopType, pressure);
+            }
             default:
                 return null;
         }
     }
 
     // שורה נחשבת "חלקית"/חוסמת שליחה רק אם כבר נבחר לה מיכל אך אין לה עדיין טקסט תקין
-    function isRowIncomplete(row: NoteRow): boolean {
+    function isRowIncomplete(row: NoteRow, fermentor: Fermentor|undefined): boolean {
         if (!row.tankNumber) return false;
-        return buildNoteText(row) === null;
+        return buildNoteText(row, fermentor) === null;
     }
 
-    // ===== הלב של התיקון =====
-    // בכל שינוי ב-rows: מקבצים לפי מיכל, מחברים את כל ההערות התקינות של אותו מיכל
-    // למחרוזת אחת, וכותבים את זה (או מנקים אם אין) לכל מיכל זמין.
     useEffect(() => {
         const notesByTank = new Map<number, string[]>();
         const carbonationByTank = new Map<number, string>();
+        const refreshTanks = new Set<number>();
+        const dryHopByTank = new Map<number, { grams: number; hopType: string }>();
 
         rows.forEach((row) => {
             if (!row.tankNumber) return;
-            const noteText = buildNoteText(row);
-            if (noteText === null) return;
 
             const tankNum = Number(row.tankNumber);
+            const fermentor = brews.find((fv) => Number(fv.tankNumber) === tankNum); // חסר- זה מה שהיה שובר
+
+            const noteText = buildNoteText(row, fermentor);
+            if (noteText === null) return;
+
             if (row.noteType === "גיזוז") {
                 carbonationByTank.set(tankNum, row.value);
             } else {
                 if (!notesByTank.has(tankNum)) notesByTank.set(tankNum, []);
                 notesByTank.get(tankNum)!.push(noteText);
+            }
+
+            if (REFRESH_TRIGGER_TYPES.has(row.noteType)) {
+                refreshTanks.add(tankNum);
+            }
+
+            if (row.noteType === "דרייהופ" && fermentor && specs) {
+                const category = getDryHopStyleCategory(fermentor.beerStyle);
+                const calc = calcDryHopDose(category, fermentor.beerVolume);
+                const grams = calc.needsManualInput ? Number(row.value) : roundGramsUp5(calc.grams);
+                const hopType = calc.needsManualInput ? row.value2.trim() : calc.hopType;
+                if (grams > 0 && hopType) {
+                    dryHopByTank.set(tankNum, { grams, hopType });
+                }
             }
         });
 
@@ -137,11 +184,21 @@ export default function NoteToFermentor({
                 carbonationValue !== undefined ? carbonationValue : undefined
             );
 
+            updateReading(fv.id, "refreshTank", refreshTanks.has(tankNum) ? true : undefined);
+
+            const dryHop = dryHopByTank.get(tankNum);
+            updateReading(fv.id, "dryHopGrams", dryHop ? dryHop.grams : undefined);
+            updateReading(fv.id, "dryHopType", dryHop ? dryHop.hopType : undefined);
         });
 
-        onValidityChange?.(rows.some(isRowIncomplete));
+        onValidityChange?.(
+            rows.some((row) => {
+                const fermentor = brews.find((fv) => Number(fv.tankNumber) === Number(row.tankNumber));
+                return isRowIncomplete(row, fermentor);
+            })
+        );
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows]);
+    }, [rows, specs]);
 
     function handleNoteTypeChange(row: NoteRow, newType: string) {
         updateRow(row.id, { noteType: newType, ...EMPTY_VALUES });
@@ -157,7 +214,7 @@ export default function NoteToFermentor({
                 const fermentor = brews.find(
                     (fv) => Number(fv.tankNumber) === Number(row.tankNumber)
                 );
-                const stage = (Number(fermentor?.currentData?.temp) > 9 && fermentor?.stage?.name==="בתסיסה") ? "warm" : "cold";
+                const stage = (Number(fermentor?.currentData?.temp) > 9 && fermentor?.stage?.name === "בתסיסה") ? "warm" : "cold";
 
                 return (
                     <div className={`write-note-row note-${!fermentor ? "" : stage}`} key={row.id}>
@@ -207,6 +264,7 @@ export default function NoteToFermentor({
                                 <option value={"בחר סוג דיווח"} disabled>בחר סוג דיווח</option>
                                 {NOTE_TYPES
                                     .filter((t) => t.stage === "both" || t.stage === stage)
+                                    .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(fermentor?.beerStyle))
                                     .map((t) => (
                                         <option key={t.value} value={t.value}>{t.label}</option>
                                     ))}
@@ -223,6 +281,28 @@ export default function NoteToFermentor({
                                     onChange={(e) => updateRow(row.id, { value: e.target.value })}
                                 />
                             )}
+
+                            {row.noteType === "דרייהופ" && fermentor && (() => {
+                                const category = getDryHopStyleCategory(fermentor.beerStyle);
+                                const calc = calcDryHopDose(category, fermentor.beerVolume);
+
+                                if (calc.needsManualInput) {
+                                    return (
+                                        <>
+                                            <span> הכנסת כשות 4: </span>
+                                            <input type="number" value={row.value} placeholder="גרם"
+                                                onChange={(e) => updateRow(row.id, { value: e.target.value })} />
+                                            <span>גרם </span>
+                                            <input type="text" value={row.value2} placeholder="סוג כשות"
+                                                onChange={(e) => updateRow(row.id, { value2: e.target.value })} />
+                                        </>
+                                    );
+                                }
+                                const grams = roundGramsUp5(calc.grams);
+                                const pressure = specs ? getClosingPressureForStyle(fermentor.beerStyle, specs) : null;
+                                const pressureText = pressure !== null ? pressure : "—";
+                                return <span>הכנסת כשות 4: {grams} גרם {calc.hopType}, סגירת נשם, כיוון פורק ל {pressureText} </span>;
+                            })()}
 
                             {row.noteType === "גיזוז" && (
                                 <>

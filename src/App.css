@@ -31,12 +31,18 @@
   --radius: 8px;
 
   /* ---- Unified radius scale (use these everywhere instead of ad-hoc px) ---- */
-  --radius-xs: 4px;   /* tiny badges/inputs */
-  --radius-sm: 6px;   /* inputs, small chips */
-  --radius-pill: 7px; /* nav tabs, filter chips, buttons */
-  --radius-md: 9px;   /* recommendation/status cards */
-  --radius-lg: 10px;  /* cards */
-  --radius-xl: 14px;  /* modals, popovers */
+  --radius-xs: 4px;
+  /* tiny badges/inputs */
+  --radius-sm: 6px;
+  /* inputs, small chips */
+  --radius-pill: 7px;
+  /* nav tabs, filter chips, buttons */
+  --radius-md: 9px;
+  /* recommendation/status cards */
+  --radius-lg: 10px;
+  /* cards */
+  --radius-xl: 14px;
+  /* modals, popovers */
 
   /* ---- Unified "pill button" system: nav tabs, status filters, volume filters ---- */
   --pill-height: 34px;
@@ -51,10 +57,22 @@
   --pill-active-shadow: 0 2px 5px rgba(43, 108, 176, 0.25);
 
   /* ---- Recommendation severity levels (shared by all recommendation card variants) ---- */
-  --rec-0-bg: #eff6ff; --rec-0-border: #bfdbfe; --rec-0-text: #1e40af; --rec-0-stripe: #3b82f6;
-  --rec-1-bg: #f0fdf4; --rec-1-border: #bbf7d0; --rec-1-text: #166534; --rec-1-stripe: #22c55e;
-  --rec-2-bg: #fff7ed; --rec-2-border: #fed7aa; --rec-2-text: #c2410c; --rec-2-stripe: #f97316;
-  --rec-3-bg: #fef2f2; --rec-3-border: #fecaca; --rec-3-text: #b91c1c; --rec-3-stripe: #dc2626;
+  --rec-0-bg: #eff6ff;
+  --rec-0-border: #bfdbfe;
+  --rec-0-text: #1e40af;
+  --rec-0-stripe: #3b82f6;
+  --rec-1-bg: #f0fdf4;
+  --rec-1-border: #bbf7d0;
+  --rec-1-text: #166534;
+  --rec-1-stripe: #22c55e;
+  --rec-2-bg: #fff7ed;
+  --rec-2-border: #fed7aa;
+  --rec-2-text: #c2410c;
+  --rec-2-stripe: #f97316;
+  --rec-3-bg: #fef2f2;
+  --rec-3-border: #fecaca;
+  --rec-3-text: #b91c1c;
+  --rec-3-stripe: #dc2626;
 }
 
 * {
@@ -416,7 +434,7 @@ body {
 }
 
 .tank-card.fermenting::before,
-.tank-card.stage-fermenting::before{
+.tank-card.stage-fermenting::before {
   background: #f97316;
 }
 
@@ -845,7 +863,8 @@ body {
   box-shadow: none;
   pointer-events: none;
   cursor: not-allowed;
-  opacity: 1; /* לא צריך opacity, הצבעים כבר "דהויים" */
+  opacity: 1;
+  /* לא צריך opacity, הצבעים כבר "דהויים" */
 }
 
 /* =========================================================
@@ -1551,7 +1570,8 @@ body {
 
   pointer-events: none;
 }
-.platoInputSpan{
+
+.platoInputSpan {
   right: 35px !important;
 }
 
@@ -1735,10 +1755,12 @@ body {
     transform 0.12s ease,
     opacity 0.15s ease;
 }
-.btn-close-modal-Box{
+
+.btn-close-modal-Box {
   position: sticky;
   top: 0;
 }
+
 .btn-close-modal {
   padding: 8px 16px;
   border-radius: 7px;
@@ -1953,20 +1975,23 @@ body {
     box-shadow 0.15s ease;
 }
 
-.recommendation-stage-fermenting{
+.recommendation-stage-fermenting {
   border-right: #f97316 5px solid;
   border-radius: var(--radius-md);
   background-color: var(--stage-fermenting);
 }
-.recommendation-stage-cold{
+
+.recommendation-stage-cold {
   background-color: var(--stage-cold);
   border-right: #0284c7 5px solid;
   border-radius: var(--radius-md);
 }
-.rec-label-fermenting{
+
+.rec-label-fermenting {
   color: #f97316;
 }
-.rec-label-cold{
+
+.rec-label-cold {
   color: #0284c7;
 }
 
@@ -1974,22 +1999,23 @@ body {
 /* =========================================================
    TANK HEADER
    ========================================================= */
-   
-   .tank-recommendation-header {
-     display: flex;
+
+.tank-recommendation-header {
+  display: flex;
 
   align-items: center;
   justify-content: space-between;
-  
+
   gap: 8px;
-  
+
   margin-bottom: 7px;
-  
+
   padding-bottom: 6px;
-  
+
   border-bottom: 1px solid #e2e8f0;
 }
-.recomendations_cell{
+
+.recomendations_cell {
   border-bottom: transparent;
 }
 
@@ -2101,7 +2127,8 @@ body {
 
   color: var(--rec-0-text);
 }
-.recommendation-cell.level-0{
+
+.recommendation-cell.level-0 {
   color: var(--rec-0-text);
 }
 
@@ -2119,7 +2146,8 @@ body {
 
   color: var(--rec-1-text);
 }
-.recommendation-cell.level-1{
+
+.recommendation-cell.level-1 {
   color: var(--rec-1-text);
 }
 
@@ -2137,9 +2165,11 @@ body {
 
   color: var(--rec-2-text);
 }
-.recommendation-cell.level-2{
+
+.recommendation-cell.level-2 {
   color: var(--rec-2-text);
 }
+
 .tank-recommendations .recommendation.level-2::before {
   background: var(--rec-2-stripe);
 }
@@ -2154,7 +2184,8 @@ body {
 
   color: var(--rec-3-text);
 }
-.recommendation-cell.level-3{
+
+.recommendation-cell.level-3 {
   color: var(--rec-3-text);
 }
 
@@ -2220,6 +2251,7 @@ body {
   }
 
 }
+
 /* =========================================================
    NOTE TO FERMENTOR
    ========================================================= */
@@ -2254,7 +2286,8 @@ body {
 
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
-.note-value-slot{
+
+.note-value-slot {
   width: 50%;
 }
 
@@ -2270,7 +2303,7 @@ body {
 
 /* Label */
 
-.write-note-row > span {
+.write-note-row>span {
   flex: 0 0 auto;
 
   font-size: 0.72rem;
@@ -2281,11 +2314,11 @@ body {
   white-space: nowrap;
 }
 
-.write-note-row.note-warm > span {
+.write-note-row.note-warm>span {
   color: var(--stage-fermenting-text);
 }
 
-.write-note-row.note-cold > span {
+.write-note-row.note-cold>span {
   color: var(--stage-cold-text);
 }
 
@@ -2345,6 +2378,7 @@ body {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.1);
 }
+
 .note-style {
   display: inline-block;
   width: 60px;
@@ -2355,6 +2389,7 @@ body {
   font-size: 0.68rem;
   color: #475569;
 }
+
 /* =========================================================
    INPUT
    ========================================================= */
@@ -2390,7 +2425,8 @@ body {
   /* flex: 1 1 140px; */
   /* min-width: 100px; */
 }
-.shortTxtInput{
+
+.shortTxtInput {
   width: 100%;
   border: 2px solid;
 }
@@ -2500,14 +2536,26 @@ body {
    ========================================================= */
 
 @media (max-width: 600px) {
-  .note-value-slot{
+  .note-value-slot {
     margin-top: 3px;
-  width: 100%;
-}
-  .select-batch { width: 72px; }
-  .select-tank { width: 60px; }
-  .select-notetype { width: 100px; }
-  .note-style { width: 44px; }
+    width: 100%;
+  }
+
+  .select-batch {
+    width: 72px;
+  }
+
+  .select-tank {
+    width: 60px;
+  }
+
+  .select-notetype {
+    width: 100px;
+  }
+
+  .note-style {
+    width: 44px;
+  }
 
   .note-RowsBox {
     gap: 4px;
@@ -2523,7 +2571,7 @@ body {
     border-right-width: 3px;
   }
 
-  .write-note-row > span:first-child {
+  .write-note-row>span:first-child {
     display: none;
   }
 
@@ -2556,7 +2604,7 @@ body {
     font-size: 0.64rem;
   }
 
-  .write-note-row > span:not(:first-child) {
+  .write-note-row>span:not(:first-child) {
     font-size: 0.6rem;
   }
 
@@ -2565,5 +2613,194 @@ body {
     height: 16px;
     margin-right: 0;
     margin-left: auto;
+  }
+}
+
+/* =========================================================
+   QUICK TANK REPORT (icon-triggered popup on tank card)
+   ========================================================= */
+
+
+.tankQuickReport:hover {
+  background: #f1f5f9;
+}
+
+.quickReportBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quickReportForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quickReportSelect {
+  width: 100%;
+  height: 32px;
+  padding: 4px 10px;
+
+  border: 1px solid #dbe3ec;
+  border-radius: var(--radius-sm);
+
+  background-color: #ffffff;
+  color: #334155;
+
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+
+  cursor: pointer;
+  outline: none;
+
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.quickReportSelect:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.1);
+}
+
+.quickReportForm input[type="text"],
+.quickReportForm input[type="number"] {
+  width: 100%;
+  height: 32px;
+  padding: 4px 10px;
+
+  border: 1px solid #dbe3ec;
+  border-radius: var(--radius-sm);
+
+  background: #ffffff;
+  color: var(--text-main);
+
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+
+  outline: none;
+
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.quickReportForm input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.1);
+}
+
+.quickReportInline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quickReportInline span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.quickReportInline select {
+  height: 32px;
+  padding: 4px 10px;
+
+  border: 1px solid #dbe3ec;
+  border-radius: var(--radius-sm);
+
+  background-color: #ffffff;
+
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.quickReportDryHopPreview {
+  padding: 9px 11px;
+
+  border-radius: var(--radius-md);
+
+  background: var(--rec-1-bg);
+  border: 1px solid var(--rec-1-border);
+  color: var(--rec-1-text);
+
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.quickReportPackaging {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quickReportCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+
+  cursor: pointer;
+}
+
+.quickReportCheckbox input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.quickReportSubmit {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.quickReportSpinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+
+  animation: modalSpin 0.7s linear infinite;
+  /* keyframe כבר קיים אצלך גלובלית */
+}
+
+.quickReportSubmit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  /* למנוע קפיצת גובה כשעובר לספינר */
+}
+
+.quickReportForm select:disabled,
+.quickReportForm input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.fermentorInfoClose:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary:disabled {
+  background: #93b4d4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 480px) {
+  .quickReportBox {
+    gap: 8px;
   }
 }
