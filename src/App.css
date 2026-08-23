@@ -1834,6 +1834,7 @@ body {
   .modal-box {
     width: 100%;
     padding: 15px;
+    max-height: 70%;
   }
 
   .modal-actions {
