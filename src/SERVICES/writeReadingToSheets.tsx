@@ -57,11 +57,6 @@ export async function writeReadingsToSheets(
             };
             
 
-            console.log(
-                "Tank successfully updated:",
-                reading.tankId
-            );
-
             return flat;
         })
     );

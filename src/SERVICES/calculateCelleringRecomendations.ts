@@ -284,7 +284,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
             measurement =>
                 String(
                     measurement.notes || ""
-                ).includes("הורדת")
+                ).includes("הורדת שמרים")
         ) || measurements.some(
             measurement =>
                 String(
@@ -303,7 +303,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         reason: "מומלץ לבצע דריי-הופ",
         importance: 1
     }
-    console.log()
     const pressureIsclosed= (sortedMeasurements.map((m)=>m.notes).join(",").includes("סגירת") ||
     sortedMeasurements.map((m)=>m.notes).join(",").includes("סגירה"))
     const requiresPresureClose = {
@@ -388,10 +387,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         yesterdayMeasurement &&
         Number(currentPlato) < (givenSpecs.tolorances.yeastDropMinPlato || 6)
     ) {
-
         const yesterdayPlato =
             Number(yesterdayMeasurement?.plato);
-
 
         if (
             Number.isFinite(yesterdayPlato) &&
@@ -423,7 +420,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
             oldTemp != null &&
             lastTemp > oldTemp &&
             stage.name === "קר",
-        reason: "(מומלצץ לבצע הורדת שמרים- (יומיים אחרי קירור",
+        reason: "(מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור",
         importance: 1
     }
 

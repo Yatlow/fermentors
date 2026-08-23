@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../SERVICES/writeReadingToSheets";
 import type { Fermentor, NewReading } from "../App";
 import { triggerTankUpdate } from "../SERVICES/triggerTankUpdate";
@@ -38,14 +38,31 @@ export default function SendMessurmentsHeader({
     onResetAll,
 }: SendMessurmentsHeaderProps) {
 
-    const [sendingReading, setSendingReading] = useState<"idle" | "loading" | "sent" | "error" | "sync" | "getRecs">("idle");
+    const [sendingReading, setSendingReading] = useState<"idle" | "loading" | "sent" | "error" | "sync" | "getRecs" | "checking">("idle");
     const [confirmMissing, setConfirmMissing] = useState<{ open: boolean; missingTanks: (string | number)[] }>({
         open: false,
         missingTanks: [],
     });
+    const [confirmMeassurments, setConfirmMessurments] = useState<{ open: boolean; unvalidMessurments: (string | number)[] }>({
+        open: false,
+        unvalidMessurments: []
+    });
     const [sendResults, setSendResults] = useState<writeReadingResult[]>([]);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [rcs, setRcs] = useState<RecommendationsByTank>({});
+
+    const measurementsCache = useRef<Record<string, Measurement[]>>({});
+
+    async function fetchAllTankMeasurements(fullTanks: Fermentor[]) {
+        const entries = await Promise.all(
+            fullTanks.map(async (tank) => {
+                const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
+                return [String(tank.tankNumber), messurments] as const;
+            })
+        );
+        measurementsCache.current = Object.fromEntries(entries);
+        return measurementsCache.current;
+    }
 
     useEffect(() => {
 
@@ -79,6 +96,7 @@ export default function SendMessurmentsHeader({
         }
         void sendReadings();
     };
+
     const handleRecClick = async () => {
         if (!specs) {
             console.warn("Specs are not loaded yet");
@@ -141,8 +159,7 @@ export default function SendMessurmentsHeader({
         const hh = String(date.getHours()).padStart(2, "0");
         const mm = String(date.getMinutes()).padStart(2, "0");
         return `${y}-${m}-${d}_${hh}${mm}`;
-    }
-
+    };
 
     function mergeReadingIntoMeasurements(
         measurements: Measurement[],
@@ -187,11 +204,13 @@ export default function SendMessurmentsHeader({
         return [...withoutToday, mergedReading].sort((a, b) =>
             String(a.id).localeCompare(String(b.id))
         );
-    }
+    };
 
     const sendReadings = async () => {
         setConfirmMissing({ open: false, missingTanks: [] });
+        setConfirmMessurments({ open: false, unvalidMessurments: [] })
         setSendingReading("loading");
+
 
 
         let readingsToSend = brews
@@ -307,7 +326,6 @@ export default function SendMessurmentsHeader({
                     );
                     if (withWarnings.length > 0) {
                         console.warn("Packaging update partial warnings:", withWarnings);
-                        // אפשר גם: alert או toast למשתמש
                     }
                 } catch (error) {
                     console.error("Failed to update packaging info:", error);
@@ -325,12 +343,16 @@ export default function SendMessurmentsHeader({
                     return;
                 }
                 try {
-                    const fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
+
+                    let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
+                    if (reportName === "חם") fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9)
                     setSendingReading("getRecs")
                     const getRecs = async () => {
                         const entries = await Promise.all(
                             fullTanks.map(async (tank: Fermentor) => {
-                                const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
+                                // const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
+                                const messurments = measurementsCache.current[String(tank.tankNumber)]
+                                    ?? await getMeasurementsByBatch(tank.batchNumber ?? "")
                                 if (!tank.stage || !tank.brewDate) {
                                     console.warn(
                                         "Cannot calculate recommendations: stage or brew date is missing",
@@ -385,7 +407,7 @@ export default function SendMessurmentsHeader({
         setSendingReading("idle");
         setSendResults([]);
     };
-    // later getMissing tanks should get modular for other forms...
+
     function getMissingTanks(): (string | number)[] {
         if (reportName === "פעולות") return [];
         if (reportName === "אריזה") return [];
@@ -442,11 +464,120 @@ export default function SendMessurmentsHeader({
         }
 
         return [];
-    }
+    };
+
+    async function getUnvalidMessurments() {
+        setSendingReading("checking")
+        const invalidText: string[] = []
+        let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
+        if (reportName === "חם") fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9);
+
+        const byTank = await fetchAllTankMeasurements(fullTanks);
+        const readingsToCheck = brews
+            .filter((fv) => (Number(fv.tankNumber) !== 1) && Number(fv.action) === 1)
+            .map((fv) => {
+                if (!fv.tankNumber) { return null }
+                const reading = newReadings[fv.id] ?? {};
+                const current = fv.currentData;
+                const previus = byTank[fv.tankNumber]
+                return { tankNumber: fv.tankNumber, new: reading, current, previus }
+            }).filter(
+        (r): r is NonNullable<typeof r> => r !== null
+    );
+        readingsToCheck.map((readingSet) => {
+            const previusMeasurements = readingSet.previus ?? [];
+            const sortedMeasurements = [...previusMeasurements].sort((a, b) => {
+                const dateA = String(a.id ?? "");
+                const dateB = String(b.id ?? "");
+                return dateA.localeCompare(dateB);
+            });
+
+            if (sortedMeasurements.length < 2) {
+                return;
+            }
+
+
+
+            const yesterdayMeasurement: Measurement =
+                sortedMeasurements[sortedMeasurements.length - 2];
+
+            const currentTemp = Number(readingSet.current?.temp);
+            const newTemp = Number(readingSet.new.temp);
+            const currentPressure = Number(readingSet.current?.pressure);
+            const newPressure = Number(readingSet.new.pressure);
+            const currentPh = Number(readingSet.current?.pH);
+            const newPh = Number(readingSet.new.pH);
+            const currentPlato = Number(readingSet.current?.plato);
+            const newPlato = Number(readingSet.new.plato);
+
+            if (currentTemp - newTemp > 5 || newTemp - currentTemp > 5) {
+                if (currentTemp - newTemp > 5) {
+                    const cooled = yesterdayMeasurement?.notes?.toString().includes("קירור") ||
+                        yesterdayMeasurement?.notes?.toString().includes("קירור");
+                    if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${currentTemp - newTemp} מעלות ממדידה קודמת- למרות שלא מסומן שהמיכל מקורר. האם הזנת נתון תקין?`)
+                    console.log(sortedMeasurements)
+
+                } else {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
+                }
+            }
+            if (currentPressure < newPressure) {
+                if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
+                    || yesterdayMeasurement?.notes?.toString().includes("סגירה")
+                    || yesterdayMeasurement?.notes?.toString().includes("העלאת")
+                    || yesterdayMeasurement?.notes?.toString().includes("להעלות לחץ")
+                )) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ- למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
+                }
+            }
+            if (currentPressure > newPressure) {
+                if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
+                    || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
+                )) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה ירידה בלחץ- למרות שלא נמצאה הורדת לחץ או הורדת שמרים. האם הזנת נתון תקין?`)
+                }
+            }
+            if (newPressure && !newTemp) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} דווח לחץ אך לא דווח טמפ'. לתשומת ליבך`)
+            }
+            if (newTemp && !newPressure) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} דווח לחץ אך לא דווח טמפ'. לתשומת ליבך`)
+            }
+            if (newPh > 6) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מעל 6. האם הזנת נתון תקין?`)
+            }
+            if (newPh < 3.5) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מתחת 3.5. האם הזנת נתון תקין?`)
+            }
+            if (newPh - currentPh > 0.3 || currentPh - newPh > 0.3) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH בהפרש של יותר מ0.3 ממדידה קודמת. האם הזנת נתון תקין?`)
+            }
+            if (newPlato - currentPlato > 0.3) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} דווח היום Plato גבוה יותר ממדידה קודמת ב0.3. לתשומת ליבך`)
+            }
+            if (newPlato && !newPh) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} דווח Plato אך לא דווח pH. לתשומת ליבך`)
+            }
+            if (newPh && !newPlato) {
+                invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH אך לא דווח Plato. לתשומת ליבך`)
+            }
+
+            // { pressure: 0, pH: 4.45, carbonation: null, plato: 4.2, … }
+
+        })
+        if (invalidText.length > 1) {
+            setConfirmMessurments({ open: true, unvalidMessurments: invalidText })
+        } else {
+            void sendReadings()
+        }
+        setSendingReading("idle")
+    };
+
     let canSend = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1 && (reportName === "לחץ" ? true : Number(fv.currentData?.temp) > 9)).length === getMissingTanks()?.length;
     if (reportName === "פעולות") {
         canSend = Object.keys(newReadings).length < 1 || !!hasIncompleteNotes;
     }
+
     const getActiveRecommendations = (
         tankNumber: string | number
     ): Recommendation[] => {
@@ -486,6 +617,7 @@ export default function SendMessurmentsHeader({
                     b.importance - a.importance
             );
     };
+
     function getDailyActionRecommendation() {
         for (const recommendation of Object.values(rcs)) {
             if (recommendation?.requiresDailyActions?.req) {
@@ -506,8 +638,11 @@ export default function SendMessurmentsHeader({
         }
 
         return null;
-    }
+    };
+
     const dailyActionRecommendation = getDailyActionRecommendation();
+
+
     return (
         <>
             <div className="volumeCounter">
@@ -548,6 +683,31 @@ export default function SendMessurmentsHeader({
                             >
                                 סגור
                             </button>
+                            <button className="btn-primary" onClick={() => void getUnvalidMessurments()}>
+                                אישור ושליחה
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {confirmMeassurments.open && (
+                <div className="modal-overlay">
+                    <div className="modal-box">
+                        {confirmMeassurments.unvalidMessurments.map((txt, i) => (
+                            <div key={i}>• {txt}</div>
+                        ))}
+                        <p></p>
+                        <p>האם אתה בטוח שברצונך לשלוח בכל זאת?</p>
+                        <div className="modal-actions">
+                            <button
+                                className="btn-secondary"
+                                onClick={() => {
+                                    setConfirmMessurments({ open: false, unvalidMessurments: [] })
+                                    setConfirmMissing({ open: false, missingTanks: [] })
+                                }}
+                            >
+                                סגור
+                            </button>
                             <button className="btn-primary" onClick={() => void sendReadings()}>
                                 אישור ושליחה
                             </button>
@@ -561,6 +721,7 @@ export default function SendMessurmentsHeader({
                         {sendingReading === "loading" && <p className="status-loading">שולח נתונים...</p>}
                         {sendingReading === "sync" && <p className="status-loading">מרענן נתוני שרת...</p>}
                         {sendingReading === "getRecs" && <p className="status-loading">טוען המלצות סלרינג...</p>}
+                        {sendingReading === "checking" && <p className="status-loading">בודק תקינות נתונים...</p>}
 
                         {sendingReading === "sent" && (
                             <div className="sentBox">
@@ -576,13 +737,10 @@ export default function SendMessurmentsHeader({
                                     {Object.keys(sendResults).length > 0 && <p>
                                         הנתונים נשלחו בהצלחה
                                     </p>}
-                                    {(reportName === "חם" || reportName === "לחץ") &&
-                                        <>
-                                            <p>מצורפות המלצות לסלרינג!</p>
-                                            <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
-                                        </>
 
-                                    }
+                                    <p>מצורפות המלצות לסלרינג!</p>
+                                    <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
+
                                 </div>
 
                                 {dailyActionRecommendation?.req && (
@@ -597,9 +755,6 @@ export default function SendMessurmentsHeader({
                                     </div>
                                 )}
 
-                                {/* =========================================
-            TANK RECOMMENDATIONS
-        ========================================= */}
 
                                 <div className="tank-recommendations-list">
 
@@ -625,7 +780,7 @@ export default function SendMessurmentsHeader({
                                                         <div className="tank-recommendation-header recomendations_cell">
 
                                                             <p>
-                                                                מיכל {tank.tankNumber}
+                                                                מיכל {tank.tankNumber}- {tank.beerStyle}
                                                             </p>
 
                                                             <span

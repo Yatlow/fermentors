@@ -156,6 +156,7 @@ function App() {
     // when the component is unmounted.
     return () => unsubscribe();
   }, []);
+  const idsNeedingStage = brews.filter(t => t.stage === undefined).map(t => t.id).join(",");
   useEffect(() => {
     if (brews.length === 0) return;
 
@@ -183,7 +184,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [brews]);
+  }, [idsNeedingStage]);
 
 
   const statusCounts = useMemo<StatusCounts>(() => {

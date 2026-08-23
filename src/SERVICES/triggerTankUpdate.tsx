@@ -36,13 +36,5 @@ export async function triggerTankUpdate(
         );
     }
 
-
-
-
-    console.log(
-        "successfully updated tanks:",
-        parsed
-    );
-
     return parsed;
 }
