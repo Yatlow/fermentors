@@ -38,7 +38,7 @@ const NOTE_TYPES = [
 ];
 
 const KEG_LITERS = 20;
-const BOTTLE_LITERS = 0.33 * 24;
+const BOTTLE_LITERS = 0.33;
 
 function buildMeasurementId(date: Date = new Date()) {
     const y = date.getFullYear();
@@ -332,7 +332,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                     {noteType === "אריזה" && (
                         <div className="quickReportPackaging">
                             <select
-                                className="quickReportSelect" // חדש- זה מה שהיה חסר
+                                className="quickReportSelect"
                                 value={packagingType}
                                 disabled={isSending}
                                 onChange={(e) => { setPackagingType(e.target.value as any); setAmount(""); }}
@@ -342,7 +342,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                 <option value="bottles">בקבוקים</option>
                             </select>
                             {packagingType && (
-                                <input type="number" min={0} placeholder="כמות" value={amount} disabled={isSending}
+                                <input type="number" min={0} placeholder={`כמות ${packagingType === "kegs" ? "חביות" : "בקבוקים"}`} value={amount} disabled={isSending}
                                     onChange={(e) => setAmount(e.target.value)} />
                             )}
                             <label className="quickReportCheckbox">

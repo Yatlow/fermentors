@@ -756,112 +756,114 @@ export default function SendMessurmentsHeader({
             {sendingReading !== "idle" && (
                 <div className="modal-overlay">
                     <div className="modal-box">
+
                         {sendingReading === "loading" && <p className="status-loading">שולח נתונים...</p>}
                         {sendingReading === "sync" && <p className="status-loading">מרענן נתוני שרת...</p>}
                         {sendingReading === "getRecs" && <p className="status-loading">טוען המלצות סלרינג...</p>}
                         {sendingReading === "checking" && <p className="status-loading">בודק תקינות נתונים...</p>}
+                        <div className="modal-box-scroll">
+                            {sendingReading === "sent" && (
+                                <div className="sentBox">
+                                    <div className="btn-close-modal-Box">
+                                        <button
+                                            className="btn-close-modal"
+                                            onClick={closeStatusModal}
+                                        >
+                                            X
+                                        </button>
+                                    </div>
+                                    <div className="status-sent">
+                                        {Object.keys(sendResults).length > 0 && <p>
+                                            הנתונים נשלחו בהצלחה
+                                        </p>}
 
-                        {sendingReading === "sent" && (
-                            <div className="sentBox">
-                                <div className="btn-close-modal-Box">
-                                    <button
-                                        className="btn-close-modal"
+                                        <p>מצורפות המלצות לסלרינג!</p>
+                                        <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
+
+                                    </div>
+
+                                    {dailyActionRecommendation?.req && (
+                                        <div className="daily-recommendation">
+                                            <div className="daily-recommendation-title">
+                                                🔔 פעולה יומית
+                                            </div>
+
+                                            <div className="daily-recommendation-reason">
+                                                {dailyActionRecommendation.reason}
+                                            </div>
+                                        </div>
+                                    )}
+
+
+                                    <div className="tank-recommendations-list">
+
+                                        {brews
+                                            .filter(
+                                                (tank) =>
+                                                    Number(tank.tankNumber) !== 1 &&
+                                                    Number(tank.action) === 1
+                                            )
+                                            .map((tank) => {
+                                                const recommendations =
+                                                    getActiveRecommendations(tank.tankNumber ?? "");
+
+                                                if (recommendations.length)
+                                                    return (
+                                                        <div
+                                                            key={tank.id}
+                                                            className={`tank-recommendation-card recommendation-${tank.stage?.className}`}
+                                                        >
+
+                                                            {/* Tank header */}
+
+                                                            <div className="tank-recommendation-header recomendations_cell">
+
+                                                                <p>
+                                                                    מיכל {tank.tankNumber}- {tank.beerStyle}
+                                                                </p>
+
+                                                                <span
+                                                                    className={
+                                                                        `rec-label-${tank.stage?.name === "בתסיסה" ? "fermenting" : "cold"}`
+                                                                    }
+                                                                >
+                                                                    {tank.stage?.icon} {tank.stage?.name}
+                                                                </span>
+
+                                                            </div>
+
+
+                                                            <div className="tank-recommendations">
+
+                                                                {recommendations.map(
+                                                                    (recommendation, index) => (
+                                                                        <div
+                                                                            key={index}
+                                                                            className={`recommendation-cell level-${recommendation.importance}`}
+                                                                        >
+                                                                            {recommendation.reason}
+                                                                        </div>
+                                                                    )
+                                                                )}
+
+                                                            </div>
+                                                        </div>
+                                                    );
+                                            })}
+
+                                    </div>
+
+                                    <p>{""}</p>
+                                    {/* <button
+                                        className="btn-primary"
                                         onClick={closeStatusModal}
                                     >
-                                        X
-                                    </button>
-                                </div>
-                                <div className="status-sent">
-                                    {Object.keys(sendResults).length > 0 && <p>
-                                        הנתונים נשלחו בהצלחה
-                                    </p>}
-
-                                    <p>מצורפות המלצות לסלרינג!</p>
-                                    <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
+                                        סגור
+                                    </button> */}
 
                                 </div>
-
-                                {dailyActionRecommendation?.req && (
-                                    <div className="daily-recommendation">
-                                        <div className="daily-recommendation-title">
-                                            🔔 פעולה יומית
-                                        </div>
-
-                                        <div className="daily-recommendation-reason">
-                                            {dailyActionRecommendation.reason}
-                                        </div>
-                                    </div>
-                                )}
-
-
-                                <div className="tank-recommendations-list">
-
-                                    {brews
-                                        .filter(
-                                            (tank) =>
-                                                Number(tank.tankNumber) !== 1 &&
-                                                Number(tank.action) === 1
-                                        )
-                                        .map((tank) => {
-                                            const recommendations =
-                                                getActiveRecommendations(tank.tankNumber ?? "");
-
-                                            if (recommendations.length)
-                                                return (
-                                                    <div
-                                                        key={tank.id}
-                                                        className={`tank-recommendation-card recommendation-${tank.stage?.className}`}
-                                                    >
-
-                                                        {/* Tank header */}
-
-                                                        <div className="tank-recommendation-header recomendations_cell">
-
-                                                            <p>
-                                                                מיכל {tank.tankNumber}- {tank.beerStyle}
-                                                            </p>
-
-                                                            <span
-                                                                className={
-                                                                    `rec-label-${tank.stage?.name === "בתסיסה" ? "fermenting" : "cold"}`
-                                                                }
-                                                            >
-                                                                {tank.stage?.icon} {tank.stage?.name}
-                                                            </span>
-
-                                                        </div>
-
-
-                                                        <div className="tank-recommendations">
-
-                                                            {recommendations.map(
-                                                                (recommendation, index) => (
-                                                                    <div
-                                                                        key={index}
-                                                                        className={`recommendation-cell level-${recommendation.importance}`}
-                                                                    >
-                                                                        {recommendation.reason}
-                                                                    </div>
-                                                                )
-                                                            )}
-
-                                                        </div>
-                                                    </div>
-                                                );
-                                        })}
-
-                                </div>
-
-
-                                <button
-                                    className="btn-primary"
-                                    onClick={closeStatusModal}
-                                >
-                                    סגור
-                                </button>
-
-                            </div>
-                        )}
+                            )}
+                        </div>
 
                         {sendingReading === "error" && (
                             <>

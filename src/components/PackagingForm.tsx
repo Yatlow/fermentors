@@ -18,7 +18,7 @@ type PackagingRow = {
 };
 
 const KEG_LITERS = 20;
-const BOTTLE_LITERS = 0.330*24;
+const BOTTLE_LITERS = 0.330;
 
 let rowIdCounter = 0;
 function makeEmptyRow(): PackagingRow {
@@ -67,7 +67,7 @@ export default function PackagingForm({
             parts.push(`הורדת ${row.amount} חביות`);
         }
         if (row.packagingType === "bottles" && Number(row.amount) > 0) {
-            parts.push(`הורדת ${row.amount} בקבוקים`);
+            parts.push(`הורדת ${Number(row.amount)} בקבוקים`);
         }
 
         let text = parts.join(", ");
@@ -187,7 +187,7 @@ export default function PackagingForm({
 
                         {row.packagingType && (
                             <>
-                                <span>{row.packagingType === "kegs" ? "כמות חביות: " : "כמות ארגזים: "}</span>
+                                <span>{row.packagingType === "kegs" ? "כמות חביות: " : "כמות בקבוקים: "}</span>
                                 <input
                                     type="number"
                                     min={0}

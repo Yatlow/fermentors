@@ -2,10 +2,8 @@ import { getMeasurementsByBatch } from "./gettAllDataByBatch";
 import type { Fermentor } from "../App";
 import type { Measurement } from "./calculateCelleringRecomendations";
 
-const KEG_LITERS = 1;
-const BOTTLE_LITERS = 1;
-// const KEG_LITERS = 20;
-// const BOTTLE_LITERS = 0.330;
+const KEG_LITERS = 20;
+const BOTTLE_LITERS = 0.330;
 
 const GOOGLE_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
