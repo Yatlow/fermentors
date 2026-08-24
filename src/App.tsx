@@ -106,7 +106,20 @@ async function checkAproovedUser(user: any): Promise<boolean> {
   }
 }
 
+ function useAuth() {
+    const [user, setUser] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
 
+    useEffect(() => {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        setUser(user);
+        setLoading(false);
+      });
+      return () => unsubscribe();
+    }, []);
+
+    return { user, loading };
+  }
 
 function App() {
   const { user, loading: authLoading } = useAuth();
@@ -155,6 +168,9 @@ function App() {
 
 
   useEffect(() => {
+    if (!user || ! isApproved){
+      return
+    }
     const fermentorsRef = collection(db, "fermentors");
 
     const unsubscribe = onSnapshot(
@@ -199,7 +215,7 @@ function App() {
     // Important: remove the Firestore listener
     // when the component is unmounted.
     return () => unsubscribe();
-  }, []);
+  }, [user, isApproved]);
 
   function login() {
     signInWithPopup(auth, googleProvider).catch((e) => console.error(e));
@@ -211,20 +227,7 @@ function App() {
     signOut(auth)
   }
 
-  function useAuth() {
-    const [user, setUser] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
-        setUser(user);
-        setLoading(false);
-      });
-      return () => unsubscribe();
-    }, []);
-
-    return { user, loading };
-  }
   const idsNeedingStage = brews.filter(t => t.stage === undefined).map(t => t.id).join(",");
   useEffect(() => {
     if (brews.length === 0) return;
