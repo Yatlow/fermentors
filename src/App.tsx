@@ -4,11 +4,12 @@ import {
   onSnapshot,
   doc,
   updateDoc,
-} from "firebase/firestore";
-// import { onAuthStateChanged } from "firebase/auth";
-// import { auth, db, googleProvider } from "./firebase";
-// import { auth, db } from "./firebase";
-import {  db } from "./firebase";
+  getDoc,
+} from "firebase/firestore";  
+import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { auth, db, googleProvider } from "./firebase";
+// import {  db } from "./firebase";
+
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/tankstage"
 
@@ -21,8 +22,6 @@ import SendMessurmentsHeader from "./components/SendMessurmentsHeader";
 import DailyPlatoPH from "./components/DailyPlatoPH";
 import NoteToFermentor from "./components/NoteToFermentor";
 import PackagingForm from "./components/PackagingForm";
-// import { signOut } from "firebase/auth";
-// import { signInWithRedirect, signOut } from "firebase/auth";
 import { getSpecsFromFb, type SpecChart } from "./SERVICES/getSpecsFromFb";
 
 
@@ -93,7 +92,28 @@ export type ReadingToSend = NewReading & {
 };
 type StatusCounts = Record<string, number>;
 
+
+
+
+async function checkAproovedUser(user: any): Promise<boolean> {
+  try {
+    const docRef = doc(db, "approvedUsers", user.email);
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists();
+  } catch (error) {
+    console.error("Error checking approved user:", error);
+    return false;
+  }
+}
+
+
+
 function App() {
+  const { user, loading: authLoading } = useAuth();
+  const [isApproved, setIsApproved] = useState<boolean | null>(null);
+
+  const [loggingIn, setLoggingIn] = useState<boolean>(true);
+
   const [brews, setBrews] =
     useState<Fermentor[]>([]);
 
@@ -119,6 +139,19 @@ function App() {
   const [resetKey, setResetKey] = useState(0);
   const [specs, setSpecs] = useState<SpecChart | null>(null);
 
+
+
+  useEffect(() => {
+    if (user) {
+      checkAproovedUser(user)
+        .then((approved) => setIsApproved(approved))
+        .catch((e) => {
+          console.error("Error checking approved user:", e);
+          setIsApproved(false);
+        });
+      setLoggingIn(false);
+    } 
+  }, [user]);
 
 
   useEffect(() => {
@@ -167,6 +200,31 @@ function App() {
     // when the component is unmounted.
     return () => unsubscribe();
   }, []);
+
+  function login() {
+    signInWithPopup(auth, googleProvider).catch((e) => console.error(e));
+    console.log("Initiated Google sign-in redirect");
+  }
+
+
+  function logout() {
+    signOut(auth)
+  }
+
+  function useAuth() {
+    const [user, setUser] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        setUser(user);
+        setLoading(false);
+      });
+      return () => unsubscribe();
+    }, []);
+
+    return { user, loading };
+  }
   const idsNeedingStage = brews.filter(t => t.stage === undefined).map(t => t.id).join(",");
   useEffect(() => {
     if (brews.length === 0) return;
@@ -326,15 +384,46 @@ function App() {
       (tank) => Number(tank.tankNumber) !== 1
     ).length;
 
-  // function login(){
-  //   signInWithRedirect(auth,googleProvider).then((result)=>{
-  //     console.log("logged in:",result.user)
-  //   }).catch((e)=>console.log(e))
-  // }
+  if (authLoading) {
+    return (
+      <div className="dashboard-loading">
+        <h1>טוען משתמש...</h1>
+      </div>
+    );
+  }
 
-  // function logout() {
-  //   signOut(auth)
-  // }
+  if (!user) {
+    return (
+      <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}>
+        <h1>כניסה למערכת</h1>
+        <button onClick={login} className="status-filter-button active">
+          התחבר באמצעות Google
+        </button>
+      </div>
+    );
+  }
+
+
+  if (isApproved === false) {
+    return (
+      <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}>
+        <h1>אין לך הרשאות גישה למערכת זו.</h1>
+        <button onClick={logout} className="status-filter-button">
+          התנתק
+        </button>
+      </div>
+    );
+  }
+
+  if (loggingIn || isApproved === null) {
+    return (
+      <div className="dashboard-loading">
+        <h1>מבצע כניסה...</h1>
+      </div>
+    );
+  }
+
+
 
   if (loading) {
     return (
