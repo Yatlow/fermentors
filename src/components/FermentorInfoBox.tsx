@@ -47,6 +47,7 @@ export default function FermentorInfoBox({
     const brewAge = getBrewAge(tank.brewDate);
 
     const infoBoxRef = useRef<HTMLDivElement | null>(null);
+   
     const getSafePosition = () => {
 
         const margin = 12;
@@ -84,14 +85,14 @@ export default function FermentorInfoBox({
             )
         };
     };
+
     const safePosition = getSafePosition();
     const isNewBatch =
         brewAge !== null &&
         brewAge < 2;
-    // =========================================================
-    // LOAD MEASUREMENTS
-    // =========================================================
-    useEffect(() => {
+
+
+        useEffect(() => {
 
         function handleOutsideClick(event: MouseEvent) {
 
@@ -209,10 +210,6 @@ export default function FermentorInfoBox({
     ]);
 
 
-    // =========================================================
-    // BUILD RECOMMENDATION LIST
-    // =========================================================
-
     const recommendationList: Recommendation[] =
     recomendations
         ? [
@@ -247,9 +244,7 @@ export default function FermentorInfoBox({
             );
 
 
-    // =========================================================
-    // RENDER
-    // =========================================================
+
 
 
 
@@ -331,11 +326,8 @@ export default function FermentorInfoBox({
 
                         <div className="newBatchMessage">
 
-                            <div className="newBatchTitle">
+                            <div className="recommendation level-0">
                                 אצווה חדשה
-                            </div>
-
-                            <div className="newBatchText">
                                 אין המלצות סלרינג עדיין
                             </div>
 
@@ -348,7 +340,7 @@ export default function FermentorInfoBox({
                     brewAge !== null && brewAge >= 2 &&
                     measurements.length === 0 && (
 
-                        <div className="measurementEmpty">
+                        <div className="recommendation level-0` ">
                             אין נתוני מדידות עבור אצווה זו
                         </div>
 

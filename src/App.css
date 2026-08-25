@@ -1688,18 +1688,59 @@ body {
   padding: 18px;
 }
 
-/* הפייד - עכשיו absolute ביחס ל-.modal-box עצמו (שהוא לא גולל!) */
-.modal-box::after {
-  content: '';
+/* למחוק/להסיר את .modal-box::after הקיים */
+
+.modal-scroll-hint {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 120px;
-  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+  height: 70px;
+
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+
   background: linear-gradient(to bottom, transparent, var(--bg-card));
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+
   pointer-events: none;
   z-index: 2;
+
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+.modal-scroll-hint.hidden {
+  opacity: 0;
+}
+
+.modal-scroll-arrow {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+
+  color: var(--primary);
+  font-size: 1rem;
+  font-weight: 700;
+
+  pointer-events: none;
+
+  animation: scrollHintBounce 1.3s ease-in-out infinite;
+}
+
+@keyframes scrollHintBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(4px); }
 }
 
 .modal-box p {
