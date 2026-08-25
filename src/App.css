@@ -2866,3 +2866,118 @@ body {
     gap: 8px;
   }
 }
+
+.quickReportPressureRow {
+  align-items: center;
+  gap: 8px;
+ 
+  padding: 8px 10px;
+ 
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+}
+ 
+.quickReportPressureRow input[type="number"] {
+  width: 64px !important;
+  flex: 0 0 64px !important;
+  height: 30px;
+  text-align: center;
+}
+ 
+@media (max-width: 480px) {
+  .quickReportPressureRow {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+ 
+  .quickReportPressureRow input[type="number"] {
+    width: 56px !important;
+    flex: 0 0 56px !important;
+    height: 28px;
+    font-size: 0.72rem;
+  }
+}
+ 
+/* =========================================================
+   PACKAGING FORM (טבלת שורות אריזה) - הורדת לחץ
+   ========================================================= */
+ 
+.pressure-drop-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+ 
+  width: 100%;
+  padding: 4px 7px;
+ 
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px dashed #94a3b8;
+  border-radius: 5px;
+}
+ 
+.pressure-drop-row > span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+}
+ 
+.pressure-drop-row input[type="number"] {
+  width: 52px !important;
+  flex: 0 0 52px !important;
+  text-align: center;
+}
+ 
+@media (max-width: 600px) {
+  .pressure-drop-row {
+    padding: 3px 5px;
+    gap: 3px;
+  }
+ 
+  .pressure-drop-row input[type="number"] {
+    width: 42px !important;
+    flex: 0 0 42px !important;
+    height: 24px;
+    font-size: 0.62rem;
+  }
+}
+ 
+/* =========================================================
+   תג "אוטומטי" - מציין שהערך מולא אוטומטית מהמדידה האחרונה
+   (משותף לשני ההקשרים: quickReportPressureRow ו-pressure-drop-row)
+   ========================================================= */
+ 
+.auto-filled-value {
+  border-color: #93c5fd !important;
+  background: #eff6ff !important;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+ 
+.auto-filled-hint {
+  display: inline-flex;
+  align-items: center;
+ 
+  padding: 2px 7px;
+ 
+  border-radius: 999px;
+ 
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+ 
+  color: #1d4ed8;
+  font-size: 0.62rem;
+  font-weight: 700;
+ 
+  white-space: nowrap;
+  cursor: help;
+}
+ 
+@media (max-width: 480px) {
+  .auto-filled-hint {
+    font-size: 0.58rem;
+    padding: 1px 6px;
+  }
+}

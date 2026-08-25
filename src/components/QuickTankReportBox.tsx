@@ -14,6 +14,8 @@ import {
     buildDryHopNoteText,
 } from "../SERVICES/dryHopLogic";
 import { pushCurrentDataToFirestore } from "../SERVICES/pushCurrentDataToFirestore";
+// ⚠️ קובץ חדש - ראה packagingMasterSheetLogger.ts
+import { logPackagingToMasterSheet } from "../SERVICES/packagingMasterSheetLogger";
 
 type QuickTankReportBoxProps = {
     tank: Fermentor;
@@ -61,6 +63,10 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const [amount, setAmount] = useState("");
     const [isEmpty, setIsEmpty] = useState(false);
 
+    // --- פיצ'ר 1: הורדת לחץ אחרי אריזה ---
+    const [pressureAfter, setPressureAfter] = useState("");
+    const [pressureAutoFilled, setPressureAutoFilled] = useState(true);
+
     const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
     const [errorMsg, setErrorMsg] = useState("");
 
@@ -69,6 +75,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     function resetValues() {
         setValue(""); setValue2(""); setDirection("");
         setPackagingType(""); setAmount(""); setIsEmpty(false);
+        setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
     }
 
@@ -192,6 +199,13 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 notes = notes ? `${notes}, סה"כ ${reportLiters.toFixed(2)} ליטר` : `סה"כ ${reportLiters.toFixed(2)} ליטר`;
             }
 
+            // --- פיצ'ר 1: הוספת טקסט הורדת לחץ (רק אם המיכל לא ריק) ---
+            const hasValidPressure = pressureAfter !== "" && !Number.isNaN(Number(pressureAfter));
+            if (!isEmpty && hasValidPressure) {
+                const pressureText = `הורדת לחץ ל-${pressureAfter}`;
+                notes = notes ? `${notes} | ${pressureText}` : pressureText;
+            }
+
             const reading: any = {
                 id: buildMeasurementId(),
                 tankId: tank.id,
@@ -202,6 +216,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 isEmpty: isEmpty ? true : undefined,
                 kegs: packagingType === "kegs" && reportLiters > 0 ? reportLiters : undefined,
                 crates: packagingType === "bottles" && reportLiters > 0 ? reportLiters : undefined,
+                // רושמים גם את הלחץ החדש כמדידת לחץ רגילה של המיכל
+                pressure: !isEmpty && hasValidPressure ? Number(pressureAfter) : undefined,
             };
 
             const res = await writeReadingsToSheets([reading]);
@@ -221,7 +237,19 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             }]);
             pushCurrentDataToFirestore([reading]).catch((error) => {
                 console.error("Failed to push current data to Firestore:", error);
-            }); 
+            });
+
+            // --- פיצ'ר 2: כתיבה לטבלת המאסטר (לא חוסם את זרימת השליחה הרגילה) ---
+            if (packagingType && Number(amount) > 0) {
+                logPackagingToMasterSheet({
+                    beerStyle: tank.beerStyle,
+                    packagingType,
+                    amount: Number(amount),
+                    batchNumber: tank.batchNumber,
+                }).catch((err) => {
+                    console.error("Failed to log packaging to master sheet:", err);
+                });
+            }
 
             setStatus("sent");
             onClose()
@@ -334,7 +362,18 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                 className="quickReportSelect"
                                 value={packagingType}
                                 disabled={isSending}
-                                onChange={(e) => { setPackagingType(e.target.value as any); setAmount(""); }}
+                                onChange={(e) => {
+                                    const pt = e.target.value as "kegs" | "bottles";
+                                    setPackagingType(pt);
+                                    setAmount("");
+                                    // פיצ'ר 1: ברירת מחדל = הלחץ הנוכחי של המיכל
+                                    setPressureAfter(
+                                        tank.currentData?.pressure !== undefined && tank.currentData?.pressure !== null
+                                            ? String(tank.currentData.pressure)
+                                            : ""
+                                    );
+                                    setPressureAutoFilled(true);
+                                }}
                             >
                                 <option value="" disabled>סוג אריזה</option>
                                 <option value="kegs">חביות</option>
@@ -344,6 +383,33 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                 <input type="number" min={0} placeholder={`כמות ${packagingType === "kegs" ? "חביות" : "בקבוקים"}`} value={amount} disabled={isSending}
                                     onChange={(e) => setAmount(e.target.value)} />
                             )}
+
+                            {/* פיצ'ר 1: הורדת לחץ - רק כשהמיכל לא מסומן כריק */}
+                            {packagingType && !isEmpty && (
+                                <div className="quickReportInline quickReportPressureRow">
+                                    <span>הורדת לחץ ל: </span>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={pressureAfter}
+                                        disabled={isSending}
+                                        className={pressureAutoFilled ? "auto-filled-value" : undefined}
+                                        onChange={(e) => {
+                                            setPressureAfter(e.target.value);
+                                            setPressureAutoFilled(false);
+                                        }}
+                                    />
+                                    {pressureAutoFilled && pressureAfter !== "" && (
+                                        <span
+                                            className="auto-filled-hint"
+                                            title="לחץ לפני אריזה - ניתן לשנות"
+                                        >
+                                            לחץ לפני אריזה
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
                             <label className="quickReportCheckbox">
                                 <input type="checkbox" checked={isEmpty} disabled={isSending}
                                     onChange={(e) => setIsEmpty(e.target.checked)} />

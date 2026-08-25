@@ -9,6 +9,7 @@ import { resolveFinalPackagingTotal } from "../SERVICES/resolveFinalPackagingTot
 import { assignDryHopToHopsTable } from "../SERVICES/assignDryHop";
 import { getBrewAge } from "./TankCard";
 import { pushCurrentDataToFirestore } from "../SERVICES/pushCurrentDataToFirestore";
+import { logPackagingToMasterSheet } from "../SERVICES/packagingMasterSheetLogger";
 
 export type SendMessurmentsHeaderProps = {
     brews: Fermentor[],
@@ -333,9 +334,38 @@ export default function SendMessurmentsHeader({
 
                     return r;
                 })
+                
             );
 
             readingsToSend = enrichedReadings;
+            
+            try {
+        const masterSheetPromises = packagingEntries
+            .filter((e: any) => Number(e.kegs) > 0 || Number(e.crates) > 0)
+            .map((e: any) => {
+                const tank = brews.find((b) => b.id === e.tankId);
+                const packagingType: "kegs" | "bottles" = Number(e.kegs) > 0 ? "kegs" : "bottles";
+                const rawAmount =
+                    packagingType === "kegs"
+                        ? Number(e.kegs) / 20 // KEG_LITERS
+                        : Number(e.crates) / 0.33; // BOTTLE_LITERS
+
+                return logPackagingToMasterSheet({
+                    beerStyle: tank?.beerStyle,
+                    packagingType,
+                    amount: rawAmount,
+                    batchNumber: tank?.batchNumber,
+                });
+            });
+
+        const masterResults = await Promise.all(masterSheetPromises);
+        const masterFailures = masterResults.filter((r) => !r.success);
+        if (masterFailures.length > 0) {
+            console.warn("Master sheet logging partial failures:", masterFailures);
+        }
+    } catch (error) {
+        console.error("Failed to log packaging to master sheet:", error);
+    }
         }
         try {
             const res = await writeReadingsToSheets(readingsToSend);

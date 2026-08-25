@@ -15,6 +15,9 @@ type PackagingRow = {
     packagingType: PackagingType | "";
     amount: string;
     isEmpty: boolean;
+    // פיצ'ר 1: הורדת לחץ אחרי אריזה
+    pressure: string;
+    pressureAutoFilled: boolean;
 };
 
 const KEG_LITERS = 20;
@@ -28,6 +31,8 @@ function makeEmptyRow(): PackagingRow {
         packagingType: "",
         amount: "",
         isEmpty: false,
+        pressure: "",
+        pressureAutoFilled: true,
     };
 }
 
@@ -52,8 +57,10 @@ export default function PackagingForm({
 
     function isRowIncomplete(row: PackagingRow): boolean {
         if (!row.tankNumber) return false;
+        if (row.isEmpty) return false;
         const hasAmount = row.packagingType !== "" && row.amount !== "";
-        return !hasAmount && !row.isEmpty;
+        const hasPressure = row.pressure !== "";
+        return !hasAmount || !hasPressure;
     }
 
     function buildNoteText(row: PackagingRow): string | null {
@@ -74,6 +81,13 @@ export default function PackagingForm({
 
         if (reportLiters > 0) {
             text += `${text ? " ," : ""}סה"כ ${reportLiters.toFixed(2)} ליטר`;
+        }
+
+        // פיצ'ר 1: הוספת הורדת לחץ (רק אם המיכל לא ריק)
+        const hasValidPressure = row.pressure !== "" && !Number.isNaN(Number(row.pressure));
+        if (!row.isEmpty && hasValidPressure) {
+            const pressureText = `הורדת לחץ ל-${row.pressure}`;
+            text = text ? `${text} | ${pressureText}` : pressureText;
         }
 
         return text || null;
@@ -97,11 +111,13 @@ export default function PackagingForm({
                 updateReading(fv.id, "isEmpty", undefined);
                 updateReading(fv.id, "kegs", undefined);
                 updateReading(fv.id, "crates", undefined);
+                updateReading(fv.id, "pressure", undefined);
                 return;
             }
 
             const noteText = buildNoteText(row);
             const reportLiters = calcReportLiters(row);
+            const hasValidPressure = row.pressure !== "" && !Number.isNaN(Number(row.pressure));
 
             updateReading(fv.id, "notes", noteText ?? undefined);
             updateReading(fv.id, "isEmpty", row.isEmpty ? true : undefined);
@@ -115,6 +131,11 @@ export default function PackagingForm({
                 "crates",
                 row.packagingType === "bottles" && reportLiters > 0 ? reportLiters : undefined
             );
+            updateReading(
+                fv.id,
+                "pressure",
+                !row.isEmpty && hasValidPressure ? Number(row.pressure) : undefined
+            );
         });
 
         onValidityChange?.(newRows.some(isRowIncomplete));
@@ -124,6 +145,19 @@ export default function PackagingForm({
         handleRowsUpdate(
             rows.map((row) => (row.id === rowId ? { ...row, ...patch } : row))
         );
+    }
+
+    function selectTank(rowId: number, fermentor: Fermentor | undefined) {
+        if (!fermentor) return;
+        patchRow(rowId, {
+            tankNumber: Number(fermentor.tankNumber),
+            // פיצ'ר 1: ברירת מחדל = הלחץ הנוכחי של המיכל שנבחר
+            pressure:
+                fermentor.currentData?.pressure !== undefined && fermentor.currentData?.pressure !== null
+                    ? String(fermentor.currentData.pressure)
+                    : "",
+            pressureAutoFilled: true,
+        });
     }
 
     return (
@@ -146,9 +180,7 @@ export default function PackagingForm({
                                 const selected = availableTanks.find(
                                     (fv) => String(fv.batchNumber) === selectedBatch
                                 );
-                                if (selected) {
-                                    patchRow(row.id, { tankNumber: Number(selected.tankNumber) });
-                                }
+                                selectTank(row.id, selected);
                             }}
                         >
                             <option value="" disabled>בחר מספר אצווה</option>
@@ -162,7 +194,12 @@ export default function PackagingForm({
                         <select
                             className="select-tank"
                             value={row.tankNumber || ""}
-                            onChange={(e) => patchRow(row.id, { tankNumber: Number(e.target.value) })}
+                            onChange={(e) => {
+                                const selected = availableTanks.find(
+                                    (fv) => Number(fv.tankNumber) === Number(e.target.value)
+                                );
+                                selectTank(row.id, selected);
+                            }}
                         >
                             <option value="" disabled>בחר מיכל</option>
                             {availableTanks.map((fv) => (
@@ -201,6 +238,30 @@ export default function PackagingForm({
                             <span className="report-liters-preview">
                                 {`   (סה"כ ${reportLiters.toFixed(2)}  ליטר)`}
                             </span>
+                        )}
+
+                        {/* פיצ'ר 1: הורדת לחץ - רק כשהמיכל לא מסומן כריק */}
+                        {row.packagingType && !row.isEmpty && (
+                            <div className="pressure-drop-row">
+                                <span>הורדת לחץ ל: </span>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    value={row.pressure}
+                                    className={row.pressureAutoFilled ? "auto-filled-value" : undefined}
+                                    onChange={(e) =>
+                                        patchRow(row.id, { pressure: e.target.value, pressureAutoFilled: false })
+                                    }
+                                />
+                                {row.pressureAutoFilled && row.pressure !== "" && (
+                                    <span
+                                        className="auto-filled-hint"
+                                        title="לחץ לפני אריזה- ניתן לשנות"
+                                    >
+                                        לחץ לפני אריזה
+                                    </span>
+                                )}
+                            </div>
                         )}
 
                         <label className="empty-checkbox-label">
