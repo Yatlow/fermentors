@@ -247,7 +247,6 @@ function App() {
           return { ...tank, stage };
         })
       );
-
       if (!cancelled) {
         setBrews(enriched);
       }

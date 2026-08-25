@@ -119,7 +119,7 @@ export default function SendMessurmentsHeader({
             setConfirmMissing({ open: true, missingTanks: missing });
             return;
         }
-        void sendReadings();
+        void getUnvalidMessurments();
     };
 
     const handleRecClick = async () => {
@@ -561,7 +561,7 @@ export default function SendMessurmentsHeader({
 
             const yesterdayMeasurement: Measurement =
                 sortedMeasurements[sortedMeasurements.length - 2];
-
+            // const previousMessurmants= readingSet.previus
             const currentTemp = Number(readingSet.current?.temp);
             const newTemp = Number(readingSet.new.temp);
             const currentPressure = Number(readingSet.current?.pressure);
@@ -571,38 +571,40 @@ export default function SendMessurmentsHeader({
             const currentPlato = Number(readingSet.current?.plato);
             const newPlato = Number(readingSet.new.plato);
 
+
+
             if (currentTemp - newTemp > 5 || newTemp - currentTemp > 5) {
                 if (currentTemp - newTemp > 5) {
                     const cooled = yesterdayMeasurement?.notes?.toString().includes("קירור") ||
                         yesterdayMeasurement?.notes?.toString().includes("קירור");
-                    if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${currentTemp - newTemp} מעלות ממדידה קודמת- למרות שלא מסומן שהמיכל מקורר. האם הזנת נתון תקין?`)
-                    console.log(sortedMeasurements)
+                    if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
 
-                } else {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
                 }
-            }
-            if (currentPressure < newPressure) {
+            }   
+                const pDelata=currentPressure - newPressure;
+            if (pDelata<-0.5) {
                 if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
                     || yesterdayMeasurement?.notes?.toString().includes("סגירה")
                     || yesterdayMeasurement?.notes?.toString().includes("העלאת")
                     || yesterdayMeasurement?.notes?.toString().includes("להעלות לחץ")
                 )) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ- למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
+                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ של יותר מ0.5bar למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
                 }
             }
-            if (currentPressure > newPressure) {
+            if (pDelata>0.5) {
                 if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
                     || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
                 )) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה ירידה בלחץ- למרות שלא נמצאה הורדת לחץ או הורדת שמרים. האם הזנת נתון תקין?`)
+                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה ירידה בלחץ של יותר מ0.5bar למרות שלא נמצאה הורדת לחץ או הורדת שמרים. האם הזנת נתון תקין?`)
                 }
             }
             if (newPressure && !newTemp) {
                 invalidText.push(`במיכל ${readingSet.tankNumber} דווח לחץ אך לא דווח טמפ'. לתשומת ליבך`)
             }
             if (newTemp && !newPressure) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} דווח לחץ אך לא דווח טמפ'. לתשומת ליבך`)
+                if (newPressure !== 0) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח טמפ אך לא דווח . לתשומת ליבך`)
+                }
             }
             if (newPh > 6) {
                 invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מעל 6. האם הזנת נתון תקין?`)
@@ -626,7 +628,7 @@ export default function SendMessurmentsHeader({
             // { pressure: 0, pH: 4.45, carbonation: null, plato: 4.2, … }
 
         })
-        if (invalidText.length > 1) {
+        if (invalidText.length > 0) {
             setConfirmMessurments({ open: true, unvalidMessurments: invalidText })
         } else {
             void sendReadings()
@@ -777,141 +779,141 @@ export default function SendMessurmentsHeader({
                 </div>
             )}
             {sendingReading !== "idle" && (
-                    <div className="modal-overlay">
-                        <div className="modal-box">
+                <div className="modal-overlay">
+                    <div className="modal-box">
 
-                            {sendingReading === "loading" && <p className="status-loading">שולח נתונים...</p>}
-                            {sendingReading === "sync" && <p className="status-loading">מרענן נתוני שרת...</p>}
-                            {sendingReading === "getRecs" && <p className="status-loading">טוען המלצות סלרינג...</p>}
-                            {sendingReading === "checking" && <p className="status-loading">בודק תקינות נתונים...</p>}
-                            <div className="modal-box-scroll"
-                                ref={scrollRef}
-                                onScroll={checkScrollState}>
-                                {sendingReading === "sent" && (
-                                    <div className="sentBox">
-                                        <div className="btn-close-modal-Box">
-                                            <button
-                                                className="btn-close-modal"
-                                                onClick={closeStatusModal}
-                                            >
-                                                X
-                                            </button>
-                                        </div>
-                                        <div className="status-sent">
-                                            {Object.keys(sendResults).length > 0 && <p>
-                                                הנתונים נשלחו בהצלחה
-                                            </p>}
+                        {sendingReading === "loading" && <p className="status-loading">שולח נתונים...</p>}
+                        {sendingReading === "sync" && <p className="status-loading">מרענן נתוני שרת...</p>}
+                        {sendingReading === "getRecs" && <p className="status-loading">טוען המלצות סלרינג...</p>}
+                        {sendingReading === "checking" && <p className="status-loading">בודק תקינות נתונים...</p>}
+                        <div className="modal-box-scroll"
+                            ref={scrollRef}
+                            onScroll={checkScrollState}>
+                            {sendingReading === "sent" && (
+                                <div className="sentBox">
+                                    <div className="btn-close-modal-Box">
+                                        <button
+                                            className="btn-close-modal"
+                                            onClick={closeStatusModal}
+                                        >
+                                            X
+                                        </button>
+                                    </div>
+                                    <div className="status-sent">
+                                        {Object.keys(sendResults).length > 0 && <p>
+                                            הנתונים נשלחו בהצלחה
+                                        </p>}
 
-                                            <p>מצורפות המלצות לסלרינג!</p>
-                                            <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
+                                        <p>מצורפות המלצות לסלרינג!</p>
+                                        <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
 
-                                        </div>
+                                    </div>
 
-                                        {dailyActionRecommendation?.req && (
-                                            <div className="daily-recommendation">
-                                                <div className="daily-recommendation-title">
-                                                    🔔 פעולה יומית
-                                                </div>
-
-                                                <div className="daily-recommendation-reason">
-                                                    {dailyActionRecommendation.reason}
-                                                </div>
+                                    {dailyActionRecommendation?.req && (
+                                        <div className="daily-recommendation">
+                                            <div className="daily-recommendation-title">
+                                                🔔 פעולה יומית
                                             </div>
-                                        )}
 
-
-                                        <div className="tank-recommendations-list">
-
-                                            {brews
-                                                .filter(
-                                                    (tank) =>
-                                                        Number(tank.tankNumber) !== 1 &&
-                                                        Number(tank.action) === 1
-                                                )
-                                                .map((tank) => {
-                                                    const recommendations =
-                                                        getActiveRecommendations(tank.tankNumber ?? "");
-
-                                                    if (recommendations.length)
-                                                        return (
-                                                            <div
-                                                                key={tank.id}
-                                                                className={`tank-recommendation-card recommendation-${tank.stage?.className}`}
-                                                            >
-
-                                                                {/* Tank header */}
-
-                                                                <div className="tank-recommendation-header recomendations_cell">
-
-                                                                    <p>
-                                                                        מיכל {tank.tankNumber}- {tank.beerStyle}
-                                                                    </p>
-
-                                                                    <span
-                                                                        className={
-                                                                            `rec-label-${tank.stage?.name === "בתסיסה" ? "fermenting" : "cold"}`
-                                                                        }
-                                                                    >
-                                                                        {tank.stage?.icon} {tank.stage?.name}
-                                                                    </span>
-
-                                                                </div>
-
-
-                                                                <div className="tank-recommendations">
-
-                                                                    {recommendations.map(
-                                                                        (recommendation, index) => (
-                                                                            <div
-                                                                                key={index}
-                                                                                className={`recommendation-cell level-${recommendation.importance}`}
-                                                                            >
-                                                                                {recommendation.reason}
-                                                                            </div>
-                                                                        )
-                                                                    )}
-
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                })}
-
+                                            <div className="daily-recommendation-reason">
+                                                {dailyActionRecommendation.reason}
+                                            </div>
                                         </div>
+                                    )}
 
-                                        <p>{""}</p>
-                                        {/* <button
+
+                                    <div className="tank-recommendations-list">
+
+                                        {brews
+                                            .filter(
+                                                (tank) =>
+                                                    Number(tank.tankNumber) !== 1 &&
+                                                    Number(tank.action) === 1
+                                            )
+                                            .map((tank) => {
+                                                const recommendations =
+                                                    getActiveRecommendations(tank.tankNumber ?? "");
+
+                                                if (recommendations.length)
+                                                    return (
+                                                        <div
+                                                            key={tank.id}
+                                                            className={`tank-recommendation-card recommendation-${tank.stage?.className}`}
+                                                        >
+
+                                                            {/* Tank header */}
+
+                                                            <div className="tank-recommendation-header recomendations_cell">
+
+                                                                <p>
+                                                                    מיכל {tank.tankNumber}- {tank.beerStyle}
+                                                                </p>
+
+                                                                <span
+                                                                    className={
+                                                                        `rec-label-${tank.stage?.name === "בתסיסה" ? "fermenting" : "cold"}`
+                                                                    }
+                                                                >
+                                                                    {tank.stage?.icon} {tank.stage?.name}
+                                                                </span>
+
+                                                            </div>
+
+
+                                                            <div className="tank-recommendations">
+
+                                                                {recommendations.map(
+                                                                    (recommendation, index) => (
+                                                                        <div
+                                                                            key={index}
+                                                                            className={`recommendation-cell level-${recommendation.importance}`}
+                                                                        >
+                                                                            {recommendation.reason}
+                                                                        </div>
+                                                                    )
+                                                                )}
+
+                                                            </div>
+                                                        </div>
+                                                    );
+                                            })}
+
+                                    </div>
+
+                                    <p>{""}</p>
+                                    {/* <button
                                         className="btn-primary"
                                         onClick={closeStatusModal}
                                     >
                                         סגור
                                     </button> */}
 
-                                    </div>
-                                )}
-                            </div>
-
-                            {sendingReading === "error" && (
-                                <>
-                                    <p className="status-error">אירעה שגיאה בשליחת הנתונים ❌</p>
-                                    {sendResults.length > 0 && (
-                                        <ul className="send-results-list">
-                                            {sendResults.map((r, i) => (
-                                                <li key={i}>
-                                                    מיכל {String(r.tankId)}: {r.success ? "הצליח" : r.error ?? r.message ?? "נכשל"}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                    <button className="btn-primary" onClick={closeStatusModal}>
-                                        סגור
-                                    </button>
-                                </>
+                                </div>
                             )}
-                    <div className={`modal-scroll-hint ${showScrollHint ? "" : "hidden"}`}>
-                        <span className="modal-scroll-arrow">⌄</span>
-                    </div>
+                        </div>
+
+                        {sendingReading === "error" && (
+                            <>
+                                <p className="status-error">אירעה שגיאה בשליחת הנתונים ❌</p>
+                                {sendResults.length > 0 && (
+                                    <ul className="send-results-list">
+                                        {sendResults.map((r, i) => (
+                                            <li key={i}>
+                                                מיכל {String(r.tankId)}: {r.success ? "הצליח" : r.error ?? r.message ?? "נכשל"}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <button className="btn-primary" onClick={closeStatusModal}>
+                                    סגור
+                                </button>
+                            </>
+                        )}
+                        <div className={`modal-scroll-hint ${showScrollHint ? "" : "hidden"}`}>
+                            <span className="modal-scroll-arrow">⌄</span>
                         </div>
                     </div>
+                </div>
             )}
         </>
     )

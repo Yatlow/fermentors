@@ -63,7 +63,6 @@ type Tank = {
 };
 
 export async function getTankStage(tank: Tank): Promise<TankStageInfo> {
-  // console.log(tank)
   if (!tank.batchNumber) {
     return STAGE_INFO[3];
   }
@@ -86,15 +85,15 @@ export async function getTankStage(tank: Tank): Promise<TankStageInfo> {
 
   const temperature = Number(tank.currentData?.temp);
 
-  if (tank.currentData?.temp && !Number.isNaN(temperature) && temperature < 9) {
+  if (tank.currentData?.temp != null && !Number.isNaN(temperature) && temperature < 9) {
     return STAGE_INFO[2];
   }
   if (tank.batchNumber) {
     const measurements = await getMeasurementsByBatch(Number(tank.batchNumber))
 
-    const cooled =measurements.some(
-        measurement =>
-            String(measurement.notes || "").includes("קירור")
+    const cooled = measurements.some(
+      measurement =>
+        String(measurement.notes || "").includes("קירור")
     );
     if (cooled) {
       return STAGE_INFO[2];
