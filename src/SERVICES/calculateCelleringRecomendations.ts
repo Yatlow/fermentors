@@ -385,7 +385,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         !yeastDroppedOnce &&
         !requiresDryHop.req &&
         yesterdayMeasurement &&
-        Number(currentPlato) < (givenSpecs.tolorances.yeastDropMinPlato || 6)
+        Number(currentPlato) < (givenSpecs.tolorances.yeastDropMinPlato || 6)&&
+        pressureIsclosed
     ) {
         const yesterdayPlato =
             Number(yesterdayMeasurement?.plato);

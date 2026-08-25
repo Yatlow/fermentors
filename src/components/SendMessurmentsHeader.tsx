@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../SERVICES/writeReadingToSheets";
 import type { Fermentor, NewReading } from "../App";
-import { triggerTankUpdate } from "../SERVICES/triggerTankUpdate";
 import { calcCelleringRecomendations, type Measurement } from "../SERVICES/calculateCelleringRecomendations";
 import { getSpecsFromFb, type SpecChart } from "../SERVICES/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../SERVICES/gettAllDataByBatch";
 import { updatePackagingInfo } from "../SERVICES/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../SERVICES/resolveFinalPackagingTotal";
-import { refreshSingleTank } from "../SERVICES/refreshSingleTank";
 import { assignDryHopToHopsTable } from "../SERVICES/assignDryHop";
+import { getBrewAge } from "./TankCard";
+import { pushCurrentDataToFirestore } from "../SERVICES/pushCurrentDataToFirestore";
 
 export type SendMessurmentsHeaderProps = {
     brews: Fermentor[],
@@ -119,7 +119,11 @@ export default function SendMessurmentsHeader({
             setConfirmMissing({ open: true, missingTanks: missing });
             return;
         }
-        void getUnvalidMessurments();
+        if (reportName === "חם" || reportName === "לחץ") {
+            void getUnvalidMessurments();
+        } else {
+            void sendReadings()
+        }
     };
 
     const handleRecClick = async () => {
@@ -281,9 +285,6 @@ export default function SendMessurmentsHeader({
                     let totalLiters: number | undefined;
                     let shrinkagePercent: number | undefined;
 
-                    // --------------------------------------------------
-                    // אם המיכל ריק - מחשבים סה"כ ופחת
-                    // --------------------------------------------------
                     if (isEmpty && tank) {
 
                         const reportLiters =
@@ -319,9 +320,6 @@ export default function SendMessurmentsHeader({
                         };
                     }
 
-                    // --------------------------------------------------
-                    // תמיד מוסיפים ל-packagingEntries
-                    // --------------------------------------------------
                     packagingEntries.push({
                         tankId: r.tankId,
                         tankNumber: (r as any).tankNumber,
@@ -383,35 +381,44 @@ export default function SendMessurmentsHeader({
                     console.error("Failed to update packaging info:", error);
                 }
             }
-            setNewReadings({});
-            if (reportName !== "פעולות") {
-                triggerTankUpdate().catch((error) => {
-                    console.error("Background tank update failed:", error);
-                });
-            } else {
-                readingsToSend
-                    .filter((r) => (r as any).refreshTank === true)
-                    .forEach((r) => {
-                        if (!r.sheetUrl) return;
-                        refreshSingleTank(String(r.tankId), String(r.sheetUrl)).catch((error) => {
-                            console.error("Failed to refresh tank", r.tankId, error);
-                        });
-                    });
-            }
-            if (reportName === "חם" || reportName === "לחץ") {
-                if (!specs) {
-                    console.warn("Specs are not loaded yet");
-                    return;
-                }
-                try {
 
+            const succeededReadings = readingsToSend.filter((r) => {
+                const result = res.find((rr) => String(rr.tankId) === String(r.tankId));
+                return result?.success !== false;
+            });
+
+            pushCurrentDataToFirestore(succeededReadings).catch((error) => {
+                console.error("Failed to push current data to Firestore:", error);
+            });
+            setNewReadings({});
+            // if (reportName !== "פעולות") {
+            //     triggerTankUpdate().catch((error) => {
+            //         console.error("Background tank update failed:", error);
+            //     });
+            // } else {
+            //     readingsToSend
+            //         .filter((r) => (r as any).refreshTank === true)
+            //         .forEach((r) => {
+            //             if (!r.sheetUrl) return;
+            //             refreshSingleTank(String(r.tankId), String(r.sheetUrl)).catch((error) => {
+            //                 console.error("Failed to refresh tank", r.tankId, error);
+            //             });
+            //         });
+            // }
+            if (!specs) {
+                console.warn("Specs are not loaded yet");
+                return;
+            }
+            try {
+                if (reportName === "חם" || reportName === "לחץ") {
                     let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
-                    if (reportName === "חם") fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9)
+                    if (reportName === "חם") {
+                        fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9)
+                    }
                     setSendingReading("getRecs")
                     const getRecs = async () => {
                         const entries = await Promise.all(
                             fullTanks.map(async (tank: Fermentor) => {
-                                // const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
                                 const messurments = measurementsCache.current[String(tank.tankNumber)]
                                     ?? await getMeasurementsByBatch(tank.batchNumber ?? "")
                                 if (!tank.stage || !tank.brewDate) {
@@ -453,11 +460,14 @@ export default function SendMessurmentsHeader({
                     const recommendations = await getRecs();
 
                     setRcs(recommendations);
-                } catch (error) {
-                    console.error("Failed to update database:", error);
+                    setSendingReading(res.every((r) => r.success) ? "sent" : "error");
                 }
+                else {
+                    setSendingReading(res.every((r) => r.success) ? "idle" : "error");
+                }
+            } catch (error) {
+                console.error("Failed to update database:", error);
             }
-            setSendingReading(res.every((r) => r.success) ? "sent" : "error");
         } catch (error) {
             setSendResults([]);
             setSendingReading("error");
@@ -504,7 +514,8 @@ export default function SendMessurmentsHeader({
                     (fv) =>
                         Number(fv.tankNumber) !== 1 &&
                         Number(fv.action) === 1 &&
-                        Number(fv.currentData?.temp) > 9
+                        Number(fv.currentData?.temp) > 9 &&
+                        (getBrewAge(fv?.brewDate) ?? 0) > 0
                 )
                 .filter((fv) => {
                     const r = newReadings[fv.id] ?? {};
@@ -561,7 +572,6 @@ export default function SendMessurmentsHeader({
 
             const yesterdayMeasurement: Measurement =
                 sortedMeasurements[sortedMeasurements.length - 2];
-            // const previousMessurmants= readingSet.previus
             const currentTemp = Number(readingSet.current?.temp);
             const newTemp = Number(readingSet.new.temp);
             const currentPressure = Number(readingSet.current?.pressure);
@@ -580,9 +590,9 @@ export default function SendMessurmentsHeader({
                     if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
 
                 }
-            }   
-                const pDelata=currentPressure - newPressure;
-            if (pDelata<-0.5) {
+            }
+            const pDelata = currentPressure - newPressure;
+            if (pDelata < -0.5) {
                 if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
                     || yesterdayMeasurement?.notes?.toString().includes("סגירה")
                     || yesterdayMeasurement?.notes?.toString().includes("העלאת")
@@ -591,7 +601,7 @@ export default function SendMessurmentsHeader({
                     invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ של יותר מ0.5bar למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
                 }
             }
-            if (pDelata>0.5) {
+            if (pDelata > 0.5) {
                 if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
                     || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
                 )) {
@@ -625,15 +635,13 @@ export default function SendMessurmentsHeader({
                 invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH אך לא דווח Plato. לתשומת ליבך`)
             }
 
-            // { pressure: 0, pH: 4.45, carbonation: null, plato: 4.2, … }
-
         })
         if (invalidText.length > 0) {
             setConfirmMessurments({ open: true, unvalidMessurments: invalidText })
         } else {
             void sendReadings()
         }
-        setSendingReading("idle")
+        setSendingReading("getRecs")
     };
 
     let canSend = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1 && (reportName === "לחץ" ? true : Number(fv.currentData?.temp) > 9)).length === getMissingTanks()?.length;
@@ -841,8 +849,6 @@ export default function SendMessurmentsHeader({
                                                             className={`tank-recommendation-card recommendation-${tank.stage?.className}`}
                                                         >
 
-                                                            {/* Tank header */}
-
                                                             <div className="tank-recommendation-header recomendations_cell">
 
                                                                 <p>
@@ -881,13 +887,6 @@ export default function SendMessurmentsHeader({
                                     </div>
 
                                     <p>{""}</p>
-                                    {/* <button
-                                        className="btn-primary"
-                                        onClick={closeStatusModal}
-                                    >
-                                        סגור
-                                    </button> */}
-
                                 </div>
                             )}
                         </div>

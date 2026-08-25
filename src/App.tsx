@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   collection,
   onSnapshot,
   doc,
   updateDoc,
   getDoc,
-} from "firebase/firestore";  
+} from "firebase/firestore";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
 // import {  db } from "./firebase";
@@ -106,20 +106,20 @@ async function checkAproovedUser(user: any): Promise<boolean> {
   }
 }
 
- function useAuth() {
-    const [user, setUser] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
+function useAuth() {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
-        setUser(user);
-        setLoading(false);
-      });
-      return () => unsubscribe();
-    }, []);
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
-    return { user, loading };
-  }
+  return { user, loading };
+}
 
 function App() {
   const { user, loading: authLoading } = useAuth();
@@ -163,47 +163,89 @@ function App() {
           setIsApproved(false);
         });
       setLoggingIn(false);
-    } 
+    }
   }, [user]);
 
 
+
   useEffect(() => {
-    if (!user || ! isApproved){
+    if (!user || !isApproved) {
       return
     }
     const fermentorsRef = collection(db, "fermentors");
 
+    //   const unsubscribe = onSnapshot(
+    //     fermentorsRef,
+    //     (snapshot) => {
+    //       const data: Fermentor[] = snapshot.docs.map(
+    //         (firebaseDoc) => {
+    //           const firestoreData = firebaseDoc.data();
+
+    //           return {
+    //             ...(firestoreData as Record<string, unknown>),
+    //             id: firebaseDoc.id,
+    //           } as Fermentor;
+    //         }
+    //       );
+
+    //       data.sort((a, b) => {
+    //         const numA =
+    //           parseInt(
+    //             String(a.uid ?? "").replace(/\D/g, ""),
+    //             10
+    //           ) || 0;
+
+    //         const numB =
+    //           parseInt(
+    //             String(b.uid ?? "").replace(/\D/g, ""),
+    //             10
+    //           ) || 0;
+
+    //         return numA - numB;
+    //       });
+
+    //       setBrews(data);
+    //       setLoading(false);
+    //     },
+    //     (error) => {
+    //       console.error("Firestore listener error:", error);
+    //       setLoading(false);
+    //     }
+    //   );
+
+    //   // Important: remove the Firestore listener
+    //   // when the component is unmounted.
+
+
+
     const unsubscribe = onSnapshot(
       fermentorsRef,
       (snapshot) => {
-        const data: Fermentor[] = snapshot.docs.map(
-          (firebaseDoc) => {
-            const firestoreData = firebaseDoc.data();
+        setBrews((prevBrews) => {
+          const prevById = new Map(prevBrews.map((t) => [t.id, t]));
 
-            return {
-              ...(firestoreData as Record<string, unknown>),
-              id: firebaseDoc.id,
-            } as Fermentor;
-          }
-        );
+          const data: Fermentor[] = snapshot.docs.map((firebaseDoc) => {
+            const firestoreData = firebaseDoc.data() as Record<string, unknown>;
+            const id = firebaseDoc.id;
+            const prevTank = prevById.get(id);
 
-        data.sort((a, b) => {
-          const numA =
-            parseInt(
-              String(a.uid ?? "").replace(/\D/g, ""),
-              10
-            ) || 0;
+            if (prevTank) {
+              const { stage: _s, ...prevRest } = prevTank;
+              const sameData = JSON.stringify(prevRest) === JSON.stringify({ ...firestoreData, id });
+              if (sameData) return prevTank; // רפרנס זהה -> React.memo יוכל לדלג
+            }
 
-          const numB =
-            parseInt(
-              String(b.uid ?? "").replace(/\D/g, ""),
-              10
-            ) || 0;
+            return { ...firestoreData, id, stage: undefined } as Fermentor;
+          });
 
-          return numA - numB;
+          data.sort((a, b) => {
+            const numA = parseInt(String(a.uid ?? "").replace(/\D/g, ""), 10) || 0;
+            const numB = parseInt(String(b.uid ?? "").replace(/\D/g, ""), 10) || 0;
+            return numA - numB;
+          });
+
+          return data;
         });
-
-        setBrews(data);
         setLoading(false);
       },
       (error) => {
@@ -211,11 +253,9 @@ function App() {
         setLoading(false);
       }
     );
-
-    // Important: remove the Firestore listener
-    // when the component is unmounted.
     return () => unsubscribe();
   }, [user, isApproved]);
+
 
   function login() {
     signInWithPopup(auth, googleProvider).catch((e) => console.error(e));
@@ -232,24 +272,30 @@ function App() {
   useEffect(() => {
     if (brews.length === 0) return;
 
-    // אם כבר לכולם יש stage מחושב (למשל אחרי שהעשרנו בעצמנו), לא לרוץ שוב
-    const needsStage = brews.some((tank) => tank.stage === undefined);
-    if (!needsStage) return;
+
+    const tanksNeedingStage = brews.filter((tank) => tank.stage === undefined);
+    if (tanksNeedingStage.length === 0) return;
 
     let cancelled = false;
 
     (async () => {
-      const enriched = await Promise.all(
-        brews.map(async (tank) => {
+      const stageById = new Map<string, TankStageInfo | undefined>();
+      await Promise.all(
+        tanksNeedingStage.map(async (tank) => {
           const stage = await getTankStage(
             tank as Parameters<typeof getTankStage>[0]
           ).catch(() => undefined);
-          return { ...tank, stage };
+          stageById.set(tank.id, stage);
         })
       );
-      if (!cancelled) {
-        setBrews(enriched);
-      }
+      if (cancelled) return;
+      setBrews((prev) =>
+        prev.map((tank) =>
+          stageById.has(tank.id)
+            ? { ...tank, stage: stageById.get(tank.id) }
+            : tank // לא נגענו בו -> אותו רפרנס בדיוק
+        )
+      );
     })();
 
     return () => {
@@ -306,30 +352,24 @@ function App() {
       ];
     }, [statusCounts]);
 
-  const handleUpdatePasivation: (
-    tankId: string,
-    newDate: string
-  ) => Promise<void> = async (
-    tankId,
-    newDate
-  ) => {
-      try {
-        const tankRef = doc(
-          db,
-          "fermentors",
-          tankId
-        );
+  const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
+    try {
+      const tankRef = doc(
+        db,
+        "fermentors",
+        tankId
+      );
 
-        await updateDoc(tankRef, {
-          pasivationDate: newDate,
-        });
-      } catch (error) {
-        console.error(
-          "Error updating pasivation date:",
-          error
-        );
-      }
-    };
+      await updateDoc(tankRef, {
+        pasivationDate: newDate,
+      });
+    } catch (error) {
+      console.error(
+        "Error updating pasivation date:",
+        error
+      );
+    }
+  },[]);
 
   const updateReading = (
     tankId: string,

@@ -2,8 +2,6 @@ import { useState } from "react";
 import type { Fermentor } from "../App";
 import type { SpecChart } from "../SERVICES/getSpecsFromFb";
 import { writeReadingsToSheets } from "../SERVICES/writeReadingToSheets";
-import { refreshSingleTank } from "../SERVICES/refreshSingleTank";
-import { triggerTankUpdate } from "../SERVICES/triggerTankUpdate";
 import { updatePackagingInfo } from "../SERVICES/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../SERVICES/resolveFinalPackagingTotal";
 import { assignDryHopToHopsTable } from "../SERVICES/assignDryHop";
@@ -15,6 +13,7 @@ import {
     getClosingPressureForStyle,
     buildDryHopNoteText,
 } from "../SERVICES/dryHopLogic";
+import { pushCurrentDataToFirestore } from "../SERVICES/pushCurrentDataToFirestore";
 
 type QuickTankReportBoxProps = {
     tank: Fermentor;
@@ -23,7 +22,6 @@ type QuickTankReportBoxProps = {
     position: { top: number; left: number } | null;
 };
 
-const REFRESH_TRIGGER_TYPES = new Set(["גיזוז", "קירור", "דיאציטיל"]);
 
 const NOTE_TYPES = [
     { value: "גיזוז", label: "בדיקת גיזוז", stage: "cold" },
@@ -76,7 +74,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
 
     function buildNoteText(): string | null {
         switch (noteType) {
-            case "גיזוז": return value === "" ? null : `בדיקת גיזוז: ${value}`;
+            // case "גיזוז": return value === "" ? null : `בדיקת גיזוז: ${value}`;
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
@@ -122,7 +120,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
 
     async function submitNote() {
         const noteText = buildNoteText();
-        if (!noteText) return;
+        if (noteType !== "גיזוז" && !noteText) return;
 
         setStatus("sending");
         setErrorMsg("");
@@ -152,14 +150,12 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                     }
                 }
             }
-
+            pushCurrentDataToFirestore([reading]).catch((error) => {
+                console.error("Failed to push current data to Firestore:", error);
+            });
             setStatus("sent");
             onClose();
-            if (REFRESH_TRIGGER_TYPES.has(noteType) && tank.sheetUrl) {
-                refreshSingleTank(String(tank.id), tank.sheetUrl).catch((err) =>
-                    console.error("Failed to refresh tank", tank.id, err)
-                );
-            }
+
         } catch (err: any) {
             setStatus("error");
             setErrorMsg(err?.message ?? "שגיאה בשליחה");
@@ -223,10 +219,12 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 totalLiters,
                 shrinkagePercent,
             }]);
+            pushCurrentDataToFirestore([reading]).catch((error) => {
+                console.error("Failed to push current data to Firestore:", error);
+            }); 
 
             setStatus("sent");
             onClose()
-            triggerTankUpdate().catch((err) => console.error("Background tank update failed:", err));
         } catch (err: any) {
             setStatus("error");
             setErrorMsg(err?.message ?? "שגיאה בשליחה");
@@ -237,11 +235,12 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         if (noteType === "אריזה") void submitPackaging();
         else void submitNote();
     }
-
     const canSubmit =
         noteType === "אריזה"
             ? (!!packagingType && amount !== "") || isEmpty
-            : buildNoteText() !== null;
+            : noteType === "גיזוז"
+                ? value !== ""
+                : buildNoteText() !== null;
 
     const dryHopCategory = noteType === "דרייהופ" ? getDryHopStyleCategory(tank.beerStyle) : null;
     const dryHopCalc = dryHopCategory ? calcDryHopDose(dryHopCategory, tank.beerVolume) : null;

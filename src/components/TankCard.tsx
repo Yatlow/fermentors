@@ -2,6 +2,7 @@ import {
   useEffect,
   useState,
   useRef,
+  memo,
   type ChangeEvent,
 } from "react";
 
@@ -116,8 +117,7 @@ export function getBrewAge(
 }
 
 
-
-export default function TankCard({
+function TankCard({
   tank,
   onUpdatePasivation,
   specs
@@ -1442,3 +1442,5 @@ export default function TankCard({
     </>
   );
 }
+
+export default memo(TankCard);
