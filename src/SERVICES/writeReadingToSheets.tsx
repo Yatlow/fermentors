@@ -14,52 +14,37 @@ const GOOGLE_SCRIPT_URL =
 
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
-) {
-    const results = await Promise.all(
-        readings.map(async (reading) => {
-            const payload = {
-                ...reading,
-                action: "addFermentationMeasurement",
-            };
-            const response = await fetch(GOOGLE_SCRIPT_URL, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "text/plain;charset=utf-8",
-                },
-                body: JSON.stringify(payload),
-            });
+): Promise<writeReadingResult[]> {
 
-            const text = await response.text();
+    const payload = {
+        action: "addFermentationMeasurements",
+        readings: readings,
+    };
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify(payload),
+    });
 
-            let parsed: { success: boolean; result?: Record<string, unknown>; error?: string; message?: string };
+    const text = await response.text();
 
-            try {
-                parsed = JSON.parse(text);
-            } catch {
-                throw new Error(
-                    "Google Apps Script returned invalid JSON: " + text
-                );
-            }
+    let parsed: { success: boolean; results?: writeReadingResult[]; error?: string; message?: string };
 
-            if (!parsed.success) {
-                throw new Error(
-                    parsed.error ||
-                    parsed.message ||
-                    "Tank update failed"
-                );
-            }
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        throw new Error("Google Apps Script returned invalid JSON: " + text);
+    }
+    
 
-            const flat: writeReadingResult = {
-                ...(parsed.result ?? {}),
-                success: parsed.success,
-                tankId: reading.tankId,
-                tankNumber: (reading as any).tankNumber,
-            };
-            
-
-            return flat;
-        })
-    );
-
-    return results;
+    if (!parsed.success) {
+        throw new Error(
+            parsed.error ||
+            parsed.message ||
+            "Batch update failed"
+        );
+    }
+    return parsed.results ?? [];
 }

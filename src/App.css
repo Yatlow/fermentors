@@ -307,6 +307,12 @@ body {
   object-fit: cover;
   border-radius: 50%;
 }
+.login-logo{
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 50%;
+}
 
 .dashboard-title {
   margin: 0;
@@ -2979,5 +2985,165 @@ body {
   .auto-filled-hint {
     font-size: 0.58rem;
     padding: 1px 6px;
+  }
+}
+/* =========================================================
+   WRITE WARNING BANNER
+   ========================================================= */
+
+.write-warning-banner {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  margin: 10px 0 14px;
+  padding: 10px 12px 10px 10px;
+
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-right: 4px solid #f59e0b;
+  border-radius: var(--radius-md);
+
+  color: #92400e;
+
+  box-shadow:
+    0 1px 3px rgba(146, 64, 14, 0.06);
+
+  font-size: 0.78rem;
+  line-height: 1.45;
+
+  direction: rtl;
+}
+
+/* אייקון / פס אזהרה */
+.write-warning-banner::before {
+  content: "⚠";
+
+  flex: 0 0 auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 26px;
+  height: 26px;
+
+  border-radius: 50%;
+
+  background: #fef3c7;
+  color: #d97706;
+
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+/* הטקסט */
+.write-warning-banner p {
+  flex: 1 1 auto;
+
+  margin: 0;
+
+  font-size: 0.76rem;
+  font-weight: 600;
+
+  color: #92400e;
+}
+
+/* כפתור נסה שוב */
+.write-warning-banner .btn-secondary {
+  flex: 0 0 auto;
+
+  min-height: 30px;
+
+  padding: 5px 11px;
+
+  background: #ffffff;
+  border: 1px solid #f59e0b;
+  border-radius: var(--radius-pill);
+
+  color: #b45309;
+
+  font-size: 0.7rem;
+  font-weight: 800;
+
+  white-space: nowrap;
+
+  box-shadow: 0 1px 2px rgba(146, 64, 14, 0.06);
+}
+
+.write-warning-banner .btn-secondary:hover {
+  background: #fff7ed;
+  border-color: #d97706;
+  color: #92400e;
+
+  box-shadow: 0 2px 5px rgba(146, 64, 14, 0.10);
+}
+
+.write-warning-banner .btn-secondary:active {
+  transform: scale(0.96);
+}
+
+/* =========================================================
+   WRITE WARNING - MOBILE
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+  .write-warning-banner {
+    align-items: flex-start;
+
+    gap: 7px;
+
+    margin: 8px 0 12px;
+    padding: 8px 9px;
+
+    border-right-width: 3px;
+  }
+
+  .write-warning-banner::before {
+    width: 23px;
+    height: 23px;
+
+    font-size: 0.75rem;
+  }
+
+  .write-warning-banner p {
+    font-size: 0.68rem;
+    line-height: 1.45;
+  }
+
+  .write-warning-banner .btn-secondary {
+    min-height: 27px;
+
+    padding: 4px 8px;
+
+    font-size: 0.62rem;
+  }
+}
+
+@media (max-width: 420px) {
+
+  .write-warning-banner {
+    display: grid;
+
+    grid-template-columns: 24px 1fr;
+    gap: 6px 7px;
+  }
+
+  .write-warning-banner::before {
+    grid-row: 1;
+  }
+
+  .write-warning-banner p {
+    grid-column: 2;
+  }
+
+  .write-warning-banner .btn-secondary {
+    grid-column: 1 / -1;
+
+    width: 100%;
   }
 }

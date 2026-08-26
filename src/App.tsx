@@ -5,6 +5,7 @@ import {
   doc,
   updateDoc,
   getDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
@@ -106,6 +107,23 @@ async function checkAproovedUser(user: any): Promise<boolean> {
   }
 }
 
+async function updateLastLoggedIn(user: any) {
+  if (!user?.email) return;
+
+  try {
+    const userRef = doc(db, "approvedUsers", user.email);
+
+    await updateDoc(userRef, {
+      lastLoggedIn: serverTimestamp(),
+    });
+
+  } catch (error) {
+    console.error("Error updating last logged in:", error);
+  }
+}
+
+
+
 function useAuth() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -114,6 +132,10 @@ function useAuth() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
+
+      if (user) {
+        void updateLastLoggedIn(user);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -174,50 +196,6 @@ function App() {
     }
     const fermentorsRef = collection(db, "fermentors");
 
-    //   const unsubscribe = onSnapshot(
-    //     fermentorsRef,
-    //     (snapshot) => {
-    //       const data: Fermentor[] = snapshot.docs.map(
-    //         (firebaseDoc) => {
-    //           const firestoreData = firebaseDoc.data();
-
-    //           return {
-    //             ...(firestoreData as Record<string, unknown>),
-    //             id: firebaseDoc.id,
-    //           } as Fermentor;
-    //         }
-    //       );
-
-    //       data.sort((a, b) => {
-    //         const numA =
-    //           parseInt(
-    //             String(a.uid ?? "").replace(/\D/g, ""),
-    //             10
-    //           ) || 0;
-
-    //         const numB =
-    //           parseInt(
-    //             String(b.uid ?? "").replace(/\D/g, ""),
-    //             10
-    //           ) || 0;
-
-    //         return numA - numB;
-    //       });
-
-    //       setBrews(data);
-    //       setLoading(false);
-    //     },
-    //     (error) => {
-    //       console.error("Firestore listener error:", error);
-    //       setLoading(false);
-    //     }
-    //   );
-
-    //   // Important: remove the Firestore listener
-    //   // when the component is unmounted.
-
-
-
     const unsubscribe = onSnapshot(
       fermentorsRef,
       (snapshot) => {
@@ -258,6 +236,7 @@ function App() {
 
 
   function login() {
+    
     signInWithPopup(auth, googleProvider).catch((e) => console.error(e));
     console.log("Initiated Google sign-in redirect");
   }
@@ -369,7 +348,7 @@ function App() {
         error
       );
     }
-  },[]);
+  }, []);
 
   const updateReading = (
     tankId: string,
@@ -430,6 +409,11 @@ function App() {
     return (
       <div className="dashboard-loading">
         <h1>טוען משתמש...</h1>
+        <img
+          src={shpiro}
+          alt="Shpiro"
+          className="login-logo"
+        />
       </div>
     );
   }
@@ -453,6 +437,11 @@ function App() {
         <button onClick={logout} className="status-filter-button">
           התנתק
         </button>
+        <img
+          src={shpiro}
+          alt="Shpiro"
+          className="login-logo"
+        />
       </div>
     );
   }
@@ -461,6 +450,11 @@ function App() {
     return (
       <div className="dashboard-loading">
         <h1>מבצע כניסה...</h1>
+        <img
+          src={shpiro}
+          alt="Shpiro"
+          className="login-logo"
+        />
       </div>
     );
   }
@@ -473,6 +467,11 @@ function App() {
         <h1>
           טוען נתונים...
         </h1>
+        <img
+              src={shpiro}
+              alt="Shpiro"
+              className="login-logo"
+            />
       </div>
     );
   }

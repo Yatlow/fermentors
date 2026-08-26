@@ -54,6 +54,9 @@ export default function SendMessurmentsHeader({
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [rcs, setRcs] = useState<RecommendationsByTank>({});
 
+    // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
+    const [writeWarning, setWriteWarning] = useState<writeReadingResult[] | null>(null);
+
     const measurementsCache = useRef<Record<string, Measurement[]>>({});
 
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -238,10 +241,8 @@ export default function SendMessurmentsHeader({
 
     const sendReadings = async () => {
         setConfirmMissing({ open: false, missingTanks: [] });
-        setConfirmMessurments({ open: false, unvalidMessurments: [] })
-        setSendingReading("loading");
-
-
+        setConfirmMessurments({ open: false, unvalidMessurments: [] });
+        setWriteWarning(null);
 
         let readingsToSend = brews
             .filter((fv) => Number(fv.tankNumber) !== 1)
@@ -275,6 +276,7 @@ export default function SendMessurmentsHeader({
                     reading.notes !== undefined
                 );
             });
+
         let packagingEntries: any[] = [];
         if (reportName === "אריזה") {
             const enrichedReadings = await Promise.all(
@@ -334,41 +336,128 @@ export default function SendMessurmentsHeader({
 
                     return r;
                 })
-                
+
             );
 
             readingsToSend = enrichedReadings;
-            
+
             try {
-        const masterSheetPromises = packagingEntries
-            .filter((e: any) => Number(e.kegs) > 0 || Number(e.crates) > 0)
-            .map((e: any) => {
-                const tank = brews.find((b) => b.id === e.tankId);
-                const packagingType: "kegs" | "bottles" = Number(e.kegs) > 0 ? "kegs" : "bottles";
-                const rawAmount =
-                    packagingType === "kegs"
-                        ? Number(e.kegs) / 20 // KEG_LITERS
-                        : Number(e.crates) / 0.33; // BOTTLE_LITERS
+                const masterSheetPromises = packagingEntries
+                    .filter((e: any) => Number(e.kegs) > 0 || Number(e.crates) > 0)
+                    .map((e: any) => {
+                        const tank = brews.find((b) => b.id === e.tankId);
+                        const packagingType: "kegs" | "bottles" = Number(e.kegs) > 0 ? "kegs" : "bottles";
+                        const rawAmount =
+                            packagingType === "kegs"
+                                ? Number(e.kegs) / 20 // KEG_LITERS
+                                : Number(e.crates) / 0.33; // BOTTLE_LITERS
 
-                return logPackagingToMasterSheet({
-                    beerStyle: tank?.beerStyle,
-                    packagingType,
-                    amount: rawAmount,
-                    batchNumber: tank?.batchNumber,
-                });
-            });
+                        return logPackagingToMasterSheet({
+                            beerStyle: tank?.beerStyle,
+                            packagingType,
+                            amount: rawAmount,
+                            batchNumber: tank?.batchNumber,
+                        });
+                    });
 
-        const masterResults = await Promise.all(masterSheetPromises);
-        const masterFailures = masterResults.filter((r) => !r.success);
-        if (masterFailures.length > 0) {
-            console.warn("Master sheet logging partial failures:", masterFailures);
+                const masterResults = await Promise.all(masterSheetPromises);
+                const masterFailures = masterResults.filter((r) => !r.success);
+                if (masterFailures.length > 0) {
+                    console.warn("Master sheet logging partial failures:", masterFailures);
+                }
+            } catch (error) {
+                console.error("Failed to log packaging to master sheet:", error);
+            }
         }
-    } catch (error) {
-        console.error("Failed to log packaging to master sheet:", error);
-    }
+
+        const isFastPath = reportName === "חם" || reportName === "לחץ";
+
+        // ------------------------------------------------------------
+        // מתחילים את הכתיבה בפועל לגיליון, אבל לא מחכים לה עדיין.
+        // ה-catch כאן חשוב: מונע "Unhandled promise rejection" כי
+        // אנחנו מטפלים בתוצאה של ה-promise רק בהמשך, למטה.
+        // ------------------------------------------------------------
+        setSendingReading(isFastPath ? "getRecs" : "loading");
+        const writePromise = writeReadingsToSheets(readingsToSend).catch((error) => {
+            console.error("writeReadingsToSheets failed:", error);
+            return null; // מסמן כשל, מטופל למטה
+        });
+
+        // ------------------------------------------------------------
+        // מסלול מהיר: לחץ/חם — מחשבים ומציגים המלצות מיד,
+        // בלי לחכות שהכתיבה בפועל תסתיים.
+        // ------------------------------------------------------------
+        if (isFastPath && specs) {
+            try {
+                let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
+                if (reportName === "חם") {
+                    fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9);
+                }
+
+                const entries = await Promise.all(
+                    fullTanks.map(async (tank: Fermentor) => {
+                        const messurments = measurementsCache.current[String(tank.tankNumber)]
+                            ?? await getMeasurementsByBatch(tank.batchNumber ?? "");
+
+                        if (!tank.stage || !tank.brewDate) {
+                            console.warn(
+                                "Cannot calculate recommendations: stage or brew date is missing",
+                                tank.id,
+                                tank.tankNumber
+                            );
+                            return [tank.tankNumber, null] as const;
+                        }
+
+                        const newReadingForTank = readingsToSend.find(
+                            (r) => Number(r.tankNumber) === Number(tank.tankNumber)
+                        );
+
+                        const messurmentsWithToday = newReadingForTank
+                            ? mergeReadingIntoMeasurements(messurments, newReadingForTank)
+                            : messurments;
+
+                        const rec = await calcCelleringRecomendations(
+                            messurmentsWithToday,
+                            tank.beerStyle,
+                            tank.batchNumber ?? "",
+                            tank.brewDate ?? "",
+                            specs,
+                            tank.stage!
+                        ).catch((err) => {
+                            console.error("Failed for tank", tank.id, tank.tankNumber, err);
+                            return null;
+                        });
+
+                        return [tank.tankNumber, rec] as const;
+                    })
+                );
+
+                setRcs(Object.fromEntries(entries));
+                setSendingReading("sent");
+                setNewReadings({});
+            } catch (error) {
+                console.error("Failed to compute recommendations:", error);
+                setSendingReading("error");
+            }
         }
-        try {
-            const res = await writeReadingsToSheets(readingsToSend);
+
+        // ------------------------------------------------------------
+        // הכתיבה בפועל ממשיכה ברקע. כשהיא מסתיימת (הצלחה או כישלון),
+        // מטפלים בתוצאות בלי לחסום את מה שכבר הוצג למשתמש.
+        // ------------------------------------------------------------
+        writePromise.then(async (res) => {
+
+            if (!res) {
+                // הכתיבה נכשלה לגמרי (למשל timeout/רשת)
+                setSendResults([]);
+                if (isFastPath) {
+                    setWriteWarning([{ success: false, tankId: "", error: "השליחה לשרת נכשלה" } as writeReadingResult]);
+                } else {
+                    setSendingReading("error");
+                }
+                return;
+            }
+
             setSendResults(res);
 
             if (reportName === "פעולות") {
@@ -420,93 +509,26 @@ export default function SendMessurmentsHeader({
             pushCurrentDataToFirestore(succeededReadings).catch((error) => {
                 console.error("Failed to push current data to Firestore:", error);
             });
-            setNewReadings({});
-            // if (reportName !== "פעולות") {
-            //     triggerTankUpdate().catch((error) => {
-            //         console.error("Background tank update failed:", error);
-            //     });
-            // } else {
-            //     readingsToSend
-            //         .filter((r) => (r as any).refreshTank === true)
-            //         .forEach((r) => {
-            //             if (!r.sheetUrl) return;
-            //             refreshSingleTank(String(r.tankId), String(r.sheetUrl)).catch((error) => {
-            //                 console.error("Failed to refresh tank", r.tankId, error);
-            //             });
-            //         });
-            // }
-            if (!specs) {
-                console.warn("Specs are not loaded yet");
-                return;
-            }
-            try {
-                if (reportName === "חם" || reportName === "לחץ") {
-                    let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
-                    if (reportName === "חם") {
-                        fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9)
-                    }
-                    setSendingReading("getRecs")
-                    const getRecs = async () => {
-                        const entries = await Promise.all(
-                            fullTanks.map(async (tank: Fermentor) => {
-                                const messurments = measurementsCache.current[String(tank.tankNumber)]
-                                    ?? await getMeasurementsByBatch(tank.batchNumber ?? "")
-                                if (!tank.stage || !tank.brewDate) {
-                                    console.warn(
-                                        "Cannot calculate recommendations: stage or brew date is missing",
-                                        tank.id,
-                                        tank.tankNumber
-                                    );
 
-                                    return [tank.tankNumber, null] as const;
-                                }
-                                const newReadingForTank = readingsToSend.find(
-                                    (r) => Number(r.tankNumber) === Number(tank.tankNumber)
-                                );
+            const allSucceeded = res.every((r) => r.success);
 
-                                const messurmentsWithToday = newReadingForTank
-                                    ? mergeReadingIntoMeasurements(messurments, newReadingForTank)
-                                    : messurments;
-                                const rec = await calcCelleringRecomendations(
-                                    messurmentsWithToday,
-                                    tank.beerStyle,
-                                    tank.batchNumber ?? "",
-                                    tank.brewDate ?? "",
-                                    specs,
-                                    tank.stage!
-                                ).catch((err) => {
-                                    console.error("Failed for tank", tank.id, tank.tankNumber, err);
-                                    return null;
-                                });
-                                return [tank.tankNumber, rec] as const;
-                            })
-                        );
-
-                        const recomendations: Record<string, Awaited<ReturnType<typeof calcCelleringRecomendations>>> =
-                            Object.fromEntries(entries);
-
-                        return recomendations;
-                    };
-                    const recommendations = await getRecs();
-
-                    setRcs(recommendations);
-                    setSendingReading(res.every((r) => r.success) ? "sent" : "error");
+            if (isFastPath) {
+                // ההמלצות כבר הוצגו למשתמש קודם. כאן רק מוסיפים אזהרה אם צריך.
+                if (!allSucceeded) {
+                    setWriteWarning(res.filter((r) => !r.success));
                 }
-                else {
-                    setSendingReading(res.every((r) => r.success) ? "idle" : "error");
-                }
-            } catch (error) {
-                console.error("Failed to update database:", error);
+            } else {
+                // פעולות/אריזה: אין מסלול מהיר, מחכים כרגיל לתוצאה הסופית
+                setNewReadings({});
+                setSendingReading(allSucceeded ? "idle" : "error");
             }
-        } catch (error) {
-            setSendResults([]);
-            setSendingReading("error");
-        }
+        });
     };
 
     const closeStatusModal = () => {
         setSendingReading("idle");
         setSendResults([]);
+        setWriteWarning(null);
     };
 
     function getMissingTanks(): (string | number)[] {
@@ -598,8 +620,6 @@ export default function SendMessurmentsHeader({
                 return;
             }
 
-
-
             const yesterdayMeasurement: Measurement =
                 sortedMeasurements[sortedMeasurements.length - 2];
             const currentTemp = Number(readingSet.current?.temp);
@@ -610,8 +630,6 @@ export default function SendMessurmentsHeader({
             const newPh = Number(readingSet.new.pH);
             const currentPlato = Number(readingSet.current?.plato);
             const newPlato = Number(readingSet.new.plato);
-
-
 
             if (currentTemp - newTemp > 5 || newTemp - currentTemp > 5) {
                 if (currentTemp - newTemp > 5) {
@@ -728,7 +746,7 @@ export default function SendMessurmentsHeader({
 
                 } else if (recommendation?.requiresDailyActions.reason ===
                     "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת") {
-                    recommendation.requiresDailyActions.reason = "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורד שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת"
+                    recommendation.requiresDailyActions.reason = "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת"
 
                 } else if (recommendation?.requiresDailyActions.reason ===
                     "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת")
@@ -846,6 +864,15 @@ export default function SendMessurmentsHeader({
                                         <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
 
                                     </div>
+
+                                    {writeWarning && (
+                                        <div className="write-warning-banner">
+                                            <p>שים לב: השמירה בפועל לגיליון עדיין מתבצעת או נכשלה עבור {writeWarning.length} מיכלים.</p>
+                                            <button className="btn-secondary" onClick={() => void sendReadings()}>
+                                                נסה שוב
+                                            </button>
+                                        </div>
+                                    )}
 
                                     {dailyActionRecommendation?.req && (
                                         <div className="daily-recommendation">
