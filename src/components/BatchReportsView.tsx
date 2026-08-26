@@ -87,7 +87,7 @@ type BatchReportsViewProps = {
 
 const METRICS: MetricDefinition[] = [
     { key: "temp", label: "טמפ׳" },
-    { key: "plato", label: "סוכר (Plato)" },
+    { key: "plato", label: "סוכר" },
     { key: "pH", label: "pH" },
     { key: "pressure", label: "לחץ" },
     { key: "carbonation", label: "גיזוז" },
