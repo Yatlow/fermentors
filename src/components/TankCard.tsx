@@ -5,7 +5,7 @@ import {
   memo,
   type ChangeEvent,
 } from "react";
-
+import { History } from "lucide-react";
 import { updateTankStatus } from "../SERVICES/updateTank";
 import { isCarbonationOutOfRange, isPressureOutOfRange } from "../SERVICES/calculateCelleringRecomendations";
 
@@ -17,6 +17,7 @@ import type {
 import FermentorInfoBox from "./FermentorInfoBox";
 import type { SpecChart } from "../SERVICES/getSpecsFromFb";
 import QuickTankReportBox from "./QuickTankReportBox";
+import BatchHistoryChart from "./Batchhistorychart";
 
 
 type TankCardProps = {
@@ -354,6 +355,8 @@ function TankCard({
   const infoButtonRef = useRef<HTMLButtonElement | null>(null);
   const [showQuickReport, setShowQuickReport] = useState(false);
   const [quickReportPosition, setQuickReportPosition] = useState<{ top: number; left: number } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+
 
   function computePopupPosition(rect: DOMRect): { top: number; left: number } {
     const popupWidth = 330;
@@ -630,6 +633,13 @@ function TankCard({
     setShowQuickReport(true);
   };
 
+
+  const handleOpenHistory = (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.stopPropagation();
+    setShowHistory(true);
+  };
 
   function parsePasivationDate(
     value:
@@ -1018,6 +1028,14 @@ function TankCard({
           onClose={() => { setShowQuickReport(false); setQuickReportPosition(null); }}
         />
       )}
+
+      {showHistory && Number(tank.tankNumber) !== 1 && (
+        <BatchHistoryChart
+          tank={tank}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
+
       <div
         className={`tank-card ${isCLT
           ? "clt"
@@ -1085,6 +1103,9 @@ function TankCard({
                 </button>
                 <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
                   ⚐
+                </button>
+                <button type="button" className="tankInfo" aria-label="היסטוריית אצווה" onClick={handleOpenHistory}>
+                  <History size={16} />
                 </button>
               </span>
             }

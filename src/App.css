@@ -3147,3 +3147,242 @@ body {
     width: 100%;
   }
 }
+/* ============================================================
+   OVERLAY + MODAL
+   מובייל-פירסט: על מסך קטן זה נפתח כ"bottom sheet" שתופס כמעט
+   את כל הגובה, קל להחלקה, וכפתור סגירה גדול לנגיעה.
+   ============================================================ */
+
+.batch-chart-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.batch-chart-modal {
+  background: var(--card-bg, #ffffff);
+  color: var(--text-color, #1c1c1c);
+  width: 100%;
+  max-width: 640px;
+  max-height: 92vh;
+  overflow-y: auto;
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  direction: rtl;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.25);
+}
+
+@media (min-width: 720px) {
+  .batch-chart-overlay {
+    align-items: center;
+  }
+  .batch-chart-modal {
+    border-radius: 16px;
+    max-height: 88vh;
+    
+  }
+}
+
+.batch-chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.batch-chart-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.batch-chart-subtitle {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+.batch-chart-close {
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.batch-chart-status {
+  padding: 32px 8px;
+  text-align: center;
+  opacity: 0.75;
+}
+
+/* ============================================================
+   METRIC TABS
+   כפתורי מגע גדולים (min-height 44px) - נוח לאגודל במובייל
+   ============================================================ */
+
+.chart-metric-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chart-metric-tab {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: transparent;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chart-metric-tab.active {
+  background: var(--accent-color, #d99323);
+  border-color: var(--accent-color, #d99323);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ============================================================
+   CHART BLOCKS
+   בברירת מחדל רק הגרף הפעיל מוצג (מדד אחד בכל פעם = קריא במובייל).
+   בהדפסה כולם מוצגים אחד מתחת לשני -> דוח PDF מלא לכל 4 המדדים.
+   ============================================================ */
+
+.metric-chart-block {
+  display: none;
+}
+
+.metric-chart-block.active {
+  display: block;
+}
+
+.metric-chart-print-title {
+  display: none;
+}
+
+.batch-chart-graph {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+/* ============================================================
+   CUSTOM TOOLTIP
+   ============================================================ */
+
+.chart-tooltip {
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  direction: rtl;
+}
+
+.chart-tooltip-day {
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+.chart-tooltip-value {
+  font-weight: 700;
+}
+
+/* ============================================================
+   YEAST NOTES LIST
+   ============================================================ */
+
+.chart-notes-list {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(142, 68, 173, 0.08);
+  border: 1px solid rgba(142, 68, 173, 0.25);
+}
+
+.chart-notes-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.chart-note-row {
+  display: flex;
+  gap: 8px;
+  font-size: 0.88rem;
+  padding: 3px 0;
+}
+
+.chart-note-day {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chart-note-text {
+  opacity: 0.85;
+}
+
+/* ============================================================
+   ACTIONS
+   ============================================================ */
+
+.batch-chart-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+}
+
+/* ============================================================
+   PRINT / "שמירה כ-PDF"
+   בדפדפני מובייל (iOS/Android) התפריט "הדפסה" כולל אופציית
+   "שמירה כ-PDF" מובנית - כך שאין צורך בספריית PDF נוספת.
+   ============================================================ */
+
+@media print {
+  .batch-chart-overlay {
+    position: static;
+    background: none;
+    display: block;
+  }
+
+  .batch-chart-modal {
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+    border-radius: 0;
+    max-width: 100%;
+
+  }
+
+  .batch-chart-close,
+  .chart-metric-tabs,
+  .batch-chart-actions {
+    display: none !important;
+  }
+
+  .metric-chart-block {
+    display: block !important;
+    break-inside: avoid;
+    margin-bottom: 20px;
+  }
+
+  .metric-chart-print-title {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+}
