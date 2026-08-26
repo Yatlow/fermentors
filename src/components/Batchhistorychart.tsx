@@ -8,12 +8,17 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceDot,
+  Legend,
 } from "recharts";
 
 import type { TooltipContentProps } from "recharts";
 import { getMeasurementsByBatch } from "../SERVICES/gettAllDataByBatch";
 import type { Measurement } from "../SERVICES/calculateCelleringRecomendations";
 import type { Fermentor } from "../App";
+import {
+  getStyleAverages,
+  type StyleAverages,
+} from "../SERVICES/getStyleAverages";
 
 // ============================================================
 // TYPES
@@ -33,8 +38,16 @@ type ChartPoint = {
   pH: number | null;
   temp: number | null;
   pressure: number | null;
+
+  // ממוצע הסגנון
+  averagePlato?: number | null;
+  averagePH?: number | null;
+  averageTemp?: number | null;
+  averagePressure?: number | null;
+
   yeastNote: string | null;
 };
+
 
 const METRICS: {
   key: MetricKey;
@@ -42,11 +55,11 @@ const METRICS: {
   unit: string;
   color: string;
 }[] = [
-  { key: "plato", label: "סוכר (Plato)", unit: "°P", color: "#d99323" },
-  { key: "pH", label: "pH", unit: "", color: "#5b8def" },
-  { key: "temp", label: "טמפ׳", unit: "°C", color: "#e0563f" },
-  { key: "pressure", label: "לחץ", unit: "bar", color: "#3fa796" },
-];
+    { key: "plato", label: "סוכר (Plato)", unit: "°P", color: "#d99323" },
+    { key: "pH", label: "pH", unit: "", color: "#5b8def" },
+    { key: "temp", label: "טמפ׳", unit: "°C", color: "#e0563f" },
+    { key: "pressure", label: "לחץ", unit: "bar", color: "#3fa796" },
+  ];
 
 // המילה שמחפשים בהערות כדי להציג אותן כציון-דרך על הגרף
 const YEAST_KEYWORD = "שמרים";
@@ -207,7 +220,9 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeMetric, setActiveMetric] = useState<MetricKey>("plato");
-  
+  const [styleAverages, setStyleAverages] =
+    useState<StyleAverages | null>(null);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -237,10 +252,120 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
     };
   }, [tank.batchNumber]);
 
+  useEffect(() => {
+    const style = tank.beerStyle
+      ? String(tank.beerStyle).trim()
+      : "";
+
+    if (!style) {
+      setStyleAverages(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    getStyleAverages(style)
+      .then((result) => {
+        if (!cancelled) {
+          setStyleAverages(result);
+        }
+      })
+      .catch((error) => {
+        console.error(
+          "Failed loading style averages:",
+          error
+        );
+
+        if (!cancelled) {
+          setStyleAverages(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tank.beerStyle]);
+
   const chartData = useMemo(
     () => buildChartData(tank, measurements),
     [tank, measurements]
   );
+
+  const chartDataWithAverage = useMemo(() => {
+    if (!styleAverages) {
+      return chartData;
+    }
+
+    const maxCurrentDay =
+      chartData.length > 0
+        ? Math.max(...chartData.map((p) => p.day))
+        : null;
+
+    const result = chartData.map((point) => ({
+      ...point,
+    }));
+
+    Object.entries(styleAverages.days ?? {}).forEach(
+      ([dayString, values]) => {
+        const day = Number(dayString);
+
+        // לא להציג ממוצע מעבר ליום האחרון
+        // שהאצווה הנוכחית באמת הגיעה אליו
+        if (
+          maxCurrentDay !== null &&
+          day > maxCurrentDay
+        ) {
+          return;
+        }
+
+        const existing = result.find(
+          (p) => p.day === day
+        );
+
+        if (existing) {
+          existing.averagePlato =
+            values.plato ?? null;
+
+          existing.averagePH =
+            values.pH ?? null;
+
+          existing.averageTemp =
+            values.temp ?? null;
+
+          existing.averagePressure =
+            values.pressure ?? null;
+        } else {
+          result.push({
+            day,
+            dateLabel: "",
+            plato: null,
+            pH: null,
+            temp: null,
+            pressure: null,
+
+            averagePlato:
+              values.plato ?? null,
+
+            averagePH:
+              values.pH ?? null,
+
+            averageTemp:
+              values.temp ?? null,
+
+            averagePressure:
+              values.pressure ?? null,
+
+            yeastNote: null,
+          });
+        }
+      }
+    );
+
+    return result.sort(
+      (a, b) => a.day - b.day
+    );
+  }, [chartData, styleAverages]);
+
 
   const yeastNotes = useMemo(
     () => chartData.filter((p) => p.yeastNote),
@@ -285,9 +410,8 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                 <button
                   key={metric.key}
                   type="button"
-                  className={`chart-metric-tab ${
-                    activeMetric === metric.key ? "active" : ""
-                  }`}
+                  className={`chart-metric-tab ${activeMetric === metric.key ? "active" : ""
+                    }`}
                   onClick={() => setActiveMetric(metric.key)}
                 >
                   {metric.label}
@@ -303,15 +427,14 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
             {METRICS.map((metric) => (
               <div
                 key={metric.key}
-                className={`metric-chart-block ${
-                  activeMetric === metric.key ? "active" : ""
-                }`}
+                className={`metric-chart-block ${activeMetric === metric.key ? "active" : ""
+                  }`}
               >
                 <div className="metric-chart-print-title">{metric.label}</div>
                 <div className="batch-chart-graph" dir="ltr">
                   <ResponsiveContainer width="100%" height={260}>
                     <LineChart
-                      data={chartData}
+                      data={chartDataWithAverage}
                       margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
@@ -326,6 +449,14 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                       />
                       <YAxis width={40} domain={["auto", "auto"]} />
                       <Tooltip content={makeTooltipRenderer(metric, chartData)} />
+                      <Legend
+                        verticalAlign="bottom"
+                        align="center"
+                        wrapperStyle={{
+                          paddingTop: 10,
+                          direction: "rtl",
+                        }}
+                      />
                       <Line
                         type="monotone"
                         dataKey={metric.key}
@@ -337,6 +468,31 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                         connectNulls
                         isAnimationActive={false}
                       />
+                      <Line
+                        type="monotone"
+                        dataKey={
+                          metric.key === "plato"
+                            ? "averagePlato"
+                            : metric.key === "pH"
+                              ? "averagePH"
+                              : metric.key === "temp"
+                                ? "averageTemp"
+                                : "averagePressure"
+                        }
+                        name={
+                          tank.beerStyle
+                            ? `ממוצע ${tank.beerStyle}`
+                            : "ממוצע הסגנון"
+                        }
+                        stroke="#7c3aed"
+                        strokeWidth={2}
+                        strokeDasharray="6 4"
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+
+                      />
+
                       {chartData
                         .filter((p) => p.yeastNote && p[metric.key] !== null)
                         .map((p) => (
@@ -358,7 +514,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
 
             {yeastNotes.length > 0 && (
               <div className="chart-notes-list">
-                <div className="chart-notes-title">🟣 הערות שמרים</div>
+                <div className="chart-notes-title">🟢 הערות שמרים</div>
                 {yeastNotes.map((n) => (
                   <div key={`note-${n.day}`} className="chart-note-row">
                     <span className="chart-note-day">יום {n.day}</span>

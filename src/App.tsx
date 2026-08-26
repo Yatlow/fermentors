@@ -24,6 +24,7 @@ import DailyPlatoPH from "./components/DailyPlatoPH";
 import NoteToFermentor from "./components/NoteToFermentor";
 import PackagingForm from "./components/PackagingForm";
 import { getSpecsFromFb, type SpecChart } from "./SERVICES/getSpecsFromFb";
+import BatchReportsView from "./components/BatchReportsView";
 
 
 
@@ -236,7 +237,7 @@ function App() {
 
 
   function login() {
-    
+
     signInWithPopup(auth, googleProvider).catch((e) => console.error(e));
     console.log("Initiated Google sign-in redirect");
   }
@@ -468,10 +469,10 @@ function App() {
           טוען נתונים...
         </h1>
         <img
-              src={shpiro}
-              alt="Shpiro"
-              className="login-logo"
-            />
+          src={shpiro}
+          alt="Shpiro"
+          className="login-logo"
+        />
       </div>
     );
   }
@@ -518,19 +519,19 @@ function App() {
               >
                 פעולות סלרינג
               </div>
-              {/* <div className={`views-item ${selectedView === "דוחות"
+              <div className={`views-item ${selectedView === "דוחות"
                 ? "active" : ""}`}
                 onClick={() => {
-                setSelectedView("דוחות")
-               setSelectedStatuses(["הכל"])
-setSelectedStyles(["הכל"])
-setSelectedWrites("לחץ")
-setNewReadings({}) 
-              }}
+                  setSelectedView("דוחות")
+                  setSelectedStatuses(["הכל"])
+                  setSelectedStyles(["הכל"])
+                  setSelectedWrites("לחץ")
+                  setNewReadings({})
+                }}
               >
                 דוחות
               </div>
-              <div className={`views-item ${selectedView === "ניהול" ?
+              {/* <div className={`views-item ${selectedView === "ניהול" ?
                 "active" : ""}`}
                 onClick={() => {
                 setSelectedView("ניהול")
@@ -551,7 +552,7 @@ setNewReadings({})
               selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses}
             ></DashboardHeader>
           }
-
+          
 
           {selectedView === "רישום" &&
             <div className="status-filter">
@@ -688,6 +689,8 @@ setNewReadings({})
             </PackagingForm>}
         </>
       }
+
+      {selectedView === "דוחות" && <BatchReportsView />}
     </div>
   );
 }
