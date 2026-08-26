@@ -5,7 +5,7 @@ import {
   memo,
   type ChangeEvent,
 } from "react";
-import { History } from "lucide-react";
+import { ClipboardPlus, ListClock, ChartNoAxesCombined } from "lucide-react";
 import { updateTankStatus } from "../SERVICES/updateTank";
 import { isCarbonationOutOfRange, isPressureOutOfRange } from "../SERVICES/calculateCelleringRecomendations";
 
@@ -1092,6 +1092,13 @@ function TankCard({
             </span>}
             {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") &&
               <span className="tanInfoBox">
+
+                <button type="button" className="tankInfo" aria-label="היסטוריית אצווה" onClick={handleOpenHistory}>
+                  <ChartNoAxesCombined size={16} />
+                </button>
+                <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
+                  <ClipboardPlus size={16} />
+                </button>
                 <button
                   ref={infoButtonRef}
                   type="button"
@@ -1099,14 +1106,8 @@ function TankCard({
                   aria-label="הצגת המלצות סלרינג"
                   onClick={handleOpenInfo}
                 >
-                  i
-                </button>
-                <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
-                  ⚐
-                </button>
-                <button type="button" className="tankInfo" aria-label="היסטוריית אצווה" onClick={handleOpenHistory}>
-                  <History size={16} />
-                </button>
+                  <ListClock size={16} />
+                  \                </button>
               </span>
             }
           </span>
