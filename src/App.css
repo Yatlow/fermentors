@@ -473,16 +473,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
-  height: 26px;
-  min-height: 28x;
+  gap: 6px;
+  /* height: 26px; */
+  min-height: 26x;
 
   /* overflow: hidden; */
   white-space: nowrap;
 }
 
 .tank-number {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
 
   font-size: 0.78rem;
   font-weight: 800;
@@ -510,11 +511,11 @@ body {
   align-items: center;
 
   min-width: 0;
-  max-width: 100%;
+  max-width: 55%;
 
   font-size: 0.65rem;
   font-weight: 700;
-  padding: 1px 3px;
+  padding: 1px 4px;
   border-radius: 4px;
 
   white-space: nowrap;
@@ -522,12 +523,20 @@ body {
   text-overflow: ellipsis;
 }
 
-.tanInfoBox {
+.tank-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 4px;
+
+  margin-top: -2px;
+}
+/* .tanInfoBox {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   padding: 2px;
-}
+} */
 
 .tankInfo {
   flex: 0 0 auto;
@@ -536,7 +545,6 @@ body {
   height: 30px;
 
   padding: 0;
-  margin-left: 4px;
 
   display: inline-flex;
   align-items: center;
@@ -559,7 +567,7 @@ body {
   appearance: none;
 }
 
-.tank-header-left {
+/* .tank-header-left {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -569,7 +577,7 @@ body {
 
   overflow: hidden;
   white-space: nowrap;
-}
+} */
 
 .tankInfo:hover {
   opacity: 0.75;
@@ -977,7 +985,7 @@ body {
     min-height: 44px;
 
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
 
     align-items: stretch;
     justify-content: center;
@@ -991,9 +999,7 @@ body {
   }
 
   .tank-number {
-    order: 2;
-
-    width: 100%;
+    width: 50%;
 
     font-size: 0.78rem;
     line-height: 20px;
@@ -1005,7 +1011,7 @@ body {
     text-overflow: ellipsis;
   }
 
-  .tank-header-left {
+  /* .tank-header-left {
     order: 1;
 
     width: 100%;
@@ -1020,21 +1026,46 @@ body {
 
     overflow: visible;
     white-space: nowrap;
-  }
+  } */
 
   .stage-info-name {
-    flex: 1 1 auto;
-    min-width: 0;
+    /* flex: 1 1 auto; */
+    /* flex:none; */
+    /* min-width: 0; */
 
     font-size: 0.65rem;
-
-    overflow: hidden;
+    /* overflow: hidden; */
     text-overflow: ellipsis;
   }
 
-  .tanInfoBox {
+  /* .tanInfoBox {
     flex: 0 0 auto;
+  } */
+
+  .tank-header {
+    height: auto;
+    min-height: 26px;
   }
+
+  .tank-number {
+    font-size: 0.72rem;
+  }
+
+  .stage-info-name {
+    font-size: 0.62rem;
+    max-width: 50%;
+  }
+
+  .tank-actions-row {
+    justify-content: space-around;
+  }
+
+  .tankInfo {
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+  }
+}
 
   .tankInfo {
     width: 30px;
@@ -1043,7 +1074,7 @@ body {
 
     font-size: 12px;
   }
-}
+
 
 /* =========================================================
    CLOSE BUTTON

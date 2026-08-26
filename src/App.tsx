@@ -552,7 +552,7 @@ setNewReadings({})
               selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses}
             ></DashboardHeader>
           }
-          
+
 
           {selectedView === "רישום" &&
             <div className="status-filter">
@@ -690,7 +690,7 @@ setNewReadings({})
         </>
       }
 
-      {selectedView === "דוחות" && <BatchReportsView />}
+      {selectedView === "דוחות" && <BatchReportsView currentFermentors={brews} />}
     </div>
   );
 }

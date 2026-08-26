@@ -1065,7 +1065,7 @@ function TankCard({
         {/* ==================================================== */}
 
         <div className="tank-header">
-
+        
           <span className="tank-number">
             מיכל
             {tank.id === "1" ? " 1- CLT" : `  ${tank.tankNumber}-`}
@@ -1082,38 +1082,40 @@ function TankCard({
 
           </span>
 
-          <span className="tank-header-left">
-            {Number(tank.tankNumber) > 1 && <span className="stage-info-name">
-
+          {Number(tank.tankNumber) > 1 && (
+            <span className="stage-info-name">
               {stageInfo.icon}
               {"  "}
               {stageInfo.name}
+            </span>
+          )}
 
-            </span>}
-            {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") &&
-              <span className="tanInfoBox">
 
-                <button type="button" className="tankInfo" aria-label="היסטוריית אצווה" onClick={handleOpenHistory}>
-                  <ChartNoAxesCombined size={16} />
-                </button>
-                <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
-                  <ClipboardPlus size={16} />
-                </button>
-                <button
-                  ref={infoButtonRef}
-                  type="button"
-                  className="tankInfo"
-                  aria-label="הצגת המלצות סלרינג"
-                  onClick={handleOpenInfo}
-                >
-                  <ListClock size={16} />
-                  \                </button>
-              </span>
-            }
-          </span>
+
         </div>
+        {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && (
+          <div className="tank-actions-row">
 
+            <button type="button" className="tankInfo" aria-label="היסטוריית אצווה" onClick={handleOpenHistory}>
+              <ChartNoAxesCombined size={16} />
+            </button>
 
+            <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
+              <ClipboardPlus size={16} />
+            </button>
+
+            <button
+              ref={infoButtonRef}
+              type="button"
+              className="tankInfo"
+              aria-label="הצגת המלצות סלרינג"
+              onClick={handleOpenInfo}
+            >
+              <ListClock size={16} />
+            </button>
+
+          </div>
+        )}
 
         {/* ==================================================== */}
         {/* BATCH */}

@@ -29,7 +29,7 @@ type BatchHistoryChartProps = {
   onClose: () => void;
 };
 
-type MetricKey = "plato" | "pH" | "temp" | "pressure";
+type MetricKey = "plato" | "pH" | "temp" | "pressure" | "carbonation";
 
 type ChartPoint = {
   day: number;
@@ -38,12 +38,14 @@ type ChartPoint = {
   pH: number | null;
   temp: number | null;
   pressure: number | null;
+  carbonation: number | null;
 
   // ממוצע הסגנון
   averagePlato?: number | null;
   averagePH?: number | null;
   averageTemp?: number | null;
   averagePressure?: number | null;
+  averageCarbonation?: number | null;
 
   yeastNote: string | null;
 };
@@ -55,11 +57,21 @@ const METRICS: {
   unit: string;
   color: string;
 }[] = [
-    { key: "plato", label: "סוכר (Plato)", unit: "°P", color: "#d99323" },
+    { key: "plato", label: "סוכר", unit: "°P", color: "#d99323" },
     { key: "pH", label: "pH", unit: "", color: "#5b8def" },
     { key: "temp", label: "טמפ׳", unit: "°C", color: "#e0563f" },
     { key: "pressure", label: "לחץ", unit: "bar", color: "#3fa796" },
+    { key: "carbonation", label: "גיזוז", unit: "vol", color: "#0891b2" },
   ];
+
+// מיפוי בין מדד למפתח הממוצע המתאים ב-ChartPoint
+const AVERAGE_KEY_BY_METRIC: Record<MetricKey, keyof ChartPoint> = {
+  plato: "averagePlato",
+  pH: "averagePH",
+  temp: "averageTemp",
+  pressure: "averagePressure",
+  carbonation: "averageCarbonation",
+};
 
 // המילה שמחפשים בהערות כדי להציג אותן כציון-דרך על הגרף
 const YEAST_KEYWORD = "שמרים";
@@ -111,6 +123,63 @@ function toNumberOrNull(value: unknown): number | null {
 }
 
 // ============================================================
+// AXIS HELPERS
+// ============================================================
+
+// טווח X הדוק לנתונים בפועל + טיקים רק על המינימום והמקסימום
+function getXAxisBounds(
+  days: number[]
+): { domain: [number, number]; ticks: number[] } {
+
+  const validDays = days.filter(
+    (d): d is number => Number.isFinite(d)
+  );
+
+  if (validDays.length === 0) {
+    return { domain: [0, 1], ticks: [0, 1] };
+  }
+
+  const min = Math.min(...validDays);
+  const max = Math.max(...validDays);
+
+  if (min === max) {
+    return { domain: [min - 1, max + 1], ticks: [min] };
+  }
+
+  return { domain: [min, max], ticks: [min, max] };
+}
+
+// טווח Y הדוק לנתונים בפועל של מדד ספציפי (כל מדד יכול לנוע בסקאלה שונה לגמרי)
+function getYAxisDomain(
+  data: ChartPoint[],
+  key: MetricKey
+): [number, number] {
+
+  const values = data
+    .map((point) => point[key])
+    .filter(
+      (value): value is number =>
+        value !== null &&
+        value !== undefined &&
+        Number.isFinite(value)
+    );
+
+  if (values.length === 0) {
+    return [0, 1];
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  if (min === max) {
+    const padding = Math.abs(min) * 0.1 || 1;
+    return [min - padding, max + padding];
+  }
+
+  return [min, max];
+}
+
+// ============================================================
 // BUILD CHART DATA
 // ============================================================
 
@@ -130,6 +199,12 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
     const day = anchor ? diffDays(row.date, anchor) : 0;
     const notes =
       row.m.notes !== null && row.m.notes !== undefined ? String(row.m.notes) : "";
+
+    // carbonation: אם השדה עדיין לא מוגדר בטיפוס Measurement המשותף,
+    // הקאסט הבטוח הזה מונע שגיאת TS. כדאי בהמשך להוסיף
+    // carbonation?: number | string | null; לטיפוס Measurement המקורי.
+    const rawCarbonation = (row.m as unknown as Record<string, unknown>).carbonation;
+
     return {
       day,
       dateLabel: row.date.toLocaleDateString("he-IL"),
@@ -137,6 +212,7 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
       pH: toNumberOrNull(row.m.pH),
       temp: toNumberOrNull(row.m.temp),
       pressure: toNumberOrNull(row.m.pressure),
+      carbonation: toNumberOrNull(rawCarbonation),
       yeastNote: notes.includes(YEAST_KEYWORD) ? notes : null,
     };
   });
@@ -156,6 +232,7 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
         pH: null,
         temp: null,
         pressure: null,
+        carbonation: null,
         yeastNote: null,
       });
     }
@@ -171,30 +248,19 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
 // לא כולל null, וזה מה שגרם לשגיאת ה-TS בגרסה הקודמת).
 // ============================================================
 
-
-
 function makeTooltipRenderer(
   metric: (typeof METRICS)[number],
-  chartData: ChartPoint[]
+  chartData: ChartPoint[],
+  styleAverages: StyleAverages | null
 ) {
-  return function TooltipRenderer({
-    active,
-    label,
-    payload,
-  }: TooltipContentProps) {
+  return function TooltipRenderer({ active, label, payload }: TooltipContentProps) {
     if (!active || !payload || payload.length === 0 || label === undefined) {
       return null;
     }
 
     const dayNumber = Number(label);
-    const raw = payload[0]?.value;
-
     const point = chartData.find((p) => p.day === dayNumber);
-
-    const text =
-      raw === null || raw === undefined || raw === ""
-        ? "—"
-        : `${raw}${metric.unit}`;
+    const dayInfo = styleAverages?.days?.[String(dayNumber)];
 
     return (
       <div className="chart-tooltip">
@@ -203,9 +269,29 @@ function makeTooltipRenderer(
           {point?.dateLabel ? ` (${point.dateLabel})` : ""}
         </div>
 
-        <div className="chart-tooltip-value">
-          {text}
-        </div>
+        {payload.map((entry) => {
+          const isAverage = entry.dataKey === AVERAGE_KEY_BY_METRIC[metric.key];
+          const raw = entry.value;
+          const text =
+            raw === null || raw === undefined || raw === ""
+              ? "—"
+              : isAverage
+                ? `${raw}`
+                : `${raw}${metric.unit}`;
+
+          return (
+            <div
+              key={String(entry.dataKey)}
+              className="chart-tooltip-value"
+              style={{ color: entry.color }}
+            >
+              {entry.name}: {text}
+              {isAverage && dayInfo?.batchCount
+                ? ` (מבוסס על ${dayInfo.batchCount} אצוות)`
+                : ""}
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -334,6 +420,9 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
 
           existing.averagePressure =
             values.pressure ?? null;
+
+          existing.averageCarbonation =
+            values.carbonation ?? null;
         } else {
           result.push({
             day,
@@ -342,6 +431,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
             pH: null,
             temp: null,
             pressure: null,
+            carbonation: null,
 
             averagePlato:
               values.plato ?? null,
@@ -354,6 +444,9 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
 
             averagePressure:
               values.pressure ?? null,
+
+            averageCarbonation:
+              values.carbonation ?? null,
 
             yeastNote: null,
           });
@@ -404,7 +497,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
 
         {!loading && !error && chartData.length > 0 && (
           <>
-            {/* טאבים - נוח במיוחד למובייל: גרף אחד בכל פעם במקום 4 צירים על מסך קטן */}
+            {/* טאבים - נוח במיוחד למובייל: גרף אחד בכל פעם במקום כמה צירים על מסך קטן */}
             <div className="chart-metric-tabs">
               {METRICS.map((metric) => (
                 <button
@@ -420,101 +513,106 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
             </div>
 
             {/*
-              כל ה-4 גרפים נשארים ב-DOM (מוסתרים ב-CSS) ולא רק זה הפעיל.
+              כל הגרפים נשארים ב-DOM (מוסתרים ב-CSS) ולא רק זה הפעיל.
               זה מה שמאפשר שבהדפסה / "שמירה כ-PDF" (window.print) יודפס
-              דוח מלא עם כל 4 המדדים אחד מתחת לשני, ולא רק מה שרואים במסך.
+              דוח מלא עם כל המדדים אחד מתחת לשני, ולא רק מה שרואים במסך.
+              לכל מדד טווח X משלו - מחושב רק מהימים שבהם יש בפועל מדידה
+              לאותו מדד ספציפית (לא נמתח עד לימי הממוצע הכלליים).
             */}
-            {METRICS.map((metric) => (
-              <div
-                key={metric.key}
-                className={`metric-chart-block ${activeMetric === metric.key ? "active" : ""
-                  }`}
-              >
-                <div className="metric-chart-print-title">{metric.label}</div>
-                <div className="batch-chart-graph" dir="ltr">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart
-                      data={chartDataWithAverage}
-                      margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                      <XAxis
-                        dataKey="day"
-                        label={{
-                          value: "ימים מהבישול",
-                          position: "insideBottom",
-                          offset: -4,
-                          fontSize: 12,
-                        }}
-                      />
-                      <YAxis width={40} domain={["auto", "auto"]} />
-                      <Tooltip content={makeTooltipRenderer(metric, chartData)} />
-                      <Legend
-                        verticalAlign="bottom"
-                        align="center"
-                        wrapperStyle={{
-                          paddingTop: 10,
-                          direction: "rtl",
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey={metric.key}
-                        name={metric.label}
-                        stroke={metric.color}
-                        strokeWidth={2.5}
-                        dot={{ r: 4 }}
-                        activeDot={{ r: 6 }}
-                        connectNulls
-                        isAnimationActive={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey={
-                          metric.key === "plato"
-                            ? "averagePlato"
-                            : metric.key === "pH"
-                              ? "averagePH"
-                              : metric.key === "temp"
-                                ? "averageTemp"
-                                : "averagePressure"
-                        }
-                        name={
-                          tank.beerStyle
-                            ? `ממוצע ${tank.beerStyle}`
-                            : "ממוצע הסגנון"
-                        }
-                        stroke="#7c3aed"
-                        strokeWidth={2}
-                        strokeDasharray="6 4"
-                        dot={false}
-                        connectNulls
-                        isAnimationActive={false}
+            {METRICS.map((metric) => {
 
-                      />
+              const metricDays = chartData
+                .filter((p) => p[metric.key] !== null && p[metric.key] !== undefined)
+                .map((p) => p.day);
 
-                      {chartData
-                        .filter((p) => p.yeastNote && p[metric.key] !== null)
-                        .map((p) => (
-                          <ReferenceDot
-                            key={`yeast-${metric.key}-${p.day}`}
-                            x={p.day}
-                            y={p[metric.key] as number}
-                            r={7}
-                            fill="#058a05"
-                            stroke="white"
-                            strokeWidth={2}
-                          />
-                        ))}
-                    </LineChart>
-                  </ResponsiveContainer>
+              const { domain: xDomain, ticks: xTicks } = getXAxisBounds(metricDays);
+
+              return (
+                <div
+                  key={metric.key}
+                  className={`metric-chart-block ${activeMetric === metric.key ? "active" : ""
+                    }`}
+                >
+                  <div className="metric-chart-print-title">{metric.label}</div>
+                  <div className="batch-chart-graph" dir="ltr">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <LineChart
+                        data={chartDataWithAverage}
+                        margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                        <XAxis
+                          dataKey="day"
+                          type="number"
+                          domain={xDomain}
+                          ticks={xTicks}
+                          label={{
+                            value: "ימים מהבישול",
+                            position: "insideBottom",
+                            offset: -4,
+                            fontSize: 12,
+                          }}
+                        />
+                        <YAxis width={40} domain={getYAxisDomain(chartDataWithAverage, metric.key)} />
+                        <Tooltip content={makeTooltipRenderer(metric, chartData, styleAverages)} />
+                        <Legend
+                          verticalAlign="bottom"
+                          align="center"
+                          wrapperStyle={{
+                            paddingTop: 10,
+                            direction: "rtl",
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey={metric.key}
+                          name={metric.label}
+                          stroke={metric.color}
+                          strokeWidth={2.5}
+                          dot={{ r: 4 }}
+                          activeDot={{ r: 6 }}
+                          connectNulls
+                          isAnimationActive={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey={AVERAGE_KEY_BY_METRIC[metric.key]}
+                          name={
+                            tank.beerStyle
+                              ? `ממוצע ${tank.beerStyle}`
+                              : "ממוצע הסגנון"
+                          }
+                          stroke="#7c3aed"
+                          strokeWidth={2}
+                          strokeDasharray="6 4"
+                          dot={false}
+                          connectNulls
+                          isAnimationActive={false}
+                        />
+
+                        {chartData
+                          .filter((p) => p.yeastNote && p[metric.key] !== null)
+                          .map((p) => (
+                            <ReferenceDot
+                              key={`yeast-${metric.key}-${p.day}`}
+                              x={p.day}
+                              y={p[metric.key] as number}
+                              r={7}
+                              fill="#058a05"
+                              stroke="white"
+                              strokeWidth={2}
+                            />
+                          ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {yeastNotes.length > 0 && (
               <div className="chart-notes-list">
-                <div className="chart-notes-title">🟢 הערות שמרים</div>
+                <div className="chart-notes-title">🟢 שמרים</div>
                 {yeastNotes.map((n) => (
                   <div key={`note-${n.day}`} className="chart-note-row">
                     <span className="chart-note-day">יום {n.day}</span>
