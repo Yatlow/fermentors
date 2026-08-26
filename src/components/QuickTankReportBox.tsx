@@ -26,6 +26,7 @@ type QuickTankReportBoxProps = {
 
 
 const NOTE_TYPES = [
+    { value: "סגירת מיכל", label: "סגירת מיכל", stage: "warm" },
     { value: "גיזוז", label: "בדיקת גיזוז", stage: "cold" },
     { value: "שמרים", label: "הורדת שמרים", stage: "both" },
     { value: "לחץ", label: "שינוי לחץ", stage: "both" },
@@ -85,6 +86,9 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
+            case "סגירת מיכל": {
+                return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
+            }
             case "דיאציטיל": return "חימום מיכל ל14° למנוחת דיאציטיל";
             case "קירור": return "קירור מיכל ל0.3°";
             case "אחר": return value === "" ? null : value;
@@ -273,6 +277,9 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const dryHopCategory = noteType === "דרייהופ" ? getDryHopStyleCategory(tank.beerStyle) : null;
     const dryHopCalc = dryHopCategory ? calcDryHopDose(dryHopCategory, tank.beerVolume) : null;
     const dryHopPressure = specs ? getClosingPressureForStyle(tank.beerStyle, specs) : null;
+    const closingPressure = specs
+        ? getClosingPressureForStyle(tank.beerStyle, specs)
+        : null;
 
     return (
         <div
@@ -292,7 +299,16 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                         className="quickReportSelect"
                         value={noteType}
                         disabled={isSending}
-                        onChange={(e) => { setNoteType(e.target.value); resetValues(); }}
+                        onChange={(e) => {
+                            const newType = e.target.value;
+
+                            setNoteType(newType);
+                            resetValues();
+
+                            if (newType === "סגירת מיכל" && closingPressure !== null) {
+                                setValue(String(closingPressure));
+                            }
+                        }}
                     >
                         <option value="" disabled>בחר סוג דיווח</option>
                         {NOTE_TYPES
@@ -307,6 +323,21 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                     {noteType === "אחר" && (
                         <input type="text" placeholder="כתוב הערה" value={value} disabled={isSending}
                             onChange={(e) => setValue(e.target.value)} />
+                    )}
+                    {noteType === "סגירת מיכל" && (
+                        <div className="quickReportInline">
+                            <span>סגירת נשם, כיוון פורק ל:</span>
+
+                            <input
+                                type="number"
+                                step="0.1"
+                                value={value}
+                                placeholder="לחץ"
+                                disabled={isSending}
+                                onChange={(e) => setValue(e.target.value)}
+                            />
+                            <span> bar </span>
+                        </div>
                     )}
 
                     {noteType === "גיזוז" && (

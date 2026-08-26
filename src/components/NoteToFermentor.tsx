@@ -27,6 +27,7 @@ type NoteRow = {
 };
 
 const NOTE_TYPES = [
+    { value: "סגירת מיכל", label: "סגירת מיכל", stage: "warm" },
     { value: "גיזוז", label: "בדיקת גיזוז", stage: "cold" },
     { value: "שמרים", label: "הורדת שמרים", stage: "both" },
     { value: "לחץ", label: "שינוי לחץ", stage: "both" },
@@ -96,6 +97,11 @@ export default function NoteToFermentor({
             case "פורק":
                 if (row.value === "") return null;
                 return `כיוון פורק ל: ${row.value} bar`;
+            case "סגירת מיכל":
+                if (row.value === "") return null;
+                return `סגירת נשם, כיוון פורק ל ${row.value}`;
+
+            case "דיאציטיל":
             case "דיאציטיל":
                 return "חימום מיכל ל14° למנוחת דיאציטיל";
             case "קירור":
@@ -126,7 +132,7 @@ export default function NoteToFermentor({
     }
 
     // שורה נחשבת "חלקית"/חוסמת שליחה רק אם כבר נבחר לה מיכל אך אין לה עדיין טקסט תקין
-    function isRowIncomplete(row: NoteRow, fermentor: Fermentor|undefined): boolean {
+    function isRowIncomplete(row: NoteRow, fermentor: Fermentor | undefined): boolean {
         if (!row.tankNumber) return false;
         return buildNoteText(row, fermentor) === null;
     }
@@ -156,6 +162,8 @@ export default function NoteToFermentor({
             if (REFRESH_TRIGGER_TYPES.has(row.noteType)) {
                 refreshTanks.add(tankNum);
             }
+
+
 
             if (row.noteType === "דרייהופ" && fermentor && specs) {
                 const category = getDryHopStyleCategory(fermentor.beerStyle);
@@ -201,6 +209,26 @@ export default function NoteToFermentor({
     }, [rows, specs]);
 
     function handleNoteTypeChange(row: NoteRow, newType: string) {
+        if (newType === "סגירת מיכל") {
+            const fermentor = brews.find(
+                (fv) => Number(fv.tankNumber) === Number(row.tankNumber)
+            );
+
+            const pressure =
+                fermentor && specs
+                    ? getClosingPressureForStyle(fermentor.beerStyle, specs)
+                    : null;
+
+            updateRow(row.id, {
+                noteType: newType,
+                value: pressure !== null ? String(pressure) : "",
+                value2: "",
+                direction: "",
+            });
+
+            return;
+        }
+
         updateRow(row.id, { noteType: newType, ...EMPTY_VALUES });
     }
 
@@ -280,6 +308,25 @@ export default function NoteToFermentor({
                                     placeholder="כתוב הערה"
                                     onChange={(e) => updateRow(row.id, { value: e.target.value })}
                                 />
+                            )}
+
+                            {row.noteType === "סגירת מיכל" && (
+                                <>
+                                    <span>סגירת נשם, כיוון פורק ל: </span>
+
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        value={row.value}
+                                        placeholder="לחץ"
+                                        onChange={(e) =>
+                                            updateRow(row.id, { value: e.target.value })
+                                        }
+                                    />
+
+                                    <span>{" "}</span>
+                                    <span>bar</span>
+                                </>
                             )}
 
                             {row.noteType === "דרייהופ" && fermentor && (() => {
