@@ -31,7 +31,7 @@ export function calcDryHopDose(category: DryHopStyleCategory, beerVolume: number
     const volume = Number(beerVolume) || 0;
 
     switch (category) {
-        case "ipa": return { grams: 3 * volume, hopType: "Cascade", needsManualInput: false };
+        case "ipa": return { grams: 3 * volume, hopType: "Citra", needsManualInput: false };
         case "pale": return { grams: 0.961 * volume, hopType: "Cascade", needsManualInput: false };
         case "hoppy": return { grams: 2 * volume, hopType: "Talos", needsManualInput: false };
         default: return { grams: 0, hopType: "", needsManualInput: true };

@@ -152,11 +152,12 @@ function getXAxisBounds(
 // טווח Y הדוק לנתונים בפועל של מדד ספציפי (כל מדד יכול לנוע בסקאלה שונה לגמרי)
 function getYAxisDomain(
   data: ChartPoint[],
-  key: MetricKey
+  key: MetricKey,
+  averageKey: keyof ChartPoint
 ): [number, number] {
 
   const values = data
-    .map((point) => point[key])
+    .flatMap((point) => [point[key], point[averageKey]])
     .filter(
       (value): value is number =>
         value !== null &&
@@ -176,7 +177,8 @@ function getYAxisDomain(
     return [min - padding, max + padding];
   }
 
-  return [min, max];
+  const padding = (max - min) * 0.05;
+  return [min - padding, max + padding];
 }
 
 // ============================================================
@@ -553,7 +555,13 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                             fontSize: 12,
                           }}
                         />
-                        <YAxis width={40} domain={getYAxisDomain(chartDataWithAverage, metric.key)} />
+                        <YAxis
+                          width={40}
+                          domain={getYAxisDomain(chartDataWithAverage, metric.key, AVERAGE_KEY_BY_METRIC[metric.key])}
+                          allowDataOverflow
+                          tickCount={5}
+                          tickFormatter={(v) => Number(v).toFixed(1)}
+                        />
                         <Tooltip content={makeTooltipRenderer(metric, chartData, styleAverages)} />
                         <Legend
                           verticalAlign="bottom"
