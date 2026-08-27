@@ -595,7 +595,7 @@ export default function SendMessurmentsHeader({
         const invalidText: string[] = []
         let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
         if (reportName === "חם") fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9);
-
+        try {
         const byTank = await fetchAllTankMeasurements(fullTanks);
         const readingsToCheck = brews
             .filter((fv) => (Number(fv.tankNumber) !== 1) && Number(fv.action) === 1)
@@ -689,7 +689,9 @@ export default function SendMessurmentsHeader({
         } else {
             void sendReadings()
         }
-        setSendingReading("getRecs")
+        setSendingReading("getRecs")} catch (error) {
+            void sendReadings()
+        }
     };
 
     let canSend = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1 && (reportName === "לחץ" ? true : Number(fv.currentData?.temp) > 9)).length === getMissingTanks()?.length;
