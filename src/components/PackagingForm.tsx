@@ -45,7 +45,7 @@ export default function PackagingForm({
     const [rows, setRows] = useState<PackagingRow[]>([makeEmptyRow()]);
 
     const availableTanks = brews.filter(
-        (fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1 && fv?.stage?.name==="קר"
+        (fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1 && fv?.stage?.name === "קר"
     );
 
     function calcReportLiters(row: PackagingRow): number {
@@ -71,10 +71,12 @@ export default function PackagingForm({
         const parts: string[] = [];
 
         if (row.packagingType === "kegs" && Number(row.amount) > 0) {
-            parts.push(`הורדת ${row.amount} חביות`);
+            parts.push(`הורדת ${row.amount} חביות- ${(Number(row.amount) * KEG_LITERS).toFixed(2)}`);
         }
         if (row.packagingType === "bottles" && Number(row.amount) > 0) {
-            parts.push(`הורדת ${Number(row.amount)} בקבוקים`);
+            parts.push(
+                `הורדת ${Number(row.amount)} בקבוקים- ${(Number(row.amount) * BOTTLE_LITERS).toFixed(2)}`
+            );
         }
 
         let text = parts.join(", ");

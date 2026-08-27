@@ -254,6 +254,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         style.includes("הופי") ||
         style.includes("pale") ||
         style.includes("hoppy");
+    const normalizedStyle = String(style || "").trim().toLowerCase();
+    const isLager = normalizedStyle.includes("לאגר");
+
 
     const dryHopMeasurement =
         measurements.find(
@@ -331,6 +334,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         importance: 1
     };
 
+    const yeastDropSpec = isLager ? givenSpecs.tolorances.yeastDropMinPlatoLager : givenSpecs.tolorances.yeastDropMinPlato;
 
     // ============================================================
     // HOPPY BEER - WARM YEAST DROP AFTER DRY HOP
@@ -376,7 +380,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
     // ============================================================
     // NON-HOPPY BEER
     // ============================================================
-
     else if (
         !isHoppy &&
         brewAge !== null &&
@@ -385,7 +388,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         !yeastDroppedOnce &&
         !requiresDryHop.req &&
         yesterdayMeasurement &&
-        Number(currentPlato) < (givenSpecs.tolorances.yeastDropMinPlato || 6)&&
+        Number(currentPlato) < (yeastDropSpec || 6) &&
         pressureIsclosed
     ) {
         const yesterdayPlato =
@@ -424,7 +427,10 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         reason: "(מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור",
         importance: 1
     }
-
+    const lastNote = lastMeasurement?.notes?.toString();
+    const carbRes= lastMeasurement.carbonation;
+    const alreadyadjustedPToday = lastNote?.includes("הורדת לחץ") || lastNote?.includes("העלאת לחץ") || lastNote?.includes("להוריד לחץ") || lastNote?.includes("להעלות לחץ");
+    const tookCare= carbRes && alreadyadjustedPToday;
     let requiresCarbTest = {
         display: false,
         req: false,
@@ -450,7 +456,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         if (toDaysAgoMeasurement?.carbonation && !lastMeasurement?.carbonation) {
             if (carbonationSpecToDaysAgo?.outOfSpec) {
                 requiresCarbTest.display = true,
-                    requiresCarbTest.req = true;
+                    requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה ההאחרונה לא תקין(${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
                     `הגיזוז לפני יומיים לא תקין(${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת `
@@ -468,7 +474,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         if (yesterdayMeasurement?.carbonation && !lastMeasurement?.carbonation) {
             if (CarbonationSpecYesterday.outOfSpec) {
                 requiresCarbTest.display = true,
-                    requiresCarbTest.req = true;
+                    requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה האחרונה היה לא תקין(${yesterdayMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
                     `הגיזוז אתמול היה לא תקין(${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר בדיקת גיזוז חוזרת `,
@@ -486,7 +492,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         if (lastMeasurement?.carbonation) {
             if (carbonationSpecToDay.outOfSpec) {
                 requiresCarbTest.display = true,
-                    requiresCarbTest.req = true;
+                    requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה ההאחרונה לא תקין(${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ ` :
                     `הגיזוז היום לא תקין(${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ `
@@ -552,8 +558,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
             }
         }
     }
-    const normalizedStyle = String(style || "").trim().toLowerCase();
-    const isLager = normalizedStyle.includes("לאגר");
     const requiersDiacytelRest = {
         req: isLager && lastMeasurement?.plato && Number(lastMeasurement?.plato) < (givenSpecs.tolorances.dycitalRestMinPlato || 8) &&
             Number(lastMeasurement?.temp) > 9 && Number(lastMeasurement?.temp) < 13 &&
@@ -768,10 +772,10 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
             dispCoolDownGenerallRec = true;
         }
         if (CooldDate) {
-            if (Number(lastMeasurement.temp) > 9) { readyToCoolDownText= "לפי הרישום המיכל כבר קורר- במדידת טמפ' זה יעודכן, מומלץ לוודא" }
+            if (Number(lastMeasurement.temp) > 9) { readyToCoolDownText = "לפי הרישום המיכל כבר קורר- במדידת טמפ' זה יעודכן, מומלץ לוודא" }
             else coolDownDisplay = false
         } else {
-            if (Number(lastMeasurement.temp) > 9) readyToCoolDownText= "המיכל מוכן לקירור. מומלץ לכוון טמפ' לקירור ולשנוק את ברזי` הגליקול";
+            if (Number(lastMeasurement.temp) > 9) readyToCoolDownText = "המיכל מוכן לקירור. מומלץ לכוון טמפ' לקירור ולשנוק את ברזי` הגליקול";
             dispCoolDownGenerallRec = true;
 
         }
@@ -789,12 +793,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
 
 
     const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style, givenSpecs)
+
+    const alreadyadjustedPtargetToday = lastNote?.includes("כיוון פורק") || lastNote?.includes("לכוון פורק");
     const requiredPressureAdjustment = {
         display: true,
-        req: stage.name === "בתסיסה" && Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && isPressureOutOfRangeVal.onSpec,
+        req: stage.name === "בתסיסה" && !alreadyadjustedPtargetToday && Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && isPressureOutOfRangeVal.onSpec,
         reason: `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: isPressureOutOfRangeVal.howBad
     }
+    if (requiredPressureAdjustment.req) console.log(requiredPressureAdjustment, lastNote, alreadyadjustedPtargetToday)
     const today = new Date().getDay();
     const corrected = today === 0 ? 1 : today + 1;
     const requiresDailyActions = {

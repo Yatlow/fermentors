@@ -309,7 +309,7 @@ export default function SendMessurmentsHeader({
 
                         const shrinkageText =
                             shrinkagePercent !== undefined
-                                ? `\nסה"כ ${totalLiters.toFixed(2)} ליטר, פחת ${shrinkagePercent.toFixed(2)}%`
+                                ? `סה"כ ${totalLiters.toFixed(2)} ליטר, פחת ${shrinkagePercent.toFixed(2)}%`
                                 : `סה"כ ${totalLiters.toFixed(2)} ליטר`;
 
                         const existingNotes =
@@ -318,7 +318,7 @@ export default function SendMessurmentsHeader({
                         r = {
                             ...r,
                             notes: existingNotes
-                                ? `${existingNotes} | ${shrinkageText}`
+                                ? `${existingNotes}, ${shrinkageText}`
                                 : shrinkageText,
                         };
                     }
@@ -596,100 +596,101 @@ export default function SendMessurmentsHeader({
         let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
         if (reportName === "חם") fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9);
         try {
-        const byTank = await fetchAllTankMeasurements(fullTanks);
-        const readingsToCheck = brews
-            .filter((fv) => (Number(fv.tankNumber) !== 1) && Number(fv.action) === 1)
-            .map((fv) => {
-                if (!fv.tankNumber) { return null }
-                const reading = newReadings[fv.id] ?? {};
-                const current = fv.currentData;
-                const previus = byTank[fv.tankNumber]
-                return { tankNumber: fv.tankNumber, new: reading, current, previus }
-            }).filter(
-                (r): r is NonNullable<typeof r> => r !== null
-            );
-        readingsToCheck.map((readingSet) => {
-            const previusMeasurements = readingSet.previus ?? [];
-            const sortedMeasurements = [...previusMeasurements].sort((a, b) => {
-                const dateA = String(a.id ?? "");
-                const dateB = String(b.id ?? "");
-                return dateA.localeCompare(dateB);
-            });
+            const byTank = await fetchAllTankMeasurements(fullTanks);
+            const readingsToCheck = brews
+                .filter((fv) => (Number(fv.tankNumber) !== 1) && Number(fv.action) === 1)
+                .map((fv) => {
+                    if (!fv.tankNumber) { return null }
+                    const reading = newReadings[fv.id] ?? {};
+                    const current = fv.currentData;
+                    const previus = byTank[fv.tankNumber]
+                    return { tankNumber: fv.tankNumber, new: reading, current, previus }
+                }).filter(
+                    (r): r is NonNullable<typeof r> => r !== null
+                );
+            readingsToCheck.map((readingSet) => {
+                const previusMeasurements = readingSet.previus ?? [];
+                const sortedMeasurements = [...previusMeasurements].sort((a, b) => {
+                    const dateA = String(a.id ?? "");
+                    const dateB = String(b.id ?? "");
+                    return dateA.localeCompare(dateB);
+                });
 
-            if (sortedMeasurements.length < 2) {
-                return;
-            }
-
-            const yesterdayMeasurement: Measurement =
-                sortedMeasurements[sortedMeasurements.length - 2];
-            const currentTemp = Number(readingSet.current?.temp);
-            const newTemp = Number(readingSet.new.temp);
-            const currentPressure = Number(readingSet.current?.pressure);
-            const newPressure = Number(readingSet.new.pressure);
-            const currentPh = Number(readingSet.current?.pH);
-            const newPh = Number(readingSet.new.pH);
-            const currentPlato = Number(readingSet.current?.plato);
-            const newPlato = Number(readingSet.new.plato);
-
-            if (currentTemp - newTemp > 5 || newTemp - currentTemp > 5) {
-                if (currentTemp - newTemp > 5) {
-                    const cooled = yesterdayMeasurement?.notes?.toString().includes("קירור") ||
-                        yesterdayMeasurement?.notes?.toString().includes("קירור");
-                    if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
-
+                if (sortedMeasurements.length < 2) {
+                    return;
                 }
-            }
-            const pDelata = currentPressure - newPressure;
-            if (pDelata < -0.5) {
-                if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
-                    || yesterdayMeasurement?.notes?.toString().includes("סגירה")
-                    || yesterdayMeasurement?.notes?.toString().includes("העלאת")
-                    || yesterdayMeasurement?.notes?.toString().includes("להעלות לחץ")
-                )) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ של יותר מ0.5bar למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
-                }
-            }
-            if (pDelata > 0.5) {
-                if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
-                    || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
-                )) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה ירידה בלחץ של יותר מ0.5bar למרות שלא נמצאה הורדת לחץ או הורדת שמרים. האם הזנת נתון תקין?`)
-                }
-            }
-            if (newPressure && !newTemp) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} דווח לחץ אך לא דווח טמפ'. לתשומת ליבך`)
-            }
-            if (newTemp && !newPressure) {
-                if (newPressure !== 0) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח טמפ אך לא דווח . לתשומת ליבך`)
-                }
-            }
-            if (newPh > 6) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מעל 6. האם הזנת נתון תקין?`)
-            }
-            if (newPh < 3.5) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מתחת 3.5. האם הזנת נתון תקין?`)
-            }
-            if (newPh - currentPh > 0.3 || currentPh - newPh > 0.3) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH בהפרש של יותר מ0.3 ממדידה קודמת. האם הזנת נתון תקין?`)
-            }
-            if (newPlato - currentPlato > 0.3) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} דווח היום Plato גבוה יותר ממדידה קודמת ב0.3. לתשומת ליבך`)
-            }
-            if (newPlato && !newPh) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} דווח Plato אך לא דווח pH. לתשומת ליבך`)
-            }
-            if (newPh && !newPlato) {
-                invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH אך לא דווח Plato. לתשומת ליבך`)
-            }
 
-        })
-        if (invalidText.length > 0) {
-            setConfirmMessurments({ open: true, unvalidMessurments: invalidText })
-        } else {
-            void sendReadings()
-        }
-        setSendingReading("getRecs")} catch (error) {
+                const yesterdayMeasurement: Measurement =
+                    sortedMeasurements[sortedMeasurements.length - 2];
+                const currentTemp = Number(readingSet.current?.temp);
+                const newTemp = Number(readingSet.new.temp);
+                const currentPressure = Number(readingSet.current?.pressure);
+                const newPressure = Number(readingSet.new.pressure);
+                const currentPh = Number(readingSet.current?.pH);
+                const newPh = Number(readingSet.new.pH);
+                const currentPlato = Number(readingSet.current?.plato);
+                const newPlato = Number(readingSet.new.plato);
+
+                if (currentTemp - newTemp > 5 || newTemp - currentTemp > 5) {
+                    if (currentTemp - newTemp > 5) {
+                        const cooled = yesterdayMeasurement?.notes?.toString().includes("קירור") ||
+                            yesterdayMeasurement?.notes?.toString().includes("קירור");
+                        if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
+
+                    }
+                }
+                const pDelata = currentPressure - newPressure;
+                if (pDelata < -0.5) {
+                    if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
+                        || yesterdayMeasurement?.notes?.toString().includes("סגירה")
+                        || yesterdayMeasurement?.notes?.toString().includes("העלאת")
+                        || yesterdayMeasurement?.notes?.toString().includes("להעלות לחץ")
+                    )) {
+                        invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ של יותר מ0.5bar למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
+                    }
+                }
+                if (pDelata > 0.5) {
+                    if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
+                        || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
+                    )) {
+                        invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה ירידה בלחץ של יותר מ0.5bar למרות שלא נמצאה הורדת לחץ או הורדת שמרים. האם הזנת נתון תקין?`)
+                    }
+                }
+                if (newPressure && !newTemp) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח לחץ אך לא דווח טמפ'. לתשומת ליבך`)
+                }
+                if (newTemp && !newPressure) {
+                    if (newPressure !== 0) {
+                        invalidText.push(`במיכל ${readingSet.tankNumber} דווח טמפ אך לא דווח . לתשומת ליבך`)
+                    }
+                }
+                if (newPh > 6) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מעל 6. האם הזנת נתון תקין?`)
+                }
+                if (newPh < 3.5) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מתחת 3.5. האם הזנת נתון תקין?`)
+                }
+                if (newPh - currentPh > 0.3 || currentPh - newPh > 0.3) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH בהפרש של יותר מ0.3 ממדידה קודמת. האם הזנת נתון תקין?`)
+                }
+                if (newPlato - currentPlato > 0.3) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח היום Plato גבוה יותר ממדידה קודמת ב0.3. לתשומת ליבך`)
+                }
+                if (newPlato && !newPh) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח Plato אך לא דווח pH. לתשומת ליבך`)
+                }
+                if (newPh && !newPlato) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH אך לא דווח Plato. לתשומת ליבך`)
+                }
+
+            })
+            if (invalidText.length > 0) {
+                setConfirmMessurments({ open: true, unvalidMessurments: invalidText })
+            } else {
+                void sendReadings()
+            }
+            setSendingReading("getRecs")
+        } catch (error) {
             void sendReadings()
         }
     };

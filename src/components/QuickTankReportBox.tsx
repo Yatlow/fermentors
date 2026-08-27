@@ -195,7 +195,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 shrinkagePercent = result.shrinkagePercent ?? undefined;
 
                 const shrinkageText = shrinkagePercent !== undefined
-                    ? `\nסה"כ ${totalLiters.toFixed(2)} ליטר, פחת ${shrinkagePercent.toFixed(2)}%`
+                    ? `שהם ${reportLiters} ליטר\nסה"כ ${totalLiters.toFixed(2)} ליטר, פחת ${shrinkagePercent.toFixed(2)}%`
                     : `סה"כ ${totalLiters.toFixed(2)} ליטר`;
 
                 notes = notes ? `${notes} | ${shrinkageText}` : shrinkageText;

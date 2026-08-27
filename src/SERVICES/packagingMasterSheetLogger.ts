@@ -41,11 +41,11 @@ async function getExpiryMonths(
         console.warn("packagingMasterSheetLogger: לא נמצא מפתח תוקף מתאים לסגנון:", beerStyle);
         return null;
     }
- 
     const ref = doc(db, "specs", "bottleExpDat");
     const snap = await getDoc(ref);
     if (!snap.exists()) return null;
     const data = snap.data() as Record<string, number>;
+    console.log(data)
     const months = data[fieldKey];
     return typeof months === "number" ? months : null;
 }
@@ -81,7 +81,7 @@ export async function logPackagingToMasterSheet(
     params: MasterSheetLogParams
 ): Promise<MasterSheetLogResult> {
     const { beerStyle, packagingType, amount, batchNumber } = params;
- 
+    console.log("123")
     if (!amount || amount <= 0) {
         return { success: false, error: "כמות לא תקינה" };
     }
