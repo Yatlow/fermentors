@@ -163,7 +163,9 @@ export default function FermentorInfoBox({
                         tank.beerStyle,
                         tank.batchNumber,
                         tank.brewDate, specs,
-                        tank.stage
+                        tank.stage,
+                        Number(tank.tankNumber),
+                        true
                     );
 
                 setRecomendations(

@@ -1,3 +1,4 @@
+import { getPlannedPackagingContainerNumbers } from "../components/PackagingReportsView";
 import { getBrewAge } from "../components/TankCard";
 import { type SpecChart } from "./getSpecsFromFb";
 import type { TankStageInfo } from "./tankstage";
@@ -107,7 +108,10 @@ export function isPressureOutOfRange(
     }
     return resault;
 }
-export async function calcCelleringRecomendations(measurements: Measurement[], beerStyle: string | number | undefined | null, batchId: string | number | null, brewDate: string, givenSpecs: SpecChart, stage: TankStageInfo) {
+export async function calcCelleringRecomendations(measurements: Measurement[],
+    beerStyle: string | number | undefined | null, batchId: string | number | null,
+    brewDate: string, givenSpecs: SpecChart, stage: TankStageInfo, tankNumber: number | undefined,
+    TankCardUse: boolean) {
 
     const sortedMeasurements = [...measurements].sort((a, b) => {
 
@@ -117,8 +121,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         return dateA.localeCompare(dateB);
     });
     const brewAge = getBrewAge(brewDate);
-
-    // ============================================================
+    // =======  =====================================================
     // GET LATEST MEASUREMENTS
     // ============================================================
 
@@ -144,7 +147,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
     // ============================================================
 
 
-
+    const today = new Date().getDay();
+    const corrected = today === 0 ? 1 : today + 1;
+    const nextWeekPack = await getPlannedPackagingContainerNumbers();
 
     function getTodayDateString(): string {
 
@@ -428,9 +433,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         importance: 1
     }
     const lastNote = lastMeasurement?.notes?.toString();
-    const carbRes= lastMeasurement.carbonation;
+    const carbRes = lastMeasurement.carbonation;
     const alreadyadjustedPToday = lastNote?.includes("הורדת לחץ") || lastNote?.includes("העלאת לחץ") || lastNote?.includes("להוריד לחץ") || lastNote?.includes("להעלות לחץ");
-    const tookCare= carbRes && alreadyadjustedPToday;
+    const tookCare = carbRes && alreadyadjustedPToday;
     let requiresCarbTest = {
         display: false,
         req: false,
@@ -506,11 +511,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             }
         }
+        
+        if (stage.name === "קר" && (corrected === 5|| corrected===4) &&  tankNumber && nextWeekPack.includes(tankNumber)) {
+            requiresCarbTest.display = true,
+                requiresCarbTest.req = true;
+            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ ${corrected===5?"להוריד שמרים":"לבצע בדיקת גיזוז"}`
+            requiresCarbTest.importance = 1;
+        }
+
 
         // ============================================================
         // LAST INVALID CARBONATION - NO TEST FOR MORE THAN 2 DAYS
         // ============================================================
-
         if (!requiresCarbTest.req && stage.name === "קר") {
             const lastCarbonationMeasurement =
                 [...sortedMeasurements]
@@ -801,15 +813,26 @@ export async function calcCelleringRecomendations(measurements: Measurement[], b
         reason: `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: isPressureOutOfRangeVal.howBad
     }
-    if (requiredPressureAdjustment.req) console.log(requiredPressureAdjustment, lastNote, alreadyadjustedPtargetToday)
-    const today = new Date().getDay();
-    const corrected = today === 0 ? 1 : today + 1;
+
+    const isAnActionDay = Number(lastMeasurement.temp) < 9 && (corrected === 1 || corrected === 4 || corrected === 5)
+    let dayTxt = ""
+    if (isAnActionDay && corrected !== 1) {
+        dayTxt += TankCardUse ? `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` : `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. `
+    }
+    if (TankCardUse) {
+        dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר" :
+            corrected === 4 ? "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל אכן מתוכנן לרדת" :
+                corrected === 5 ? "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל אכן מתוכנן לרדת" : ""
+    } else {
+        dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל המיכלים הקרים" :
+            corrected === 4 ? "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" :
+                corrected === 5 ? "מומלץ ביום חמישי לבצע הורדת שמרים לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" : ""
+
+    }
+    const displaySpecifics = isAnActionDay && tankNumber ? nextWeekPack.includes(tankNumber) : false
     const requiresDailyActions = {
-        req: Number(lastMeasurement.temp) < 9 && (corrected === 1 || corrected === 4 || corrected === 5),
-        reason:
-            corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר" :
-                corrected === 4 ? "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת" :
-                    corrected === 5 ? "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת" : "",
+        req: displaySpecifics,
+        reason: dayTxt,
         importance: 0
     }
 

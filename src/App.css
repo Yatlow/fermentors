@@ -3464,3 +3464,310 @@ body {
     margin-bottom: 4px;
   }
 }
+.packaging-report-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+
+  margin-bottom: 10px;
+}
+
+.packaging-report-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+}
+
+.packaging-report-input {
+  height: 36px;
+  padding: 4px 10px;
+
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-sm, 6px);
+
+  background: #ffffff;
+  color: var(--text-main, #1a202c);
+
+  font-size: 0.8rem;
+
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.packaging-report-input:focus {
+  outline: none;
+  border-color: var(--primary, #2b6cb0);
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.12);
+}
+
+/* =========================================================
+   CUSTOM WEEK NAVIGATOR
+   מחליף את ה-<input type="week"> המובנה (שתמיד מוגדר לפי
+   שבוע ISO ולא ניתן להתאמה לשבוע ראשון-שבת), כדי שהטווח
+   המוצג תמיד יתאים בדיוק למה שנבחר.
+   ========================================================= */
+
+.week-nav {
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  margin-bottom: 12px;
+  padding: 6px;
+
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-lg, 10px);
+
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
+}
+
+.week-nav-arrow {
+  flex: 0 0 auto;
+
+  width: 34px;
+  height: 34px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid var(--pill-border, #cbd5e1);
+  border-radius: 50%;
+
+  background: transparent;
+  color: var(--primary, #2b6cb0);
+
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+
+  cursor: pointer;
+
+  transition: background-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.week-nav-arrow:hover {
+  background: #eff6ff;
+  box-shadow: 0 2px 6px rgba(43, 108, 176, 0.15);
+}
+
+.week-nav-arrow:active {
+  transform: scale(0.94);
+}
+
+.week-nav-center {
+  position: relative;
+
+  flex: 1 1 auto;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.week-nav-label {
+  border: none;
+  background: transparent;
+
+  padding: 6px 14px;
+  border-radius: var(--radius-pill, 7px);
+
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--text-main, #1a202c);
+
+  cursor: pointer;
+
+  transition: background-color 0.15s ease;
+}
+
+.week-nav-label:hover {
+  background: #f1f5f9;
+}
+
+.week-nav-today {
+  border: none;
+  background: transparent;
+
+  padding: 1px 6px;
+
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary, #2b6cb0);
+
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.week-jump-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 50;
+
+  padding: 8px;
+
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 9px);
+
+  box-shadow:
+    0 12px 30px rgba(15, 23, 42, 0.16),
+    0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 480px) {
+  .week-nav {
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .week-nav-arrow {
+    width: 30px;
+    height: 30px;
+    font-size: 1rem;
+  }
+
+  .week-nav-label {
+    font-size: 0.8rem;
+    padding: 5px 8px;
+  }
+}
+
+/* =========================================================
+   TABLE
+   ========================================================= */
+
+.packaging-report-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius, 8px);
+
+  overflow: hidden;
+
+  font-size: 0.8rem;
+}
+
+.packaging-report-table th,
+.packaging-report-table td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.packaging-report-table th {
+  background: #f8fafc;
+  color: var(--text-muted, #64748b);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.packaging-report-table tr:last-child td {
+  border-bottom: none;
+}
+
+.packaging-report-table tr.estimated-row {
+  background: #fdfaf3;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 2px 8px;
+  border-radius: 999px;
+
+  font-size: 0.65rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.source-badge.source-actual {
+  background: var(--rec-1-bg, #f0fdf4);
+  color: var(--rec-1-text, #166534);
+  border: 1px solid var(--rec-1-border, #bbf7d0);
+}
+
+.source-badge.source-estimated {
+  background: var(--rec-2-bg, #fff7ed);
+  color: var(--rec-2-text, #c2410c);
+  border: 1px solid var(--rec-2-border, #fed7aa);
+}
+
+/* =========================================================
+   TOTALS
+   ========================================================= */
+
+.packaging-report-totals {
+  margin-top: 14px;
+}
+
+.packaging-report-totals-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  margin-bottom: 6px;
+  color: var(--text-main, #1a202c);
+}
+
+.packaging-report-totals-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/*
+  צ'יפ מפוצל לשני spans נפרדים (תווית + ערך) במקום טקסט אחיד -
+  כך הסדר החזותי קבוע תמיד, גם כשהתווית מכילה טקסט לועזי
+  ("ipa"/"IPA") שאלגוריתם ה-bidi של הדפדפן עלול לסדר אחרת
+  משורה לשורה כשהכל בתוך אותו טקסט.
+*/
+.packaging-report-total-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 5px 10px;
+
+  background: #f1f5f9;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-pill, 7px);
+
+  font-size: 0.75rem;
+  color: var(--text-main, #1a202c);
+
+  white-space: nowrap;
+}
+
+.packaging-report-total-chip .chip-label {
+  font-weight: 600;
+}
+
+.packaging-report-total-chip .chip-value {
+  font-weight: 800;
+  color: var(--primary, #2b6cb0);
+
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+@media (max-width: 600px) {
+  .packaging-report-table {
+    font-size: 0.72rem;
+  }
+
+  .packaging-report-table th,
+  .packaging-report-table td {
+    padding: 6px 6px;
+  }
+}

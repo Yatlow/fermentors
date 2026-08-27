@@ -25,6 +25,7 @@ import NoteToFermentor from "./components/NoteToFermentor";
 import PackagingForm from "./components/PackagingForm";
 import { getSpecsFromFb, type SpecChart } from "./SERVICES/getSpecsFromFb";
 import BatchReportsView from "./components/BatchReportsView";
+import PackagingReportsView from "./components/PackagingReportsView";
 
 
 
@@ -167,6 +168,9 @@ function App() {
 
   const [selectedWrites, setSelectedWrites] =
     useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
+
+  const [selectedReports, setSelectedReports] =
+    useState<"אריזה" | "גרפים">("אריזה");
 
   const [newReadings, setNewReadings] =
     useState<Record<string, NewReading>>({});
@@ -500,6 +504,7 @@ function App() {
                   setSelectedStatuses(["הכל"])
                   setSelectedStyles(["הכל"])
                   setSelectedWrites("לחץ")
+                  setSelectedReports("אריזה")
                   setNewReadings({})
                 }
                 }
@@ -513,6 +518,7 @@ function App() {
                   setSelectedStatuses(["הכל"])
                   setSelectedStyles(["הכל"])
                   setSelectedWrites("לחץ")
+                  setSelectedReports("אריזה")
                   setNewReadings({})
                 }
                 }
@@ -526,6 +532,7 @@ function App() {
                   setSelectedStatuses(["הכל"])
                   setSelectedStyles(["הכל"])
                   setSelectedWrites("לחץ")
+                  setSelectedReports("אריזה")
                   setNewReadings({})
                 }}
               >
@@ -536,13 +543,14 @@ function App() {
                 onClick={() => {
                 setSelectedView("ניהול")
                //setSelectedStatuses(["הכל"])
-setSelectedStyles(["הכל"])
-setSelectedWrites("לחץ")
-setNewReadings({}) 
-              }}
-              >
-                פעולות ניהול
-              </div> */}
+              setSelectedStyles(["הכל"])
+              setSelectedWrites("לחץ")
+              setSelectedReports("אריזה")
+              setNewReadings({}) 
+                    }}
+                    >
+                      פעולות ניהול
+                    </div> */}
             </div>
           </div>
 
@@ -630,6 +638,41 @@ setNewReadings({})
               </button>
             </div>
           }
+          {selectedView === "דוחות" &&
+            <div className="status-filter">
+              <button
+                type="button"
+                className={`status-filter-button ${selectedReports === "אריזה"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedReports("אריזה")
+                    "לחץ"
+                }
+                }
+              >
+                <span>
+                  דוח אריזות
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`status-filter-button ${selectedReports === "גרפים"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedReports("גרפים")
+                }
+                }
+              >
+                <span>
+                  גרפים לפי אצווה
+                </span>
+              </button>
+            </div>
+          }
 
         </div>
 
@@ -690,7 +733,8 @@ setNewReadings({})
         </>
       }
 
-      {selectedView === "דוחות" && <BatchReportsView currentFermentors={brews} />}
+      {selectedView === "דוחות" && selectedReports==="גרפים" && <BatchReportsView currentFermentors={brews} />}
+      {selectedView === "דוחות" && selectedReports==="אריזה" && <PackagingReportsView/>}
     </div>
   );
 }

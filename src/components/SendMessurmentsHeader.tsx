@@ -158,7 +158,9 @@ export default function SendMessurmentsHeader({
                                 tank?.batchNumber ?? "",
                                 tank?.brewDate ?? "",
                                 specs,
-                                tank.stage
+                                tank.stage,
+                                Number(tank.tankNumber),
+                                false
                             ).catch((err) => {
                                 console.error("Failed for tank", tank.id, tank.tankNumber, err);
                                 return null;
@@ -422,7 +424,9 @@ export default function SendMessurmentsHeader({
                             tank.batchNumber ?? "",
                             tank.brewDate ?? "",
                             specs,
-                            tank.stage!
+                            tank.stage!,
+                            Number(tank.tankNumber),
+                            false
                         ).catch((err) => {
                             console.error("Failed for tank", tank.id, tank.tankNumber, err);
                             return null;
@@ -743,18 +747,18 @@ export default function SendMessurmentsHeader({
     function getDailyActionRecommendation() {
         for (const recommendation of Object.values(rcs)) {
             if (recommendation?.requiresDailyActions?.req) {
-                if (recommendation?.requiresDailyActions.reason ===
-                    "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר") {
-                    recommendation.requiresDailyActions.reason = "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל המיכלים הקרים"
+                // if (recommendation?.requiresDailyActions.reason ===
+                //     "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר") {
+                //     recommendation.requiresDailyActions.reason = "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל המיכלים הקרים"
 
-                } else if (recommendation?.requiresDailyActions.reason ===
-                    "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת") {
-                    recommendation.requiresDailyActions.reason = "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת"
+                // } else if (recommendation?.requiresDailyActions.reason ===
+                //     "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת") {
+                //     recommendation.requiresDailyActions.reason = "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת"
 
-                } else if (recommendation?.requiresDailyActions.reason ===
-                    "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת")
-                    recommendation.requiresDailyActions.reason =
-                        "מומלץ ביום חמישי לבצע הורדת שמרים לכל המיכלים שיורדים שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת";
+                // } else if (recommendation?.requiresDailyActions.reason ===
+                //     "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת")
+                //     recommendation.requiresDailyActions.reason =
+                //         "מומלץ ביום חמישי לבצע הורדת שמרים לכל המיכלים שיורדים שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת";
                 return recommendation.requiresDailyActions;
             }
         }
