@@ -307,7 +307,8 @@ body {
   object-fit: cover;
   border-radius: 50%;
 }
-.login-logo{
+
+.login-logo {
   width: 120px;
   height: 120px;
   object-fit: cover;
@@ -531,6 +532,7 @@ body {
 
   margin-top: -2px;
 }
+
 /* .tanInfoBox {
   flex: 0 0 auto;
   display: flex;
@@ -1067,13 +1069,13 @@ body {
   }
 }
 
-  .tankInfo {
-    width: 30px;
-    height: 30px;
-    margin-left: 2px;
+.tankInfo {
+  width: 30px;
+  height: 30px;
+  margin-left: 2px;
 
-    font-size: 12px;
-  }
+  font-size: 12px;
+}
 
 
 /* =========================================================
@@ -1689,7 +1691,7 @@ body {
 
 
 @media (max-width: 700px) {
-  
+
 
   .measurement-card {
     padding: 6px 7px;
@@ -1740,7 +1742,8 @@ body {
 }
 
 .modal-box {
-  position: relative;   /* ⬅️ תחזיר את זה */
+  position: relative;
+  /* ⬅️ תחזיר את זה */
   width: 660px;
   max-width: calc(100vw - 24px);
   max-height: calc(100vh - 24px);
@@ -1749,7 +1752,8 @@ body {
   background: var(--bg-card);
   border: 1px solid #dbe3ec;
   border-radius: var(--radius-xl);
-  padding: 0;   /* ⬅️ מעביר padding לתוכן הפנימי */
+  padding: 0;
+  /* ⬅️ מעביר padding לתוכן הפנימי */
 
   box-shadow:
     0 20px 50px rgba(15, 23, 42, 0.20),
@@ -1823,8 +1827,15 @@ body {
 }
 
 @keyframes scrollHintBounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(4px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(4px);
+  }
 }
 
 .modal-box p {
@@ -2040,7 +2051,7 @@ body {
     width: 100%;
     padding: 15px;
     max-height: 70%;
-    
+
   }
 
   .modal-actions {
@@ -2954,27 +2965,27 @@ body {
 .quickReportPressureRow {
   align-items: center;
   gap: 8px;
- 
+
   padding: 8px 10px;
- 
+
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: var(--radius-sm);
 }
- 
+
 .quickReportPressureRow input[type="number"] {
   width: 64px !important;
   flex: 0 0 64px !important;
   height: 30px;
   text-align: center;
 }
- 
+
 @media (max-width: 480px) {
   .quickReportPressureRow {
     padding: 6px 8px;
     gap: 6px;
   }
- 
+
   .quickReportPressureRow input[type="number"] {
     width: 56px !important;
     flex: 0 0 56px !important;
@@ -2982,44 +2993,44 @@ body {
     font-size: 0.72rem;
   }
 }
- 
+
 /* =========================================================
    PACKAGING FORM (טבלת שורות אריזה) - הורדת לחץ
    ========================================================= */
- 
+
 .pressure-drop-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
- 
+
   width: 100%;
   padding: 4px 7px;
- 
+
   background: rgba(255, 255, 255, 0.65);
   border: 1px dashed #94a3b8;
   border-radius: 5px;
 }
- 
-.pressure-drop-row > span {
+
+.pressure-drop-row>span {
   font-size: 0.68rem;
   font-weight: 700;
   color: #475569;
   white-space: nowrap;
 }
- 
+
 .pressure-drop-row input[type="number"] {
   width: 52px !important;
   flex: 0 0 52px !important;
   text-align: center;
 }
- 
+
 @media (max-width: 600px) {
   .pressure-drop-row {
     padding: 3px 5px;
     gap: 3px;
   }
- 
+
   .pressure-drop-row input[type="number"] {
     width: 42px !important;
     flex: 0 0 42px !important;
@@ -3027,44 +3038,45 @@ body {
     font-size: 0.62rem;
   }
 }
- 
+
 /* =========================================================
    תג "אוטומטי" - מציין שהערך מולא אוטומטית מהמדידה האחרונה
    (משותף לשני ההקשרים: quickReportPressureRow ו-pressure-drop-row)
    ========================================================= */
- 
+
 .auto-filled-value {
   border-color: #93c5fd !important;
   background: #eff6ff !important;
   color: #1d4ed8;
   font-weight: 700;
 }
- 
+
 .auto-filled-hint {
   display: inline-flex;
   align-items: center;
- 
+
   padding: 2px 7px;
- 
+
   border-radius: 999px;
- 
+
   background: #eff6ff;
   border: 1px solid #bfdbfe;
- 
+
   color: #1d4ed8;
   font-size: 0.62rem;
   font-weight: 700;
- 
+
   white-space: nowrap;
   cursor: help;
 }
- 
+
 @media (max-width: 480px) {
   .auto-filled-hint {
     font-size: 0.58rem;
     padding: 1px 6px;
   }
 }
+
 /* =========================================================
    WRITE WARNING BANNER
    ========================================================= */
@@ -3225,6 +3237,7 @@ body {
     width: 100%;
   }
 }
+
 /* ============================================================
    OVERLAY + MODAL
    מובייל-פירסט: על מסך קטן זה נפתח כ"bottom sheet" שתופס כמעט
@@ -3258,10 +3271,11 @@ body {
   .batch-chart-overlay {
     align-items: center;
   }
+
   .batch-chart-modal {
     border-radius: 16px;
     max-height: 88vh;
-    
+
   }
 }
 
@@ -3464,6 +3478,7 @@ body {
     margin-bottom: 4px;
   }
 }
+
 .packaging-report-pickers {
   display: flex;
   flex-wrap: wrap;
@@ -3769,5 +3784,387 @@ body {
   .packaging-report-table th,
   .packaging-report-table td {
     padding: 6px 6px;
+  }
+}
+
+/* =========================================================
+   EDIT SPECS
+   ========================================================= */
+
+.edit-specs-page {
+  width: 100%;
+  max-width: 900px;
+
+  margin: 0 auto;
+  padding: 20px;
+
+  color: var(--text-main, #1a202c);
+}
+
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.edit-specs-header {
+  margin-bottom: 18px;
+}
+
+
+.editSpecsHeaderH2{
+  margin: 4px 0 0;
+
+  color: var(--text-muted, #64748b);
+
+  font-size: 0.8rem;
+}
+
+.editSpecsHeaderH1 {
+  font-size: 1.2rem;
+  margin: 0;
+  color: var(--text-main, #6382c0);
+  font-weight: bolder;
+}
+
+
+/* =========================================================
+   DOCUMENT LIST
+   ========================================================= */
+
+.specs-list {
+  display: flex;
+  flex-direction: column;
+
+  gap: 16px;
+}
+
+
+/* =========================================================
+   CARD
+   ========================================================= */
+
+.spec-card {
+  background: var(--bg-card, #ffffff);
+
+  border: 1px solid var(--border-color,
+      #e2e8f0);
+
+  border-radius: var(--radius-xl,
+      12px);
+
+  box-shadow:
+    0 2px 6px rgba(15, 23, 42, 0.05);
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   CARD HEADER
+   ========================================================= */
+
+.spec-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 13px 16px;
+
+  background: #f8fafc;
+
+  border-bottom: 1px solid #edf2f7;
+}
+
+.spec-card-header h2 {
+  margin: 0;
+
+  font-size: 0.95rem;
+  font-weight: bold;
+}
+
+.spec-card-header p {
+  margin: 2px 0 0;
+
+  font-size: 0.65rem;
+
+  color: var(--text-muted,
+      #64748b);
+}
+
+
+/* =========================================================
+   FIELDS
+   ========================================================= */
+
+.spec-fields {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2,
+      minmax(0, 1fr));
+
+  gap: 10px;
+
+  padding: 14px 16px;
+}
+
+
+.spec-field {
+  display: flex;
+  align-items: center;
+
+  justify-content: space-between;
+
+  gap: 12px;
+
+  min-height: 42px;
+
+  padding: 7px 9px;
+
+  background: #f8fafc;
+
+  border: 1px solid #edf2f7;
+
+  border-radius: 7px;
+}
+
+
+/* =========================================================
+   LABEL
+   ========================================================= */
+
+.spec-field-label {
+  min-width: 0;
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  white-space: nowrap;
+
+  font-size: 0.74rem;
+
+  font-weight: 700;
+
+  color: #475569;
+}
+
+
+/* =========================================================
+   INPUT
+   ========================================================= */
+
+.spec-input {
+  width: 85px;
+  min-width: 85px;
+
+  height: 32px;
+
+  padding: 4px 7px;
+
+  border: 1px solid #dbe3ec;
+
+  border-radius: 6px;
+
+  background: #ffffff;
+
+  color: var(--text-main,
+      #1a202c);
+
+  font-family: inherit;
+
+  font-size: 0.78rem;
+
+  font-weight: 700;
+
+  text-align: center;
+
+  outline: none;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+
+.spec-input:hover {
+  border-color: #94a3b8;
+}
+
+
+.spec-input:focus {
+  border-color: var(--primary,
+      #2b6cb0);
+
+  box-shadow:
+    0 0 0 2px rgba(43, 108, 176, 0.12);
+}
+
+
+/* =========================================================
+   MESSAGES
+   ========================================================= */
+
+.edit-specs-message {
+  margin-bottom: 14px;
+
+  padding: 10px 12px;
+
+  border-radius: 8px;
+
+  font-size: 0.75rem;
+
+  font-weight: 700;
+}
+
+
+.edit-specs-message.success {
+  background: #f0fdf4;
+
+  border: 1px solid #bbf7d0;
+
+  color: #166534;
+}
+
+
+.edit-specs-message.error {
+  background: #fef2f2;
+
+  border: 1px solid #fecaca;
+
+  color: #b91c1c;
+}
+
+
+/* =========================================================
+   LOADING
+   ========================================================= */
+
+.edit-specs-status {
+  padding: 50px 20px;
+
+  text-align: center;
+
+  color: var(--text-muted,
+      #64748b);
+
+  font-size: 0.85rem;
+}
+
+
+/* =========================================================
+   ACTIONS
+   ========================================================= */
+
+.edit-specs-actions {
+  display: flex;
+
+  justify-content: flex-start;
+
+  margin-top: 18px;
+
+  position: sticky;
+
+  bottom: 10px;
+
+  z-index: 10;
+}
+
+
+.btn-primary {
+  min-height: 40px;
+
+  padding: 8px 24px;
+
+  border: 1px solid var(--primary,
+      #2b6cb0);
+
+  border-radius: 7px;
+
+  background: var(--primary,
+      #2b6cb0);
+
+  color: #ffffff;
+
+  font-family: inherit;
+
+  font-size: 0.78rem;
+
+  font-weight: 800;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 2px 6px rgba(43, 108, 176, 0.2);
+
+  transition:
+    transform 0.1s ease,
+    opacity 0.15s ease;
+}
+
+
+.btn-primary:hover {
+  opacity: 0.92;
+}
+
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+
+.btn-primary:disabled {
+  opacity: 0.6;
+
+  cursor: not-allowed;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+  .edit-specs-page {
+    padding: 12px;
+  }
+
+
+  .edit-specs-header h1 {
+    font-size: 1.1rem;
+  }
+
+
+  .spec-fields {
+    grid-template-columns: 1fr;
+
+    padding: 10px;
+  }
+
+
+  .spec-card-header {
+    padding: 11px 12px;
+  }
+
+
+  .spec-field {
+    min-height: 40px;
+  }
+
+
+  .spec-input {
+    width: 80px;
+    min-width: 80px;
+  }
+
+
+  .edit-specs-actions {
+    bottom: 8px;
+  }
+
+
+  .btn-primary {
+    width: 100%;
   }
 }

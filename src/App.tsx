@@ -26,6 +26,7 @@ import PackagingForm from "./components/PackagingForm";
 import { getSpecsFromFb, type SpecChart } from "./SERVICES/getSpecsFromFb";
 import BatchReportsView from "./components/BatchReportsView";
 import PackagingReportsView from "./components/PackagingReportsView";
+import EditSpecs from "./components/EditSpecs";
 
 
 
@@ -172,6 +173,9 @@ function App() {
   const [selectedReports, setSelectedReports] =
     useState<"אריזה" | "גרפים">("אריזה");
 
+  const [selectedAdminTools, setSelectedAdminTools] =
+    useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus">("calculator");
+
   const [newReadings, setNewReadings] =
     useState<Record<string, NewReading>>({});
 
@@ -286,6 +290,7 @@ function App() {
       cancelled = true;
     };
   }, [idsNeedingStage]);
+
   useEffect(() => {
     async function loadSpecs() {
       try {
@@ -505,6 +510,7 @@ function App() {
                   setSelectedStyles(["הכל"])
                   setSelectedWrites("לחץ")
                   setSelectedReports("אריזה")
+                  setSelectedAdminTools("calculator")
                   setNewReadings({})
                 }
                 }
@@ -533,24 +539,26 @@ function App() {
                   setSelectedStyles(["הכל"])
                   setSelectedWrites("לחץ")
                   setSelectedReports("אריזה")
+                  setSelectedAdminTools("calculator")
                   setNewReadings({})
                 }}
               >
                 דוחות
               </div>
-              {/* <div className={`views-item ${selectedView === "ניהול" ?
+              <div className={`views-item ${selectedView === "ניהול" ?
                 "active" : ""}`}
                 onClick={() => {
                 setSelectedView("ניהול")
-               //setSelectedStatuses(["הכל"])
+               setSelectedStatuses(["הכל"])
               setSelectedStyles(["הכל"])
               setSelectedWrites("לחץ")
               setSelectedReports("אריזה")
+              setSelectedAdminTools("calculator")
               setNewReadings({}) 
                     }}
                     >
                       פעולות ניהול
-                    </div> */}
+                    </div>
             </div>
           </div>
 
@@ -648,7 +656,7 @@ function App() {
                   }`}
                 onClick={() => {
                   setSelectedReports("אריזה")
-                    "לחץ"
+                    
                 }
                 }
               >
@@ -669,6 +677,70 @@ function App() {
               >
                 <span>
                   גרפים לפי אצווה
+                </span>
+              </button>
+            </div>
+          }
+          {selectedView === "ניהול" &&
+            <div className="status-filter">
+              <button
+                type="button"
+                className={`status-filter-button ${selectedAdminTools === "calculator"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedAdminTools("calculator")
+                }
+                }
+              >
+                <span>
+                  מחשבון למבשלן
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`status-filter-button ${selectedAdminTools === "specs"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedAdminTools("specs")
+                }
+                }
+              >
+                <span>
+                  הגדרות לבירה
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedAdminTools("changeBatchNumInFv")
+                }
+                }
+              >
+                <span>
+                  שינו אצווה במיכל- ידנית
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`status-filter-button ${selectedAdminTools === "changeFvStatus"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedAdminTools("changeFvStatus")
+                }
+                }
+              >
+                <span>
+                  שינוי סטטוס במיכל- ידנית
                 </span>
               </button>
             </div>
@@ -735,6 +807,8 @@ function App() {
 
       {selectedView === "דוחות" && selectedReports==="גרפים" && <BatchReportsView currentFermentors={brews} />}
       {selectedView === "דוחות" && selectedReports==="אריזה" && <PackagingReportsView/>}
+
+      {selectedView === "ניהול" && selectedAdminTools==="specs" && <EditSpecs />}
     </div>
   );
 }
