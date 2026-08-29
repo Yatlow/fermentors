@@ -50,9 +50,10 @@ async function callGasGet(params: Record<string, string>) {
   }
 
   if (!parsed.success) {
+      console.log(parsed.error)
     throw new Error(parsed.error || "Request failed");
   }
-
+  console.log(parsed)
   return parsed.result;
 }
 
@@ -60,6 +61,7 @@ export async function checkBatchAssignment(
   tankID: string,
   requestedBatch: number
 ): Promise<BatchCheckResult> {
+    console.log("checkBatchAssignment called with tankID:", tankID, "requestedBatch:", requestedBatch);
   return callGasGet({
     action: "CheckBatchAssignment",
     tankID,
@@ -71,6 +73,8 @@ export async function findNextBatchForTank(
   tankID: string,
   currentBatch: number
 ): Promise<NextBatchResult> {
+    console.log("failsHere",tankID,currentBatch)
+
   return callGasGet({
     action: "FindNextBatchForTank",
     tankID,
@@ -98,4 +102,50 @@ export function extractBatchFromFilename(fileName: string): number | null {
   }
 
   return null;
+}
+
+export async function assignAndRefreshTank(
+  fermentorID: string,
+  sheetUrl: string,
+  desiredAction: number,
+  desiredTankStatus: boolean
+): Promise<{
+  fermentorID: string;
+  batchNumber?: string;
+  beerStyle?: string;
+  brewDate?: string;
+  sheetUrl: string;
+}> {
+  const response = await fetch(GOOGLE_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      action: "AssignAndRefreshTank", // routes doPost to the new handler
+      fermentorID,
+      sheetUrl,
+      desiredAction,       // <- separate name, avoids clashing with "action" above
+      desiredTankStatus,
+    }),
+  });
+
+  const text = await response.text();
+  let parsed: { success: boolean; result?: unknown; error?: string };
+
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("Google Apps Script returned invalid JSON: " + text);
+  }
+
+  if (!parsed.success) {
+    throw new Error(parsed.error || "assignAndRefreshTank failed");
+  }
+
+  return parsed.result as {
+    fermentorID: string;
+    batchNumber?: string;
+    beerStyle?: string;
+    brewDate?: string;
+    sheetUrl: string;
+  };
 }
