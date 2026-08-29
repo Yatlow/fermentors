@@ -3180,7 +3180,7 @@ body {
    WRITE WARNING - MOBILE
    ========================================================= */
 
-@media (max-width: 600px) {
+@media (max-width: 300px) {
 
   .write-warning-banner {
     align-items: flex-start;
@@ -3216,7 +3216,7 @@ body {
 
 @media (max-width: 420px) {
 
-  .write-warning-banner {
+  /* .write-warning-banner {
     display: grid;
 
     grid-template-columns: 24px 1fr;
@@ -3235,7 +3235,7 @@ body {
     grid-column: 1 / -1;
 
     width: 100%;
-  }
+  } */
 }
 
 /* ============================================================
@@ -4736,7 +4736,10 @@ body {
   text-align: center;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 300px) {
+  .write-warning-banner{
+
+  }
   .write-warning-banner.critical .critical-actions {
     flex-direction: column;
   }
