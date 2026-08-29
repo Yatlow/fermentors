@@ -1,0 +1,838 @@
+import { useState } from "react";
+import type { Fermentor } from "../App";
+
+type FVType = "triple" | "double" | "6";
+
+type CalcValues = {
+    BoilVol: {
+        label: string;
+        testVol: number;
+        testPlato: number;
+        DesiredPlato: number;
+        EvaporationFactor: number;
+    };
+
+    TankVol: {
+        label: string;
+        cmFromEndOfStick: number;
+        maxStickReading: number;
+        fvType: FVType;
+        measurementFactor: number;
+    };
+
+    alphaCalc: {
+        label: string;
+        currentAlpha: number;
+        grPerLAtCurrentAlpha: number;
+        newAlpha: number;
+        grPerLAtNewAlpha: number;
+    };
+
+    calcPacagingVol: {
+        label: string;
+        packagingLoss: number;
+        packagingVol: number;
+        tankVol: number;
+        boxes: number;
+        selectedTank: number;
+    };
+};
+
+export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
+    const [calcValues, setCalcValues] = useState<CalcValues>({
+        BoilVol: {
+            label: "נפח רתיחה",
+            testVol: 1200,
+            testPlato: 15.7,
+            DesiredPlato: 15.45,
+            EvaporationFactor: 100,
+        },
+
+        TankVol: {
+            label: "גובה (נפח) מיכל",
+            cmFromEndOfStick: 55,
+            maxStickReading: 2300,
+            fvType: "triple",
+            measurementFactor: 5,
+        },
+
+        alphaCalc: {
+            label: "חישוב אלפא",
+            currentAlpha: 5.5,
+            grPerLAtCurrentAlpha: 0.634,
+            newAlpha: 6.9,
+            grPerLAtNewAlpha: 0.505,
+        },
+
+        calcPacagingVol: {
+            label: "חישוב נפח משוער לאריזה",
+            tankVol: 2217.6,
+            packagingVol: 1995.84,
+            packagingLoss: 10,
+            boxes: 252,
+            selectedTank: 0,
+        },
+    });
+    const updateField = <
+        C extends keyof CalcValues,
+        F extends keyof CalcValues[C]
+    >(
+        calculator: C,
+        field: F,
+        value: CalcValues[C][F]
+    ) => {
+        setCalcValues((prev) => ({
+            ...prev,
+            [calculator]: {
+                ...prev[calculator],
+                [field]: value,
+            },
+        }));
+    };
+
+
+
+    const boilVolume =
+        ((calcValues.BoilVol.testVol * calcValues.BoilVol.testPlato) /
+            calcValues.BoilVol.DesiredPlato) + calcValues.BoilVol.EvaporationFactor;
+
+    const tankVolume =
+        ((calcValues.TankVol.cmFromEndOfStick / calcValues.TankVol.measurementFactor) * 100) +
+        calcValues.TankVol.maxStickReading;
+
+
+    const alphaResult =
+        (calcValues.alphaCalc.grPerLAtCurrentAlpha *
+            calcValues.alphaCalc.currentAlpha) /
+        calcValues.alphaCalc.newAlpha;
+
+    function getPackagingVolumes(packagingVol:number) {
+        return {
+            boxes: (packagingVol / 0.33) / 24,
+            emptyBottleRows: (packagingVol / 0.33) / 361,
+            fullBottleRows: (packagingVol / 0.33) / 12,
+            kegs: packagingVol / 20
+        }
+    }
+
+
+    return (
+        <div className="edit-specs-page" dir="rtl">
+
+            <div className="edit-specs-header">
+                <div>
+                    <p className="editSpecsHeaderH1">
+                        מחשבון למבשלן
+                    </p>
+
+                    <p className="editSpecsHeaderH2">
+                        חישוב פעולות נפוצות
+                    </p>
+                </div>
+            </div>
+
+            <div className="specs-list">
+
+
+                <section className="spec-card">
+
+                    <div className="spec-card-header">
+                        <h2>{calcValues.BoilVol.label}</h2>
+                    </div>
+
+                    <div className="spec-fields">
+
+                        <NumberField
+                            label="נפח תירוש בסיר בזמן בדיקה"
+                            value={calcValues.BoilVol.testVol}
+                            onChange={(value) =>
+                                updateField(
+                                    "BoilVol",
+                                    "testVol",
+                                    value
+                                )
+                            }
+                        />
+
+                        <NumberField
+                            label="פלאטו בבדיקה"
+                            value={calcValues.BoilVol.testPlato}
+                            onChange={(value) =>
+                                updateField(
+                                    "BoilVol",
+                                    "testPlato",
+                                    value
+                                )
+                            }
+                        />
+
+                        <NumberField
+                            label="פלאטו רצוי"
+                            value={calcValues.BoilVol.DesiredPlato}
+                            onChange={(value) =>
+                                updateField(
+                                    "BoilVol",
+                                    "DesiredPlato",
+                                    value
+                                )
+                            }
+                        />
+
+                        <NumberField
+                            label="פקטור אידוי"
+                            value={calcValues.BoilVol.EvaporationFactor}
+                            onChange={(value) =>
+                                updateField(
+                                    "BoilVol",
+                                    "EvaporationFactor",
+                                    value
+                                )
+                            }
+                        />
+
+                    </div>
+
+                    <div className="calc-result">
+                        נפח תחילת רתיחה מחושב: {" "}
+                        <strong>
+                            {boilVolume.toFixed(1)} ליטר
+                        </strong>
+                    </div>
+
+                </section>
+
+
+
+                <section className="spec-card">
+
+                    <div className="spec-card-header">
+                        <h2>{calcValues.TankVol.label}</h2>
+                        <p className="spec-card-subtitle spec-warning">
+                            בעת המדידה יש לוודא כי הנשם פתוח וצינור בלואו אוף לא טבול במים ושבצינור המדידה אין קצף
+                        </p>
+                    </div>
+
+                    <div className="spec-fields">
+                        <NumberField
+                            label={`מדידת ס"מ מהמקל`}
+                            value={calcValues.TankVol.cmFromEndOfStick}
+                            onChange={(value) =>
+                                updateField(
+                                    "TankVol",
+                                    "cmFromEndOfStick",
+                                    value
+                                )
+                            }
+                        />
+
+                        <NumberField
+                            label="גובה מקסימום במקל"
+                            value={calcValues.TankVol.maxStickReading}
+                            onChange={(value) =>
+                                updateField(
+                                    "TankVol",
+                                    "maxStickReading",
+                                    value
+                                )
+                            }
+                        />
+
+                        <label className="spec-field">
+
+                            <span className="spec-field-label">
+                                סוג מיכל
+                            </span>
+
+                            <select
+                                className="spec-input"
+                                value={calcValues.TankVol.fvType}
+                                onChange={(e) => {
+
+                                    const fvType =
+                                        e.target.value as FVType;
+
+                                    const measurementFactor =
+                                        fvType === "triple"
+                                            ? 5
+                                            : fvType === "double"
+                                                ? 9
+                                                : 7.6;
+                                    const maxStickReading = fvType === "triple" ? 2300 : fvType === "double" ? 1250 : 1300;
+
+                                    setCalcValues((prev) => ({
+                                        ...prev,
+                                        TankVol: {
+                                            ...prev.TankVol,
+                                            fvType,
+                                            measurementFactor,
+                                            maxStickReading
+                                        },
+                                    }));
+                                }}
+                            >
+                                <option value="triple">
+                                    משולש
+                                </option>
+
+                                <option value="double">
+                                    כפול
+                                </option>
+
+                                <option value="6">
+                                    6מיכל
+                                </option>
+                            </select>
+
+                        </label>
+
+                    </div>
+
+                    <div className="calc-result">
+                        נפח מיכל מחושב: {" "}
+                        <strong>
+                            {tankVolume.toFixed(1)} ליטר
+                        </strong>
+                    </div>
+
+                </section>
+
+
+                <section className="spec-card">
+
+                    <div className="spec-card-header">
+                        <h2>{calcValues.alphaCalc.label}</h2>
+                    </div>
+
+                    <div className="spec-fields">
+
+                        <NumberField
+                            label="Alpha נוכחי"
+                            value={calcValues.alphaCalc.currentAlpha}
+                            onChange={(value) =>
+                                updateField(
+                                    "alphaCalc",
+                                    "currentAlpha",
+                                    value
+                                )
+                            }
+                        />
+
+                        <NumberField
+                            label="גרם לליטר באלפא הנוכחי"
+                            value={
+                                calcValues.alphaCalc
+                                    .grPerLAtCurrentAlpha
+                            }
+                            onChange={(value) =>
+                                updateField(
+                                    "alphaCalc",
+                                    "grPerLAtCurrentAlpha",
+                                    value
+                                )
+                            }
+                        />
+
+                        <NumberField
+                            label="Alpha חדש"
+                            value={calcValues.alphaCalc.newAlpha}
+                            onChange={(value) =>
+                                updateField(
+                                    "alphaCalc",
+                                    "newAlpha",
+                                    value
+                                )
+                            }
+                        />
+
+                    </div>
+
+                    <div className="calc-result">
+                        גרם לליטר באלפא החדשה:{" "}
+                        <strong>
+                            {alphaResult.toFixed(3)}
+                        </strong>
+                    </div>
+
+                </section>
+
+
+
+
+                {/* <section className="spec-card">
+
+                    <div className="spec-card-header">
+                        <h2>
+                            {calcValues.calcPacagingVol.label}
+                        </h2>
+                    </div>
+
+                    <div className="spec-fields">
+                        <select
+                            className="spec-field"
+                            value={calcValues.calcPacagingVol.selectedTank}
+                            onChange={(e) => {
+                                const selectedBrew = brews.find(brew => brew.batchNumber === e.target.value);
+                                if (selectedBrew) {
+                                    updateField("calcPacagingVol", "tankVol", Number(selectedBrew.beerVolume));
+                                    updateField("calcPacagingVol", "packagingVol",
+                                        Number(selectedBrew.beerVolume) - (Number(selectedBrew.beerVolume) * (calcValues.calcPacagingVol.packagingLoss / 100)));
+                                    updateField("calcPacagingVol", "boxes",
+                                        Number(((Number(selectedBrew.beerVolume) - (Number(selectedBrew.beerVolume) * (calcValues.calcPacagingVol.packagingLoss / 100)))
+                                            / 0.33 / 24).toFixed(2)))
+                                }
+                            }}>
+                            <option value={0}>בחר בירה</option>
+                            {brews.filter((brew) => brew.action === 1).
+                                map((brew) => (
+                                    <option key={brew.id} value={brew.batchNumber}>
+                                        {`מיכל ${brew.tankNumber}- #${brew.batchNumber} ${brew.beerStyle}`}
+                                    </option>
+                                ))}
+                        </select>
+                        <NumberField
+                            label="נפח במיכל"
+                            value={
+                                calcValues.calcPacagingVol.tankVol
+                            }
+                            onChange={(value) => {
+                                updateField(
+                                    "calcPacagingVol",
+                                    "tankVol",
+                                    value
+                                )
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    Number((value - (value * calcValues.calcPacagingVol.packagingLoss / 100)).toFixed(2))
+                                )
+                                updateField(
+                                    "calcPacagingVol",
+                                    "boxes",
+                                    Number(((value - (value * calcValues.calcPacagingVol.packagingLoss / 100)) / 0.33 / 24).toFixed(2))
+                                )
+                            }
+                            }
+                        />
+                        <NumberField
+                            label="נפח לאריזה"
+                            value={
+                                calcValues.calcPacagingVol.packagingVol
+                            }
+                            onChange={(value) => {
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    value
+                                )
+                                updateField(
+                                    "calcPacagingVol",
+                                    "selectedTank",
+                                    0
+                                )
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "tankVol",
+                                    Number((((value / (1 - calcValues.calcPacagingVol.packagingLoss / 100))).toFixed(2))
+                                    ))
+                                updateField(
+                                    "calcPacagingVol",
+                                    "boxes",
+                                    Number((value / 0.33 / 24).toFixed(2))
+                                )
+                            }}
+                        />
+
+                        <NumberField
+                            label="אחוז פחת"
+                            value={
+                                calcValues.calcPacagingVol.packagingLoss
+                            }
+                            onChange={(value) => {
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingLoss",
+                                    value
+                                )
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    Number(
+                                        (
+                                            calcValues.calcPacagingVol.tankVol -
+                                            (calcValues.calcPacagingVol.tankVol * value / 100)
+                                        ).toFixed(2)
+                                    )
+                                )
+                            }}
+                        />
+
+
+                        <NumberField
+                            label="מספר ארגזים"
+                            value={
+                                calcValues.calcPacagingVol.boxes
+                            }
+                            onChange={(value) => {
+                                updateField(
+                                    "calcPacagingVol",
+                                    "boxes",
+                                    value
+                                )
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    Number((value * 24 * 0.33).toFixed(2))
+                                )
+                                updateField(
+                                    "calcPacagingVol",
+                                    "tankVol",
+                                    Number(((value * 24 * 0.33) / (1 - (calcValues.calcPacagingVol.packagingLoss / 100))).toFixed(2))
+                                )
+                            }}
+                        />
+
+                    </div>
+
+                    <div className="calc-result">
+                        כמות ארגזים: {" "}
+                        <strong>
+                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).boxes.toFixed(1)}
+                        </strong>
+                        {", "}קומות בקבוקים ריקים: {" "}
+                        <strong>
+                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).emptyBottleRows.toFixed(1)}
+                        </strong>
+                        {", "}קומות בקבוקים מלאים: {" "}
+                        <strong>
+                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).fullBottleRows.toFixed(1)}
+                        </strong>
+                        {", "}חביות:{" "}
+                        <strong>
+                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).kegs.toFixed(1)}
+                        </strong>
+                    </div>
+
+                </section> */}
+                <section className="spec-card">
+
+                    <div className="spec-card-header">
+                        <h2>
+                            {calcValues.calcPacagingVol.label}
+                        </h2>
+                    </div>
+
+                    <div className="spec-fields">
+
+                        <select
+                            className="spec-field"
+                            value={calcValues.calcPacagingVol.selectedTank}
+                            onChange={(e) => {
+                                const selectedBrew = brews.find(
+                                    (brew) => String(brew.batchNumber) === e.target.value
+                                );
+
+                                if (selectedBrew) {
+                                    const tankVol = Number(selectedBrew.beerVolume);
+
+                                    const packagingVol = Number(
+                                        (
+                                            tankVol -
+                                            (tankVol *
+                                                calcValues.calcPacagingVol.packagingLoss /
+                                                100)
+                                        ).toFixed(2)
+                                    );
+
+                                    const boxes = Number(
+                                        (packagingVol??0 / 0.33 / 24).toFixed(1)
+                                    );
+
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "selectedTank",
+                                        Number(e.target.value)
+                                    );
+
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "tankVol",
+                                        tankVol
+                                    );
+
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "packagingVol",
+                                        packagingVol
+                                    );
+
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "boxes",
+                                        boxes
+                                    );
+                                }
+                            }}
+                        >
+                            <option value={0}>בחר בירה</option>
+
+                            {brews
+                                .filter((brew) => brew.action === 1)
+                                .map((brew) => (
+                                    <option
+                                        key={brew.id}
+                                        value={brew?.batchNumber ?? 0}
+                                    >
+                                        {`מיכל ${brew?.tankNumber}- #${brew?.batchNumber} ${brew?.beerStyle}`}
+                                    </option>
+                                ))}
+                        </select>
+
+
+                        <NumberField
+                            label="נפח במיכל"
+                            value={calcValues.calcPacagingVol.tankVol}
+                            onChange={(value) => {
+
+                                const packagingLoss =
+                                    calcValues.calcPacagingVol.packagingLoss;
+
+                                const packagingVol = Number(
+                                    (
+                                        value -
+                                        (value * packagingLoss / 100)
+                                    ).toFixed(2)
+                                );
+
+                                const boxes = Number(
+                                    (packagingVol / 0.33 / 24).toFixed(1)
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "tankVol",
+                                    value
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    packagingVol
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "boxes",
+                                    boxes
+                                );
+                            }}
+                        />
+
+
+                        <NumberField
+                            label="נפח לאריזה"
+                            value={calcValues.calcPacagingVol.packagingVol}
+                            onChange={(value) => {
+
+                                const packagingLoss =
+                                    calcValues.calcPacagingVol.packagingLoss;
+
+                                const tankVol = Number(
+                                    (
+                                        value /
+                                        (1 - packagingLoss / 100)
+                                    ).toFixed(2)
+                                );
+
+                                const boxes = Number(
+                                    (value / 0.33 / 24).toFixed(1)
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    value
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "selectedTank",
+                                    0
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "tankVol",
+                                    tankVol
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "boxes",
+                                    boxes
+                                );
+                            }}
+                        />
+
+
+                        <NumberField
+                            label="אחוז פחת"
+                            value={calcValues.calcPacagingVol.packagingLoss}
+                            onChange={(value) => {
+
+                                const tankVol =
+                                    calcValues.calcPacagingVol.tankVol;
+
+                                const packagingVol = Number(
+                                    (
+                                        tankVol -
+                                        (tankVol * value / 100)
+                                    ).toFixed(2)
+                                );
+
+                                const boxes = Number(
+                                    (packagingVol / 0.33 / 24).toFixed(1)
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingLoss",
+                                    value
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    packagingVol
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "boxes",
+                                    boxes
+                                );
+                            }}
+                        />
+
+
+                        <NumberField
+                            label="מספר ארגזים"
+                            value={calcValues.calcPacagingVol.boxes}
+                            onChange={(value) => {
+
+                                const packagingVol = Number(
+                                    (value * 24 * 0.33).toFixed(2)
+                                );
+
+                                const packagingLoss =
+                                    calcValues.calcPacagingVol.packagingLoss;
+
+                                const tankVol = Number(
+                                    (
+                                        packagingVol /
+                                        (1 - packagingLoss / 100)
+                                    ).toFixed(2)
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "boxes",
+                                    value
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "packagingVol",
+                                    packagingVol
+                                );
+
+                                updateField(
+                                    "calcPacagingVol",
+                                    "tankVol",
+                                    tankVol
+                                );
+                            }}
+                        />
+
+                    </div>
+
+                    <div className="calc-result">
+                        כמות ארגזים:{" "}
+                        <strong>
+                            {getPackagingVolumes(
+                                calcValues.calcPacagingVol.packagingVol
+                            ).boxes.toFixed(1)}
+                        </strong>
+
+                        {", "}קומות בקבוקים ריקים:{" "}
+                        <strong>
+                            {getPackagingVolumes(
+                                calcValues.calcPacagingVol.packagingVol
+                            ).emptyBottleRows.toFixed(1)}
+                        </strong>
+
+                        {", "}קומות בקבוקים מלאים:{" "}
+                        <strong>
+                            {getPackagingVolumes(
+                                calcValues.calcPacagingVol.packagingVol
+                            ).fullBottleRows.toFixed(1)}
+                        </strong>
+
+                        {", "}חביות:
+                        {" "}
+                        <strong>
+                            {getPackagingVolumes(
+                                calcValues.calcPacagingVol.packagingVol
+                            ).kegs.toFixed(1)}
+                        </strong>
+                    </div>
+
+                </section>
+            </div>
+
+        </div>
+    );
+}
+
+
+/* =========================================
+   שדה מספרי לשימוש חוזר
+========================================= */
+
+type NumberFieldProps = {
+    label: string;
+    value: number;
+    onChange: (value: number) => void;
+};
+
+function NumberField({
+    label,
+    value,
+    onChange,
+}: NumberFieldProps) {
+
+    return (
+        <label className="spec-field">
+
+            <span className="spec-field-label">
+                {label}
+            </span>
+
+            <input
+                className="spec-input"
+                type="number"
+                step="any"
+                value={value}
+                onChange={(e) => {
+                    const value = Number(e.target.value);
+
+                    onChange(
+                        Number.isNaN(value) ? 0 : value
+                    );
+                }}
+            />
+
+        </label>
+    );
+}
+

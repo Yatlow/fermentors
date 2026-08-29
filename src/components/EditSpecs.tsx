@@ -45,18 +45,18 @@ export default function EditSpecs() {
     }, []);
 
     const fieldTranslations: Record<string, string> = {
-        bottleExpDat: "תוקף",
-        kegBBE: "תוקף חבית",
-        tolorances: "סף רגישות בחישוב המלצות",
+        bottleExpDat: "תוקף (מספר חודשים)",
+        kegBBE: "חבית",
+        tolorances: "הגדרות כלליות לחישוב המלצות",
 
         // General fields
-        carbonation: "גיזוז",
-        dryHopMinPlato: "מינימום פלאטו לדרייהופ",
-        dycitalRestMinPlato: "מינימום פלאטו למנוחת דיאצטיל",
-        pressure: "לחץ למיכל חם- אחרי סגירה",
-        shutTankMinPlato: "מינימום פלאטו לסגירת מיכל",
-        yeastDropMinPlato: "מינימום פלאטו להורדת שמרים",
-        yeastDropMinPlatoLager: "מינימום פלאטו להורדת שמרים – לאגר",
+        carbonation: "סף רגישות לגיזוז",
+        dryHopMinPlato: "פלאטו שמתחתיו מומלץ על דרייהופ",
+        dycitalRestMinPlato: "פלאטו שמתחתיו מומלץ על מנוחת דיאצטיל",
+        pressure: "סף רגישות לחץ למיכל חם- אחרי סגירה",
+        shutTankMinPlato: "פלאטו שמתחתיו מומלץ על סגירת מיכל",
+        yeastDropMinPlato: "פלאטו שמתחתיו מומלץ על הורדת שמרים",
+        yeastDropMinPlatoLager: "פלאטו שמתחתיו מומלץ על הורדת שמרים – לאגר",
 
         // Beer types
         ipa: "IPA",

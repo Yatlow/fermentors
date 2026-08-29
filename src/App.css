@@ -3811,7 +3811,7 @@ body {
 }
 
 
-.editSpecsHeaderH2{
+.editSpecsHeaderH2 {
   margin: 4px 0 0;
 
   color: var(--text-muted, #64748b);
@@ -4119,6 +4119,19 @@ body {
   cursor: not-allowed;
 }
 
+.spec-warning {
+  color: #b45309 !important;
+}
+
+.calc-result {
+  color: #2a4a2e;
+  font-weight: 700;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #edf2f7;
+  border-radius: 8px;
+  background: #f8fafc;
+}
 
 /* =========================================================
    MOBILE
@@ -4137,8 +4150,9 @@ body {
 
 
   .spec-fields {
-    grid-template-columns: 1fr;
-
+    display: grid;
+    grid-template-columns: (2, 1fr);
+    gap: 10px;
     padding: 10px;
   }
 
@@ -4150,6 +4164,8 @@ body {
 
   .spec-field {
     min-height: 40px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
 
@@ -4167,4 +4183,37 @@ body {
   .btn-primary {
     width: 100%;
   }
+}
+
+.swap-container {
+  width: 100%;
+  height: 100%;
+
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.box {
+  position: absolute;
+  margin-top: 30%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  transition:
+    opacity 1s ease,
+    transform 1s ease;
+}
+
+.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.hidden {
+  opacity: 0;
+  transform: scale(0.7);
 }

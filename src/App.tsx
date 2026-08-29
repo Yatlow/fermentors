@@ -9,7 +9,7 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
-// import {  db } from "./firebase";
+
 
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/tankstage"
@@ -27,6 +27,8 @@ import { getSpecsFromFb, type SpecChart } from "./SERVICES/getSpecsFromFb";
 import BatchReportsView from "./components/BatchReportsView";
 import PackagingReportsView from "./components/PackagingReportsView";
 import EditSpecs from "./components/EditSpecs";
+import BrewCalc from "./components/BrewerCalc";
+import  Building  from "./components/Building";
 
 
 
@@ -557,7 +559,7 @@ function App() {
               setNewReadings({}) 
                     }}
                     >
-                      פעולות ניהול
+                      כלים
                     </div>
             </div>
           </div>
@@ -725,7 +727,7 @@ function App() {
                 }
               >
                 <span>
-                  שינו אצווה במיכל- ידנית
+                  שינוי אצווה במיכל- ידנית
                 </span>
               </button>
               <button
@@ -809,6 +811,9 @@ function App() {
       {selectedView === "דוחות" && selectedReports==="אריזה" && <PackagingReportsView/>}
 
       {selectedView === "ניהול" && selectedAdminTools==="specs" && <EditSpecs />}
+      {selectedView === "ניהול" && selectedAdminTools==="calculator" && <BrewCalc brews={brews} />}
+      {selectedView === "ניהול" && selectedAdminTools==="changeBatchNumInFv" && <Building/>}
+      {selectedView === "ניהול" && selectedAdminTools==="changeFvStatus" && <Building/>}
     </div>
   );
 }
