@@ -8,7 +8,9 @@ import {
     type BatchCheckResult,
     type NextBatchResult,
 } from "../SERVICES/manualBatch";
-import { openSheetsPicker, type PickedFile } from "../SERVICES/googleDrivePicker";
+import type {PickedFile } from "../SERVICES/googleDrivePicker";
+import DriveFileSearchModal from "./DriveFileSearchModal";
+import { Paperclip } from 'lucide-react';
 
 type Step =
     | "select"
@@ -73,8 +75,8 @@ export default function ManualBatchAssignment({ brews }: Props) {
     const [checkResult, setCheckResult] = useState<BatchCheckResult | null>(null);
     const [betterBatch, setBetterBatch] = useState<NextBatchResult>(null);
     const [errorMsg, setErrorMsg] = useState<string>("");
-    const [pickerBusy, setPickerBusy] = useState(false);
     const [checkingPhase, setCheckingPhase] = useState<string>("");
+    const [pickerOpen, setPickerOpen] = useState(false);
 
     const tanks = useMemo(
         () => brews.filter((tank) => Number(tank.tankNumber) !== 1),
@@ -100,35 +102,28 @@ export default function ManualBatchAssignment({ brews }: Props) {
         setStep(picked ? "confirmWarning1" : "select");
     }
 
-    async function handlePickFile() {
-        try {
-            setPickerBusy(true);
-            const file = await openSheetsPicker();
-            setPickerBusy(false);
-            (document.activeElement as HTMLElement | null)?.blur();
-            if (!file) return;
-
-            const batch = extractBatchFromFilename(file.name);
-            if (batch === null) {
-                setErrorMsg(
-                    `לא זוהה מספר אצווה בשם הקובץ "${file.name}". יש לבחור קובץ ששמו כולל # ולפחות 4 ספרות (למשל 1578#).`
-                );
-                setStep("error");
-                return;
-            }
-
-            setPicked(file);
-            setCheckResult(null);
-            setBetterBatch(null);
-            setErrorMsg("");
-            setStep("confirmWarning1");
-        } catch (error: any) {
-            setPickerBusy(false);
-            console.error(error)
-            setErrorMsg(error?.message || "שגיאה בפתיחת הדרייב");
-            setStep("error");
-        }
+    function handleOpenPicker() {
+        setPickerOpen(true);
     }
+    function handleFileSelected(file: PickedFile) {
+        setPickerOpen(false);
+
+        const batch = extractBatchFromFilename(file.name);
+        if (batch === null) {
+            setErrorMsg(
+                `לא זוהה מספר אצווה בשם הקובץ "${file.name}". יש לבחור קובץ ששמו כולל # ולפחות 4 ספרות (למשל 1578#).`
+            );
+            setStep("error");
+            return;
+        }
+
+        setPicked(file);
+        setCheckResult(null);
+        setBetterBatch(null);
+        setErrorMsg("");
+        setStep("confirmWarning1");
+    }
+
 
     async function handleConfirmWarning1() {
         if (!selectedTank || !picked) return;
@@ -209,6 +204,11 @@ export default function ManualBatchAssignment({ brews }: Props) {
 
     return (
         <div className="manual-batch-page">
+            <DriveFileSearchModal
+                isOpen={pickerOpen}
+                onClose={() => setPickerOpen(false)}
+                onSelect={handleFileSelected}
+            />
             <div className="edit-specs-header">
                 <h1 className="editSpecsHeaderH1">שיבוץ אצווה ידני במיכל</h1>
                 <div className="editSpecsHeaderH2 warningHeader">
@@ -251,7 +251,6 @@ export default function ManualBatchAssignment({ brews }: Props) {
                     </div>
                     <div className="spec-fields" style={{ gridTemplateColumns: "1fr" }}>
                         <div className="spec-field">
-                            {/* <label className="spec-field-label">מיכל</label> */}
                             <select
                                 className="quickReportSelect switchSelect"
                                 autoComplete="off"
@@ -302,8 +301,9 @@ export default function ManualBatchAssignment({ brews }: Props) {
                         </div>
                     </div>
                     <div style={{ padding: "0 16px 16px" }}>
-                        <button className="btn-primary" onClick={handlePickFile} disabled={pickerBusy}>
-                            {pickerBusy ? "פותח דרייב..." : "בחר טופס מהדרייב"}
+                        <button className="btn-primary" onClick={handleOpenPicker}>
+                             {<Paperclip size={16} />}{"      "}
+                            {picked ? "בחר קובץ אחר" : "בחר טופס מהדרייב"}
                         </button>
                     </div>
                 </div>
