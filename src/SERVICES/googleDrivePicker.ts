@@ -81,34 +81,76 @@ export type PickedFile = {
 };
 
 export async function openSheetsPicker(): Promise<PickedFile | null> {
-  if (!GOOGLE_API_KEY) {
-    throw new Error("חסר VITE_GOOGLE_API_KEY בהגדרות הפרויקט");
-  }
+    if (!GOOGLE_API_KEY) {
+        throw new Error("חסר VITE_GOOGLE_API_KEY בהגדרות הפרויקט");
+    }
 
-  await ensurePickerApi();
-  const token = await ensureAccessToken();
+    await ensurePickerApi();
+    const token = await ensureAccessToken();
 
-  return new Promise((resolve) => {
-    const view = new window.google.picker.DocsView(
-      window.google.picker.ViewId.SPREADSHEETS
-    )
-      .setIncludeFolders(true)
-      .setSelectFolderEnabled(false);
+    return new Promise((resolve) => {
+        let picker: any;
 
-    const picker = new window.google.picker.PickerBuilder()
-      .addView(view)
-      .setOAuthToken(token)
-      .setDeveloperKey(GOOGLE_API_KEY)
-      .setCallback((data: any) => {
-        if (data.action === window.google.picker.Action.PICKED) {
-          const pickedDoc = data.docs[0];
-          resolve({ id: pickedDoc.id, name: pickedDoc.name, url: pickedDoc.url });
-        } else if (data.action === window.google.picker.Action.CANCEL) {
-          resolve(null);
+        const view = new window.google.picker.DocsView(
+            window.google.picker.ViewId.SPREADSHEETS
+        )
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(false);
+
+        picker = new window.google.picker.PickerBuilder()
+            .addView(view)
+            .setOAuthToken(token)
+            .setDeveloperKey(GOOGLE_API_KEY)
+            .setCallback((data: any) => {
+                const isDone =
+                    data.action === window.google.picker.Action.PICKED ||
+                    data.action === window.google.picker.Action.CANCEL;
+
+                if (!isDone) return;
+
+                const result =
+                    data.action === window.google.picker.Action.PICKED
+                        ? {
+                              id: data.docs[0].id,
+                              name: data.docs[0].name,
+                              url: data.docs[0].url,
+                          }
+                        : null;
+
+                // מנקים בפועל את מה שגוגל הזריק, לא רק מסתירים
+                try {
+                    picker.setVisible(false);
+                    picker.dispose();
+                } catch {
+                    /* no-op */
+                }
+
+                reclaimFocus();
+                resolve(result);
+            })
+            .build();
+
+        picker.setVisible(true);
+    });
+}
+
+// מנסה "לגרש" את הפוקוס בחוזקה - כמה ניסיונות על פני כמה פריימים,
+// כי לפעמים ה-iframe של גוגל תופס פוקוס בחזרה אסינכרונית אחרי הסגירה
+function reclaimFocus() {
+    let attempts = 0;
+    const tryBlur = () => {
+        const active = document.activeElement as HTMLElement | null;
+        if (active && active !== document.body) {
+            active.blur();
         }
-      })
-      .build();
-
-    picker.setVisible(true);
-  });
+        document.body.focus();
+        attempts += 1;
+        if (attempts < 8) {
+            requestAnimationFrame(tryBlur);
+        }
+    };
+    requestAnimationFrame(tryBlur);
+    // רשת ביטחון נוספת - גם אחרי שהאנימציה של iOS מסתיימת
+    setTimeout(tryBlur, 300);
+    setTimeout(tryBlur, 700);
 }
