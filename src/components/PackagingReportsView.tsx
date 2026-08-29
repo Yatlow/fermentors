@@ -38,6 +38,7 @@ export type PackagingLogDoc = {
     unit?: string;
     quantity?: number;
     batchNumber?: string | number;
+
 };
 
 type CalendarEventDoc = {
@@ -48,14 +49,14 @@ type CalendarEventDoc = {
     quantity?: number;
     actionType?: string;
     title?: string;
-    tankNumber?:string|number;
-
+    tankNumber?: string | number;
+    beerStyle?: string;
     // מספר המיכל המתוכנן לאריזה
     containerNumber?: string | number | null;
 };
 
 /** actionType בקולקציית calendar_events שמייצג אירוע אריזה/הורדה עתידית */
-const PACKAGING_ACTION_TYPE = "הורדה";
+const PACKAGING_ACTION_TYPE = ["הורדה", "סיום"];
 
 // ============================================================
 // DATE HELPERS
@@ -161,7 +162,7 @@ export function getNormalizedWeekNumber(weekStart: Date): number {
         1 +
         Math.round(
             (target.getTime() - firstThursday.getTime()) /
-                (7 * 24 * 60 * 60 * 1000)
+            (7 * 24 * 60 * 60 * 1000)
         );
 
     return weekNumber;
@@ -179,12 +180,13 @@ export function getNormalizedWeekYear(weekStart: Date): number {
     return thursday.getFullYear();
 }
 
-/**
- * מפתח ייחודי לשבוע.
- *
- * לדוגמה:
- * 2026-W35
- */
+function normalizeItemLabel(raw: string): string {
+    const trimmed = (raw || "").trim();
+    if (!trimmed) return trimmed;
+    // אותיות לועזיות בלבד (IPA) -> אחיד לאותיות גדולות
+    return /^[a-zA-Z\s]+$/.test(trimmed) ? trimmed.toUpperCase() : trimmed;
+}
+
 export function getNormalizedWeekKey(weekStart: Date): string {
     const year = getNormalizedWeekYear(weekStart);
     const week = getNormalizedWeekNumber(weekStart);
@@ -192,11 +194,6 @@ export function getNormalizedWeekKey(weekStart: Date): string {
     return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
-/**
- * תצוגת שבוע:
- *
- * שבוע 35 · 23/08/2026 – 29/08/2026
- */
 export function formatWeekLabel(weekStart: Date): string {
     const start = getWeekStart(weekStart);
     const end = addDays(start, 6);
@@ -206,17 +203,7 @@ export function formatWeekLabel(weekStart: Date): string {
     return `שבוע ${weekNumber} · ${formatDDMMYYYY(start)} – ${formatDDMMYYYY(end)}`;
 }
 
-// ============================================================
-// WEEK SELECT OPTIONS
-// ============================================================
 
-/**
- * מחזיר את כל השבועות שמתחילים ביום ראשון
- * עבור שנה נתונה.
- *
- * אנחנו משתמשים בטווח רחב מעט כדי שגם שבועות שחוצים שנה
- * יופיעו בצורה נכונה.
- */
 function getWeeksForYear(year: number): Date[] {
     const result: Date[] = [];
 
@@ -237,12 +224,6 @@ function getWeeksForYear(year: number): Date[] {
     return result;
 }
 
-/**
- * בונה רשימת שבועות לבחירה:
- * שנה קודמת + השנה הנוכחית + השנה הבאה.
- *
- * כך אפשר גם לעבור ב-SELECT בין סוף שנה לתחילת שנה.
- */
 function getWeekOptions(): Date[] {
     const currentYear = new Date().getFullYear();
 
@@ -264,27 +245,6 @@ function getWeekOptions(): Date[] {
     );
 }
 
-// ============================================================
-// NEXT WEEK PACKAGING CONTAINERS
-// ============================================================
-
-/**
- * מחזירה את מספרי המיכלים שמתוכננים לאריזה בשבוע הבא.
- *
- * המקור:
- * calendar_events
- *
- * התנאי:
- * actionType === "הורדה"
- *
- * השדה שמכיל את מספר המיכל:
- * containerNumber
- *
- * דוגמה:
- * const containers = await getPlannedPackagingContainerNumbers();
- *
- * // ["101", "104", "108"]
- */
 export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
     const currentWeekStart = getWeekStart(new Date());
     const nextWeekStart = addDays(currentWeekStart, 7);
@@ -293,7 +253,7 @@ export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
     const snapshot = await getDocs(
         query(
             collection(db, "calendar_events"),
-            where("actionType", "==", PACKAGING_ACTION_TYPE),
+            where("actionType", "in", PACKAGING_ACTION_TYPE),
             where("timestamp", ">=", nextWeekStart.getTime()),
             where("timestamp", "<=", nextWeekEnd.getTime()),
             orderBy("timestamp", "asc")
@@ -315,12 +275,13 @@ export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
     return [...new Set(tankNumbers)];
 }
 
+function formatISODateToDDMMYYYY(iso: string): string {
+    if (!iso) return "";
+    const [y, m, d] = iso.split("-").map(Number);
+    if (!y || !m || !d) return iso;
+    return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+}
 
-
-
-// ============================================================
-// COMPONENT
-// ============================================================
 
 export default function PackagingReportsView() {
     const [mode, setMode] = useState<RangeMode>("week");
@@ -449,29 +410,29 @@ export default function PackagingReportsView() {
 
                 const estimatedRowsPromise = shouldLoadEstimated
                     ? getDocs(
-                          query(
-                              collection(db, "calendar_events"),
-                              where(
-                                  "actionType",
-                                  "==",
-                                  PACKAGING_ACTION_TYPE
-                              ),
-                              where(
-                                  "timestamp",
-                                  ">=",
-                                  estimatedStartTs
-                              ),
-                              where(
-                                  "timestamp",
-                                  "<=",
-                                  endTs
-                              ),
-                              orderBy(
-                                  "timestamp",
-                                  "asc"
-                              )
-                          )
-                      )
+                        query(
+                            collection(db, "calendar_events"),
+                            where(
+                                "actionType",
+                                "in",
+                                PACKAGING_ACTION_TYPE
+                            ),
+                            where(
+                                "timestamp",
+                                ">=",
+                                estimatedStartTs
+                            ),
+                            where(
+                                "timestamp",
+                                "<=",
+                                endTs
+                            ),
+                            orderBy(
+                                "timestamp",
+                                "asc"
+                            )
+                        )
+                    )
                     : Promise.resolve(null);
 
                 const [
@@ -498,14 +459,13 @@ export default function PackagingReportsView() {
                                 data.timestamp ?? 0,
                             expiryDateStr:
                                 data.expiryDateStr ?? "",
-                            itemLabel:
-                                data.beerStyle ?? "",
+                            itemLabel: normalizeItemLabel(data.beerStyle ?? ""),
                             packagingType:
                                 data.packagingType ?? null,
                             unit:
                                 data.unit ??
                                 (data.packagingType ===
-                                "kegs"
+                                    "kegs"
                                     ? "חביות"
                                     : "ארגזים"),
                             quantity: Number(
@@ -520,31 +480,29 @@ export default function PackagingReportsView() {
                 const estimatedRows: PackagingRow[] =
                     estimatedSnap
                         ? estimatedSnap.docs.map((d) => {
-                              const data =
-                                  d.data() as CalendarEventDoc;
+                            const data =
+                                d.data() as CalendarEventDoc;
 
-                              return {
-                                  id: d.id,
-                                  date:
-                                      data.date ?? "",
-                                  timestamp:
-                                      data.timestamp ??
-                                      0,
-                                  expiryDateStr: "",
-                                  itemLabel:
-                                      data.itemType ??
-                                      data.title ??
-                                      "",
-                                  packagingType: null,
-                                  unit:
-                                      data.unit ?? "",
-                                  quantity: Number(
-                                      data.quantity ?? 0
-                                  ),
-                                  batchNumber: null,
-                                  source: "estimated",
-                              };
-                          })
+                            return {
+                                id: d.id,
+                                date:
+                                    formatISODateToDDMMYYYY(data.date ?? ""),
+                                timestamp:
+                                    data.timestamp ??
+                                    0,
+                                expiryDateStr: "",
+                                itemLabel:
+                                    normalizeItemLabel(data.beerStyle ?? data.itemType ?? data.title ?? ""),
+                                packagingType: null,
+                                unit:
+                                    data.unit ?? "",
+                                quantity: Number(
+                                    data.quantity ?? 0
+                                ),
+                                batchNumber: null,
+                                source: "estimated",
+                            };
+                        })
                         : [];
 
                 const merged = [
@@ -596,7 +554,7 @@ export default function PackagingReportsView() {
         >();
 
         rows.forEach((row) => {
-            const key = `${row.itemLabel}__${row.unit}`;
+            const key = `${normalizeItemLabel(row.itemLabel)}__${row.unit}`;
             const existing = map.get(key);
 
             if (existing) {
@@ -618,7 +576,7 @@ export default function PackagingReportsView() {
     const isCurrentWeek =
         mode === "week" &&
         weekStart.getTime() ===
-            getWeekStart(new Date()).getTime();
+        getWeekStart(new Date()).getTime();
 
     const currentWeekNumber =
         getNormalizedWeekNumber(weekStart);
@@ -639,11 +597,10 @@ export default function PackagingReportsView() {
             >
                 <button
                     type="button"
-                    className={`status-filter-button ${
-                        mode === "week"
+                    className={`status-filter-button ${mode === "week"
                             ? "active"
                             : ""
-                    }`}
+                        }`}
                     onClick={() => setMode("week")}
                 >
                     <span>לפי שבוע</span>
@@ -651,11 +608,10 @@ export default function PackagingReportsView() {
 
                 <button
                     type="button"
-                    className={`status-filter-button ${
-                        mode === "range"
+                    className={`status-filter-button ${mode === "range"
                             ? "active"
                             : ""
-                    }`}
+                        }`}
                     onClick={() => setMode("range")}
                 >
                     <span>לפי טווח תאריכים</span>
@@ -763,8 +719,8 @@ export default function PackagingReportsView() {
                         className="week-nav-arrow"
                         onClick={goNextWeek}
                         aria-label="שבוע הבא"
-                        // onClick={goPrevWeek}
-                        // aria-label="שבוע קודם"
+                    // onClick={goPrevWeek}
+                    // aria-label="שבוע קודם"
                     >
                         ›
                     </button>
@@ -833,7 +789,7 @@ export default function PackagingReportsView() {
                                     <th>תאריך אריזה</th>
                                     <th>תאריך תפוגה</th>
                                     <th>
-                                        פריט / סגנון
+                                        פריט
                                     </th>
                                     <th>
                                         סוג אריזה
@@ -852,7 +808,7 @@ export default function PackagingReportsView() {
                                         key={row.id}
                                         className={
                                             row.source ===
-                                            "estimated"
+                                                "estimated"
                                                 ? "estimated-row"
                                                 : ""
                                         }
@@ -891,7 +847,7 @@ export default function PackagingReportsView() {
                                                 className={`source-badge source-${row.source}`}
                                             >
                                                 {row.source ===
-                                                "actual"
+                                                    "actual"
                                                     ? "נארז"
                                                     : "ביומן"}
                                             </span>
@@ -908,21 +864,11 @@ export default function PackagingReportsView() {
 
                             <div className="packaging-report-totals-list">
                                 {totals.map((t) => (
-                                    <div
-                                        key={`${t.itemLabel}__${t.unit}`}
-                                        className="packaging-report-total-chip"
-                                    >
-                                        <span className="chip-label">
-                                            {
-                                                t.itemLabel
-                                            }
-                                        </span>
-
+                                    <div key={`${t.itemLabel}__${t.unit}`} className="packaging-report-total-chip">
+                                        <span className="chip-label">{t.itemLabel}</span>
                                         <span className="chip-value">
-                                            {
-                                                t.quantity
-                                            }{" "}
-                                            {t.unit}
+                                            <span className="chip-unit">{t.unit}</span>
+                                            <bdi className="chip-quantity">{t.quantity}</bdi>
                                         </span>
                                     </div>
                                 ))}
