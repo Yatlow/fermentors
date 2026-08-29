@@ -8,7 +8,9 @@ import {
 } from "../SERVICES/getSpecsFromFb";
 
 
-export default function EditSpecs() {
+export default function EditSpecs(
+    { isAdmin }: { isAdmin: boolean }
+) {
     const [specs, setSpecs] = useState<SpecChart>({});
 
     const [loading, setLoading] = useState(true);
@@ -16,7 +18,7 @@ export default function EditSpecs() {
 
     const [error, setError] = useState("");
     const [success, setSuccess] = useState("");
-
+    const [showPermissionModal, setShowPermissionModal] = useState(false);
 
     useEffect(() => {
         const loadSpecs = async () => {
@@ -50,10 +52,10 @@ export default function EditSpecs() {
         tolorances: "הגדרות כלליות לחישוב המלצות",
 
         // General fields
-        carbonation: "סף רגישות לגיזוז",
+        carbonation: "גיזוז תקין",
         dryHopMinPlato: "פלאטו שמתחתיו מומלץ על דרייהופ",
         dycitalRestMinPlato: "פלאטו שמתחתיו מומלץ על מנוחת דיאצטיל",
-        pressure: "סף רגישות לחץ למיכל חם- אחרי סגירה",
+        pressure: " לחץ רצוי למיכל חם- אחרי סגירה",
         shutTankMinPlato: "פלאטו שמתחתיו מומלץ על סגירת מיכל",
         yeastDropMinPlato: "פלאטו שמתחתיו מומלץ על הורדת שמרים",
         yeastDropMinPlatoLager: "פלאטו שמתחתיו מומלץ על הורדת שמרים – לאגר",
@@ -90,6 +92,12 @@ export default function EditSpecs() {
     // ============================================================
 
     const handleSave = async () => {
+        if (!isAdmin) {
+            setShowPermissionModal(true);
+            // setError("אין לך הרשאות לשמור שינויים");
+            return;
+        }
+
         try {
             setSaving(true);
 
@@ -166,10 +174,37 @@ export default function EditSpecs() {
             dir="rtl"
         >
 
-            {/* ==================================================
-                HEADER
-               ================================================== */}
+            {showPermissionModal && (
+                <div
+                    className="permission-modal-overlay"
+                    onClick={() => setShowPermissionModal(false)}
+                >
+                    <div
+                        className="permission-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        dir="rtl"
+                    >
+                        <div className="permission-modal-icon">
+                            🔒
+                        </div>
 
+                        <h2>
+                            אין הרשאה לשינוי
+                        </h2>
+
+                        <p>
+                            רק מנהל מערכת יכול לשנות את הגדרות הבירה.
+                        </p>
+
+                        <button
+                            className="btn-primary"
+                            onClick={() => setShowPermissionModal(false)}
+                        >
+                            הבנתי
+                        </button>
+                    </div>
+                </div>
+            )}
             <div className="edit-specs-header">
 
                 <div>
@@ -178,7 +213,7 @@ export default function EditSpecs() {
                     </p>
 
                     <p className="editSpecsHeaderH2">
-                         שינוי הגדרות לחישוב המלצות ומתן תוקף בעת אריזה
+                        שינוי הגדרות לחישוב המלצות ומתן תוקף בעת אריזה
                     </p>
                 </div>
 
@@ -279,8 +314,12 @@ export default function EditSpecs() {
                                                         : `בקבוק ${fieldTranslations[fieldName]
                                                         ?? fieldName
                                                         }`
-                                                    : fieldTranslations[fieldName]
-                                                    ?? fieldName}
+                                                    : fieldName === "carbonation" ?
+                                                        "סף סטייה לתקינות גיזוז" :
+                                                        fieldName === "pressure" ?
+                                                            "סף סטייה לתקינות לחץ במיכל חם" :
+                                                            fieldTranslations[fieldName]
+                                                            ?? fieldName}
 
                                             </span>
 

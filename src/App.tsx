@@ -28,7 +28,7 @@ import BatchReportsView from "./components/BatchReportsView";
 import PackagingReportsView from "./components/PackagingReportsView";
 import EditSpecs from "./components/EditSpecs";
 import BrewCalc from "./components/BrewerCalc";
-import  Building  from "./components/Building";
+import Building from "./components/Building";
 
 
 
@@ -112,16 +112,27 @@ async function checkAproovedUser(user: any): Promise<boolean> {
   }
 }
 
-async function updateLastLoggedIn(user: any) {
+async function updateLastLoggedInAndGetAdminStatus(user: any) {
   if (!user?.email) return;
 
   try {
     const userRef = doc(db, "approvedUsers", user.email);
+    const userDoc = await getDoc(userRef);
+
+
+    if (!userDoc.exists()) {
+      console.warn(`User ${user.email} was not found in approvedUsers`);
+      return false;
+    }
+    
+    const data = userDoc.data();
+    const isAdmin = data?.isAdmin === true;
 
     await updateDoc(userRef, {
       lastLoggedIn: serverTimestamp(),
     });
 
+    return isAdmin;
   } catch (error) {
     console.error("Error updating last logged in:", error);
   }
@@ -132,24 +143,40 @@ async function updateLastLoggedIn(user: any) {
 function useAuth() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [admin, setAdmin] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       setLoading(false);
 
-      if (user) {
-        void updateLastLoggedIn(user);
+       if (!user) {
+        setAdmin(false);
+        setLoading(false);
+        return;
       }
-    });
+
+      try {
+        const isAdmin = await updateLastLoggedInAndGetAdminStatus(user);
+
+        setAdmin(isAdmin ?? false);
+
+      } catch (error) {
+        console.error("Error updating last logged in:", error);
+        setAdmin(false);
+      } finally {
+        setLoading(false);
+      }
+
     return () => unsubscribe();
+    })
   }, []);
 
-  return { user, loading };
+  return { user, loading, admin };
 }
 
 function App() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, admin } = useAuth();
   const [isApproved, setIsApproved] = useState<boolean | null>(null);
 
   const [loggingIn, setLoggingIn] = useState<boolean>(true);
@@ -206,7 +233,6 @@ function App() {
       return
     }
     const fermentorsRef = collection(db, "fermentors");
-
     const unsubscribe = onSnapshot(
       fermentorsRef,
       (snapshot) => {
@@ -550,17 +576,17 @@ function App() {
               <div className={`views-item ${selectedView === "ניהול" ?
                 "active" : ""}`}
                 onClick={() => {
-                setSelectedView("ניהול")
-               setSelectedStatuses(["הכל"])
-              setSelectedStyles(["הכל"])
-              setSelectedWrites("לחץ")
-              setSelectedReports("אריזה")
-              setSelectedAdminTools("calculator")
-              setNewReadings({}) 
-                    }}
-                    >
-                      כלים
-                    </div>
+                  setSelectedView("ניהול")
+                  setSelectedStatuses(["הכל"])
+                  setSelectedStyles(["הכל"])
+                  setSelectedWrites("לחץ")
+                  setSelectedReports("אריזה")
+                  setSelectedAdminTools("calculator")
+                  setNewReadings({})
+                }}
+              >
+                כלים
+              </div>
             </div>
           </div>
 
@@ -658,7 +684,7 @@ function App() {
                   }`}
                 onClick={() => {
                   setSelectedReports("אריזה")
-                    
+
                 }
                 }
               >
@@ -807,13 +833,13 @@ function App() {
         </>
       }
 
-      {selectedView === "דוחות" && selectedReports==="גרפים" && <BatchReportsView currentFermentors={brews} />}
-      {selectedView === "דוחות" && selectedReports==="אריזה" && <PackagingReportsView/>}
+      {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
+      {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
 
-      {selectedView === "ניהול" && selectedAdminTools==="specs" && <EditSpecs />}
-      {selectedView === "ניהול" && selectedAdminTools==="calculator" && <BrewCalc brews={brews} />}
-      {selectedView === "ניהול" && selectedAdminTools==="changeBatchNumInFv" && <Building/>}
-      {selectedView === "ניהול" && selectedAdminTools==="changeFvStatus" && <Building/>}
+      {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
+      {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
+      {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <Building />}
+      {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <Building />}
     </div>
   );
 }
