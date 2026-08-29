@@ -74,6 +74,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
     const [betterBatch, setBetterBatch] = useState<NextBatchResult>(null);
     const [errorMsg, setErrorMsg] = useState<string>("");
     const [pickerBusy, setPickerBusy] = useState(false);
+    const [checkingPhase, setCheckingPhase] = useState<string>("");
 
     const tanks = useMemo(
         () => brews.filter((tank) => Number(tank.tankNumber) !== 1),
@@ -81,6 +82,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
     );
 
     const selectedTank = tanks.find((tank) => tank.id === selectedTankId) || null;
+    const editable = step === "select" || step === "confirmWarning1";
 
     function resetFlow() {
         setStep("select");
@@ -92,7 +94,10 @@ export default function ManualBatchAssignment({ brews }: Props) {
 
     function handleSelectTank(id: string) {
         setSelectedTankId(id);
-        resetFlow();
+        setCheckResult(null);
+        setBetterBatch(null);
+        setErrorMsg("");
+        setStep(picked ? "confirmWarning1" : "select");
     }
 
     async function handlePickFile() {
@@ -100,6 +105,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
             setPickerBusy(true);
             const file = await openSheetsPicker();
             setPickerBusy(false);
+            (document.activeElement as HTMLElement | null)?.blur();
             if (!file) return;
 
             const batch = extractBatchFromFilename(file.name);
@@ -112,6 +118,9 @@ export default function ManualBatchAssignment({ brews }: Props) {
             }
 
             setPicked(file);
+            setCheckResult(null);
+            setBetterBatch(null);
+            setErrorMsg("");
             setStep("confirmWarning1");
         } catch (error: any) {
             setPickerBusy(false);
@@ -129,6 +138,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
 
         setStep("checking");
         setErrorMsg("");
+        setCheckingPhase(`מאמת שאצווה #${batch} אכן שייכת למיכל ${String(selectedTank.tankNumber)}...`);
 
         try {
             const tankNumber = String(selectedTank.tankNumber ?? selectedTank.id);
@@ -147,7 +157,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
             }
 
             setCheckResult(result);
-
+            setCheckingPhase(`בודק אם קיימת אצווה מתאימה יותר עבור מיכל ${String(selectedTank.tankNumber)}...`);
             const better = await findNextBatchForTank(tankNumber, batch);
 
             const hasTankMismatch = result.reason === "Batch belongs to a different tank";
@@ -201,9 +211,9 @@ export default function ManualBatchAssignment({ brews }: Props) {
         <div className="manual-batch-page">
             <div className="edit-specs-header">
                 <h1 className="editSpecsHeaderH1">שיבוץ אצווה ידני במיכל</h1>
-                <div className="editSpecsHeaderH2">
+                <div className="editSpecsHeaderH2 warningHeader">
                     <p>
-                        ⚠ פעולה זו מיועדת למקרי קצה בלבד.
+                        ⚠ פעולה זו מיועדת למקרי קצה בלבד. ועשויה לקחת מספר דקות.
                     </p>
                     <p>
                         בדרך כלל השיבוץ קורה אוטומטית ברגע
@@ -219,10 +229,10 @@ export default function ManualBatchAssignment({ brews }: Props) {
                         <div
                             key={s}
                             className={`manual-batch-stepper-item ${index < currentStepIndex
-                                    ? "done"
-                                    : index === currentStepIndex
-                                        ? "active"
-                                        : ""
+                                ? "done"
+                                : index === currentStepIndex
+                                    ? "active"
+                                    : ""
                                 }`}
                         >
                             <span className="manual-batch-stepper-dot">{index + 1}</span>
@@ -232,30 +242,32 @@ export default function ManualBatchAssignment({ brews }: Props) {
                 </div>
             )}
 
-            <div className="spec-card">
-                <div className="spec-card-header">
-                    <div>
-                        <h2>בחירת מיכל</h2>
+            {step === "select" &&
+                <div className="spec-card">
+                    <div className="spec-card-header">
+                        <div>
+                            <h2>בחירת מיכל</h2>
+                        </div>
                     </div>
-                </div>
-                <div className="spec-fields" style={{ gridTemplateColumns: "1fr" }}>
-                    <div className="spec-field">
-                        {/* <label className="spec-field-label">מיכל</label> */}
-                        <select
-                            className="quickReportSelect switchSelect"
-                            value={selectedTankId}
-                            onChange={(event) => handleSelectTank(event.target.value)}
-                        >
-                            <option value="">בחר מיכל...</option>
-                            {tanks.map((tank) => (
-                                <option key={tank.id} value={tank.id}>
-                                    מיכל {String(tank.tankNumber)}
-                                </option>
-                            ))}
-                        </select>
+                    <div className="spec-fields" style={{ gridTemplateColumns: "1fr" }}>
+                        <div className="spec-field">
+                            {/* <label className="spec-field-label">מיכל</label> */}
+                            <select
+                                className="quickReportSelect switchSelect"
+                                autoComplete="off"
+                                value={selectedTankId}
+                                onChange={(event) => handleSelectTank(event.target.value)}
+                            >
+                                <option value="">בחר מיכל...</option>
+                                {tanks.map((tank) => (
+                                    <option key={tank.id} value={tank.id}>
+                                        מיכל {String(tank.tankNumber)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
-                </div>
-            </div>
+                </div>}
 
             {selectedTank && (
                 <div className="spec-card manual-batch-compact-card">
@@ -281,7 +293,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
                 </div>
             )}
 
-            {selectedTank && step === "select" && (
+            {selectedTank && editable && (
                 <div className="spec-card manual-batch-compact-card">
                     <div className="spec-card-header">
                         <div>
@@ -324,9 +336,15 @@ export default function ManualBatchAssignment({ brews }: Props) {
                     <p>
                         <strong>בודק את האצווה מול השרת...</strong>
                     </p>
+                    {picked && (
+                        <p className="manual-batch-loading-file">קובץ: {picked.name}</p>
+                    )}
                     <p className="manual-batch-loading-sub">
-                        הבדיקה סורקת את כל תיקיית טופסי הבישול (כולל תתי-תיקיות) כדי לוודא
-                        שלא נעשית טעות שיבוץ — זה יכול לקחת עד כמה דקות, נא להמתין ולא
+                        {checkingPhase || "סורק את תיקיית טופסי הבישול (כולל תתי-תיקיות)..."}
+                    </p>
+                    <p className="manual-batch-loading-sub">
+                        בכדי לוודא
+                        שלא נעשית טעות שיבוץ — פעולה זו עשויה להמשך כמה דקות, נא להמתין ולא
                         לסגור את המסך.
                     </p>
                 </div>
@@ -359,6 +377,13 @@ export default function ManualBatchAssignment({ brews }: Props) {
                                 {String(selectedTank?.tankNumber)}. סביר שזו האצווה הנוכחית
                                 האמיתית של המיכל.
                             </p>
+                            {!displayedBatchNumber &&
+                                <p>
+                                    <span>⚠ שים לב:</span> אצווה #{displayedBatchNumber} מופיעה בשם הקובץ
+                                    (שדה "אצווה בשורה A" ריק בטופס), אבל לא מופיע בתוך הקובץ
+                                    יש לגשת גליון ולעדכן מספר אצווה. טופס בישול ללא מספר אצווה עשוי לא להתעדכן באופן אוטומטי ולהקלע לבעיות בקוד
+                                </p>
+                            }
                             <p>
                                 <span>האצווה שבחרת:</span> #{displayedBatchNumber} —{" "}
                                 {checkResult.beerStyle ?? "—"}, {checkResult.brewDate ?? "—"}
@@ -369,7 +394,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
                             </p>
                             <p>
                                 מומלץ לבדוק ולתקן את מספרי המיכל בטפסים בגוגל שיטס — המערכת
-                                מתעדכנת אוטומטית מול הדרייב כל כ-10 דקות, כך שתיקון שם יגרום
+                                מתעדכנת אוטומטית מול הדרייב כל כ-5 דקות, כך שתיקון שם יגרום
                                 לשיבוץ הנכון לבד, בלי צורך בפעולה ידנית.
                             </p>
                         </>
@@ -390,7 +415,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
                 <div className="spec-card manual-batch-compact-card">
                     <div className="spec-card-header">
                         <div>
-                            <h2>לאיזה סטטוס לשים את המיכל?</h2>
+                            <h2>באיזה סטטוס לסמן את המיכל?</h2>
                             <p>
                                 אצווה #{displayedBatchNumber} תשובץ למיכל{" "}
                                 {String(selectedTank?.tankNumber)}

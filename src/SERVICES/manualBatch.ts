@@ -50,10 +50,8 @@ async function callGasGet(params: Record<string, string>) {
   }
 
   if (!parsed.success) {
-      console.log(parsed.error)
     throw new Error(parsed.error || "Request failed");
   }
-  console.log(parsed)
   return parsed.result;
 }
 
@@ -61,7 +59,6 @@ export async function checkBatchAssignment(
   tankID: string,
   requestedBatch: number
 ): Promise<BatchCheckResult> {
-    console.log("checkBatchAssignment called with tankID:", tankID, "requestedBatch:", requestedBatch);
   return callGasGet({
     action: "CheckBatchAssignment",
     tankID,
@@ -73,7 +70,6 @@ export async function findNextBatchForTank(
   tankID: string,
   currentBatch: number
 ): Promise<NextBatchResult> {
-    console.log("failsHere",tankID,currentBatch)
 
   return callGasGet({
     action: "FindNextBatchForTank",
