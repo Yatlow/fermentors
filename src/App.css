@@ -3257,7 +3257,7 @@ body {
 .batch-chart-modal {
   background: var(--card-bg, #ffffff);
   color: var(--text-color, #1c1c1c);
-  width: 80%;
+  width: 90%;
   max-width: 640px;
   max-height: 92vh;
   overflow-y: auto;
