@@ -300,7 +300,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
                             <p>מספר האצווה ייקבע אוטומטית משם הקובץ שתבחר, ויאומת מול השרת</p>
                         </div>
                     </div>
-                    <div style={{ padding: "0 16px 16px" }}>
+                    <div className="critical-actions">
                         <button className="btn-primary" onClick={handleOpenPicker}>
                              {<Paperclip size={16} />}{"      "}
                             {picked ? "בחר קובץ אחר" : "בחר טופס מהדרייב"}
@@ -319,7 +319,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
                     <p>
                         הקובץ שנבחר: {picked.name}
                     </p>
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <div className="critical-actions">
                         <button className="btn-primary" onClick={handleConfirmWarning1}>
                             אני מבין, המשך בכל זאת
                         </button>
@@ -400,7 +400,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
                         </>
                     )}
 
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <div className="critical-actions">
                         <button className="btn-primary" onClick={() => setStep("chooseStatus")}>
                             אני מבין, המשך עם השיבוץ הידני בכל זאת
                         </button>

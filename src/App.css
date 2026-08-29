@@ -3655,10 +3655,11 @@ body {
     font-size: 0.8rem;
     padding: 5px 8px;
   }
+
   .batch-chart-title-box {
     display: flex;
-  flex-direction: column;
-}
+    flex-direction: column;
+  }
 }
 
 /* =========================================================
@@ -4571,19 +4572,23 @@ body {
 .switchSelect {
   max-width: 50%;
 }
+
 .manual-batch-picked-file {
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-bottom: 8px;
 }
+
 .manual-batch-loading-file {
   font-size: 0.72rem !important;
   font-weight: 600 !important;
   color: #334155 !important;
 }
+
 .cancelBtn {
   font-weight: bold !important;
 }
+
 @media (max-width: 480px) {
   .manual-batch-status-grid {
     grid-template-columns: 1fr;
@@ -4596,7 +4601,8 @@ body {
     line-height: 1.15;
     white-space: normal;
   }
-   .manual-batch-stepper-dot {
+
+  .manual-batch-stepper-dot {
     width: 20px;
     height: 20px;
     font-size: 0.62rem;
@@ -4607,6 +4613,7 @@ body {
   }
 
 }
+
 .drive-search-input {
   width: 100%;
   height: 40px;
@@ -4665,6 +4672,7 @@ body {
 .drive-search-item:active {
   transform: scale(0.99);
 }
+
 .drive-url-row {
   display: flex;
   gap: 6px;
@@ -4706,4 +4714,35 @@ body {
   color: var(--text-muted);
   font-size: 0.68rem;
   font-weight: 700;
+}
+
+/* =========================================================
+   CRITICAL WARNING - ACTIONS ROW (fix for iOS flex shrink bug)
+   ========================================================= */
+
+.write-warning-banner.critical .critical-actions {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.write-warning-banner.critical .critical-actions .btn-primary,
+.write-warning-banner.critical .critical-actions .btn-secondary {
+  flex: 1 1 140px;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .write-warning-banner.critical .critical-actions {
+    flex-direction: column;
+  }
+
+  .write-warning-banner.critical .critical-actions .cancelBtn {
+    max-width: 100%;
+    /* מבטל את ה-50% הישן שגם הוא תרם לצמצום */
+  }
 }
