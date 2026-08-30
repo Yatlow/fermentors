@@ -28,8 +28,8 @@ import BatchReportsView from "./components/BatchReportsView";
 import PackagingReportsView from "./components/PackagingReportsView";
 import EditSpecs from "./components/EditSpecs";
 import BrewCalc from "./components/BrewerCalc";
-import Building from "./components/Building";
 import ManualBatchAssignment from "./components/ManualBatchAssignment";
+import ManualStatusAssignment from "./components/Manualstatusassignment ";
 
 
 
@@ -839,8 +839,8 @@ function App() {
 
       {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
       {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
-      {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} />}
-      {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <Building />}
+      {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
+      {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin}/>}
     </div>
   );
 }

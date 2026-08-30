@@ -13,6 +13,7 @@ export type Measurement = {
     notes?: string | number | null;
     volume?: string | number | null;
 };
+
 export function isCarbonationOutOfRange(
     carbonation: string | number | null | undefined,
     style: string,
@@ -60,7 +61,7 @@ export function isCarbonationOutOfRange(
         importance: howBad
     }
     return resault;
-}
+};
 
 export function isPressureOutOfRange(
 
@@ -107,7 +108,8 @@ export function isPressureOutOfRange(
         howBad
     }
     return resault;
-}
+};
+
 export async function calcCelleringRecomendations(measurements: Measurement[],
     beerStyle: string | number | undefined | null, batchId: string | number | null,
     brewDate: string, givenSpecs: SpecChart, stage: TankStageInfo, tankNumber: number | undefined,
@@ -511,11 +513,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             }
         }
-        
-        if (stage.name === "קר" && (corrected === 5|| corrected===4) &&  tankNumber && nextWeekPack.includes(tankNumber)) {
+
+        if (stage.name === "קר" && (corrected === 5 || corrected === 4) && tankNumber && nextWeekPack.includes(tankNumber)) {
             requiresCarbTest.display = true,
                 requiresCarbTest.req = true;
-            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ ${corrected===5?"להוריד שמרים":"לבצע בדיקת גיזוז"}`
+            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ ${corrected === 5 ? "להוריד שמרים" : "לבצע בדיקת גיזוז"}`
             requiresCarbTest.importance = 1;
         }
 
@@ -829,7 +831,32 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 corrected === 5 ? "מומלץ ביום חמישי לבצע הורדת שמרים לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" : ""
 
     }
-    const displaySpecifics = isAnActionDay && tankNumber ? nextWeekPack.includes(tankNumber) : false
+
+    const YeastDroppedToday = lastNote?.includes("שמרים");
+    function calcDisplaySpecifics(): boolean {
+        if (!isAnActionDay) {
+            return false;
+            // dont display any dayli if not sunday/wednesday
+        }
+        if (corrected === 1) {
+            if (!carbRes || !YeastDroppedToday) {
+                return true
+            }
+        } else if (tankNumber && nextWeekPack.includes(tankNumber)) {
+            if (corrected === 4 && !carbRes) {
+                return true;
+            }
+            if (corrected === 5 && !YeastDroppedToday) {
+                return true;
+            }
+        }
+        return false;
+
+    }
+
+    const displaySpecifics = calcDisplaySpecifics()
+    console.log(displaySpecifics)
+    // const displaySpecifics = isAnActionDay && (TankCardUse? true: tankNumber ? nextWeekPack.includes(tankNumber) : false)
     const requiresDailyActions = {
         req: displaySpecifics,
         reason: dayTxt,

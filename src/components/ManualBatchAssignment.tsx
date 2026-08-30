@@ -8,7 +8,7 @@ import {
     type BatchCheckResult,
     type NextBatchResult,
 } from "../SERVICES/manualBatch";
-import type {PickedFile } from "../SERVICES/googleDrivePicker";
+import type { PickedFile } from "../SERVICES/googleDrivePicker";
 import DriveFileSearchModal from "./DriveFileSearchModal";
 import { Paperclip } from 'lucide-react';
 
@@ -66,9 +66,10 @@ const STEP_LABELS: Record<Step, string> = {
 
 type Props = {
     brews: Fermentor[];
+    isAdmin: boolean;
 };
 
-export default function ManualBatchAssignment({ brews }: Props) {
+export default function ManualBatchAssignment({ brews, isAdmin }: Props) {
     const [selectedTankId, setSelectedTankId] = useState<string>("");
     const [step, setStep] = useState<Step>("select");
     const [picked, setPicked] = useState<PickedFile | null>(null);
@@ -77,6 +78,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
     const [errorMsg, setErrorMsg] = useState<string>("");
     const [checkingPhase, setCheckingPhase] = useState<string>("");
     const [pickerOpen, setPickerOpen] = useState(false);
+    const [showPermissionModal, setShowPermissionModal] = useState(false);
 
     const tanks = useMemo(
         () => brews.filter((tank) => Number(tank.tankNumber) !== 1),
@@ -175,7 +177,11 @@ export default function ManualBatchAssignment({ brews }: Props) {
 
     async function handleChooseStatus(option: StatusOption) {
         if (!selectedTank || !checkResult?.sheetUrl) return;
-
+        if (!isAdmin) {
+            setShowPermissionModal(true);
+            // setError("אין לך הרשאות לשמור שינויים");
+            return;
+        }
         setStep("submitting");
         setErrorMsg("");
 
@@ -204,6 +210,42 @@ export default function ManualBatchAssignment({ brews }: Props) {
 
     return (
         <div className="manual-batch-page">
+            {showPermissionModal && (
+                <div
+                    className="permission-modal-overlay"
+                    onClick={() => {
+                        setShowPermissionModal(false);
+                        resetFlow();
+                    }}
+                >
+                    <div
+                        className="permission-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        dir="rtl"
+                    >
+                        <div className="permission-modal-icon">
+                            🔒
+                        </div>
+
+                        <h2>
+                            אין הרשאה לשינוי
+                        </h2>
+
+                        <p>
+                            רק מנהל מערכת יכול לשנות את הגדרות הבירה.
+                        </p>
+
+                        <button
+                            className="btn-primary"
+                            onClick={() => {setShowPermissionModal(false)
+                                resetFlow();
+                            }}
+                        >
+                            הבנתי
+                        </button>
+                    </div>
+                </div>
+            )}
             <DriveFileSearchModal
                 isOpen={pickerOpen}
                 onClose={() => setPickerOpen(false)}
@@ -302,7 +344,7 @@ export default function ManualBatchAssignment({ brews }: Props) {
                     </div>
                     <div className="critical-actions">
                         <button className="btn-primary" onClick={handleOpenPicker}>
-                             {<Paperclip size={16} />}{"      "}
+                            {<Paperclip size={16} />}{"      "}
                             {picked ? "בחר קובץ אחר" : "בחר טופס מהדרייב"}
                         </button>
                     </div>

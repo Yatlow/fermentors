@@ -33,7 +33,6 @@ type Recommendation = {
 };
 
 
-type ContainerRecos = Record<string, Recommendation>;
 
 export default function SendMessurmentsHeader({
     brews,
@@ -54,6 +53,7 @@ export default function SendMessurmentsHeader({
         unvalidMessurments: []
     });
     const [sendResults, setSendResults] = useState<writeReadingResult[]>([]);
+    const [showSendStatus, setShowSendStatus] = useState(false);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [rcs, setRcs] = useState<RecommendationsByTank>({});
 
@@ -64,7 +64,6 @@ export default function SendMessurmentsHeader({
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [showScrollHint, setShowScrollHint] = useState(false);
-    const [hasUrgentDisplayRecos, setHasUrgentDisplayRecos] = useState(true);
 
     const checkScrollState = () => {
         const el = scrollRef.current;
@@ -135,6 +134,7 @@ export default function SendMessurmentsHeader({
     };
 
     const handleRecClick = async () => {
+        setShowSendStatus(false);
         if (!specs) {
             console.warn("Specs are not loaded yet");
             return;
@@ -181,7 +181,9 @@ export default function SendMessurmentsHeader({
                 const recommendations = await getRecs();
 
                 setRcs(recommendations);
+                setSendingReading("sent");
                 setSendingReading(Object.keys(recommendations).length ? "sent" : "error");
+
             } catch (error) {
                 console.error("Failed to update database:", error);
             }
@@ -246,6 +248,7 @@ export default function SendMessurmentsHeader({
     };
 
     const sendReadings = async () => {
+        setShowSendStatus(true)
         setConfirmMissing({ open: false, missingTanks: [] });
         setConfirmMessurments({ open: false, unvalidMessurments: [] });
         setWriteWarning(null);
@@ -439,14 +442,6 @@ export default function SendMessurmentsHeader({
                         return [tank.tankNumber, rec] as const;
                     })
                 );
-                const recos: Record<string, ContainerRecos> = Object.fromEntries(entries);
-                console.log("Computed recommendations:", recos);
-
-                const hasUrgentDisplayRecos = Object.values(recos).some((rec) =>
-                    Object.values(rec).some((value) => value?.req === true && value?.display === true)
-                );
-                setHasUrgentDisplayRecos(hasUrgentDisplayRecos);
-                console.log("Has urgent display recommendations:", hasUrgentDisplayRecos);
                 setRcs(Object.fromEntries(entries));
                 setSendingReading("sent");
                 setNewReadings({});
@@ -474,7 +469,6 @@ export default function SendMessurmentsHeader({
             }
 
             setSendResults(res);
-
             if (reportName === "פעולות") {
                 const dryHopEntries = readingsToSend.filter(
                     (r) => (r as any).dryHopGrams && (r as any).dryHopType
@@ -658,9 +652,7 @@ export default function SendMessurmentsHeader({
                 }
                 const pDelata = currentPressure - newPressure;
                 if (pDelata)
-                    console.log("pDelata", pDelata, "currentPressure", currentPressure, "newPressure", newPressure)
                 if (pDelata < -0.5) {
-                    console.log("yesterdayMeasurement?.notes", yesterdayMeasurement?.notes, "1234")
                     if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
                         || yesterdayMeasurement?.notes?.toString().includes("סגירה")
                         || yesterdayMeasurement?.notes?.toString().includes("העלאת")
@@ -670,7 +662,6 @@ export default function SendMessurmentsHeader({
                     }
                 }
                 if (pDelata > 0.5) {
-                    console.log("yesterdayMeasurement?.notes", yesterdayMeasurement?.notes)
                     if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
                         || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
                     )) {
@@ -706,7 +697,6 @@ export default function SendMessurmentsHeader({
 
             })
             if (invalidText.length > 0) {
-                console.log("invalidText", invalidText)
                 setSendingReading("idle")
                 setConfirmMessurments({ open: true, unvalidMessurments: invalidText })
             } else {
@@ -787,6 +777,12 @@ export default function SendMessurmentsHeader({
 
     const dailyActionRecommendation = getDailyActionRecommendation();
 
+    const hasRecommendations = brews.some((tank) => {
+        if (Number(tank.tankNumber) === 1) return false;
+        if (Number(tank.action) !== 1) return false;
+
+        return getActiveRecommendations(tank.tankNumber ?? "").length > 0;
+    });
 
     return (
         <>
@@ -882,10 +878,15 @@ export default function SendMessurmentsHeader({
                                         </button>
                                     </div>
                                     <div className="status-sent">
-                                        {<p>
-                                          {Object.keys(sendResults).length > 0 ? " הנתונים נשלחו בהצלחה" : "שולח נתונים..."}
-                                        </p>}
-                                        {hasUrgentDisplayRecos && (<>
+                                        {showSendStatus && (
+                                            <p>
+                                                {sendResults.length > 0
+                                                    ? "הנתונים נשלחו בהצלחה"
+                                                    : "שולח נתונים..."
+                                                }
+                                            </p>
+                                        )}
+                                        {hasRecommendations && (<>
                                             <p>מצורפות המלצות לסלרינג!</p>
                                             <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
                                         </>)}

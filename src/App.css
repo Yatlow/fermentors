@@ -3142,6 +3142,11 @@ body {
   color: #92400e;
 }
 
+.specificWarningP {
+  flex: 0 2 auto;
+  border: purple 2px solid;
+}
+
 /* כפתור נסה שוב */
 .write-warning-banner .btn-secondary {
   flex: 0 0 auto;
@@ -3211,6 +3216,16 @@ body {
     padding: 4px 8px;
 
     font-size: 0.62rem;
+  }
+
+  .specificBtnBox {
+    gap: 6px;
+  }
+
+  .specificBtnBox button {
+    min-height: 44px;
+    padding: 8px 6px;
+    font-size: 0.78rem;
   }
 }
 
@@ -4589,6 +4604,22 @@ body {
   font-weight: bold !important;
 }
 
+.specificBtnBox {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+.specificBtnBox button{
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: normal;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 @media (max-width: 480px) {
   .manual-batch-status-grid {
     grid-template-columns: 1fr;
@@ -4737,9 +4768,7 @@ body {
 }
 
 @media (max-width: 300px) {
-  .write-warning-banner{
 
-  }
   .write-warning-banner.critical .critical-actions {
     flex-direction: column;
   }
