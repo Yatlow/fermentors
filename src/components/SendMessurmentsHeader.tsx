@@ -32,6 +32,9 @@ type Recommendation = {
     display: boolean;
 };
 
+
+type ContainerRecos = Record<string, Recommendation>;
+
 export default function SendMessurmentsHeader({
     brews,
     newReadings,
@@ -61,6 +64,7 @@ export default function SendMessurmentsHeader({
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [showScrollHint, setShowScrollHint] = useState(false);
+    const [hasUrgentDisplayRecos, setHasUrgentDisplayRecos] = useState(true);
 
     const checkScrollState = () => {
         const el = scrollRef.current;
@@ -435,7 +439,14 @@ export default function SendMessurmentsHeader({
                         return [tank.tankNumber, rec] as const;
                     })
                 );
+                const recos: Record<string, ContainerRecos> = Object.fromEntries(entries);
+                console.log("Computed recommendations:", recos);
 
+                const hasUrgentDisplayRecos = Object.values(recos).some((rec) =>
+                    Object.values(rec).some((value) => value?.req === true && value?.display === true)
+                );
+                setHasUrgentDisplayRecos(hasUrgentDisplayRecos);
+                console.log("Has urgent display recommendations:", hasUrgentDisplayRecos);
                 setRcs(Object.fromEntries(entries));
                 setSendingReading("sent");
                 setNewReadings({});
@@ -635,6 +646,8 @@ export default function SendMessurmentsHeader({
                 const currentPlato = Number(readingSet.current?.plato);
                 const newPlato = Number(readingSet.new.plato);
 
+
+
                 if (currentTemp - newTemp > 5 || newTemp - currentTemp > 5) {
                     if (currentTemp - newTemp > 5) {
                         const cooled = yesterdayMeasurement?.notes?.toString().includes("קירור") ||
@@ -644,7 +657,10 @@ export default function SendMessurmentsHeader({
                     }
                 }
                 const pDelata = currentPressure - newPressure;
+                if (pDelata)
+                    console.log("pDelata", pDelata, "currentPressure", currentPressure, "newPressure", newPressure)
                 if (pDelata < -0.5) {
+                    console.log("yesterdayMeasurement?.notes", yesterdayMeasurement?.notes, "1234")
                     if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
                         || yesterdayMeasurement?.notes?.toString().includes("סגירה")
                         || yesterdayMeasurement?.notes?.toString().includes("העלאת")
@@ -654,6 +670,7 @@ export default function SendMessurmentsHeader({
                     }
                 }
                 if (pDelata > 0.5) {
+                    console.log("yesterdayMeasurement?.notes", yesterdayMeasurement?.notes)
                     if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
                         || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
                     )) {
@@ -689,11 +706,13 @@ export default function SendMessurmentsHeader({
 
             })
             if (invalidText.length > 0) {
+                console.log("invalidText", invalidText)
+                setSendingReading("idle")
                 setConfirmMessurments({ open: true, unvalidMessurments: invalidText })
             } else {
+                setSendingReading("getRecs")
                 void sendReadings()
             }
-            setSendingReading("getRecs")
         } catch (error) {
             void sendReadings()
         }
@@ -863,12 +882,13 @@ export default function SendMessurmentsHeader({
                                         </button>
                                     </div>
                                     <div className="status-sent">
-                                        {Object.keys(sendResults).length > 0 && <p>
-                                            הנתונים נשלחו בהצלחה
+                                        {<p>
+                                          {Object.keys(sendResults).length > 0 ? " הנתונים נשלחו בהצלחה" : "שולח נתונים..."}
                                         </p>}
-
-                                        <p>מצורפות המלצות לסלרינג!</p>
-                                        <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
+                                        {hasUrgentDisplayRecos && (<>
+                                            <p>מצורפות המלצות לסלרינג!</p>
+                                            <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
+                                        </>)}
 
                                     </div>
 
