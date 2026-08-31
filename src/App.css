@@ -238,8 +238,8 @@ body {
   }
 
   .header-logo {
-    width: 34px;
-    height: 34px;
+    width: 100px;
+    height: 100px;
   }
 
   .views-box {
@@ -302,10 +302,11 @@ body {
 }
 
 .header-logo {
-  width: 36px;
-  height: 36px;
+  width: 56px;
+  height: 56px;
   object-fit: cover;
   border-radius: 50%;
+  cursor: pointer;
 }
 
 .login-logo {
@@ -705,7 +706,7 @@ body {
   margin-top: 2px;
 }
 
-.pasivation-date-row {
+.pasivation-date-row,.Tank-note-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -713,6 +714,9 @@ body {
   background: #f8fafc;
   padding: 3px 6px;
   border-radius: 4px;
+}
+.Tank-note-row{
+  font-weight: bold;
 }
 
 .pasivation-value-group {
@@ -1582,6 +1586,7 @@ body {
   color: #94a3b8;
 }
 
+
 .measurement-input input:focus {
   border-color: var(--primary);
 
@@ -1595,7 +1600,7 @@ body {
 .measurement-input span {
   position: absolute;
 
-  right: 30px;
+  right: 35px;
   color: #000000;
 
   font-size: 0.65rem;

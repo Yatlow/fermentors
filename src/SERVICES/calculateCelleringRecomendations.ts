@@ -92,14 +92,14 @@ export function isPressureOutOfRange(
             .split(/\s+/)[0];;
     const target =
         pressureSpecs[normalizedStyle] ?? pressureSpecs.other;
-    const tolerance = givenSpecs.tolorances.pressure ?? 0.01;
-    const onSpec = value >= target + tolerance ||
-        value <= target - tolerance;
+    const tolerance = givenSpecs.tolorances.pressure ?? 0.02;
+    const onSpec = value === target|| (value<= target + tolerance && value>= target - tolerance)
     let howBad = 0;
     if (onSpec) howBad = 1;
-    if (value >= target + 0.1 || value <= target - 0.1) {
+    if (value >= target + tolerance+  0.04 || value <= target - tolerance- 0.04) {
         howBad = 3
-    } else if (value >= target + tolerance + 0.03 || value <= target - tolerance + 0.03) {
+    }
+     if ((value > target + tolerance && value < target + tolerance+0.04) || (value < target - tolerance && value >target - tolerance - 0.04)) {
         howBad = 2
     }
 
@@ -855,7 +855,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const displaySpecifics = calcDisplaySpecifics()
-    console.log(displaySpecifics)
     // const displaySpecifics = isAnActionDay && (TankCardUse? true: tankNumber ? nextWeekPack.includes(tankNumber) : false)
     const requiresDailyActions = {
         req: displaySpecifics,

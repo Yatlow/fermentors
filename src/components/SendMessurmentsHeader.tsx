@@ -288,6 +288,7 @@ export default function SendMessurmentsHeader({
 
         let packagingEntries: any[] = [];
         if (reportName === "אריזה") {
+            setSendingReading("loading")
             const enrichedReadings = await Promise.all(
                 readingsToSend.map(async (r) => {
                     const tank = brews.find((b) => b.id === r.tankId);
@@ -318,7 +319,7 @@ export default function SendMessurmentsHeader({
 
                         const shrinkageText =
                             shrinkagePercent !== undefined
-                                ? `סה"כ ${totalLiters.toFixed(2)} ליטר, פחת ${shrinkagePercent.toFixed(2)}%`
+                                ? `סה"כ ${totalLiters.toFixed(2)} ליטר , פחת ${shrinkagePercent.toFixed(2)}%`
                                 : `סה"כ ${totalLiters.toFixed(2)} ליטר`;
 
                         const existingNotes =
@@ -326,6 +327,10 @@ export default function SendMessurmentsHeader({
 
                         r = {
                             ...r,
+                            kegs: (r as any).kegs,
+                            crates: (r as any).crates,
+                            totalLiters,
+                            shrinkagePercent,
                             notes: existingNotes
                                 ? `${existingNotes}, ${shrinkageText}`
                                 : shrinkageText,
@@ -360,7 +365,6 @@ export default function SendMessurmentsHeader({
                             packagingType === "kegs"
                                 ? Number(e.kegs) / 20 // KEG_LITERS
                                 : Number(e.crates) / 0.33; // BOTTLE_LITERS
-
                         return logPackagingToMasterSheet({
                             beerStyle: tank?.beerStyle,
                             packagingType,
@@ -495,9 +499,9 @@ export default function SendMessurmentsHeader({
                     );
                 }
             }
-
             if (reportName === "אריזה") {
                 try {
+
                     const packagingResults = await updatePackagingInfo(packagingEntries);
                     const withWarnings = packagingResults.filter(
                         (r: any) => r.warnings && r.warnings.length > 0
@@ -652,15 +656,15 @@ export default function SendMessurmentsHeader({
                 }
                 const pDelata = currentPressure - newPressure;
                 if (pDelata)
-                if (pDelata < -0.5) {
-                    if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
-                        || yesterdayMeasurement?.notes?.toString().includes("סגירה")
-                        || yesterdayMeasurement?.notes?.toString().includes("העלאת")
-                        || yesterdayMeasurement?.notes?.toString().includes("להעלות לחץ")
-                    )) {
-                        invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ של יותר מ0.5bar למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
+                    if (pDelata < -0.5) {
+                        if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
+                            || yesterdayMeasurement?.notes?.toString().includes("סגירה")
+                            || yesterdayMeasurement?.notes?.toString().includes("העלאת")
+                            || yesterdayMeasurement?.notes?.toString().includes("להעלות לחץ")
+                        )) {
+                            invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ של יותר מ0.5bar למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
+                        }
                     }
-                }
                 if (pDelata > 0.5) {
                     if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
                         || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")

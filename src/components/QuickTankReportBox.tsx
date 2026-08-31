@@ -142,6 +142,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             tankNumber: tank.tankNumber,
             sheetUrl: tank.sheetUrl ?? null,
             notes: noteText,
+
         };
         if (noteType === "גיזוז") reading.carbonation = value;
 
@@ -222,6 +223,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 crates: packagingType === "bottles" && reportLiters > 0 ? reportLiters : undefined,
                 // רושמים גם את הלחץ החדש כמדידת לחץ רגילה של המיכל
                 pressure: !isEmpty && hasValidPressure ? Number(pressureAfter) : undefined,
+                totalLiters,        // ← לא קיים!
+                shrinkagePercent,   // ← לא קיים!
             };
 
             const res = await writeReadingsToSheets([reading]);

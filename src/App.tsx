@@ -72,10 +72,16 @@ export type Fermentor = {
     carbonation?: string | number | null;
     volume?: string | number | null;
     notes?: string | null;
+    crates?: number |null;
+    kegs?: number |null;
+    shrinkagePercent?: number |null;
+    totalLiters?: number |null;
   } | null;
 
   [key: string]: unknown;
   stage?: TankStageInfo;
+
+  specificTankNote?: string | null;
 };
 
 export type NewReading = {
@@ -92,6 +98,8 @@ export type NewReading = {
   refreshTank?: boolean;      // מהתשובה הקודמת (חלק א')
   dryHopGrams?: number;       // חדש
   dryHopType?: string;
+  totalLiters?:number;
+  shrinkagePercent?:number;
 };
 export type ReadingToSend = NewReading & {
   tankId: string;
@@ -125,7 +133,7 @@ async function updateLastLoggedInAndGetAdminStatus(user: any) {
       console.warn(`User ${user.email} was not found in approvedUsers`);
       return false;
     }
-    
+
     const data = userDoc.data();
     const isAdmin = data?.isAdmin === true;
 
@@ -151,7 +159,7 @@ function useAuth() {
       setUser(user);
       setLoading(false);
 
-       if (!user) {
+      if (!user) {
         setAdmin(false);
         setLoading(false);
         return;
@@ -169,7 +177,7 @@ function useAuth() {
         setLoading(false);
       }
 
-    return () => unsubscribe();
+      return () => unsubscribe();
     })
   }, []);
 
@@ -528,6 +536,7 @@ function App() {
               src={shpiro}
               alt="Shpiro"
               className="header-logo"
+              onClick={()=>window.location.reload()}
             />
 
             <div className="views-box">
@@ -739,7 +748,7 @@ function App() {
                 }
               >
                 <span>
-                  הגדרות לבירה
+                  הגדרות מערכת
                 </span>
               </button>
               <button
@@ -840,7 +849,7 @@ function App() {
       {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
       {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
       {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
-      {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin}/>}
+      {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
     </div>
   );
 }

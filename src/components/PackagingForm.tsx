@@ -71,18 +71,20 @@ export default function PackagingForm({
         const parts: string[] = [];
 
         if (row.packagingType === "kegs" && Number(row.amount) > 0) {
-            parts.push(`הורדת ${row.amount} חביות- ${(Number(row.amount) * KEG_LITERS).toFixed(2)}`);
+            parts.push(`הורדת ${row.amount} חביות- `);
+            // parts.push(`הורדת ${row.amount} חביות- ${(Number(row.amount) * KEG_LITERS).toFixed(2)}`);
         }
         if (row.packagingType === "bottles" && Number(row.amount) > 0) {
             parts.push(
-                `הורדת ${Number(row.amount)} בקבוקים- ${(Number(row.amount) * BOTTLE_LITERS).toFixed(2)}`
+                `הורדת ${Number(row.amount)} בקבוקים- `
+                // `הורדת ${Number(row.amount)} בקבוקים- ${(Number(row.amount) * BOTTLE_LITERS).toFixed(2)}`
             );
         }
 
         let text = parts.join(", ");
 
         if (reportLiters > 0) {
-            text += `${text ? " ," : ""}סה"כ ${reportLiters.toFixed(2)} ליטר`;
+            text += `${text ? " ," : ""}שהם ${reportLiters.toFixed(2)} ליטר`;
         }
 
         // פיצ'ר 1: הוספת הורדת לחץ (רק אם המיכל לא ריק)

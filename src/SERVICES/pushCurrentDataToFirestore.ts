@@ -9,6 +9,11 @@ const CURRENT_DATA_FIELDS = [
     "carbonation",
     "volume",
     "notes",
+    "isEmpty",
+    "kegs",
+    "crates",
+    "totalLiters",
+    "shrinkagePercent",
 ] as const;
 
 type ReadingLike = { tankId: string; [key: string]: unknown };

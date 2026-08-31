@@ -18,6 +18,8 @@ import FermentorInfoBox from "./FermentorInfoBox";
 import type { SpecChart } from "../SERVICES/getSpecsFromFb";
 import QuickTankReportBox from "./QuickTankReportBox";
 import BatchHistoryChart from "./Batchhistorychart";
+import { Pencil, MessageCirclePlus, SaveCheck } from 'lucide-react';
+import { updateSpecficNote } from "../SERVICES/updateSpecficNote";
 
 
 type TankCardProps = {
@@ -356,6 +358,7 @@ function TankCard({
   const [showQuickReport, setShowQuickReport] = useState(false);
   const [quickReportPosition, setQuickReportPosition] = useState<{ top: number; left: number } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [specificTankNote, setSpecificTankNote] = useState({ note: "", edit: false })
 
 
   function computePopupPosition(rect: DOMRect): { top: number; left: number } {
@@ -397,9 +400,12 @@ function TankCard({
         false,
     });
 
+    setSpecificTankNote({ note: tank.specificTankNote ?? "", edit: false })
+
   }, [
     tank.action,
     tank.pasivationDate,
+    tank.specificTankNote,
   ]);
 
 
@@ -984,6 +990,7 @@ function TankCard({
       stageInfo.name === "נקי" ||
       stageInfo.name === "מחוטא"
     );
+
   const pressureIsOk =
     specs && tank.currentData?.pressure != null
       ? isPressureOutOfRange(
@@ -995,6 +1002,9 @@ function TankCard({
         onSpec: false,
         howBad: 0,
       };
+  if (Number(tank.currentData?.temp) > 9) {
+
+  }
   const CarbIsOk =
     specs && tank.currentData?.carbonation != null
       ? isCarbonationOutOfRange(
@@ -1006,6 +1016,12 @@ function TankCard({
         outOfSpec: false,
         importance: 1,
       };
+  const crates = tank.currentData?.crates;
+  const kegs = tank.currentData?.kegs;
+  const totalLiters = tank.currentData?.totalLiters;
+  const shrinkagePercent = tank.currentData?.shrinkagePercent;
+
+
   return (
     <>
       {(showInfo && Number(tank.tankNumber) !== 1) && (
@@ -1065,7 +1081,7 @@ function TankCard({
         {/* ==================================================== */}
 
         <div className="tank-header">
-        
+
           <span className="tank-number">
             מיכל
             {tank.id === "1" ? " 1- CLT" : `  ${tank.tankNumber}-`}
@@ -1157,123 +1173,111 @@ function TankCard({
 
           )}
 
+        {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && (
 
-        {/* ==================================================== */}
-        {/* DATA */}
-        {/* ==================================================== */}
+          <div className="tank-data">
 
-        {Number(tank.tankNumber) > 1 && stageInfo.name !==
-          "בישול חדש" && (
+            <div>
 
-            <div className="tank-data">
+              <span>
+                טמפ':
+              </span>{" "}
 
-              <div>
+              {
+                tank.currentData
+                  ?.temp ?? "—"
+              }
 
-                <span>
-                  טמפ':
-                </span>{" "}
+              °C
 
-                {
-                  tank.currentData
-                    ?.temp ?? "—"
-                }
-
-                °C
-
-              </div>
-
-
-              <div>
-
-                <span>
-                  סוכר:
-                </span>{" "}
-
-                {
-                  tank.currentData
-                    ?.plato ?? "—"
-                }
-
-                °P
-
-              </div>
-
-
-              <div>
-
-                <span>
-                  pH:
-                </span>{" "}
-
-                {
-                  tank.currentData
-                    ?.pH ?? "—"
-                }
-
-              </div>
-
-
-              <div>
-
-                <span>
-                  נפח:
-                </span>{" "}
-
-                {
-                  tank.beerVolume ??
-                  "—"
-                }
-
-                {" "}ל'
-
-              </div>
-
-
-              {stageInfo.name ===
-                "קר" && (
-
-                  <div>
-
-                    <span>
-                      גיזוז:
-                    </span>{" "}
-
-                    <span className={`carbPressureDisplay-${CarbIsOk.importance}`}>
-                      {
-                        tank.currentData
-                          ?.carbonation ??
-                        "—"
-                      }
-                    </span>
-
-                  </div>
-
-                )}
-              <div>
-                <span>
-                  לחץ:
-                </span>{" "}
-
-                {
-                  stageInfo.name === "בתסיסה" && tank?.currentData?.pressure ? (<span className={`carbPressureDisplay-${pressureIsOk.howBad}`}>{tank.currentData?.pressure ??
-                    "—"}</span>) :
-                    tank.currentData?.pressure ??
-                    "—"
-                }
-
-                {" "}bar
-
-              </div>
             </div>
 
 
-          )}
+            <div>
+
+              <span>
+                סוכר:
+              </span>{" "}
+
+              {
+                tank.currentData
+                  ?.plato ?? "—"
+              }
+
+              °P
+
+            </div>
 
 
-        {/* ==================================================== */}
-        {/* STATUS SELECT */}
-        {/* ONLY EMPTY / CLEAN / SANITIZED */}
-        {/* ==================================================== */}
+            <div>
+
+              <span>
+                pH:
+              </span>{" "}
+
+              {
+                tank.currentData
+                  ?.pH ?? "—"
+              }
+
+            </div>
+
+
+            <div>
+
+              <span>
+                נפח:
+              </span>{" "}
+
+              {
+                tank.beerVolume ??
+                "—"
+              }
+
+              {" "}ל'
+
+            </div>
+
+
+            {stageInfo.name ===
+              "קר" && (
+
+                <div>
+
+                  <span>
+                    גיזוז:
+                  </span>{" "}
+
+                  <span className={`carbPressureDisplay-${CarbIsOk.importance}`}>
+                    {
+                      tank.currentData
+                        ?.carbonation ??
+                      "—"
+                    }
+                  </span>
+
+                </div>
+
+              )}
+            <div>
+              <span>
+                לחץ:
+              </span>{" "}
+
+              {
+                stageInfo.name === "בתסיסה" && tank?.currentData?.pressure ? (<span className={`carbPressureDisplay-${pressureIsOk.howBad}`}>{tank.currentData?.pressure ??
+                  "—"}</span>) :
+                  tank.currentData?.pressure ??
+                  "—"
+              }
+
+              {" "}bar
+
+            </div>
+          </div>
+
+
+        )}
 
         {Number(tank.tankNumber) > 1 && showEmptyTankSelect && (
 
@@ -1319,6 +1323,182 @@ function TankCard({
           </div>
 
         )}
+
+        {Number(tank.tankNumber) > 1 && (stageInfo.name === "מלוכלך" || stageInfo.name === "נקי" || stageInfo.name === "מחוטא") && (
+
+          <div className="tank-data">
+
+            <div>
+              <span>
+                ארגזים שנארזו:
+              </span>{" "}
+
+              {(Number.isFinite(crates) && crates)
+                 ? Math.round(crates / 0.33 / 24)
+                : "—"}
+            </div>
+
+
+            <div>
+              <span>
+                חביות שנארזו:
+              </span>{" "}
+
+              {(Number.isFinite(kegs) && kegs)
+                ? Math.round(kegs / 20)
+                : "—"}
+            </div>
+
+
+            <div>
+              <span>
+                סה"כ ליטר שנארז:
+              </span>{" "}
+
+              {(Number.isFinite(totalLiters) && totalLiters)
+                ? totalLiters.toFixed(2)
+                : "—"}
+            </div>
+
+
+            <div>
+              <span>
+                פחת:
+              </span>{" "}
+
+              {(Number.isFinite(shrinkagePercent) && shrinkagePercent)
+                ? (shrinkagePercent / -1).toFixed(2)
+                : "—"}
+            </div>
+          </div>
+        )}
+
+
+        {specificTankNote.note && !specificTankNote.edit && (
+          <div className="Tank-note-row">
+
+            <span>הערה למיכל: </span>
+            <span>
+              {specificTankNote.note}{" "}
+              <button
+                type="button"
+
+                className="pasivation-edit-button"
+
+                title="עריכת הערה"
+
+                onClick={(event) => {
+
+                  event.stopPropagation();
+
+                  setSpecificTankNote(
+                    (prev) => ({
+                      ...prev,
+                      edit:
+                        true,
+                    })
+                  );
+
+                }}
+              >
+
+                <Pencil size={16} />
+
+              </button>
+            </span>
+          </div>
+
+        )}
+        {specificTankNote.edit && (
+          <div className="Tank-note-row">
+
+            <input
+              value={specificTankNote.note ?? ""}
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+              onChange={(e) => {
+                setSpecificTankNote(
+                  (prev) => ({
+                    ...prev,
+                    note:
+                      e.target.value,
+                  })
+                );
+              }}
+            ></input>
+            <span>
+              <button
+                type="button"
+
+                className="pasivation-edit-button"
+
+                title="שמירת הערה"
+
+                onClick={async (event) => {
+
+                  event.stopPropagation();
+
+                  setSpecificTankNote(
+                    (prev) => ({
+                      ...prev,
+                      edit:
+                        true,
+                    })
+                  );
+                  await updateSpecficNote(specificTankNote.note, tank.id)
+                  setSpecificTankNote(
+                    (prev) => ({
+                      ...prev,
+                      edit:
+                        false,
+                    })
+                  );
+                }}
+              >
+
+                <SaveCheck size={16} />
+
+              </button>
+            </span>
+          </div>
+
+        )}
+        {!specificTankNote.note && !specificTankNote.edit && (
+          <div className="Tank-note-row">
+            <span>הוספת הערה למיכל: </span>
+            <span>
+              <button
+                type="button"
+
+                className="pasivation-edit-button"
+
+                title="הוספת הערה"
+
+                onClick={async (event) => {
+
+                  event.stopPropagation();
+
+                  setSpecificTankNote(
+                    (prev) => ({
+                      ...prev,
+                      edit:
+                        true,
+                    })
+                  );
+                }}
+              >
+
+                <MessageCirclePlus size={16} />
+
+              </button>
+            </span>
+          </div>
+
+        )}
+
+
+
 
 
         {/* ==================================================== */}
@@ -1375,7 +1555,7 @@ function TankCard({
                         .reverse()
                         .join("/")
                       : "אין תאריך"}
-
+                    {" "}
                   </span>
 
 
@@ -1402,7 +1582,7 @@ function TankCard({
                     }}
                   >
 
-                    ✎
+                    <Pencil size={16} />
 
                   </button>
 
