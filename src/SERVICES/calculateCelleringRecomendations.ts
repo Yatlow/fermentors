@@ -811,7 +811,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const alreadyadjustedPtargetToday = lastNote?.includes("כיוון פורק") || lastNote?.includes("לכוון פורק");
     const requiredPressureAdjustment = {
         display: true,
-        req: stage.name === "בתסיסה" && !alreadyadjustedPtargetToday && Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && isPressureOutOfRangeVal.onSpec,
+        req: stage.name === "בתסיסה" && !alreadyadjustedPtargetToday && Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && !isPressureOutOfRangeVal.onSpec,
         reason: `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: isPressureOutOfRangeVal.howBad
     }
