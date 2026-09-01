@@ -4947,7 +4947,17 @@ body {
   gap: 3px;
   align-items: center;
 }
-
+.removeEmailBtn{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.removeEmailBtn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
 @media (max-width: 480px) {
 
   .brew-progress {
@@ -4987,10 +4997,36 @@ body {
   .brew-progress-time {
     font-size: 0.6rem;
   }
+  .specific-flexheader{
+    flex-direction: column;
+    height: 100px;
+  }
+  .specific-flexheader input{
+    width: 55% ;
+  }
+  .specific-flexheader button{
+    width: 55% ;
+  }
+  .email-label{
+    font-size: 0.65rem;
+  }
+  .removeEmailBtn{
+    max-width: 30%;
+    width: 30%;
+    min-width: 55px;
+    max-height: 30px;   
+    height: 10%;
+    min-height:30px ;   
+   padding: 2px 1px;
+   gap: 2px;
 
-}
-.removeEmailBtn{
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  }
+  .removeEmailBtn span{
+    font-size: 0.65rem;
+  }
+  .removeEmailBtn svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
 }

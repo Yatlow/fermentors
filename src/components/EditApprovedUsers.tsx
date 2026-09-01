@@ -209,24 +209,6 @@ export default function EditApprovedUsers(
                 email,
             },"SOy_TDtKEy-_xaKWw");
             
-            // await emailjs.send(
-            //     "service_r6sx6s2",
-            //     "template_3dzpfwv",
-            //     {
-            //         to_email: email,
-            //         message: "התווספת לרשימת המשתמשים המאושרים במערכת."
-            //     },
-            //     "SOy_TDtKEy-_xaKWw"
-            // );
-            // await emailjs.send(
-            //     "service_r6sx6s2",
-            //     "template_uhrmohh",
-            //     {
-            //         to_email: "yisrael@atlow.co.il",
-            //         message: email + "התווספת לרשימת המשתמשים המאושרים במערכת."
-            //     },
-            //     "SOy_TDtKEy-_xaKWw"
-            // );
         } catch (err) {
             console.error("Error sending approval email:", err);
             // לא חוסמים את התהליך העיקרי אם שליחת המייל נכשלה
@@ -338,8 +320,10 @@ export default function EditApprovedUsers(
                 </div>
 
                 <div
-                    className="spec-fields"
-                    style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                    className="spec-fields specific-flexheader"
+                    style={{ display: "flex", gap: "8px", alignItems: "center" 
+                       
+                    }}
                 >
 
                     <input
@@ -403,7 +387,7 @@ export default function EditApprovedUsers(
                                 }}
                             >
 
-                                <span className="spec-field-label">
+                                <span className="spec-field-label email-label">
                                     {user.email}
                                 </span>
 
@@ -412,7 +396,7 @@ export default function EditApprovedUsers(
                                     onClick={() => handleRemove(user.id)}
                                     disabled={saving}
                                 >
-                                    הסר
+                                    <span>הסר</span>
                                     <Trash2 size={16} />
                                 </button>
 
