@@ -706,7 +706,8 @@ body {
   margin-top: 2px;
 }
 
-.pasivation-date-row,.Tank-note-row {
+.pasivation-date-row,
+.Tank-note-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -715,7 +716,8 @@ body {
   padding: 3px 6px;
   border-radius: 4px;
 }
-.Tank-note-row{
+
+.Tank-note-row {
   font-weight: bold;
 }
 
@@ -4616,7 +4618,8 @@ body {
   width: 100%;
   margin-top: 4px;
 }
-.specificBtnBox button{
+
+.specificBtnBox button {
   flex: 1 1 0;
   min-width: 0;
   white-space: normal;
@@ -4782,4 +4785,207 @@ body {
     max-width: 100%;
     /* מבטל את ה-50% הישן שגם הוא תרם לצמצום */
   }
+}
+
+/* =========================================================
+   BREW PROGRESS (live stage indicator, "בישול חדש")
+   ========================================================= */
+.brew-progress-block {
+  flex: 0 0 auto;
+
+  padding: 2px 8px;
+
+  border-radius: var(--radius-pill);
+  background: #d97706;
+  color: #fffbeb;
+
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1.4;
+
+  white-space: nowrap;
+}
+
+.brew-progress-idle {
+  opacity: 0.7;
+}
+
+.brew-progress-idle .brew-progress-block {
+  background: #cbd5e1;
+  color: #475569;
+}
+
+.brew-progress-idle .brew-progress-stage {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.brew-progress {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  margin-top: 2px;
+  padding: 5px 8px 5px 9px;
+
+  background: var(--stage-brewing);
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-pill);
+
+  direction: rtl;
+}
+
+/* --- live dot: pulsing ring, not a flat blink --- */
+
+.brew-progress-live {
+  position: relative;
+
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+}
+
+.brew-progress-live-dot {
+  position: absolute;
+  inset: 0;
+
+  border-radius: 50%;
+  background: #d97706;
+}
+
+.brew-progress-live-dot::after {
+  content: "";
+
+  position: absolute;
+  inset: 0;
+
+  border-radius: 50%;
+  background: #d97706;
+
+  animation: brewLivePulse 1s ease-out infinite;
+}
+
+@keyframes brewLivePulse {
+
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .brew-progress-live-dot::after {
+    animation: none;
+    display: none;
+  }
+}
+
+/* --- block letter badge (A / B / C) --- */
+
+.brew-progress-block {
+  flex: 0 0 auto;
+
+  width: 18px;
+  height: 18px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 3px;
+  border-radius: 50%;
+  background: #d97706;
+  color: #fffbeb;
+
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* --- stage name + time --- */
+
+.brew-progress-text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+
+  min-width: 0;
+  flex: 1 1 auto;
+
+  overflow: hidden;
+}
+
+.brew-progress-stage {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--stage-brewing-text);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brew-progress-time {
+  flex: 0 0 auto;
+
+  font-variant-numeric: tabular-nums;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: #92400e;
+
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.brew-proces-brew {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+@media (max-width: 480px) {
+
+  .brew-progress {
+    gap: 5px;
+    padding: 4px 6px;
+
+    /* מאפשר לצ'יפ לגדול לגובה של 2 שורות */
+    /* align-items: flex-start; */
+    height: fit-content;
+  }
+  
+  .brew-progress-live {
+    /* מיישר את הנקודה לשורה הראשונה גם כשהצ'יפ גבוה יותר */
+    margin-top: 3px;
+  }
+
+  .brew-progress-block {
+    margin-top: 1px;
+    
+  }
+  
+  .brew-progress-text {
+    flex-wrap: wrap;
+    overflow: visible;
+    margin:1px 3px;
+  }
+  
+  .brew-progress-stage {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+
+    font-size: 0.66rem;
+    line-height: 1.35;
+  }
+
+  .brew-progress-time {
+    font-size: 0.6rem;
+  }
+
 }

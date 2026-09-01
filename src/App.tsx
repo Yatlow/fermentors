@@ -72,12 +72,25 @@ export type Fermentor = {
     carbonation?: string | number | null;
     volume?: string | number | null;
     notes?: string | null;
-    crates?: number |null;
-    kegs?: number |null;
-    shrinkagePercent?: number |null;
-    totalLiters?: number |null;
+    crates?: number | null;
+    kegs?: number | null;
+    shrinkagePercent?: number | null;
+    totalLiters?: number | null;
   } | null;
+  brewProgress?: {
+    blockCount?: number | null;
+    blockIndex?: number | null;
+    stageCode?: number | null;
+    stageName?: string | null;
 
+    stageStartTime?: string | null;
+    stageEndTime?: string | null;
+
+    stageStartTimeText?: string | null;
+    stageEndTimeText?: string | null;
+
+    dateAssumed?: boolean | null;
+  } | null;
   [key: string]: unknown;
   stage?: TankStageInfo;
 
@@ -98,8 +111,8 @@ export type NewReading = {
   refreshTank?: boolean;      // מהתשובה הקודמת (חלק א')
   dryHopGrams?: number;       // חדש
   dryHopType?: string;
-  totalLiters?:number;
-  shrinkagePercent?:number;
+  totalLiters?: number;
+  shrinkagePercent?: number;
 };
 export type ReadingToSend = NewReading & {
   tankId: string;
@@ -536,7 +549,7 @@ function App() {
               src={shpiro}
               alt="Shpiro"
               className="header-logo"
-              onClick={()=>window.location.reload()}
+              onClick={() => window.location.reload()}
             />
 
             <div className="views-box">

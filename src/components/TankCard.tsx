@@ -1155,6 +1155,46 @@ function TankCard({
         {/* BREW DATE */}
         {/* ==================================================== */}
 
+        {Number(tank.tankNumber) > 1 && stageInfo.name === "בישול חדש" && (
+          <div className={`brew-progress${tank?.brewProgress?.stageName ? "" : " brew-progress-idle"}`}>
+
+            {tank?.brewProgress?.stageName && (
+              <span className="brew-progress-live" aria-hidden="true">
+                <span className="brew-progress-live-dot" />
+              </span>
+            )}
+            <span className="brew-proces-brew">
+                {tank?.brewProgress?.blockIndex &&
+              <span className="brew-progress-text">
+                  בישול
+              </span>
+                  }
+              {tank?.brewProgress?.blockIndex &&
+                <span className="brew-progress-block">
+              {`${String.fromCharCode(64 + tank.brewProgress.blockIndex)}`}
+                </span>
+              }
+            </span>
+
+            <span className="brew-progress-text">
+              <span className="brew-progress-stage">
+                {tank?.brewProgress?.stageName ?? "עדיין לא בבישול"}
+              </span>
+
+              {tank?.brewProgress?.stageStartTimeText && (
+                <span className="brew-progress-time">
+                  {tank.brewProgress.stageStartTimeText}
+                  {tank?.brewProgress?.stageEndTimeText
+                    ? ` – ${tank.brewProgress.stageEndTimeText}`
+                    : ""}
+                </span>
+              )}
+            </span>
+
+          </div>
+        )}
+
+
         {Number(tank.tankNumber) > 1 && stageInfo.name !==
           "בישול חדש" && (
 
@@ -1334,7 +1374,7 @@ function TankCard({
               </span>{" "}
 
               {(Number.isFinite(crates) && crates)
-                 ? Math.round(crates / 0.33 / 24)
+                ? Math.round(crates / 0.33 / 24)
                 : "—"}
             </div>
 
