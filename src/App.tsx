@@ -30,6 +30,7 @@ import EditSpecs from "./components/EditSpecs";
 import BrewCalc from "./components/BrewerCalc";
 import ManualBatchAssignment from "./components/ManualBatchAssignment";
 import ManualStatusAssignment from "./components/Manualstatusassignment ";
+import EditApprovedUsers from "./components/EditApprovedUsers";
 
 
 
@@ -119,7 +120,6 @@ export type ReadingToSend = NewReading & {
   sheetUrl?: string | null;
 };
 type StatusCounts = Record<string, number>;
-
 
 
 
@@ -225,7 +225,7 @@ function App() {
     useState<"אריזה" | "גרפים">("אריזה");
 
   const [selectedAdminTools, setSelectedAdminTools] =
-    useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus">("calculator");
+    useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
 
   const [newReadings, setNewReadings] =
     useState<Record<string, NewReading>>({});
@@ -794,6 +794,21 @@ function App() {
                   שינוי סטטוס במיכל- ידנית
                 </span>
               </button>
+              <button
+                type="button"
+                className={`status-filter-button ${selectedAdminTools === "editEmails"
+                  ? "active"
+                  : ""
+                  }`}
+                onClick={() => {
+                  setSelectedAdminTools("editEmails")
+                }
+                }
+              >
+                <span>
+                  אימיילים מורשים
+                </span>
+              </button>
             </div>
           }
 
@@ -863,6 +878,7 @@ function App() {
       {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
       {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
       {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
+      {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
     </div>
   );
 }

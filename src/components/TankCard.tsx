@@ -1397,7 +1397,7 @@ function TankCard({
 
               {(Number.isFinite(totalLiters) && totalLiters)
                 ? totalLiters.toFixed(2)
-                : "—"}
+                : "—"}{" ל'"}
             </div>
 
 
@@ -1408,7 +1408,7 @@ function TankCard({
 
               {(Number.isFinite(shrinkagePercent) && shrinkagePercent)
                 ? (shrinkagePercent / -1).toFixed(2)
-                : "—"}
+                : "—"} {" %"}
             </div>
           </div>
         )}
