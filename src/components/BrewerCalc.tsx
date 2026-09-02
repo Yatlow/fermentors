@@ -395,11 +395,12 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                     const boxes = Number(
                                         ((packagingVol ?? 0) / 0.33 / 24).toFixed(1)
                                     );
-                                    const leftToPack= Number((
-                                        (packagingVol?? 0)- Number(selectedBrew?.currentData?.crates)- Number(selectedBrew?.currentData?.kegs) 
+                                    const leftToPack = Number((
+                                        (packagingVol ?? 0) - Number(selectedBrew?.currentData?.crates ?? 0) - Number(selectedBrew?.currentData?.kegs ?? 0)
                                     ))
+                                    console.log("leftToPack", leftToPack, Number(selectedBrew?.currentData?.crates), Number(selectedBrew?.currentData?.kegs))
                                     const leftToPackLabel = Number(selectedBrew?.currentData?.kegs) > 0 ? "ארגזים" : "חביות";
-                                    const leftToPackUnit = Number(selectedBrew?.currentData?.kegs) > 0 ? leftToPack/0.33/24 : leftToPack/20;
+                                    const leftToPackUnit = Number(selectedBrew?.currentData?.kegs) > 0 ? leftToPack / 0.33 / 24 : leftToPack / 20;
                                     updateField(
                                         "calcPacagingVol",
                                         "selectedTank",
@@ -650,10 +651,10 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                         {", "}נותר לארוז:
                         {" "}
                         <strong>
-                            {calcValues.calcPacagingVol.leftToPack.toFixed(1)} 
+                            {calcValues.calcPacagingVol.leftToPack.toFixed(1)}
                         </strong>
-                 
-                            {calcValues.calcPacagingVol.leftToPackLabel} 
+                        {" "}
+                        {calcValues.calcPacagingVol.leftToPackLabel}
                     </div>
 
                 </section>
