@@ -35,6 +35,8 @@ type CalcValues = {
         tankVol: number;
         boxes: number;
         selectedTank: number;
+        leftToPack: number;
+        leftToPackLabel: "ארגזים" | "חביות";
     };
 };
 
@@ -71,6 +73,8 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
             packagingLoss: 10,
             boxes: 252,
             selectedTank: 0,
+            leftToPack: 0,
+            leftToPackLabel: "חביות",
         },
     });
     const updateField = <
@@ -106,11 +110,11 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
             calcValues.alphaCalc.currentAlpha) /
         calcValues.alphaCalc.newAlpha;
 
-    function getPackagingVolumes(packagingVol:number) {
+    function getPackagingVolumes(packagingVol: number) {
         return {
             boxes: (packagingVol / 0.33) / 24,
             emptyBottleRows: (packagingVol / 0.33) / 361,
-            fullBottleRows: (packagingVol / 0.33) / 24/ 12,
+            fullBottleRows: (packagingVol / 0.33) / 24 / 12,
             kegs: packagingVol / 20
         }
     }
@@ -389,8 +393,13 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                     );
 
                                     const boxes = Number(
-                                        ((packagingVol?? 0) / 0.33 / 24).toFixed(1)
+                                        ((packagingVol ?? 0) / 0.33 / 24).toFixed(1)
                                     );
+                                    const leftToPack= Number((
+                                        (packagingVol?? 0)- Number(selectedBrew?.currentData?.crates)- Number(selectedBrew?.currentData?.kegs) 
+                                    ))
+                                    const leftToPackLabel = Number(selectedBrew?.currentData?.kegs) > 0 ? "ארגזים" : "חביות";
+                                    const leftToPackUnit = Number(selectedBrew?.currentData?.kegs) > 0 ? leftToPack/0.33/24 : leftToPack/20;
                                     updateField(
                                         "calcPacagingVol",
                                         "selectedTank",
@@ -413,6 +422,16 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                         "calcPacagingVol",
                                         "boxes",
                                         boxes
+                                    );
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "leftToPack",
+                                        leftToPackUnit
+                                    );
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "leftToPackLabel",
+                                        leftToPackLabel
                                     );
                                 }
                             }}
@@ -628,6 +647,13 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                 calcValues.calcPacagingVol.packagingVol
                             ).kegs.toFixed(1)}
                         </strong>
+                        {", "}נותר לארוז:
+                        {" "}
+                        <strong>
+                            {calcValues.calcPacagingVol.leftToPack.toFixed(1)} 
+                        </strong>
+                 
+                            {calcValues.calcPacagingVol.leftToPackLabel} 
                     </div>
 
                 </section>
