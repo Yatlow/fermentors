@@ -3,6 +3,8 @@ import { getBrewAge } from "../components/TankCard";
 import { type SpecChart } from "./getSpecsFromFb";
 import type { TankStageInfo } from "./tankstage";
 
+
+
 export type Measurement = {
     id?: string | number | null;
     temp?: string | number | null;
@@ -110,8 +112,222 @@ export function isPressureOutOfRange(
     return resault;
 };
 
+type YeastDropType = "warm" | "cold";
+
+type YeastDrop = {
+    amount: number;
+    date: string;
+    type: YeastDropType;
+    note: string;
+};
+
+const HEBREW_NUMBERS: Record<string, number> = {
+    "אפס": 0,
+    "אחד": 1, "אחת": 1,
+    "שניים": 2, "שתיים": 2, "שני": 2, "שתי": 2,
+    "שלוש": 3, "שלושה": 3,
+    "ארבע": 4, "ארבעה": 4,
+    "חמש": 5, "חמישה": 5,
+    "שש": 6, "שישה": 6,
+    "שבע": 7, "שבעה": 7,
+    "שמונה": 8,
+    "תשע": 9, "תשעה": 9,
+    "עשר": 10, "עשרה": 10,
+    "אחד עשר": 11, "אחת עשרה": 11, "אחד עשרה": 11,
+    "שנים עשר": 12, "שתים עשרה": 12, "שניים עשר": 12, "שתי עשרה": 12,
+    "שלושה עשר": 13, "שלוש עשרה": 13,
+    "ארבעה עשר": 14, "ארבע עשרה": 14,
+    "חמישה עשר": 15, "חמש עשרה": 15,
+    "שישה עשר": 16, "שש עשרה": 16,
+    "שבעה עשר": 17, "שבע עשרה": 17,
+    "שמונה עשר": 18, "שמונה עשרה": 18,
+    "תשעה עשר": 19, "תשע עשרה": 19,
+    "עשרים": 20,
+};
+
+type TankSize = "single" | "double" | "triple";
+
+const YEAST_DROP_SPECS: Record<
+    string,
+    Partial<Record<TankSize, { warm: number; cold: number }>>
+> = {
+    ipa: { double: { warm: 8, cold: 8 }, triple: { warm: 12, cold: 12 } },
+    פייל: { double: { warm: 7, cold: 7 }, triple: { warm: 8, cold: 8 } },
+    חיטה: { single: { warm: 1, cold: 1 }, double: { warm: 2, cold: 2 }, triple: { warm: 4, cold: 4 } },
+    לאגר: { triple: { warm: 7, cold: 7 } },
+    הופי: { double: { warm: 7, cold: 5 }, triple: { warm: 7, cold: 6 } },
+    סטאוט: { single: { warm: 3, cold: 1 } },
+};
+
+function getTankSize(tankNumber: number | undefined): TankSize | null {
+    if (!tankNumber) return null;
+    if (tankNumber >= 2 && tankNumber <= 4) return "single";
+    if (tankNumber >= 5 && tankNumber <= 8) return "double";
+    if (tankNumber >= 9 && tankNumber <= 19) return "triple";
+    return null;
+}
+
+function getYeastDropSpec(
+    beerStyle: string,
+    tankNumber: number | undefined,
+    type: YeastDropType
+): number | null {
+    const size = getTankSize(tankNumber);
+    if (!size) return null;
+
+    const normalized = String(beerStyle || "").trim().toLowerCase();
+    let styleKey: string | null = null;
+
+    if (normalized.includes("ipa")) styleKey = "ipa";
+    else if (normalized.includes("פייל") || normalized.includes("pale")) styleKey = "פייל";
+    else if (normalized.includes("חיטה") || normalized.includes("wheat")) styleKey = "חיטה";
+    else if (normalized.includes("הופי") && normalized.includes("לאגר")) styleKey = "הופי";
+    else if (normalized.includes("hoppy") && normalized.includes("lager")) styleKey = "הופי";
+    else if (normalized.includes("לאגר") || normalized.includes("lager")) styleKey = "לאגר";
+    else if (normalized.includes("סטאוט") || normalized.includes("stout")) styleKey = "סטאוט";
+
+    if (!styleKey) return null;
+
+    return YEAST_DROP_SPECS[styleKey]?.[size]?.[type] ?? null;
+}
+
+function normalizeHebrewNumberText(value: string): string {
+    return value
+        .replace(/,/g, ".")
+        .replace(/[־–—-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+}
+
+function parseHebrewInteger(value: string): number | null {
+    const normalized = normalizeHebrewNumberText(value);
+    if (normalized in HEBREW_NUMBERS) {
+        return HEBREW_NUMBERS[normalized];
+    }
+    return null;
+}
+
+const BARE_FRACTIONS: Record<string, number> = {
+    "חצי": 0.5,
+    "רבע": 0.25,
+    "שלושת רבעי": 0.75,
+    "שלושה רבעים": 0.75,
+};
+
+function parseYeastAmount(value: string): number | null {
+    if (!value) return null;
+
+    let text = normalizeHebrewNumberText(value);
+
+    if (text in BARE_FRACTIONS) {
+        return BARE_FRACTIONS[text];
+    }
+
+    const numericMatch = text.match(
+        /^(\d+(?:\.\d+)?)\s*(?:ו)?\s*(חצי|רבע|שלושת רבעי|שלושה רבעים)?$/
+    );
+    if (numericMatch) {
+        const base = Number(numericMatch[1]);
+        if (!Number.isFinite(base)) return null;
+        const fraction = numericMatch[2];
+        if (!fraction) return base;
+        if (fraction === "חצי") return base + 0.5;
+        if (fraction === "רבע") return base + 0.25;
+        if (fraction === "שלושת רבעי" || fraction === "שלושה רבעים") return base + 0.75;
+    }
+
+    const fractionMatch = text.match(/^(.+?)\s*ו(חצי|רבע|שלושת רבעי|שלושה רבעים)$/);
+    if (fractionMatch) {
+        const integerPart = parseHebrewInteger(fractionMatch[1]);
+        if (integerPart !== null) {
+            switch (fractionMatch[2]) {
+                case "חצי": return integerPart + 0.5;
+                case "רבע": return integerPart + 0.25;
+                case "שלושת רבעי":
+                case "שלושה רבעים": return integerPart + 0.75;
+            }
+        }
+    }
+
+    const integer = parseHebrewInteger(text);
+    if (integer !== null) return integer;
+
+    return null;
+}
+
+const HEBREW_LETTER = "א-ת";
+const BUCKET_WORDS = ["דליים", "דליי", "דלי"];
+const BUCKET_ALT = BUCKET_WORDS.join("|");
+
+function findBucketWordIndex(text: string): number {
+    const regex = new RegExp(
+        `(?<![${HEBREW_LETTER}])(?:${BUCKET_ALT})(?![${HEBREW_LETTER}])`
+    );
+    const match = text.match(regex);
+    return match ? (match.index as number) : -1;
+}
+
+function parseYeastDropAmount(notes: string | number | null | undefined): number | null {
+    if (notes === null || notes === undefined) {
+        return null;
+    }
+
+    const original = String(notes);
+    const text = normalizeHebrewNumberText(original);
+
+    const numericMatch = text.match(
+        new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:ו)?\\s*(?:${BUCKET_ALT})`)
+    );
+    if (numericMatch) {
+        return Number(numericMatch[1]);
+    }
+
+    const bucketIndex = findBucketWordIndex(text);
+
+    if (bucketIndex !== -1) {
+        const beforeBuckets = text.slice(0, bucketIndex).trim();
+        const words = beforeBuckets.split(" ").filter(Boolean);
+
+        for (let count = Math.min(4, words.length); count >= 1; count--) {
+            const candidate = words.slice(words.length - count).join(" ");
+            const parsed = parseYeastAmount(candidate);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+
+        let afterBucket = text
+            .slice(bucketIndex)
+            .replace(new RegExp(`^(?:${BUCKET_ALT})`), "")
+            .replace(/^\s*שמרים?/, "")
+            .replace(/^[\s:\-–—]+/, "");
+        afterBucket = afterBucket.split(/[,.;]/)[0].trim();
+
+        if (afterBucket) {
+            const parsed = parseYeastAmount(afterBucket);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+    }
+
+    const actionMatch = text.match(
+        /(?:הורדת|הורדתי|להוריד|הוצאת|הוצאתי|להוציא)\s+(.+?)(?=\s+(?:דל|שמר)|$)/
+    );
+
+    if (actionMatch) {
+        const parsed = parseYeastAmount(actionMatch[1]);
+        if (parsed !== null) {
+            return parsed;
+        }
+    }
+
+    return null;
+}
+
 export async function calcCelleringRecomendations(measurements: Measurement[],
-    beerStyle: string | number | undefined | null, batchId: string | number | null,
+    beerStyle: string | number | undefined | null,
     brewDate: string, givenSpecs: SpecChart, stage: TankStageInfo, tankNumber: number | undefined,
     TankCardUse: boolean) {
 
@@ -136,11 +352,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const toDaysAgoMeasurement: Measurement =
         sortedMeasurements[sortedMeasurements.length - 3];
     if (!lastMeasurement) {
-        console.log(
-            batchId,
-            "No measurements found",
-            measurements
-        );
+
 
         return null
     }
@@ -868,6 +1080,237 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     }
 
+    function formatYeastAmount(amount: number): string {
+        if (Number.isInteger(amount)) {
+            return String(amount);
+        }
+
+        return String(
+            Number(amount.toFixed(2))
+        );
+    }
+
+    // ============================================================
+    // YEAST DROP HISTORY
+    // ============================================================
+
+    const yeastDrops: YeastDrop[] =
+        sortedMeasurements
+            .map((measurement) => {
+
+                const note =
+                    String(measurement.notes ?? "");
+
+                // חייב להיות קשור לשמרים
+                if (
+                    !note.includes("שמרים") &&
+                    !note.includes("שמרי")
+                ) {
+                    return null;
+                }
+
+                const amount =
+                    parseYeastDropAmount(note);
+
+                if (amount === null) {
+                    return null;
+                }
+
+                const date =
+                    getMeasurementDate(measurement.id);
+
+                if (!date) {
+                    return null;
+                }
+
+                // ------------------------------------------------
+                // חם / קר
+                //
+                // משתמשים בטמפרטורה שנרשמה במדידה.
+                // > 9 = חם
+                // <= 9 = קר
+                // ------------------------------------------------
+
+                const temp =
+                    Number(measurement.temp);
+
+                const type: YeastDropType =
+                    Number.isFinite(temp) && temp <= 9
+                        ? "cold"
+                        : "warm";
+
+                return {
+                    amount,
+                    date,
+                    type,
+                    note,
+                };
+            })
+            .filter(
+                (drop): drop is YeastDrop =>
+                    drop !== null
+            );
+
+    // ============================================================
+    // YEAST DROP COMPLETION RECOMMENDATIONS
+    // ============================================================
+
+
+    /**
+     * כל הורדות השמרים אחרי הקירור.
+     */
+    const coldYeastDrops =
+        yeastDrops.filter(
+            drop => drop.type === "cold"
+        );
+
+
+    /**
+     * כל הורדות השמרים לפני הקירור.
+     */
+    const warmYeastDrops =
+        yeastDrops.filter(
+            drop => drop.type === "warm"
+        );
+
+
+
+    /**
+     * ההוצאה הקרה הראשונה אחרי הקירור.
+     *
+     * חשוב:
+     * אנחנו רוצים את הראשונה אחרי מועד הקירור,
+     * ולא סתם את הורדת השמרים הקרה האחרונה.
+     */
+    const firstColdYeastDropAfterCooling =
+        CooldDate
+            ? coldYeastDrops.find(
+                drop => drop.date >= CooldDate
+            )
+            : undefined;
+
+
+    /**
+     * האם ההוצאה החמה הייתה אתמול?
+     */
+    const yesterdayWarmYeastDrop =
+        warmYeastDrops.find(
+            drop =>
+                getDaysSinceDate(drop.date) === 1
+        );
+
+
+    /**
+     * האם ההוצאה הקרה הראשונה הייתה לפני יומיים?
+     */
+    const twoDaysAgoColdYeastDrop =
+        firstColdYeastDropAfterCooling &&
+            getDaysSinceDate(
+                firstColdYeastDropAfterCooling.date
+            ) === 2
+            ? firstColdYeastDropAfterCooling
+            : undefined;
+
+
+    /**
+     * יעד להוצאה חמה.
+     */
+    const warmYeastDropTarget =
+        getYeastDropSpec(
+            style,
+            tankNumber,
+            "warm"
+        );
+
+
+    /**
+     * יעד להוצאה קרה.
+     */
+    const coldYeastDropTarget =
+        getYeastDropSpec(
+            style,
+            tankNumber,
+            "cold"
+        );
+
+
+    /**
+     * המלצה להשלמת הוצאה חמה.
+     */
+    let requiresWarmYeastDropCompletion = {
+        display: false,
+        req: false,
+        reason: undefined as string | undefined,
+        importance: 1,
+    };
+
+
+    /**
+     * המלצה להשלמת הוצאה קרה ראשונה.
+     */
+    let requiresColdYeastDropCompletion = {
+        display: false,
+        req: false,
+        reason: undefined as string | undefined,
+        importance: 1,
+    };
+
+
+    // ============================================================
+    // WARM YEAST DROP COMPLETION
+    // ============================================================
+
+    if (
+        yesterdayWarmYeastDrop &&
+        warmYeastDropTarget !== null
+    ) {
+
+        const missing =
+            warmYeastDropTarget -
+            yesterdayWarmYeastDrop.amount;
+
+        if (missing > 0) {
+
+            requiresWarmYeastDropCompletion = {
+                display: true,
+                req: true,
+                reason:
+                    `בהוצאה חמה אתמול הוצאו ${formatYeastAmount(yesterdayWarmYeastDrop.amount)} דליים. ` +
+                    `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(warmYeastDropTarget)} דליים - ` +
+                    `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`,
+                importance: 2,
+            };
+        }
+    }
+
+
+    // ============================================================
+    // COLD YEAST DROP COMPLETION
+    // ============================================================
+
+    if (
+        twoDaysAgoColdYeastDrop &&
+        coldYeastDropTarget !== null
+    ) {
+
+        const missing =
+            coldYeastDropTarget -
+            twoDaysAgoColdYeastDrop.amount;
+
+        if (missing > 0) {
+
+            requiresColdYeastDropCompletion = {
+                display: true,
+                req: true,
+                reason:
+                    `בהוצאה קרה לפני יומיים הוצאו ${formatYeastAmount(twoDaysAgoColdYeastDrop.amount)} דליים. ` +
+                    `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(coldYeastDropTarget)} דליים - ` +
+                    `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`,
+                importance: 2,
+            };
+        }
+    }
+
     const displaySpecifics = calcDisplaySpecifics()
     const requiresDailyActions = {
         req: displaySpecifics,
@@ -876,8 +1319,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     return {
-        requiresDailyActions, lastMessurmentUpToDate, requiresDryHop, requiresPresureClose,
-        requiresWarmYeastDrop, requiersYeastDropAfterCooling, requiresCarbTest, requiersDiacytelRest,
-        neglectedStatus, requiresToCoolDown, requiredPressureAdjustment
+        requiresDailyActions,
+        lastMessurmentUpToDate,
+        requiresDryHop,
+        requiresPresureClose,
+        requiresWarmYeastDrop,
+        requiresWarmYeastDropCompletion,
+        requiersYeastDropAfterCooling,
+        requiresColdYeastDropCompletion,
+        requiresCarbTest,
+        requiersDiacytelRest,
+        neglectedStatus,
+        requiresToCoolDown,
+        requiredPressureAdjustment
     }
 }

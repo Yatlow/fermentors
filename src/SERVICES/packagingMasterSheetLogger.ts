@@ -71,6 +71,7 @@ export type MasterSheetLogParams = {
     /** כמות בקבוקים (לבקבוקים) או כמות חביות (לחביות) - כמו שהוזן ע"י המשתמש בטופס */
     amount: number;
     batchNumber: string | number | undefined | null;
+    tankNumber?: string | number | null;
 };
 
 export type MasterSheetLogResult = {
@@ -92,8 +93,9 @@ async function logPackagingToFirestore(params: {
     productionDateStr: string;
     expiryDateStr: string;
     productDate: Date;
+    tankNumber?: string | number | null;
 }): Promise<void> {
-    const { packagingType, beerStyle, quantity, batchNumber, productionDateStr, expiryDateStr, productDate } = params;
+    const { packagingType, beerStyle, quantity, batchNumber,tankNumber, productionDateStr, expiryDateStr, productDate } = params;
 
     const unit = packagingType === "kegs" ? "חביות" : "ארגזים";
     const itemLabel = String(beerStyle ?? "").trim();
@@ -109,6 +111,7 @@ async function logPackagingToFirestore(params: {
         quantity,
         unit,
         batchNumber: batchNumber ?? "",
+        tankNumber: tankNumber ?? null,
         productionDateStr,
         expiryDateStr,
         date: productionDateStr,
@@ -121,7 +124,7 @@ async function logPackagingToFirestore(params: {
 export async function logPackagingToMasterSheet(
     params: MasterSheetLogParams
 ): Promise<MasterSheetLogResult> {
-    const { beerStyle, packagingType, amount, batchNumber } = params;
+    const { beerStyle, packagingType, amount, batchNumber,tankNumber } = params;
 
     if (!amount || amount <= 0) {
         return { success: false, error: "כמות לא תקינה" };
@@ -179,6 +182,7 @@ export async function logPackagingToMasterSheet(
             productionDateStr,
             expiryDateStr,
             productDate: today,
+            tankNumber,
         }),
     ]);
 

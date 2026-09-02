@@ -1374,7 +1374,7 @@ function TankCard({
               </span>{" "}
 
               {(Number.isFinite(crates) && crates)
-                ? Math.round(crates / 0.33 / 24)
+                ? (crates / 0.33 / 24).toFixed(2)
                 : "—"}
             </div>
 
@@ -1422,7 +1422,7 @@ function TankCard({
                 </span>{" "}
 
                 {(Number.isFinite(crates) && crates)
-                  ? Math.round(crates / 0.33 / 24)
+                  ? (crates / 0.33 / 24).toFixed(2)
                   : "—"}
               </div>
             }

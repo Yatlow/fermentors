@@ -161,7 +161,7 @@ export default function FermentorInfoBox({
                     calcCelleringRecomendations(
                         data,
                         tank.beerStyle,
-                        tank.batchNumber,
+                        // tank.batchNumber,
                         tank.brewDate, specs,
                         tank.stage,
                         Number(tank.tankNumber),
@@ -225,7 +225,9 @@ export default function FermentorInfoBox({
             recomendations.requiersDiacytelRest,
             recomendations.neglectedStatus,
             recomendations.requiresToCoolDown,
-            recomendations.requiredPressureAdjustment
+            recomendations.requiredPressureAdjustment,
+            recomendations.requiresWarmYeastDropCompletion,
+            recomendations.requiresColdYeastDropCompletion
         ]
             .filter(Boolean)
             .map((rec) => ({

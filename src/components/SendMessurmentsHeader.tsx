@@ -159,7 +159,7 @@ export default function SendMessurmentsHeader({
                             const rec = await calcCelleringRecomendations(
                                 messurments,
                                 tank?.beerStyle,
-                                tank?.batchNumber ?? "",
+                                // tank?.batchNumber ?? "",
                                 tank?.brewDate ?? "",
                                 specs,
                                 tank.stage,
@@ -432,7 +432,7 @@ export default function SendMessurmentsHeader({
                         const rec = await calcCelleringRecomendations(
                             messurmentsWithToday,
                             tank.beerStyle,
-                            tank.batchNumber ?? "",
+                            // tank.batchNumber ?? "",
                             tank.brewDate ?? "",
                             specs,
                             tank.stage!,
@@ -739,6 +739,8 @@ export default function SendMessurmentsHeader({
             rec.neglectedStatus,
             rec.requiresToCoolDown,
             rec.requiredPressureAdjustment,
+            rec.requiresWarmYeastDropCompletion,
+            rec.requiresColdYeastDropCompletion
         ]
             .filter(Boolean)
             .map((recommendation) => ({

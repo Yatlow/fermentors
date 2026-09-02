@@ -26,6 +26,7 @@ type PackagingRow = {
     unit: string;
     quantity: number;
     batchNumber?: string | number | null;
+    tankNumber?: string | number | null;
     source: "actual" | "estimated";
 };
 
@@ -38,7 +39,7 @@ export type PackagingLogDoc = {
     unit?: string;
     quantity?: number;
     batchNumber?: string | number;
-
+    tankNumber?: string | number;
 };
 
 type CalendarEventDoc = {
@@ -401,10 +402,8 @@ export default function PackagingReportsView() {
                 );
 
                 // אירועים עתידיים/מוערכים
-                const estimatedStartTs = Math.max(
-                    startTs,
-                    now
-                );
+                const todayStart = toStartOfDay(new Date(now)).getTime();
+                const estimatedStartTs = Math.max(startTs, todayStart);
 
                 const shouldLoadEstimated = endTs >= now;
 
@@ -473,11 +472,12 @@ export default function PackagingReportsView() {
                             ),
                             batchNumber:
                                 data.batchNumber,
+                            tankNumber: data.tankNumber ?? null,
                             source: "actual",
                         };
                     });
 
-                const estimatedRows: PackagingRow[] =
+                const estimatedRowsRaw: PackagingRow[] =
                     estimatedSnap
                         ? estimatedSnap.docs.map((d) => {
                             const data =
@@ -500,10 +500,20 @@ export default function PackagingReportsView() {
                                     data.quantity ?? 0
                                 ),
                                 batchNumber: null,
+                                tankNumber: data.tankNumber ?? null,
                                 source: "estimated",
                             };
                         })
                         : [];
+                const actualKeys = new Set(
+                    actualRows
+                        .filter((r) => r.tankNumber != null)
+                        .map((r) => `${r.date}__${r.tankNumber}`)
+                );
+                const estimatedRows = estimatedRowsRaw.filter((r) => {
+                    if (r.tankNumber == null) return true; // אין מיכל לזהות - עדיף להשאיר מאשר לאבד מידע
+                    return !actualKeys.has(`${r.date}__${r.tankNumber}`);
+                });
 
                 const merged = [
                     ...actualRows,
@@ -598,8 +608,8 @@ export default function PackagingReportsView() {
                 <button
                     type="button"
                     className={`status-filter-button ${mode === "week"
-                            ? "active"
-                            : ""
+                        ? "active"
+                        : ""
                         }`}
                     onClick={() => setMode("week")}
                 >
@@ -609,8 +619,8 @@ export default function PackagingReportsView() {
                 <button
                     type="button"
                     className={`status-filter-button ${mode === "range"
-                            ? "active"
-                            : ""
+                        ? "active"
+                        : ""
                         }`}
                     onClick={() => setMode("range")}
                 >
