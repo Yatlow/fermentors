@@ -93,13 +93,13 @@ export function isPressureOutOfRange(
     const target =
         pressureSpecs[normalizedStyle] ?? pressureSpecs.other;
     const tolerance = givenSpecs.tolorances.pressure ?? 0.02;
-    const onSpec = value === target|| (value<= target + tolerance && value>= target - tolerance)
+    const onSpec = value === target || (value <= target + tolerance && value >= target - tolerance)
     let howBad = 0;
     if (onSpec) howBad = 1;
-    if (value >= target + tolerance+  0.04 || value <= target - tolerance- 0.04) {
+    if (value >= target + tolerance + 0.04 || value <= target - tolerance - 0.04) {
         howBad = 3
     }
-     if ((value > target + tolerance && value < target + tolerance+0.04) || (value < target - tolerance && value >target - tolerance - 0.04)) {
+    if ((value > target + tolerance && value < target + tolerance + 0.04) || (value < target - tolerance && value > target - tolerance - 0.04)) {
         howBad = 2
     }
 
@@ -458,6 +458,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresCarbTest.reason = "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)",
             requiresCarbTest.importance = 1;
     }
+    const YeastDroppedToday = lastNote?.includes("שמרים");
     if (CoolAge !== null && CoolAge > 1 && stage.name === "קר") {
         const carbonationSpecToDaysAgo = isCarbonationOutOfRange(toDaysAgoMeasurement?.carbonation, style, givenSpecs)
         if (toDaysAgoMeasurement?.carbonation && !lastMeasurement?.carbonation) {
@@ -514,10 +515,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             }
         }
 
-        if (stage.name === "קר" && (corrected === 5 || corrected === 4) && tankNumber && nextWeekPack.includes(tankNumber)) {
+        if (stage.name === "קר" && (corrected === 4) && tankNumber && nextWeekPack.includes(tankNumber) && carbRes === null) {
             requiresCarbTest.display = true,
                 requiresCarbTest.req = true;
-            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ ${corrected === 5 ? "להוריד שמרים" : "לבצע בדיקת גיזוז"}`
+            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ לבצע בדיקת גיזוז`
+            requiresCarbTest.importance = 1;
+        }
+        if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && !YeastDroppedToday) {
+            requiresCarbTest.display = true,
+                requiresCarbTest.req = true;
+            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber}מתוכנן לרדת שבוע הבא. מומלץ להוריד שמרים`
             requiresCarbTest.importance = 1;
         }
 
@@ -823,27 +830,34 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
     if (TankCardUse) {
         dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר" :
-            corrected === 4 ? "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל אכן מתוכנן לרדת" :
-                corrected === 5 ? "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל אכן מתוכנן לרדת" : ""
+            corrected === 4 ?
+                `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` +
+                "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל אכן מתוכנן לרדת" :
+                corrected === 5 ?
+                    `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` +
+                    "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל אכן מתוכנן לרדת" : ""
     } else {
         dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל המיכלים הקרים" :
-            corrected === 4 ? "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" :
-                corrected === 5 ? "מומלץ ביום חמישי לבצע הורדת שמרים לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" : ""
+            corrected === 4 ?
+                `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. ` +
+                "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" :
+                corrected === 5 ? `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. ` +
+                    "מומלץ ביום חמישי לבצע הורדת שמרים לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" : ""
 
     }
 
-    const YeastDroppedToday = lastNote?.includes("שמרים");
+
     function calcDisplaySpecifics(): boolean {
         if (!isAnActionDay) {
             return false;
             // dont display any dayli if not sunday/wednesday
         }
         if (corrected === 1) {
-            if (!carbRes || !YeastDroppedToday) {
+            if (carbRes !== null || !YeastDroppedToday) {
                 return true
             }
         } else if (tankNumber && nextWeekPack.includes(tankNumber)) {
-            if (corrected === 4 && !carbRes) {
+            if (corrected === 4 && carbRes === null) {
                 return true;
             }
             if (corrected === 5 && !YeastDroppedToday) {
@@ -855,7 +869,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const displaySpecifics = calcDisplaySpecifics()
-    // const displaySpecifics = isAnActionDay && (TankCardUse? true: tankNumber ? nextWeekPack.includes(tankNumber) : false)
     const requiresDailyActions = {
         req: displaySpecifics,
         reason: dayTxt,

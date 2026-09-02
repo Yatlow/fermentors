@@ -634,7 +634,7 @@ export default function SendMessurmentsHeader({
                 }
 
                 const yesterdayMeasurement: Measurement =
-                    sortedMeasurements[sortedMeasurements.length - 2];
+                    sortedMeasurements[sortedMeasurements.length - 1];
                 const currentTemp = Number(readingSet.current?.temp);
                 const newTemp = Number(readingSet.new.temp);
                 const currentPressure = Number(readingSet.current?.pressure);
@@ -650,6 +650,7 @@ export default function SendMessurmentsHeader({
                     if (currentTemp - newTemp > 5) {
                         const cooled = yesterdayMeasurement?.notes?.toString().includes("קירור") ||
                             yesterdayMeasurement?.notes?.toString().includes("קירור");
+                            console.log("cooled", cooled, yesterdayMeasurement?.notes?.toString())
                         if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
 
                     }
@@ -760,18 +761,6 @@ export default function SendMessurmentsHeader({
     function getDailyActionRecommendation() {
         for (const recommendation of Object.values(rcs)) {
             if (recommendation?.requiresDailyActions?.req) {
-                // if (recommendation?.requiresDailyActions.reason ===
-                //     "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר") {
-                //     recommendation.requiresDailyActions.reason = "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל המיכלים הקרים"
-
-                // } else if (recommendation?.requiresDailyActions.reason ===
-                //     "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת") {
-                //     recommendation.requiresDailyActions.reason = "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת"
-
-                // } else if (recommendation?.requiresDailyActions.reason ===
-                //     "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל מתוכנן לרדת")
-                //     recommendation.requiresDailyActions.reason =
-                //         "מומלץ ביום חמישי לבצע הורדת שמרים לכל המיכלים שיורדים שבוע הבא. בדוק איזה מיכלים מתוכננים לרדת";
                 return recommendation.requiresDailyActions;
             }
         }

@@ -110,7 +110,7 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
         return {
             boxes: (packagingVol / 0.33) / 24,
             emptyBottleRows: (packagingVol / 0.33) / 361,
-            fullBottleRows: (packagingVol / 0.33) / 12,
+            fullBottleRows: (packagingVol / 0.33) / 24/ 12,
             kegs: packagingVol / 20
         }
     }
@@ -358,162 +358,6 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
 
 
 
-                {/* <section className="spec-card">
-
-                    <div className="spec-card-header">
-                        <h2>
-                            {calcValues.calcPacagingVol.label}
-                        </h2>
-                    </div>
-
-                    <div className="spec-fields">
-                        <select
-                            className="spec-field"
-                            value={calcValues.calcPacagingVol.selectedTank}
-                            onChange={(e) => {
-                                const selectedBrew = brews.find(brew => brew.batchNumber === e.target.value);
-                                if (selectedBrew) {
-                                    updateField("calcPacagingVol", "tankVol", Number(selectedBrew.beerVolume));
-                                    updateField("calcPacagingVol", "packagingVol",
-                                        Number(selectedBrew.beerVolume) - (Number(selectedBrew.beerVolume) * (calcValues.calcPacagingVol.packagingLoss / 100)));
-                                    updateField("calcPacagingVol", "boxes",
-                                        Number(((Number(selectedBrew.beerVolume) - (Number(selectedBrew.beerVolume) * (calcValues.calcPacagingVol.packagingLoss / 100)))
-                                            / 0.33 / 24).toFixed(2)))
-                                }
-                            }}>
-                            <option value={0}>בחר בירה</option>
-                            {brews.filter((brew) => brew.action === 1).
-                                map((brew) => (
-                                    <option key={brew.id} value={brew.batchNumber}>
-                                        {`מיכל ${brew.tankNumber}- #${brew.batchNumber} ${brew.beerStyle}`}
-                                    </option>
-                                ))}
-                        </select>
-                        <NumberField
-                            label="נפח במיכל"
-                            value={
-                                calcValues.calcPacagingVol.tankVol
-                            }
-                            onChange={(value) => {
-                                updateField(
-                                    "calcPacagingVol",
-                                    "tankVol",
-                                    value
-                                )
-                                updateField(
-                                    "calcPacagingVol",
-                                    "packagingVol",
-                                    Number((value - (value * calcValues.calcPacagingVol.packagingLoss / 100)).toFixed(2))
-                                )
-                                updateField(
-                                    "calcPacagingVol",
-                                    "boxes",
-                                    Number(((value - (value * calcValues.calcPacagingVol.packagingLoss / 100)) / 0.33 / 24).toFixed(2))
-                                )
-                            }
-                            }
-                        />
-                        <NumberField
-                            label="נפח לאריזה"
-                            value={
-                                calcValues.calcPacagingVol.packagingVol
-                            }
-                            onChange={(value) => {
-                                updateField(
-                                    "calcPacagingVol",
-                                    "packagingVol",
-                                    value
-                                )
-                                updateField(
-                                    "calcPacagingVol",
-                                    "selectedTank",
-                                    0
-                                )
-
-                                updateField(
-                                    "calcPacagingVol",
-                                    "tankVol",
-                                    Number((((value / (1 - calcValues.calcPacagingVol.packagingLoss / 100))).toFixed(2))
-                                    ))
-                                updateField(
-                                    "calcPacagingVol",
-                                    "boxes",
-                                    Number((value / 0.33 / 24).toFixed(2))
-                                )
-                            }}
-                        />
-
-                        <NumberField
-                            label="אחוז פחת"
-                            value={
-                                calcValues.calcPacagingVol.packagingLoss
-                            }
-                            onChange={(value) => {
-                                updateField(
-                                    "calcPacagingVol",
-                                    "packagingLoss",
-                                    value
-                                )
-                                updateField(
-                                    "calcPacagingVol",
-                                    "packagingVol",
-                                    Number(
-                                        (
-                                            calcValues.calcPacagingVol.tankVol -
-                                            (calcValues.calcPacagingVol.tankVol * value / 100)
-                                        ).toFixed(2)
-                                    )
-                                )
-                            }}
-                        />
-
-
-                        <NumberField
-                            label="מספר ארגזים"
-                            value={
-                                calcValues.calcPacagingVol.boxes
-                            }
-                            onChange={(value) => {
-                                updateField(
-                                    "calcPacagingVol",
-                                    "boxes",
-                                    value
-                                )
-                                updateField(
-                                    "calcPacagingVol",
-                                    "packagingVol",
-                                    Number((value * 24 * 0.33).toFixed(2))
-                                )
-                                updateField(
-                                    "calcPacagingVol",
-                                    "tankVol",
-                                    Number(((value * 24 * 0.33) / (1 - (calcValues.calcPacagingVol.packagingLoss / 100))).toFixed(2))
-                                )
-                            }}
-                        />
-
-                    </div>
-
-                    <div className="calc-result">
-                        כמות ארגזים: {" "}
-                        <strong>
-                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).boxes.toFixed(1)}
-                        </strong>
-                        {", "}קומות בקבוקים ריקים: {" "}
-                        <strong>
-                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).emptyBottleRows.toFixed(1)}
-                        </strong>
-                        {", "}קומות בקבוקים מלאים: {" "}
-                        <strong>
-                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).fullBottleRows.toFixed(1)}
-                        </strong>
-                        {", "}חביות:{" "}
-                        <strong>
-                            {getPackagingVolumes(calcValues.calcPacagingVol.packagingVol).kegs.toFixed(1)}
-                        </strong>
-                    </div>
-
-                </section> */}
                 <section className="spec-card">
 
                     <div className="spec-card-header">
@@ -545,9 +389,8 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                     );
 
                                     const boxes = Number(
-                                        (packagingVol??0 / 0.33 / 24).toFixed(1)
+                                        ((packagingVol?? 0) / 0.33 / 24).toFixed(1)
                                     );
-
                                     updateField(
                                         "calcPacagingVol",
                                         "selectedTank",
