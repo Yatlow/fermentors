@@ -1164,14 +1164,14 @@ function TankCard({
               </span>
             )}
             <span className="brew-proces-brew">
-                {tank?.brewProgress?.blockIndex &&
-              <span className="brew-progress-text">
+              {tank?.brewProgress?.blockIndex &&
+                <span className="brew-progress-text">
                   בישול
-              </span>
-                  }
+                </span>
+              }
               {tank?.brewProgress?.blockIndex &&
                 <span className="brew-progress-block">
-              {`${String.fromCharCode(64 + tank.brewProgress.blockIndex)}`}
+                  {`${String.fromCharCode(64 + tank.brewProgress.blockIndex)}`}
                 </span>
               }
             </span>
@@ -1410,6 +1410,49 @@ function TankCard({
                 ? (shrinkagePercent / -1).toFixed(2)
                 : "—"} {" %"}
             </div>
+          </div>
+        )}
+        {Number(tank.tankNumber) > 1 && (stageInfo.name === "קר") && ((Number.isFinite(crates) || (Number.isFinite(kegs)))) && (
+
+          <div className="tank-data">
+            {(Number.isFinite(crates)) &&
+              <div>
+                <span>
+                  ארגזים שנארזו:
+                </span>{" "}
+
+                {(Number.isFinite(crates) && crates)
+                  ? Math.round(crates / 0.33 / 24)
+                  : "—"}
+              </div>
+            }
+            {(Number.isFinite(kegs)) &&
+              <div>
+                <span>
+                  חביות שנארזו:
+                </span>{" "}
+
+                {(Number.isFinite(kegs) && kegs)
+                  ? Math.round(kegs / 20)
+                  : "—"}
+              </div>
+            }
+
+            <div>
+              <span>
+                נותר לארוז:
+              </span>{" "}
+
+              {(!Number.isNaN(crates) && Number(crates) > 0)
+                ? `${((((Number(tank.beerVolume)*0.9)- Number(crates)))/20).toFixed(2)} חביות`
+                : ``}
+              {(!Number.isNaN(kegs) && Number(kegs) > 0)
+                ? `${((((Number(tank.beerVolume)*0.9)- Number(kegs)))/0.33/24).toFixed(2)} ארגזים`
+                : ``}
+            </div>
+
+
+           
           </div>
         )}
 
