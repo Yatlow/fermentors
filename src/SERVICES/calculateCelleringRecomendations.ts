@@ -642,13 +642,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             CoolAge === 2 &&
             lastTemp != null &&
             oldTemp != null &&
-            !lastNote?.includes("שמרים")&&
+            !lastNote?.includes("שמרים") &&
             // lastTemp > oldTemp &&
             stage.name === "קר",
         reason: "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
         importance: 1
     }
-    
+
     const carbRes = lastMeasurement.carbonation;
     const alreadyadjustedPToday = lastNote?.includes("הורדת לחץ") || lastNote?.includes("העלאת לחץ") || lastNote?.includes("להוריד לחץ") || lastNote?.includes("להעלות לחץ");
     const tookCare = carbRes && alreadyadjustedPToday;
@@ -673,12 +673,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             requiresCarbTest.importance = 1;
     }
     const YeastDroppedToday = lastNote?.includes("שמרים");
-    const requiiersWedYeastDropOnThus={
-            req:false,
-            display:false,
-            reason:undefined as string | undefined,
-            importance:1
-        }
+    const requiiersWedYeastDropOnThus = {
+        req: false,
+        display: false,
+        reason: undefined as string | undefined,
+        importance: 1
+    }
     if (CoolAge !== null && CoolAge > 1 && stage.name === "קר") {
         const carbonationSpecToDaysAgo = isCarbonationOutOfRange(toDaysAgoMeasurement?.carbonation, style, givenSpecs)
         if (toDaysAgoMeasurement?.carbonation && !lastMeasurement?.carbonation) {
@@ -741,11 +741,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ לבצע בדיקת גיזוז`
             requiresCarbTest.importance = 1;
         }
-        if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && lastMeasurement?.carbonation === null) {
-            requiiersWedYeastDropOnThus.display = true,
-                requiiersWedYeastDropOnThus.req = true;
-            requiiersWedYeastDropOnThus.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`
-            requiiersWedYeastDropOnThus.importance = 1;
+        if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && carbRes === null) {
+            // console.log("tank number", tankNumber, "next week pack", nextWeekPack, "carb res", carbRes)
+            if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
+                (lastMessurmentUpToDate.req && carbRes === null)) {
+                    console.log("tank number", tankNumber, "carb res",
+                         carbRes,lastMeasurement.carbonation, "last measurement up to date", lastMessurmentUpToDate.req, 
+                         "yesterday measurement carbonation", yesterdayMeasurement?.carbonation)
+                requiresCarbTest.display = true,
+                    requiresCarbTest.req = true;
+                requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`
+                requiresCarbTest.importance = 1;
+            }
         }
         if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && !YeastDroppedToday) {
             requiresCarbTest.display = true,

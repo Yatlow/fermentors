@@ -889,6 +889,10 @@ export default function SendMessurmentsHeader({
                                             <p>מצורפות המלצות לסלרינג!</p>
                                             <p>יש להסתכל בדף בישול של כל מיכל ולוודא את ההמלצה!</p>
                                         </>)}
+                                        {!hasRecommendations && (<>
+                                            <p>אין המלצות סלרינג!</p>
+                                            <p>כל הכבוד, נראה שהמיכלים מטופלים היטב!</p>
+                                        </>)}
 
                                     </div>
 
@@ -926,7 +930,7 @@ export default function SendMessurmentsHeader({
                                                 const recommendations =
                                                     getActiveRecommendations(tank.tankNumber ?? "");
 
-                                                if (recommendations.length)
+                                                if (recommendations.length){
                                                     return (
                                                         <div
                                                             key={tank.id}
@@ -965,7 +969,7 @@ export default function SendMessurmentsHeader({
 
                                                             </div>
                                                         </div>
-                                                    );
+                                                    );}
                                             })}
 
                                     </div>
