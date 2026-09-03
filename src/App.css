@@ -1627,7 +1627,7 @@ body {
   display: grid;
 
   /* כרטיסים רחבים ככל האפשר */
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  grid-template-columns: repeat(1, minmax(220px, 1fr));
 
   gap: 8px;
 
@@ -1644,7 +1644,7 @@ body {
 
 @media (min-width: 1400px) {
   .measurement-grid {
-    grid-template-columns: repeat(5, minmax(240px, 1fr));
+    grid-template-columns: repeat(1, minmax(240px, 1fr));
   }
 }
 
@@ -1655,7 +1655,7 @@ body {
 
 @media (max-width: 1099px) {
   .measurement-grid {
-    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    grid-template-columns: repeat(1, minmax(220px, 1fr));
   }
 }
 
@@ -1686,7 +1686,7 @@ body {
 
 @media (max-width: 480px) {
   .measurement-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
 
     gap: 6px;
   }
@@ -3345,6 +3345,14 @@ body {
 .yeast-timeline-amount {
   margin-inline-start: auto;
   font-weight: 600;
+}
+.metric-color-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-inline-end: 6px;
+  vertical-align: middle;
 }
 @media (min-width: 720px) {
   .batch-chart-overlay {

@@ -11,6 +11,8 @@ import {
     Tooltip,
     ResponsiveContainer,
     Brush,
+    AreaChart,
+    Area,
 } from "recharts";
 
 import type { TooltipContentProps } from "recharts";
@@ -30,6 +32,8 @@ import {
     type StyleAverages,
     type StyleAverageDay,
 } from "../SERVICES/getStyleAverages";
+
+import { parseYeastDropAmount } from "../SERVICES/calculateCelleringRecomendations";
 
 import type { Fermentor } from "../App";
 
@@ -63,6 +67,7 @@ type MetricKey =
 type MetricDefinition = {
     key: MetricKey;
     label: string;
+    color: string;
 };
 
 
@@ -83,14 +88,16 @@ type BatchReportsViewProps = {
 
 // ============================================================
 // METRICS
+// צבעים עקביים עם BatchHistoryChart.tsx כדי שאותו מדד ייראה
+// אותו דבר בכל הרכיבים באפליקציה.
 // ============================================================
 
 const METRICS: MetricDefinition[] = [
-    { key: "temp", label: "טמפ׳" },
-    { key: "plato", label: "סוכר" },
-    { key: "pH", label: "pH" },
-    { key: "pressure", label: "לחץ" },
-    { key: "carbonation", label: "גיזוז" },
+    { key: "temp", label: "טמפ׳", color: "#e0563f" },
+    { key: "plato", label: "סוכר", color: "#d99323" },
+    { key: "pH", label: "pH", color: "#5b8def" },
+    { key: "pressure", label: "לחץ", color: "#3fa796" },
+    { key: "carbonation", label: "גיזוז", color: "#0891b2" },
 ];
 
 const REPORT_VIEWS: { key: ReportView; label: string }[] = [
@@ -153,7 +160,7 @@ function getDayFromBrew(
 // AXIS HELPERS
 // ============================================================
 
-// טווח X הדוק לנתונים בפועל + טיקים רק על המינימום והמקסימום
+// טווח X הדוק לנתונים בפועל, עם עד 5 טיקים מפוזרים (לא רק מינימום/מקסימום)
 function getXAxisBounds(
     days: number[]
 ): { domain: [number, number]; ticks: number[] } {
@@ -171,7 +178,18 @@ function getXAxisBounds(
         return { domain: [min - 1, max + 1], ticks: [min] };
     }
 
-    return { domain: [min, max], ticks: [min, max] };
+    const tickCount = Math.min(5, max - min + 1);
+    const step = (max - min) / (tickCount - 1);
+
+    const ticks = Array.from(
+        new Set(
+            Array.from({ length: tickCount }, (_, i) =>
+                Math.round(min + i * step)
+            )
+        )
+    ).sort((a, b) => a - b);
+
+    return { domain: [min, max], ticks };
 }
 
 // הימים הרלוונטיים לטווח ה-X של מדד ספציפי:
@@ -183,6 +201,74 @@ function getMetricDayRange(chartData: ChartPoint[], mode: ReportView): number[] 
     return chartData
         .filter((p) => p[field] !== null && p[field] !== undefined)
         .map((p) => p.day);
+}
+
+
+// ============================================================
+// YEAST DROPS (מבוסס על אותה לוגיקת פרסינג כמו BatchHistoryChart)
+// ============================================================
+
+type YeastChartPoint = {
+    day: number;
+    amount: number;
+    note: string;
+    type: "warm" | "cold";
+    dateLabel: string;
+};
+
+function formatYeastTotal(amount: number): string {
+    return String(Number(amount.toFixed(2)));
+}
+
+function formatMeasurementDateShort(dateString: string): string {
+    const match = String(dateString).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (!match) return dateString;
+    const day = match[1].padStart(2, "0");
+    const month = match[2].padStart(2, "0");
+    return `${day}/${month}`;
+}
+
+function extractYeastDropsForBatch(
+    measurements: Measurement[],
+    brewDate: string
+): YeastChartPoint[] {
+    return measurements
+        .map((measurement) => {
+            const note = String(measurement.notes ?? "");
+            if (!note.includes("שמרים") && !note.includes("שמרי")) return null;
+
+            const amount = parseYeastDropAmount(note);
+            if (amount === null) return null;
+
+            const day = getDayFromBrew(brewDate, measurement.date);
+            if (day === null) return null;
+
+            const temp = measurement.temp;
+            const type: "warm" | "cold" =
+                temp !== null && temp !== undefined && Number.isFinite(temp) && temp <= 9
+                    ? "cold"
+                    : "warm";
+
+            return {
+                day,
+                amount,
+                note,
+                type,
+                dateLabel: formatMeasurementDateShort(measurement.date),
+            };
+        })
+        .filter((d): d is YeastChartPoint => d !== null)
+        .sort((a, b) => a.day - b.day);
+}
+
+type YeastCumulativePoint = { day: number; cumulative: number };
+
+function buildYeastCumulativeData(drops: YeastChartPoint[]): YeastCumulativePoint[] {
+    let running = 0;
+    return drops.map((drop) => {
+        running += drop.amount;
+        return { day: drop.day, cumulative: Number(running.toFixed(2)) };
+    });
 }
 
 
@@ -440,6 +526,49 @@ export default function BatchReportsView({
 
 
     // ========================================================
+    // YEAST DROPS FOR SELECTED BATCH
+    // ========================================================
+
+    const currentBatchYeastDrops = useMemo<YeastChartPoint[]>(() => {
+        if (!selectedBatchId) return [];
+
+        const brew = brews.find((b) => b.id === selectedBatchId);
+        if (!brew) return [];
+
+        const measurements = dataByBatch[selectedBatchId] ?? [];
+
+        return extractYeastDropsForBatch(measurements, brew.brewDate);
+    }, [selectedBatchId, brews, dataByBatch]);
+
+    const yeastCumulativeData = useMemo(
+        () => buildYeastCumulativeData(currentBatchYeastDrops),
+        [currentBatchYeastDrops]
+    );
+
+    const yeastDropsByDay = useMemo(() => {
+        const map = new Map<number, YeastChartPoint>();
+        currentBatchYeastDrops.forEach((drop) => map.set(drop.day, drop));
+        return map;
+    }, [currentBatchYeastDrops]);
+
+    const totalWarmBuckets = useMemo(
+        () =>
+            currentBatchYeastDrops
+                .filter((d) => d.type === "warm")
+                .reduce((sum, d) => sum + d.amount, 0),
+        [currentBatchYeastDrops]
+    );
+    const totalColdBuckets = useMemo(
+        () =>
+            currentBatchYeastDrops
+                .filter((d) => d.type === "cold")
+                .reduce((sum, d) => sum + d.amount, 0),
+        [currentBatchYeastDrops]
+    );
+    const totalYeastBuckets = totalWarmBuckets + totalColdBuckets;
+
+
+    // ========================================================
     // STYLE AVERAGE DATA
     // ========================================================
 
@@ -531,7 +660,7 @@ export default function BatchReportsView({
                 ? Math.max(...currentBatchChartData.map((item) => item.day))
                 : null;
 
-                const limitedStyleAverageChartData =
+        const limitedStyleAverageChartData =
             reportView === "averages"
                 ? styleAverageChartData.filter((item) => item.day <= 50)
                 : maxCurrentDay === null
@@ -664,7 +793,16 @@ export default function BatchReportsView({
                         type="button"
                         className={`status-filter-button ${selectedMetrics.includes(metric.key) ? "active" : ""}`}
                         onClick={() => toggleMetric(metric.key)}
+                        style={
+                            selectedMetrics.includes(metric.key)
+                                ? { borderColor: metric.color }
+                                : undefined
+                        }
                     >
+                        <span
+                            className="metric-color-dot"
+                            style={{ backgroundColor: metric.color }}
+                        />
                         {metric.label}
                     </button>
                 ))}
@@ -684,6 +822,94 @@ export default function BatchReportsView({
 
             {hasSelection && (
                 <div className="measurement-grid">
+
+                    {reportView !== "averages" && (
+                        <div className="measurement-card yeast-report-card">
+                            <div className="measurement-header">
+                                <span className="measurement-tank">שמרים</span>
+                            </div>
+
+                            {currentBatchYeastDrops.length === 0 ? (
+                                <div className="measurementEmpty">אין עדיין הורדות שמרים רשומות</div>
+                            ) : (
+                                <>
+                                    <div className="metric-chart-print-title">
+                                        סה״כ {formatYeastTotal(totalYeastBuckets)} דליים
+                                        {" "}(חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
+                                    </div>
+
+                                    <div className="batch-chart-graph" style={{ height: 160 }} dir="ltr">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart
+                                                data={yeastCumulativeData}
+                                                margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
+                                            >
+                                                <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                                                <XAxis
+                                                    dataKey="day"
+                                                    type="number"
+                                                    {...getXAxisBounds(yeastCumulativeData.map((p) => p.day))}
+                                                    label={{
+                                                        value: "ימים מהבישול",
+                                                        position: "insideBottom",
+                                                        offset: -5,
+                                                    }}
+                                                />
+                                                <YAxis width={40} allowDecimals />
+                                                <Tooltip
+                                                    content={({ active, payload, label }) => {
+                                                        if (!active || !payload?.length || label === undefined) return null;
+                                                        const drop = yeastDropsByDay.get(Number(label));
+                                                        const cumulative = payload[0].value;
+                                                        return (
+                                                            <div className="chart-tooltip">
+                                                                <div className="chart-tooltip-day">יום {label}</div>
+                                                                <div className="chart-tooltip-value">
+                                                                    סה״כ מצטבר: {cumulative} דליים
+                                                                </div>
+                                                                {drop && (
+                                                                    <div className="chart-tooltip-value" style={{ color: "#058a05" }}>
+                                                                        הורדה ביום זה: {formatYeastTotal(drop.amount)} דליים ·{" "}
+                                                                        {drop.type === "cold" ? "קר" : "חם"}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    }}
+                                                />
+                                                <Area
+                                                    type="stepAfter"
+                                                    dataKey="cumulative"
+                                                    stroke="#058a05"
+                                                    fill="#058a05"
+                                                    fillOpacity={0.15}
+                                                    strokeWidth={2.5}
+                                                    dot={{ r: 4, fill: "#058a05" }}
+                                                    isAnimationActive={false}
+                                                />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+
+                                    <div className="yeast-timeline">
+                                        {currentBatchYeastDrops.map((drop) => (
+                                            <div key={`${drop.day}-${drop.dateLabel}`} className="yeast-timeline-row">
+                                                <span className="yeast-timeline-day">יום {drop.day}</span>
+                                                <span className="yeast-timeline-date">{drop.dateLabel}</span>
+                                                <span className={`yeast-badge ${drop.type}`}>
+                                                    {drop.type === "cold" ? "❄️ קר" : "🔥 חם"}
+                                                </span>
+                                                <span className="yeast-timeline-amount">
+                                                    {formatYeastTotal(drop.amount)} דליים
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+
                     {visibleMetrics.map((metric) => {
 
                         const chartData = buildMetricChartData(metric.key);
@@ -741,7 +967,7 @@ export default function BatchReportsView({
                                                         `האצווה הנוכחית #${brews.find((b) => b.id === selectedBatchId)?.batchNumber ?? selectedBatchId
                                                         }`
                                                     }
-                                                    stroke="#e89413"
+                                                    stroke={metric.color}
                                                     strokeWidth={3}
                                                     dot={{ r: 4 }}
                                                     activeDot={{ r: 6 }}
@@ -766,7 +992,7 @@ export default function BatchReportsView({
                                             <Brush
                                                 dataKey="day"
                                                 height={22}
-                                                stroke="#e89413"
+                                                stroke={metric.color}
                                                 travellerWidth={14}
                                                 tickFormatter={(value) => `${value}`}
                                             />

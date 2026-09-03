@@ -280,7 +280,7 @@ function findBucketMatch(text: string): { index: number; word: string } | null {
     return { index: match.index as number, word: match[1] };
 }
 
-function parseYeastDropAmount(notes: string | number | null | undefined): number | null {
+export function parseYeastDropAmount(notes: string | number | null | undefined): number | null {
     if (notes === null || notes === undefined) return null;
 
     const original = String(notes);
