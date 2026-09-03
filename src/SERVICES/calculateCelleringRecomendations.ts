@@ -671,6 +671,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             requiresCarbTest.importance = 1;
     }
     const YeastDroppedToday = lastNote?.includes("שמרים");
+    const requiiersWedYeastDropOnThus={
+            req:false,
+            display:false,
+            reason:undefined as string | undefined,
+            importance:1
+        }
     if (CoolAge !== null && CoolAge > 1 && stage.name === "קר") {
         const carbonationSpecToDaysAgo = isCarbonationOutOfRange(toDaysAgoMeasurement?.carbonation, style, givenSpecs)
         if (toDaysAgoMeasurement?.carbonation && !lastMeasurement?.carbonation) {
@@ -678,15 +684,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה ההאחרונה לא תקין(${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
-                    `הגיזוז לפני יומיים לא תקין(${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת `
+                    `הגיזוז בבדיקה ההאחרונה לא תקין (${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
+                    `הגיזוז לפני יומיים לא תקין (${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת `
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             } else {
                 requiresCarbTest.display = false,
                     requiresCarbTest.req = true;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה ההאחרונה תקין(${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
-                    `הגיזוז לפני יומיים תקין(${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
+                    `הגיזוז בבדיקה ההאחרונה תקין (${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
+                    `הגיזוז לפני יומיים תקין (${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             }
         }
@@ -696,15 +702,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה האחרונה היה לא תקין(${yesterdayMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
-                    `הגיזוז אתמול היה לא תקין(${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר בדיקת גיזוז חוזרת `,
+                    `הגיזוז בבדיקה האחרונה היה לא תקין (${yesterdayMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
+                    `הגיזוז אתמול היה לא תקין (${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר בדיקת גיזוז חוזרת `,
                     requiresCarbTest.importance = CarbonationSpecYesterday.importance
             } else {
                 requiresCarbTest.display = false,
                     requiresCarbTest.req = true;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה האחרונה היה תקין(${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
-                    `הגיזוז אתמול היה תקין(${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
+                    `הגיזוז בבדיקה האחרונה היה תקין (${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
+                    `הגיזוז אתמול היה תקין (${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
 
             }
         }
@@ -714,15 +720,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה ההאחרונה לא תקין(${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ ` :
-                    `הגיזוז היום לא תקין(${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ `
+                    `הגיזוז בבדיקה ההאחרונה לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ ` :
+                    `הגיזוז היום לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ `
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             } else {
                 requiresCarbTest.display = false,
                     requiresCarbTest.req = true;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה האחרונה תקין(${lastMeasurement?.carbonation})-ניתן להמתין עם בדיקת גיזוז נוספת ` :
-                    `הגיזוז היום תקין(${lastMeasurement?.carbonation})-ניתן להמתין עם בדיקת גיזוז נוספת `
+                    `הגיזוז בבדיקה האחרונה תקין (${lastMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת ` :
+                    `הגיזוז היום תקין (${lastMeasurement?.carbonation})-ניתן להמתין עם בדיקת גיזוז נוספת `
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             }
         }
@@ -733,10 +739,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ לבצע בדיקת גיזוז`
             requiresCarbTest.importance = 1;
         }
+        const relaventCarb=  lastMessurmentUpToDate.req ?  lastMeasurement?.carbonation : yesterdayMeasurement?.carbonation;
+        
+        if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && relaventCarb === null) {
+            requiiersWedYeastDropOnThus.display = true,
+                requiiersWedYeastDropOnThus.req = true;
+            requiiersWedYeastDropOnThus.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`
+            requiiersWedYeastDropOnThus.importance = 1;
+        }
         if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && !YeastDroppedToday) {
             requiresCarbTest.display = true,
                 requiresCarbTest.req = true;
-            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber}מתוכנן לרדת שבוע הבא. מומלץ להוריד שמרים`
+            requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ להוריד שמרים`
             requiresCarbTest.importance = 1;
         }
 
@@ -1037,9 +1051,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const isAnActionDay = Number(lastMeasurement.temp) < 9 && (corrected === 1 || corrected === 4 || corrected === 5)
     let dayTxt = ""
-    if (isAnActionDay && corrected !== 1) {
-        dayTxt += TankCardUse ? `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` : `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. `
-    }
+    // if (isAnActionDay && corrected !== 1) {
+    //     dayTxt += TankCardUse ? `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` : `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. `
+    // }
     if (TankCardUse) {
         dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר" :
             corrected === 4 ?
@@ -1327,6 +1341,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresWarmYeastDropCompletion,
         requiersYeastDropAfterCooling,
         requiresColdYeastDropCompletion,
+        requiiersWedYeastDropOnThus,
         requiresCarbTest,
         requiersDiacytelRest,
         neglectedStatus,

@@ -740,7 +740,8 @@ export default function SendMessurmentsHeader({
             rec.requiresToCoolDown,
             rec.requiredPressureAdjustment,
             rec.requiresWarmYeastDropCompletion,
-            rec.requiresColdYeastDropCompletion
+            rec.requiresColdYeastDropCompletion,
+            rec.requiiersWedYeastDropOnThus,
         ]
             .filter(Boolean)
             .map((recommendation) => ({

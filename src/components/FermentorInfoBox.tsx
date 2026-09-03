@@ -215,7 +215,7 @@ export default function FermentorInfoBox({
     const recommendationList: Recommendation[] =
     recomendations
         ? [
-            recomendations.requiresDailyActions,
+            // recomendations.requiresDailyActions,
             recomendations.lastMessurmentUpToDate,
             recomendations.requiresDryHop,
             recomendations.requiresPresureClose,
@@ -227,7 +227,8 @@ export default function FermentorInfoBox({
             recomendations.requiresToCoolDown,
             recomendations.requiredPressureAdjustment,
             recomendations.requiresWarmYeastDropCompletion,
-            recomendations.requiresColdYeastDropCompletion
+            recomendations.requiresColdYeastDropCompletion,
+            recomendations.requiiersWedYeastDropOnThus,
         ]
             .filter(Boolean)
             .map((rec) => ({
