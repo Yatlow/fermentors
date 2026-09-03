@@ -57,7 +57,7 @@ type CalendarEventDoc = {
 };
 
 /** actionType בקולקציית calendar_events שמייצג אירוע אריזה/הורדה עתידית */
-const PACKAGING_ACTION_TYPE = ["הורדה", "סיום"];
+const PACKAGING_ACTION_TYPE = ["הורדה", "סיום", "ביקבוק"];
 
 // ============================================================
 // DATE HELPERS

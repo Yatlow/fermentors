@@ -253,7 +253,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                     packagingType,
                     amount: Number(amount),
                     batchNumber: tank.batchNumber,
-                    tankNumber: tank.tankNumber,  
+                    tankNumber: tank.tankNumber ?? null,  
                     tankStatus: reading.isEmpty, // ← מעדכן את סטטוס המיכל לפי האם הוא ריק או לא
                 }).catch((err) => {
                     console.error("Failed to log packaging to master sheet:", err);

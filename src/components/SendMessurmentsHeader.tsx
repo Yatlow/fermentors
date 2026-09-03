@@ -258,10 +258,10 @@ export default function SendMessurmentsHeader({
             .map((fv) => {
                 const reading = newReadings[fv.id] ?? {};
                 return {
+                    ...reading,
                     id: buildMeasurementId(),
                     tankId: fv.id,
                     tankNumber: fv.tankNumber,
-                    ...reading,
                     sheetUrl: fv.sheetUrl ?? null,
                     boldNotes: reportName === "אריזה" ? true : undefined,
                 };
@@ -369,8 +369,9 @@ export default function SendMessurmentsHeader({
                             beerStyle: tank?.beerStyle,
                             packagingType,
                             amount: rawAmount,
-                            batchNumber: tank?.batchNumber,
+                            batchNumber: tank?.batchNumber ?? null,
                             tankStatus: e.isEmpty,
+                            tankNumber: e.tankNumber,
                         });
                     });
 

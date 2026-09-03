@@ -71,7 +71,7 @@ export type MasterSheetLogParams = {
     /** כמות בקבוקים (לבקבוקים) או כמות חביות (לחביות) - כמו שהוזן ע"י המשתמש בטופס */
     amount: number;
     batchNumber: string | number | undefined | null;
-    tankNumber?: string | number | null;
+    tankNumber: string | number | null;
     tankStatus: boolean;
 };
 
@@ -94,7 +94,7 @@ async function logPackagingToFirestore(params: {
     productionDateStr: string;
     expiryDateStr: string;
     productDate: Date;
-    tankNumber?: string | number | null;
+    tankNumber: string | number | null;
     tankStatus:boolean;
 }): Promise<void> {
     const { packagingType, beerStyle, quantity, batchNumber,tankNumber, productionDateStr, expiryDateStr, productDate,tankStatus } = params;
