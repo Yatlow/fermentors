@@ -370,6 +370,7 @@ export default function SendMessurmentsHeader({
                             packagingType,
                             amount: rawAmount,
                             batchNumber: tank?.batchNumber,
+                            tankStatus: e.isEmpty,
                         });
                     });
 
@@ -617,7 +618,8 @@ export default function SendMessurmentsHeader({
                     const reading = newReadings[fv.id] ?? {};
                     const current = fv.currentData;
                     const previus = byTank[fv.tankNumber]
-                    return { tankNumber: fv.tankNumber, new: reading, current, previus }
+                    
+                    return { tankNumber: fv.tankNumber, new: reading, current, previus,brewDate: fv.brewDate}
                 }).filter(
                     (r): r is NonNullable<typeof r> => r !== null
                 );
@@ -687,10 +689,10 @@ export default function SendMessurmentsHeader({
                 if (newPh < 3.5) {
                     invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מתחת 3.5. האם הזנת נתון תקין?`)
                 }
-                if (newPh - currentPh > 0.3 || currentPh - newPh > 0.3) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH בהפרש של יותר מ0.3 ממדידה קודמת. האם הזנת נתון תקין?`)
+                if (newPh - currentPh > 0.5 || currentPh - newPh > 0.5 && (getBrewAge(readingSet.brewDate) ?? 0) > 2) {
+                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH בהפרש של יותר מ0.5 ממדידה קודמת. האם הזנת נתון תקין?`)
                 }
-                if (newPlato - currentPlato > 0.3) {
+                if (currentPlato !== null && newPlato - currentPlato > 0.3) {
                     invalidText.push(`במיכל ${readingSet.tankNumber} דווח היום Plato גבוה יותר ממדידה קודמת ב0.3. לתשומת ליבך`)
                 }
                 if (newPlato && !newPh) {

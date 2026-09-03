@@ -635,18 +635,20 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             : null;
     const lastTemp = lastMeasurement?.temp;
     const oldTemp = toDaysAgoMeasurement?.temp;
+    const lastNote = lastMeasurement?.notes?.toString();
     const requiersYeastDropAfterCooling = {
         display: true,
         req:
             CoolAge === 2 &&
             lastTemp != null &&
             oldTemp != null &&
-            lastTemp > oldTemp &&
+            !lastNote?.includes("שמרים")&&
+            // lastTemp > oldTemp &&
             stage.name === "קר",
-        reason: "(מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור",
+        reason: "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
         importance: 1
     }
-    const lastNote = lastMeasurement?.notes?.toString();
+    
     const carbRes = lastMeasurement.carbonation;
     const alreadyadjustedPToday = lastNote?.includes("הורדת לחץ") || lastNote?.includes("העלאת לחץ") || lastNote?.includes("להוריד לחץ") || lastNote?.includes("להעלות לחץ");
     const tookCare = carbRes && alreadyadjustedPToday;
@@ -739,9 +741,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ לבצע בדיקת גיזוז`
             requiresCarbTest.importance = 1;
         }
-        const relaventCarb=  lastMessurmentUpToDate.req ?  lastMeasurement?.carbonation : yesterdayMeasurement?.carbonation;
-        
-        if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && relaventCarb === null) {
+        if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && lastMeasurement?.carbonation === null) {
             requiiersWedYeastDropOnThus.display = true,
                 requiiersWedYeastDropOnThus.req = true;
             requiiersWedYeastDropOnThus.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`

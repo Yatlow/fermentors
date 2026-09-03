@@ -1,39 +1,42 @@
+
 import { useState } from "react";
 import type { Fermentor } from "../App";
 
 type FVType = "triple" | "double" | "6";
 
+type OptionalNumber = number | "";
+
 type CalcValues = {
     BoilVol: {
         label: string;
-        testVol: number;
-        testPlato: number;
-        DesiredPlato: number;
-        EvaporationFactor: number;
+        testVol: OptionalNumber;
+        testPlato: OptionalNumber;
+        DesiredPlato: OptionalNumber;
+        EvaporationFactor: OptionalNumber;
     };
 
     TankVol: {
         label: string;
-        cmFromEndOfStick: number;
-        maxStickReading: number;
+        cmFromEndOfStick: OptionalNumber;
+        maxStickReading: OptionalNumber;
         fvType: FVType;
-        measurementFactor: number;
+        measurementFactor: OptionalNumber;
     };
 
     alphaCalc: {
         label: string;
-        currentAlpha: number;
-        grPerLAtCurrentAlpha: number;
-        newAlpha: number;
-        grPerLAtNewAlpha: number;
+        currentAlpha: OptionalNumber;
+        grPerLAtCurrentAlpha: OptionalNumber;
+        newAlpha: OptionalNumber;
+        grPerLAtNewAlpha: OptionalNumber;
     };
 
     calcPacagingVol: {
         label: string;
-        packagingLoss: number;
-        packagingVol: number;
-        tankVol: number;
-        boxes: number;
+        packagingLoss: OptionalNumber;
+        packagingVol: OptionalNumber;
+        tankVol: OptionalNumber;
+        boxes: OptionalNumber;
         selectedTank: number;
         leftToPack: number;
         leftToPackLabel: "ארגזים" | "חביות";
@@ -77,6 +80,7 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
             leftToPackLabel: "חביות",
         },
     });
+
     const updateField = <
         C extends keyof CalcValues,
         F extends keyof CalcValues[C]
@@ -94,31 +98,47 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
         }));
     };
 
-
-
     const boilVolume =
-        ((calcValues.BoilVol.testVol * calcValues.BoilVol.testPlato) /
-            calcValues.BoilVol.DesiredPlato) + calcValues.BoilVol.EvaporationFactor;
+        calcValues.BoilVol.testVol !== "" &&
+            calcValues.BoilVol.testPlato !== "" &&
+            calcValues.BoilVol.DesiredPlato !== "" &&
+            calcValues.BoilVol.EvaporationFactor !== ""
+            ? (
+                (calcValues.BoilVol.testVol *
+                    calcValues.BoilVol.testPlato) /
+                calcValues.BoilVol.DesiredPlato
+            ) + calcValues.BoilVol.EvaporationFactor
+            : null;
 
     const tankVolume =
-        ((calcValues.TankVol.cmFromEndOfStick / calcValues.TankVol.measurementFactor) * 100) +
-        calcValues.TankVol.maxStickReading;
-
+        calcValues.TankVol.cmFromEndOfStick !== "" &&
+            calcValues.TankVol.measurementFactor !== "" &&
+            calcValues.TankVol.maxStickReading !== ""
+            ? (
+                (calcValues.TankVol.cmFromEndOfStick /
+                    calcValues.TankVol.measurementFactor) * 100
+            ) + calcValues.TankVol.maxStickReading
+            : null;
 
     const alphaResult =
-        (calcValues.alphaCalc.grPerLAtCurrentAlpha *
-            calcValues.alphaCalc.currentAlpha) /
-        calcValues.alphaCalc.newAlpha;
+        calcValues.alphaCalc.grPerLAtCurrentAlpha !== "" &&
+        calcValues.alphaCalc.currentAlpha !== "" &&
+        calcValues.alphaCalc.newAlpha !== "" &&
+        calcValues.alphaCalc.newAlpha !== 0
+            ? (
+                calcValues.alphaCalc.grPerLAtCurrentAlpha *
+                calcValues.alphaCalc.currentAlpha
+            ) / calcValues.alphaCalc.newAlpha
+            : null;
 
     function getPackagingVolumes(packagingVol: number) {
         return {
             boxes: (packagingVol / 0.33) / 24,
             emptyBottleRows: (packagingVol / 0.33) / 361,
             fullBottleRows: (packagingVol / 0.33) / 24 / 12,
-            kegs: packagingVol / 20
-        }
+            kegs: packagingVol / 20,
+        };
     }
-
 
     return (
         <div className="edit-specs-page" dir="rtl">
@@ -137,6 +157,9 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
 
             <div className="specs-list">
 
+                {/* =========================
+                    נפח רתיחה
+                ========================= */}
 
                 <section className="spec-card">
 
@@ -197,28 +220,37 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                     </div>
 
                     <div className="calc-result">
-                        נפח תחילת רתיחה מחושב: {" "}
+                        נפח תחילת רתיחה מחושב:{" "}
                         <strong>
-                            {boilVolume.toFixed(1)} ליטר
+                            {boilVolume !== null
+                                ? `${boilVolume.toFixed(1)} ליטר`
+                                : "חסר נתון"}
                         </strong>
                     </div>
 
                 </section>
 
 
+                {/* =========================
+                    נפח מיכל
+                ========================= */}
 
                 <section className="spec-card">
 
                     <div className="spec-card-header">
                         <h2>{calcValues.TankVol.label}</h2>
+
                         <p className="spec-card-subtitle spec-warning">
-                            בעת המדידה יש לוודא כי הנשם פתוח וצינור בלואו אוף לא טבול במים ושבצינור המדידה אין קצף
+                            בעת המדידה יש לוודא כי הנשם פתוח וצינור
+                            בלואו אוף לא טבול במים ושבצינור המדידה
+                            אין קצף
                         </p>
                     </div>
 
                     <div className="spec-fields">
+
                         <NumberField
-                            label={`מדידת ס"מ מהמקל`}
+                            label="מדידת ס״מ מהמקל"
                             value={calcValues.TankVol.cmFromEndOfStick}
                             onChange={(value) =>
                                 updateField(
@@ -261,19 +293,27 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                             : fvType === "double"
                                                 ? 9
                                                 : 7.6;
-                                    const maxStickReading = fvType === "triple" ? 2300 : fvType === "double" ? 1250 : 1300;
+
+                                    const maxStickReading =
+                                        fvType === "triple"
+                                            ? 2300
+                                            : fvType === "double"
+                                                ? 1250
+                                                : 1300;
 
                                     setCalcValues((prev) => ({
                                         ...prev,
+
                                         TankVol: {
                                             ...prev.TankVol,
                                             fvType,
                                             measurementFactor,
-                                            maxStickReading
+                                            maxStickReading,
                                         },
                                     }));
                                 }}
                             >
+
                                 <option value="triple">
                                     משולש
                                 </option>
@@ -285,6 +325,7 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                 <option value="6">
                                     6מיכל
                                 </option>
+
                             </select>
 
                         </label>
@@ -292,14 +333,20 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                     </div>
 
                     <div className="calc-result">
-                        נפח מיכל מחושב: {" "}
+                        נפח מיכל מחושב:{" "}
                         <strong>
-                            {tankVolume.toFixed(1)} ליטר
+                            {tankVolume !== null
+                                ? `${tankVolume.toFixed(1)} ליטר`
+                                : "חסר נתון"}
                         </strong>
                     </div>
 
                 </section>
 
+
+                {/* =========================
+                    חישוב אלפא
+                ========================= */}
 
                 <section className="spec-card">
 
@@ -323,10 +370,7 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
 
                         <NumberField
                             label="גרם לליטר באלפא הנוכחי"
-                            value={
-                                calcValues.alphaCalc
-                                    .grPerLAtCurrentAlpha
-                            }
+                            value={calcValues.alphaCalc.grPerLAtCurrentAlpha}
                             onChange={(value) =>
                                 updateField(
                                     "alphaCalc",
@@ -353,14 +397,18 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                     <div className="calc-result">
                         גרם לליטר באלפא החדשה:{" "}
                         <strong>
-                            {alphaResult.toFixed(3)}
+                            {alphaResult !== null
+                                ? alphaResult.toFixed(3)
+                                : "חסר נתון"}
                         </strong>
                     </div>
 
                 </section>
 
 
-
+                {/* =========================
+                    אריזה
+                ========================= */}
 
                 <section className="spec-card">
 
@@ -376,31 +424,76 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                             className="spec-field"
                             value={calcValues.calcPacagingVol.selectedTank}
                             onChange={(e) => {
+
                                 const selectedBrew = brews.find(
-                                    (brew) => String(brew.batchNumber) === e.target.value
+                                    (brew) =>
+                                        String(brew.batchNumber) ===
+                                        e.target.value
                                 );
 
                                 if (selectedBrew) {
-                                    const tankVol = Number(selectedBrew.beerVolume);
 
-                                    const packagingVol = Number(
-                                        (
-                                            tankVol -
-                                            (tankVol *
-                                                calcValues.calcPacagingVol.packagingLoss /
-                                                100)
-                                        ).toFixed(2)
-                                    );
+                                    const tankVol =
+                                        Number(selectedBrew.beerVolume);
 
-                                    const boxes = Number(
-                                        ((packagingVol ?? 0) / 0.33 / 24).toFixed(1)
-                                    );
-                                    const leftToPack = Number((
-                                        (packagingVol ?? 0) - Number(selectedBrew?.currentData?.crates ?? 0) - Number(selectedBrew?.currentData?.kegs ?? 0)
-                                    ))
-                                    console.log("leftToPack", leftToPack, Number(selectedBrew?.currentData?.crates), Number(selectedBrew?.currentData?.kegs))
-                                    const leftToPackLabel = Number(selectedBrew?.currentData?.kegs) > 0 ? "ארגזים" : "חביות";
-                                    const leftToPackUnit = Number(selectedBrew?.currentData?.kegs) > 0 ? leftToPack / 0.33 / 24 : leftToPack / 20;
+                                    const packagingVol =
+                                        Number(
+                                            (
+                                                tankVol -
+                                                (
+                                                    tankVol *
+                                                    Number(calcValues
+                                                        .calcPacagingVol
+                                                        .packagingLoss) /
+                                                    100
+                                                )
+                                            ).toFixed(2)
+                                        );
+
+                                    const boxes =
+                                        Number(
+                                            (
+                                                packagingVol /
+                                                0.33 /
+                                                24
+                                            ).toFixed(1)
+                                        );
+
+                                    const leftToPack =
+                                        Number(
+                                            packagingVol
+                                            - Number(
+                                                selectedBrew
+                                                    ?.currentData
+                                                    ?.crates ?? 0
+                                            )
+                                            - Number(
+                                                selectedBrew
+                                                    ?.currentData
+                                                    ?.kegs ?? 0
+                                            )
+                                        );
+
+                                    const leftToPackLabel =
+                                        Number(
+                                            selectedBrew
+                                                ?.currentData
+                                                ?.kegs
+                                        ) > 0
+                                            ? "ארגזים"
+                                            : "חביות";
+
+                                    const leftToPackUnit =
+                                        Number(
+                                            selectedBrew
+                                                ?.currentData
+                                                ?.kegs
+                                        ) > 0
+                                            ? leftToPack /
+                                            0.33 /
+                                            24
+                                            : leftToPack / 20;
+
                                     updateField(
                                         "calcPacagingVol",
                                         "selectedTank",
@@ -424,11 +517,13 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                         "boxes",
                                         boxes
                                     );
+
                                     updateField(
                                         "calcPacagingVol",
                                         "leftToPack",
                                         leftToPackUnit
                                     );
+
                                     updateField(
                                         "calcPacagingVol",
                                         "leftToPackLabel",
@@ -437,7 +532,10 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                 }
                             }}
                         >
-                            <option value={0}>בחר בירה</option>
+
+                            <option value={0}>
+                                בחר בירה
+                            </option>
 
                             {brews
                                 .filter((brew) => brew.action === 1)
@@ -449,6 +547,7 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                         {`מיכל ${brew?.tankNumber}- #${brew?.batchNumber} ${brew?.beerStyle}`}
                                     </option>
                                 ))}
+
                         </select>
 
 
@@ -457,25 +556,60 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                             value={calcValues.calcPacagingVol.tankVol}
                             onChange={(value) => {
 
+                                if (value === "") {
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "tankVol",
+                                        ""
+                                    );
+                                    return;
+                                }
+
                                 const packagingLoss =
-                                    calcValues.calcPacagingVol.packagingLoss;
-
-                                const packagingVol = Number(
-                                    (
-                                        value -
-                                        (value * packagingLoss / 100)
-                                    ).toFixed(2)
-                                );
-
-                                const boxes = Number(
-                                    (packagingVol / 0.33 / 24).toFixed(1)
-                                );
+                                    calcValues
+                                        .calcPacagingVol
+                                        .packagingLoss;
 
                                 updateField(
                                     "calcPacagingVol",
                                     "tankVol",
                                     value
                                 );
+
+                                if (packagingLoss === "") {
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "packagingVol",
+                                        ""
+                                    );
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "boxes",
+                                        ""
+                                    );
+                                    return;
+                                }
+
+                                const packagingVol =
+                                    Number(
+                                        (
+                                            value -
+                                            (
+                                                value *
+                                                packagingLoss /
+                                                100
+                                            )
+                                        ).toFixed(2)
+                                    );
+
+                                const boxes =
+                                    Number(
+                                        (
+                                            packagingVol /
+                                            0.33 /
+                                            24
+                                        ).toFixed(1)
+                                    );
 
                                 updateField(
                                     "calcPacagingVol",
@@ -497,19 +631,28 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                             value={calcValues.calcPacagingVol.packagingVol}
                             onChange={(value) => {
 
+                                if (value === "") {
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "packagingVol",
+                                        ""
+                                    );
+                                    return;
+                                }
+
                                 const packagingLoss =
-                                    calcValues.calcPacagingVol.packagingLoss;
+                                    calcValues
+                                        .calcPacagingVol
+                                        .packagingLoss;
 
-                                const tankVol = Number(
-                                    (
-                                        value /
-                                        (1 - packagingLoss / 100)
-                                    ).toFixed(2)
-                                );
-
-                                const boxes = Number(
-                                    (value / 0.33 / 24).toFixed(1)
-                                );
+                                const boxes =
+                                    Number(
+                                        (
+                                            value /
+                                            0.33 /
+                                            24
+                                        ).toFixed(1)
+                                    );
 
                                 updateField(
                                     "calcPacagingVol",
@@ -525,14 +668,35 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
 
                                 updateField(
                                     "calcPacagingVol",
-                                    "tankVol",
-                                    tankVol
+                                    "boxes",
+                                    boxes
                                 );
+
+                                // אם אחוז הפחת ריק, לא ניתן להסיק את נפח המיכל.
+                                if (packagingLoss === "" || packagingLoss === 100) {
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "tankVol",
+                                        ""
+                                    );
+                                    return;
+                                }
+
+                                const tankVol =
+                                    Number(
+                                        (
+                                            value /
+                                            (
+                                                1 -
+                                                packagingLoss / 100
+                                            )
+                                        ).toFixed(2)
+                                    );
 
                                 updateField(
                                     "calcPacagingVol",
-                                    "boxes",
-                                    boxes
+                                    "tankVol",
+                                    tankVol
                                 );
                             }}
                         />
@@ -543,25 +707,51 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                             value={calcValues.calcPacagingVol.packagingLoss}
                             onChange={(value) => {
 
+                                if (value === "") {
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "packagingLoss",
+                                        ""
+                                    );
+                                    return;
+                                }
+
                                 const tankVol =
-                                    calcValues.calcPacagingVol.tankVol;
-
-                                const packagingVol = Number(
-                                    (
-                                        tankVol -
-                                        (tankVol * value / 100)
-                                    ).toFixed(2)
-                                );
-
-                                const boxes = Number(
-                                    (packagingVol / 0.33 / 24).toFixed(1)
-                                );
+                                    calcValues
+                                        .calcPacagingVol
+                                        .tankVol;
 
                                 updateField(
                                     "calcPacagingVol",
                                     "packagingLoss",
                                     value
                                 );
+
+                                // אין מספיק נתונים לחישוב מחדש.
+                                if (tankVol === "") {
+                                    return;
+                                }
+
+                                const packagingVol =
+                                    Number(
+                                        (
+                                            tankVol -
+                                            (
+                                                tankVol *
+                                                value /
+                                                100
+                                            )
+                                        ).toFixed(2)
+                                    );
+
+                                const boxes =
+                                    Number(
+                                        (
+                                            packagingVol /
+                                            0.33 /
+                                            24
+                                        ).toFixed(1)
+                                    );
 
                                 updateField(
                                     "calcPacagingVol",
@@ -583,19 +773,28 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                             value={calcValues.calcPacagingVol.boxes}
                             onChange={(value) => {
 
-                                const packagingVol = Number(
-                                    (value * 24 * 0.33).toFixed(2)
-                                );
+                                if (value === "") {
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "boxes",
+                                        ""
+                                    );
+                                    return;
+                                }
+
+                                const packagingVol =
+                                    Number(
+                                        (
+                                            value *
+                                            24 *
+                                            0.33
+                                        ).toFixed(2)
+                                    );
 
                                 const packagingLoss =
-                                    calcValues.calcPacagingVol.packagingLoss;
-
-                                const tankVol = Number(
-                                    (
-                                        packagingVol /
-                                        (1 - packagingLoss / 100)
-                                    ).toFixed(2)
-                                );
+                                    calcValues
+                                        .calcPacagingVol
+                                        .packagingLoss;
 
                                 updateField(
                                     "calcPacagingVol",
@@ -609,6 +808,26 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                     packagingVol
                                 );
 
+                                if (packagingLoss === "" || packagingLoss === 100) {
+                                    updateField(
+                                        "calcPacagingVol",
+                                        "tankVol",
+                                        ""
+                                    );
+                                    return;
+                                }
+
+                                const tankVol =
+                                    Number(
+                                        (
+                                            packagingVol /
+                                            (
+                                                1 -
+                                                packagingLoss / 100
+                                            )
+                                        ).toFixed(2)
+                                    );
+
                                 updateField(
                                     "calcPacagingVol",
                                     "tankVol",
@@ -620,44 +839,49 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                     </div>
 
                     <div className="calc-result">
-                        כמות ארגזים:{" "}
-                        <strong>
-                            {getPackagingVolumes(
-                                calcValues.calcPacagingVol.packagingVol
-                            ).boxes.toFixed(1)}
-                        </strong>
+                        {calcValues.calcPacagingVol.packagingVol !== "" ? (
+                            <>
+                                כמות ארגזים:{" "}
+                                <strong>
+                                    {getPackagingVolumes(
+                                        calcValues.calcPacagingVol.packagingVol
+                                    ).boxes.toFixed(1)}
+                                </strong>
 
-                        {", "}קומות בקבוקים ריקים:{" "}
-                        <strong>
-                            {getPackagingVolumes(
-                                calcValues.calcPacagingVol.packagingVol
-                            ).emptyBottleRows.toFixed(1)}
-                        </strong>
+                                {", "}קומות בקבוקים ריקים:{" "}
+                                <strong>
+                                    {getPackagingVolumes(
+                                        calcValues.calcPacagingVol.packagingVol
+                                    ).emptyBottleRows.toFixed(1)}
+                                </strong>
 
-                        {", "}קומות בקבוקים מלאים:{" "}
-                        <strong>
-                            {getPackagingVolumes(
-                                calcValues.calcPacagingVol.packagingVol
-                            ).fullBottleRows.toFixed(1)}
-                        </strong>
+                                {", "}קומות בקבוקים מלאים:{" "}
+                                <strong>
+                                    {getPackagingVolumes(
+                                        calcValues.calcPacagingVol.packagingVol
+                                    ).fullBottleRows.toFixed(1)}
+                                </strong>
 
-                        {", "}חביות:
-                        {" "}
-                        <strong>
-                            {getPackagingVolumes(
-                                calcValues.calcPacagingVol.packagingVol
-                            ).kegs.toFixed(1)}
-                        </strong>
-                        {", "}נותר לארוז:
-                        {" "}
+                                {", "}חביות:{" "}
+                                <strong>
+                                    {getPackagingVolumes(
+                                        calcValues.calcPacagingVol.packagingVol
+                                    ).kegs.toFixed(1)}
+                                </strong>
+                            </>
+                        ) : (
+                            <strong>חסר נתון</strong>
+                        )}
+
+                        {", "}נותר לארוז:{" "}
                         <strong>
                             {calcValues.calcPacagingVol.leftToPack.toFixed(1)}
-                        </strong>
-                        {" "}
+                        </strong>{" "}
                         {calcValues.calcPacagingVol.leftToPackLabel}
                     </div>
 
                 </section>
+
             </div>
 
         </div>
@@ -665,14 +889,10 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
 }
 
 
-/* =========================================
-   שדה מספרי לשימוש חוזר
-========================================= */
-
 type NumberFieldProps = {
     label: string;
-    value: number;
-    onChange: (value: number) => void;
+    value: OptionalNumber;
+    onChange: (value: OptionalNumber) => void;
 };
 
 function NumberField({
@@ -680,7 +900,6 @@ function NumberField({
     value,
     onChange,
 }: NumberFieldProps) {
-
     return (
         <label className="spec-field">
 
@@ -694,10 +913,12 @@ function NumberField({
                 step="any"
                 value={value}
                 onChange={(e) => {
-                    const value = Number(e.target.value);
+                    const rawValue = e.target.value;
 
                     onChange(
-                        Number.isNaN(value) ? 0 : value
+                        rawValue === ""
+                            ? ""
+                            : Number(rawValue)
                     );
                 }}
             />

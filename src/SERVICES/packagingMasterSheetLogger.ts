@@ -1,4 +1,4 @@
-import { doc, getDoc, collection, addDoc, Timestamp } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, Timestamp ,updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 
 const GOOGLE_SCRIPT_URL =
@@ -72,6 +72,7 @@ export type MasterSheetLogParams = {
     amount: number;
     batchNumber: string | number | undefined | null;
     tankNumber?: string | number | null;
+    tankStatus: boolean;
 };
 
 export type MasterSheetLogResult = {
@@ -94,8 +95,9 @@ async function logPackagingToFirestore(params: {
     expiryDateStr: string;
     productDate: Date;
     tankNumber?: string | number | null;
+    tankStatus:boolean;
 }): Promise<void> {
-    const { packagingType, beerStyle, quantity, batchNumber,tankNumber, productionDateStr, expiryDateStr, productDate } = params;
+    const { packagingType, beerStyle, quantity, batchNumber,tankNumber, productionDateStr, expiryDateStr, productDate,tankStatus } = params;
 
     const unit = packagingType === "kegs" ? "חביות" : "ארגזים";
     const itemLabel = String(beerStyle ?? "").trim();
@@ -119,12 +121,23 @@ async function logPackagingToFirestore(params: {
         title,
         createdAt: Timestamp.now(),
     });
+    console.log("tankStatus",tankStatus)
+    const docRef = doc(db, "fermentors", tankNumber?.toString() ?? "");
+    console.log("tankStatus",tankStatus,docRef,tankNumber?.toString())
+    try{
+        await updateDoc(docRef, {
+              tankStatus: tankStatus,
+              action:3,
+            });;
+    }catch(err){
+        console.error("Failed to update tankStatus in Firestore:", err);
+    }
 }
 
 export async function logPackagingToMasterSheet(
     params: MasterSheetLogParams
 ): Promise<MasterSheetLogResult> {
-    const { beerStyle, packagingType, amount, batchNumber,tankNumber } = params;
+    const { beerStyle, packagingType, amount, batchNumber,tankNumber,tankStatus } = params;
 
     if (!amount || amount <= 0) {
         return { success: false, error: "כמות לא תקינה" };
@@ -183,6 +196,7 @@ export async function logPackagingToMasterSheet(
             expiryDateStr,
             productDate: today,
             tankNumber,
+            tankStatus,
         }),
     ]);
 

@@ -1444,10 +1444,10 @@ function TankCard({
               </span>{" "}
 
               {(!Number.isNaN(crates) && Number(crates) > 0)
-                ? `${((((Number(tank.beerVolume)*0.9)- Number(crates)))/20).toFixed(2)} חביות`
+                ? `${((((Number(tank.beerVolume)*0.9)- Number(crates)))/20).toFixed(2)} חביות `
                 : ``}
               {(!Number.isNaN(kegs) && Number(kegs) > 0)
-                ? `${((((Number(tank.beerVolume)*0.9)- Number(kegs)))/0.33/24).toFixed(2)} ארגזים`
+                ? `${((((Number(tank.beerVolume)*0.9)- Number(kegs)))/0.33/24).toFixed(2)} ארגזים `
                 : ``}
             </div>
 
