@@ -114,7 +114,7 @@ export function isPressureOutOfRange(
 
 type YeastDropType = "warm" | "cold";
 
-type YeastDrop = {
+export type YeastDrop = {
     amount: number;
     date: string;
     type: YeastDropType;
@@ -193,6 +193,12 @@ function getYeastDropSpec(
 
 function normalizeHebrewNumberText(value: string): string {
     return value
+        .replace(/(\d)½/g, "$1.5")
+        .replace(/(\d)¼/g, "$1.25")
+        .replace(/(\d)¾/g, "$1.75")
+        .replace(/(?<!\d)½/g, "0.5")
+        .replace(/(?<!\d)¼/g, "0.25")
+        .replace(/(?<!\d)¾/g, "0.75")
         .replace(/,/g, ".")
         .replace(/[־–—-]/g, " ")
         .replace(/\s+/g, " ")
@@ -213,7 +219,12 @@ const BARE_FRACTIONS: Record<string, number> = {
     "רבע": 0.25,
     "שלושת רבעי": 0.75,
     "שלושה רבעים": 0.75,
+    "קצת": 0.4,
+    "מעט": 0.4,
+    "פסע": 0.4,
 };
+const FRACTION_WORDS = Object.keys(BARE_FRACTIONS).sort((a, b) => b.length - a.length);
+const FRACTION_ALT = FRACTION_WORDS.join("|");
 
 function parseYeastAmount(value: string): number | null {
     if (!value) return null;
@@ -225,28 +236,20 @@ function parseYeastAmount(value: string): number | null {
     }
 
     const numericMatch = text.match(
-        /^(\d+(?:\.\d+)?)\s*(?:ו)?\s*(חצי|רבע|שלושת רבעי|שלושה רבעים)?$/
+        new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(?:ו)?\\s*(${FRACTION_ALT})?$`)
     );
     if (numericMatch) {
         const base = Number(numericMatch[1]);
         if (!Number.isFinite(base)) return null;
         const fraction = numericMatch[2];
-        if (!fraction) return base;
-        if (fraction === "חצי") return base + 0.5;
-        if (fraction === "רבע") return base + 0.25;
-        if (fraction === "שלושת רבעי" || fraction === "שלושה רבעים") return base + 0.75;
+        return fraction ? base + (BARE_FRACTIONS[fraction] ?? 0) : base;
     }
 
-    const fractionMatch = text.match(/^(.+?)\s*ו(חצי|רבע|שלושת רבעי|שלושה רבעים)$/);
+    const fractionMatch = text.match(new RegExp(`^(.+?)\\s*ו(${FRACTION_ALT})$`));
     if (fractionMatch) {
         const integerPart = parseHebrewInteger(fractionMatch[1]);
         if (integerPart !== null) {
-            switch (fractionMatch[2]) {
-                case "חצי": return integerPart + 0.5;
-                case "רבע": return integerPart + 0.25;
-                case "שלושת רבעי":
-                case "שלושה רבעים": return integerPart + 0.75;
-            }
+            return integerPart + (BARE_FRACTIONS[fractionMatch[2]] ?? 0);
         }
     }
 
@@ -260,18 +263,25 @@ const HEBREW_LETTER = "א-ת";
 const BUCKET_WORDS = ["דליים", "דליי", "דלי"];
 const BUCKET_ALT = BUCKET_WORDS.join("|");
 
-function findBucketWordIndex(text: string): number {
+// function findBucketWordIndex(text: string): number {
+//     const regex = new RegExp(
+//         `(?<![${HEBREW_LETTER}])(?:${BUCKET_ALT})(?![${HEBREW_LETTER}])`
+//     );
+//     const match = text.match(regex);
+//     return match ? (match.index as number) : -1;
+// }
+
+function findBucketMatch(text: string): { index: number; word: string } | null {
     const regex = new RegExp(
-        `(?<![${HEBREW_LETTER}])(?:${BUCKET_ALT})(?![${HEBREW_LETTER}])`
+        `(?<![${HEBREW_LETTER}])(${BUCKET_ALT})(?![${HEBREW_LETTER}])`
     );
     const match = text.match(regex);
-    return match ? (match.index as number) : -1;
+    if (!match) return null;
+    return { index: match.index as number, word: match[1] };
 }
 
 function parseYeastDropAmount(notes: string | number | null | undefined): number | null {
-    if (notes === null || notes === undefined) {
-        return null;
-    }
+    if (notes === null || notes === undefined) return null;
 
     const original = String(notes);
     const text = normalizeHebrewNumberText(original);
@@ -283,18 +293,17 @@ function parseYeastDropAmount(notes: string | number | null | undefined): number
         return Number(numericMatch[1]);
     }
 
-    const bucketIndex = findBucketWordIndex(text);
+    const bucketMatch = findBucketMatch(text);
 
-    if (bucketIndex !== -1) {
+    if (bucketMatch) {
+        const { index: bucketIndex, word: bucketWord } = bucketMatch;
         const beforeBuckets = text.slice(0, bucketIndex).trim();
         const words = beforeBuckets.split(" ").filter(Boolean);
 
         for (let count = Math.min(4, words.length); count >= 1; count--) {
             const candidate = words.slice(words.length - count).join(" ");
             const parsed = parseYeastAmount(candidate);
-            if (parsed !== null) {
-                return parsed;
-            }
+            if (parsed !== null) return parsed;
         }
 
         let afterBucket = text
@@ -302,28 +311,74 @@ function parseYeastDropAmount(notes: string | number | null | undefined): number
             .replace(new RegExp(`^(?:${BUCKET_ALT})`), "")
             .replace(/^\s*שמרים?/, "")
             .replace(/^[\s:\-–—]+/, "");
-        afterBucket = afterBucket.split(/[,.;]/)[0].trim();
+        // חשוב: לא לפצל על "." כדי לא לשבור מספרים עשרוניים כמו 0.7
+        afterBucket = afterBucket.split(/[,;]/)[0].trim();
 
         if (afterBucket) {
             const parsed = parseYeastAmount(afterBucket);
-            if (parsed !== null) {
-                return parsed;
-            }
+            if (parsed !== null) return parsed;
+        }
+
+        // "דלי" ביחיד בלי כמות מפורשת = דלי אחד
+        if (bucketWord === "דלי") {
+            return 1;
         }
     }
 
     const actionMatch = text.match(
         /(?:הורדת|הורדתי|להוריד|הוצאת|הוצאתי|להוציא)\s+(.+?)(?=\s+(?:דל|שמר)|$)/
     );
-
     if (actionMatch) {
         const parsed = parseYeastAmount(actionMatch[1]);
-        if (parsed !== null) {
-            return parsed;
-        }
+        if (parsed !== null) return parsed;
     }
 
     return null;
+}
+
+
+
+function getMeasurementDate(id: string | number | null | undefined): string | null {
+        if (id === null || id === undefined) {
+            return null;
+        }
+        const idString = String(id);
+
+        // Expected format:
+        // 2026-07-31_1355
+
+        const match = idString.match(/^(\d{4}-\d{2}-\d{2})_\d{4}$/);
+
+        if (!match) {
+            console.warn("Invalid measurement ID format:", idString);
+            return null;
+        }
+
+        return match[1];
+    }
+
+export function extractYeastDrops(measurements: Measurement[]): YeastDrop[] {
+    const sorted = [...measurements].sort((a, b) =>
+        String(a.id ?? "").localeCompare(String(b.id ?? ""))
+    );
+
+    return sorted
+        .map((measurement) => {
+            const note = String(measurement.notes ?? "");
+            if (!note.includes("שמרים") && !note.includes("שמרי")) return null;
+
+            const amount = parseYeastDropAmount(note);
+            if (amount === null) return null;
+
+            const date = getMeasurementDate(measurement.id);
+            if (!date) return null;
+
+            const temp = Number(measurement.temp);
+            const type: YeastDropType = Number.isFinite(temp) && temp <= 9 ? "cold" : "warm";
+
+            return { amount, date, type, note };
+        })
+        .filter((drop): drop is YeastDrop => drop !== null);
 }
 
 export async function calcCelleringRecomendations(measurements: Measurement[],
@@ -382,24 +437,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
         return `${year}-${month}-${day}`;
     }
-    function getMeasurementDate(id: string | number | null | undefined): string | null {
-        if (id === null || id === undefined) {
-            return null;
-        }
-        const idString = String(id);
-
-        // Expected format:
-        // 2026-07-31_1355
-
-        const match = idString.match(/^(\d{4}-\d{2}-\d{2})_\d{4}$/);
-
-        if (!match) {
-            console.warn("Invalid measurement ID format:", idString);
-            return null;
-        }
-
-        return match[1];
-    }
+    
     function formatDateToDDMMYYYY(date: string | null | undefined): string | null {
         if (!date) {
             return null;
@@ -614,9 +652,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             Number(yesterdayMeasurement?.plato);
 
         if (
+            Number(yesterdayPlato) > 0 &&
             Number.isFinite(yesterdayPlato) &&
             Number.isFinite(currentPlato) &&
-            yesterdayPlato - currentPlato < 1.5 &&
+            yesterdayPlato - currentPlato < 1 &&
+            brewAge >= 5 &&
             stage.name === "בתסיסה"
         ) {
             requiresWarmYeastDrop = {
@@ -745,9 +785,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             // console.log("tank number", tankNumber, "next week pack", nextWeekPack, "carb res", carbRes)
             if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
                 (lastMessurmentUpToDate.req && carbRes === null)) {
-                    console.log("tank number", tankNumber, "carb res",
-                         carbRes,lastMeasurement.carbonation, "last measurement up to date", lastMessurmentUpToDate.req, 
-                         "yesterday measurement carbonation", yesterdayMeasurement?.carbonation)
+                console.log("tank number", tankNumber, "carb res",
+                    carbRes, lastMeasurement.carbonation, "last measurement up to date", lastMessurmentUpToDate.req,
+                    "yesterday measurement carbonation", yesterdayMeasurement?.carbonation)
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
                 requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`

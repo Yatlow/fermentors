@@ -8,12 +8,15 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceDot,
+  ReferenceLine,
   Legend,
+  AreaChart,
+  Area,
 } from "recharts";
 
 import type { TooltipContentProps } from "recharts";
 import { getMeasurementsByBatch } from "../SERVICES/gettAllDataByBatch";
-import type { Measurement } from "../SERVICES/calculateCelleringRecomendations";
+import { extractYeastDrops, type Measurement, type YeastDrop } from "../SERVICES/calculateCelleringRecomendations";
 import type { Fermentor } from "../App";
 import {
   getStyleAverages,
@@ -50,6 +53,7 @@ type ChartPoint = {
   yeastNote: string | null;
 };
 
+type ViewMode = "tabs" | "combined";
 
 const METRICS: {
   key: MetricKey;
@@ -79,8 +83,7 @@ const YEAST_KEYWORD = "שמרים";
 // ============================================================
 // DATE PARSING
 // המדידות לא מכילות שדה date - התאריך חבוי בתוך ה-id
-// בפורמט "YYYY-MM-DD_HHMM" (כמו ב-getMeasurementDate שכבר יש לך
-// ב-calculateCelleringRecomendations.ts).
+// בפורמט "YYYY-MM-DD_HHMM"
 // ============================================================
 
 function parseBrewDate(brewDate: string | null | undefined): Date | null {
@@ -122,11 +125,26 @@ function toNumberOrNull(value: unknown): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
+/**
+ * עוגן משותף ליום 0, כדי ש-buildChartData ו-buildYeastChartData
+ * ימנו את הימים בדיוק אותו הדבר (במקום שכל פונקציה תחשב עוגן בנפרד
+ * ואולי תתפצל ליומיים שונים).
+ */
+function computeAnchor(
+  tank: Fermentor,
+  parsedRows: { date: Date }[]
+): Date | null {
+  const brewDate = parseBrewDate(tank.brewDate);
+  if (brewDate) return brewDate;
+  if (parsedRows.length > 0) return parsedRows[0].date;
+  return null;
+}
+
 // ============================================================
 // AXIS HELPERS
 // ============================================================
 
-// טווח X הדוק לנתונים בפועל + טיקים רק על המינימום והמקסימום
+// טווח X הדוק לנתונים בפועל, עם עד 5 טיקים מפוזרים (לא רק מינימום/מקסימום)
 function getXAxisBounds(
   days: number[]
 ): { domain: [number, number]; ticks: number[] } {
@@ -146,7 +164,18 @@ function getXAxisBounds(
     return { domain: [min - 1, max + 1], ticks: [min] };
   }
 
-  return { domain: [min, max], ticks: [min, max] };
+  const tickCount = Math.min(5, max - min + 1);
+  const step = (max - min) / (tickCount - 1);
+
+  const ticks = Array.from(
+    new Set(
+      Array.from({ length: tickCount }, (_, i) =>
+        Math.round(min + i * step)
+      )
+    )
+  ).sort((a, b) => a - b);
+
+  return { domain: [min, max], ticks };
 }
 
 // טווח Y הדוק לנתונים בפועל של מדד ספציפי (כל מדד יכול לנוע בסקאלה שונה לגמרי)
@@ -185,8 +214,11 @@ function getYAxisDomain(
 // BUILD CHART DATA
 // ============================================================
 
-function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoint[] {
-  const brewDate = parseBrewDate(tank.brewDate);
+function buildChartData(
+  tank: Fermentor,
+  measurements: Measurement[],
+  anchor: Date | null
+): ChartPoint[] {
 
   const parsedRows = measurements
     .map((m) => ({ m, date: parseMeasurementDate(m.id) }))
@@ -194,17 +226,11 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
 
   parsedRows.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  // עוגן ליום 0: תאריך הבישול אם קיים, אחרת המדידה המוקדמת ביותר
-  const anchor = brewDate ?? parsedRows[0]?.date ?? null;
-
   const points: ChartPoint[] = parsedRows.map((row) => {
     const day = anchor ? diffDays(row.date, anchor) : 0;
     const notes =
       row.m.notes !== null && row.m.notes !== undefined ? String(row.m.notes) : "";
 
-    // carbonation: אם השדה עדיין לא מוגדר בטיפוס Measurement המשותף,
-    // הקאסט הבטוח הזה מונע שגיאת TS. כדאי בהמשך להוסיף
-    // carbonation?: number | string | null; לטיפוס Measurement המקורי.
     const rawCarbonation = (row.m as unknown as Record<string, unknown>).carbonation;
 
     return {
@@ -219,8 +245,7 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
     };
   });
 
-  // Starting Plato -> יום 0. משמש כשאין עדיין מדידת פלאטו בפועל ביום 0.
-  // (הנחה: יש שדה tank.startingPlato - אם השם אצלך שונה, עדכן כאן)
+  // Starting Plato -> יום 0.
   const startingPlato = toNumberOrNull(tank.startingPlato);
   if (startingPlato !== null) {
     const dayZero = points.find((p) => p.day === 0);
@@ -229,7 +254,7 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
     } else {
       points.unshift({
         day: 0,
-        dateLabel: brewDate ? brewDate.toLocaleDateString("he-IL") : "",
+        dateLabel: anchor ? anchor.toLocaleDateString("he-IL") : "",
         plato: startingPlato,
         pH: null,
         temp: null,
@@ -244,16 +269,64 @@ function buildChartData(tank: Fermentor, measurements: Measurement[]): ChartPoin
 }
 
 // ============================================================
-// TOOLTIP
-// נבנה כ-content מותאם אישית (במקום formatter/labelFormatter)
-// כדי לעקוף את הטיפוס הגנרי הבעייתי של recharts (Formatter<ValueType,...>
-// לא כולל null, וזה מה שגרם לשגיאת ה-TS בגרסה הקודמת).
+// COMBINED (NORMALIZED) CHART DATA
+// כל מדד מנורמל ל-0..1 כדי שכל הקווים יחיו על אותו ציר Y.
+// הערכים האמיתיים נשלפים בטולטיפ מתוך chartData לפי היום.
 // ============================================================
+
+type CombinedPoint = { day: number } & Partial<Record<MetricKey, number | null>>;
+
+function buildCombinedData(chartData: ChartPoint[]): CombinedPoint[] {
+  const ranges: Partial<Record<MetricKey, { min: number; max: number }>> = {};
+
+  METRICS.forEach((metric) => {
+    const values = chartData
+      .map((p) => p[metric.key])
+      .filter((v): v is number => v !== null && v !== undefined && Number.isFinite(v));
+
+    if (values.length > 0) {
+      ranges[metric.key] = { min: Math.min(...values), max: Math.max(...values) };
+    }
+  });
+
+  return chartData.map((point) => {
+    const combined: CombinedPoint = { day: point.day };
+
+    METRICS.forEach((metric) => {
+      const raw = point[metric.key];
+      const range = ranges[metric.key];
+
+      if (raw === null || raw === undefined || !range) {
+        combined[metric.key] = null;
+        return;
+      }
+
+      combined[metric.key] =
+        range.max === range.min ? 0.5 : (raw - range.min) / (range.max - range.min);
+    });
+
+    return combined;
+  });
+}
+
+// ============================================================
+// TOOLTIPS
+// ============================================================
+
+function makeYeastNoteLine(
+  day: number,
+  yeastDropsByDay: Map<number, YeastChartPoint>
+): string | null {
+  const drop = yeastDropsByDay.get(day);
+  if (!drop) return null;
+  return `🟢 ${formatYeastTotal(drop.amount)} דליים (${drop.type === "cold" ? "קר" : "חם"})`;
+}
 
 function makeTooltipRenderer(
   metric: (typeof METRICS)[number],
   chartData: ChartPoint[],
-  styleAverages: StyleAverages | null
+  styleAverages: StyleAverages | null,
+  yeastDropsByDay: Map<number, YeastChartPoint>
 ) {
   return function TooltipRenderer({ active, label, payload }: TooltipContentProps) {
     if (!active || !payload || payload.length === 0 || label === undefined) {
@@ -263,6 +336,7 @@ function makeTooltipRenderer(
     const dayNumber = Number(label);
     const point = chartData.find((p) => p.day === dayNumber);
     const dayInfo = styleAverages?.days?.[String(dayNumber)];
+    const yeastLine = makeYeastNoteLine(dayNumber, yeastDropsByDay);
 
     return (
       <div className="chart-tooltip">
@@ -294,9 +368,109 @@ function makeTooltipRenderer(
             </div>
           );
         })}
+
+        {yeastLine && (
+          <div className="chart-tooltip-value" style={{ color: "#058a05" }}>
+            {yeastLine}
+          </div>
+        )}
       </div>
     );
   };
+}
+
+function makeCombinedTooltipRenderer(
+  chartData: ChartPoint[],
+  yeastDropsByDay: Map<number, YeastChartPoint>
+) {
+  return function CombinedTooltipRenderer({ active, label }: TooltipContentProps) {
+    if (!active || label === undefined) return null;
+
+    const dayNumber = Number(label);
+    const point = chartData.find((p) => p.day === dayNumber);
+    if (!point) return null;
+
+    const yeastLine = makeYeastNoteLine(dayNumber, yeastDropsByDay);
+
+    return (
+      <div className="chart-tooltip">
+        <div className="chart-tooltip-day">
+          יום {dayNumber}
+          {point.dateLabel ? ` (${point.dateLabel})` : ""}
+        </div>
+
+        {METRICS.map((metric) => {
+          const raw = point[metric.key];
+          if (raw === null || raw === undefined) return null;
+
+          return (
+            <div
+              key={metric.key}
+              className="chart-tooltip-value"
+              style={{ color: metric.color }}
+            >
+              {metric.label}: {raw}
+              {metric.unit}
+            </div>
+          );
+        })}
+
+        {yeastLine && (
+          <div className="chart-tooltip-value" style={{ color: "#058a05" }}>
+            {yeastLine}
+          </div>
+        )}
+      </div>
+    );
+  };
+}
+
+type YeastChartPoint = {
+  day: number;
+  amount: number;
+  note: string;
+  type: "warm" | "cold";
+  dateLabel: string;
+};
+
+function formatDropDate(isoDate: string): string {
+  const match = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return isoDate;
+  const [, , month, day] = match;
+  return `${day}/${month}`;
+}
+
+function buildYeastChartData(drops: YeastDrop[], anchor: Date | null): YeastChartPoint[] {
+  if (!anchor) return [];
+
+  return drops
+    .map((drop) => {
+      const dropDate = new Date(`${drop.date}T00:00:00`);
+      if (Number.isNaN(dropDate.getTime())) return null;
+      return {
+        day: diffDays(dropDate, anchor),
+        amount: drop.amount,
+        note: drop.note,
+        type: drop.type,
+        dateLabel: formatDropDate(drop.date),
+      };
+    })
+    .filter((p): p is YeastChartPoint => p !== null)
+    .sort((a, b) => a.day - b.day);
+}
+
+type YeastCumulativePoint = { day: number; cumulative: number };
+
+function buildYeastCumulativeData(drops: YeastChartPoint[]): YeastCumulativePoint[] {
+  let running = 0;
+  return drops.map((drop) => {
+    running += drop.amount;
+    return { day: drop.day, cumulative: Number(running.toFixed(2)) };
+  });
+}
+
+function formatYeastTotal(amount: number): string {
+  return String(Number(amount.toFixed(2)));
 }
 
 // ============================================================
@@ -307,10 +481,23 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeMetric, setActiveMetric] = useState<MetricKey>("plato");
   const [styleAverages, setStyleAverages] =
     useState<StyleAverages | null>(null);
 
+  const yeastDrops = useMemo(() => extractYeastDrops(measurements), [measurements]);
+
+  const totalWarmBuckets = useMemo(
+    () => yeastDrops.filter((d) => d.type === "warm").reduce((sum, d) => sum + d.amount, 0),
+    [yeastDrops]
+  );
+  const totalColdBuckets = useMemo(
+    () => yeastDrops.filter((d) => d.type === "cold").reduce((sum, d) => sum + d.amount, 0),
+    [yeastDrops]
+  );
+  const totalBuckets = totalWarmBuckets + totalColdBuckets;
+
+  const [activeMetric, setActiveMetric] = useState<MetricKey | "yeast">("plato");
+  const [viewMode, setViewMode] = useState<ViewMode>("combined");
 
   useEffect(() => {
     let cancelled = false;
@@ -374,10 +561,38 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
     };
   }, [tank.beerStyle]);
 
+  // עוגן משותף לכל חישובי הימים (גרפי מדדים + גרף שמרים + הטולטיפים)
+  const anchor = useMemo(() => {
+    const parsedRows = measurements
+      .map((m) => parseMeasurementDate(m.id))
+      .filter((d): d is Date => d !== null)
+      .sort((a, b) => a.getTime() - b.getTime())
+      .map((date) => ({ date }));
+    return computeAnchor(tank, parsedRows);
+  }, [tank, measurements]);
+
   const chartData = useMemo(
-    () => buildChartData(tank, measurements),
-    [tank, measurements]
+    () => buildChartData(tank, measurements, anchor),
+    [tank, measurements, anchor]
   );
+
+  const yeastChartData = useMemo(
+    () => buildYeastChartData(yeastDrops, anchor),
+    [yeastDrops, anchor]
+  );
+
+  const yeastDropsByDay = useMemo(() => {
+    const map = new Map<number, YeastChartPoint>();
+    yeastChartData.forEach((drop) => map.set(drop.day, drop));
+    return map;
+  }, [yeastChartData]);
+
+  const yeastCumulativeData = useMemo(
+    () => buildYeastCumulativeData(yeastChartData),
+    [yeastChartData]
+  );
+
+  const combinedData = useMemo(() => buildCombinedData(chartData), [chartData]);
 
   const chartDataWithAverage = useMemo(() => {
     if (!styleAverages) {
@@ -397,8 +612,6 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
       ([dayString, values]) => {
         const day = Number(dayString);
 
-        // לא להציג ממוצע מעבר ליום האחרון
-        // שהאצווה הנוכחית באמת הגיעה אליו
         if (
           maxCurrentDay !== null &&
           day > maxCurrentDay
@@ -411,20 +624,11 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
         );
 
         if (existing) {
-          existing.averagePlato =
-            values.plato ?? null;
-
-          existing.averagePH =
-            values.pH ?? null;
-
-          existing.averageTemp =
-            values.temp ?? null;
-
-          existing.averagePressure =
-            values.pressure ?? null;
-
-          existing.averageCarbonation =
-            values.carbonation ?? null;
+          existing.averagePlato = values.plato ?? null;
+          existing.averagePH = values.pH ?? null;
+          existing.averageTemp = values.temp ?? null;
+          existing.averagePressure = values.pressure ?? null;
+          existing.averageCarbonation = values.carbonation ?? null;
         } else {
           result.push({
             day,
@@ -434,22 +638,11 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
             temp: null,
             pressure: null,
             carbonation: null,
-
-            averagePlato:
-              values.plato ?? null,
-
-            averagePH:
-              values.pH ?? null,
-
-            averageTemp:
-              values.temp ?? null,
-
-            averagePressure:
-              values.pressure ?? null,
-
-            averageCarbonation:
-              values.carbonation ?? null,
-
+            averagePlato: values.plato ?? null,
+            averagePH: values.pH ?? null,
+            averageTemp: values.temp ?? null,
+            averagePressure: values.pressure ?? null,
+            averageCarbonation: values.carbonation ?? null,
             yeastNote: null,
           });
         }
@@ -461,15 +654,20 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
     );
   }, [chartData, styleAverages]);
 
-
-  const yeastNotes = useMemo(
-    () => chartData.filter((p) => p.yeastNote),
-    [chartData]
-  );
-
   function handlePrint() {
     window.print();
   }
+
+  function selectMetric(metric: MetricKey | "yeast") {
+    setActiveMetric(metric);
+    setViewMode("tabs");
+  }
+
+  function toggleCombined() {
+    setViewMode((v) => (v === "combined" ? "tabs" : "combined"));
+  }
+
+  const combinedXBounds = getXAxisBounds(combinedData.map((p) => p.day));
 
   return (
     <div className="batch-chart-overlay" onClick={onClose}>
@@ -499,28 +697,176 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
 
         {!loading && !error && chartData.length > 0 && (
           <>
-            {/* טאבים - נוח במיוחד למובייל: גרף אחד בכל פעם במקום כמה צירים על מסך קטן */}
             <div className="chart-metric-tabs">
               {METRICS.map((metric) => (
                 <button
                   key={metric.key}
                   type="button"
-                  className={`chart-metric-tab ${activeMetric === metric.key ? "active" : ""
+                  className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === metric.key ? "active" : ""
                     }`}
-                  onClick={() => setActiveMetric(metric.key)}
+                  onClick={() => selectMetric(metric.key)}
                 >
                   {metric.label}
                 </button>
               ))}
+              <button
+                type="button"
+                className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""
+                  }`}
+                onClick={() => selectMetric("yeast")}
+              >
+                שמרים
+              </button>
+              <button
+                type="button"
+                className={`chart-metric-tab ${viewMode === "combined" ? "active" : ""}`}
+                onClick={toggleCombined}
+              >
+                הכל ביחד
+              </button>
             </div>
 
-            {/*
-              כל הגרפים נשארים ב-DOM (מוסתרים ב-CSS) ולא רק זה הפעיל.
-              זה מה שמאפשר שבהדפסה / "שמירה כ-PDF" (window.print) יודפס
-              דוח מלא עם כל המדדים אחד מתחת לשני, ולא רק מה שרואים במסך.
-              לכל מדד טווח X משלו - מחושב רק מהימים שבהם יש בפועל מדידה
-              לאותו מדד ספציפית (לא נמתח עד לימי הממוצע הכלליים).
-            */}
+            {/* סיכום שמרים קבוע - מוצג תמיד, לא תלוי באיזה טאב פתוח */}
+            {totalBuckets > 0 && (
+              <div className="chart-yeast-summary">
+                🟢 סה״כ שמרים: {formatYeastTotal(totalBuckets)} דליים
+                {" "}(חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
+              </div>
+            )}
+
+            {/* גרף השמרים - מצטבר + רשימת אירועים, במקום עמודות בודדות על ציר ריק */}
+            <div
+              className={`metric-chart-block ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""
+                }`}
+            >
+              <div className="metric-chart-print-title">
+                שמרים — סה״כ {formatYeastTotal(totalBuckets)} דליים
+                {" "}(חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
+              </div>
+
+              {yeastChartData.length === 0 ? (
+                <div className="batch-chart-status">אין עדיין הורדות שמרים רשומות</div>
+              ) : (
+                <>
+                  <div className="batch-chart-graph" dir="ltr">
+                    <ResponsiveContainer width="100%" height={160}>
+                      <AreaChart
+                        data={yeastCumulativeData}
+                        margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                        <XAxis
+                          dataKey="day"
+                          type="number"
+                          {...getXAxisBounds(yeastCumulativeData.map((p) => p.day))}
+                          label={{ value: "ימים מהבישול", position: "insideBottom", offset: -4, fontSize: 12 }}
+                        />
+                        <YAxis width={40} allowDecimals />
+                        <Tooltip
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length || label === undefined) return null;
+                            const drop = yeastDropsByDay.get(Number(label));
+                            const cumulative = payload[0].value;
+                            return (
+                              <div className="chart-tooltip">
+                                <div className="chart-tooltip-day">יום {label}</div>
+                                <div className="chart-tooltip-value">סה״כ מצטבר: {cumulative} דליים</div>
+                                {drop && (
+                                  <div className="chart-tooltip-value" style={{ color: "#058a05" }}>
+                                    הורדה ביום זה: {formatYeastTotal(drop.amount)} דליים · {drop.type === "cold" ? "קר" : "חם"}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }}
+                        />
+                        <Area
+                          type="stepAfter"
+                          dataKey="cumulative"
+                          stroke="#058a05"
+                          fill="#058a05"
+                          fillOpacity={0.15}
+                          strokeWidth={2.5}
+                          dot={{ r: 4, fill: "#058a05" }}
+                          isAnimationActive={false}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="yeast-timeline">
+                    {yeastChartData.map((drop) => (
+                      <div key={`${drop.day}-${drop.dateLabel}`} className="yeast-timeline-row">
+                        <span className="yeast-timeline-day">יום {drop.day}</span>
+                        <span className="yeast-timeline-date">{drop.dateLabel}</span>
+                        <span className={`yeast-badge ${drop.type}`}>
+                          {drop.type === "cold" ? "❄️ קר" : "🔥 חם"}
+                        </span>
+                        <span className="yeast-timeline-amount">
+                          {formatYeastTotal(drop.amount)} דליים
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* גרף "הכל ביחד" - כל המדדים מנורמלים 0..1 על אותו ציר, ערכים אמיתיים בטולטיפ */}
+            <div className={`metric-chart-block ${viewMode === "combined" ? "active" : ""}`}>
+              <div className="metric-chart-print-title">הכל ביחד (מנורמל)</div>
+              <div className="batch-chart-graph" dir="ltr">
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={combinedData} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                    <XAxis
+                      dataKey="day"
+                      type="number"
+                      domain={combinedXBounds.domain}
+                      ticks={combinedXBounds.ticks}
+                      label={{ value: "ימים מהבישול", position: "insideBottom", offset: -4, fontSize: 12 }}
+                    />
+                    <YAxis
+                      width={40}
+                      domain={[0, 1]}
+                      ticks={[0, 0.5, 1]}
+                      tickFormatter={(v) => (v === 0 ? "נמוך" : v === 1 ? "גבוה" : "")}
+                    />
+                    <Tooltip content={makeCombinedTooltipRenderer(chartData, yeastDropsByDay)} />
+                    <Legend
+                      verticalAlign="bottom"
+                      align="center"
+                      wrapperStyle={{ paddingTop: 10, direction: "rtl" }}
+                    />
+
+                    {METRICS.map((metric) => (
+                      <Line
+                        key={metric.key}
+                        type="monotone"
+                        dataKey={metric.key}
+                        name={metric.label}
+                        stroke={metric.color}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                    ))}
+
+                    {yeastChartData.map((drop) => (
+                      <ReferenceLine
+                        key={`yeast-line-${drop.day}`}
+                        x={drop.day}
+                        stroke="#058a05"
+                        strokeDasharray="4 3"
+                        strokeOpacity={0.6}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             {METRICS.map((metric) => {
 
               const metricDays = chartData
@@ -532,7 +878,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
               return (
                 <div
                   key={metric.key}
-                  className={`metric-chart-block ${activeMetric === metric.key ? "active" : ""
+                  className={`metric-chart-block ${viewMode === "tabs" && activeMetric === metric.key ? "active" : ""
                     }`}
                 >
                   <div className="metric-chart-print-title">{metric.label}</div>
@@ -562,7 +908,9 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                           tickCount={5}
                           tickFormatter={(v) => Number(v).toFixed(1)}
                         />
-                        <Tooltip content={makeTooltipRenderer(metric, chartData, styleAverages)} />
+                        <Tooltip
+                          content={makeTooltipRenderer(metric, chartData, styleAverages, yeastDropsByDay)}
+                        />
                         <Legend
                           verticalAlign="bottom"
                           align="center"
@@ -617,18 +965,6 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                 </div>
               );
             })}
-
-            {yeastNotes.length > 0 && (
-              <div className="chart-notes-list">
-                <div className="chart-notes-title">🟢 שמרים</div>
-                {yeastNotes.map((n) => (
-                  <div key={`note-${n.day}`} className="chart-note-row">
-                    <span className="chart-note-day">יום {n.day}</span>
-                    <span className="chart-note-text">{n.yeastNote}</span>
-                  </div>
-                ))}
-              </div>
-            )}
 
             <div className="batch-chart-actions">
               <button
