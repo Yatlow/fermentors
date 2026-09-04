@@ -703,7 +703,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         CoolAge === 1 &&
         yesterdayMeasurement?.temp != null &&
         lastMeasurement?.temp != null &&
-        yesterdayMeasurement.temp > lastMeasurement.temp &&
         !lastMeasurement?.carbonation &&
         stage.name === "קר"
     ) {

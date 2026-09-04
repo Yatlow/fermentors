@@ -821,7 +821,7 @@ export default function BatchReportsView({
 
 
             {hasSelection && (
-                <div className="measurement-grid">
+                <div className="measurement-grid report-grid">
 
                     {reportView !== "averages" && (
                         <div className="measurement-card yeast-report-card">

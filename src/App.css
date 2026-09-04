@@ -1627,7 +1627,7 @@ body {
   display: grid;
 
   /* כרטיסים רחבים ככל האפשר */
-  grid-template-columns: repeat(1, minmax(220px, 1fr));
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
 
   gap: 8px;
 
@@ -1635,6 +1635,9 @@ body {
   max-width: 1600px;
 
   margin: 0 auto;
+}
+.report-grid{
+      grid-template-columns: repeat(1, minmax(220px, 1fr));
 }
 
 
@@ -1644,7 +1647,10 @@ body {
 
 @media (min-width: 1400px) {
   .measurement-grid {
-    grid-template-columns: repeat(1, minmax(240px, 1fr));
+    grid-template-columns: repeat(5, minmax(240px, 1fr));
+  }
+  .report-grid{
+      grid-template-columns: repeat(1, minmax(220px, 1fr));
   }
 }
 
@@ -1655,7 +1661,10 @@ body {
 
 @media (max-width: 1099px) {
   .measurement-grid {
-    grid-template-columns: repeat(1, minmax(220px, 1fr));
+    grid-template-columns: repeat(5, minmax(220px, 1fr));
+  }
+  .report-grid{
+      grid-template-columns: repeat(1, minmax(220px, 1fr));
   }
 }
 
@@ -1666,7 +1675,7 @@ body {
 
 @media (max-width: 700px) {
   .measurement-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
 
     gap: 7px;
 
@@ -1677,6 +1686,9 @@ body {
     width: 100%;
     min-width: 0;
   }
+  .report-grid{
+       grid-template-columns: 1fr;
+  }
 }
 
 
@@ -1686,13 +1698,16 @@ body {
 
 @media (max-width: 480px) {
   .measurement-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
 
     gap: 6px;
   }
 
   .measurement-card {
     width: 100%;
+  }
+  .report-grid{
+    grid-template-columns: 1fr;
   }
 }
 
