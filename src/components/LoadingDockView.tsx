@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { subscribeToZone, createShipment, moveToZone } from "../SERVICES/Palletservice";
 import type { Pallet } from "../SERVICES/Pallettypes ";
+import ShipmentDocumentModal from "./ShipmentDocumentModal";
 
 function useTotals(pallets: Pallet[]) {
     return useMemo(() => {
@@ -21,6 +22,24 @@ export default function LoadingDockView() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastShipmentId, setLastShipmentId] = useState<string | null>(null);
+    const [shipmentPallets, setShipmentPallets] =
+        useState<Pallet[]>([]);
+
+    const [showShipmentDocument, setShowShipmentDocument] =
+        useState(false);
+    const allSelected =
+        pallets.length > 0 &&
+        pallets.every((p) => selected.has(p.id));
+
+    function toggleSelectAll() {
+        setSelected(() => {
+            if (allSelected) {
+                return new Set();
+            }
+
+            return new Set(pallets.map((p) => p.id));
+        });
+    }
 
     useEffect(() => subscribeToZone("loadingDock", setPallets), []);
     const totals = useTotals(pallets.filter((p) => selected.has(p.id)));
@@ -31,17 +50,42 @@ export default function LoadingDockView() {
     }
 
     async function handleShip() {
+        if (selected.size === 0) return;
         setBusy(true); setError(null);
-        try { const id = await createShipment(Array.from(selected)); setLastShipmentId(id); setSelected(new Set()); }
+
+        try {
+            const selectedPallets = pallets.filter(
+                (p) => selected.has(p.id)
+            );
+            const id = await createShipment(
+                selectedPallets.map((p) => p.id)
+            );
+
+            setLastShipmentId(id);
+            setShipmentPallets(selectedPallets);
+            console.log("111")
+            setShowShipmentDocument(true);
+            setSelected(new Set());
+        }
         catch (e: any) { setError(e?.message ?? "שגיאה בשילוח"); }
         finally { setBusy(false); }
     }
 
     if (pallets.length === 0) return <div className="zone-tray-empty">אין משטחים במשטח הטעינה כרגע.</div>;
-
     return (
         <div className="loading-dock-view">
-            <div className="zone-tray-header"><div><h3>משטח טעינה</h3><p>בחר משטחים שנשלחו. לחץ שלח לניפוק תעודת משלוח.</p></div></div>
+            <div className="zone-tray-header"><div><h3>משטח טעינה</h3><p>בחר משטחים שנשלחו. לחץ שלח לניפוק תעודת משלוח.</p></div>
+                {pallets.length > 0 && (
+                    <button
+                        className="bulk-mode-btn"
+                        onClick={toggleSelectAll}
+                    >
+                        {allSelected
+                            ? "בטל בחירת הכל"
+                            : "בחר הכל"}
+                    </button>
+                )}
+            </div>
             <div className="dock-list">
                 {pallets.map((p) => (
                     <article key={p.id} className="dock-card">
@@ -55,6 +99,15 @@ export default function LoadingDockView() {
             {error && <div className="edit-specs-message error">{error}</div>}
             {lastShipmentId && <div className="edit-specs-message success">תעודת משלוח נוצרה ({lastShipmentId})</div>}
             <button className="shipment-btn" disabled={busy || selected.size === 0} onClick={handleShip}>{busy ? "יוצר תעודה…" : `שלח ${selected.size ? `(${selected.size})` : ""}`}</button>
+            {showShipmentDocument && (
+                <ShipmentDocumentModal
+                    shipmentId={lastShipmentId!}
+                    pallets={shipmentPallets}
+                    onClose={() =>
+                        setShowShipmentDocument(false)
+                    }
+                />
+            )}
         </div>
     );
 }

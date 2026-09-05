@@ -299,10 +299,18 @@
 }
 
 .cooler-map-scroll {
-    overflow-x: auto;
-    overflow-y: visible;
-    padding-bottom: 8px;
-    width: 100%;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+}
+
+.cooler-map-zoom {
+    width: max-content;
+    min-width: 100%;
+}
+
+.cooler-physical-map {
+    transform-origin: top center;
 }
 
 .cooler-physical-map {
@@ -973,7 +981,8 @@
     cursor: pointer;
 }
 
-.shipment-btn:disabled {
+.shipment-btn:disabled,
+.organize-toggle:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
@@ -1534,5 +1543,145 @@
     .dock-card>.zone-secondary-action {
         grid-column: 1 / -1;
         width: 100%;
+    }
+}
+.shipment-document-overlay {
+    align-items: flex-start;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.shipment-document-modal {
+    width: min(900px, 100%);
+    margin: 20px auto;
+}
+
+.shipment-document {
+    background: white;
+    padding: 40px;
+    color: #111;
+}
+
+.shipment-document-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 30px;
+    border-bottom: 2px solid #222;
+    padding-bottom: 20px;
+    margin-bottom: 30px;
+}
+
+.shipment-logo {
+    width: 140px;
+    height: auto;
+    object-fit: contain;
+}
+
+.shipment-document-header h1 {
+    margin: 0 0 10px;
+}
+
+.shipment-table,
+.shipment-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 30px;
+}
+
+.shipment-table th,
+.shipment-table td,
+.shipment-summary-table th,
+.shipment-summary-table td {
+    border: 1px solid #ccc;
+    padding: 10px;
+    text-align: right;
+}
+
+.shipment-table th,
+.shipment-summary-table th {
+    font-weight: 700;
+}
+
+.shipment-document-footer {
+    margin-top: 60px;
+    padding-top: 15px;
+    border-top: 1px solid #ccc;
+    text-align: center;
+    font-size: 13px;
+}
+
+.shipment-document-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.shipment-email-editor {
+    background: white;
+    padding: 20px;
+    margin-top: 10px;
+}
+
+.shipment-email-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.shipment-email-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+
+.shipment-email-row button {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.shipment-add-email {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.shipment-add-email input {
+    flex: 1;
+}
+.bulk-selection-info{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    .shipment-document,
+    .shipment-document * {
+        visibility: visible;
+    }
+
+    .shipment-document {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        padding: 20px;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+
+    @page {
+        margin: 12mm;
     }
 }

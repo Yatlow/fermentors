@@ -135,8 +135,8 @@ function CompactPalletCard({
                 <div className="pallet-row-actions" onClick={(e) => e.stopPropagation()}>
                     {organizeMode && onReorder && (
                         <>
-                            <button className="row-icon-btn" onClick={() => onReorder("up")} title="הזז למעלה">{<LayerArrowUp size={12}/>}</button>
-                            <button className="row-icon-btn" onClick={() => onReorder("down")} title="הזז למטה">{<LayerArrowDown size={12}/>}</button>
+                            <button className="row-icon-btn" onClick={() => onReorder("up")} title="הזז למעלה">{<LayerArrowUp size={12} />}</button>
+                            <button className="row-icon-btn" onClick={() => onReorder("down")} title="הזז למטה">{<LayerArrowDown size={12} />}</button>
                         </>
                     )}
                     <button className="row-icon-btn" onClick={onEdit} title="עריכה"><Pencil size={13} /></button>
@@ -181,7 +181,9 @@ function CoolerCellBox({
             className={`cooler-cell ${caution ? "caution" : ""} ${placementPallet && !wouldOverflow && !isSourceCell ? "move-target" : ""} ${wouldOverflow ? "no-room" : ""}`}
             onClick={() => placementPallet && !wouldOverflow && !isSourceCell && onDropHere(cell)}
         >
-            <div className="cooler-cell-header"><strong>{cell.col}.{cell.row}</strong><span>{pallets.length ? `${pallets.length} משטחים`: "פנוי"}</span></div>
+            <div className="cooler-cell-header">
+                {/* <strong>{cell.col}.{cell.row}</strong> */}
+                <span>{pallets.length ? `${pallets.length} משטחים` : "פנוי"}</span></div>
             <div className="cooler-cell-capacity"><span style={{ width: `${Math.min(100, heightUsed / MAX_HEIGHT_UNITS_PER_CELL * 100)}%` }} /></div>
             <div className="cooler-cell-pallets">
                 {sorted.map((p, i) => (
@@ -288,7 +290,16 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
         try {
             setError(null);
             await movePalletToCell(placementPallet.id, cell, target.length);
+            const pendingCountAfterMove =
+                zones.pending.length - 1;
+
             clearPlacement();
+
+            if (pendingCountAfterMove > 0) {
+                setBulkSelectedIds(new Set());
+                setBulkMode(false);
+                setTab("pending");
+            }
         } catch (e: any) { setError(e?.message ?? "שגיאה בשיבוץ"); }
     }
 
@@ -311,10 +322,26 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
         try { await setMarkedForShipment(pallet.id, !pallet.markedForShipment); } catch (e: any) { setError(e?.message ?? "שגיאה"); }
     }
 
+    function changeTab(nextTab: Tab) {
+        setPlacementPalletId(null);
+        setBulkSelectedIds(new Set());
+        setBulkMode(false);
+        setMovingZonePallet(null);
+        setError(null);
+        setOrganizeMode(false);
+        setTab(nextTab);
+    }
+
     function selectZone(z: PalletZone) {
-        if (z === "cooler") setTab("map");
-        if (z === "pending" || z === "bottleRoom") setTab(z);
-        else if (z === "loadingDock") setTab("dock");
+        if (z === "cooler") {
+            changeTab("map");
+        } else if (z === "pending") {
+            changeTab("pending");
+        } else if (z === "bottleRoom") {
+            changeTab("bottleRoom");
+        } else if (z === "loadingDock") {
+            changeTab("dock");
+        }
     }
 
     const trayProps = {
@@ -334,13 +361,35 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
         return <div className="cooler-zone-badges">{zones.map((z) => <button key={z} className={`cooler-zone-badge zone-${z}`} onClick={() => onSelect(z)}><span>{ZONE_META[z].icon}</span><span>{ZONE_META[z].label}</span><strong>{counts[z]}</strong></button>)}</div>;
     }
 
+    function toggleOrganizeMode() {
+        setOrganizeMode((prev) => {
+            const next = !prev;
+
+            // ביציאה ממצב סידור מנקים כל בחירה
+            if (prev && !next) {
+                setPlacementPalletId(null);
+                setBulkSelectedIds(new Set());
+                setBulkMode(false);
+                setMovingZonePallet(null);
+            }
+
+            return next;
+        });
+    }
+
     if (loading) return <div className="cooler-loading"><span><MapPlus /></span><strong>טוען את מפת המקרר…</strong></div>;
 
     return (
         <div className={`cooler-map-page ${placementPallet ? "has-floating-banner" : ""}`} dir="rtl">
             <div className="cooler-map-header">
-                <div className="cooler-header-actions"><button className={`organize-toggle ${organizeMode ? "active" : ""}`} onClick={() => setOrganizeMode((v) => !v)}>{organizeMode ? "✓ מצב סידור פעיל" : `"מצב סידור מקרר"`}</button>
-                    <button className="cooler-add-pallet-btn" onClick={() => setShowAddModal(true)}>הוסף משטחים {<LayersPlus size={14} />}</button></div>
+                <div className="cooler-header-actions"><button className={`organize-toggle ${organizeMode ? "active" : ""}`}
+                    onClick={toggleOrganizeMode}
+                    disabled={tab !== "map"}
+                >
+
+                    {organizeMode ? "✓ מצב סידור פעיל" : `"מצב סידור מקרר"`}</button>
+                    <button className="cooler-add-pallet-btn" onClick={() => setShowAddModal(true)}
+                    >הוסף משטחים {<LayersPlus size={14} />}</button></div>
             </div>
             <ZoneBadges counts={counts} onSelect={selectZone} />
             {/* <div className="cooler-tabs">
@@ -369,18 +418,20 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
                             : <> <span>כדי לשבץ משטח ממתין: בחר אותו במסך ממתין ובחר את התא הרצוי. </span><span>כדי להזיז משטח בתוך המקרר: הפעל מצב סידור מקרר.</span></>}
                     </div>
                     <div className="cooler-map-scroll">
-                        <div className="cooler-physical-map">
+                        <div className="cooler-map-zoom">
+                            <div className="cooler-physical-map">
 
-                            <div className="cooler-side-block right-side">
-                                {RIGHT_SIDE_COLUMNS.map((c) => <CoolerColumn key={c.col} side="right" col={c.col} label={c.label}
-                                    rows={c.rows} cautionRows={c.cautionRows} palletsByCell={palletsByCell} placementPallet={placementPallet}
-                                    organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet}
-                                    onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment}
-                                    onReorder={reorder} />)}
-                                <div className="door-marker"><span>מקרר כשות</span></div>
+                                <div className="cooler-side-block right-side">
+                                    {RIGHT_SIDE_COLUMNS.map((c) => <CoolerColumn key={c.col} side="right" col={c.col} label={c.label}
+                                        rows={c.rows} cautionRows={c.cautionRows} palletsByCell={palletsByCell} placementPallet={placementPallet}
+                                        organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet}
+                                        onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment}
+                                        onReorder={reorder} />)}
+                                    <div className="door-marker"><span>מקרר כשות</span></div>
+                                </div>
+                                <Corridor palletsByCell={palletsByCell} placementPallet={placementPallet} organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet} onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment} onReorder={reorder} />
+                                <div className="cooler-side-block left-side">{LEFT_SIDE_COLUMNS.map((c) => <CoolerColumn key={c.col} side="left" col={c.col} label={c.label} rows={c.rows} palletsByCell={palletsByCell} placementPallet={placementPallet} organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet} onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment} onReorder={reorder} />)}</div>
                             </div>
-                            <Corridor palletsByCell={palletsByCell} placementPallet={placementPallet} organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet} onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment} onReorder={reorder} />
-                            <div className="cooler-side-block left-side">{LEFT_SIDE_COLUMNS.map((c) => <CoolerColumn key={c.col} side="left" col={c.col} label={c.label} rows={c.rows} palletsByCell={palletsByCell} placementPallet={placementPallet} organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet} onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment} onReorder={reorder} />)}</div>
                         </div>
                     </div>
                 </div>

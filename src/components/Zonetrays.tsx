@@ -1,4 +1,5 @@
-import { useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { ArrowRightLeft, Pencil } from "lucide-react";
 import { beerStyleClass } from "../SERVICES/Pallettypes ";
 import type { Pallet, PalletZone } from "../SERVICES/Pallettypes ";
 
@@ -8,6 +9,117 @@ const ZONE_OPTIONS: { value: PalletZone; label: string }[] = [
     { value: "loadingDock", label: "משטח טעינה" },
 ];
 
+function sortPendingPallets(pallets: Pallet[]) {
+    return [...pallets].sort((a, b) => {
+        // הגדולים ראשונים, הקטנים בסוף
+        return b.quantity - a.quantity;
+    });
+}
+
+function ZoneMoveModal({
+    pallet,
+    onMove,
+    onClose,
+}: {
+    pallet: Pallet;
+    onMove: (id: string, zone: PalletZone) => Promise<void>;
+    onClose: () => void;
+}) {
+    const options = ZONE_OPTIONS.filter(
+        (z) => z.value !== pallet.zone
+    );
+
+    const [targetZone, setTargetZone] = useState<PalletZone>(
+        options[0]?.value ?? "pending"
+    );
+    const [moving, setMoving] = useState(false);
+
+    async function handleMove() {
+        try {
+            setMoving(true);
+            await onMove(pallet.id, targetZone);
+            onClose();
+        } finally {
+            setMoving(false);
+        }
+    }
+
+    return (
+        <div className="modal-overlay" onClick={onClose}>
+            <div
+                className="modal-box zone-move-modal"
+                onClick={(e) => e.stopPropagation()}
+                dir="rtl"
+            >
+                <div className="modal-header-row">
+                    <div>
+                        <span className="modal-kicker">העברת משטח</span>
+                        <h3>לאן להעביר?</h3>
+                    </div>
+
+                    <button
+                        className="modal-x"
+                        onClick={onClose}
+                        disabled={moving}
+                    >
+                        ×
+                    </button>
+                </div>
+
+                <p className="zone-move-modal-subtitle">
+                    <span>
+                        {pallet.quantity}{" "}
+                        {pallet.itemType === "kegs"
+                            ? "חביות"
+                            : "ארגזים"}
+                    </span>
+
+                    <span> · {beerStyleClass(pallet.beerStyle).displayLabel}</span>
+
+                    {pallet.batchNumber && (
+                        <span> · אצווה {pallet.batchNumber}</span>
+                    )}
+                </p>
+
+                <div className="zone-move-modal-options">
+                    {options.map((z) => (
+                        <button
+                            key={z.value}
+                            type="button"
+                            className={`zone-move-modal-option ${
+                                targetZone === z.value ? "active" : ""
+                            }`}
+                            onClick={() => setTargetZone(z.value)}
+                            disabled={moving}
+                        >
+                            <ArrowRightLeft size={18} />
+                            {z.label}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="zone-move-modal-footer">
+                    <button
+                        className="modal-cancel-btn"
+                        onClick={onClose}
+                        disabled={moving}
+                    >
+                        ביטול
+                    </button>
+
+                    <button
+                        className="zone-primary-action"
+                        onClick={handleMove}
+                        disabled={moving}
+                    >
+                        {moving ? "מעביר..." : "אשר העברה"}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function ZoneListItem({
     pallet,
     selected,
@@ -15,7 +127,7 @@ function ZoneListItem({
     onSelectForPlacement,
     onToggleBulk,
     onEditPallet,
-    onMoveZone,
+    onOpenMoveModal,
 }: {
     pallet: Pallet;
     selected: boolean;
@@ -23,28 +135,17 @@ function ZoneListItem({
     onSelectForPlacement: (pallet: Pallet) => void;
     onToggleBulk: (id: string) => void;
     onEditPallet: (pallet: Pallet) => void;
-    onMoveZone: (id: string, zone: PalletZone) => Promise<void>;
+    onOpenMoveModal: (pallet: Pallet) => void;
 }) {
-    const [targetZone, setTargetZone] = useState<PalletZone>("bottleRoom");
-
     const itemLabel =
         pallet.itemType === "kegs" ? "חביות" : "ארגזים";
 
-    const zoneOptions = ZONE_OPTIONS.filter(
-        (z) => z.value !== pallet.zone
-    );
-
-    const actualTarget =
-        zoneOptions.some((z) => z.value === targetZone)
-            ? targetZone
-            : zoneOptions[0]?.value;
-
     return (
         <article
-            className={`zone-tray-item ${beerStyleClass(pallet.beerStyle).className
-                } ${selected ? "selected" : ""}`}
+            className={`zone-tray-item ${
+                beerStyleClass(pallet.beerStyle).className
+            } ${selected ? "selected" : ""}`}
         >
-            {/* בחירה מרובה — רק כאשר הופעל מצב בחירה מרובה */}
             {bulkMode && (
                 <label
                     className="zone-bulk-check"
@@ -72,7 +173,9 @@ function ZoneListItem({
                 </div>
 
                 <div className="zone-tray-item-meta">
-                    {pallet.quantity} {itemLabel}
+                    <strong>
+                        {pallet.quantity} {itemLabel}
+                    </strong>
 
                     {pallet.batchNumber
                         ? ` · אצווה ${pallet.batchNumber}`
@@ -84,7 +187,7 @@ function ZoneListItem({
                 className="zone-tray-item-actions"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* שיבוץ = תמיד משטח אחד */}
+                {/* שיבוץ במפה = תמיד יחיד */}
                 {!bulkMode && (
                     <button
                         className="zone-primary-action"
@@ -98,42 +201,19 @@ function ZoneListItem({
                     className="zone-secondary-action"
                     onClick={() => onEditPallet(pallet)}
                 >
+                    <Pencil size={14} />
                     עריכה
                 </button>
 
-                {/* העברה לאזור אחר */}
-                {actualTarget && (
-                    <div className="zone-move-inline">
-                        <select
-                            value={actualTarget}
-                            onChange={(e) =>
-                                setTargetZone(
-                                    e.target.value as PalletZone
-                                )
-                            }
-                        >
-                            {zoneOptions.map((z) => (
-                                <option
-                                    key={z.value}
-                                    value={z.value}
-                                >
-                                    {z.label}
-                                </option>
-                            ))}
-                        </select>
-
-                        <button
-                            className="zone-move-action"
-                            onClick={() =>
-                                onMoveZone(
-                                    pallet.id,
-                                    actualTarget
-                                )
-                            }
-                        >
-                            העבר
-                        </button>
-                    </div>
+                {/* במצב Bulk אין העברה יחידנית */}
+                {!bulkMode && (
+                    <button
+                        className="zone-secondary-action"
+                        onClick={() => onOpenMoveModal(pallet)}
+                    >
+                        <ArrowRightLeft size={14} />
+                        העבר
+                    </button>
                 )}
             </div>
         </article>
@@ -141,8 +221,18 @@ function ZoneListItem({
 }
 
 export function ZoneTray({
-    title, hint, pallets, selectedPalletIds, bulkMode, onStartBulk, onCancelBulk, onSelectForPlacement,
-    onToggleBulk, onBulkMove, onEditPallet, onMoveZone,
+    title,
+    hint,
+    pallets,
+    selectedPalletIds,
+    bulkMode,
+    onStartBulk,
+    onCancelBulk,
+    onSelectForPlacement,
+    onToggleBulk,
+    onBulkMove,
+    onEditPallet,
+    onMoveZone,
 }: {
     title: string;
     hint: string;
@@ -157,7 +247,58 @@ export function ZoneTray({
     onEditPallet: (pallet: Pallet) => void;
     onMoveZone: (id: string, zone: PalletZone) => Promise<void>;
 }) {
-    const [bulkTarget, setBulkTarget] = useState<PalletZone>("bottleRoom");
+    const [bulkTarget, setBulkTarget] =
+        useState<PalletZone>("bottleRoom");
+
+    const [movingPallet, setMovingPallet] =
+        useState<Pallet | null>(null);
+
+    const displayPallets = useMemo(() => {
+        // רק Pending מקבל את המיון הזה
+        if (pallets.every((p) => p.zone === "pending")) {
+            return sortPendingPallets(pallets);
+        }
+
+        return pallets;
+    }, [pallets]);
+
+    const allSelected =
+        pallets.length > 0 &&
+        pallets.every((p) => selectedPalletIds.has(p.id));
+
+    // const someSelected =
+    //     selectedPalletIds.size > 0;
+
+    useEffect(() => {
+        const allowedTargets = ZONE_OPTIONS
+            .filter((z) => z.value !== pallets[0]?.zone);
+
+        if (
+            !allowedTargets.some(
+                (z) => z.value === bulkTarget
+            )
+        ) {
+            setBulkTarget(
+                allowedTargets[0]?.value ?? "bottleRoom"
+            );
+        }
+    }, [pallets, bulkTarget]);
+
+    function selectAll() {
+        pallets.forEach((p) => {
+            if (!selectedPalletIds.has(p.id)) {
+                onToggleBulk(p.id);
+            }
+        });
+    }
+
+    function clearAll() {
+        pallets.forEach((p) => {
+            if (selectedPalletIds.has(p.id)) {
+                onToggleBulk(p.id);
+            }
+        });
+    }
 
     return (
         <div className="zone-tray">
@@ -166,57 +307,174 @@ export function ZoneTray({
                     <h3>{title}</h3>
                     <p>{hint}</p>
                 </div>
+
                 {!bulkMode ? (
-                    <button className="bulk-mode-btn" onClick={onStartBulk}>בחר כמה להעברה</button>
+                    <button
+                        className="bulk-mode-btn"
+                        onClick={onStartBulk}
+                        disabled={pallets.length === 0}
+                    >
+                        בחר כמה להעברה
+                    </button>
                 ) : (
-                    <button className="bulk-mode-cancel" onClick={onCancelBulk}>יציאה מבחירה</button>
+                    <button
+                        className="bulk-mode-cancel"
+                        onClick={onCancelBulk}
+                    >
+                        יציאה מבחירה
+                    </button>
                 )}
             </div>
 
+            {/* {pallets.length > 0 && !bulkMode && (
+                <div className="zone-select-all-row">
+                    <button
+                        type="button"
+                        className="zone-select-all-btn"
+                        onClick={()=>selectAll}
+                    >
+                        בחר הכל להעברה
+                    </button>
+                </div>
+            )} */}
+
             {bulkMode && (
                 <div className="bulk-action-bar">
-                    <strong>{selectedPalletIds.size} נבחרו</strong>
-                    <select value={bulkTarget} onChange={(e) => setBulkTarget(e.target.value as PalletZone)}>
+                    <div className="bulk-selection-info">
+                        <strong>
+                            {selectedPalletIds.size}{"  "} נבחרו
+                        </strong>
+
+                        <button
+                            type="button"
+                            onClick={
+                                allSelected
+                                    ? clearAll
+                                    : selectAll
+                            }
+                        >
+                            {allSelected
+                                ? "בטל בחירת הכל"
+                                : "בחר הכל"}
+                        </button>
+                    </div>
+
+                    <select
+                        value={bulkTarget}
+                        onChange={(e) =>
+                            setBulkTarget(
+                                e.target.value as PalletZone
+                            )
+                        }
+                    >
                         {ZONE_OPTIONS
-                            .filter((z) => z.value !== pallets[0]?.zone)
+                            .filter(
+                                (z) =>
+                                    z.value !==
+                                    pallets[0]?.zone
+                            )
                             .map((z) => (
-                                <option key={z.value} value={z.value}>
+                                <option
+                                    key={z.value}
+                                    value={z.value}
+                                >
                                     {z.label}
                                 </option>
                             ))}
                     </select>
-                    <button disabled={selectedPalletIds.size === 0} onClick={() => onBulkMove(bulkTarget)}>העבר נבחרים</button>
+
+                    <button
+                        disabled={selectedPalletIds.size === 0}
+                        onClick={() =>
+                            onBulkMove(bulkTarget)
+                        }
+                    >
+                        העבר נבחרים
+                    </button>
                 </div>
             )}
 
-            {pallets.length === 0 ? <div className="zone-tray-empty">אין משטחים באזור הזה כרגע.</div> : (
+            {pallets.length === 0 ? (
+                <div className="zone-tray-empty">
+                    אין משטחים באזור הזה כרגע.
+                </div>
+            ) : (
                 <div className="zone-tray-list">
-                    {pallets.map((p) => (
+                    {displayPallets.map((p) => (
                         <ZoneListItem
                             key={p.id}
                             pallet={p}
-                            selected={selectedPalletIds.has(p.id)}
+                            selected={selectedPalletIds.has(
+                                p.id
+                            )}
                             bulkMode={bulkMode}
-                            onSelectForPlacement={onSelectForPlacement}
+                            onSelectForPlacement={
+                                onSelectForPlacement
+                            }
                             onToggleBulk={onToggleBulk}
                             onEditPallet={onEditPallet}
-                            onMoveZone={onMoveZone}
+                            onOpenMoveModal={
+                                setMovingPallet
+                            }
                         />
                     ))}
                 </div>
+            )}
+
+            {movingPallet && (
+                <ZoneMoveModal
+                    pallet={movingPallet}
+                    onMove={onMoveZone}
+                    onClose={() =>
+                        setMovingPallet(null)
+                    }
+                />
             )}
         </div>
     );
 }
 
-export function PendingTray(props: Omit<ComponentProps<typeof ZoneTray>, "title" | "hint">) {
-    return <ZoneTray {...props} title="ממתינים לשיבוץ" hint="לחצי על 'שבץ במפה' כדי לבחור משטח אחד. הבחירה הזו מיועדת רק לשיבוץ בתא — לא לבחירה מרובה." />;
+export function PendingTray(
+    props: Omit<
+        ComponentProps<typeof ZoneTray>,
+        "title" | "hint"
+    >
+) {
+    return (
+        <ZoneTray
+            {...props}
+            title="ממתינים לשיבוץ"
+            hint="בחר משטח כדי לשבץ אותו במקרר, או הפעל בחירה מרובה להעברת מספר משטחים."
+        />
+    );
 }
 
-export function StashTray(props: Omit<ComponentProps<typeof ZoneTray>, "title" | "hint">) {
-    return <ZoneTray {...props} title="בסידור" hint="כאן נמצאים משטחים שהוצאו זמנית מהמקרר. אפשר לשבץ משטח אחד במפה או לבצע העברה מרובה בין אזורים." />;
+export function StashTray(
+    props: Omit<
+        ComponentProps<typeof ZoneTray>,
+        "title" | "hint"
+    >
+) {
+    return (
+        <ZoneTray
+            {...props}
+            title="בסידור"
+            hint="כאן נמצאים משטחים שהוצאו זמנית מהמקרר."
+        />
+    );
 }
 
-export function BottleRoomTray(props: Omit<ComponentProps<typeof ZoneTray>, "title" | "hint">) {
-    return <ZoneTray {...props} title="חדר בקבוקים" hint="משטחים שנמצאים פיזית בחדר הבקבוקים. אפשר להחזיר אותם למקרר או להעביר לאזור אחר." />;
+export function BottleRoomTray(
+    props: Omit<
+        ComponentProps<typeof ZoneTray>,
+        "title" | "hint"
+    >
+) {
+    return (
+        <ZoneTray
+            {...props}
+            title="חדר בקבוקים"
+            hint="משטחים שנמצאים פיזית בחדר הבקבוקים. ניתן להעביר משטח בודד או לבחור כמה להעברה."
+        />
+    );
 }
