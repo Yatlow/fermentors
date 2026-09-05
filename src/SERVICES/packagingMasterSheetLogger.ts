@@ -1,5 +1,7 @@
-import { doc, getDoc, collection, addDoc, Timestamp ,updateDoc } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
+// ⚠️ חדש - יצירת משטחים במפת המקרר במקביל לדיווח האריזה הקיים
+import { createPalletsFromPackaging } from "./Palletservice";
 
 const GOOGLE_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
@@ -34,7 +36,7 @@ const KEG_BBE_FIELD = "kegBBE";
  * לחביות: תמיד לפי השדה הקבוע kegBBE.
  * לבקבוקים: לפי מפתח הסגנון (mapBeerStyleToExpiryKey).
  */
-async function getExpiryMonths(
+export async function getExpiryMonths(
     packagingType: PackagingType,
     beerStyle: string | undefined | null
 ): Promise<number | null> {
@@ -52,17 +54,26 @@ async function getExpiryMonths(
     return typeof months === "number" ? months : null;
 }
 
-function formatDDMMYYYY(d: Date): string {
+export function formatDDMMYYYY(d: Date): string {
     const dd = String(d.getDate()).padStart(2, "0");
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const yyyy = d.getFullYear();
     return `${dd}/${mm}/${yyyy}`;
 }
 
-function addMonths(d: Date, months: number): Date {
+export function addMonths(d: Date, months: number): Date {
     const result = new Date(d);
     result.setMonth(result.getMonth() + months);
     return result;
+}
+
+export async function getDefaultExpiryDateStr(
+    packagingType: PackagingType,
+    beerStyle: string | undefined | null,
+    baseDate: Date = new Date()
+): Promise<string> {
+    const months = await getExpiryMonths(packagingType, beerStyle);
+    return months === null ? "" : formatDDMMYYYY(addMonths(baseDate, months));
 }
 
 export type MasterSheetLogParams = {
@@ -95,9 +106,9 @@ async function logPackagingToFirestore(params: {
     expiryDateStr: string;
     productDate: Date;
     tankNumber: string | number | null;
-    tankStatus:boolean;
+    tankStatus: boolean;
 }): Promise<void> {
-    const { packagingType, beerStyle, quantity, batchNumber,tankNumber, productionDateStr, expiryDateStr, productDate,tankStatus } = params;
+    const { packagingType, beerStyle, quantity, batchNumber, tankNumber, productionDateStr, expiryDateStr, productDate, tankStatus } = params;
 
     const unit = packagingType === "kegs" ? "חביות" : "ארגזים";
     const itemLabel = String(beerStyle ?? "").trim();
@@ -121,15 +132,15 @@ async function logPackagingToFirestore(params: {
         title,
         createdAt: Timestamp.now(),
     });
-    console.log("tankStatus",tankStatus)
+    console.log("tankStatus", tankStatus)
     const docRef = doc(db, "fermentors", tankNumber?.toString() ?? "");
-    console.log("tankStatus",tankStatus,docRef,tankNumber?.toString())
-    try{
+    console.log("tankStatus", tankStatus, docRef, tankNumber?.toString())
+    try {
         await updateDoc(docRef, {
-              tankStatus: tankStatus,
-              action:3,
-            });;
-    }catch(err){
+            tankStatus: tankStatus,
+            action: 3,
+        });;
+    } catch (err) {
         console.error("Failed to update tankStatus in Firestore:", err);
     }
 }
@@ -137,7 +148,7 @@ async function logPackagingToFirestore(params: {
 export async function logPackagingToMasterSheet(
     params: MasterSheetLogParams
 ): Promise<MasterSheetLogResult> {
-    const { beerStyle, packagingType, amount, batchNumber,tankNumber,tankStatus } = params;
+    const { beerStyle, packagingType, amount, batchNumber, tankNumber, tankStatus } = params;
 
     if (!amount || amount <= 0) {
         return { success: false, error: "כמות לא תקינה" };
@@ -180,8 +191,9 @@ export async function logPackagingToMasterSheet(
         productionDateStr,
     };
 
-    // כותבים לגיליון ולפיירסטור במקביל - כשל באחד לא ימנע את השני
-    const [sheetResult, firestoreResult] = await Promise.allSettled([
+    // כותבים לגיליון, לפיירסטור, וליוצרים משטחים במפת המקרר - במקביל.
+    // כשל באחד לא ימנע את השאר.
+    const [sheetResult, firestoreResult, palletsResult] = await Promise.allSettled([
         fetch(GOOGLE_SCRIPT_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -198,6 +210,14 @@ export async function logPackagingToMasterSheet(
             tankNumber,
             tankStatus,
         }),
+        createPalletsFromPackaging({
+            itemType: packagingType === "kegs" ? "kegs" : "crates",
+            totalQuantity: quantity,
+            beerStyle: String(beerStyle ?? "").trim(),
+            batchNumber,
+            expiryDateStr,
+            sourceTankNumber: tankNumber,
+        }),
     ]);
 
     const warnings: string[] = [];
@@ -205,6 +225,11 @@ export async function logPackagingToMasterSheet(
     if (firestoreResult.status === "rejected") {
         console.error("Failed to log packaging to Firestore:", firestoreResult.reason);
         warnings.push("הרישום לגיליון הצליח אך הרישום לפיירבייס נכשל");
+    }
+
+    if (palletsResult.status === "rejected") {
+        console.error("Failed to create pallets for cooler map:", palletsResult.reason);
+        warnings.push("הרישום הצליח אך יצירת המשטחים במפת המקרר נכשלה - יש להוסיף ידנית");
     }
 
     if (sheetResult.status === "rejected") {
