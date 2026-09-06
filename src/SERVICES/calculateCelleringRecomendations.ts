@@ -339,23 +339,23 @@ export function parseYeastDropAmount(notes: string | number | null | undefined):
 
 
 function getMeasurementDate(id: string | number | null | undefined): string | null {
-        if (id === null || id === undefined) {
-            return null;
-        }
-        const idString = String(id);
-
-        // Expected format:
-        // 2026-07-31_1355
-
-        const match = idString.match(/^(\d{4}-\d{2}-\d{2})_\d{4}$/);
-
-        if (!match) {
-            console.warn("Invalid measurement ID format:", idString);
-            return null;
-        }
-
-        return match[1];
+    if (id === null || id === undefined) {
+        return null;
     }
+    const idString = String(id);
+
+    // Expected format:
+    // 2026-07-31_1355
+
+    const match = idString.match(/^(\d{4}-\d{2}-\d{2})_\d{4}$/);
+
+    if (!match) {
+        console.warn("Invalid measurement ID format:", idString);
+        return null;
+    }
+
+    return match[1];
+}
 
 export function extractYeastDrops(measurements: Measurement[]): YeastDrop[] {
     const sorted = [...measurements].sort((a, b) =>
@@ -406,6 +406,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const toDaysAgoMeasurement: Measurement =
         sortedMeasurements[sortedMeasurements.length - 3];
+
+
+
     if (!lastMeasurement) {
 
 
@@ -437,7 +440,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
         return `${year}-${month}-${day}`;
     }
-    
+
     function formatDateToDDMMYYYY(date: string | null | undefined): string | null {
         if (!date) {
             return null;
@@ -676,16 +679,32 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const lastTemp = lastMeasurement?.temp;
     const oldTemp = toDaysAgoMeasurement?.temp;
     const lastNote = lastMeasurement?.notes?.toString();
+    const belatedColdDrop = CoolAge === 3 && corrected === 1;
+    const coolingIndex = sortedMeasurements.findLastIndex(
+        m => m.notes?.toString().includes("קירור")
+    );
+
+    const measurementsAfterCooling =
+        coolingIndex >= 0
+            ? sortedMeasurements.slice(coolingIndex + 1)
+            : [];
+        
+    const firstYeastDropWasSunday = measurementsAfterCooling[1]?.notes?.toString().includes("שמרים") && CoolAge===5;
     const requiersYeastDropAfterCooling = {
         display: true,
         req:
-            CoolAge === 2 &&
-            lastTemp != null &&
-            oldTemp != null &&
-            !lastNote?.includes("שמרים") &&
-            // lastTemp > oldTemp &&
-            stage.name === "קר",
-        reason: "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
+            ((CoolAge === 2 &&
+                lastTemp != null &&
+                oldTemp != null &&
+                !lastNote?.includes("שמרים") &&
+                // lastTemp > oldTemp &&
+                stage.name === "קר") ||
+                belatedColdDrop ||
+                firstYeastDropWasSunday
+            ),
+        reason:firstYeastDropWasSunday?"מולמץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי":
+        belatedColdDrop?"מומלץ לבצע הורדת שמרים- (שלושה ימים אחרי קירור- אתמול היה שבת)":
+        "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
         importance: 1
     }
 
@@ -730,7 +749,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             } else {
                 requiresCarbTest.display = false,
-                    requiresCarbTest.req = corrected!==1;
+                    requiresCarbTest.req = corrected !== 1;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה ההאחרונה תקין (${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
                     `הגיזוז לפני יומיים תקין (${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
@@ -748,7 +767,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     requiresCarbTest.importance = CarbonationSpecYesterday.importance
             } else {
                 requiresCarbTest.display = false,
-                    requiresCarbTest.req =  corrected!==1;
+                    requiresCarbTest.req = corrected !== 1;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה האחרונה היה תקין (${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
                     `הגיזוז אתמול היה תקין (${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
@@ -766,7 +785,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             } else {
                 requiresCarbTest.display = false,
-                    requiresCarbTest.req =  corrected!==1;
+                    requiresCarbTest.req = corrected !== 1;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה האחרונה תקין (${lastMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת ` :
                     `הגיזוז היום תקין (${lastMeasurement?.carbonation})-ניתן להמתין עם בדיקת גיזוז נוספת `
