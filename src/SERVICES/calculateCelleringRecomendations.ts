@@ -689,7 +689,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             ? sortedMeasurements.slice(coolingIndex + 1)
             : [];
         
-    const firstYeastDropWasSunday = measurementsAfterCooling[1]?.notes?.toString().includes("שמרים") && CoolAge===5;
+    const firstYeastDropWasSunday = measurementsAfterCooling[1]?.notes?.toString().includes("שמרים") && CoolAge===5 && corrected===3;
     const requiersYeastDropAfterCooling = {
         display: true,
         req:
