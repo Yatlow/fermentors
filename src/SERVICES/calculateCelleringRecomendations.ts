@@ -699,8 +699,10 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 !lastNote?.includes("שמרים") &&
                 // lastTemp > oldTemp &&
                 stage.name === "קר") ||
-                belatedColdDrop ||
-                firstYeastDropWasSunday
+                belatedColdDrop &&
+                 !lastNote?.includes("שמרים") ||
+                firstYeastDropWasSunday &&
+                 !lastNote?.includes("שמרים") 
             ),
         reason:firstYeastDropWasSunday?"מולמץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי":
         belatedColdDrop?"מומלץ לבצע הורדת שמרים- (שלושה ימים אחרי קירור- אתמול היה שבת)":
@@ -802,12 +804,21 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && carbRes === null) {
             if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
                 (lastMessurmentUpToDate.req && carbRes === null)) {
-                console.log("tank number", tankNumber, "carb res",
-                    carbRes, lastMeasurement.carbonation, "last measurement up to date", lastMessurmentUpToDate.req,
-                    "yesterday measurement carbonation", yesterdayMeasurement?.carbonation)
+               
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
                 requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`
+                requiresCarbTest.importance = 1;
+            }
+        }
+       
+        if (stage.name === "קר" && (corrected === 1) && CoolAge===2 && carbRes === null) {
+            if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
+                (lastMessurmentUpToDate.req && carbRes === null)) {
+                
+                requiresCarbTest.display = true,
+                    requiresCarbTest.req = true;
+                requiresCarbTest.reason = `היום יום ראשון- ולכן אתמול לא בוצע למיכל בדיקת גיזוז ראשונה אחרי קירור, יש לבצע היום (בדיקת גיזוז ראשונה אחרי קירור)`
                 requiresCarbTest.importance = 1;
             }
         }
