@@ -4,6 +4,7 @@ import {
     addDoc,
     updateDoc,
     getDoc,
+    setDoc,
     onSnapshot,
     query,
     where,
@@ -225,14 +226,26 @@ export async function createPallets(input: {
     }
     return ids;
 }
+async function getNextShipmentNumber(): Promise<number> {
+    const counterRef = doc(db, "counters", "shipmentNumber");
+    return runTransaction(db, async (tx) => {
+        const snap = await tx.get(counterRef);
+        const current = snap.exists() ? (snap.data().value as number) : 2389; // כך שהראשון יהיה 2390
+        const next = current + 1;
+        tx.set(counterRef, { value: next }, { merge: true });
+        return next;
+    });
+}
 
 export async function createShipment(palletIds: string[]): Promise<string> {
     if (palletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
+
     const pallets: Pallet[] = [];
     for (const id of palletIds) {
         const snap = await getDoc(doc(db, PALLETS_COLLECTION, id));
         if (snap.exists()) pallets.push({ id: snap.id, ...(snap.data() as any) });
     }
+
     const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
     pallets.forEach((p) => {
         const key = `${p.itemType}__${p.beerStyle}`;
@@ -240,11 +253,16 @@ export async function createShipment(palletIds: string[]): Promise<string> {
         if (cur) cur.totalQuantity += p.quantity;
         else totalsMap.set(key, { itemType: p.itemType, beerStyle: p.beerStyle, totalQuantity: p.quantity });
     });
-    const shipmentRef = await addDoc(collection(db, SHIPMENTS_COLLECTION), {
+
+    const shipmentNumber = await getNextShipmentNumber();
+
+    await setDoc(doc(db, SHIPMENTS_COLLECTION, String(shipmentNumber)), {
+        shipmentNumber,
         palletIds,
         totals: Array.from(totalsMap.values()),
         createdAt: serverTimestamp(),
     });
+
     const batch = writeBatch(db);
     palletIds.forEach((id) => batch.update(doc(db, PALLETS_COLLECTION, id), {
         zone: "shipped",
@@ -253,7 +271,8 @@ export async function createShipment(palletIds: string[]): Promise<string> {
         updatedAt: serverTimestamp(),
     }));
     await batch.commit();
-    return shipmentRef.id;
+
+    return String(shipmentNumber);
 }
 
 export function subscribeToCooler(callback: (pallets: Pallet[]) => void): () => void {

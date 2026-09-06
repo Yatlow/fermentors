@@ -6,7 +6,7 @@ import type { Pallet, PalletZone } from "../SERVICES/Pallettypes ";
 const ZONE_OPTIONS: { value: PalletZone; label: string; icon: React.ReactNode }[] = [
     { value: "pending", label: "ממתינים לשיבוץ", icon: <ClipboardClock size={18} /> },
     { value: "bottleRoom", label: "חדר בקבוקים", icon: <BottleWine size={18} /> },
-    { value: "loadingDock", label: "משטח טעינה", icon: <Truck size={18} /> },
+    { value: "loadingDock", label: "בהעמסה למשלוח", icon: <Truck size={18} /> },
 ];
 
 function sortPendingPallets(pallets: Pallet[]) {

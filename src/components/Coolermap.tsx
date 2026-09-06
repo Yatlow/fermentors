@@ -277,6 +277,21 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
         return map;
     }, [zones.cooler]);
 
+    const markedForShipmentPallets = useMemo(
+        () => allPallets.filter((p) => p.markedForShipment && p.zone !== "loadingDock"),
+        [allPallets]
+    );
+
+    async function shipAllMarked() {
+        if (markedForShipmentPallets.length === 0) return;
+        try {
+            setError(null);
+            await movePalletsToZone(markedForShipmentPallets.map((p) => p.id), "loadingDock");
+        } catch (e: any) {
+            setError(e?.message ?? "שגיאה בהעברה למשלוח");
+        }
+    }
+
     function chooseForPlacement(pallet: Pallet) {
         setBulkMode(false); setBulkSelectedIds(new Set()); setPlacementPalletId(pallet.id); setTab("map"); setError(null);
     }
@@ -393,7 +408,16 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
 
                     {organizeMode ? "✓ מצב סידור פעיל" : `"מצב סידור מקרר"`}</button>
                     <button className="cooler-add-pallet-btn" onClick={() => setShowAddModal(true)}
-                    >הוסף משטחים {<LayersPlus size={14} />}</button></div>
+                    >הוסף משטחים {<LayersPlus size={14} />}</button>
+                <button
+                    className="cooler-ship-marked-btn"
+                    onClick={shipAllMarked}
+                    disabled={markedForShipmentPallets.length === 0}
+                    >
+                    <Truck size={14} /> {`העבר מסומנים למשלוח אל- בהעמסה למשלוח`}
+                    {markedForShipmentPallets.length > 0 && ` (${markedForShipmentPallets.length})`}
+                </button>
+                    </div>
                 <div className="cooler-zoom-controls">
                     <button onClick={zoomOut} disabled={zoomLevel <= 0.4}>−</button>
                     <span>{Math.round(zoomLevel * 100)}%</span>

@@ -63,7 +63,6 @@ export default function LoadingDockView() {
 
             setLastShipmentId(id);
             setShipmentPallets(selectedPallets);
-            console.log("111")
             setShowShipmentDocument(true);
             setSelected(new Set());
         }

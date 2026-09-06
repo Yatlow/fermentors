@@ -787,6 +787,84 @@
     font-size: .64rem;
 }
 
+.shipment-document-actions {
+    align-items: center;
+}
+
+.shipment-print-btn,
+.shipment-email-btn {
+    border-radius: 9px;
+    padding: 9px 16px;
+    font-size: .8rem;
+    font-weight: bold;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.shipment-print-btn {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+}
+
+.shipment-email-btn {
+    background: #147a50;
+    border: 1px solid #147a50;
+    color: #fff;
+}
+
+.shipment-print-btn:disabled,
+.shipment-email-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+.cooler-ship-marked-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    border: 0;
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-weight: bold;
+    cursor: pointer;
+    background: #147a50;
+    color: #fff;
+    white-space: nowrap;
+}
+
+.cooler-ship-marked-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+.shipment-company-details h1 {
+    margin: 0 0 6px;
+}
+
+.shipment-company-details div {
+    font-size: 13px;
+    color: #333;
+    margin-bottom: 2px;
+}
+
+.shipment-signatures {
+    display: flex;
+    justify-content: space-between;
+    gap: 40px;
+    margin-top: 50px;
+}
+
+.shipment-signature-block {
+    flex: 1;
+    font-size: 13px;
+}
+
+.shipment-signature-line {
+    margin-top: 30px;
+    border-top: 1px solid #333;
+}
+
 .zone-tray-list {
     display: flex;
     flex-direction: column;

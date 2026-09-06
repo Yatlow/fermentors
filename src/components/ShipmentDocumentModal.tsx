@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import emailjs from "@emailjs/browser";
 import type { Pallet } from "../SERVICES/Pallettypes ";
 import shpiro from "../assets/shpiro.jpeg";
+import { getCatalogEntry } from "../SERVICES/PalletCatalog";
 
 type Props = {
     shipmentId: string;
@@ -15,12 +16,13 @@ export default function ShipmentDocumentModal({
     onClose,
 }: Props) {
     const [emails, setEmails] = useState<string[]>([
-        "yisrael@atlow.co.il",
+        "yochai@shapirobeer.co.il",
     ]);
 
     const [newEmail, setNewEmail] = useState("");
     const [sending, setSending] = useState(false);
     const [message, setMessage] = useState("");
+    const [logoLoaded, setLogoLoaded] = useState(false);
 
     const date = useMemo(() => {
         return new Intl.DateTimeFormat("he-IL", {
@@ -30,59 +32,41 @@ export default function ShipmentDocumentModal({
     }, []);
 
     const totals = useMemo(() => {
-        const map = new Map<
-            string,
-            {
-                beerStyle: string;
-                itemType: string;
-                quantity: number;
-            }
-        >();
-
+        const map = new Map<string, { beerStyle: string; itemType: Pallet["itemType"]; quantity: number }>();
         pallets.forEach((p) => {
-            const key =
-                `${p.itemType}__${p.beerStyle}`;
-
-            const existing = map.get(key);
-
-            if (existing) {
-                existing.quantity += p.quantity;
-            } else {
-                map.set(key, {
-                    beerStyle: p.beerStyle,
-                    itemType: p.itemType,
-                    quantity: p.quantity,
-                });
-            }
+            const key = `${p.itemType}__${p.beerStyle}`;
+            const cur = map.get(key);
+            if (cur) cur.quantity += p.quantity;
+            else map.set(key, { beerStyle: p.beerStyle, itemType: p.itemType, quantity: p.quantity });
         });
-
         return Array.from(map.values());
     }, [pallets]);
 
     const totalsTableHtml = useMemo(() => {
-        const rows = totals
-            .map(
-                (t) => `
+    const rows = totals
+        .map((t) => {
+            const entry = getCatalogEntry(t.beerStyle, t.itemType);
+            return `
                 <tr>
-                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.beerStyle}</td>
-                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.itemType === "kegs" ? "חביות" : "ארגזים"}</td>
+                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${entry?.sku ?? "—"}</td>
+                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${entry?.displayText ?? `${t.beerStyle} (לא נמצא בקטלוג)`}</td>
                     <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.quantity}</td>
-                </tr>`
-            )
-            .join("");
+                </tr>`;
+        })
+        .join("");
 
-        return `
+    return `
         <table dir="rtl" style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;">
             <thead>
                 <tr>
-                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">סגנון</th>
-                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">סוג</th>
-                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">סה"כ</th>
+                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">מק"ט</th>
+                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">תאור פריט</th>
+                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">כמות</th>
                 </tr>
             </thead>
             <tbody>${rows}</tbody>
         </table>`;
-    }, [totals]);
+}, [totals]);
 
     function addEmail() {
         const email = newEmail.trim();
@@ -107,41 +91,41 @@ export default function ShipmentDocumentModal({
         );
     }
 
-    
+
 
     async function sendEmails() {
-    if (emails.length === 0) {
-        setMessage("יש להוסיף לפחות כתובת אימייל אחת");
-        return;
-    }
-
-    try {
-        setSending(true);
-        setMessage("");
-
-        for (const email of emails) {
-            await emailjs.send(
-                "service_bxs22rp",
-                "template_nzaxe18",
-                {
-                    email,
-                    shipmentId,
-                    shipmentDate: date,
-                    shipmentTableHtml: totalsTableHtml,
-                     logoUrl: "https://fermenter-dashboard-bada3.web.app/assets/favicon-DCEmML13.ico",
-                },
-                "xcE_CHJqkvlh2b_S3"
-            );
+        if (emails.length === 0) {
+            setMessage("יש להוסיף לפחות כתובת אימייל אחת");
+            return;
         }
 
-        setMessage("תעודת המשלוח נשלחה בהצלחה ✓");
-    } catch (err) {
-        console.error("Shipment email error:", err);
-        setMessage("תעודת המשלוח נוצרה, אך שליחת המייל נכשלה.");
-    } finally {
-        setSending(false);
+        try {
+            setSending(true);
+            setMessage("");
+
+            for (const email of emails) {
+                await emailjs.send(
+                    "service_bxs22rp",
+                    "template_nzaxe18",
+                    {
+                        email,
+                        shipmentId,
+                        shipmentDate: date,
+                        shipmentTableHtml: totalsTableHtml,
+                        logoUrl: "https://fermenter-dashboard-bada3.web.app/assets/favicon-DCEmML13.ico",
+                    },
+                    "xcE_CHJqkvlh2b_S3"
+                );
+            }
+
+            setMessage("תעודת המשלוח נשלחה בהצלחה ✓");
+        } catch (err) {
+            console.error("Shipment email error:", err);
+            setMessage("תעודת המשלוח נוצרה, אך שליחת המייל נכשלה.");
+        } finally {
+            setSending(false);
+        }
     }
-}
 
     return (
         <div
@@ -154,53 +138,28 @@ export default function ShipmentDocumentModal({
                 dir="rtl"
             >
                 <div className="shipment-document-actions no-print">
-                    <button onClick={() => window.print()}>
+                    <button className="shipment-print-btn" onClick={() => window.print()}>
                         🖨️ הדפס
                     </button>
-
-                    <button
-                        onClick={sendEmails}
-                        disabled={sending}
-                    >
-                        {sending
-                            ? "שולח..."
-                            : "✉️ שלח במייל"}
+                    <button className="shipment-email-btn" onClick={sendEmails} disabled={sending || !logoLoaded}>
+                        {sending ? "שולח..." : "✉️ שלח במייל"}
                     </button>
-
-                    <button
-                        className="modal-x"
-                        onClick={onClose}
-                    >
-                        ×
-                    </button>
+                    <button className="modal-x" onClick={onClose}>×</button>
                 </div>
 
                 <div className="shipment-document">
                     <header className="shipment-document-header">
-                        <img
-                            src={shpiro}
-                            alt="Shpiro"
-                            className="shipment-logo"
-                        />
-
-                        <div>
+                        <div className="shipment-company-details">
                             <h1>תעודת משלוח</h1>
-
-                            <div>
-                                מספר:
-                                <strong>
-                                    {" "}
-                                    {shipmentId}
-                                </strong>
-                            </div>
-
-                            <div>
-                                תאריך: {date}
-                            </div>
+                            <div>מבשלת שפירא א.ת. שורק (נחם), בית שמש</div>
+                            <div>טל: 02-5612622 &nbsp;|&nbsp; ח.פ: 514378678</div>
+                            <div>מספר: <strong>{shipmentId}</strong></div>
+                            <div>תאריך: {date}</div>
                         </div>
+                        <img src={shpiro} alt="Shpiro" className="shipment-logo" onLoad={() => setLogoLoaded(true)} />
                     </header>
 
-                    <table className="shipment-table">
+                    {/* <table className="shipment-table">
                         <thead>
                             <tr>
                                 <th>סגנון</th>
@@ -237,43 +196,39 @@ export default function ShipmentDocumentModal({
                                 </tr>
                             ))}
                         </tbody>
-                    </table>
+                    </table> */}
 
-                    <h3>סיכום</h3>
-
-                    <table className="shipment-summary-table">
+                    <table className="shipment-table">
                         <thead>
                             <tr>
-                                <th>סגנון</th>
-                                <th>סוג</th>
-                                <th>סה"כ</th>
+                                <th>מק"ט</th>
+                                <th>תאור פריט</th>
+                                <th>כמות</th>
                             </tr>
                         </thead>
-
                         <tbody>
-                            {totals.map((t) => (
-                                <tr
-                                    key={`${t.beerStyle}-${t.itemType}`}
-                                >
-                                    <td>
-                                        {t.beerStyle}
-                                    </td>
-
-                                    <td>
-                                        {t.itemType ===
-                                            "kegs"
-                                            ? "חביות"
-                                            : "ארגזים"}
-                                    </td>
-
-                                    <td>
-                                        {t.quantity}
-                                    </td>
-                                </tr>
-                            ))}
+                            {totals.map((t) => {
+                                const entry = getCatalogEntry(t.beerStyle, t.itemType);
+                                return (
+                                    <tr key={`${t.beerStyle}-${t.itemType}`}>
+                                        <td>{entry?.sku ?? "—"}</td>
+                                        <td>{entry?.displayText ?? `${t.beerStyle} (לא נמצא בקטלוג)`}</td>
+                                        <td>{t.quantity}</td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
-
+                    <div className="shipment-signatures">
+                        <div className="shipment-signature-block">
+                            <span>שם מפיק התעודה:</span>
+                            <div className="shipment-signature-line"></div>
+                        </div>
+                        <div className="shipment-signature-block">
+                            <span>חתימת הלקוח:</span>
+                            <div className="shipment-signature-line"></div>
+                        </div>
+                    </div>
                     <footer className="shipment-document-footer">
                         הופק ממערכת ניהול המלאי
                     </footer>
@@ -320,7 +275,7 @@ export default function ShipmentDocumentModal({
                             }}
                         />
 
-                        <button onClick={addEmail}>
+                        <button onClick={addEmail} className="shipment-email-btn">
                             הוסף
                         </button>
                     </div>
