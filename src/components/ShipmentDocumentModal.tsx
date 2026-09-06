@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-// import emailjs from "@emailjs/browser";
+import emailjs from "@emailjs/browser";
 import type { Pallet } from "../SERVICES/Pallettypes ";
 import shpiro from "../assets/shpiro.jpeg";
 
@@ -59,6 +59,31 @@ export default function ShipmentDocumentModal({
         return Array.from(map.values());
     }, [pallets]);
 
+    const totalsTableHtml = useMemo(() => {
+        const rows = totals
+            .map(
+                (t) => `
+                <tr>
+                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.beerStyle}</td>
+                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.itemType === "kegs" ? "חביות" : "ארגזים"}</td>
+                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.quantity}</td>
+                </tr>`
+            )
+            .join("");
+
+        return `
+        <table dir="rtl" style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;">
+            <thead>
+                <tr>
+                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">סגנון</th>
+                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">סוג</th>
+                    <th style="border:1px solid #ccc;padding:8px;text-align:right;background:#f8fafc;">סה"כ</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    }, [totals]);
+
     function addEmail() {
         const email = newEmail.trim();
 
@@ -82,55 +107,41 @@ export default function ShipmentDocumentModal({
         );
     }
 
+    
+
     async function sendEmails() {
-        if (emails.length === 0) {
-            setMessage("יש להוסיף לפחות כתובת אימייל אחת");
-            return;
-        }
-
-        try {
-            setSending(true);
-            setMessage("");
-
-            // const content = totals
-            //     .map(
-            //         (t) =>
-            //             `${t.beerStyle} | ${
-            //                 t.itemType === "kegs"
-            //                     ? "חביות"
-            //                     : "ארגזים"
-            //             } | ${t.quantity}`
-            //     )
-            //     .join("\n");
-
-            // for (const email of emails) {
-            //     await emailjs.send(
-            //         "service_r6sx6s2",
-            //         "template_uhrmohh",
-            //         {
-            //             email,
-            //             shipmentId,
-            //             shipmentDate: date,
-            //             shipmentContent: content,
-            //         },
-            //         "SOy_TDtKEy-_xaKWw"
-            //     );
-            // }
-
-            setMessage("תעודת המשלוח נשלחה בהצלחה ✓");
-        } catch (err) {
-            console.error(
-                "Shipment email error:",
-                err
-            );
-
-            setMessage(
-                "תעודת המשלוח נוצרה, אך שליחת המייל נכשלה."
-            );
-        } finally {
-            setSending(false);
-        }
+    if (emails.length === 0) {
+        setMessage("יש להוסיף לפחות כתובת אימייל אחת");
+        return;
     }
+
+    try {
+        setSending(true);
+        setMessage("");
+
+        for (const email of emails) {
+            await emailjs.send(
+                "service_bxs22rp",
+                "template_nzaxe18",
+                {
+                    email,
+                    shipmentId,
+                    shipmentDate: date,
+                    shipmentTableHtml: totalsTableHtml,
+                     logoUrl: "https://fermenter-dashboard-bada3.web.app/assets/favicon-DCEmML13.ico",
+                },
+                "xcE_CHJqkvlh2b_S3"
+            );
+        }
+
+        setMessage("תעודת המשלוח נשלחה בהצלחה ✓");
+    } catch (err) {
+        console.error("Shipment email error:", err);
+        setMessage("תעודת המשלוח נוצרה, אך שליחת המייל נכשלה.");
+    } finally {
+        setSending(false);
+    }
+}
 
     return (
         <div
@@ -215,7 +226,7 @@ export default function ShipmentDocumentModal({
 
                                     <td>
                                         {p.itemType ===
-                                        "kegs"
+                                            "kegs"
                                             ? "חביות"
                                             : "ארגזים"}
                                     </td>
@@ -250,7 +261,7 @@ export default function ShipmentDocumentModal({
 
                                     <td>
                                         {t.itemType ===
-                                        "kegs"
+                                            "kegs"
                                             ? "חביות"
                                             : "ארגזים"}
                                     </td>

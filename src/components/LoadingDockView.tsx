@@ -71,7 +71,7 @@ export default function LoadingDockView() {
         finally { setBusy(false); }
     }
 
-    if (pallets.length === 0) return <div className="zone-tray-empty">אין משטחים במשטח הטעינה כרגע.</div>;
+    if (pallets.length === 0 && !showShipmentDocument) return <div className="zone-tray-empty">אין משטחים במשטח הטעינה כרגע.</div>;
     return (
         <div className="loading-dock-view">
             <div className="zone-tray-header"><div><h3>משטח טעינה</h3><p>בחר משטחים שנשלחו. לחץ שלח לניפוק תעודת משלוח.</p></div>

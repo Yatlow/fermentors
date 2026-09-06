@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
-import { ArrowRightLeft, Pencil } from "lucide-react";
+import { ArrowRightLeft, Pencil, ClipboardClock, BottleWine, Truck, Check } from "lucide-react";
 import { beerStyleClass } from "../SERVICES/Pallettypes ";
 import type { Pallet, PalletZone } from "../SERVICES/Pallettypes ";
 
-const ZONE_OPTIONS: { value: PalletZone; label: string }[] = [
-    { value: "pending", label: "ממתינים לשיבוץ" },
-    { value: "bottleRoom", label: "חדר בקבוקים" },
-    { value: "loadingDock", label: "משטח טעינה" },
+const ZONE_OPTIONS: { value: PalletZone; label: string; icon: React.ReactNode }[] = [
+    { value: "pending", label: "ממתינים לשיבוץ", icon: <ClipboardClock size={18} /> },
+    { value: "bottleRoom", label: "חדר בקבוקים", icon: <BottleWine size={18} /> },
+    { value: "loadingDock", label: "משטח טעינה", icon: <Truck size={18} /> },
 ];
 
 function sortPendingPallets(pallets: Pallet[]) {
@@ -83,17 +83,13 @@ function ZoneMoveModal({
 
                 <div className="zone-move-modal-options">
                     {options.map((z) => (
-                        <button
-                            key={z.value}
-                            type="button"
-                            className={`zone-move-modal-option ${
-                                targetZone === z.value ? "active" : ""
-                            }`}
+                        <button key={z.value} type="button"
+                            className={`zone-move-modal-option ${targetZone === z.value ? "active" : ""}`}
                             onClick={() => setTargetZone(z.value)}
-                            disabled={moving}
-                        >
-                            <ArrowRightLeft size={18} />
-                            {z.label}
+                            disabled={moving}>
+                            {z.icon}
+                            <span className="zone-move-modal-option-label">{z.label}</span>
+                            {targetZone === z.value && <Check size={16} className="zone-move-modal-option-check" />}
                         </button>
                     ))}
                 </div>
@@ -142,9 +138,8 @@ function ZoneListItem({
 
     return (
         <article
-            className={`zone-tray-item ${
-                beerStyleClass(pallet.beerStyle).className
-            } ${selected ? "selected" : ""}`}
+            className={`zone-tray-item ${beerStyleClass(pallet.beerStyle).className
+                } ${selected ? "selected" : ""}`}
         >
             {bulkMode && (
                 <label
@@ -252,6 +247,7 @@ export function ZoneTray({
 
     const [movingPallet, setMovingPallet] =
         useState<Pallet | null>(null);
+    const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
 
     const displayPallets = useMemo(() => {
         // רק Pending מקבל את המיון הזה
@@ -352,45 +348,22 @@ export function ZoneTray({
                                     ? clearAll
                                     : selectAll
                             }
+                            className="bulk-select-all-btn"
                         >
                             {allSelected
                                 ? "בטל בחירת הכל"
                                 : "בחר הכל"}
+                                
                         </button>
                     </div>
 
-                    <select
-                        value={bulkTarget}
-                        onChange={(e) =>
-                            setBulkTarget(
-                                e.target.value as PalletZone
-                            )
-                        }
-                    >
-                        {ZONE_OPTIONS
-                            .filter(
-                                (z) =>
-                                    z.value !==
-                                    pallets[0]?.zone
-                            )
-                            .map((z) => (
-                                <option
-                                    key={z.value}
-                                    value={z.value}
-                                >
-                                    {z.label}
-                                </option>
-                            ))}
-                    </select>
-
                     <button
                         disabled={selectedPalletIds.size === 0}
-                        onClick={() =>
-                            onBulkMove(bulkTarget)
-                        }
+                        onClick={() => setShowBulkMoveModal(true)}
                     >
                         העבר נבחרים
                     </button>
+
                 </div>
             )}
 
@@ -428,6 +401,13 @@ export function ZoneTray({
                     onClose={() =>
                         setMovingPallet(null)
                     }
+                />
+            )}
+            {showBulkMoveModal && (
+                <ZoneMoveModal
+                    pallet={{ ...pallets[0], quantity: selectedPalletIds.size } as Pallet} // just for the subtitle count
+                    onMove={async (_id, zone) => { await onBulkMove(zone); }}
+                    onClose={() => setShowBulkMoveModal(false)}
                 />
             )}
         </div>

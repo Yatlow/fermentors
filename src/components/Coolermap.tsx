@@ -257,6 +257,7 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
     const [tab, setTab] = useState<Tab>("map");
     const [organizeMode, setOrganizeMode] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [zoomLevel, setZoomLevel] = useState(1);
 
     useEffect(() => {
         const unsubs = (Object.keys(ZONE_META) as PalletZone[]).map((zone) => subscribeToZone(zone, (data) => {
@@ -281,6 +282,9 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
     }
     function clearPlacement() { setPlacementPalletId(null); }
     function toggleBulk(id: string) { setBulkSelectedIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
+
+    function zoomOut() { setZoomLevel((z) => Math.max(0.4, +(z - 0.15).toFixed(2))); }
+    function zoomIn() { setZoomLevel((z) => Math.min(1, +(z + 0.15).toFixed(2))); }
 
     async function moveSelectedToCell(cell: CoolerCell) {
         if (!placementPallet) return;
@@ -390,6 +394,11 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
                     {organizeMode ? "✓ מצב סידור פעיל" : `"מצב סידור מקרר"`}</button>
                     <button className="cooler-add-pallet-btn" onClick={() => setShowAddModal(true)}
                     >הוסף משטחים {<LayersPlus size={14} />}</button></div>
+                <div className="cooler-zoom-controls">
+                    <button onClick={zoomOut} disabled={zoomLevel <= 0.4}>−</button>
+                    <span>{Math.round(zoomLevel * 100)}%</span>
+                    <button onClick={zoomIn} disabled={zoomLevel >= 1}>+</button>
+                </div>
             </div>
             <ZoneBadges counts={counts} onSelect={selectZone} />
             {/* <div className="cooler-tabs">
@@ -415,11 +424,11 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
                     <div className="cooler-map-explainer">
                         {organizeMode
                             ? <span>מצב סידור מקרר: לחץ על משטח כדי לבחור אותו, ואז על התא היעד כדי להעביר.</span>
-                            : <> <span>כדי לשבץ משטח ממתין: בחר אותו במסך ממתין ובחר את התא הרצוי. </span><span>כדי להזיז משטח בתוך המקרר: הפעל מצב סידור מקרר.</span></>}
+                            : <> <span>כדי לשבץ משטח ממתין: בחר אותו במסך ממתינים לשיבוץ ובחר את התא הרצוי. </span><span>כדי להזיז משטח בתוך המקרר: הפעל מצב סידור מקרר.</span></>}
                     </div>
                     <div className="cooler-map-scroll">
                         <div className="cooler-map-zoom">
-                            <div className="cooler-physical-map">
+                            <div className="cooler-physical-map" style={{ zoom: zoomLevel } as React.CSSProperties}>
 
                                 <div className="cooler-side-block right-side">
                                     {RIGHT_SIDE_COLUMNS.map((c) => <CoolerColumn key={c.col} side="right" col={c.col} label={c.label}

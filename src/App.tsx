@@ -33,7 +33,8 @@ import ManualBatchAssignment from "./components/ManualBatchAssignment";
 import ManualStatusAssignment from "./components/Manualstatusassignment ";
 import EditApprovedUsers from "./components/EditApprovedUsers";
 import CoolerMap from "./components/Coolermap";
-import { getZoneCounts, type ZoneCounts } from "./SERVICES/Palletservice";
+import { subscribeToZone, type ZoneCounts } from "./SERVICES/Palletservice";
+import type { PalletZone } from "./SERVICES/Pallettypes ";
 
 
 
@@ -263,6 +264,18 @@ function App() {
     }, [user]);
 
 
+    useEffect(() => {
+        if (!user || !isApproved) return;
+        const zoneNames: PalletZone[] = ["cooler", "pending", "bottleRoom", "loadingDock"];
+        const counts: ZoneCounts = { cooler: 0, pending: 0, bottleRoom: 0, loadingDock: 0 };
+        const unsubs = zoneNames.map((zone) =>
+            subscribeToZone(zone, (data) => {
+                counts[zone] = data.length;
+                setZoneCounts({ ...counts });
+            })
+        );
+        return () => unsubs.forEach((u) => u());
+    }, [user, isApproved]);
 
     useEffect(() => {
         if (!user || !isApproved) {
@@ -405,12 +418,12 @@ function App() {
             ];
         }, [statusCounts]);
 
-    useEffect(() => {
-        const load = () => getZoneCounts().then(setZoneCounts).catch(console.error);
-        load();
-        const interval = setInterval(load, 60000); // poll; or pass a refresh callback down instead
-        return () => clearInterval(interval);
-    }, []);
+    // useEffect(() => {
+    //     const load = () => getZoneCounts().then(setZoneCounts).catch(console.error);
+    //     load();
+    //     const interval = setInterval(load, 60000); // poll; or pass a refresh callback down instead
+    //     return () => clearInterval(interval);
+    // }, []);
 
     const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
         try {
