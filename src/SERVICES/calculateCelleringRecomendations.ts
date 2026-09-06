@@ -818,7 +818,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
-                requiresCarbTest.reason = `היום יום ראשון- ולכן אתמול לא בוצע למיכל בדיקת גיזוז ראשונה אחרי קירור, מומלץ לבצע היום בדיקת גיזוז (ראשונה אחרי קירור) ולפתוח ברזי גליקוק`
+                requiresCarbTest.reason = `היום יום ראשון- ולכן אתמול לא בוצע למיכל בדיקת גיזוז ראשונה אחרי קירור, מומלץ לבצע היום בדיקת גיזוז (ראשונה אחרי קירור) ולפתוח ברזי גליקול`
                 requiresCarbTest.importance = 1;
             }
         }
