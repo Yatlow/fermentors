@@ -165,7 +165,8 @@ export default function FermentorInfoBox({
                         tank.brewDate, specs,
                         tank.stage,
                         Number(tank.tankNumber),
-                        true
+                        true,
+                        []
                     );
 
                 setRecomendations(

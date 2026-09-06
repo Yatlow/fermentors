@@ -164,7 +164,8 @@ export default function SendMessurmentsHeader({
                                 specs,
                                 tank.stage,
                                 Number(tank.tankNumber),
-                                false
+                                false,
+                                brews
                             ).catch((err) => {
                                 console.error("Failed for tank", tank.id, tank.tankNumber, err);
                                 return null;
@@ -439,7 +440,8 @@ export default function SendMessurmentsHeader({
                             specs,
                             tank.stage!,
                             Number(tank.tankNumber),
-                            false
+                            false,
+                            brews
                         ).catch((err) => {
                             console.error("Failed for tank", tank.id, tank.tankNumber, err);
                             return null;

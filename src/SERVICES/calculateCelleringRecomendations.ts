@@ -1,3 +1,4 @@
+import type { Fermentor } from "../App";
 import { getPlannedPackagingContainerNumbers } from "../components/PackagingReportsView";
 import { getBrewAge } from "../components/TankCard";
 import { type SpecChart } from "./getSpecsFromFb";
@@ -384,7 +385,7 @@ export function extractYeastDrops(measurements: Measurement[]): YeastDrop[] {
 export async function calcCelleringRecomendations(measurements: Measurement[],
     beerStyle: string | number | undefined | null,
     brewDate: string, givenSpecs: SpecChart, stage: TankStageInfo, tankNumber: number | undefined,
-    TankCardUse: boolean) {
+    TankCardUse: boolean, brews: Fermentor[]) {
 
     const sortedMeasurements = [...measurements].sort((a, b) => {
 
@@ -1129,6 +1130,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // if (isAnActionDay && corrected !== 1) {
     //     dayTxt += TankCardUse ? `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` : `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. `
     // }
+    const coldTanks= brews?.filter(b => b.stage?.name === "קר").map(b => b.tankNumber)
     if (TankCardUse) {
         dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר" :
             corrected === 4 ?
@@ -1138,7 +1140,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` +
                     "מומלץ ביום חמישי לבצע הורדת שמרים לכל מיכל שיורד שבוע הבא. בדוק אם המיכל אכן מתוכנן לרדת" : ""
     } else {
-        dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל המיכלים הקרים" :
+        dayTxt += corrected === 1 ? `מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל המיכלים הקרים: ${coldTanks?.join(", ")}` :
             corrected === 4 ?
                 `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. ` +
                 "מומלץ ביום רביעי לבצע בדיקת גיזוז לכל המיכלים שיורדים שבוע הבא. ודא את נכונות נתוני היומן" :
