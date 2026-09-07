@@ -213,7 +213,7 @@ function useAuth() {
 function App() {
     const { user, loading: authLoading, admin, testUser } = useAuth();
     const [isApproved, setIsApproved] = useState<boolean | null>(null);
-
+    console.log(testUser)
     const [loggingIn, setLoggingIn] = useState<boolean>(true);
 
     const [brews, setBrews] =
@@ -644,23 +644,23 @@ function App() {
                             >
                                 כלים
                             </div>
-                            {testUser &&
-                                <div className={`views-item ${selectedView === "מקרר" ?
-                                    "active" : ""}`}
-                                    onClick={() => {
-                                        setSelectedView("מקרר")
-                                        setSelectedStatuses(["הכל"])
-                                        setSelectedStyles(["הכל"])
-                                        setSelectedWrites("לחץ")
-                                        setSelectedReports("אריזה")
-                                        setSelectedAdminTools("calculator")
-                                        setNewReadings({})
-                                    }}
-                                >
-                                    מפת מקרר
-                                    {!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}
-                                </div>
-                            }
+
+                            <div className={`views-item ${selectedView === "מקרר" ?
+                                "active" : ""}`}
+                                onClick={() => {
+                                    setSelectedView("מקרר")
+                                    setSelectedStatuses(["הכל"])
+                                    setSelectedStyles(["הכל"])
+                                    setSelectedWrites("לחץ")
+                                    setSelectedReports("אריזה")
+                                    setSelectedAdminTools("calculator")
+                                    setNewReadings({})
+                                }}
+                            >
+                                מפת מקרר
+                                {!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}
+                            </div>
+
                         </div>
                     </div>
 
