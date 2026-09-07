@@ -1,5 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Pencil, Truck, ArrowRightLeft, LayersPlus, ClipboardClock, BottleWine, MapPlus, LayerArrowUp, LayerArrowDown } from "lucide-react";
+import {
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type JSX,
+    type TouchEvent,
+    type TouchList,
+} from "react";
+
+import {
+    Pencil,
+    Truck,
+    ArrowRightLeft,
+    LayersPlus,
+    ClipboardClock,
+    BottleWine,
+    MapPlus,
+    LayerArrowUp,
+    LayerArrowDown,
+} from "lucide-react";
+
 import {
     subscribeToZone,
     movePalletToCell,
@@ -7,7 +27,12 @@ import {
     movePalletsToZone,
     reorderPalletsInCell,
     setMarkedForShipment,
+    calcTruckSlots,
+    MAX_TRUCK_SLOTS,
+    // reorderPalletsInZone,
+    deletePallet,
 } from "../SERVICES/Palletservice";
+
 import {
     beerStyleClass,
     calcHeightUnits,
@@ -17,505 +42,2663 @@ import {
     type CoolerSide,
     type PalletZone,
 } from "../SERVICES/Pallettypes ";
-import { RIGHT_SIDE_COLUMNS, LEFT_SIDE_COLUMNS, CORRIDOR_COLUMNS } from "../SERVICES/Coolergridconfig";
+
+import {
+    RIGHT_SIDE_COLUMNS,
+    LEFT_SIDE_COLUMNS,
+    CORRIDOR_COLUMNS,
+} from "../SERVICES/Coolergridconfig";
+
 import type { Fermentor } from "../App";
+
 import PalletEditModal from "./PalletEditModal";
 import AddPalletModal from "./AddPalletModal";
 import LoadingDockView from "./LoadingDockView";
-// import ConfirmModal from "./ConfirmModal";
-import { PendingTray, BottleRoomTray } from "./Zonetrays";
+
+import {
+    PendingTray,
+    BottleRoomTray,
+    ZoneMoveModal,
+} from "./Zonetrays";
+
 import "../Coolermap.css";
 
+import BeerLoader from "./Loading";
+import ConfirmModal from "./ConfirmModal";
+
+
+// ============================================================
+// Map configuration
+// ============================================================
+
 const MIN_ZOOM = 0.4;
-const MAX_ZOOM = 1;
+const MAX_ZOOM = 1.5;
 
-function cellKey(cell: CoolerCell) { return `${cell.side}_${cell.col}_${cell.row}`; }
-function getHeight(p: Pallet) { return typeof p.heightUnits === "number" ? p.heightUnits : calcHeightUnits(p.itemType, p.quantity); }
 
-function parseExpiryDate(dateStr: string): Date | null {
-    const parts = dateStr.split(/[./]/).map(Number);
-    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
-    let [dd, mm, yyyy] = parts;
-    if (yyyy < 100) yyyy += 2000;
-    const d = new Date(yyyy, mm - 1, dd);
-    d.setHours(0, 0, 0, 0);
-    return d;
-}
-function isWithinDays(dateStr: string, days: number) {
-    const expiry = parseExpiryDate(dateStr);
-    if (!expiry) return false;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const diffDays = (expiry.getTime() - today.getTime()) / 86400000;
-    return diffDays >= 0 && diffDays <= days;
-}
-function isExpired(dateStr: string) {
-    const expiry = parseExpiryDate(dateStr);
-    if (!expiry) return false;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    return expiry.getTime() < today.getTime();
-}
-function sortPalletsInCell(pallets: Pallet[]) {
-    const manuallyOrdered = pallets.length > 0 && pallets.every((p) => typeof p.orderInCell === "number" || typeof p.slotIndex === "number");
-    if (manuallyOrdered) return [...pallets].sort((a, b) => (a.orderInCell ?? a.slotIndex ?? 0) - (b.orderInCell ?? b.slotIndex ?? 0));
-    return [...pallets].sort((a, b) => a.quantity - b.quantity);
+// ============================================================
+// Helpers
+// ============================================================
+
+function cellKey(cell: CoolerCell) {
+    return `${cell.side}_${cell.col}_${cell.row}`;
 }
 
-const ZONE_META: Record<PalletZone, { label: string; icon: any }> = {
-    cooler: { label: "מפת מקרר", icon: <MapPlus /> },
-    pending: { label: "ממתינים לשיבוץ", icon: <ClipboardClock /> },
-    bottleRoom: { label: "חדר בקבוקים", icon: <BottleWine /> },
-    loadingDock: { label: "בהעמסה למשלוח", icon: <Truck /> },
-};
 
-function ZoneMoveModal({ pallet, onMove, onClose }: { pallet: Pallet; onMove: (id: string, zone: PalletZone) => void; onClose: () => void }) {
-    const options = (Object.keys(ZONE_META) as PalletZone[]).filter((z) => z !== pallet.zone && z !== "cooler");
+function getHeight(pallet: Pallet) {
+    return typeof pallet.heightUnits === "number"
+        ? pallet.heightUnits
+        : calcHeightUnits(
+            pallet.itemType,
+            pallet.quantity
+        );
+}
+
+
+function parseExpiryDate(
+    dateStr: string
+): Date | null {
+    const parts = dateStr
+        .split(/[./]/)
+        .map(Number);
+
+    if (
+        parts.length !== 3 ||
+        parts.some((n) =>
+            Number.isNaN(n)
+        )
+    ) {
+        return null;
+    }
+
+    let [
+        day,
+        month,
+        year,
+    ] = parts;
+
+    if (year < 100) {
+        year += 2000;
+    }
+
+    const date = new Date(
+        year,
+        month - 1,
+        day
+    );
+
+    date.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+    return date;
+}
+
+
+function isWithinDays(
+    dateStr: string,
+    days: number
+) {
+    const expiry =
+        parseExpiryDate(dateStr);
+
+    if (!expiry) {
+        return false;
+    }
+
+    const today = new Date();
+
+    today.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+    const diffDays =
+        (expiry.getTime() -
+            today.getTime()) /
+        86400000;
+
     return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-box zone-move-modal" onClick={(e) => e.stopPropagation()} dir="rtl">
-                <div className="modal-header-row">
-                    <div><span className="modal-kicker">העברת משטח</span><h3>לאן להעביר?</h3></div>
-                    <button className="modal-x" onClick={onClose}>×</button>
-                </div>
-                <p className="zone-move-modal-subtitle">
-                    <span> {pallet.quantity} {pallet.itemType === "kegs" ? "חביות" : "ארגזים"}</span>
-                    <span> · {pallet.beerStyle}</span>
-                </p>
-                <div className="zone-move-modal-options">
-                    {options.map((z) => (
-                        <button key={z} className="zone-move-modal-option" onClick={() => { onMove(pallet.id, z); onClose(); }}>
-                            <span>{ZONE_META[z].icon}</span>{ZONE_META[z].label}
-                        </button>
-                    ))}
-                </div>
-                <button className="modal-cancel-btn" onClick={onClose}>ביטול</button>
-            </div>
-        </div>
+        diffDays >= 0 &&
+        diffDays <= days
     );
 }
 
+
+function isExpired(
+    dateStr: string
+) {
+    const expiry =
+        parseExpiryDate(dateStr);
+
+    if (!expiry) {
+        return false;
+    }
+
+    const today = new Date();
+
+    today.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+    return (
+        expiry.getTime() <
+        today.getTime()
+    );
+}
+
+
+function sortPalletsInCell(
+    pallets: Pallet[]
+) {
+    const manuallyOrdered =
+        pallets.length > 0 &&
+        pallets.every(
+            (p) =>
+                typeof p.orderInCell ===
+                    "number" ||
+                typeof p.slotIndex ===
+                    "number"
+        );
+
+    if (manuallyOrdered) {
+        return [...pallets].sort(
+            (a, b) =>
+                (a.orderInCell ??
+                    a.slotIndex ??
+                    0) -
+                (b.orderInCell ??
+                    b.slotIndex ??
+                    0)
+        );
+    }
+
+    return [...pallets].sort(
+        (a, b) =>
+            a.quantity -
+            b.quantity
+    );
+}
+
+
+// ============================================================
+// Zone metadata
+// ============================================================
+
+const ZONE_META = {
+    cooler: {
+        label: "מפת מקרר",
+        icon: <MapPlus />,
+    },
+
+    pending: {
+        label: "ממתינים לשיבוץ",
+        icon: <ClipboardClock />,
+    },
+
+    bottleRoom: {
+        label: "חדר בקבוקים",
+        icon: <BottleWine />,
+    },
+
+    loadingDock: {
+        label: "בהעמסה למשלוח",
+        icon: <Truck />,
+    },
+} satisfies Record<
+    Exclude<PalletZone, "shipped">,
+    {
+        label: string;
+        icon: JSX.Element;
+    }
+>;
+
+
+// ============================================================
+// Compact pallet card
+// ============================================================
+
 function CompactPalletCard({
-    pallet, isSelectedForMove, placementActive, organizeMode, onPlace, onEdit, onSelectForMove, onOpenMoveZone, onMarkShipment, onReorder,
+    pallet,
+    isSelectedForMove,
+    placementActive,
+    organizeMode,
+    onPlace,
+    onEdit,
+    onSelectForMove,
+    onOpenMoveZone,
+    onMarkShipment,
+    onReorder,
 }: {
     pallet: Pallet;
+
     isSelectedForMove: boolean;
+
     placementActive: boolean;
+
     organizeMode: boolean;
+
     onPlace: () => void;
+
     onEdit: () => void;
+
     onSelectForMove: () => void;
+
     onOpenMoveZone: () => void;
+
     onMarkShipment: () => void;
-    onReorder?: (direction: "up" | "down") => void;
+
+    onReorder?: (
+        direction:
+            | "up"
+            | "down"
+    ) => void;
 }) {
-    const style = beerStyleClass(pallet.beerStyle);
-    const expiring = !!pallet.expiryDateStr && isWithinDays(pallet.expiryDateStr, 14);
-    const expired = !!pallet.expiryDateStr && isExpired(pallet.expiryDateStr);
+    const style =
+        beerStyleClass(
+            pallet.beerStyle
+        );
+
+    const expiring =
+        !!pallet.expiryDateStr &&
+        isWithinDays(
+            pallet.expiryDateStr,
+            14
+        );
+
+    const expired =
+        !!pallet.expiryDateStr &&
+        isExpired(
+            pallet.expiryDateStr
+        );
 
     function handleRowClick() {
-        if (placementActive) { if (!isSelectedForMove) onPlace(); return; }
-        if (organizeMode) onSelectForMove();
+        if (placementActive) {
+            if (
+                !isSelectedForMove
+            ) {
+                onPlace();
+            }
+
+            return;
+        }
+
+        if (organizeMode) {
+            onSelectForMove();
+        }
     }
 
     return (
         <div
-            className={`pallet-row ${style.className} ${isSelectedForMove ? "placement-card" : ""} ${pallet.markedForShipment ? "marked-for-shipment" : ""}`}
-            onClick={(e) => { e.stopPropagation(); handleRowClick(); }}
+            className={`pallet-row ${
+                style.className
+            } ${
+                isSelectedForMove
+                    ? "placement-card"
+                    : ""
+            } ${
+                pallet.markedForShipment
+                    ? "marked-for-shipment"
+                    : ""
+            }`}
+            onClick={(e) => {
+                e.stopPropagation();
+                handleRowClick();
+            }}
         >
-            <span className="pallet-row-icon">{pallet.itemType === "kegs" ? "🛢️" : "📦"}</span>
-            <strong className="pallet-row-qty">{pallet.quantity} {"  "} {pallet.itemType === "crates" ? "ארגזים" : "חביות"}</strong>
-            <span className="pallet-row-style">
-                <span>{style.displayLabel}</span>
-                <span> {pallet.subLabel ? ` · ${pallet.subLabel}` : ""}</span>
-                <span>  #{pallet.batchNumber}</span>
+            <span className="pallet-row-icon">
+                {pallet.itemType ===
+                "kegs"
+                    ? "🛢️"
+                    : "📦"}
             </span>
+
+            <strong className="pallet-row-qty">
+                {pallet.quantity}{" "}
+                {pallet.itemType ===
+                "crates"
+                    ? "ארגזים"
+                    : "חביות"}
+            </strong>
+
+            <span className="pallet-row-style">
+                <span>
+                    {style.displayLabel}
+                </span>
+
+                <span>
+                    {pallet.subLabel
+                        ? ` · ${pallet.subLabel}`
+                        : ""}
+                </span>
+
+                {pallet.batchNumber && (
+                    <span>
+                        {" "}
+                        #{pallet.batchNumber}
+                    </span>
+                )}
+            </span>
+
             {pallet.expiryDateStr && (
-                <span className={`pallet-row-expiry ${expired ? "expiry-expired" : expiring ? "expiry-warning" : ""}`}>{pallet.expiryDateStr}</span>
+                <span
+                    className={`pallet-row-expiry ${
+                        expired
+                            ? "expiry-expired"
+                            : expiring
+                              ? "expiry-warning"
+                              : ""
+                    }`}
+                >
+                    {
+                        pallet.expiryDateStr
+                    }
+                </span>
             )}
 
             {isSelectedForMove ? (
-                <span className="pallet-row-selected"> בחר תא יעד</span>
-            ) : !placementActive && (
-                <div className="pallet-row-actions" onClick={(e) => e.stopPropagation()}>
-                    {organizeMode && onReorder && (
-                        <>
-                            <button className="row-icon-btn" onClick={() => onReorder("up")} title="הזז למעלה">{<LayerArrowUp size={12} />}</button>
-                            <button className="row-icon-btn" onClick={() => onReorder("down")} title="הזז למטה">{<LayerArrowDown size={12} />}</button>
-                        </>
-                    )}
-                    <button className="row-icon-btn" onClick={onEdit} title="עריכה"><Pencil size={13} /></button>
-                    <button className={`row-icon-btn ${pallet.markedForShipment ? "on" : ""}`} onClick={onMarkShipment} title="סמן למשלוח"><Truck size={13} /></button>
-                    <button className="row-icon-btn" onClick={onOpenMoveZone} title="העבר אזור"><ArrowRightLeft size={13} /></button>
+                <span className="pallet-row-selected">
+                    בחר תא יעד
+                </span>
+            ) : (
+                !placementActive && (
+                    <div
+                        className="pallet-row-actions"
+                        onClick={(e) =>
+                            e.stopPropagation()
+                        }
+                    >
+                        {organizeMode ? (
+                            onReorder && (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="row-icon-btn"
+                                        onClick={() =>
+                                            onReorder(
+                                                "up"
+                                            )
+                                        }
+                                        title="הזז למעלה"
+                                    >
+                                        <LayerArrowUp
+                                            size={12}
+                                        />
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="row-icon-btn"
+                                        onClick={() =>
+                                            onReorder(
+                                                "down"
+                                            )
+                                        }
+                                        title="הזז למטה"
+                                    >
+                                        <LayerArrowDown
+                                            size={12}
+                                        />
+                                    </button>
+                                </>
+                            )
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    className="row-icon-btn"
+                                    onClick={
+                                        onEdit
+                                    }
+                                    title="עריכה"
+                                >
+                                    <Pencil
+                                        size={13}
+                                    />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    className={`row-icon-btn ${
+                                        pallet.markedForShipment
+                                            ? "on"
+                                            : ""
+                                    }`}
+                                    onClick={
+                                        onMarkShipment
+                                    }
+                                    title="סמן למשלוח"
+                                >
+                                    <Truck
+                                        size={13}
+                                    />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    className="row-icon-btn"
+                                    onClick={
+                                        onOpenMoveZone
+                                    }
+                                    title="העבר אזור"
+                                >
+                                    <ArrowRightLeft
+                                        size={13}
+                                    />
+                                </button>
+                            </>
+                        )}
+                    </div>
+                )
+            )}
+        </div>
+    );
+}
+
+
+// ============================================================
+// Cooler cell
+// ============================================================
+
+function CoolerCellBox({
+    cell,
+    pallets,
+    caution,
+    placementPallet,
+    organizeMode,
+    onDropHere,
+    onEdit,
+    onSelectForMove,
+    onOpenMoveZone,
+    onMarkShipment,
+    onReorder,
+}: {
+    cell: CoolerCell;
+
+    pallets: Pallet[];
+
+    caution?: boolean;
+
+    placementPallet: Pallet | null;
+
+    organizeMode: boolean;
+
+    onDropHere: (
+        cell: CoolerCell
+    ) => void;
+
+    onEdit: (
+        pallet: Pallet
+    ) => void;
+
+    onSelectForMove: (
+        pallet: Pallet
+    ) => void;
+
+    onOpenMoveZone: (
+        pallet: Pallet
+    ) => void;
+
+    onMarkShipment: (
+        pallet: Pallet
+    ) => void;
+
+    onReorder: (
+        cell: CoolerCell,
+        ids: string[]
+    ) => void;
+}) {
+    const sorted =
+        sortPalletsInCell(
+            pallets
+        );
+
+    const heightUsed =
+        pallets.reduce(
+            (sum, pallet) =>
+                sum +
+                getHeight(pallet),
+            0
+        );
+
+    const movingHeight =
+        placementPallet
+            ? getHeight(
+                  placementPallet
+              )
+            : 0;
+
+    const isSourceCell =
+        !!placementPallet &&
+        pallets.some(
+            (pallet) =>
+                pallet.id ===
+                placementPallet.id
+        );
+
+    const wouldOverflow =
+        !!placementPallet &&
+        !isSourceCell &&
+        heightUsed +
+            movingHeight >
+            MAX_HEIGHT_UNITS_PER_CELL;
+
+    function swap(
+        index: number,
+        direction:
+            | "up"
+            | "down"
+    ) {
+        const other =
+            direction === "up"
+                ? index - 1
+                : index + 1;
+
+        if (
+            other < 0 ||
+            other >= sorted.length
+        ) {
+            return;
+        }
+
+        const next = [
+            ...sorted,
+        ];
+
+        [
+            next[index],
+            next[other],
+        ] = [
+            next[other],
+            next[index],
+        ];
+
+        onReorder(
+            cell,
+            next.map(
+                (pallet) =>
+                    pallet.id
+            )
+        );
+    }
+
+    const canMoveHere =
+        !!placementPallet &&
+        !wouldOverflow &&
+        !isSourceCell;
+
+    return (
+        <div
+            className={`cooler-cell ${
+                caution
+                    ? "caution"
+                    : ""
+            } ${
+                canMoveHere
+                    ? "move-target"
+                    : ""
+            } ${
+                wouldOverflow
+                    ? "no-room"
+                    : ""
+            }`}
+            onClick={() => {
+                if (canMoveHere) {
+                    onDropHere(cell);
+                }
+            }}
+        >
+            <div className="cooler-cell-header">
+                <span>
+                    {pallets.length
+                        ? `${pallets.length} משטחים`
+                        : "פנוי"}
+                </span>
+            </div>
+
+            <div className="cooler-cell-capacity">
+                <span
+                    style={{
+                        width: `${Math.min(
+                            100,
+                            (heightUsed /
+                                MAX_HEIGHT_UNITS_PER_CELL) *
+                                100
+                        )}%`,
+                    }}
+                />
+            </div>
+
+            <div className="cooler-cell-pallets">
+                {sorted.map(
+                    (
+                        pallet,
+                        index
+                    ) => (
+                        <CompactPalletCard
+                            key={
+                                pallet.id
+                            }
+                            pallet={
+                                pallet
+                            }
+                            isSelectedForMove={
+                                placementPallet?.id ===
+                                pallet.id
+                            }
+                            placementActive={
+                                !!placementPallet
+                            }
+                            organizeMode={
+                                organizeMode
+                            }
+                            onPlace={() => {
+                                if (
+                                    canMoveHere
+                                ) {
+                                    onDropHere(
+                                        cell
+                                    );
+                                }
+                            }}
+                            onEdit={() =>
+                                onEdit(
+                                    pallet
+                                )
+                            }
+                            onSelectForMove={() =>
+                                onSelectForMove(
+                                    pallet
+                                )
+                            }
+                            onOpenMoveZone={() =>
+                                onOpenMoveZone(
+                                    pallet
+                                )
+                            }
+                            onMarkShipment={() =>
+                                onMarkShipment(
+                                    pallet
+                                )
+                            }
+                            onReorder={
+                                organizeMode
+                                    ? (
+                                          direction
+                                      ) =>
+                                          swap(
+                                              index,
+                                              direction
+                                          )
+                                    : undefined
+                            }
+                        />
+                    )
+                )}
+            </div>
+
+            {placementPallet &&
+                !isSourceCell &&
+                (wouldOverflow ? (
+                    <div className="cell-move-status danger">
+                        אין מקום —{" "}
+                        {heightUsed.toFixed(
+                            1
+                        )}
+                        /
+                        {
+                            MAX_HEIGHT_UNITS_PER_CELL
+                        }
+                    </div>
+                ) : (
+                    <div className="cell-move-status">
+                        לחצי כאן לשיבוץ
+                    </div>
+                ))}
+
+            {caution && (
+                <div className="cautionBox">
+                    <div className="cell-caution">
+                        ⚠ עשוי לחסום את הדלת
+                    </div>
                 </div>
             )}
         </div>
     );
 }
 
-function CoolerCellBox({
-    cell, pallets, caution, placementPallet, organizeMode, onDropHere, onEdit, onSelectForMove, onOpenMoveZone, onMarkShipment, onReorder,
+
+// ============================================================
+// Cooler column
+// ============================================================
+
+function CoolerColumn({
+    side,
+    col,
+    // label,
+    rows,
+    cautionRows,
+    palletsByCell,
+    placementPallet,
+    organizeMode,
+    onDropHere,
+    onEdit,
+    onSelectForMove,
+    onOpenMoveZone,
+    onMarkShipment,
+    onReorder,
 }: {
-    cell: CoolerCell;
-    pallets: Pallet[];
-    caution?: boolean;
+    side: CoolerSide;
+
+    col: number;
+
+    label: string;
+
+    rows: number;
+
+    cautionRows?: number[];
+
+    palletsByCell: Map<
+        string,
+        Pallet[]
+    >;
+
     placementPallet: Pallet | null;
+
     organizeMode: boolean;
-    onDropHere: (cell: CoolerCell) => void;
-    onEdit: (pallet: Pallet) => void;
-    onSelectForMove: (pallet: Pallet) => void;
-    onOpenMoveZone: (pallet: Pallet) => void;
-    onMarkShipment: (pallet: Pallet) => void;
-    onReorder: (cell: CoolerCell, ids: string[]) => void;
-}) {
-    const sorted = sortPalletsInCell(pallets);
-    const heightUsed = pallets.reduce((sum, p) => sum + getHeight(p), 0);
-    const movingHeight = placementPallet ? getHeight(placementPallet) : 0;
-    const wouldOverflow = !!placementPallet && heightUsed + movingHeight > MAX_HEIGHT_UNITS_PER_CELL;
-    const isSourceCell = !!placementPallet && pallets.some((p) => p.id === placementPallet.id);
 
-    function swap(index: number, direction: "up" | "down") {
-        const other = direction === "up" ? index - 1 : index + 1;
-        if (other < 0 || other >= sorted.length) return;
-        const next = [...sorted];[next[index], next[other]] = [next[other], next[index]];
-        onReorder(cell, next.map((p) => p.id));
-    }
+    onDropHere: (
+        cell: CoolerCell
+    ) => void;
 
-    return (
-        <div
-            className={`cooler-cell ${caution ? "caution" : ""} ${placementPallet && !wouldOverflow && !isSourceCell ? "move-target" : ""} ${wouldOverflow ? "no-room" : ""}`}
-            onClick={() => placementPallet && !wouldOverflow && !isSourceCell && onDropHere(cell)}
-        >
-            <div className="cooler-cell-header">
-                {/* <strong>{cell.col}.{cell.row}</strong> */}
-                <span>{pallets.length ? `${pallets.length} משטחים` : "פנוי"}</span></div>
-            <div className="cooler-cell-capacity"><span style={{ width: `${Math.min(100, heightUsed / MAX_HEIGHT_UNITS_PER_CELL * 100)}%` }} /></div>
-            <div className="cooler-cell-pallets">
-                {sorted.map((p, i) => (
-                    <CompactPalletCard
-                        key={p.id}
-                        pallet={p}
-                        isSelectedForMove={placementPallet?.id === p.id}
-                        placementActive={!!placementPallet}
-                        organizeMode={organizeMode}
-                        onPlace={() => placementPallet && !wouldOverflow && !isSourceCell && onDropHere(cell)}
-                        onEdit={() => onEdit(p)}
-                        onSelectForMove={() => onSelectForMove(p)}
-                        onOpenMoveZone={() => onOpenMoveZone(p)}
-                        onMarkShipment={() => onMarkShipment(p)}
-                        onReorder={organizeMode ? (dir) => swap(i, dir) : undefined}
-                    />
-                ))}
-            </div>
-            {placementPallet && !isSourceCell && (wouldOverflow ? <div className="cell-move-status danger">אין מקום — {heightUsed.toFixed(1)}/{MAX_HEIGHT_UNITS_PER_CELL}</div> : <div className="cell-move-status">לחצי כאן לשיבוץ</div>)}
-            {caution && <div className="cautionBox"><div className="cell-caution">⚠ עשוי לחסום את הדלת</div></div>}
-        </div>
-    );
-}
+    onEdit: (
+        pallet: Pallet
+    ) => void;
 
-function CoolerColumn({ side, col, rows, cautionRows, palletsByCell, placementPallet, organizeMode, onDropHere, onEdit, onSelectForMove, onOpenMoveZone, onMarkShipment, onReorder }: {
-    side: CoolerSide; col: number; label: string; rows: number; cautionRows?: number[]; palletsByCell: Map<string, Pallet[]>; placementPallet: Pallet | null; organizeMode: boolean;
-    onDropHere: (cell: CoolerCell) => void; onEdit: (p: Pallet) => void; onSelectForMove: (p: Pallet) => void; onOpenMoveZone: (p: Pallet) => void; onMarkShipment: (p: Pallet) => void; onReorder: (cell: CoolerCell, ids: string[]) => void;
+    onSelectForMove: (
+        pallet: Pallet
+    ) => void;
+
+    onOpenMoveZone: (
+        pallet: Pallet
+    ) => void;
+
+    onMarkShipment: (
+        pallet: Pallet
+    ) => void;
+
+    onReorder: (
+        cell: CoolerCell,
+        ids: string[]
+    ) => void;
 }) {
     return (
         <div className="cooler-column">
-            {Array.from({ length: rows }, (_, i) => i + 1).map((row) => {
-                const cell: CoolerCell = { side, col, row };
-                return <CoolerCellBox
-                    key={cellKey(cell)} cell={cell} pallets={palletsByCell.get(cellKey(cell)) ?? []}
-                    caution={cautionRows?.includes(row)} placementPallet={placementPallet} organizeMode={organizeMode}
-                    onDropHere={onDropHere} onEdit={onEdit} onSelectForMove={onSelectForMove} onOpenMoveZone={onOpenMoveZone}
-                    onMarkShipment={onMarkShipment} onReorder={onReorder} />;
+            {Array.from(
+                {
+                    length: rows,
+                },
+                (_, index) =>
+                    index + 1
+            ).map((row) => {
+                const cell: CoolerCell =
+                    {
+                        side,
+                        col,
+                        row,
+                    };
+
+                return (
+                    <CoolerCellBox
+                        key={cellKey(
+                            cell
+                        )}
+                        cell={cell}
+                        pallets={
+                            palletsByCell.get(
+                                cellKey(
+                                    cell
+                                )
+                            ) ?? []
+                        }
+                        caution={cautionRows?.includes(
+                            row
+                        )}
+                        placementPallet={
+                            placementPallet
+                        }
+                        organizeMode={
+                            organizeMode
+                        }
+                        onDropHere={
+                            onDropHere
+                        }
+                        onEdit={
+                            onEdit
+                        }
+                        onSelectForMove={
+                            onSelectForMove
+                        }
+                        onOpenMoveZone={
+                            onOpenMoveZone
+                        }
+                        onMarkShipment={
+                            onMarkShipment
+                        }
+                        onReorder={
+                            onReorder
+                        }
+                    />
+                );
             })}
         </div>
     );
 }
 
-function Corridor({ palletsByCell, placementPallet, organizeMode, onDropHere, onEdit, onSelectForMove, onOpenMoveZone, onMarkShipment, onReorder }: {
-    palletsByCell: Map<string, Pallet[]>; placementPallet: Pallet | null; organizeMode: boolean; onDropHere: (cell: CoolerCell) => void; onEdit: (p: Pallet) => void; onSelectForMove: (p: Pallet) => void; onOpenMoveZone: (p: Pallet) => void; onMarkShipment: (p: Pallet) => void; onReorder: (cell: CoolerCell, ids: string[]) => void;
+
+// ============================================================
+// Corridor
+// ============================================================
+
+function Corridor({
+    palletsByCell,
+    placementPallet,
+    organizeMode,
+    onDropHere,
+    onEdit,
+    onSelectForMove,
+    onOpenMoveZone,
+    onMarkShipment,
+    onReorder,
+}: {
+    palletsByCell: Map<
+        string,
+        Pallet[]
+    >;
+
+    placementPallet: Pallet | null;
+
+    organizeMode: boolean;
+
+    onDropHere: (
+        cell: CoolerCell
+    ) => void;
+
+    onEdit: (
+        pallet: Pallet
+    ) => void;
+
+    onSelectForMove: (
+        pallet: Pallet
+    ) => void;
+
+    onOpenMoveZone: (
+        pallet: Pallet
+    ) => void;
+
+    onMarkShipment: (
+        pallet: Pallet
+    ) => void;
+
+    onReorder: (
+        cell: CoolerCell,
+        ids: string[]
+    ) => void;
 }) {
     return (
         <div className="cooler-corridor-row">
-            <div className="door-marker"><span>דלת</span><small>כניסה</small></div>
-            <div className="cooler-corridor-cells">
-                {CORRIDOR_COLUMNS.map((c) => {
-                    const cell: CoolerCell = { side: "corridor", col: c.col, row: 1 };
-                    return <CoolerCellBox key={cellKey(cell)} cell={cell} pallets={palletsByCell.get(cellKey(cell)) ?? []} placementPallet={placementPallet} organizeMode={organizeMode} onDropHere={onDropHere} onEdit={onEdit} onSelectForMove={onSelectForMove} onOpenMoveZone={onOpenMoveZone} onMarkShipment={onMarkShipment} onReorder={onReorder} />;
-                })}
+            <div className="door-marker">
+                <span>
+                    דלת
+                </span>
+                <small>
+                    כניסה
+                </small>
             </div>
-            <div className="door-marker"><span>דלת</span><small>יציאה</small></div>
+
+            <div className="cooler-corridor-cells">
+                {CORRIDOR_COLUMNS.map(
+                    (column) => {
+                        const cell: CoolerCell =
+                            {
+                                side: "corridor",
+                                col: column.col,
+                                row: 1,
+                            };
+
+                        return (
+                            <CoolerCellBox
+                                key={cellKey(
+                                    cell
+                                )}
+                                cell={
+                                    cell
+                                }
+                                pallets={
+                                    palletsByCell.get(
+                                        cellKey(
+                                            cell
+                                        )
+                                    ) ?? []
+                                }
+                                placementPallet={
+                                    placementPallet
+                                }
+                                organizeMode={
+                                    organizeMode
+                                }
+                                onDropHere={
+                                    onDropHere
+                                }
+                                onEdit={
+                                    onEdit
+                                }
+                                onSelectForMove={
+                                    onSelectForMove
+                                }
+                                onOpenMoveZone={
+                                    onOpenMoveZone
+                                }
+                                onMarkShipment={
+                                    onMarkShipment
+                                }
+                                onReorder={
+                                    onReorder
+                                }
+                            />
+                        );
+                    }
+                )}
+            </div>
+
+            <div className="door-marker">
+                <span>
+                    דלת
+                </span>
+                <small>
+                    יציאה
+                </small>
+            </div>
         </div>
     );
 }
 
-type Tab = "map" | "pending" | "bottleRoom" | "stash" | "dock";
 
-export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
-    const [zones, setZones] = useState<Record<PalletZone, Pallet[]>>({ cooler: [], pending: [], bottleRoom: [], loadingDock: [] });
-    const [loading, setLoading] = useState(true);
-    const [placementPalletId, setPlacementPalletId] = useState<string | null>(null);
-    const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
-    const [bulkMode, setBulkMode] = useState(false);
-    const [editingPallet, setEditingPallet] = useState<Pallet | null>(null);
-    const [movingZonePallet, setMovingZonePallet] = useState<Pallet | null>(null);
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [tab, setTab] = useState<Tab>("map");
-    const [organizeMode, setOrganizeMode] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [zoomLevel, setZoomLevel] = useState(1);
+// ============================================================
+// Zone badges
+// ============================================================
 
-    // Pinch-to-zoom bookkeeping — kept in refs so touchmove doesn't trigger re-renders.
-    const pinchStartDistance = useRef<number | null>(null);
-    const pinchStartZoom = useRef<number>(1);
+function ZoneBadges({
+    counts,
+    onSelect,
+}: {
+    counts: {
+        cooler: number;
+        pending: number;
+        bottleRoom: number;
+        loadingDock: number;
+    };
 
-    useEffect(() => {
-        const unsubs = (Object.keys(ZONE_META) as PalletZone[]).map((zone) => subscribeToZone(zone, (data) => {
-            setZones((prev) => ({ ...prev, [zone]: data }));
-            if (zone === "cooler") setLoading(false);
-        }));
-        return () => unsubs.forEach((u) => u());
-    }, []);
+    onSelect: (
+        zone:
+            | "cooler"
+            | "pending"
+            | "bottleRoom"
+            | "loadingDock"
+    ) => void;
+}) {
+    const zones = [
+        "cooler",
+        "pending",
+        "bottleRoom",
+        "loadingDock",
+    ] as const;
 
-    const allPallets = useMemo(() => Object.values(zones).flat(), [zones]);
-    const counts = useMemo(() => ({ cooler: zones.cooler.length, pending: zones.pending.length, bottleRoom: zones.bottleRoom.length, loadingDock: zones.loadingDock.length }), [zones]);
-    const placementPallet = placementPalletId ? allPallets.find((p) => p.id === placementPalletId) ?? null : null;
+    return (
+        <div className="cooler-zone-badges">
+            {zones.map((zone) => (
+                <button
+                    key={zone}
+                    type="button"
+                    className={`cooler-zone-badge zone-${zone}`}
+                    onClick={() =>
+                        onSelect(
+                            zone
+                        )
+                    }
+                >
+                    <span>
+                        {
+                            ZONE_META[
+                                zone
+                            ].icon
+                        }
+                    </span>
 
-    const palletsByCell = useMemo(() => {
-        const map = new Map<string, Pallet[]>();
-        zones.cooler.forEach((p) => { if (p.cell) { const key = cellKey(p.cell); map.set(key, [...(map.get(key) ?? []), p]); } });
-        return map;
-    }, [zones.cooler]);
+                    <span>
+                        {
+                            ZONE_META[
+                                zone
+                            ].label
+                        }
+                    </span>
 
-    const markedForShipmentPallets = useMemo(
-        () => allPallets.filter((p) => p.markedForShipment && p.zone !== "loadingDock"),
-        [allPallets]
+                    <strong>
+                        {
+                            counts[
+                                zone
+                            ]
+                        }
+                    </strong>
+                </button>
+            ))}
+        </div>
+    );
+}
+
+
+// ============================================================
+// Tabs
+// ============================================================
+
+type Tab =
+    | "map"
+    | "pending"
+    | "bottleRoom"
+    | "dock";
+
+
+// ============================================================
+// Main component
+// ============================================================
+
+export default function CoolerMap({
+    brews,
+}: {
+    brews?: Fermentor[];
+}) {
+    const [zones, setZones] =
+        useState<
+            Record<
+                Exclude<
+                    PalletZone,
+                    "shipped"
+                >,
+                Pallet[]
+            >
+        >({
+            cooler: [],
+            pending: [],
+            bottleRoom: [],
+            loadingDock: [],
+        });
+
+    const [loading, setLoading] =
+        useState(true);
+
+    const [
+        placementPalletId,
+        setPlacementPalletId,
+    ] = useState<
+        string | null
+    >(null);
+
+    const [
+        bulkSelectedIds,
+        setBulkSelectedIds,
+    ] = useState<
+        Set<string>
+    >(new Set());
+
+    const [
+        bulkMode,
+        setBulkMode,
+    ] = useState(false);
+
+    const [
+        editingPallet,
+        setEditingPallet,
+    ] = useState<Pallet | null>(
+        null
     );
 
-    async function shipAllMarked() {
-        if (markedForShipmentPallets.length === 0) return;
+    const [
+        movingZonePallet,
+        setMovingZonePallet,
+    ] = useState<Pallet | null>(
+        null
+    );
+
+    const [
+        showAddModal,
+        setShowAddModal,
+    ] = useState(false);
+
+    const [
+        tab,
+        setTab,
+    ] = useState<Tab>("map");
+
+    const [
+        organizeMode,
+        setOrganizeMode,
+    ] = useState(false);
+
+    const [
+        error,
+        setError,
+    ] = useState<
+        string | null
+    >(null);
+
+    const [
+        zoomLevel,
+        setZoomLevel,
+    ] = useState(1);
+
+    const [
+        placementOriginTab,
+        setPlacementOriginTab,
+    ] = useState<
+        Tab | null
+    >(null);
+
+    const [
+        deletePalletTarget,
+        setDeletePalletTarget,
+    ] = useState<Pallet | null>(
+        null
+    );
+
+    const [
+        deletingPallet,
+        setDeletingPallet,
+    ] = useState(false);
+
+    // ========================================================
+    // Pinch zoom refs
+    // ========================================================
+
+    const pinchStartDistance =
+        useRef<number | null>(
+            null
+        );
+
+    const pinchStartZoom =
+        useRef(1);
+
+
+    // ========================================================
+    // Firebase subscriptions
+    // ========================================================
+
+    useEffect(() => {
+        const activeZones = [
+            "cooler",
+            "pending",
+            "bottleRoom",
+            "loadingDock",
+        ] as const;
+
+        const unsubscribers =
+            activeZones.map(
+                (zone) =>
+                    subscribeToZone(
+                        zone,
+                        (data) => {
+                            setZones(
+                                (
+                                    previous
+                                ) => ({
+                                    ...previous,
+                                    [zone]:
+                                        data,
+                                })
+                            );
+
+                            if (
+                                zone ===
+                                "cooler"
+                            ) {
+                                setLoading(
+                                    false
+                                );
+                            }
+                        }
+                    )
+            );
+
+        return () =>
+            unsubscribers.forEach(
+                (unsubscribe) =>
+                    unsubscribe()
+            );
+    }, []);
+
+
+    // ========================================================
+    // Derived state
+    // ========================================================
+
+    const allPallets =
+        useMemo(
+            () =>
+                Object.values(
+                    zones
+                ).flat(),
+            [zones]
+        );
+
+    const counts =
+        useMemo(
+            () => ({
+                cooler:
+                    zones.cooler
+                        .length,
+
+                pending:
+                    zones.pending
+                        .length,
+
+                bottleRoom:
+                    zones.bottleRoom
+                        .length,
+
+                loadingDock:
+                    zones.loadingDock
+                        .length,
+            }),
+            [zones]
+        );
+
+    const placementPallet =
+        placementPalletId
+            ? allPallets.find(
+                  (pallet) =>
+                      pallet.id ===
+                      placementPalletId
+              ) ?? null
+            : null;
+
+    const palletsByCell =
+        useMemo(() => {
+            const map =
+                new Map<
+                    string,
+                    Pallet[]
+                >();
+
+            zones.cooler.forEach(
+                (pallet) => {
+                    if (!pallet.cell) {
+                        return;
+                    }
+
+                    const key =
+                        cellKey(
+                            pallet.cell
+                        );
+
+                    map.set(
+                        key,
+                        [
+                            ...(map.get(
+                                key
+                            ) ?? []),
+                            pallet,
+                        ]
+                    );
+                }
+            );
+
+            return map;
+        }, [zones.cooler]);
+
+    const markedForShipmentPallets =
+        useMemo(
+            () =>
+                allPallets.filter(
+                    (pallet) =>
+                        pallet.markedForShipment &&
+                        pallet.zone !==
+                            "loadingDock"
+                ),
+            [allPallets]
+        );
+
+    const markedTruckSlots =
+        useMemo(
+            () =>
+                calcTruckSlots(
+                    markedForShipmentPallets
+                ),
+            [
+                markedForShipmentPallets,
+            ]
+        );
+
+    const loadingTruckSlots =
+        useMemo(
+            () =>
+                calcTruckSlots(
+                    zones.loadingDock
+                ),
+            [zones.loadingDock]
+        );
+
+    const totalPlannedTruckSlots =
+        markedTruckSlots +
+        loadingTruckSlots;
+
+
+    // ========================================================
+    // Placement
+    // ========================================================
+
+    function chooseForPlacement(
+        pallet: Pallet
+    ) {
+        setPlacementOriginTab(
+            tab
+        );
+
+        setBulkMode(false);
+
+        setBulkSelectedIds(
+            new Set()
+        );
+
+        setPlacementPalletId(
+            pallet.id
+        );
+
+        setTab("map");
+
+        setError(null);
+    }
+
+
+    function clearPlacement() {
+        setPlacementPalletId(
+            null
+        );
+
+        setPlacementOriginTab(
+            null
+        );
+    }
+
+
+    async function moveSelectedToCell(
+        cell: CoolerCell
+    ) {
+        if (!placementPallet) {
+            return;
+        }
+
+        const target =
+            palletsByCell.get(
+                cellKey(cell)
+            ) ?? [];
+
+        const isSourceCell =
+            target.some(
+                (pallet) =>
+                    pallet.id ===
+                    placementPallet.id
+            );
+
+        if (isSourceCell) {
+            return;
+        }
+
+        const used =
+            target.reduce(
+                (
+                    sum,
+                    pallet
+                ) =>
+                    sum +
+                    getHeight(
+                        pallet
+                    ),
+                0
+            );
+
+        const movingHeight =
+            getHeight(
+                placementPallet
+            );
+
+        if (
+            used +
+                movingHeight >
+            MAX_HEIGHT_UNITS_PER_CELL
+        ) {
+            setError(
+                "אין מספיק מקום בתא הזה"
+            );
+
+            return;
+        }
+
         try {
             setError(null);
-            await movePalletsToZone(markedForShipmentPallets.map((p) => p.id), "loadingDock");
-        } catch (e: any) {
-            setError(e?.message ?? "שגיאה בהעברה למשלוח");
-        }
-    }
 
-    function chooseForPlacement(pallet: Pallet) {
-        setBulkMode(false); setBulkSelectedIds(new Set()); setPlacementPalletId(pallet.id); setTab("map"); setError(null);
-    }
-    function clearPlacement() { setPlacementPalletId(null); }
-    function toggleBulk(id: string) { setBulkSelectedIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
+            await movePalletToCell(
+                placementPallet.id,
+                cell,
+                target.length
+            );
 
-    function zoomOut() { setZoomLevel((z) => Math.max(MIN_ZOOM, +(z - 0.15).toFixed(2))); }
-    function zoomIn() { setZoomLevel((z) => Math.min(MAX_ZOOM, +(z + 0.15).toFixed(2))); }
-
-    // ---------- Pinch-to-zoom on the map area ----------
-    function touchDistance(touches: React.TouchList) {
-        const a = touches[0];
-        const b = touches[1];
-        return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-    }
-
-    function handleMapTouchStart(e: React.TouchEvent) {
-        if (e.touches.length === 2) {
-            pinchStartDistance.current = touchDistance(e.touches);
-            pinchStartZoom.current = zoomLevel;
-        }
-    }
-
-    function handleMapTouchMove(e: React.TouchEvent) {
-        if (e.touches.length === 2 && pinchStartDistance.current) {
-            // Prevent the page/browser from also trying to scroll or
-            // native-zoom while we're driving the zoom ourselves.
-            e.preventDefault();
-            const distance = touchDistance(e.touches);
-            const scale = distance / pinchStartDistance.current;
-            const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, +(pinchStartZoom.current * scale).toFixed(2)));
-            setZoomLevel(next);
-        }
-    }
-
-    function handleMapTouchEnd(e: React.TouchEvent) {
-        if (e.touches.length < 2) pinchStartDistance.current = null;
-    }
-
-    async function moveSelectedToCell(cell: CoolerCell) {
-        if (!placementPallet) return;
-        const target = palletsByCell.get(cellKey(cell)) ?? [];
-        const used = target.reduce((sum, p) => sum + getHeight(p), 0);
-        if (used + getHeight(placementPallet) > MAX_HEIGHT_UNITS_PER_CELL) { setError("אין מספיק מקום בתא הזה"); return; }
-        try {
-            setError(null);
-            await movePalletToCell(placementPallet.id, cell, target.length);
-            const pendingCountAfterMove =
-                zones.pending.length - 1;
+            const originTab =
+                placementOriginTab;
 
             clearPlacement();
 
-            if (pendingCountAfterMove > 0) {
-                setBulkSelectedIds(new Set());
-                setBulkMode(false);
-                setTab("pending");
+            if (
+                originTab ===
+                    "pending" &&
+                zones.pending.length >
+                    1
+            ) {
+                setTab(
+                    "pending"
+                );
+            } else if (
+                originTab ===
+                "bottleRoom"
+            ) {
+                setTab(
+                    "bottleRoom"
+                );
+            } else {
+                setTab("map");
             }
-        } catch (e: any) { setError(e?.message ?? "שגיאה בשיבוץ"); }
-    }
+        } catch (e: unknown) {
+            const message =
+                e instanceof Error
+                    ? e.message
+                    : "שגיאה בשיבוץ";
 
-    async function moveZone(id: string, zone: PalletZone) {
-        try { setError(null); await moveToZone(id, zone); setBulkSelectedIds((s) => { const n = new Set(s); n.delete(id); return n; }); if (placementPalletId === id) clearPlacement(); }
-        catch (e: any) { setError(e?.message ?? "שגיאה בהעברה"); }
-    }
-
-    async function bulkMove(zone: PalletZone) {
-        try { setError(null); await movePalletsToZone(Array.from(bulkSelectedIds), zone); setBulkSelectedIds(new Set()); setBulkMode(false); }
-        catch (e: any) { setError(e?.message ?? "שגיאה בהעברה מרובה"); }
-    }
-
-    async function reorder(cell: CoolerCell, ids: string[]) {
-        if (!organizeMode) return;
-        try { await reorderPalletsInCell(ids); } catch (e: any) { setError(e?.message ?? "שגיאה בסידור" + cell); }
-    }
-
-    async function markShipment(pallet: Pallet) {
-        try { await setMarkedForShipment(pallet.id, !pallet.markedForShipment); } catch (e: any) { setError(e?.message ?? "שגיאה"); }
-    }
-
-    function changeTab(nextTab: Tab) {
-        setPlacementPalletId(null);
-        setBulkSelectedIds(new Set());
-        setBulkMode(false);
-        setMovingZonePallet(null);
-        setError(null);
-        setOrganizeMode(false);
-        setTab(nextTab);
-    }
-
-    function selectZone(z: PalletZone) {
-        if (z === "cooler") {
-            changeTab("map");
-        } else if (z === "pending") {
-            changeTab("pending");
-        } else if (z === "bottleRoom") {
-            changeTab("bottleRoom");
-        } else if (z === "loadingDock") {
-            changeTab("dock");
+            setError(message);
         }
     }
 
-    const trayProps = {
-        selectedPalletIds: bulkSelectedIds,
-        bulkMode,
-        onStartBulk: () => { setPlacementPalletId(null); setBulkMode(true); },
-        onCancelBulk: () => { setBulkMode(false); setBulkSelectedIds(new Set()); },
-        onSelectForPlacement: chooseForPlacement,
-        onToggleBulk: toggleBulk,
-        onBulkMove: bulkMove,
-        onEditPallet: setEditingPallet,
-        onMoveZone: moveZone,
-    };
 
-    function ZoneBadges({ counts, onSelect }: { counts: Record<PalletZone, number>; onSelect: (z: PalletZone) => void }) {
-        const zones: PalletZone[] = ["cooler", "pending", "bottleRoom", "loadingDock"];
-        return <div className="cooler-zone-badges">{zones.map((z) => <button key={z} className={`cooler-zone-badge zone-${z}`} onClick={() => onSelect(z)}><span>{ZONE_META[z].icon}</span><span>{ZONE_META[z].label}</span><strong>{counts[z]}</strong></button>)}</div>;
+    // ========================================================
+    // Bulk selection
+    // ========================================================
+
+    function toggleBulk(
+        id: string
+    ) {
+        setBulkSelectedIds(
+            (previous) => {
+                const next =
+                    new Set(
+                        previous
+                    );
+
+                if (
+                    next.has(id)
+                ) {
+                    next.delete(
+                        id
+                    );
+                } else {
+                    next.add(id);
+                }
+
+                return next;
+            }
+        );
     }
 
-    function toggleOrganizeMode() {
-        setOrganizeMode((prev) => {
-            const next = !prev;
 
-            // ביציאה ממצב סידור מנקים כל בחירה
-            if (prev && !next) {
-                setPlacementPalletId(null);
-                setBulkSelectedIds(new Set());
-                setBulkMode(false);
-                setMovingZonePallet(null);
+    // ========================================================
+    // Zone moves
+    // ========================================================
+
+    async function moveZone(
+        id: string,
+        zone: PalletZone
+    ) {
+        try {
+            setError(null);
+
+            await moveToZone(
+                id,
+                zone
+            );
+
+            setBulkSelectedIds(
+                (previous) => {
+                    const next =
+                        new Set(
+                            previous
+                        );
+
+                    next.delete(
+                        id
+                    );
+
+                    return next;
+                }
+            );
+
+            if (
+                placementPalletId ===
+                id
+            ) {
+                clearPlacement();
             }
 
-            return next;
-        });
+            setMovingZonePallet(
+                null
+            );
+        } catch (e: unknown) {
+            const message =
+                e instanceof Error
+                    ? e.message
+                    : "שגיאה בהעברה";
+
+            setError(message);
+        }
     }
 
-    if (loading) return <div className="cooler-loading"><span><MapPlus /></span><strong>טוען את מפת המקרר…</strong></div>;
+
+    async function bulkMove(
+        zone: PalletZone
+    ) {
+        const ids =
+            Array.from(
+                bulkSelectedIds
+            );
+
+        if (ids.length === 0) {
+            return;
+        }
+
+        try {
+            setError(null);
+
+            await movePalletsToZone(
+                ids,
+                zone
+            );
+
+            setBulkSelectedIds(
+                new Set()
+            );
+
+            setBulkMode(false);
+        } catch (e: unknown) {
+            const message =
+                e instanceof Error
+                    ? e.message
+                    : "שגיאה בהעברה מרובה";
+
+            setError(message);
+        }
+    }
+
+
+    // ========================================================
+    // Shipment marking
+    // ========================================================
+
+    async function markShipment(
+        pallet: Pallet
+    ) {
+        try {
+            setError(null);
+
+            await setMarkedForShipment(
+                pallet.id,
+                !pallet.markedForShipment
+            );
+        } catch (e: unknown) {
+            const message =
+                e instanceof Error
+                    ? e.message
+                    : "שגיאה בסימון למשלוח";
+
+            setError(message);
+        }
+    }
+
+
+    // ========================================================
+    // Move marked pallets to loading dock
+    // ========================================================
+
+    async function shipAllMarked() {
+        if (
+            markedForShipmentPallets.length ===
+            0
+        ) {
+            return;
+        }
+
+        try {
+            setError(null);
+
+            await movePalletsToZone(
+                markedForShipmentPallets.map(
+                    (pallet) =>
+                        pallet.id
+                ),
+                "loadingDock"
+            );
+        } catch (e: unknown) {
+            const message =
+                e instanceof Error
+                    ? e.message
+                    : "שגיאה בהעברה למשלוח";
+
+            setError(message);
+        }
+    }
+
+
+    // ========================================================
+    // Reordering inside cooler
+    // ========================================================
+
+    async function reorder(
+        cell: CoolerCell,
+        ids: string[]
+    ) {
+        if (!organizeMode) {
+            return cell;
+        }
+
+        try {
+            setError(null);
+
+            await reorderPalletsInCell(
+                ids
+            );
+        } catch (e: unknown) {
+            const message =
+                e instanceof Error
+                    ? e.message
+                    : "שגיאה בסידור המשטחים";
+
+            setError(message);
+        }
+    }
+
+
+    // ========================================================
+    // Reordering in flat zones
+    // ========================================================
+
+    // async function reorderZone(
+    //     ids: string[]
+    // ) {
+    //     if (!organizeMode) {
+    //         return ;
+    //     }
+
+    //     try {
+    //         setError(null);
+
+    //         await reorderPalletsInZone(
+    //             ids
+    //         );
+    //     } catch (e: unknown) {
+    //         const message =
+    //             e instanceof Error
+    //                 ? e.message
+    //                 : "שגיאה בסידור המשטחים";
+
+    //         setError(message);
+    //     }
+    // }
+
+
+    // ========================================================
+    // Delete
+    // ========================================================
+
+    async function confirmDeletePallet() {
+        if (
+            !deletePalletTarget
+        ) {
+            return;
+        }
+
+        try {
+            setDeletingPallet(
+                true
+            );
+
+            setError(null);
+
+            await deletePallet(
+                deletePalletTarget.id
+            );
+
+            setDeletePalletTarget(
+                null
+            );
+        } catch (e: unknown) {
+            const message =
+                e instanceof Error
+                    ? e.message
+                    : "שגיאה במחיקת המשטח";
+
+            setError(message);
+        } finally {
+            setDeletingPallet(
+                false
+            );
+        }
+    }
+
+
+    // ========================================================
+    // Tabs
+    // ========================================================
+
+    function changeTab(
+        nextTab: Tab
+    ) {
+        setPlacementPalletId(
+            null
+        );
+
+        setPlacementOriginTab(
+            null
+        );
+
+        setBulkSelectedIds(
+            new Set()
+        );
+
+        setBulkMode(false);
+
+        setMovingZonePallet(
+            null
+        );
+
+        setError(null);
+
+        setOrganizeMode(false);
+
+        setTab(nextTab);
+    }
+
+
+    function selectZone(
+        zone:
+            | "cooler"
+            | "pending"
+            | "bottleRoom"
+            | "loadingDock"
+    ) {
+        switch (zone) {
+            case "cooler":
+                changeTab("map");
+                break;
+
+            case "pending":
+                changeTab(
+                    "pending"
+                );
+                break;
+
+            case "bottleRoom":
+                changeTab(
+                    "bottleRoom"
+                );
+                break;
+
+            case "loadingDock":
+                changeTab("dock");
+                break;
+        }
+    }
+
+
+    // ========================================================
+    // Organize mode
+    // ========================================================
+
+    function toggleOrganizeMode() {
+        setOrganizeMode(
+            (previous) => {
+                const next =
+                    !previous;
+
+                if (
+                    previous &&
+                    !next
+                ) {
+                    setPlacementPalletId(
+                        null
+                    );
+
+                    setPlacementOriginTab(
+                        null
+                    );
+
+                    setBulkSelectedIds(
+                        new Set()
+                    );
+
+                    setBulkMode(
+                        false
+                    );
+
+                    setMovingZonePallet(
+                        null
+                    );
+                }
+
+                return next;
+            }
+        );
+    }
+
+
+    // ========================================================
+    // Zoom
+    // ========================================================
+
+    function zoomOut() {
+        setZoomLevel(
+            (current) =>
+                Math.max(
+                    MIN_ZOOM,
+                    Number(
+                        (
+                            current -
+                            0.15
+                        ).toFixed(2)
+                    )
+                )
+        );
+    }
+
+
+    function zoomIn() {
+        setZoomLevel(
+            (current) =>
+                Math.min(
+                    MAX_ZOOM,
+                    Number(
+                        (
+                            current +
+                            0.15
+                        ).toFixed(2)
+                    )
+                )
+        );
+    }
+
+
+    // ========================================================
+    // Touch / pinch zoom
+    // ========================================================
+
+    function touchDistance(
+        touches: TouchList
+    ) {
+        const first =
+            touches[0];
+
+        const second =
+            touches[1];
+
+        return Math.hypot(
+            first.clientX -
+                second.clientX,
+            first.clientY -
+                second.clientY
+        );
+    }
+
+
+    function handleMapTouchStart(
+        event: TouchEvent
+    ) {
+        if (
+            event.touches.length ===
+            2
+        ) {
+            pinchStartDistance.current =
+                touchDistance(
+                    event.touches
+                );
+
+            pinchStartZoom.current =
+                zoomLevel;
+        }
+    }
+
+
+    function handleMapTouchMove(
+        event: TouchEvent
+    ) {
+        if (
+            event.touches.length ===
+                2 &&
+            pinchStartDistance.current
+        ) {
+            event.preventDefault();
+
+            const distance =
+                touchDistance(
+                    event.touches
+                );
+
+            const scale =
+                distance /
+                pinchStartDistance.current;
+
+            const next =
+                Math.min(
+                    MAX_ZOOM,
+                    Math.max(
+                        MIN_ZOOM,
+                        Number(
+                            (
+                                pinchStartZoom.current *
+                                scale
+                            ).toFixed(
+                                2
+                            )
+                        )
+                    )
+                );
+
+            setZoomLevel(
+                next
+            );
+        }
+    }
+
+
+    function handleMapTouchEnd(
+        event: TouchEvent
+    ) {
+        if (
+            event.touches.length <
+            2
+        ) {
+            pinchStartDistance.current =
+                null;
+        }
+    }
+
+
+    // ========================================================
+    // Tray props
+    // ========================================================
+
+    const trayProps = {
+        selectedPalletIds:
+            bulkSelectedIds,
+
+        bulkMode,
+
+        onStartBulk: () => {
+            setPlacementPalletId(
+                null
+            );
+
+            setPlacementOriginTab(
+                null
+            );
+
+            setBulkMode(true);
+        },
+
+        onCancelBulk: () => {
+            setBulkMode(false);
+
+            setBulkSelectedIds(
+                new Set()
+            );
+        },
+
+        onSelectForPlacement:
+            chooseForPlacement,
+
+        onToggleBulk:
+            toggleBulk,
+
+        onBulkMove:
+            bulkMove,
+
+        onEditPallet:
+            setEditingPallet,
+
+        onMoveZone:
+            moveZone,
+
+        onDeletePallet:
+            setDeletePalletTarget,
+    };
+
+
+    // ========================================================
+    // Loading
+    // ========================================================
+
+    if (loading) {
+        return (
+            <div className="cooler-loading">
+                <span>
+                    <BeerLoader
+                        message="טוען את מפת המקרר"
+                        overlay={true}
+                        size="large"
+                    />
+
+                    <MapPlus />
+                </span>
+
+                <strong>
+                    טוען את מפת המקרר…
+                </strong>
+            </div>
+        );
+    }
+
+
+    // ========================================================
+    // Render
+    // ========================================================
 
     return (
-        <div className={`cooler-map-page ${placementPallet ? "has-floating-banner" : ""}`} dir="rtl">
+        <div
+            className={`cooler-map-page ${
+                placementPallet
+                    ? "has-floating-banner"
+                    : ""
+            }`}
+            dir="rtl"
+        >
+            {/* ==================================================
+                Header
+            ================================================== */}
+
             <div className="cooler-map-header">
-                <div className="cooler-header-actions"><button className={`organize-toggle ${organizeMode ? "active" : ""}`}
-                    onClick={toggleOrganizeMode}
-                    disabled={tab !== "map"}
-                >
+                <div className="cooler-header-actions">
+                    {tab === "map" && (
+                        <button
+                            type="button"
+                            className={`organize-toggle ${
+                                organizeMode
+                                    ? "active"
+                                    : ""
+                            }`}
+                            onClick={
+                                toggleOrganizeMode
+                            }
+                        >
+                            {organizeMode
+                                ? "✓ מצב סידור פעיל"
+                                : "סידור מקרר"}
+                        </button>
+                    )}
 
-                    {organizeMode ? "✓ מצב סידור פעיל" : `"מצב סידור מקרר"`}</button>
-                    <button className="cooler-add-pallet-btn" onClick={() => setShowAddModal(true)}
-                    >הוסף משטחים {<LayersPlus size={14} />}</button>
-                <button
-                    className="cooler-ship-marked-btn"
-                    onClick={shipAllMarked}
-                    disabled={markedForShipmentPallets.length === 0}
-                    >
-                    <Truck size={14} /> {`שלח מסומנים`}
-                    {markedForShipmentPallets.length > 0 && ` (${markedForShipmentPallets.length})`}
-                </button>
-                    </div>
-                <div className="cooler-zoom-controls">
-                    <button onClick={zoomOut} disabled={zoomLevel <= MIN_ZOOM}>−</button>
-                    <span>{Math.round(zoomLevel * 100)}%</span>
-                    <button onClick={zoomIn} disabled={zoomLevel >= MAX_ZOOM}>+</button>
+                    {!placementPallet && (
+                        <>
+                            <button
+                                type="button"
+                                className="cooler-add-pallet-btn"
+                                onClick={() =>
+                                    setShowAddModal(
+                                        true
+                                    )
+                                }
+                            >
+                                <LayersPlus
+                                    size={14}
+                                />
+                                הוסף משטחים
+                            </button>
+
+                            {tab ===
+                                "map" && (
+                                <button
+                                    type="button"
+                                    className={`cooler-ship-marked-btn ${
+                                        totalPlannedTruckSlots >
+                                        MAX_TRUCK_SLOTS
+                                            ? "truck-over-capacity"
+                                            : ""
+                                    }`}
+                                    onClick={
+                                        shipAllMarked
+                                    }
+                                    disabled={
+                                        markedForShipmentPallets.length ===
+                                        0
+                                    }
+                                >
+                                    <Truck
+                                        size={14}
+                                    />
+
+                                    שלח מסומנים
+
+                                    <span>
+                                        (
+                                        {
+                                            totalPlannedTruckSlots
+                                        }
+                                        /
+                                        {
+                                            MAX_TRUCK_SLOTS
+                                        }{" "}
+                                        מקומות)
+                                    </span>
+                                </button>
+                            )}
+                        </>
+                    )}
                 </div>
+
+                {tab === "map" && (
+                    <div className="cooler-zoom-controls">
+                        <button
+                            type="button"
+                            className="zoom-reset"
+                            onClick={() =>
+                                setZoomLevel(
+                                    1
+                                )
+                            }
+                        >
+                            100%
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={
+                                zoomOut
+                            }
+                            disabled={
+                                zoomLevel <=
+                                MIN_ZOOM
+                            }
+                        >
+                            −
+                        </button>
+
+                        <span>
+                            {Math.round(
+                                zoomLevel *
+                                    100
+                            )}
+                            %
+                        </span>
+
+                        <button
+                            type="button"
+                            onClick={
+                                zoomIn
+                            }
+                            disabled={
+                                zoomLevel >=
+                                MAX_ZOOM
+                            }
+                        >
+                            +
+                        </button>
+                    </div>
+                )}
             </div>
-            <ZoneBadges counts={counts} onSelect={selectZone} />
 
-            {placementPallet && <div className="placement-banner"><div><strong>שיבוץ משטח במקרר</strong><span>
-                <small>{placementPallet.quantity} {placementPallet.itemType === "kegs" ? "חביות" : "ארגזים"}</small>
-                <small> · {placementPallet.beerStyle}</small></span>
-            </div><button onClick={clearPlacement}>ביטול</button></div>}
-            {error && <div className="cooler-error">{error}</div>}
 
-            {tab === "pending" && <PendingTray {...trayProps} pallets={zones.pending} />}
-            {tab === "bottleRoom" && <BottleRoomTray {...trayProps} pallets={zones.bottleRoom} />}
-            {tab === "dock" && <LoadingDockView />}
+            {/* ==================================================
+                Zone badges
+            ================================================== */}
+
+            <ZoneBadges
+                counts={counts}
+                onSelect={
+                    selectZone
+                }
+            />
+
+
+            {/* ==================================================
+                Placement banner
+            ================================================== */}
+
+            {placementPallet && (
+                <div className="placement-banner">
+                    <div>
+                        <strong>
+                            שיבוץ משטח במקרר
+                        </strong>
+
+                        <span>
+                            <small>
+                                {
+                                    placementPallet.quantity
+                                }{" "}
+                                {placementPallet.itemType ===
+                                "kegs"
+                                    ? "חביות"
+                                    : "ארגזים"}
+                            </small>
+
+                            <small>
+                                {" · "}
+                                {
+                                    beerStyleClass(
+                                        placementPallet.beerStyle
+                                    ).displayLabel
+                                }
+                            </small>
+                        </span>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={
+                            clearPlacement
+                        }
+                    >
+                        ביטול
+                    </button>
+                </div>
+            )}
+
+
+            {/* ==================================================
+                Error
+            ================================================== */}
+
+            {error && (
+                <div className="cooler-error">
+                    {error}
+                </div>
+            )}
+
+
+            {/* ==================================================
+                Pending
+            ================================================== */}
+
+            {tab ===
+                "pending" && (
+                <PendingTray
+                    {...trayProps}
+                    pallets={
+                        zones.pending
+                    }
+                />
+            )}
+
+
+            {/* ==================================================
+                Bottle room
+            ================================================== */}
+
+            {tab ===
+                "bottleRoom" && (
+                <BottleRoomTray
+                    {...trayProps}
+                    pallets={
+                        zones.bottleRoom
+                    }
+                />
+            )}
+
+
+            {/* ==================================================
+                Loading dock
+            ================================================== */}
+
+            {tab === "dock" && (
+                <LoadingDockView pallets={zones.loadingDock}/>
+            )}
+
+
+            {/* ==================================================
+                Physical cooler map
+            ================================================== */}
 
             {tab === "map" && (
                 <div className="cooler-map-wrap">
                     <div className="cooler-map-explainer">
-                        {organizeMode
-                            ? <span>מצב סידור מקרר: לחץ על משטח כדי לבחור אותו, ואז על התא היעד כדי להעביר.</span>
-                            : <> <span>כדי לשבץ משטח ממתין: בחר אותו במסך ממתינים לשיבוץ ובחר את התא הרצוי. </span><span>כדי להזיז משטח בתוך המקרר: הפעל מצב סידור מקרר.</span></>}
+                        {organizeMode ? (
+                            <span>
+                                מצב סידור
+                                מקרר:
+                                לחץ על
+                                משטח
+                                כדי לבחור
+                                אותו,
+                                ואז על
+                                התא
+                                היעד כדי
+                                להעביר.
+                            </span>
+                        ) : (
+                            <>
+                                <span>
+                                    כדי לשבץ
+                                    משטח
+                                    ממתין:
+                                    בחר אותו
+                                    במסך
+                                    ממתינים
+                                    לשיבוץ
+                                    ובחר
+                                    את התא
+                                    הרצוי.
+                                </span>
+
+                                <span>
+                                    כדי להזיז
+                                    משטח
+                                    בתוך
+                                    המקרר:
+                                    הפעל
+                                    מצב
+                                    סידור
+                                    מקרר.
+                                </span>
+                            </>
+                        )}
                     </div>
+
                     <div
                         className="cooler-map-scroll"
-                        onTouchStart={handleMapTouchStart}
-                        onTouchMove={handleMapTouchMove}
-                        onTouchEnd={handleMapTouchEnd}
-                        onTouchCancel={handleMapTouchEnd}
+                        onTouchStart={
+                            handleMapTouchStart
+                        }
+                        onTouchMove={
+                            handleMapTouchMove
+                        }
+                        onTouchEnd={
+                            handleMapTouchEnd
+                        }
+                        onTouchCancel={
+                            handleMapTouchEnd
+                        }
                     >
                         <div className="cooler-map-zoom">
-                            <div className="cooler-physical-map" style={{ zoom: zoomLevel } as React.CSSProperties}>
+                            <div
+                                className="cooler-physical-map"
+                                style={
+                                    {
+                                        zoom: zoomLevel,
+                                    } as React.CSSProperties
+                                }
+                            >
+                                {/* =================================
+                                    Right side
+                                ================================= */}
 
                                 <div className="cooler-side-block right-side">
-                                    {RIGHT_SIDE_COLUMNS.map((c) => <CoolerColumn key={c.col} side="right" col={c.col} label={c.label}
-                                        rows={c.rows} cautionRows={c.cautionRows} palletsByCell={palletsByCell} placementPallet={placementPallet}
-                                        organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet}
-                                        onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment}
-                                        onReorder={reorder} />)}
-                                    <div className="door-marker"><span>מקרר כשות</span></div>
+                                    {RIGHT_SIDE_COLUMNS.map(
+                                        (
+                                            column
+                                        ) => (
+                                            <CoolerColumn
+                                                key={
+                                                    column.col
+                                                }
+                                                side="right"
+                                                col={
+                                                    column.col
+                                                }
+                                                label={
+                                                    column.label
+                                                }
+                                                rows={
+                                                    column.rows
+                                                }
+                                                cautionRows={
+                                                    column.cautionRows
+                                                }
+                                                palletsByCell={
+                                                    palletsByCell
+                                                }
+                                                placementPallet={
+                                                    placementPallet
+                                                }
+                                                organizeMode={
+                                                    organizeMode
+                                                }
+                                                onDropHere={
+                                                    moveSelectedToCell
+                                                }
+                                                onEdit={
+                                                    setEditingPallet
+                                                }
+                                                onSelectForMove={
+                                                    chooseForPlacement
+                                                }
+                                                onOpenMoveZone={
+                                                    setMovingZonePallet
+                                                }
+                                                onMarkShipment={
+                                                    markShipment
+                                                }
+                                                onReorder={
+                                                    reorder
+                                                }
+                                            />
+                                        )
+                                    )}
+
+                                    <div className="door-marker">
+                                        <span>
+                                            מקרר כשות
+                                        </span>
+                                    </div>
                                 </div>
-                                <Corridor palletsByCell={palletsByCell} placementPallet={placementPallet} organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet} onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment} onReorder={reorder} />
-                                <div className="cooler-side-block left-side">{LEFT_SIDE_COLUMNS.map((c) => <CoolerColumn key={c.col} side="left" col={c.col} label={c.label} rows={c.rows} palletsByCell={palletsByCell} placementPallet={placementPallet} organizeMode={organizeMode} onDropHere={moveSelectedToCell} onEdit={setEditingPallet} onSelectForMove={chooseForPlacement} onOpenMoveZone={setMovingZonePallet} onMarkShipment={markShipment} onReorder={reorder} />)}</div>
+
+
+                                {/* =================================
+                                    Corridor
+                                ================================= */}
+
+                                <Corridor
+                                    palletsByCell={
+                                        palletsByCell
+                                    }
+                                    placementPallet={
+                                        placementPallet
+                                    }
+                                    organizeMode={
+                                        organizeMode
+                                    }
+                                    onDropHere={
+                                        moveSelectedToCell
+                                    }
+                                    onEdit={
+                                        setEditingPallet
+                                    }
+                                    onSelectForMove={
+                                        chooseForPlacement
+                                    }
+                                    onOpenMoveZone={
+                                        setMovingZonePallet
+                                    }
+                                    onMarkShipment={
+                                        markShipment
+                                    }
+                                    onReorder={
+                                        reorder
+                                    }
+                                />
+
+
+                                {/* =================================
+                                    Left side
+                                ================================= */}
+
+                                <div className="cooler-side-block left-side">
+                                    {LEFT_SIDE_COLUMNS.map(
+                                        (
+                                            column
+                                        ) => (
+                                            <CoolerColumn
+                                                key={
+                                                    column.col
+                                                }
+                                                side="left"
+                                                col={
+                                                    column.col
+                                                }
+                                                label={
+                                                    column.label
+                                                }
+                                                rows={
+                                                    column.rows
+                                                }
+                                                palletsByCell={
+                                                    palletsByCell
+                                                }
+                                                placementPallet={
+                                                    placementPallet
+                                                }
+                                                organizeMode={
+                                                    organizeMode
+                                                }
+                                                onDropHere={
+                                                    moveSelectedToCell
+                                                }
+                                                onEdit={
+                                                    setEditingPallet
+                                                }
+                                                onSelectForMove={
+                                                    chooseForPlacement
+                                                }
+                                                onOpenMoveZone={
+                                                    setMovingZonePallet
+                                                }
+                                                onMarkShipment={
+                                                    markShipment
+                                                }
+                                                onReorder={
+                                                    reorder
+                                                }
+                                            />
+                                        )
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
+
+            {/* ==================================================
+                Zone move modal
+            ================================================== */}
+
             {movingZonePallet && (
                 <ZoneMoveModal
-                    pallet={movingZonePallet}
-                    onMove={moveZone}
-                    onClose={() => setMovingZonePallet(null)}
+                    pallet={
+                        movingZonePallet
+                    }
+                    onMove={
+                        moveZone
+                    }
+                    onClose={() =>
+                        setMovingZonePallet(
+                            null
+                        )
+                    }
                 />
             )}
 
-            {editingPallet && <PalletEditModal pallet={editingPallet} onClose={() => setEditingPallet(null)} onDone={() => setEditingPallet(null)} />}
-            {showAddModal && <AddPalletModal brews={brews} onClose={() => setShowAddModal(false)} onDone={() => setShowAddModal(false)} />}
+
+            {/* ==================================================
+                Edit pallet
+            ================================================== */}
+
+            {editingPallet && (
+                <PalletEditModal
+                    pallet={
+                        editingPallet
+                    }
+                    onClose={() =>
+                        setEditingPallet(
+                            null
+                        )
+                    }
+                    onDone={() =>
+                        setEditingPallet(
+                            null
+                        )
+                    }
+                />
+            )}
+
+
+            {/* ==================================================
+                Add pallet
+            ================================================== */}
+
+            {showAddModal && (
+                <AddPalletModal
+                    brews={brews}
+                    onClose={() =>
+                        setShowAddModal(
+                            false
+                        )
+                    }
+                    onDone={() =>
+                        setShowAddModal(
+                            false
+                        )
+                    }
+                />
+            )}
+
+
+            {/* ==================================================
+                Delete confirmation
+            ================================================== */}
+
+            {deletePalletTarget && (
+                <ConfirmModal
+                    title="מחיקת משטח"
+                    message="האם אתה בטוח שברצונך למחוק את המשטח?"
+                    onCancel={() => {
+                        if (
+                            !deletingPallet
+                        ) {
+                            setDeletePalletTarget(
+                                null
+                            );
+                        }
+                    }}
+                    onConfirm={
+                        confirmDeletePallet
+                    }
+                    cancelLabel="ביטול"
+                    confirmLabel={
+                        deletingPallet
+                            ? "מוחק..."
+                            : "מחק משטח"
+                    }
+                    danger
+                />
+            )}
         </div>
     );
 }

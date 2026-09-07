@@ -18,6 +18,7 @@ export type Pallet = {
     zone: PalletZone;
     cell?: CoolerCell | null;
     orderInCell?: number | null;
+    orderInZone?: number | null;
     // נשמר לתאימות לאחור עם מסמכים ישנים.
     cellOrder?: number;
     slotIndex?: number | null;
@@ -28,7 +29,15 @@ export type Pallet = {
     sourceTankNumber?: string | number | null;
 };
 
-export type PalletZone = "cooler" | "pending" | "bottleRoom" | "loadingDock" ;
+export type ActivePalletZone =
+    | "cooler"
+    | "pending"
+    | "bottleRoom"
+    | "loadingDock";
+
+export type PalletZone =
+    | ActivePalletZone
+    | "shipped";
 
 export const MAX_CRATES_PER_PALLET = 84;
 export const MAX_KEGS_PER_PALLET = 20;

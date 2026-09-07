@@ -107,17 +107,20 @@
 }
 
 .cooler-zone-badges {
-    display: flex;
-    gap: 7px;
-    overflow-x: auto;
-    padding: 2px 0 5px;
     scrollbar-width: thin;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    padding: 2px 0 5px;
+    width: 70%;
 }
 
 .cooler-zone-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
+    justify-content: center;
     flex: none;
     border: 1px solid #d8e1ea;
     background: #fff;
@@ -916,7 +919,12 @@
 
 .zone-primary-action,
 .zone-secondary-action,
-.zone-move-action {
+.zone-move-action,
+.zone-danger-action {
+    align-items: center;
+    display: flex;
+    gap: 2px;
+    justify-content: center;
     border: 1px solid #cbd5e1;
     border-radius: 7px;
     background: #fff;
@@ -929,6 +937,11 @@
 .zone-primary-action {
     background: #147a50;
     border-color: #147a50;
+    color: #fff;
+}
+.zone-danger-action {
+    background: #7a1414;
+    border-color: #7a1414;
     color: #fff;
 }
 
@@ -1157,10 +1170,12 @@
     gap: 6px;
     margin-top: 7px;
 }
-.zone-move-modal-footer{
+
+.zone-move-modal-footer {
     display: flex;
-    gap:10px;
+    gap: 10px;
 }
+
 /* Save / Cancel buttons — single canonical definition (this used to be
    split across three separate rule blocks, including a leftover
    !important pair from the old, now-unused ConfirmModal). */
@@ -1561,7 +1576,10 @@
     cursor: pointer;
     line-height: 1;
 }
-
+.zoom-reset{
+    font-size: 10px !important;
+    min-width: fit-content;
+}
 .cooler-zoom-controls button:disabled {
     opacity: .4;
     cursor: not-allowed;
@@ -1584,6 +1602,8 @@
         align-items: center;
         padding: 16px;
     }
+
+
 
     .modal-box {
         border-radius: 16px;
@@ -1611,6 +1631,10 @@
         max-height: 70%;
         position: absolute;
         top: 15%;
+    }
+
+    .cooler-zone-badges {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .cooler-map-page {
@@ -1817,4 +1841,137 @@
     @page {
         margin: 12mm;
     }
+}
+.truck-capacity-indicator {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0;
+    padding: 10px 14px;
+    border: 1px solid #d8dee8;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.truck-capacity-icon {
+    font-size: 24px;
+}
+
+.truck-capacity-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    white-space: nowrap;
+}
+
+.truck-capacity-info strong {
+    font-size: 13px;
+}
+
+.truck-capacity-info span {
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.truck-capacity-bar {
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+    min-width: 100px;
+}
+
+.truck-capacity-bar-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #f59e0b;
+    transition: width .2s ease;
+}
+
+.truck-capacity-warning {
+    font-size: 12px;
+    font-weight: 800;
+    color: #b91c1c;
+    white-space: nowrap;
+}
+
+.truck-capacity-indicator.over-capacity {
+    border-color: #ef4444;
+    background: #fef2f2;
+}
+
+.truck-capacity-indicator.over-capacity
+.truck-capacity-bar-fill {
+    background: #dc2626;
+}
+
+@media (max-width: 650px) {
+    .truck-capacity-indicator {
+        grid-template-columns: auto 1fr;
+    }
+
+    .truck-capacity-bar {
+        grid-column: 1 / -1;
+    }
+
+    .truck-capacity-warning {
+        grid-column: 1 / -1;
+        white-space: normal;
+    }
+}
+/* =========================================================
+   ZONE ITEM — manual reorder buttons
+   ========================================================= */
+
+.zone-reorder-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: 6px;
+}
+
+.zone-reorder-button {
+    width: 28px;
+    height: 26px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+
+    background: #ffffff;
+    color: #334155;
+
+    cursor: pointer;
+
+    transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease,
+        transform 0.1s ease;
+}
+
+.zone-reorder-button:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+.zone-reorder-button:active:not(:disabled) {
+    transform: scale(0.94);
+}
+
+.zone-reorder-button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.zone-reorder-button svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 2.5;
 }

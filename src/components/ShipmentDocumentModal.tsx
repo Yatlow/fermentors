@@ -146,94 +146,6 @@ export default function ShipmentDocumentModal({
                     </button>
                     <button className="modal-x" onClick={onClose}>×</button>
                 </div>
-
-                <div className="shipment-document">
-                    <header className="shipment-document-header">
-                        <div className="shipment-company-details">
-                            <h1>תעודת משלוח</h1>
-                            <div>מבשלת שפירא א.ת. שורק (נחם), בית שמש</div>
-                            <div>טל: 02-5612622 &nbsp;|&nbsp; ח.פ: 514378678</div>
-                            <div>מספר: <strong>{shipmentId}</strong></div>
-                            <div>תאריך: {date}</div>
-                        </div>
-                        <img src={shpiro} alt="Shpiro" className="shipment-logo" onLoad={() => setLogoLoaded(true)} />
-                    </header>
-
-                    {/* <table className="shipment-table">
-                        <thead>
-                            <tr>
-                                <th>סגנון</th>
-                                <th>תת־סוג</th>
-                                <th>אצווה</th>
-                                <th>סוג</th>
-                                <th>כמות</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            {pallets.map((p) => (
-                                <tr key={p.id}>
-                                    <td>{p.beerStyle}</td>
-
-                                    <td>
-                                        {p.subLabel || "—"}
-                                    </td>
-
-                                    <td>
-                                        {p.batchNumber || "—"}
-                                    </td>
-
-                                    <td>
-                                        {p.itemType ===
-                                            "kegs"
-                                            ? "חביות"
-                                            : "ארגזים"}
-                                    </td>
-
-                                    <td>
-                                        {p.quantity}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table> */}
-
-                    <table className="shipment-table">
-                        <thead>
-                            <tr>
-                                <th>מק"ט</th>
-                                <th>תאור פריט</th>
-                                <th>כמות</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {totals.map((t) => {
-                                const entry = getCatalogEntry(t.beerStyle, t.itemType);
-                                return (
-                                    <tr key={`${t.beerStyle}-${t.itemType}`}>
-                                        <td>{entry?.sku ?? "—"}</td>
-                                        <td>{entry?.displayText ?? `${t.beerStyle} (לא נמצא בקטלוג)`}</td>
-                                        <td>{t.quantity}</td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                    <div className="shipment-signatures">
-                        <div className="shipment-signature-block">
-                            <span>שם מפיק התעודה:</span>
-                            <div className="shipment-signature-line"></div>
-                        </div>
-                        <div className="shipment-signature-block">
-                            <span>חתימת הלקוח:</span>
-                            <div className="shipment-signature-line"></div>
-                        </div>
-                    </div>
-                    <footer className="shipment-document-footer">
-                        הופק ממערכת ניהול המלאי
-                    </footer>
-                </div>
-
                 <div className="shipment-email-editor no-print">
                     <h3>שליחה במייל</h3>
 
@@ -286,6 +198,57 @@ export default function ShipmentDocumentModal({
                         </div>
                     )}
                 </div>
+
+                <div className="shipment-document">
+                    <header className="shipment-document-header">
+                        <div className="shipment-company-details">
+                            <h1>תעודת משלוח</h1>
+                            <div>מבשלת שפירא א.ת. שורק (נחם), בית שמש</div>
+                            <div>טל: 02-5612622 &nbsp;|&nbsp; ח.פ: 514378678</div>
+                            <div>מספר: <strong>{shipmentId}</strong></div>
+                            <div>תאריך: {date}</div>
+                        </div>
+                        <img src={shpiro} alt="Shpiro" className="shipment-logo" onLoad={() => setLogoLoaded(true)} />
+                    </header>
+
+
+                    <table className="shipment-table">
+                        <thead>
+                            <tr>
+                                <th>מק"ט</th>
+                                <th>תאור פריט</th>
+                                <th>כמות</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {totals.map((t) => {
+                                const entry = getCatalogEntry(t.beerStyle, t.itemType);
+                                return (
+                                    <tr key={`${t.beerStyle}-${t.itemType}`}>
+                                        <td>{entry?.sku ?? "—"}</td>
+                                        <td>{entry?.displayText ?? `${t.beerStyle} (לא נמצא בקטלוג)`}</td>
+                                        <td>{t.quantity}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                    <div className="shipment-signatures">
+                        <div className="shipment-signature-block">
+                            <span>שם מפיק התעודה:</span>
+                            <div className="shipment-signature-line"></div>
+                        </div>
+                        <div className="shipment-signature-block">
+                            <span>חתימת הלקוח:</span>
+                            <div className="shipment-signature-line"></div>
+                        </div>
+                    </div>
+                    <footer className="shipment-document-footer">
+                        הופק ממערכת ניהול המלאי
+                    </footer>
+                </div>
+
+                
             </div>
         </div>
     );

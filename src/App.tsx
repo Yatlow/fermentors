@@ -35,6 +35,7 @@ import EditApprovedUsers from "./components/EditApprovedUsers";
 import CoolerMap from "./components/Coolermap";
 import { subscribeToZone, type ZoneCounts } from "./SERVICES/Palletservice";
 import type { PalletZone } from "./SERVICES/Pallettypes ";
+import BeerLoader from "./components/Loading";
 
 
 
@@ -269,7 +270,7 @@ function App() {
     useEffect(() => {
         if (!user || !isApproved) return;
         const zoneNames: PalletZone[] = ["cooler", "pending", "bottleRoom", "loadingDock"];
-        const counts: ZoneCounts = { cooler: 0, pending: 0, bottleRoom: 0, loadingDock: 0 };
+        const counts: ZoneCounts = { cooler: 0, pending: 0, bottleRoom: 0, loadingDock: 0,shipped:0 };
         const unsubs = zoneNames.map((zone) =>
             subscribeToZone(zone, (data) => {
                 counts[zone] = data.length;
@@ -469,42 +470,42 @@ function App() {
         return vols;
     }, [brews]);
 
-   const filteredBrews = useMemo<Fermentor[]>(() => {
-    const filtered = brews.filter((tank) => {
-        if (Number(tank.tankNumber) === 1) {
-            return (
-                selectedStatuses.includes("הכל") &&
-                selectedStyles.includes("הכל")
-            );
-        }
+    const filteredBrews = useMemo<Fermentor[]>(() => {
+        const filtered = brews.filter((tank) => {
+            if (Number(tank.tankNumber) === 1) {
+                return (
+                    selectedStatuses.includes("הכל") &&
+                    selectedStyles.includes("הכל")
+                );
+            }
 
-        const matchesStatus =
-            selectedStatuses.includes("הכל") ||
-            (
-                tank.stage?.name !== undefined &&
-                selectedStatuses.includes(tank.stage.name)
-            );
+            const matchesStatus =
+                selectedStatuses.includes("הכל") ||
+                (
+                    tank.stage?.name !== undefined &&
+                    selectedStatuses.includes(tank.stage.name)
+                );
 
-        const style =
-            String(tank.beerStyle ?? "").trim();
+            const style =
+                String(tank.beerStyle ?? "").trim();
 
-        const matchesStyle =
-            selectedStyles.includes("הכל") ||
-            selectedStyles.includes(style);
+            const matchesStyle =
+                selectedStyles.includes("הכל") ||
+                selectedStyles.includes(style);
 
-        return matchesStatus && matchesStyle;
-    });
+            return matchesStatus && matchesStyle;
+        });
 
-    // כאן נשמור רק את תוצאת הסינון.
-    // הסידור עצמו מתבצע בהמשך ב־sortedFilteredBrews.
-    return filtered;
+        // כאן נשמור רק את תוצאת הסינון.
+        // הסידור עצמו מתבצע בהמשך ב־sortedFilteredBrews.
+        return filtered;
 
-}, [
-    brews,
-    selectedStatuses,
-    selectedStyles,
-    sortByAge
-]);
+    }, [
+        brews,
+        selectedStatuses,
+        selectedStyles,
+        sortByAge
+    ]);
 
     const totalTanks = brews.filter(
         (tank) => Number(tank.tankNumber) !== 1
@@ -564,12 +565,15 @@ function App() {
     if (authLoading) {
         return (
             <div className="dashboard-loading">
-                <h1>טוען משתמש...</h1>
                 <img
                     src={shpiro}
                     alt="Shpiro"
                     className="login-logo"
                 />
+                <BeerLoader
+                    message={"טוען משתמש..."}
+                    overlay={false}
+                    size={"large"} />
             </div>
         );
     }
@@ -605,12 +609,15 @@ function App() {
     if (loggingIn || isApproved === null) {
         return (
             <div className="dashboard-loading">
-                <h1>מבצע כניסה...</h1>
                 <img
                     src={shpiro}
                     alt="Shpiro"
                     className="login-logo"
                 />
+                 <BeerLoader
+                    message={"מבצע כניסה..."}
+                    overlay={false}
+                    size={"large"} />
             </div>
         );
     }
@@ -620,14 +627,15 @@ function App() {
     if (loading) {
         return (
             <div className="dashboard-loading">
-                <h1>
-                    טוען נתונים...
-                </h1>
                 <img
                     src={shpiro}
                     alt="Shpiro"
                     className="login-logo"
                 />
+                <BeerLoader
+                    message={"טוען נתונים..."}
+                    overlay={false}
+                    size={"large"} />
             </div>
         );
     }

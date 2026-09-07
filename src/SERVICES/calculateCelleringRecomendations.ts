@@ -689,8 +689,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         coolingIndex >= 0
             ? sortedMeasurements.slice(coolingIndex + 1)
             : [];
-        
-    const firstYeastDropWasSunday = measurementsAfterCooling[1]?.notes?.toString().includes("שמרים") && CoolAge===5 && corrected===3;
+
+    const firstYeastDropWasSunday = measurementsAfterCooling[1]?.notes?.toString().includes("שמרים") && CoolAge === 5 && corrected === 3;
     const requiersYeastDropAfterCooling = {
         display: true,
         req:
@@ -701,13 +701,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 // lastTemp > oldTemp &&
                 stage.name === "קר") ||
                 belatedColdDrop &&
-                 !lastNote?.includes("שמרים") ||
+                !lastNote?.includes("שמרים") ||
                 firstYeastDropWasSunday &&
-                 !lastNote?.includes("שמרים") 
+                !lastNote?.includes("שמרים")
             ),
-        reason:firstYeastDropWasSunday?"מולמץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי":
-        belatedColdDrop?"מומלץ לבצע הורדת שמרים- (שלושה ימים אחרי קירור- אתמול היה שבת)":
-        "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
+        reason: firstYeastDropWasSunday ? "מולמץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי" :
+            belatedColdDrop ? "מומלץ לבצע הורדת שמרים- (שלושה ימים אחרי קירור- אתמול היה שבת)" :
+                "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
         importance: 1
     }
 
@@ -762,12 +762,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         const CarbonationSpecYesterday = isCarbonationOutOfRange(yesterdayMeasurement?.carbonation, style, givenSpecs)
         if (yesterdayMeasurement?.carbonation && !lastMeasurement?.carbonation) {
             if (CarbonationSpecYesterday.outOfSpec) {
-                requiresCarbTest.display = true,
+                requiresCarbTest.display = lastMessurmentUpToDate.req ,
                     requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה האחרונה היה לא תקין (${yesterdayMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
                     `הגיזוז אתמול היה לא תקין (${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר בדיקת גיזוז חוזרת `,
-                    requiresCarbTest.importance = CarbonationSpecYesterday.importance
+                    requiresCarbTest.importance =  CarbonationSpecYesterday.importance
             } else {
                 requiresCarbTest.display = false,
                     requiresCarbTest.req = corrected !== 1;
@@ -805,18 +805,18 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && carbRes === null) {
             if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
                 (lastMessurmentUpToDate.req && carbRes === null)) {
-               
+
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
                 requiresCarbTest.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. אתמול לא בוצעה בדיקת גיזוז. מומלץ לבצע בדיקת גיזוז`
                 requiresCarbTest.importance = 1;
             }
         }
-       
-        if (stage.name === "קר" && (corrected === 1) && CoolAge===2 && carbRes === null) {
+
+        if (stage.name === "קר" && (corrected === 1) && CoolAge === 2 && carbRes === null) {
             if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
                 (lastMessurmentUpToDate.req && carbRes === null)) {
-                
+
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
                 requiresCarbTest.reason = `היום יום ראשון- ולכן אתמול לא בוצע למיכל בדיקת גיזוז ראשונה אחרי קירור, מומלץ לבצע היום בדיקת גיזוז (ראשונה אחרי קירור) ולפתוח ברזי גליקול`
@@ -1130,7 +1130,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // if (isAnActionDay && corrected !== 1) {
     //     dayTxt += TankCardUse ? `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` : `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. `
     // }
-    const coldTanks= brews?.filter(b => b.stage?.name === "קר").map(b => b.tankNumber)
+    const coldTanks = brews?.filter(b => b.stage?.name === "קר").map(b => b.tankNumber)
     if (TankCardUse) {
         dayTxt += corrected === 1 ? "מומלץ ביום ראשון לבצע הורדת שמרים ובדיקת גיזוז לכל מיכל קר" :
             corrected === 4 ?
@@ -1351,6 +1351,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // WARM YEAST DROP COMPLETION
     // ============================================================
 
+    // ============================================================
+    // WARM YEAST DROP COMPLETION
+    // ============================================================
+
+    const totalWarmYeastDropped = warmYeastDrops.reduce(
+        (sum, drop) => sum + drop.amount,
+        0
+    );
+
     if (
         yesterdayWarmYeastDrop &&
         warmYeastDropTarget !== null
@@ -1358,7 +1367,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
         const missing =
             warmYeastDropTarget -
-            yesterdayWarmYeastDrop.amount;
+            totalWarmYeastDropped;
 
         if (missing > 0) {
 
@@ -1366,7 +1375,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 display: true,
                 req: true,
                 reason:
-                    `בהוצאה חמה אתמול הוצאו ${formatYeastAmount(yesterdayWarmYeastDrop.amount)} דליים. ` +
+                    `סה"כ בהוצאות חמות עד כה הוצאו ${formatYeastAmount(totalWarmYeastDropped)} דליים. ` +
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(warmYeastDropTarget)} דליים - ` +
                     `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`,
                 importance: 2,
