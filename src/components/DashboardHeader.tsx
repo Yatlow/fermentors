@@ -1,119 +1,159 @@
-import type { Dispatch, SetStateAction } from "react";
+import type {
+    Dispatch,
+    SetStateAction
+} from "react";
 
 type StatusCounts = Record<string, number>;
-export type DashboardProps={
-    statusCounts:StatusCounts,
-    setSelectedStatuses:Dispatch<SetStateAction<string[]>>,
-    selectedStatuses:string[],
-    totalTanks:number
-    statuses:string[]
-}
+
+export type DashboardProps = {
+    statusCounts: StatusCounts;
+    setSelectedStatuses:
+    Dispatch<SetStateAction<string[]>>;
+    selectedStatuses: string[];
+    totalTanks: number;
+    statuses: string[];
+
+    sortByAge: "tank" | "oldest";
+    setSortByAge:
+    Dispatch<SetStateAction<"tank" | "oldest">>;
+};
 
 export default function DashboardHeader({
     statusCounts,
     setSelectedStatuses,
     selectedStatuses,
     totalTanks,
-    statuses
-}:DashboardProps){
+    statuses,
+    sortByAge,
+    setSortByAge
+}: DashboardProps) {
 
     const handleStatusToggle = (
-    status: string
-  ): void => {
-    if (status === "הכל") {
-      setSelectedStatuses(["הכל"]);
-      return;
-    }
+        status: string
+    ): void => {
+        if (status === "הכל") {
+            setSelectedStatuses(["הכל"]);
+            return;
+        }
 
-    setSelectedStatuses((prev) => {
-      let nextState =
-        prev.includes("הכל")
-          ? []
-          : [...prev];
+        setSelectedStatuses((prev) => {
+            let nextState =
+                prev.includes("הכל")
+                    ? []
+                    : [...prev];
 
-      if (
-        nextState.includes(status)
-      ) {
-        nextState =
-          nextState.filter(
-            (s) => s !== status
-          );
-      } else {
-        nextState.push(status);
-      }
+            if (
+                nextState.includes(status)
+            ) {
+                nextState =
+                    nextState.filter(
+                        (s) => s !== status
+                    );
+            } else {
+                nextState.push(status);
+            }
 
-      return nextState.length === 0
-        ? ["הכל"]
-        : nextState;
-    });
-  };
+            return nextState.length === 0
+                ? ["הכל"]
+                : nextState;
+        });
+    };
 
-    return(
-          <div className="status-filter">
+    return (
+        <>
+            <div className="status-filter">
 
-              <button
-                type="button"
-                className={`status-filter-button ${selectedStatuses.includes(
-                  "הכל"
-                )
-                  ? "active"
-                  : ""
-                  }`}
-                onClick={() =>
-                  handleStatusToggle(
-                    "הכל"
-                  )
-                }
-              >
-
-                <span>
-                  הכל
-                </span>
-
-                <span className="status-filter-count">
-                  {totalTanks}
-                </span>
-
-              </button>
-
-
-              {statuses.map(
-                (status) => (
-
-                  <button
-                    key={status}
+                <button
                     type="button"
                     className={`status-filter-button ${selectedStatuses.includes(
-                      status
+                        "הכל"
                     )
-                      ? "active"
-                      : ""
-                      }`}
+                        ? "active"
+                        : ""
+                        }`}
                     onClick={() =>
-                      handleStatusToggle(
-                        status
-                      )
+                        handleStatusToggle(
+                            "הכל"
+                        )
                     }
-                  >
+                >
 
                     <span>
-                      {status}
+                        הכל
                     </span>
 
                     <span className="status-filter-count">
-                      {
-                        statusCounts[
-                        status
-                        ]
-                      }
+                        {totalTanks}
                     </span>
 
-                  </button>
+                </button>
 
-                )
-              )}
+
+                {statuses.map(
+                    (status) => (
+
+                        <button
+                            key={status}
+                            type="button"
+                            className={`status-filter-button ${selectedStatuses.includes(
+                                status
+                            )
+                                ? "active"
+                                : ""
+                                }`}
+                            onClick={() =>
+                                handleStatusToggle(
+                                    status
+                                )
+                            }
+                        >
+
+                            <span>
+                                {status}
+                            </span>
+
+                            <span className="status-filter-count">
+                                {
+                                    statusCounts[
+                                    status
+                                    ]
+                                }
+                            </span>
+
+                        </button>
+
+                    )
+                )}
 
             </div>
-        
+            <div className="sort-filter">
+                <div>מיין לפי:</div>
+                <button
+                    type="button"
+                    className={`status-filter-button ${sortByAge === "tank"
+                            ? "active"
+                            : ""
+                        }`}
+                    onClick={() =>
+                        setSortByAge("tank")
+                    }
+                >
+                    סדר מיכלים
+                </button>
+
+                <button
+                    type="button"
+                    className={`status-filter-button ${sortByAge === "oldest"
+                            ? "active"
+                            : ""
+                        }`}
+                    onClick={() =>
+                        setSortByAge("oldest")
+                    }
+                >
+                    גיל בירה ↓
+                </button>
+
+            </div></>
     )
 }

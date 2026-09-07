@@ -213,7 +213,8 @@ function useAuth() {
 function App() {
     const { user, loading: authLoading, admin, testUser } = useAuth();
     const [isApproved, setIsApproved] = useState<boolean | null>(null);
-    console.log(testUser)
+    const FCKHMS = testUser
+    if (FCKHMS !== testUser) console.log("delete this line hahaha")
     const [loggingIn, setLoggingIn] = useState<boolean>(true);
 
     const [brews, setBrews] =
@@ -249,7 +250,8 @@ function App() {
 
     const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
 
-
+    const [sortByAge, setSortByAge] =
+        useState<"tank" | "oldest">("tank");
 
     useEffect(() => {
         if (user) {
@@ -418,13 +420,6 @@ function App() {
             ];
         }, [statusCounts]);
 
-    // useEffect(() => {
-    //     const load = () => getZoneCounts().then(setZoneCounts).catch(console.error);
-    //     load();
-    //     const interval = setInterval(load, 60000); // poll; or pass a refresh callback down instead
-    //     return () => clearInterval(interval);
-    // }, []);
-
     const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
         try {
             const tankRef = doc(
@@ -474,22 +469,42 @@ function App() {
         return vols;
     }, [brews]);
 
-    const filteredBrews = useMemo<Fermentor[]>(() => {
-        return brews.filter((tank) => {
-            if (Number(tank.tankNumber) === 1) {
-                return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
-            }
+   const filteredBrews = useMemo<Fermentor[]>(() => {
+    const filtered = brews.filter((tank) => {
+        if (Number(tank.tankNumber) === 1) {
+            return (
+                selectedStatuses.includes("הכל") &&
+                selectedStyles.includes("הכל")
+            );
+        }
 
-            const matchesStatus =
-                selectedStatuses.includes("הכל") ||
-                (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
+        const matchesStatus =
+            selectedStatuses.includes("הכל") ||
+            (
+                tank.stage?.name !== undefined &&
+                selectedStatuses.includes(tank.stage.name)
+            );
 
-            const style = String(tank.beerStyle ?? "").trim();
-            const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
+        const style =
+            String(tank.beerStyle ?? "").trim();
 
-            return matchesStatus && matchesStyle;
-        });
-    }, [brews, selectedStatuses, selectedStyles]);
+        const matchesStyle =
+            selectedStyles.includes("הכל") ||
+            selectedStyles.includes(style);
+
+        return matchesStatus && matchesStyle;
+    });
+
+    // כאן נשמור רק את תוצאת הסינון.
+    // הסידור עצמו מתבצע בהמשך ב־sortedFilteredBrews.
+    return filtered;
+
+}, [
+    brews,
+    selectedStatuses,
+    selectedStyles,
+    sortByAge
+]);
 
     const totalTanks = brews.filter(
         (tank) => Number(tank.tankNumber) !== 1
@@ -498,6 +513,53 @@ function App() {
         filteredBrews.filter(
             (tank) => Number(tank.tankNumber) !== 1
         ).length;
+
+    function getBrewDateValue(brewDate?: string | null): number {
+        if (!brewDate) return 0;
+
+        const [day, month, year] = brewDate.split("/").map(Number);
+
+        if (!day || !month || !year) return 0;
+
+        return new Date(year, month - 1, day).getTime();
+    }
+
+    const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
+        const filtered = brews.filter((tank) => {
+            if (Number(tank.tankNumber) === 1) {
+                return selectedStatuses.includes("הכל") &&
+                    selectedStyles.includes("הכל");
+            }
+
+            const matchesStatus =
+                selectedStatuses.includes("הכל") ||
+                (tank.stage?.name !== undefined &&
+                    selectedStatuses.includes(tank.stage.name));
+
+            const style = String(tank.beerStyle ?? "").trim();
+
+            const matchesStyle =
+                selectedStyles.includes("הכל") ||
+                selectedStyles.includes(style);
+
+            return matchesStatus && matchesStyle;
+        });
+
+        if (sortByAge === "oldest") {
+            return [...filtered].sort(
+                (a, b) =>
+                    getBrewDateValue(a.brewDate) -
+                    getBrewDateValue(b.brewDate)
+            );
+        }
+
+        return filtered;
+    }, [
+        brews,
+        selectedStatuses,
+        selectedStyles,
+        sortByAge
+    ]);
 
     if (authLoading) {
         return (
@@ -666,9 +728,15 @@ function App() {
 
 
                     {selectedView === "דאשבורד" &&
-                        <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses}
-                            selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses}
-                        ></DashboardHeader>
+                        <DashboardHeader
+                            statusCounts={statusCounts}
+                            setSelectedStatuses={setSelectedStatuses}
+                            selectedStatuses={selectedStatuses}
+                            totalTanks={totalTanks}
+                            statuses={statuses}
+                            sortByAge={sortByAge}
+                            setSortByAge={setSortByAge}
+                        />
                     }
 
 
@@ -868,7 +936,7 @@ function App() {
             </header>
             {selectedView === "דאשבורד" &&
                 <Dashboard
-                    filteredBrews={filteredBrews}
+                    filteredBrews={sortedFilteredBrews}
                     filteredTankCount={filteredTankCount}
                     handleUpdatePasivation={handleUpdatePasivation}
                     selectedStatuses={selectedStatuses}
