@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useMemo, useState } from "react";
 import emailjs from "@emailjs/browser";
 import type { Pallet } from "../SERVICES/Pallettypes ";
@@ -142,7 +143,7 @@ export default function ShipmentDocumentModal({
                         🖨️ הדפס
                     </button>
                     <button className="shipment-email-btn" onClick={sendEmails} disabled={sending || !logoLoaded}>
-                        {sending ? "שולח..." : "✉️ שלח במייל"}
+                        {sending ? <BeerLoader message="שולח..." size="spinner" /> : "✉️ שלח במייל"}
                     </button>
                     <button className="modal-x" onClick={onClose}>×</button>
                 </div>

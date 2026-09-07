@@ -5300,16 +5300,16 @@ body {
     border-radius: 50%;
 }
 
-.bubble {
+
+.beer-bubble {
     position: absolute;
     bottom: 3px;
     width: 5px;
     height: 5px;
     border-radius: 50%;
     background: rgba(255,255,255,.75);
-    animation: beer-bubble 1.3s linear infinite;
+    animation: beer-bubble 0.5s linear infinite;
 }
-
 .b1 { left: 20%; }
 .b2 { left: 42%; animation-delay: .3s; }
 .b3 { left: 64%; animation-delay: .6s; }

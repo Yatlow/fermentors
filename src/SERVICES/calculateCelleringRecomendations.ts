@@ -564,7 +564,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             Number(lastMeasurement?.pressure) <= 0 &&
             !dryhopped &&
             stage.name === "בתסיסה",
-        reason: "מומלץ לבצע דריי-הופ",
+        reason: "מומלץ לבצע דרייהופ",
         importance: 1
     }
     const pressureIsclosed = (sortedMeasurements.map((m) => m.notes).join(",").includes("סגירת") ||
@@ -612,7 +612,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresWarmYeastDrop = {
             display: true,
             req: true,
-            reason: "מומלץ לבצע הוצאת שמרים- 5 ימים אחרי דרי הופ",
+            reason: "מומלץ לבצע הוצאת שמרים- 5 ימים אחרי דרייהופ",
             importance: 1
         };
     }
@@ -705,7 +705,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 firstYeastDropWasSunday &&
                 !lastNote?.includes("שמרים")
             ),
-        reason: firstYeastDropWasSunday ? "מולמץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי" :
+        reason: firstYeastDropWasSunday ? "מומלץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי" :
             belatedColdDrop ? "מומלץ לבצע הורדת שמרים- (שלושה ימים אחרי קירור- אתמול היה שבת)" :
                 "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
         importance: 1

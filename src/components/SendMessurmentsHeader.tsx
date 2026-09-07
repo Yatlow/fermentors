@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../SERVICES/writeReadingToSheets";
 import type { Fermentor, NewReading } from "../App";
@@ -861,10 +862,10 @@ export default function SendMessurmentsHeader({
                 <div className="modal-overlay">
                     <div className="modal-box">
 
-                        {sendingReading === "loading" && <p className="status-loading">שולח נתונים...</p>}
-                        {sendingReading === "sync" && <p className="status-loading">מרענן נתוני שרת...</p>}
-                        {sendingReading === "getRecs" && <p className="status-loading">טוען המלצות סלרינג...</p>}
-                        {sendingReading === "checking" && <p className="status-loading">בודק תקינות נתונים...</p>}
+                        {sendingReading === "loading" && <BeerLoader message="שולח נתונים..." size="medium" />}
+                        {sendingReading === "sync" && <BeerLoader message="מרענן נתוני שרת..." size="medium" />}
+                        {sendingReading === "getRecs" && <BeerLoader message="טוען המלצות סלרינג..." size="medium" />}
+                        {sendingReading === "checking" && <BeerLoader message="בודק תקינות נתונים..." size="medium" />}
                         <div className="modal-box-scroll"
                             ref={scrollRef}
                             onScroll={checkScrollState}>

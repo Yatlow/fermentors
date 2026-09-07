@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 // components/PackagingReportsView.tsx
 
 import { useEffect, useMemo, useState } from "react";
@@ -771,7 +772,7 @@ export default function PackagingReportsView() {
 
             {loading && (
                 <div className="measurementLoading">
-                    טוען נתונים...
+                    <BeerLoader message="טוען נתונים..." size="small" />
                 </div>
             )}
 

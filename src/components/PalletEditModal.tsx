@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BeerLoader from "./Loading";
 import { deletePallet, splitPallet, updatePallet } from "../SERVICES/Palletservice";
 import { MAX_CRATES_PER_PALLET, MAX_KEGS_PER_PALLET } from "../SERVICES/Pallettypes ";
 import type { Pallet, PalletItemType } from "../SERVICES/Pallettypes ";
@@ -85,14 +86,14 @@ export default function PalletEditModal({ pallet, onClose, onDone }: { pallet: P
                 {error && <div className="edit-specs-message error">{error}</div>}
 
                 <div className="modal-actions-primary">
-                    <button className="modal-save-btn" disabled={busy} onClick={save}>{confirmSensitive ? "אישור ושמירה" : "שמור שינויים"}</button>
+                    <button className="modal-save-btn" disabled={busy} onClick={save}>{busy ? <BeerLoader message="שומר…" size="spinner" /> : (confirmSensitive ? "אישור ושמירה" : "שמור שינויים")}</button>
                     <button className="modal-cancel-btn" disabled={busy} onClick={onClose}>ביטול</button>
                 </div>
 
                 <div className="modal-section-divider" />
                 <div className="split-section">
                     <div><span>פיצול משטח</span><small>הכמות שתיבחר- תופחת ממשטח זה ותועבר למשטח חדש עם פרטים זהים (מלבד הכמות). יש לשבץ את המשטח החדש מלשונית "ממתינים לשיבוץ"</small></div>
-                    <div className="split-controls"><input type="number" min={1} max={Math.max(1, quantity - 1)} value={splitQty} onChange={(e) => setSplitQty(Number(e.target.value))} /><button disabled={busy || splitQty <= 0 || splitQty >= quantity} onClick={split}>פצל</button></div>
+                    <div className="split-controls"><input type="number" min={1} max={Math.max(1, quantity - 1)} value={splitQty} onChange={(e) => setSplitQty(Number(e.target.value))} /><button disabled={busy || splitQty <= 0 || splitQty >= quantity} onClick={split}>{busy ? <BeerLoader message="מפצל…" size="spinner" /> : "פצל"}</button></div>
                 </div>
                 <div  className="danger-zone">
                 <button disabled={busy} onClick={() => setConfirmDelete(true)}>מחק משטח</button>

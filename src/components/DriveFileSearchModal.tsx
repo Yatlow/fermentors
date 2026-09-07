@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useEffect, useRef, useState } from "react";
 import {
     searchBrewSheets,
@@ -108,7 +109,7 @@ export default function DriveFileSearchModal({ isOpen, onClose, onSelect }: Prop
                         onClick={handleUrlSubmit}
                         disabled={!urlInput.trim() || urlLoading}
                     >
-                        {urlLoading ? "בודק..." : "אישור"}
+                        {urlLoading ? <BeerLoader message="בודק..." size="spinner" /> : "אישור"}
                     </button>
                 </div>
                 {urlError && (
@@ -131,7 +132,7 @@ export default function DriveFileSearchModal({ isOpen, onClose, onSelect }: Prop
                     autoComplete="off"
                 />
 
-                {loading && <div className="batch-chart-status">טוען קבצים...</div>}
+                {loading && <div className="batch-chart-status"><BeerLoader message="טוען קבצים..." size="small" /></div>}
 
                 {!loading && errorMsg && (
                     <div className="measurementError" style={{ marginTop: 10 }}>

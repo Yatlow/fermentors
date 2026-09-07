@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useState } from "react";
 import type { Fermentor } from "../App";
 import type { SpecChart } from "../SERVICES/getSpecsFromFb";
@@ -459,7 +460,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                         disabled={!canSubmit || isSending}
                         onClick={handleSubmit}
                     >
-                        {isSending ? <span className="quickReportSpinner" /> : "שלח"}
+                        {isSending ? <BeerLoader message="" size="spinner" /> : "שלח"}
                     </button>
                 </div>
 

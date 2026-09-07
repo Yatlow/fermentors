@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useEffect, useState, useRef } from "react";
 import type { Fermentor } from "../App";
 import { getMeasurementsByBatch } from "../SERVICES/gettAllDataByBatch";
@@ -305,7 +306,7 @@ export default function FermentorInfoBox({
                 {loading && (
 
                     <div className="measurementLoading">
-                        טוען נתוני תסיסה...
+                        <BeerLoader message="טוען נתוני תסיסה..." size="small" />
                     </div>
 
                 )}

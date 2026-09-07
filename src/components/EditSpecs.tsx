@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useEffect, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 
@@ -155,7 +156,7 @@ export default function EditSpecs(
                 dir="rtl"
             >
                 <div className="edit-specs-status">
-                    טוען נתונים...
+                    <BeerLoader message="טוען נתונים..." size="medium" />
                 </div>
             </div>
         );
@@ -364,7 +365,7 @@ export default function EditSpecs(
                     disabled={saving}
                 >
                     {saving
-                        ? "שומר..."
+                        ? <BeerLoader message="שומר..." size="spinner" />
                         : "שמור שינויים"
                     }
                 </button>

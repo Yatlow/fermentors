@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import BeerLoader from "./Loading";
 import { createPallets } from "../SERVICES/Palletservice";
 import { MAX_CRATES_PER_PALLET, MAX_KEGS_PER_PALLET, } from "../SERVICES/Pallettypes ";
 import { getDefaultExpiryDateStr } from "../SERVICES/packagingMasterSheetLogger";
@@ -99,7 +100,7 @@ export default function AddPalletModal({ brews, onClose, onDone }: { brews?: Fer
 
                 <div className="add-preview"><strong>{palletPreview} משטחים</strong><span>סה״כ {totalPreview} {itemType === "kegs" ? "חביות" : "ארגזים"}</span></div>
                 {error && <div className="edit-specs-message error">{error}</div>}
-                <button className="modal-save-btn" disabled={busy || expiryLoading} onClick={submit}>{busy ? "יוצר…" : "הוסף משטחים"}</button>
+                <button className="modal-save-btn" disabled={busy || expiryLoading} onClick={submit}>{busy ? <BeerLoader message="יוצר…" size="spinner" /> : "הוסף משטחים"}</button>
                 <button className="modal-cancel-btn" disabled={busy} onClick={onClose}>ביטול</button>
             </div>
         </div>

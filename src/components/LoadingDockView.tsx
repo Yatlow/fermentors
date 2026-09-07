@@ -46,6 +46,7 @@ export default function LoadingDockView({
 }) {
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [busy, setBusy] = useState(false);
+    const [busyAction, setBusyAction] = useState<"return" | "ship" | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [lastShipmentId, setLastShipmentId] =
         useState<string | null>(null);
@@ -147,6 +148,7 @@ export default function LoadingDockView({
      */
     async function returnToPending(id: string) {
         setBusy(true);
+        setBusyAction("return");
         setError(null);
 
         try {
@@ -161,6 +163,7 @@ export default function LoadingDockView({
             setError(e?.message ?? "שגיאה בהעברת המשטח");
         } finally {
             setBusy(false);
+            setBusyAction(null);
         }
     }
 
@@ -175,6 +178,7 @@ export default function LoadingDockView({
         }
 
         setBusy(true);
+        setBusyAction("ship");
         setError(null);
 
         try {
@@ -194,6 +198,7 @@ export default function LoadingDockView({
             setError(e?.message ?? "שגיאה בשילוח");
         } finally {
             setBusy(false);
+            setBusyAction(null);
         }
     }
 
@@ -400,7 +405,7 @@ export default function LoadingDockView({
                                 }
                                 disabled={busy}
                             >
-                                החזר ל"ממתינים לשיבוץ"
+                                {busyAction === "return" ? <BeerLoader message="מעביר..." size="spinner" /> : 'החזר ל"ממתינים לשיבוץ"'}
                             </button>
                         </article>
                     );
@@ -475,7 +480,7 @@ export default function LoadingDockView({
                 }
                 onClick={handleShip}
             >
-                {busy ? (
+                {busyAction === "ship" ? (
                     <BeerLoader
                         message="יוצר תעודה"
                         overlay={false}

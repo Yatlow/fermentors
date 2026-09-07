@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import {
   useEffect,
   useState,
@@ -359,10 +360,12 @@ function TankCard({
   const [quickReportPosition, setQuickReportPosition] = useState<{ top: number; left: number } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [specificTankNote, setSpecificTankNote] = useState({ note: "", edit: false })
+  const [savingTankUpdate, setSavingTankUpdate] = useState(false);
 
 
   function computePopupPosition(rect: DOMRect): { top: number; left: number } {
     const popupWidth = 330;
+
     const gap = 10;
     const margin = 12;
 
@@ -537,6 +540,7 @@ function TankCard({
 
 
     try {
+      setSavingTankUpdate(true);
 
       await updateTankStatus(
         fermentorID,
@@ -562,6 +566,9 @@ function TankCard({
         previousState
       );
     }
+    finally {
+      setSavingTankUpdate(false);
+    }
   };
 
   async function handlePasivationDateChange(
@@ -586,6 +593,7 @@ function TankCard({
 
 
     try {
+      setSavingTankUpdate(true);
 
       await updateTankStatus(
         fermentorID,
@@ -629,6 +637,9 @@ function TankCard({
       setState(
         previousState
       );
+    }
+    finally {
+      setSavingTankUpdate(false);
     }
   };
 
@@ -1332,6 +1343,7 @@ function TankCard({
             <label>
               סטטוס:
             </label>
+            {savingTankUpdate && <BeerLoader message="מעדכן..." size="spinner" />}
 
 
             <select
@@ -1344,6 +1356,7 @@ function TankCard({
               onChange={
                 handleStageChange
               }
+              disabled={savingTankUpdate}
             >
 
               <option value="3">

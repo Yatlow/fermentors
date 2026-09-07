@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 // components/BatchReportsView.tsx
 
 import { useEffect, useMemo, useState } from "react";
@@ -722,7 +723,7 @@ export default function BatchReportsView({
             {/* BATCH PICKER (current / old) */}
             {reportView !== "averages" && (
                 <div className="status-filter" style={{ marginBottom: 10 }}>
-                    {loadingBrews && <span>טוען אצוות...</span>}
+                    {loadingBrews && <BeerLoader message="טוען אצוות..." size="small" /> }
 
                     {!loadingBrews && (
                         <select
@@ -756,7 +757,7 @@ export default function BatchReportsView({
             {/* STYLE PICKER (averages only) */}
             {reportView === "averages" && (
                 <div className="status-filter" style={{ marginBottom: 10 }}>
-                    {loadingStyles && <span>טוען סגנונות...</span>}
+                    {loadingStyles && <BeerLoader message="טוען סגנונות..." size="small" /> }
 
                     {!loadingStyles && (
                         <select
@@ -809,7 +810,7 @@ export default function BatchReportsView({
             </div>
 
 
-            {loadingData && <div className="measurementLoading">טוען נתונים...</div>}
+            {loadingData && <div className="measurementLoading"><BeerLoader message="טוען נתונים..." size="small" /></div>}
 
             {!loadingData && reportView !== "averages" && !selectedBatchId && (
                 <div className="measurementEmpty">בחר אצווה להצגה</div>

@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useEffect, useState } from "react";
 import {
     collection,
@@ -227,7 +228,7 @@ export default function EditApprovedUsers(
                 dir="rtl"
             >
                 <div className="edit-specs-status">
-                    טוען נתונים...
+                    <BeerLoader message="טוען נתונים..." size="medium" />
                 </div>
             </div>
         );
@@ -346,7 +347,7 @@ export default function EditApprovedUsers(
                         onClick={handleAdd}
                         disabled={saving}
                     >
-                        {saving ? "מוסיף..." : "הוסף"}
+                        {saving ? <BeerLoader message="מוסיף..." size="spinner" /> : "הוסף"}
                     </button>
 
                 </div>

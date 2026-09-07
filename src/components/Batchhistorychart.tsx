@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useEffect, useMemo, useState } from "react";
 import {
     LineChart,
@@ -777,7 +778,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                     </button>
                 </div>
 
-                {loading && <div className="batch-chart-status">טוען נתונים...</div>}
+                {loading && <div className="batch-chart-status"><BeerLoader message="טוען נתונים..." size="small" /></div>}
                 {error && <div className="batch-chart-status">{error}</div>}
                 {!loading && !error && chartData.length === 0 && (
                     <div className="batch-chart-status">אין עדיין מדידות לאצווה זו</div>

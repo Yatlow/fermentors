@@ -1,3 +1,4 @@
+import BeerLoader from "./Loading";
 import { useMemo, useState } from "react";
 import type { Fermentor } from "../App";
 import {
@@ -374,7 +375,7 @@ export default function ManualBatchAssignment({ brews, isAdmin }: Props) {
 
             {step === "checking" && (
                 <div className="manual-batch-loading">
-                    <div className="manual-batch-spinner" />
+                    <BeerLoader message="" size="medium" />
                     <p>
                         <strong>בודק את האצווה מול השרת...</strong>
                     </p>
@@ -484,7 +485,7 @@ export default function ManualBatchAssignment({ brews, isAdmin }: Props) {
 
             {step === "submitting" && (
                 <div className="manual-batch-loading">
-                    <div className="manual-batch-spinner" />
+                    <BeerLoader message="" size="medium" />
                     <p>
                         <strong>משבץ ומרענן נתוני מיכל...</strong>
                     </p>
