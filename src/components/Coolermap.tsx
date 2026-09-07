@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pencil, Truck, ArrowRightLeft, LayersPlus, ClipboardClock, BottleWine, MapPlus, LayerArrowUp, LayerArrowDown } from "lucide-react";
 import {
     subscribeToZone,
@@ -25,6 +25,9 @@ import LoadingDockView from "./LoadingDockView";
 // import ConfirmModal from "./ConfirmModal";
 import { PendingTray, BottleRoomTray } from "./Zonetrays";
 import "../Coolermap.css";
+
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 1;
 
 function cellKey(cell: CoolerCell) { return `${cell.side}_${cell.col}_${cell.row}`; }
 function getHeight(p: Pallet) { return typeof p.heightUnits === "number" ? p.heightUnits : calcHeightUnits(p.itemType, p.quantity); }
@@ -259,6 +262,10 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
     const [error, setError] = useState<string | null>(null);
     const [zoomLevel, setZoomLevel] = useState(1);
 
+    // Pinch-to-zoom bookkeeping — kept in refs so touchmove doesn't trigger re-renders.
+    const pinchStartDistance = useRef<number | null>(null);
+    const pinchStartZoom = useRef<number>(1);
+
     useEffect(() => {
         const unsubs = (Object.keys(ZONE_META) as PalletZone[]).map((zone) => subscribeToZone(zone, (data) => {
             setZones((prev) => ({ ...prev, [zone]: data }));
@@ -298,8 +305,38 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
     function clearPlacement() { setPlacementPalletId(null); }
     function toggleBulk(id: string) { setBulkSelectedIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
 
-    function zoomOut() { setZoomLevel((z) => Math.max(0.4, +(z - 0.15).toFixed(2))); }
-    function zoomIn() { setZoomLevel((z) => Math.min(1, +(z + 0.15).toFixed(2))); }
+    function zoomOut() { setZoomLevel((z) => Math.max(MIN_ZOOM, +(z - 0.15).toFixed(2))); }
+    function zoomIn() { setZoomLevel((z) => Math.min(MAX_ZOOM, +(z + 0.15).toFixed(2))); }
+
+    // ---------- Pinch-to-zoom on the map area ----------
+    function touchDistance(touches: React.TouchList) {
+        const a = touches[0];
+        const b = touches[1];
+        return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    }
+
+    function handleMapTouchStart(e: React.TouchEvent) {
+        if (e.touches.length === 2) {
+            pinchStartDistance.current = touchDistance(e.touches);
+            pinchStartZoom.current = zoomLevel;
+        }
+    }
+
+    function handleMapTouchMove(e: React.TouchEvent) {
+        if (e.touches.length === 2 && pinchStartDistance.current) {
+            // Prevent the page/browser from also trying to scroll or
+            // native-zoom while we're driving the zoom ourselves.
+            e.preventDefault();
+            const distance = touchDistance(e.touches);
+            const scale = distance / pinchStartDistance.current;
+            const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, +(pinchStartZoom.current * scale).toFixed(2)));
+            setZoomLevel(next);
+        }
+    }
+
+    function handleMapTouchEnd(e: React.TouchEvent) {
+        if (e.touches.length < 2) pinchStartDistance.current = null;
+    }
 
     async function moveSelectedToCell(cell: CoolerCell) {
         if (!placementPallet) return;
@@ -414,23 +451,17 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
                     onClick={shipAllMarked}
                     disabled={markedForShipmentPallets.length === 0}
                     >
-                    <Truck size={14} /> {`העבר מסומנים למשלוח אל- בהעמסה למשלוח`}
+                    <Truck size={14} /> {`שלח מסומנים`}
                     {markedForShipmentPallets.length > 0 && ` (${markedForShipmentPallets.length})`}
                 </button>
                     </div>
                 <div className="cooler-zoom-controls">
-                    <button onClick={zoomOut} disabled={zoomLevel <= 0.4}>−</button>
+                    <button onClick={zoomOut} disabled={zoomLevel <= MIN_ZOOM}>−</button>
                     <span>{Math.round(zoomLevel * 100)}%</span>
-                    <button onClick={zoomIn} disabled={zoomLevel >= 1}>+</button>
+                    <button onClick={zoomIn} disabled={zoomLevel >= MAX_ZOOM}>+</button>
                 </div>
             </div>
             <ZoneBadges counts={counts} onSelect={selectZone} />
-            {/* <div className="cooler-tabs">
-                <button className={tab === "map" ? "active" : ""} onClick={() => setTab("map")}> מפת מקרר<span>{counts.cooler}</span></button>
-                <button className={tab === "pending" ? "active" : ""} onClick={() => setTab("pending")}> ממתינים לשיבוץ<span>{counts.pending}</span></button>
-                <button className={tab === "bottleRoom" ? "active" : ""} onClick={() => setTab("bottleRoom")}>חדר בקבוקים <span>{counts.bottleRoom}</span></button>
-                <button className={tab === "dock" ? "active" : ""} onClick={() => setTab("dock")}>בהעמסה למשלוח<span>{counts.loadingDock}</span></button>
-            </div> */}
 
             {placementPallet && <div className="placement-banner"><div><strong>שיבוץ משטח במקרר</strong><span>
                 <small>{placementPallet.quantity} {placementPallet.itemType === "kegs" ? "חביות" : "ארגזים"}</small>
@@ -440,7 +471,6 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
 
             {tab === "pending" && <PendingTray {...trayProps} pallets={zones.pending} />}
             {tab === "bottleRoom" && <BottleRoomTray {...trayProps} pallets={zones.bottleRoom} />}
-            {/* {tab === "stash" && <StashTray {...trayProps} pallets={zones.stash} />} */}
             {tab === "dock" && <LoadingDockView />}
 
             {tab === "map" && (
@@ -450,7 +480,13 @@ export default function CoolerMap({ brews }: { brews?: Fermentor[] }) {
                             ? <span>מצב סידור מקרר: לחץ על משטח כדי לבחור אותו, ואז על התא היעד כדי להעביר.</span>
                             : <> <span>כדי לשבץ משטח ממתין: בחר אותו במסך ממתינים לשיבוץ ובחר את התא הרצוי. </span><span>כדי להזיז משטח בתוך המקרר: הפעל מצב סידור מקרר.</span></>}
                     </div>
-                    <div className="cooler-map-scroll">
+                    <div
+                        className="cooler-map-scroll"
+                        onTouchStart={handleMapTouchStart}
+                        onTouchMove={handleMapTouchMove}
+                        onTouchEnd={handleMapTouchEnd}
+                        onTouchCancel={handleMapTouchEnd}
+                    >
                         <div className="cooler-map-zoom">
                             <div className="cooler-physical-map" style={{ zoom: zoomLevel } as React.CSSProperties}>
 

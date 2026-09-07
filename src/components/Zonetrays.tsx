@@ -104,7 +104,7 @@ function ZoneMoveModal({
                     </button>
 
                     <button
-                        className="zone-primary-action"
+                        className="modal-save-btn"
                         onClick={handleMove}
                         disabled={moving}
                     >

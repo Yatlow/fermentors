@@ -15,6 +15,10 @@
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    flex-wrap: wrap;
 }
 
 .cooler-map-header>div:first-child {
@@ -49,17 +53,26 @@
 .cooler-header-actions {
     display: flex;
     gap: 7px;
-    flex: none;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
-
-
+/* Uniform sizing for the three main toolbar buttons — same height,
+   padding, radius and type scale regardless of label length/icon. */
+.organize-toggle,
 .cooler-add-pallet-btn,
-.organize-toggle {
-    border: 0;
+.cooler-ship-marked-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 0 14px;
     border-radius: 10px;
-    padding: 9px 12px;
+    border: 0;
     font-weight: bold;
+    font-size: .74rem;
     cursor: pointer;
     white-space: nowrap;
 }
@@ -67,8 +80,6 @@
 .cooler-add-pallet-btn {
     background: #147a50;
     color: #fff;
-    display: flex;
-    gap: 5px;
 }
 
 .organize-toggle {
@@ -81,6 +92,18 @@
     background: #fff7ed;
     color: #c2410c;
     border-color: #fdba74;
+}
+
+.cooler-ship-marked-btn {
+    background: #147a50;
+    color: #fff;
+}
+
+.cooler-ship-marked-btn:disabled,
+.organize-toggle:disabled,
+.shipment-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
 }
 
 .cooler-zone-badges {
@@ -254,16 +277,6 @@
     cursor: pointer;
 }
 
-.modal-save-btn {
-    background: var(--pill-active-bg, #147a50) !important;
-    color: #fff !important;
-    font-weight: bold !important;
-}
-
-.modal-cancel-btn {
-    font-weight: bold !important;
-}
-
 .cooler-error,
 .edit-specs-message.error {
     padding: 9px 11px;
@@ -310,14 +323,11 @@
 }
 
 .cooler-physical-map {
-    transform-origin: top center;
-}
-
-.cooler-physical-map {
     /*
      * המפה עצמה רחבה בכוונה.
      * אם המסך קטן יותר — המשתמש גולל אופקית.
      */
+    transform-origin: top center;
     width: max-content;
     min-width: 1350px;
 }
@@ -559,13 +569,6 @@
     font-size: .5rem;
 }
 
-.map-pallet-chip.marked-for-shipment {
-    border: 2px solid #19e634 !important;
-    box-shadow:
-        0 0 0 2px rgba(74, 211, 16, 0.25),
-        0 0 14px rgba(16, 214, 26, 0.65);
-}
-
 /* ---------- Full detail card — used ONLY inside CellDetailModal, no height limit ---------- */
 .map-pallet-card {
     border: 1px solid rgba(15, 23, 42, .10);
@@ -575,13 +578,6 @@
     background: #f8fafc;
     overflow: hidden;
     font-size: .8rem;
-}
-
-.map-pallet-card.marked-for-shipment {
-    border: 2px solid #19e634 !important;
-    box-shadow:
-        0 0 0 2px rgba(74, 211, 16, 0.25),
-        0 0 14px rgba(16, 214, 26, 0.65);
 }
 
 .map-pallet-main {
@@ -778,6 +774,7 @@
     border-color: #147a50;
     color: #fff;
 }
+
 .bulk-action-bar .bulk-select-all-btn {
     background: #fff;
     color: #147a50;
@@ -788,7 +785,10 @@
 }
 
 .shipment-document-actions {
+    display: flex;
     align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
 }
 
 .shipment-print-btn,
@@ -820,24 +820,7 @@
     opacity: .55;
     cursor: not-allowed;
 }
-.cooler-ship-marked-btn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    border: 0;
-    border-radius: 10px;
-    padding: 9px 12px;
-    font-weight: bold;
-    cursor: pointer;
-    background: #147a50;
-    color: #fff;
-    white-space: nowrap;
-}
 
-.cooler-ship-marked-btn:disabled {
-    opacity: .45;
-    cursor: not-allowed;
-}
 .shipment-company-details h1 {
     margin: 0 0 6px;
 }
@@ -1070,12 +1053,6 @@
     cursor: pointer;
 }
 
-.shipment-btn:disabled,
-.organize-toggle:disabled {
-    opacity: .45;
-    cursor: not-allowed;
-}
-
 .edit-specs-message.success {
     padding: 8px;
     border-radius: 9px;
@@ -1180,7 +1157,13 @@
     gap: 6px;
     margin-top: 7px;
 }
-
+.zone-move-modal-footer{
+    display: flex;
+    gap:10px;
+}
+/* Save / Cancel buttons — single canonical definition (this used to be
+   split across three separate rule blocks, including a leftover
+   !important pair from the old, now-unused ConfirmModal). */
 .modal-save-btn,
 .modal-cancel-btn {
     min-height: 40px;
@@ -1353,20 +1336,20 @@
     font-size: 30px;
 }
 
+/* IPA = blue */
 .pallet-style-ipa {
     background: #b5d3fb;
     color: #385196;
     border-color: #28578d;
 }
 
-/* IPA = blue */
+/* פייל = green */
 .pallet-style-pale {
     background: #a4f1bf;
     color: #166534;
     border-color: #208b47;
 }
 
-/* פייל = green */
 .pallet-style-stout {
     background: #f29696;
     color: #92260e;
@@ -1391,10 +1374,12 @@
     border-color: #766b1c;
 }
 
+/* was near-unreadable: background/color/border were all the same light pink.
+   Now follows the same light-bg / dark-text / mid-border pattern as the rest. */
 .pallet-style-sour {
-    background: #e295fc;
-    color: #cb94aa;
-    border-color: #fbcfe8;
+    background: #fbcfe8;
+    color: #9d174d;
+    border-color: #f472b6;
 }
 
 .pallet-style-other {
@@ -1435,7 +1420,7 @@
 }
 
 .pallet-row.marked-for-shipment {
-    border: 2px solid #19e634 !important;
+    border: 3px solid #037111 !important;
     box-shadow: 0 0 0 2px rgba(74, 211, 16, .25), 0 0 10px rgba(16, 214, 26, .5);
 }
 
@@ -1515,8 +1500,10 @@
 }
 
 .zone-move-modal-option {
+    position: relative;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 8px;
     border: 1px solid #d8e1ea;
     background: #f8fafc;
@@ -1526,15 +1513,11 @@
     font-weight: bold;
     color: #172033;
     cursor: pointer;
+    transition: .12s ease;
 }
 
 .zone-move-modal-option:active {
     background: #eef2f6;
-}
-.zone-move-modal-option {
-    position: relative;
-    justify-content: flex-start;
-    transition: .12s ease;
 }
 
 .zone-move-modal-option-label {
@@ -1553,6 +1536,45 @@
     flex: none;
 }
 
+.cooler-zoom-controls {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #dbe3eb;
+    background: #f1f5f9;
+    border-radius: 10px;
+    padding: 4px 6px;
+}
+
+.cooler-zoom-controls button {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #fff;
+    color: #334155;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.cooler-zoom-controls button:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.cooler-zoom-controls span {
+    min-width: 34px;
+    text-align: center;
+    font-size: .68rem;
+    font-weight: bold;
+    color: #475569;
+}
+
 @media (min-width:700px) {
     .cooler-map-page {
         padding: 16px;
@@ -1566,8 +1588,6 @@
     .modal-box {
         border-radius: 16px;
         max-height: 70%;
-        /* position: absolute;
-        top: -15%; */
     }
 
     .cooler-physical-map {
@@ -1601,6 +1621,10 @@
         align-items: flex-start;
     }
 
+    .cooler-zoom-controls {
+        max-width: 100%;
+    }
+
     .cooler-map-header p {
         font-size: .62rem;
     }
@@ -1611,8 +1635,9 @@
     }
 
     .cooler-add-pallet-btn,
-    .organize-toggle {
-        padding: 8px 9px;
+    .organize-toggle,
+    .cooler-ship-marked-btn {
+        padding: 0 9px;
         font-size: .66rem;
     }
 
@@ -1724,12 +1749,6 @@
     font-size: 13px;
 }
 
-.shipment-document-actions {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 10px;
-}
-
 .shipment-email-editor {
     background: white;
     padding: 20px;
@@ -1774,47 +1793,6 @@
     gap: 6px;
 }
 
-.cooler-zoom-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border: 1px solid #dbe3eb;
-    background: #f1f5f9;
-    border-radius: 10px;
-    padding: 4px 6px;
-    flex: none;
-}
-
-.cooler-zoom-controls button {
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    border: 1px solid #cbd5e1;
-    border-radius: 7px;
-    background: #fff;
-    color: #334155;
-    font-size: 1rem;
-    font-weight: bold;
-    cursor: pointer;
-    line-height: 1;
-}
-
-.cooler-zoom-controls button:disabled {
-    opacity: .4;
-    cursor: not-allowed;
-}
-
-.cooler-zoom-controls span {
-    min-width: 34px;
-    text-align: center;
-    font-size: .68rem;
-    font-weight: bold;
-    color: #475569;
-}
-.cooler-header-actions {
-    flex-wrap: wrap;
-}
 @media print {
     body * {
         visibility: hidden;
