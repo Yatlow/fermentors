@@ -55,21 +55,24 @@ export type Shipment = {
     createdAt?: Timestamp | null;
 };
 
+export const MAX_HEIGHT_UNITS_PER_LOADING_PALLET = 190;
 export const MAX_CRATES_PER_PALLET = 12;
 export const MAX_KEGS_PER_PALLET = 20;
 
 export const PALLET_HEIGHT_CM = 15;
-export const KEG_HEIGHT_CM = 58;
 export const CRATE_HEIGHT_CM = 24;
+export const KEG_HEIGHT_CM = 58;
 
-export const MAX_HEIGHT_CM = 370;
-export const MAX_HEIGHT_UNITS_PER_LOADING_PALLET = 190;
+export const MAX_HEIGHT_CM = 405;
 
-export function calcHeightUnits(
+
+export function calcHeightCm(
     itemType: PalletItemType,
     quantity: number
 ): number {
-    if (quantity <= 0) return PALLET_HEIGHT_CM;
+    if (quantity <= 0) {
+        return PALLET_HEIGHT_CM;
+    }
 
     const itemsPerRow =
         itemType === "kegs"
@@ -81,9 +84,14 @@ export function calcHeightUnits(
             ? KEG_HEIGHT_CM
             : CRATE_HEIGHT_CM;
 
-    const rows = Math.ceil(quantity / itemsPerRow);
+    const rows = Math.ceil(
+        quantity / itemsPerRow
+    );
 
-    return PALLET_HEIGHT_CM + rows * itemHeight;
+    return (
+        PALLET_HEIGHT_CM +
+        rows * itemHeight
+    );
 }
 
 

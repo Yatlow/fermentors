@@ -15,7 +15,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import {
-    calcHeightUnits,
+    calcHeightCm,
     MAX_CRATES_PER_PALLET,
     MAX_KEGS_PER_PALLET,
     type Pallet,
@@ -65,7 +65,7 @@ async function createPalletDocument(input: {
         beerStyle: input.beerStyle,
         subLabel: input.subLabel ?? null,
         quantity: input.quantity,
-        heightUnits: calcHeightUnits(input.itemType, input.quantity),
+        heightCm: calcHeightCm(input.itemType, input.quantity),
         expiryDateStr: input.expiryDateStr ?? null,
         batchNumber: input.batchNumber ?? null,
         sourceTankNumber: input.sourceTankNumber ?? null,
@@ -228,7 +228,7 @@ export async function updatePallet(palletId: string, input: {
         beerStyle: input.beerStyle.trim(),
         subLabel: input.subLabel?.trim() || null,
         quantity: Math.round(input.quantity),
-        heightUnits: calcHeightUnits(input.itemType, Math.round(input.quantity)),
+        heightCm: calcHeightCm(input.itemType, Math.round(input.quantity)),
         expiryDateStr: input.expiryDateStr?.trim() || null,
         batchNumber: input.batchNumber?.trim() || null,
         updatedAt: serverTimestamp(),
@@ -269,7 +269,7 @@ export async function splitPallet(palletId: string, splitQty: number, splitLabel
     const batch = writeBatch(db);
     batch.update(ref, {
         quantity: remainingQty,
-        heightUnits: calcHeightUnits(pallet.itemType, remainingQty),
+        heightCm: calcHeightCm(pallet.itemType, remainingQty),
         updatedAt: serverTimestamp(),
     });
     const newRef = doc(collection(db, PALLETS_COLLECTION));
@@ -278,7 +278,7 @@ export async function splitPallet(palletId: string, splitQty: number, splitLabel
         beerStyle: pallet.beerStyle,
         subLabel: splitLabel ?? pallet.subLabel ?? null,
         quantity: splitQty,
-        heightUnits: calcHeightUnits(pallet.itemType, splitQty),
+        heightCm: calcHeightCm(pallet.itemType, splitQty),
         expiryDateStr: pallet.expiryDateStr ?? null,
         markedForShipment: false,
         zone: "pending",
@@ -341,39 +341,78 @@ export async function createPallets(input: {
     return ids;
 }
 export const MAX_TRUCK_SLOTS = 12;
+export const MAX_TRUCK_HEIGHT_CM = 190;
 
-export function calcTruckSlots(pallets: Pallet[]): number {
-    const largeCrates = pallets.filter(
-        (p) => p.itemType === "crates" && p.quantity > 48
-    ).length;
+export function calcTruckSlots(
+    pallets: Pallet[]
+): number {
+    const heights = pallets
+        .map((pallet) =>
+            calcHeightCm(
+                pallet.itemType,
+                pallet.quantity
+            )
+        )
+        .sort((a, b) => b - a);
 
-    const smallCrates = pallets.filter(
-        (p) => p.itemType === "crates" && p.quantity <= 48
-    ).length;
+    // כל מקום במשאית מתחיל כ"מקום" ריק.
+    // בכל מקום אפשר לשים משטח אחד או לערום
+    // משטח נוסף, כל עוד הגובה הכולל <= 190.
+    const slots: number[] = [];
 
-    const kegs = pallets.filter(
-        (p) => p.itemType === "kegs"
-    ).length;
+    for (const height of heights) {
+        // אם המשטח עצמו גבוה מדי למשאית
+        if (height > MAX_TRUCK_HEIGHT_CM) {
+            throw new Error(
+                `משטח בגובה ${height} ס"מ לא יכול להיכנס למשאית (מקסימום ${MAX_TRUCK_HEIGHT_CM} ס"מ)`
+            );
+        }
 
-    // כל משטח ארגזים תופס סלוט.
-    // עד 48 ארגזים יכולים לחלוק סלוט עם משטח חביות.
-    const kegsPairedWithSmallCrates = Math.min(
-        kegs,
-        smallCrates
-    );
+        // מחפשים מקום קיים שבו אפשר לערום אותו.
+        // Best fit: נבחר את המקום שהכי קרוב ל-190
+        // אחרי הכנסת המשטח.
+        let bestSlotIndex = -1;
+        let bestRemainingHeight =
+            Infinity;
 
-    const remainingKegs =
-        kegs - kegsPairedWithSmallCrates;
+        for (
+            let i = 0;
+            i < slots.length;
+            i++
+        ) {
+            const newHeight =
+                slots[i] + height;
 
-    const kegOnlySlots =
-        Math.ceil(remainingKegs / 2);
+            if (
+                newHeight <=
+                MAX_TRUCK_HEIGHT_CM
+            ) {
+                const remaining =
+                    MAX_TRUCK_HEIGHT_CM -
+                    newHeight;
 
-    return (
-        largeCrates +
-        smallCrates +
-        kegOnlySlots
-    );
+                if (
+                    remaining <
+                    bestRemainingHeight
+                ) {
+                    bestRemainingHeight =
+                        remaining;
+
+                    bestSlotIndex = i;
+                }
+            }
+        }
+
+        if (bestSlotIndex >= 0) {
+            slots[bestSlotIndex] += height;
+        } else {
+            slots.push(height);
+        }
+    }
+
+    return slots.length;
 }
+
 async function getNextShipmentNumber(): Promise<number> {
     const counterRef = doc(db, "counters", "shipmentNumber");
     return runTransaction(db, async (tx) => {

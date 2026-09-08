@@ -1,14 +1,6 @@
 /* =========================================================
    COOLER MAP — physical, fixed geometry, mobile first
    ========================================================= */
-.cooler-map-page {
-    direction: rtl;
-    max-width: 1500px;
-    margin: 0 auto;
-    padding: 10px;
-    color: #172033;
-}
-
 .cooler-map-header {
     display: flex;
     align-items: center;
@@ -21,40 +13,66 @@
     flex-wrap: wrap;
 }
 
-.cooler-map-header>div:first-child {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-}
-
-.cooler-header-icon {
-    width: 42px;
-    height: 42px;
-    display: grid;
-    place-items: center;
-    border-radius: 13px;
-    background: #eaf4ff;
-    font-size: 22px;
-    flex: none;
-}
-
-.cooler-map-header h2 {
-    margin: 0;
-    font-size: 1.05rem;
-}
-
-.cooler-map-header p {
-    margin: 2px 0 0;
-    color: #718096;
-    font-size: .74rem;
-}
-
 .cooler-header-actions {
     display: flex;
+    align-items: center;
     gap: 7px;
     flex: 1 1 auto;
     min-width: 0;
+}
+
+.cooler-map-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: none;
+}
+
+.organize-toggle,
+.cooler-add-pallet-btn,
+.cooler-ship-marked-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 0;
+    font-weight: bold;
+    font-size: .74rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.cooler-add-pallet-btn {
+    background: #147a50;
+    color: #fff;
+}
+
+.organize-toggle {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #dbe3eb;
+}
+
+.organize-toggle.active {
+    background: #fff7ed;
+    color: #c2410c;
+    border-color: #fdba74;
+}
+
+.cooler-ship-marked-btn {
+    background: #147a50;
+    color: #fff;
+}
+
+.cooler-ship-marked-btn:disabled,
+.organize-toggle:disabled,
+.shipment-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
 }
 
 /* Uniform sizing for the three main toolbar buttons — same height,
@@ -1714,28 +1732,45 @@
     }
 
     .cooler-map-header {
-        align-items: flex-start;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 7px;
+    }
+
+    .cooler-header-actions {
+        width: 100%;
+    }
+
+    .cooler-map-toolbar {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+    }
+
+    .cooler-ship-marked-btn {
+        flex: 1 1 auto;
+        min-width: 0;
     }
 
     .cooler-zoom-controls {
-        max-width: 100%;
-    }
-
-    .cooler-map-header p {
-        font-size: .62rem;
-    }
-
-    .cooler-header-icon {
-        width: 36px;
-        height: 36px;
+        flex: none;
+        max-width: none;
     }
 
     .cooler-add-pallet-btn,
-    .organize-toggle,
+    .organize-toggle {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 0 9px;
+        font-size: .66rem;
+    }
+
     .cooler-ship-marked-btn {
         padding: 0 9px;
         font-size: .66rem;
     }
+
 
     .cooler-zone-badge {
         padding: 6px 8px;

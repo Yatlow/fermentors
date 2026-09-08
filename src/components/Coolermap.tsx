@@ -35,7 +35,7 @@ import {
 
 import {
     beerStyleClass,
-    calcHeightUnits,
+    calcHeightCm,
     MAX_HEIGHT_CM,
     type Pallet,
     type CoolerCell,
@@ -84,14 +84,13 @@ function cellKey(cell: CoolerCell) {
 }
 
 
-function getHeight(pallet: Pallet) {
-    return typeof pallet.heightUnits === "number"
-        ? pallet.heightUnits
-        : calcHeightUnits(
-            pallet.itemType,
-            pallet.quantity
-        );
+function getHeight(pallet: Pallet): number {
+    return calcHeightCm(
+        pallet.itemType,
+        pallet.quantity
+    );
 }
+
 
 
 function parseExpiryDate(
@@ -2158,13 +2157,9 @@ export default function CoolerMap({
                     {tab === "map" && (
                         <button
                             type="button"
-                            className={`organize-toggle ${organizeMode
-                                ? "active"
-                                : ""
+                            className={`organize-toggle ${organizeMode ? "active" : ""
                                 }`}
-                            onClick={
-                                toggleOrganizeMode
-                            }
+                            onClick={toggleOrganizeMode}
                         >
                             {organizeMode
                                 ? "✓ מצב סידור פעיל"
@@ -2173,109 +2168,71 @@ export default function CoolerMap({
                     )}
 
                     {!placementPallet && (
-                        <>
-                            <button
-                                type="button"
-                                className="cooler-add-pallet-btn"
-                                onClick={() =>
-                                    setShowAddModal(
-                                        true
-                                    )
-                                }
-                            >
-                                <LayersPlus
-                                    size={14}
-                                />
-                                הוסף משטחים
-                            </button>
-
-                        </>
+                        <button
+                            type="button"
+                            className="cooler-add-pallet-btn"
+                            onClick={() => setShowAddModal(true)}
+                        >
+                            <LayersPlus size={14} />
+                            הוסף משטחים
+                        </button>
                     )}
                 </div>
 
                 {tab === "map" && (
-                    <>
-                        <div className="cooler-zoom-controls">
+                    <div className="cooler-map-toolbar">
                         <button
                             type="button"
-                            className={`cooler-ship-marked-btn ${totalPlannedTruckSlots >
-                                MAX_TRUCK_SLOTS
-                                ? "truck-over-capacity"
-                                : ""
+                            className={`cooler-ship-marked-btn ${totalPlannedTruckSlots > MAX_TRUCK_SLOTS
+                                    ? "truck-over-capacity"
+                                    : ""
                                 }`}
-                            onClick={
-                                shipAllMarked
-                            }
+                            onClick={shipAllMarked}
                             disabled={
-                                markedForShipmentPallets.length ===
-                                0
+                                markedForShipmentPallets.length === 0
                             }
                         >
-                            <Truck
-                                size={14}
-                            />
+                            <Truck size={14} />
 
                             שלח מסומנים
 
                             <span>
                                 (
-                                {
-                                    totalPlannedTruckSlots
-                                }
-                                /
-                                {
-                                    MAX_TRUCK_SLOTS
-                                }{" "}
-                                מקומות)
+                                {totalPlannedTruckSlots}/
+                                {MAX_TRUCK_SLOTS} מקומות)
                             </span>
                         </button>
+
+                        <div className="cooler-zoom-controls">
                             <button
                                 type="button"
                                 className="zoom-reset"
-                                onClick={() =>
-                                    setZoomLevel(
-                                        1
-                                    )
-                                }
+                                onClick={() => setZoomLevel(1)}
                             >
                                 100%
                             </button>
 
                             <button
                                 type="button"
-                                onClick={
-                                    zoomOut
-                                }
-                                disabled={
-                                    zoomLevel <=
-                                    MIN_ZOOM
-                                }
+                                onClick={zoomOut}
+                                disabled={zoomLevel <= MIN_ZOOM}
                             >
                                 −
                             </button>
 
                             <span>
-                                {Math.round(
-                                    zoomLevel *
-                                    100
-                                )}
-                                %
+                                {Math.round(zoomLevel * 100)}%
                             </span>
 
                             <button
                                 type="button"
-                                onClick={
-                                    zoomIn
-                                }
-                                disabled={
-                                    zoomLevel >=
-                                    MAX_ZOOM
-                                }
+                                onClick={zoomIn}
+                                disabled={zoomLevel >= MAX_ZOOM}
                             >
                                 +
                             </button>
                         </div>
-                    </>
+                    </div>
                 )}
             </div>
 
