@@ -56,7 +56,7 @@ export type Shipment = {
 };
 
 export const MAX_HEIGHT_UNITS_PER_LOADING_PALLET = 190;
-export const MAX_CRATES_PER_PALLET = 12;
+export const MAX_CRATES_PER_PALLET = 84;
 export const MAX_KEGS_PER_PALLET = 20;
 
 export const PALLET_HEIGHT_CM = 15;
