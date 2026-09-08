@@ -167,7 +167,7 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, quantity } : r)));
     }
     function updateRowSubLabel(id: string, subLabel: string) {
-        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, subLabel: subLabel.trim() || null } : r)));
+        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, subLabel: subLabel || null } : r)));
     }
     function removeRow(id: string) {
         setRows((prev) => prev.filter((r) => r.id !== id));
