@@ -1,7 +1,11 @@
 import { doc, getDoc, collection, addDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
-// ⚠️ חדש - יצירת משטחים במפת המקרר במקביל לדיווח האריזה הקיים
-import { createPalletsFromPackaging } from "./Palletservice";
+import {
+    createPalletsFromCustomSplit,
+    getDefaultPalletSplit,
+    type CustomPalletSplitEntry,
+} from "./Palletservice";
+import type { PalletItemType } from "./Pallettypes ";
 
 const GOOGLE_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
@@ -13,6 +17,14 @@ const BOTTLES_PER_CRATE = 24;
 /** שם הקולקציה בפיירסטור שאליה נכתבים אירועי אריזה בפועל (לצורך דוחות) */
 const PACKAGING_LOG_COLLECTION = "packagingLog";
 
+/**
+ * ⚠️ חדש - חישוב סינכרוני בלבד (לא נוגע ברשת) של כמות המשטחים (חביות/ארגזים)
+ * מתוך הכמות שדווחה. חשוב שזה יהיה פונקציה נפרדת וטהורה כדי ש-usePackagingPalletsFlow
+ * יוכל להציג את מסך עריכת המשטחים מייד, בלי לחכות ל-submitPackagingRecord.
+ */
+export function computePalletQuantity(packagingType: PackagingType, amount: number): number {
+    return packagingType === "kegs" ? amount : Math.floor(amount / BOTTLES_PER_CRATE);
+}
 
 function mapBeerStyleToExpiryKey(beerStyle: string | undefined | null): string | null {
     if (!beerStyle) return null;
@@ -93,7 +105,30 @@ export type MasterSheetLogResult = {
 };
 
 /**
- * כותב אירוע אריזה בפועל לפיירסטור, לקולקציית packagingLog.
+ * ⚠️ חדש - "תוכנית משטחים": כל המידע הדרוש כדי להציע חלוקת משטחי ברירת מחדל
+ * ולאפשר למשתמש לערוך אותה, בלי שום תלות ברשת. מוחזר מ-submitPackagingRecord.
+ */
+export type PackagingPalletPlan = {
+    itemType: PalletItemType;
+    /** הכמות הכוללת בפועל (מספר חביות, או מספר ארגזים שלמים לבקבוקים) */
+    quantity: number;
+    beerStyle: string;
+    batchNumber: string | number | null;
+    expiryDateStr: string;
+    sourceTankNumber: string | number | null;
+    tankNumber: string | number | null;
+};
+
+export type SubmitPackagingRecordResult = {
+    success: boolean;
+    warnings?: string[];
+    error?: string;
+    /** null אם הכמות לא תקינה / אין צורך במשטחים בכלל */
+    palletPlan: PackagingPalletPlan | null;
+};
+
+/**
+ * כותבת אירוע אריזה בפועל לפיירסטור, לקולקציית packagingLog.
  * מבנה הדוקומנט תואם בכוונה למבנה של calendar_events (title/itemType/quantity/unit/timestamp)
  * כדי שיהיה קל לאחד בין השניים בקומפוננטת הדוחות.
  */
@@ -132,26 +167,30 @@ async function logPackagingToFirestore(params: {
         title,
         createdAt: Timestamp.now(),
     });
-    console.log("tankStatus", tankStatus)
     const docRef = doc(db, "fermentors", tankNumber?.toString() ?? "");
-    console.log("tankStatus", tankStatus, docRef, tankNumber?.toString())
     try {
         await updateDoc(docRef, {
             tankStatus: tankStatus,
             action: 3,
-        });;
+        });
     } catch (err) {
         console.error("Failed to update tankStatus in Firestore:", err);
     }
 }
 
-export async function logPackagingToMasterSheet(
+/**
+ * ⚠️ חדש - השלב ה"מהיר" בלבד: כתיבה לגיליון המאסטר + רישום בפיירסטור.
+ * במכוון *לא* יוצרת משטחים - זה קורה בנפרד, אחרי שהמשתמש מאשר/עורך את
+ * חלוקת המשטחים (ר' getDefaultPalletSplit + createPalletsFromCustomSplit).
+ * יש לקרוא לפונקציה הזו מיד עם אישור הדיווח, בלי לחכות למסך עריכת המשטחים.
+ */
+export async function submitPackagingRecord(
     params: MasterSheetLogParams
-): Promise<MasterSheetLogResult> {
+): Promise<SubmitPackagingRecordResult> {
     const { beerStyle, packagingType, amount, batchNumber, tankNumber, tankStatus } = params;
 
     if (!amount || amount <= 0) {
-        return { success: false, error: "כמות לא תקינה" };
+        return { success: false, error: "כמות לא תקינה", palletPlan: null };
     }
 
     let expiryMonths: number | null = null;
@@ -166,15 +205,12 @@ export async function logPackagingToMasterSheet(
     const expiryDateStr =
         expiryMonths !== null ? formatDDMMYYYY(addMonths(today, expiryMonths)) : "";
 
-    // עמודה B: לחביות - הכמות כפי שהוזנה. לבקבוקים - מספר ארגזים (24 בקבוק לארגז), עם 2 ספרות אחרי הנקודה.
-    const quantity =
-        packagingType === "kegs"
-            ? amount
-            : Math.floor(amount / BOTTLES_PER_CRATE);
+    // עמודה B: לחביות - הכמות כפי שהוזנה. לבקבוקים - מספר ארגזים (24 בקבוק לארגז).
+    const quantity = computePalletQuantity(packagingType, amount);
 
     if (packagingType === "bottles" && quantity <= 0) {
         // פחות מארגז שלם אחד - לא נכתב לטבלת המאסטר (נרשם ידנית במקום אחר)
-        return { success: false, error: "פחות מארגז שלם - לא נכתב לטבלת המאסטר" };
+        return { success: false, error: "פחות מארגז שלם - לא נכתב לטבלת המאסטר", palletPlan: null };
     }
 
     const productLabel =
@@ -191,9 +227,8 @@ export async function logPackagingToMasterSheet(
         productionDateStr,
     };
 
-    // כותבים לגיליון, לפיירסטור, וליוצרים משטחים במפת המקרר - במקביל.
-    // כשל באחד לא ימנע את השאר.
-    const [sheetResult, firestoreResult, palletsResult] = await Promise.allSettled([
+    // כותבים לגיליון ולפיירסטור במקביל. כשל באחד לא ימנע את השני.
+    const [sheetResult, firestoreResult] = await Promise.allSettled([
         fetch(GOOGLE_SCRIPT_URL, {
             method: "POST",
             headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -210,14 +245,6 @@ export async function logPackagingToMasterSheet(
             tankNumber,
             tankStatus,
         }),
-        createPalletsFromPackaging({
-            itemType: packagingType === "kegs" ? "kegs" : "crates",
-            totalQuantity: quantity,
-            beerStyle: String(beerStyle ?? "").trim(),
-            batchNumber,
-            expiryDateStr,
-            sourceTankNumber: tankNumber,
-        }),
     ]);
 
     const warnings: string[] = [];
@@ -227,10 +254,17 @@ export async function logPackagingToMasterSheet(
         warnings.push("הרישום לגיליון הצליח אך הרישום לפיירבייס נכשל");
     }
 
-    if (palletsResult.status === "rejected") {
-        console.error("Failed to create pallets for cooler map:", palletsResult.reason);
-        warnings.push("הרישום הצליח אך יצירת המשטחים במפת המקרר נכשלה - יש להוסיף ידנית");
-    }
+    // תוכנית המשטחים לא תלויה בהצלחת הכתיבה לגיליון - מחזירים אותה תמיד
+    // (אלא אם הכמות עצמה לא תקינה, שנבדק כבר למעלה).
+    const palletPlan: PackagingPalletPlan = {
+        itemType: packagingType === "kegs" ? "kegs" : "crates",
+        quantity,
+        beerStyle: String(beerStyle ?? "").trim(),
+        batchNumber: batchNumber ?? null,
+        expiryDateStr,
+        sourceTankNumber: tankNumber,
+        tankNumber,
+    };
 
     if (sheetResult.status === "rejected") {
         console.error("Failed to log packaging to master sheet:", sheetResult.reason);
@@ -238,6 +272,7 @@ export async function logPackagingToMasterSheet(
             success: false,
             error: sheetResult.reason?.message ?? "שגיאה בכתיבה לטבלת המאסטר",
             warnings,
+            palletPlan,
         };
     }
 
@@ -259,9 +294,62 @@ export async function logPackagingToMasterSheet(
             warnings.push(...parsed.warnings);
         }
 
-        return { success: true, warnings: warnings.length > 0 ? warnings : undefined };
+        return { success: true, warnings: warnings.length > 0 ? warnings : undefined, palletPlan };
     } catch (err: any) {
         console.error("Failed to log packaging to master sheet:", err);
-        return { success: false, error: err?.message ?? "שגיאה בכתיבה לטבלת המאסטר", warnings };
+        return { success: false, error: err?.message ?? "שגיאה בכתיבה לטבלת המאסטר", warnings, palletPlan };
     }
+}
+
+/**
+ * ⚠️ חדש - יוצרת בפועל את המשטחים במפת המקרר, לפי תוכנית + חלוקה (שהמשתמש אישר/ערך).
+ * נקראת בנפרד מ-submitPackagingRecord, אחרי מסך אישור חלוקת המשטחים.
+ * זורקת שגיאה אם סכום החלוקה לא תואם בדיוק לכמות שדווחה בתוכנית (ר' Palletservice).
+ */
+export async function createPalletsForPlan(
+    plan: PackagingPalletPlan,
+    splits: CustomPalletSplitEntry[]
+): Promise<string[]> {
+    return createPalletsFromCustomSplit({
+        itemType: plan.itemType,
+        expectedTotalQuantity: plan.quantity,
+        beerStyle: plan.beerStyle,
+        batchNumber: plan.batchNumber,
+        expiryDateStr: plan.expiryDateStr,
+        sourceTankNumber: plan.sourceTankNumber,
+        splits,
+    });
+}
+
+/** נוחות: חלוקת ברירת המחדל להצגה ראשונית במסך העריכה, לפי תוכנית נתונה */
+export function getDefaultSplitForPlan(plan: PackagingPalletPlan): CustomPalletSplitEntry[] {
+    return getDefaultPalletSplit(plan.itemType, plan.quantity);
+}
+
+/**
+ * @deprecated שמור לתאימות לאחור בלבד (עדיין חוסם עד ליצירת המשטחים, עם חלוקה אוטומטית).
+ * לזרימה החדשה עם מסך עריכת משטחים - יש להשתמש ב-submitPackagingRecord,
+ * ואז (אחרי אישור המשתמש) ב-createPalletsForPlan / createPalletsFromCustomSplit.
+ */
+export async function logPackagingToMasterSheet(
+    params: MasterSheetLogParams
+): Promise<MasterSheetLogResult> {
+    const record = await submitPackagingRecord(params);
+    const warnings = [...(record.warnings ?? [])];
+
+    if (record.palletPlan) {
+        try {
+            const splits = getDefaultSplitForPlan(record.palletPlan);
+            await createPalletsForPlan(record.palletPlan, splits);
+        } catch (err) {
+            console.error("Failed to create pallets for cooler map:", err);
+            warnings.push("הרישום הצליח אך יצירת המשטחים במפת המקרר נכשלה - יש להוסיף ידנית");
+        }
+    }
+
+    return {
+        success: record.success,
+        error: record.error,
+        warnings: warnings.length > 0 ? warnings : undefined,
+    };
 }

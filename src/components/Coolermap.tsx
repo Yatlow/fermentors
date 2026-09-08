@@ -2189,94 +2189,93 @@ export default function CoolerMap({
                                 הוסף משטחים
                             </button>
 
-                            {tab ===
-                                "map" && (
-                                    <button
-                                        type="button"
-                                        className={`cooler-ship-marked-btn ${totalPlannedTruckSlots >
-                                            MAX_TRUCK_SLOTS
-                                            ? "truck-over-capacity"
-                                            : ""
-                                            }`}
-                                        onClick={
-                                            shipAllMarked
-                                        }
-                                        disabled={
-                                            markedForShipmentPallets.length ===
-                                            0
-                                        }
-                                    >
-                                        <Truck
-                                            size={14}
-                                        />
-
-                                        שלח מסומנים
-
-                                        <span>
-                                            (
-                                            {
-                                                totalPlannedTruckSlots
-                                            }
-                                            /
-                                            {
-                                                MAX_TRUCK_SLOTS
-                                            }{" "}
-                                            מקומות)
-                                        </span>
-                                    </button>
-                                )}
                         </>
                     )}
                 </div>
 
                 {tab === "map" && (
-                    <div className="cooler-zoom-controls">
+                    <>
+                        <div className="cooler-zoom-controls">
                         <button
                             type="button"
-                            className="zoom-reset"
-                            onClick={() =>
-                                setZoomLevel(
-                                    1
-                                )
-                            }
-                        >
-                            100%
-                        </button>
-
-                        <button
-                            type="button"
+                            className={`cooler-ship-marked-btn ${totalPlannedTruckSlots >
+                                MAX_TRUCK_SLOTS
+                                ? "truck-over-capacity"
+                                : ""
+                                }`}
                             onClick={
-                                zoomOut
+                                shipAllMarked
                             }
                             disabled={
-                                zoomLevel <=
-                                MIN_ZOOM
+                                markedForShipmentPallets.length ===
+                                0
                             }
                         >
-                            −
-                        </button>
+                            <Truck
+                                size={14}
+                            />
 
-                        <span>
-                            {Math.round(
-                                zoomLevel *
-                                100
-                            )}
-                            %
-                        </span>
+                            שלח מסומנים
 
-                        <button
-                            type="button"
-                            onClick={
-                                zoomIn
-                            }
-                            disabled={
-                                zoomLevel >=
-                                MAX_ZOOM
-                            }
-                        >
-                            +
+                            <span>
+                                (
+                                {
+                                    totalPlannedTruckSlots
+                                }
+                                /
+                                {
+                                    MAX_TRUCK_SLOTS
+                                }{" "}
+                                מקומות)
+                            </span>
                         </button>
-                    </div>
+                            <button
+                                type="button"
+                                className="zoom-reset"
+                                onClick={() =>
+                                    setZoomLevel(
+                                        1
+                                    )
+                                }
+                            >
+                                100%
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={
+                                    zoomOut
+                                }
+                                disabled={
+                                    zoomLevel <=
+                                    MIN_ZOOM
+                                }
+                            >
+                                −
+                            </button>
+
+                            <span>
+                                {Math.round(
+                                    zoomLevel *
+                                    100
+                                )}
+                                %
+                            </span>
+
+                            <button
+                                type="button"
+                                onClick={
+                                    zoomIn
+                                }
+                                disabled={
+                                    zoomLevel >=
+                                    MAX_ZOOM
+                                }
+                            >
+                                +
+                            </button>
+                        </div>
+                    </>
                 )}
             </div>
 

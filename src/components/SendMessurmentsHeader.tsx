@@ -10,7 +10,11 @@ import { resolveFinalPackagingTotal } from "../SERVICES/resolveFinalPackagingTot
 import { assignDryHopToHopsTable } from "../SERVICES/assignDryHop";
 import { getBrewAge } from "./TankCard";
 import { pushCurrentDataToFirestore } from "../SERVICES/pushCurrentDataToFirestore";
-import { logPackagingToMasterSheet } from "../SERVICES/packagingMasterSheetLogger";
+// ⚠️ שינוי - כבר לא כותבים כאן ישירות לטבלת המאסטר ולא מחכים לה.
+// PackagingPalletsModal מפעיל את submitPackagingRecord מיד ברקע דרך usePackagingPalletsFlow,
+// ומאפשר למשתמש לערוך את חלוקת המשטחים לפני שהם נוצרים בפועל.
+import PackagingPalletsModal from "./PackagingPalletsModal";
+import type { PackagingJobInput } from "../SERVICES/usePackagingPalletsFlow";
 
 export type SendMessurmentsHeaderProps = {
     brews: Fermentor[],
@@ -60,6 +64,9 @@ export default function SendMessurmentsHeader({
 
     // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
     const [writeWarning, setWriteWarning] = useState<writeReadingResult[] | null>(null);
+
+    // ⚠️ חדש - דיווחי אריזה שממתינים לעריכת חלוקת משטחים (ר' PackagingPalletsModal)
+    const [packagingJobs, setPackagingJobs] = useState<PackagingJobInput[] | null>(null);
 
     const measurementsCache = useRef<Record<string, Measurement[]>>({});
 
@@ -357,33 +364,41 @@ export default function SendMessurmentsHeader({
 
             readingsToSend = enrichedReadings;
 
-            try {
-                const masterSheetPromises = packagingEntries
-                    .filter((e: any) => Number(e.kegs) > 0 || Number(e.crates) > 0)
-                    .map((e: any) => {
-                        const tank = brews.find((b) => b.id === e.tankId);
-                        const packagingType: "kegs" | "bottles" = Number(e.kegs) > 0 ? "kegs" : "bottles";
-                        const rawAmount =
-                            packagingType === "kegs"
-                                ? Number(e.kegs) / 20 // KEG_LITERS
-                                : Number(e.crates) / 0.33; // BOTTLE_LITERS
-                        return logPackagingToMasterSheet({
-                            beerStyle: tank?.beerStyle,
-                            packagingType,
-                            amount: rawAmount,
-                            batchNumber: tank?.batchNumber ?? null,
-                            tankStatus: e.isEmpty,
-                            tankNumber: e.tankNumber,
-                        });
-                    });
+            // ⚠️ שינוי מרכזי: לא כותבים יותר לטבלת המאסטר כאן ולא מחכים (await) לה -
+            // זה בדיוק מה שגרם להמתנה הארוכה. במקום זה בונים רשימת "עבודות אריזה"
+            // ופותחים איתה את PackagingPalletsModal, שמפעיל את הכתיבה מיד ברקע
+            // (דרך usePackagingPalletsFlow) ובמקביל מציג למשתמש את חלוקת המשטחים לעריכה.
+            const jobs: PackagingJobInput[] = packagingEntries
+                .filter((e: any) => Number(e.kegs) > 0 || Number(e.crates) > 0)
+                .map((e: any) => {
+                    const tank = brews.find((b) => b.id === e.tankId);
+                    const packagingType: "kegs" | "bottles" = Number(e.kegs) > 0 ? "kegs" : "bottles";
+                    // עיגול: הכמות בליטרים משוחזרת לכמות שלמה של חביות/ארגזים, ו-0.33
+                    // (BOTTLE_LITERS) לא ניתן לייצוג מדויק ב-binary float - בלי עיגול
+                    // חבילה בגודל בדיוק ארגז יכולה לצאת 47.999... ולחתוך ארגז שלם בטעות.
+                    const rawAmount = Math.round(
+                        packagingType === "kegs"
+                            ? Number(e.kegs) / 20 // KEG_LITERS
+                            : Number(e.crates) / 0.33 // BOTTLE_LITERS
+                    );
+                    return {
+                        tankId: e.tankId,
+                        tankNumber: e.tankNumber,
+                        beerStyle: tank?.beerStyle,
+                        packagingType,
+                        amount: rawAmount,
+                        batchNumber: tank?.batchNumber ?? null,
+                        tankStatus: Boolean(e.isEmpty),
+                    };
+                });
 
-                const masterResults = await Promise.all(masterSheetPromises);
-                const masterFailures = masterResults.filter((r) => !r.success);
-                if (masterFailures.length > 0) {
-                    console.warn("Master sheet logging partial failures:", masterFailures);
-                }
-            } catch (error) {
-                console.error("Failed to log packaging to master sheet:", error);
+            if (jobs.length > 0) {
+                setPackagingJobs(jobs);
+                // ⚠️ חדש - מייד מסירים את המודל הכללי (הישן) של הקומפוננטה הזו,
+                // כדי ש-PackagingPalletsModal יהיה המודל היחיד על המסך. בלי זה,
+                // אם sendingReading עדיין "loading"/"error" בהמשך, שני המודלים
+                // היו נפתחים אחד מעל השני.
+                setSendingReading("idle");
             }
         }
 
@@ -394,7 +409,15 @@ export default function SendMessurmentsHeader({
         // ה-catch כאן חשוב: מונע "Unhandled promise rejection" כי
         // אנחנו מטפלים בתוצאה של ה-promise רק בהמשך, למטה.
         // ------------------------------------------------------------
-        setSendingReading(isFastPath ? "getRecs" : "loading");
+        // ⚠️ שינוי: אם כבר נפתח מודל המשטחים (jobs.length > 0), לא דורסים
+        // בחזרה את sendingReading ל-"loading"/"getRecs" - זה יפתח שוב את
+        // המודל הכללי מעל PackagingPalletsModal.
+        const alreadyHandedToPalletsModal = reportName === "אריזה" && packagingEntries.some(
+            (e: any) => Number(e.kegs) > 0 || Number(e.crates) > 0
+        );
+        if (!alreadyHandedToPalletsModal) {
+            setSendingReading(isFastPath ? "getRecs" : "loading");
+        }
         const writePromise = writeReadingsToSheets(readingsToSend).catch((error) => {
             console.error("writeReadingsToSheets failed:", error);
             return null; // מסמן כשל, מטופל למטה
@@ -471,7 +494,7 @@ export default function SendMessurmentsHeader({
                 setSendResults([]);
                 if (isFastPath) {
                     setWriteWarning([{ success: false, tankId: "", error: "השליחה לשרת נכשלה" } as writeReadingResult]);
-                } else {
+                } else if (!alreadyHandedToPalletsModal) {
                     setSendingReading("error");
                 }
                 return;
@@ -535,10 +558,14 @@ export default function SendMessurmentsHeader({
                 if (!allSucceeded) {
                     setWriteWarning(res.filter((r) => !r.success));
                 }
-            } else {
-                // פעולות/אריזה: אין מסלול מהיר, מחכים כרגיל לתוצאה הסופית
+            } else if (!alreadyHandedToPalletsModal) {
+                // פעולות/אריזה ללא משטחים: אין מסלול מהיר, מחכים כרגיל לתוצאה הסופית.
+                // אם כן נפתח PackagingPalletsModal - הוא מנהל את מצב הסיום בעצמו,
+                // ולא נוגעים כאן ב-sendingReading/newReadings.
                 setNewReadings({});
                 setSendingReading(allSucceeded ? "idle" : "error");
+            } else {
+                setNewReadings({});
             }
         });
     };
@@ -1004,6 +1031,13 @@ export default function SendMessurmentsHeader({
                         </div>
                     </div>
                 </div>
+            )}
+
+            {packagingJobs && (
+                <PackagingPalletsModal
+                    jobs={packagingJobs}
+                    onFinished={() => setPackagingJobs(null)}
+                />
             )}
         </>
     )

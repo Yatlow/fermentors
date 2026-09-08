@@ -55,6 +55,7 @@
     gap: 7px;
     flex: 1 1 auto;
     min-width: 0;
+    border: #000000 2px solid;
 }
 
 /* Uniform sizing for the three main toolbar buttons — same height,
@@ -1632,6 +1633,7 @@
     background: #f1f5f9;
     border-radius: 10px;
     padding: 4px 6px;
+    border: #000000 2px solid;
 }
 
 .cooler-zoom-controls button {

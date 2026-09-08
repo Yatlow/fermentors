@@ -15,8 +15,12 @@ import {
     buildDryHopNoteText,
 } from "../SERVICES/dryHopLogic";
 import { pushCurrentDataToFirestore } from "../SERVICES/pushCurrentDataToFirestore";
-// ⚠️ קובץ חדש - ראה packagingMasterSheetLogger.ts
-import { logPackagingToMasterSheet } from "../SERVICES/packagingMasterSheetLogger";
+// ⚠️ שינוי - לא כותבים יותר ישירות לטבלת המאסטר מכאן. במקום זה פותחים את מודל
+// עריכת המשטחים, שהוא זה שמריץ את submitPackagingRecord מיד ברקע (דרך
+// usePackagingPalletsFlow) ומאפשר עריכה. הוא נפתח מיד עם הלחיצה על "שלח" -
+// לא מחכים לכתיבת המדידה/updatePackagingInfo, כדי לא לעכב את המשתמש.
+import PackagingPalletsModal from "./PackagingPalletsModal";
+import type { PackagingJobInput } from "../SERVICES/usePackagingPalletsFlow";
 
 type QuickTankReportBoxProps = {
     tank: Fermentor;
@@ -71,6 +75,13 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
 
     const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
     const [errorMsg, setErrorMsg] = useState("");
+
+    // ⚠️ חדש - כשיש דיווח אריזה עם כמות, נפתח כאן את מודל עריכת המשטחים מיד,
+    // בלי לחכות לשום כתיבה. ברגע שיש packagingJob, קופסת הדיווח המהיר מוסתרת
+    // (ר' render למטה) כדי שלא תהיה חפיפה בין שתי הקופסאות. onClose האמיתי
+    // (prop של ההורה) נקרא רק מ-onFinished של PackagingPalletsModal - לא לפני,
+    // כי קריאה מוקדמת תסיר את כל הקומפוננטה הזו, כולל את המודל שבתוכה.
+    const [packagingJob, setPackagingJob] = useState<PackagingJobInput | null>(null);
 
     const isSending = status === "sending";
 
@@ -175,10 +186,38 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         }
     }
 
-    async function submitPackaging() {
-        setStatus("sending");
-        setErrorMsg("");
+    /** בונה את קלט עבודת האריזה (למודל המשטחים), או null אם אין כמות ממשית */
+    function buildPackagingJobInput(): PackagingJobInput | null {
+        if (!packagingType || !(Number(amount) > 0)) return null;
+        return {
+            tankId: tank.id,
+            tankNumber: tank.tankNumber ?? "",
+            beerStyle: tank.beerStyle,
+            packagingType,
+            amount: Number(amount),
+            batchNumber: tank.batchNumber,
+            tankStatus: isEmpty,
+        };
+    }
 
+    async function submitPackaging() {
+        // ⚠️ שינוי מרכזי: אם יש עבודת משטחים - פותחים את PackagingPalletsModal
+        // מייד, סינכרונית, לפני כל await. הוא זה שמריץ את submitPackagingRecord
+        // ברקע (דרך usePackagingPalletsFlow) ומציג במקביל את עריכת המשטחים.
+        const job = buildPackagingJobInput();
+        if (job) {
+            setPackagingJob(job);
+        } else {
+            setStatus("sending");
+            setErrorMsg("");
+        }
+
+        // כתיבת המדידה/ההערה בפועל (הגיליון + updatePackagingInfo) רצה ברקע,
+        // בלי שום קשר למודל המשטחים.
+        void writeMeasurementReading(job !== null);
+    }
+
+    async function writeMeasurementReading(handedOffToPalletsModal: boolean) {
         const reportLiters = calcReportLiters();
 
         let notes = "";
@@ -224,8 +263,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 crates: packagingType === "bottles" && reportLiters > 0 ? reportLiters : undefined,
                 // רושמים גם את הלחץ החדש כמדידת לחץ רגילה של המיכל
                 pressure: !isEmpty && hasValidPressure ? Number(pressureAfter) : undefined,
-                totalLiters,        // ← לא קיים!
-                shrinkagePercent,   // ← לא קיים!
+                totalLiters,
+                shrinkagePercent,
             };
 
             const res = await writeReadingsToSheets([reading]);
@@ -247,25 +286,19 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 console.error("Failed to push current data to Firestore:", error);
             });
 
-            // --- פיצ'ר 2: כתיבה לטבלת המאסטר (לא חוסם את זרימת השליחה הרגילה) ---
-            if (packagingType && Number(amount) > 0) {
-                logPackagingToMasterSheet({
-                    beerStyle: tank.beerStyle,
-                    packagingType,
-                    amount: Number(amount),
-                    batchNumber: tank.batchNumber,
-                    tankNumber: tank.tankNumber ?? null,  
-                    tankStatus: reading.isEmpty, // ← מעדכן את סטטוס המיכל לפי האם הוא ריק או לא
-                }).catch((err) => {
-                    console.error("Failed to log packaging to master sheet:", err);
-                });
+            if (!handedOffToPalletsModal) {
+                setStatus("sent");
+                onClose();
             }
-
-            setStatus("sent");
-            onClose()
         } catch (err: any) {
-            setStatus("error");
-            setErrorMsg(err?.message ?? "שגיאה בשליחה");
+            if (handedOffToPalletsModal) {
+                // הקופסה הזו כבר מוסתרת - PackagingPalletsModal ממשיך לרוץ בעצמו,
+                // אין למי להציג פה שגיאה, רק לתעד אותה.
+                console.error("Failed to write packaging measurement reading:", err);
+            } else {
+                setStatus("error");
+                setErrorMsg(err?.message ?? "שגיאה בשליחה");
+            }
         }
     }
 
@@ -288,185 +321,200 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         : null;
 
     return (
-        <div
-            className="fermentorInfoOverlay"
-            onClick={() => { if (!isSending) onClose(); }} // לא לסגור בטעות תוך כדי שליחה
-        >
-            <div
-                className="fermentorInfoBox quickReportBox"
-                style={position ? { top: position.top, left: position.left } : undefined}
-                onClick={(e) => e.stopPropagation()}
-            >
-                <button className="fermentorInfoClose" onClick={onClose} disabled={isSending}>×</button>
-                <h3>דיווח מהיר- מיכל {tank.tankNumber}</h3>
-
-                <div className="quickReportForm">
-                    <select
-                        className="quickReportSelect"
-                        value={noteType}
-                        disabled={isSending}
-                        onChange={(e) => {
-                            const newType = e.target.value;
-
-                            setNoteType(newType);
-                            resetValues();
-
-                            if (newType === "סגירת מיכל" && closingPressure !== null) {
-                                setValue(String(closingPressure));
-                            }
-                        }}
+        <>
+            {/* ⚠️ שינוי - מוסתר ברגע שיש packagingJob, כדי לא לחפוף עם PackagingPalletsModal */}
+            {!packagingJob && (
+                <div
+                    className="fermentorInfoOverlay"
+                    onClick={() => { if (!isSending) onClose(); }} // לא לסגור בטעות תוך כדי שליחה
+                >
+                    <div
+                        className="fermentorInfoBox quickReportBox"
+                        style={position ? { top: position.top, left: position.left } : undefined}
+                        onClick={(e) => e.stopPropagation()}
                     >
-                        <option value="" disabled>בחר סוג דיווח</option>
-                        {NOTE_TYPES
-                            .filter((t) => t.stage === "both" || t.stage === stage)
-                            .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
-                            .filter((t) => t.value !== "אריזה" || isColdTank)
-                            .map((t) => (
-                                <option key={t.value} value={t.value}>{t.label}</option>
-                            ))}
-                    </select>
+                        <button className="fermentorInfoClose" onClick={onClose} disabled={isSending}>×</button>
+                        <h3>דיווח מהיר- מיכל {tank.tankNumber}</h3>
 
-                    {noteType === "אחר" && (
-                        <input type="text" placeholder="כתוב הערה" value={value} disabled={isSending}
-                            onChange={(e) => setValue(e.target.value)} />
-                    )}
-                    {noteType === "סגירת מיכל" && (
-                        <div className="quickReportInline">
-                            <span>סגירת נשם, כיוון פורק ל:</span>
-
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={value}
-                                placeholder="לחץ"
-                                disabled={isSending}
-                                onChange={(e) => setValue(e.target.value)}
-                            />
-                            <span> bar </span>
-                        </div>
-                    )}
-
-                    {noteType === "גיזוז" && (
-                        <input type="number" min={0} max={15} placeholder="גיזוז" value={value} disabled={isSending}
-                            onChange={(e) => setValue(e.target.value)} />
-                    )}
-
-                    {noteType === "שמרים" && (
-                        <div className="quickReportInline">
-                            <input type="text" placeholder="כמות דליים" value={value} disabled={isSending}
-                                onChange={(e) => setValue(e.target.value)} />
-                            <span>לחץ אחרי</span>
-                            <input type="number" placeholder="לחץ" value={value2} disabled={isSending}
-                                onChange={(e) => setValue2(e.target.value)} />
-                        </div>
-                    )}
-
-                    {noteType === "לחץ" && (
-                        <div className="quickReportInline">
-                            <select value={direction} disabled={isSending} onChange={(e) => setDirection(e.target.value)}>
-                                <option value="" disabled>בחר כיוון</option>
-                                <option value="העלאת">העלאת</option>
-                                <option value="הורדת">הורדת</option>
-                            </select>
-                            <input type="number" placeholder="לחץ" value={value} disabled={isSending}
-                                onChange={(e) => setValue(e.target.value)} />
-                        </div>
-                    )}
-
-                    {noteType === "פורק" && (
-                        <input type="number" placeholder="לחץ" value={value} disabled={isSending}
-                            onChange={(e) => setValue(e.target.value)} />
-                    )}
-
-                    {noteType === "דרייהופ" && dryHopCalc && (
-                        dryHopCalc.needsManualInput ? (
-                            <div className="quickReportInline">
-                                <input type="number" placeholder="גרם" value={value} disabled={isSending}
-                                    onChange={(e) => setValue(e.target.value)} />
-                                <input type="text" placeholder="סוג כשות" value={value2} disabled={isSending}
-                                    onChange={(e) => setValue2(e.target.value)} />
-                            </div>
-                        ) : (
-                            <div className="quickReportDryHopPreview">
-                                הכנסת כשות 4: {roundGramsUp5(dryHopCalc.grams)} גרם {dryHopCalc.hopType}, סגירת לחץ, כיוון פורק ל{dryHopPressure ?? "—"} bar
-                            </div>
-                        )
-                    )}
-
-                    {noteType === "אריזה" && (
-                        <div className="quickReportPackaging">
+                        <div className="quickReportForm">
                             <select
                                 className="quickReportSelect"
-                                value={packagingType}
+                                value={noteType}
                                 disabled={isSending}
                                 onChange={(e) => {
-                                    const pt = e.target.value as "kegs" | "bottles";
-                                    setPackagingType(pt);
-                                    setAmount("");
-                                    // פיצ'ר 1: ברירת מחדל = הלחץ הנוכחי של המיכל
-                                    setPressureAfter(
-                                        tank.currentData?.pressure !== undefined && tank.currentData?.pressure !== null
-                                            ? String(tank.currentData.pressure)
-                                            : ""
-                                    );
-                                    setPressureAutoFilled(true);
+                                    const newType = e.target.value;
+
+                                    setNoteType(newType);
+                                    resetValues();
+
+                                    if (newType === "סגירת מיכל" && closingPressure !== null) {
+                                        setValue(String(closingPressure));
+                                    }
                                 }}
                             >
-                                <option value="" disabled>סוג אריזה</option>
-                                <option value="kegs">חביות</option>
-                                <option value="bottles">בקבוקים</option>
+                                <option value="" disabled>בחר סוג דיווח</option>
+                                {NOTE_TYPES
+                                    .filter((t) => t.stage === "both" || t.stage === stage)
+                                    .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
+                                    .filter((t) => t.value !== "אריזה" || isColdTank)
+                                    .map((t) => (
+                                        <option key={t.value} value={t.value}>{t.label}</option>
+                                    ))}
                             </select>
-                            {packagingType && (
-                                <input type="number" min={0} placeholder={`כמות ${packagingType === "kegs" ? "חביות" : "בקבוקים"}`} value={amount} disabled={isSending}
-                                    onChange={(e) => setAmount(e.target.value)} />
-                            )}
 
-                            {/* פיצ'ר 1: הורדת לחץ - רק כשהמיכל לא מסומן כריק */}
-                            {packagingType && !isEmpty && (
-                                <div className="quickReportInline quickReportPressureRow">
-                                    <span>הורדת לחץ ל: </span>
+                            {noteType === "אחר" && (
+                                <input type="text" placeholder="כתוב הערה" value={value} disabled={isSending}
+                                    onChange={(e) => setValue(e.target.value)} />
+                            )}
+                            {noteType === "סגירת מיכל" && (
+                                <div className="quickReportInline">
+                                    <span>סגירת נשם, כיוון פורק ל:</span>
+
                                     <input
                                         type="number"
                                         step="0.1"
-                                        value={pressureAfter}
+                                        value={value}
+                                        placeholder="לחץ"
                                         disabled={isSending}
-                                        className={pressureAutoFilled ? "auto-filled-value" : undefined}
-                                        onChange={(e) => {
-                                            setPressureAfter(e.target.value);
-                                            setPressureAutoFilled(false);
-                                        }}
+                                        onChange={(e) => setValue(e.target.value)}
                                     />
-                                    {pressureAutoFilled && pressureAfter !== "" && (
-                                        <span
-                                            className="auto-filled-hint"
-                                            title="לחץ לפני אריזה - ניתן לשנות"
-                                        >
-                                            לחץ לפני אריזה
-                                        </span>
-                                    )}
+                                    <span> bar </span>
                                 </div>
                             )}
 
-                            <label className="quickReportCheckbox">
-                                <input type="checkbox" checked={isEmpty} disabled={isSending}
-                                    onChange={(e) => setIsEmpty(e.target.checked)} />
-                                <span>המיכל ריק</span>
-                            </label>
+                            {noteType === "גיזוז" && (
+                                <input type="number" min={0} max={15} placeholder="גיזוז" value={value} disabled={isSending}
+                                    onChange={(e) => setValue(e.target.value)} />
+                            )}
+
+                            {noteType === "שמרים" && (
+                                <div className="quickReportInline">
+                                    <input type="text" placeholder="כמות דליים" value={value} disabled={isSending}
+                                        onChange={(e) => setValue(e.target.value)} />
+                                    <span>לחץ אחרי</span>
+                                    <input type="number" placeholder="לחץ" value={value2} disabled={isSending}
+                                        onChange={(e) => setValue2(e.target.value)} />
+                                </div>
+                            )}
+
+                            {noteType === "לחץ" && (
+                                <div className="quickReportInline">
+                                    <select value={direction} disabled={isSending} onChange={(e) => setDirection(e.target.value)}>
+                                        <option value="" disabled>בחר כיוון</option>
+                                        <option value="העלאת">העלאת</option>
+                                        <option value="הורדת">הורדת</option>
+                                    </select>
+                                    <input type="number" placeholder="לחץ" value={value} disabled={isSending}
+                                        onChange={(e) => setValue(e.target.value)} />
+                                </div>
+                            )}
+
+                            {noteType === "פורק" && (
+                                <input type="number" placeholder="לחץ" value={value} disabled={isSending}
+                                    onChange={(e) => setValue(e.target.value)} />
+                            )}
+
+                            {noteType === "דרייהופ" && dryHopCalc && (
+                                dryHopCalc.needsManualInput ? (
+                                    <div className="quickReportInline">
+                                        <input type="number" placeholder="גרם" value={value} disabled={isSending}
+                                            onChange={(e) => setValue(e.target.value)} />
+                                        <input type="text" placeholder="סוג כשות" value={value2} disabled={isSending}
+                                            onChange={(e) => setValue2(e.target.value)} />
+                                    </div>
+                                ) : (
+                                    <div className="quickReportDryHopPreview">
+                                        הכנסת כשות 4: {roundGramsUp5(dryHopCalc.grams)} גרם {dryHopCalc.hopType}, סגירת לחץ, כיוון פורק ל{dryHopPressure ?? "—"} bar
+                                    </div>
+                                )
+                            )}
+
+                            {noteType === "אריזה" && (
+                                <div className="quickReportPackaging">
+                                    <select
+                                        className="quickReportSelect"
+                                        value={packagingType}
+                                        disabled={isSending}
+                                        onChange={(e) => {
+                                            const pt = e.target.value as "kegs" | "bottles";
+                                            setPackagingType(pt);
+                                            setAmount("");
+                                            // פיצ'ר 1: ברירת מחדל = הלחץ הנוכחי של המיכל
+                                            setPressureAfter(
+                                                tank.currentData?.pressure !== undefined && tank.currentData?.pressure !== null
+                                                    ? String(tank.currentData.pressure)
+                                                    : ""
+                                            );
+                                            setPressureAutoFilled(true);
+                                        }}
+                                    >
+                                        <option value="" disabled>סוג אריזה</option>
+                                        <option value="kegs">חביות</option>
+                                        <option value="bottles">בקבוקים</option>
+                                    </select>
+                                    {packagingType && (
+                                        <input type="number" min={0} placeholder={`כמות ${packagingType === "kegs" ? "חביות" : "בקבוקים"}`} value={amount} disabled={isSending}
+                                            onChange={(e) => setAmount(e.target.value)} />
+                                    )}
+
+                                    {/* פיצ'ר 1: הורדת לחץ - רק כשהמיכל לא מסומן כריק */}
+                                    {packagingType && !isEmpty && (
+                                        <div className="quickReportInline quickReportPressureRow">
+                                            <span>הורדת לחץ ל: </span>
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                value={pressureAfter}
+                                                disabled={isSending}
+                                                className={pressureAutoFilled ? "auto-filled-value" : undefined}
+                                                onChange={(e) => {
+                                                    setPressureAfter(e.target.value);
+                                                    setPressureAutoFilled(false);
+                                                }}
+                                            />
+                                            {pressureAutoFilled && pressureAfter !== "" && (
+                                                <span
+                                                    className="auto-filled-hint"
+                                                    title="לחץ לפני אריזה - ניתן לשנות"
+                                                >
+                                                    לחץ לפני אריזה
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <label className="quickReportCheckbox">
+                                        <input type="checkbox" checked={isEmpty} disabled={isSending}
+                                            onChange={(e) => setIsEmpty(e.target.checked)} />
+                                        <span>המיכל ריק</span>
+                                    </label>
+                                </div>
+                            )}
+
+                            <button
+                                className="btn-primary quickReportSubmit"
+                                disabled={!canSubmit || isSending}
+                                onClick={handleSubmit}
+                            >
+                                {isSending ? <BeerLoader message="" size="spinner" /> : "שלח"}
+                            </button>
                         </div>
-                    )}
 
-                    <button
-                        className="btn-primary quickReportSubmit"
-                        disabled={!canSubmit || isSending}
-                        onClick={handleSubmit}
-                    >
-                        {isSending ? <BeerLoader message="" size="spinner" /> : "שלח"}
-                    </button>
+                        {status === "sent" && <p className="status-sent">נשלח בהצלחה</p>}
+                        {status === "error" && <p className="status-error">שגיאה: {errorMsg}</p>}
+                    </div>
                 </div>
+            )}
 
-                {status === "sent" && <p className="status-sent">נשלח בהצלחה</p>}
-                {status === "error" && <p className="status-error">שגיאה: {errorMsg}</p>}
-            </div>
-        </div>
+            {packagingJob && (
+                <PackagingPalletsModal
+                    jobs={[packagingJob]}
+                    onFinished={() => {
+                        setPackagingJob(null);
+                        onClose();
+                    }}
+                />
+            )}
+        </>
     );
 }

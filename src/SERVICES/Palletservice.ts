@@ -47,6 +47,10 @@ function splitQuantity(totalQuantity: number, maxPerPallet: number): number[] {
     return chunks;
 }
 
+function maxPerPalletFor(itemType: PalletItemType): number {
+    return itemType === "kegs" ? MAX_KEGS_PER_PALLET : MAX_CRATES_PER_PALLET;
+}
+
 async function createPalletDocument(input: {
     itemType: PalletItemType;
     beerStyle: string;
@@ -80,13 +84,122 @@ export async function createPalletsFromPackaging(params: CreatePalletsParams): P
     const { itemType, totalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber } = params;
     if (!totalQuantity || totalQuantity <= 0) return [];
 
-    const maxPerPallet = itemType === "kegs" ? MAX_KEGS_PER_PALLET : MAX_CRATES_PER_PALLET;
+    const maxPerPallet = maxPerPalletFor(itemType);
     const ids: string[] = [];
     for (const quantity of splitQuantity(totalQuantity, maxPerPallet)) {
         ids.push(await createPalletDocument({ itemType, beerStyle, quantity, batchNumber: batchNumber == null ? null : String(batchNumber), expiryDateStr, sourceTankNumber }));
     }
     return ids;
 }
+
+// ============================================================================
+// ⚠️ חדש - חלוקת משטחים הניתנת לעריכה ע"י המשתמש (מסך אישור אריזה)
+// ============================================================================
+
+/** שורת משטח בודדת בחלוקה - כמות + תווית משנה אופציונלית */
+export type CustomPalletSplitEntry = {
+    quantity: number;
+    subLabel?: string | null;
+};
+
+/**
+ * מחשבת את חלוקת ברירת המחדל (האוטומטית) למשטחים, כדי להציג למשתמש נקודת התחלה לעריכה.
+ * חישוב מקומי בלבד - לא נוגע ב-Firestore.
+ */
+export function getDefaultPalletSplit(
+    itemType: PalletItemType,
+    totalQuantity: number
+): CustomPalletSplitEntry[] {
+    if (!totalQuantity || totalQuantity <= 0) return [];
+    const maxPerPallet = maxPerPalletFor(itemType);
+    return splitQuantity(totalQuantity, maxPerPallet).map((quantity) => ({
+        quantity,
+        subLabel: null,
+    }));
+}
+
+/** הגבלת הכמות המקסימלית למשטח בודד, לפי סוג הפריט (לשימוש בוולידציה בטופס העריכה) */
+export function getMaxQuantityPerPallet(itemType: PalletItemType): number {
+    return maxPerPalletFor(itemType);
+}
+
+export type CreatePalletsFromCustomSplitParams = {
+    itemType: PalletItemType;
+    /** הכמות הכוללת שדווחה בפועל (למשל מתוך packagingMasterSheetLogger) - חובה שסכום splits יהיה שווה לה בדיוק */
+    expectedTotalQuantity: number;
+    beerStyle: string;
+    batchNumber: string | number | null | undefined;
+    expiryDateStr: string;
+    sourceTankNumber: string | number | null | undefined;
+    splits: CustomPalletSplitEntry[];
+};
+
+/**
+ * יוצרת משטחים לפי חלוקה שהמשתמש קבע/ערך ידנית (לא בהכרח שווה בשווה עד המקסימום).
+ *
+ * ולידציה קריטית: סכום הכמויות ב-splits חייב להיות שווה בדיוק לכמות שדווחה בפועל
+ * (expectedTotalQuantity) - כדי שלא ניתן יהיה בטעות ליצור יותר (או פחות) משטחים
+ * ממה שבאמת נארז. כל שורה בנפרד גם לא יכולה לחרוג מהמקסימום המותר למשטח מהסוג הזה.
+ */
+export async function createPalletsFromCustomSplit(
+    params: CreatePalletsFromCustomSplitParams
+): Promise<string[]> {
+    const {
+        itemType,
+        expectedTotalQuantity,
+        beerStyle,
+        batchNumber,
+        expiryDateStr,
+        sourceTankNumber,
+        splits,
+    } = params;
+
+    const expectedTotal = Math.round(expectedTotalQuantity);
+    if (!expectedTotal || expectedTotal <= 0) return [];
+
+    const sanitized = splits
+        .map((s) => ({ quantity: Math.round(s.quantity), subLabel: s.subLabel?.trim() || null }))
+        .filter((s) => s.quantity > 0);
+
+    if (sanitized.length === 0) {
+        throw new Error("יש להזין לפחות משטח אחד עם כמות גדולה מ-0");
+    }
+
+    const actualTotal = sanitized.reduce((sum, s) => sum + s.quantity, 0);
+    if (actualTotal !== expectedTotal) {
+        const unit = itemType === "kegs" ? "חביות" : "ארגזים";
+        throw new Error(
+            `סך כל המשטחים (${actualTotal} ${unit}) לא תואם לכמות שדווחה בפועל (${expectedTotal} ${unit}). יש לתקן את החלוקה כך שהסכום יהיה זהה.`
+        );
+    }
+
+    const maxPerPallet = maxPerPalletFor(itemType);
+    const overLimit = sanitized.find((s) => s.quantity > maxPerPallet);
+    if (overLimit) {
+        const unit = itemType === "kegs" ? "חביות" : "ארגזים";
+        throw new Error(
+            `משטח בודד יכול להכיל עד ${maxPerPallet} ${unit} (נמצא משטח עם ${overLimit.quantity})`
+        );
+    }
+
+    const ids: string[] = [];
+    for (const entry of sanitized) {
+        ids.push(
+            await createPalletDocument({
+                itemType,
+                beerStyle,
+                subLabel: entry.subLabel,
+                quantity: entry.quantity,
+                batchNumber: batchNumber == null ? null : String(batchNumber),
+                expiryDateStr,
+                sourceTankNumber,
+            })
+        );
+    }
+    return ids;
+}
+
+// ============================================================================
 
 export function subscribeToZone(zone: PalletZone, cb: (pallets: Pallet[]) => void) {
     const q = query(collection(db, PALLETS_COLLECTION), where("zone", "==", zone));
@@ -107,7 +220,7 @@ export async function updatePallet(palletId: string, input: {
 }) {
     if (!input.beerStyle.trim()) throw new Error("יש להזין סגנון בירה");
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error("כמות חייבת להיות גדולה מ-0");
-    const max = input.itemType === "kegs" ? MAX_KEGS_PER_PALLET : MAX_CRATES_PER_PALLET;
+    const max = maxPerPalletFor(input.itemType);
     if (input.quantity > max) throw new Error(`משטח בודד יכול להכיל עד ${max} ${input.itemType === "kegs" ? "חביות" : "ארגזים"}`);
 
     await updateDoc(doc(db, PALLETS_COLLECTION, palletId), {
@@ -213,7 +326,7 @@ export async function createPallets(input: {
     if (!input.beerStyle.trim()) throw new Error("יש להזין סגנון בירה");
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error("כמות חייבת להיות גדולה מ-0");
 
-    const max = input.itemType === "kegs" ? MAX_KEGS_PER_PALLET : MAX_CRATES_PER_PALLET;
+    const max = maxPerPalletFor(input.itemType);
     const totalModeChunks = splitQuantity(input.quantity, max);
     const chunks = input.palletCount && input.palletCount > 1
         ? Array.from({ length: Math.floor(input.palletCount) }, () => input.quantity)

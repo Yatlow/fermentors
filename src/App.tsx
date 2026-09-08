@@ -846,21 +846,6 @@ function App() {
                             </button>
                             <button
                                 type="button"
-                                className={`status-filter-button ${selectedReports === "גרפים"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedReports("גרפים")
-                                }
-                                }
-                            >
-                                <span>
-                                    גרפים לפי אצווה
-                                </span>
-                            </button>
-                            <button
-                                type="button"
                                 className={`status-filter-button ${selectedReports === "משלוחים"
                                     ? "active"
                                     : ""
@@ -887,6 +872,21 @@ function App() {
                             >
                                 <span>
                                      מלאי מוצר מוגמר
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                className={`status-filter-button ${selectedReports === "גרפים"
+                                    ? "active"
+                                    : ""
+                                    }`}
+                                onClick={() => {
+                                    setSelectedReports("גרפים")
+                                }
+                                }
+                            >
+                                <span>
+                                    גרפים לפי אצווה
                                 </span>
                             </button>
                         </div>
@@ -1030,10 +1030,10 @@ function App() {
                 </>
             }
 
-            {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
             {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
             {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
             {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
+            {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
 
             {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
