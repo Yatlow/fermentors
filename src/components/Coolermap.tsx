@@ -36,7 +36,7 @@ import {
 import {
     beerStyleClass,
     calcHeightUnits,
-    MAX_HEIGHT_UNITS_PER_CELL,
+    MAX_HEIGHT_CM,
     type Pallet,
     type CoolerCell,
     type CoolerSide,
@@ -583,7 +583,7 @@ function CoolerCellBox({
         !isSourceCell &&
         heightUsed +
         movingHeight >
-        MAX_HEIGHT_UNITS_PER_CELL;
+        MAX_HEIGHT_CM;
 
     function swap(
         index: number,
@@ -661,7 +661,7 @@ function CoolerCellBox({
                         width: `${Math.min(
                             100,
                             (heightUsed /
-                                MAX_HEIGHT_UNITS_PER_CELL) *
+                                MAX_HEIGHT_CM) *
                             100
                         )}%`,
                     }}
@@ -746,7 +746,7 @@ function CoolerCellBox({
                         )}
                         /
                         {
-                            MAX_HEIGHT_UNITS_PER_CELL
+                            MAX_HEIGHT_CM
                         }
                     </div>
                 ) : (
@@ -1474,7 +1474,7 @@ export default function CoolerMap({
         if (
             used +
             movingHeight >
-            MAX_HEIGHT_UNITS_PER_CELL
+            MAX_HEIGHT_CM
         ) {
             setError(
                 "אין מספיק מקום בתא הזה"

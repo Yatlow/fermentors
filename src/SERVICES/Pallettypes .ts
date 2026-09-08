@@ -55,17 +55,37 @@ export type Shipment = {
     createdAt?: Timestamp | null;
 };
 
-export const MAX_CRATES_PER_PALLET = 84;
+export const MAX_CRATES_PER_PALLET = 12;
 export const MAX_KEGS_PER_PALLET = 20;
-export const MAX_HEIGHT_UNITS_PER_CELL = 5;
-export const MAX_HEIGHT_UNITS_PER_LOADING_PALLET = 4;
 
-export function calcHeightUnits(itemType: PalletItemType, quantity: number): number {
-    if (itemType === "kegs") return 1;
-    if (quantity <= 24) return 1;
-    if (quantity <= 48) return 1.6;
-    return 2.35;
+export const PALLET_HEIGHT_CM = 15;
+export const KEG_HEIGHT_CM = 58;
+export const CRATE_HEIGHT_CM = 24;
+
+export const MAX_HEIGHT_CM = 370;
+export const MAX_HEIGHT_UNITS_PER_LOADING_PALLET = 190;
+
+export function calcHeightUnits(
+    itemType: PalletItemType,
+    quantity: number
+): number {
+    if (quantity <= 0) return PALLET_HEIGHT_CM;
+
+    const itemsPerRow =
+        itemType === "kegs"
+            ? MAX_KEGS_PER_PALLET
+            : MAX_CRATES_PER_PALLET;
+
+    const itemHeight =
+        itemType === "kegs"
+            ? KEG_HEIGHT_CM
+            : CRATE_HEIGHT_CM;
+
+    const rows = Math.ceil(quantity / itemsPerRow);
+
+    return PALLET_HEIGHT_CM + rows * itemHeight;
 }
+
 
 type StyleCategory = "ipa" | "pale" | "lager" | "hoppyLager" | "wheat" | "stout" | "sour" | "other";
 
