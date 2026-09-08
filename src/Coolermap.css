@@ -1803,6 +1803,9 @@
         max-width: none;
         flex: 1;
     }
+    .modal-box select {
+        min-height: 45px;
+    }
 
     .dock-card {
         grid-template-columns: auto 1fr;

@@ -44,6 +44,8 @@ type JobRuntime = {
 
 export type FlowStep = "review" | "submitting" | "done" | "error";
 export type SubmittingPhase = "waitingForSend" | "creatingPallets" | null;
+/** מצב "שלב 1" - כתיבת הנתונים ברקע. רץ מקביל לשלב review, מוצג בנפרד ב-stepper. */
+export type SendPhase = "pending" | "done" | "error";
 
 let rowIdCounter = 0;
 function nextRowId() {
@@ -206,6 +208,17 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
 
     const isValid = validation.every((v) => v.ok);
 
+    // "שלב 1" בסטפר - כתיבת הנתונים למאסטר-שיט. רץ ברקע כל עוד המשתמש בשלב review.
+    // pending כל עוד יש עבודה רלוונטית (reportedQuantity > 0) שעדיין לא נשלחה,
+    // error אם משהו נכשל, done כשהכל נשלח בהצלחה (או שאין בכלל מה לשלוח).
+    const sendPhase: SendPhase = useMemo(() => {
+        const relevant = runtimes.filter((r) => r.reportedQuantity > 0);
+        if (relevant.length === 0) return "done";
+        if (relevant.some((r) => r.sendStatus === "error")) return "error";
+        if (relevant.some((r) => r.sendStatus === "pending")) return "pending";
+        return "done";
+    }, [runtimes]);
+
     async function confirm() {
         if (!isValid || step !== "review") return;
 
@@ -258,6 +271,7 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         submittingPhase,
         submitError,
         submitWarnings,
+        sendPhase,
         updateRowQuantity,
         updateRowSubLabel,
         removeRow,

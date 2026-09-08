@@ -73,9 +73,9 @@ export default function AddPalletModal({ brews, onClose, onDone }: { brews?: Fer
                 <p className="modal-hint">המשטחים ייווצרו ב״ממתינים לשיבוץ״.</p>
 
                 <label>סוג</label>
-                <select value={itemType} onChange={(e) => setItemType(e.target.value as "kegs" | "crates")}><option value="crates">ארגזים</option><option value="kegs">חביות</option></select>
+                <select className="AddPalletSelect" value={itemType} onChange={(e) => setItemType(e.target.value as "kegs" | "crates")}><option value="crates">ארגזים</option><option value="kegs">חביות</option></select>
 
-                {knownBatches.length > 0 && <><label>ייבוא נתונים מאצווה קיימת</label><select value={batchNumber} onChange={(e) => pickBatch(e.target.value)}><option value="">— הזנה ידנית —</option>{knownBatches.map((b) => <option key={b.batchNumber} value={b.batchNumber}>{b.batchNumber} · {b.beerStyle}</option>)}</select></>}
+                {knownBatches.length > 0 && <><label>ייבוא נתונים מאצווה קיימת</label><select  className="AddPalletSelect" value={batchNumber} onChange={(e) => pickBatch(e.target.value)}><option value="">— הזנה ידנית —</option>{knownBatches.map((b) => <option key={b.batchNumber} value={b.batchNumber}>{b.batchNumber} · {b.beerStyle}</option>)}</select></>}
 
                 <label>סגנון בירה</label><input value={beerStyle} onChange={(e) => setBeerStyle(e.target.value)} placeholder="למשל IPA, פייל, לאגר" />
                 <label>תווית משנה</label><input value={subLabel} onChange={(e) => setSubLabel(e.target.value)} placeholder="לא חובה" />

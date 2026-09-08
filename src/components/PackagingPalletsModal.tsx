@@ -23,6 +23,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
         submittingPhase,
         submitError,
         submitWarnings,
+        sendPhase,
         updateRowQuantity,
         updateRowSubLabel,
         removeRow,
@@ -40,16 +41,30 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
             <div className="modal-box">
                 <div className="modal-box-scroll">
                     <h3 className="packagingPalletsTitle">אישור אריזה ומשטחים</h3>
+                    <p className="packagingPalletsSubtitle">
+                        כל שורה מייצגת <strong>משטח נפרד</strong> שייווצר במפת המקרר.
+                        אפשר לערוך את הכמות, להוסיף תווית משנה, לפצל משטח לשניים או למחוק - לפני האישור הסופי.
+                    </p>
 
                     <div className="manual-batch-stepper">
+                        <div
+                            className={`manual-batch-stepper-item ${sendPhase === "done"
+                                    ? "done"
+                                    : sendPhase === "error"
+                                        ? "error"
+                                        : "active sending"
+                                }`}
+                        >
+                            <span className="manual-batch-stepper-dot">1</span>
+                            <span className="manual-batch-stepper-label">שליחת נתונים</span>
+                        </div>
                         {STEP_ORDER.map((s, index) => (
                             <div
                                 key={s}
-                                className={`manual-batch-stepper-item ${
-                                    index < currentStepIndex ? "done" : index === currentStepIndex ? "active" : ""
-                                }`}
+                                className={`manual-batch-stepper-item ${index < currentStepIndex ? "done" : index === currentStepIndex ? "active" : ""
+                                    }`}
                             >
-                                <span className="manual-batch-stepper-dot">{index + 1}</span>
+                                <span className="manual-batch-stepper-dot">{index + 2}</span>
                                 <span className="manual-batch-stepper-label">{STEP_LABELS[s]}</span>
                             </div>
                         ))}
@@ -81,7 +96,11 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                             <div>
                                                 <h2>מיכל {String(runtime.job.tankNumber)} - {runtime.job.beerStyle ?? "—"}</h2>
                                                 <p>
-                                                    {runtime.sendStatus === "pending" && "שולח נתונים ברקע..."}
+                                                    {runtime.sendStatus === "pending" && (
+                                                        <span className="packagingPalletsSendingIndicator">
+                                                            <BeerLoader message="שולח נתונים ברקע..." size="small" />
+                                                        </span>
+                                                    )}
                                                     {runtime.sendStatus === "done" && "הנתונים נשלחו בהצלחה"}
                                                     {runtime.sendStatus === "error" && (
                                                         <span className="status-error">
@@ -95,9 +114,17 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                             </div>
                                         </div>
 
+                                        <p className="packagingPalletsRowsHint">
+                                            {jobRows.length} משטחים עבור המיכל הזה - כמות, תווית ופעולות לכל משטח בשורה שלו:
+                                        </p>
+                                        <p className={`packagingPalletsJobTotal ${jobValidation?.ok ? "status-sent" : "status-error"}`}>
+                                            סה"כ: {jobValidation?.sum ?? 0} מתוך {runtime.reportedQuantity} {unit} באריזה זו
+                                        </p>
+
                                         <div className="packagingPalletsRows">
-                                            {jobRows.map((row) => (
+                                            {jobRows.map((row, rowIndex) => (
                                                 <div className="packagingPalletRow" key={row.id}>
+                                                    <span className="packagingPalletRowIndex">{rowIndex + 1}</span>
                                                     <div className="packagingPalletRowQty">
                                                         <input
                                                             type="number"
@@ -139,10 +166,10 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                 הוסף משטח
                                             </button>
                                         </div>
-
                                         <p className={`packagingPalletsJobTotal ${jobValidation?.ok ? "status-sent" : "status-error"}`}>
-                                            סה"כ: {jobValidation?.sum ?? 0} מתוך {runtime.reportedQuantity} {unit} נדרשים
+                                            סה"כ: {jobValidation?.sum ?? 0} מתוך {runtime.reportedQuantity} {unit} באריזה זו
                                         </p>
+
                                     </div>
                                 );
                             })}

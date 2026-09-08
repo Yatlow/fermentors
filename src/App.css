@@ -5959,3 +5959,236 @@ body {
         font-size: 21px;
     }
 }
+/* =========================================================
+   PACKAGING PALLETS MODAL - additions
+   (add these to your existing stylesheet, e.g. cooler-map.css)
+   ========================================================= */
+
+/* ---------- Explanatory subtitle under the modal title ---------- */
+.packagingPalletsSubtitle {
+    margin: 2px 0 12px;
+    padding: 8px 10px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    color: #1e40af;
+    font-size: .72rem;
+    line-height: 1.5;
+}
+
+/* ---------- Stepper: new "שליחת נתונים" step, colored red while pending ---------- */
+.manual-batch-stepper-item.sending .manual-batch-stepper-dot {
+    background: #dc2626;
+    color: #fff;
+}
+
+.manual-batch-stepper-item.sending .manual-batch-stepper-label {
+    color: #dc2626;
+    font-weight: bold;
+}
+
+.manual-batch-stepper-item.error .manual-batch-stepper-dot {
+    background: #dc2626;
+    color: #fff;
+}
+
+.manual-batch-stepper-item.error .manual-batch-stepper-label {
+    color: #dc2626;
+}
+
+/* ---------- Inline spinner next to "שולח נתונים ברקע..." ---------- */
+.packagingPalletsSendingIndicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #b45309;
+}
+
+.packagingPalletsSendingIndicator > * {
+    /* BeerLoader is normally sized for full-page loading states;
+       shrink it down so it fits inline next to the status text */
+    transform: scale(0.55);
+    transform-origin: right center;
+}
+
+/* ---------- Review list: space cards apart, per-container ---------- */
+.packagingPalletsReview {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.packagingPalletsEmptyNote {
+    color: #94a3b8;
+    font-size: .72rem;
+}
+
+/* ---------- Per-job hint above the row list ---------- */
+.packagingPalletsRowsHint {
+    margin: 6px 0 4px;
+    color: #64748b;
+    font-size: .66rem;
+}
+
+/* ---------- Each pallet is now a clearly separated, bordered row ---------- */
+.packagingPalletsRows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 4px 0 10px;
+}
+
+.packagingPalletRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    transition: border-color .12s ease, background .12s ease;
+}
+
+.packagingPalletRow:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+}
+
+.packagingPalletRowIndex {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #eaf4ff;
+    color: #1d4ed8;
+    font-size: .62rem;
+    font-weight: bold;
+}
+
+.packagingPalletRowQty {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.packagingPalletRowQty input {
+    width: 50px !important;
+    min-height: 34px;
+    box-sizing: border-box;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 4px 6px;
+    font-size: .78rem;
+    text-align: center;
+}
+
+.packagingPalletRowQty span {
+    font-size: .62rem;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.packagingPalletRowLabel {
+    /* flex: 1; */
+    min-width: 0;
+    min-height: 34px;
+    box-sizing: border-box;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 4px 8px;
+    font-size: .74rem;
+    background: #fff;
+}
+
+.packagingPalletRowActions {
+    flex: none;
+    display: flex;
+    gap: 4px;
+}
+
+.packagingPalletRowActions button {
+    height: 30px;
+    padding: 0 8px;
+    font-size: .64rem;
+}
+
+.packagingPalletsAddRow {
+    margin-top: 2px;
+}
+
+.packagingPalletsJobTotal {
+    margin: 8px 0 0;
+    padding-top: 8px;
+    border-top: 1px dashed #dfe6ed;
+    font-size: .7rem;
+    font-weight: bold;
+}
+
+.packagingPalletsSubmitRow {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.packagingPalletsSubmitBtn {
+    min-height: 42px;
+    padding: 0 22px;
+}
+
+@media (max-width: 699px) {
+    .packagingPalletRow {
+        flex-wrap: wrap;
+    }
+    .packagingPalletRow {
+        flex-wrap: nowrap;
+        gap: 5px;
+        padding: 7px 6px;
+    }
+
+    .packagingPalletRowIndex {
+        width: 20px;
+        height: 20px;
+        font-size: .58rem;
+    }
+
+    .packagingPalletRowQty {
+        flex: none;
+        gap: 2px;
+    }
+
+    .packagingPalletRowQty input {
+        width: 42px !important;
+        min-height: 32px;
+        padding: 3px 4px;
+        font-size: .72rem;
+    }
+
+    .packagingPalletRowQty span {
+        font-size: .55rem;
+    }
+
+    .packagingPalletRowLabel {
+        flex: 1 1 auto;
+        min-width: 0;
+        width: auto;
+        min-height: 32px;
+        padding: 3px 6px;
+        font-size: .68rem;
+    }
+
+    .packagingPalletRowActions {
+        flex: none;
+        gap: 3px;
+    }
+
+    .packagingPalletRowActions button {
+        height: 29px;
+        padding: 0 6px;
+        font-size: .58rem;
+        white-space: nowrap;
+    }
+
+}
