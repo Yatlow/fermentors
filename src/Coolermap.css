@@ -337,8 +337,9 @@
 
 .cooler-side-block {
     display: grid;
-    grid-template-columns: repeat(6, 250px);
+    grid-template-columns:50px repeat(6, 250px) 50px;
     gap: 8px;
+    padding: 8px;
 }
 
 .cooler-side-title {
@@ -373,19 +374,90 @@
 
 .cooler-corridor-row {
     display: grid;
-    grid-template-columns: 50px 1fr 50px;
+
+    /*
+     * דלת | 6 עמודות | דלת
+     *
+     * העמודות המרכזיות הן בדיוק באותו רוחב
+     * כמו cooler-side-block.
+     */
+    grid-template-columns:
+        50px
+        1540px
+        50px;
+
     gap: 8px;
+
     align-items: stretch;
+
+    /*
+     * 8px padding משני הצדדים
+     * כמו שהיה במבנה המקורי.
+     */
     padding: 8px;
+
+    /*
+     * הרוחב כולל גם את הדלתות.
+     */
+    width: max-content;
+    min-width: max-content;
+
+    box-sizing: border-box;
+
     border: 1px dashed #cbd5e1;
     background: #edf2f7;
     border-radius: 12px;
 }
 
+
+/*
+ * 6 תאי המסדרון
+ *
+ * חייבים להיות בדיוק:
+ * 6 × 250px + 5 × 8px = 1540px
+ */
 .cooler-corridor-cells {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 6px;
+
+    grid-template-columns:
+        repeat(6, 250px);
+
+    gap: 8px;
+
+    width: 1540px;
+    min-width: 1540px;
+    max-width: 1540px;
+
+    box-sizing: border-box;
+}
+
+
+/*
+ * הדלתות נשארות חלק מה-grid.
+ * לכן הן לא נעלמות ולא משפיעות על
+ * היישור של 6 העמודות.
+ */
+.cooler-corridor-row > .door-marker {
+    width: 50px;
+    min-width: 50px;
+    box-sizing: border-box;
+}
+.silent-door-marker{
+     width: 50px;
+    min-width: 50px;
+    box-sizing: border-box;
+}
+
+
+/* דלת שמאל */
+.cooler-corridor-row > .door-marker:first-child {
+    right: calc(100% + 8px);
+}
+
+
+/* דלת ימין */
+.cooler-corridor-row > .door-marker:last-child {
+    left: calc(100% + 8px);
 }
 
 .door-marker {

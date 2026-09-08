@@ -802,6 +802,7 @@ export default function PackagingReportsView() {
                                     <th>
                                         פריט
                                     </th>
+                                    <th>מיכל</th>
                                     <th>
                                         סוג אריזה
                                     </th>
@@ -839,7 +840,7 @@ export default function PackagingReportsView() {
                                                 row.itemLabel
                                             }
                                         </td>
-
+                                            <td>{row.tankNumber}</td>
                                         <td>
                                             {row.unit}
                                         </td>

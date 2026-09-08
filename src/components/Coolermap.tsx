@@ -203,9 +203,9 @@ function sortPalletsInCell(
         pallets.every(
             (p) =>
                 typeof p.orderInCell ===
-                    "number" ||
+                "number" ||
                 typeof p.slotIndex ===
-                    "number"
+                "number"
         );
 
     if (manuallyOrdered) {
@@ -337,17 +337,14 @@ function CompactPalletCard({
 
     return (
         <div
-            className={`pallet-row ${
-                style.className
-            } ${
-                isSelectedForMove
+            className={`pallet-row ${style.className
+                } ${isSelectedForMove
                     ? "placement-card"
                     : ""
-            } ${
-                pallet.markedForShipment
+                } ${pallet.markedForShipment
                     ? "marked-for-shipment"
                     : ""
-            }`}
+                }`}
             onClick={(e) => {
                 e.stopPropagation();
                 handleRowClick();
@@ -355,7 +352,7 @@ function CompactPalletCard({
         >
             <span className="pallet-row-icon">
                 {pallet.itemType ===
-                "kegs"
+                    "kegs"
                     ? "🛢️"
                     : "📦"}
             </span>
@@ -363,7 +360,7 @@ function CompactPalletCard({
             <strong className="pallet-row-qty">
                 {pallet.quantity}{" "}
                 {pallet.itemType ===
-                "crates"
+                    "crates"
                     ? "ארגזים"
                     : "חביות"}
             </strong>
@@ -389,13 +386,12 @@ function CompactPalletCard({
 
             {pallet.expiryDateStr && (
                 <span
-                    className={`pallet-row-expiry ${
-                        expired
-                            ? "expiry-expired"
-                            : expiring
-                              ? "expiry-warning"
-                              : ""
-                    }`}
+                    className={`pallet-row-expiry ${expired
+                        ? "expiry-expired"
+                        : expiring
+                            ? "expiry-warning"
+                            : ""
+                        }`}
                 >
                     {
                         pallet.expiryDateStr
@@ -466,11 +462,10 @@ function CompactPalletCard({
 
                                 <button
                                     type="button"
-                                    className={`row-icon-btn ${
-                                        pallet.markedForShipment
-                                            ? "on"
-                                            : ""
-                                    }`}
+                                    className={`row-icon-btn ${pallet.markedForShipment
+                                        ? "on"
+                                        : ""
+                                        }`}
                                     onClick={
                                         onMarkShipment
                                     }
@@ -571,8 +566,8 @@ function CoolerCellBox({
     const movingHeight =
         placementPallet
             ? getHeight(
-                  placementPallet
-              )
+                placementPallet
+            )
             : 0;
 
     const isSourceCell =
@@ -587,8 +582,8 @@ function CoolerCellBox({
         !!placementPallet &&
         !isSourceCell &&
         heightUsed +
-            movingHeight >
-            MAX_HEIGHT_UNITS_PER_CELL;
+        movingHeight >
+        MAX_HEIGHT_UNITS_PER_CELL;
 
     function swap(
         index: number,
@@ -616,9 +611,9 @@ function CoolerCellBox({
             next[index],
             next[other],
         ] = [
-            next[other],
-            next[index],
-        ];
+                next[other],
+                next[index],
+            ];
 
         onReorder(
             cell,
@@ -636,19 +631,16 @@ function CoolerCellBox({
 
     return (
         <div
-            className={`cooler-cell ${
-                caution
-                    ? "caution"
-                    : ""
-            } ${
-                canMoveHere
+            className={`cooler-cell ${caution
+                ? "caution"
+                : ""
+                } ${canMoveHere
                     ? "move-target"
                     : ""
-            } ${
-                wouldOverflow
+                } ${wouldOverflow
                     ? "no-room"
                     : ""
-            }`}
+                }`}
             onClick={() => {
                 if (canMoveHere) {
                     onDropHere(cell);
@@ -670,7 +662,7 @@ function CoolerCellBox({
                             100,
                             (heightUsed /
                                 MAX_HEIGHT_UNITS_PER_CELL) *
-                                100
+                            100
                         )}%`,
                     }}
                 />
@@ -731,12 +723,12 @@ function CoolerCellBox({
                             onReorder={
                                 organizeMode
                                     ? (
-                                          direction
-                                      ) =>
-                                          swap(
-                                              index,
-                                              direction
-                                          )
+                                        direction
+                                    ) =>
+                                        swap(
+                                            index,
+                                            direction
+                                        )
                                     : undefined
                             }
                         />
@@ -849,11 +841,11 @@ function CoolerColumn({
                     index + 1
             ).map((row) => {
                 const cell: CoolerCell =
-                    {
-                        side,
-                        col,
-                        row,
-                    };
+                {
+                    side,
+                    col,
+                    row,
+                };
 
                 return (
                     <CoolerCellBox
@@ -967,11 +959,11 @@ function Corridor({
                 {CORRIDOR_COLUMNS.map(
                     (column) => {
                         const cell: CoolerCell =
-                            {
-                                side: "corridor",
-                                col: column.col,
-                                row: 1,
-                            };
+                        {
+                            side: "corridor",
+                            col: column.col,
+                            row: 1,
+                        };
 
                         return (
                             <CoolerCellBox
@@ -1093,7 +1085,7 @@ function ZoneBadges({
                     <strong>
                         {
                             counts[
-                                zone
+                            zone
                             ]
                         }
                     </strong>
@@ -1323,10 +1315,10 @@ export default function CoolerMap({
     const placementPallet =
         placementPalletId
             ? allPallets.find(
-                  (pallet) =>
-                      pallet.id ===
-                      placementPalletId
-              ) ?? null
+                (pallet) =>
+                    pallet.id ===
+                    placementPalletId
+            ) ?? null
             : null;
 
     const palletsByCell =
@@ -1370,7 +1362,7 @@ export default function CoolerMap({
                     (pallet) =>
                         pallet.markedForShipment &&
                         pallet.zone !==
-                            "loadingDock"
+                        "loadingDock"
                 ),
             [allPallets]
         );
@@ -1481,7 +1473,7 @@ export default function CoolerMap({
 
         if (
             used +
-                movingHeight >
+            movingHeight >
             MAX_HEIGHT_UNITS_PER_CELL
         ) {
             setError(
@@ -1508,9 +1500,9 @@ export default function CoolerMap({
 
             if (
                 originTab ===
-                    "pending" &&
+                "pending" &&
                 zones.pending.length >
-                    1
+                1
             ) {
                 setTab(
                     "pending"
@@ -1532,7 +1524,7 @@ export default function CoolerMap({
                     : "שגיאה בשיבוץ";
 
             setError(message);
-        }        finally {
+        } finally {
             setOperationLoading(null);
         }
 
@@ -1618,7 +1610,7 @@ export default function CoolerMap({
                     : "שגיאה בהעברה";
 
             setError(message);
-        }        finally {
+        } finally {
             setOperationLoading(null);
         }
 
@@ -1658,7 +1650,7 @@ export default function CoolerMap({
                     : "שגיאה בהעברה מרובה";
 
             setError(message);
-        }        finally {
+        } finally {
             setOperationLoading(null);
         }
 
@@ -1687,7 +1679,7 @@ export default function CoolerMap({
                     : "שגיאה בסימון למשלוח";
 
             setError(message);
-        }        finally {
+        } finally {
             setOperationLoading(null);
         }
 
@@ -1724,7 +1716,7 @@ export default function CoolerMap({
                     : "שגיאה בהעברה למשלוח";
 
             setError(message);
-        }        finally {
+        } finally {
             setOperationLoading(null);
         }
 
@@ -1757,7 +1749,7 @@ export default function CoolerMap({
                     : "שגיאה בסידור המשטחים";
 
             setError(message);
-        }        finally {
+        } finally {
             setOperationLoading(null);
         }
 
@@ -1990,9 +1982,9 @@ export default function CoolerMap({
 
         return Math.hypot(
             first.clientX -
-                second.clientX,
+            second.clientX,
             first.clientY -
-                second.clientY
+            second.clientY
         );
     }
 
@@ -2020,7 +2012,7 @@ export default function CoolerMap({
     ) {
         if (
             event.touches.length ===
-                2 &&
+            2 &&
             pinchStartDistance.current
         ) {
             event.preventDefault();
@@ -2151,11 +2143,10 @@ export default function CoolerMap({
 
     return (
         <div
-            className={`cooler-map-page ${
-                placementPallet
-                    ? "has-floating-banner"
-                    : ""
-            }`}
+            className={`cooler-map-page ${placementPallet
+                ? "has-floating-banner"
+                : ""
+                }`}
             dir="rtl"
         >
             {/* ==================================================
@@ -2167,11 +2158,10 @@ export default function CoolerMap({
                     {tab === "map" && (
                         <button
                             type="button"
-                            className={`organize-toggle ${
-                                organizeMode
-                                    ? "active"
-                                    : ""
-                            }`}
+                            className={`organize-toggle ${organizeMode
+                                ? "active"
+                                : ""
+                                }`}
                             onClick={
                                 toggleOrganizeMode
                             }
@@ -2201,41 +2191,40 @@ export default function CoolerMap({
 
                             {tab ===
                                 "map" && (
-                                <button
-                                    type="button"
-                                    className={`cooler-ship-marked-btn ${
-                                        totalPlannedTruckSlots >
-                                        MAX_TRUCK_SLOTS
+                                    <button
+                                        type="button"
+                                        className={`cooler-ship-marked-btn ${totalPlannedTruckSlots >
+                                            MAX_TRUCK_SLOTS
                                             ? "truck-over-capacity"
                                             : ""
-                                    }`}
-                                    onClick={
-                                        shipAllMarked
-                                    }
-                                    disabled={
-                                        markedForShipmentPallets.length ===
-                                        0
-                                    }
-                                >
-                                    <Truck
-                                        size={14}
-                                    />
-
-                                    שלח מסומנים
-
-                                    <span>
-                                        (
-                                        {
-                                            totalPlannedTruckSlots
+                                            }`}
+                                        onClick={
+                                            shipAllMarked
                                         }
-                                        /
-                                        {
-                                            MAX_TRUCK_SLOTS
-                                        }{" "}
-                                        מקומות)
-                                    </span>
-                                </button>
-                            )}
+                                        disabled={
+                                            markedForShipmentPallets.length ===
+                                            0
+                                        }
+                                    >
+                                        <Truck
+                                            size={14}
+                                        />
+
+                                        שלח מסומנים
+
+                                        <span>
+                                            (
+                                            {
+                                                totalPlannedTruckSlots
+                                            }
+                                            /
+                                            {
+                                                MAX_TRUCK_SLOTS
+                                            }{" "}
+                                            מקומות)
+                                        </span>
+                                    </button>
+                                )}
                         </>
                     )}
                 </div>
@@ -2270,7 +2259,7 @@ export default function CoolerMap({
                         <span>
                             {Math.round(
                                 zoomLevel *
-                                    100
+                                100
                             )}
                             %
                         </span>
@@ -2321,7 +2310,7 @@ export default function CoolerMap({
                                     placementPallet.quantity
                                 }{" "}
                                 {placementPallet.itemType ===
-                                "kegs"
+                                    "kegs"
                                     ? "חביות"
                                     : "ארגזים"}
                             </small>
@@ -2366,13 +2355,13 @@ export default function CoolerMap({
 
             {tab ===
                 "pending" && (
-                <PendingTray
-                    {...trayProps}
-                    pallets={
-                        zones.pending
-                    }
-                />
-            )}
+                    <PendingTray
+                        {...trayProps}
+                        pallets={
+                            zones.pending
+                        }
+                    />
+                )}
 
 
             {/* ==================================================
@@ -2381,13 +2370,13 @@ export default function CoolerMap({
 
             {tab ===
                 "bottleRoom" && (
-                <BottleRoomTray
-                    {...trayProps}
-                    pallets={
-                        zones.bottleRoom
-                    }
-                />
-            )}
+                    <BottleRoomTray
+                        {...trayProps}
+                        pallets={
+                            zones.bottleRoom
+                        }
+                    />
+                )}
 
 
             {/* ==================================================
@@ -2395,7 +2384,7 @@ export default function CoolerMap({
             ================================================== */}
 
             {tab === "dock" && (
-                <LoadingDockView pallets={zones.loadingDock}/>
+                <LoadingDockView pallets={zones.loadingDock} />
             )}
 
 
@@ -2477,6 +2466,7 @@ export default function CoolerMap({
                                 ================================= */}
 
                                 <div className="cooler-side-block right-side">
+                                    <div className="silent-door-marker"></div>
                                     {RIGHT_SIDE_COLUMNS.map(
                                         (
                                             column
@@ -2534,6 +2524,8 @@ export default function CoolerMap({
                                             מקרר כשות
                                         </span>
                                     </div>
+                                    <div className="silent-door-marker"></div>
+
                                 </div>
 
 
@@ -2577,6 +2569,7 @@ export default function CoolerMap({
                                 ================================= */}
 
                                 <div className="cooler-side-block left-side">
+                                    <div className="silent-door-marker"></div>
                                     {LEFT_SIDE_COLUMNS.map(
                                         (
                                             column
@@ -2625,6 +2618,7 @@ export default function CoolerMap({
                                             />
                                         )
                                     )}
+                                    <div className="silent-door-marker"></div>
                                 </div>
                             </div>
                         </div>
@@ -2727,9 +2721,9 @@ export default function CoolerMap({
                     danger
                 />
             )}
-        {operationLoading && (
+            {operationLoading && (
                 <BeerLoader message={operationLoading} overlay />
             )}
-            </div>
+        </div>
     );
 }
