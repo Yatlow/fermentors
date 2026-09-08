@@ -1,21 +1,20 @@
 import BeerLoader from "./Loading";
 import { useMemo, useState } from "react";
 import emailjs from "@emailjs/browser";
-import type { Pallet } from "../SERVICES/Pallettypes ";
+import type { Pallet, Shipment } from "../SERVICES/Pallettypes ";
 import shpiro from "../assets/shpiro.jpeg";
 import { getCatalogEntry } from "../SERVICES/PalletCatalog";
 
 type Props = {
     shipmentId: string;
     pallets: Pallet[];
-    onClose: () => void;
+    onClose?: () => void;
+    shipment?: Shipment | null;
+    inline?: boolean;
 };
 
-export default function ShipmentDocumentModal({
-    shipmentId,
-    pallets,
-    onClose,
-}: Props) {
+
+export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, shipment, inline = false, }: Props) {
     const [emails, setEmails] = useState<string[]>([
         "yochai@shapirobeer.co.il",
     ]);
@@ -25,12 +24,10 @@ export default function ShipmentDocumentModal({
     const [message, setMessage] = useState("");
     const [logoLoaded, setLogoLoaded] = useState(false);
 
-    const date = useMemo(() => {
-        return new Intl.DateTimeFormat("he-IL", {
-            dateStyle: "full",
-            timeStyle: "short",
-        }).format(new Date());
-    }, []);
+   const date = useMemo(() => 
+    { if (!shipment?.createdAt) return "";
+         return new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short", })
+         .format(shipment.createdAt.toDate()); }, [shipment?.createdAt]);
 
     const totals = useMemo(() => {
         const map = new Map<string, { beerStyle: string; itemType: Pallet["itemType"]; quantity: number }>();
@@ -130,13 +127,12 @@ export default function ShipmentDocumentModal({
 
     return (
         <div
-            className="modal-overlay shipment-document-overlay"
-            onClick={onClose}
-        >
+           className={ inline ? "shipment-document-inline" : "modal-overlay shipment-document-overlay" }
+            onClick={inline ? undefined : onClose} >
+        
             <div
-                className="shipment-document-modal"
-                onClick={(e) => e.stopPropagation()}
-                dir="rtl"
+                className={ inline ? "shipment-document-container" : "shipment-document-modal" } 
+                onClick={(e) => { if (!inline) e.stopPropagation(); }} dir="rtl"
             >
                 <div className="shipment-document-actions no-print">
                     <button className="shipment-print-btn" onClick={() => window.print()}>
@@ -145,7 +141,7 @@ export default function ShipmentDocumentModal({
                     <button className="shipment-email-btn" onClick={sendEmails} disabled={sending || !logoLoaded}>
                         {sending ? <BeerLoader message="שולח..." size="spinner" /> : "✉️ שלח במייל"}
                     </button>
-                    <button className="modal-x" onClick={onClose}>×</button>
+                   {!inline && ( <button className="modal-x" onClick={onClose}> × </button> )}
                 </div>
                 <div className="shipment-email-editor no-print">
                     <h3>שליחה במייל</h3>

@@ -1,3 +1,5 @@
+import type { Timestamp } from "firebase/firestore";
+
 export type PalletItemType = "kegs" | "crates";
 
 export type CoolerSide = "right" | "left" | "corridor";
@@ -38,6 +40,20 @@ export type ActivePalletZone =
 export type PalletZone =
     | ActivePalletZone
     | "shipped";
+
+export type ShipmentTotal = {
+    itemType: PalletItemType;
+    beerStyle: string;
+    totalQuantity: number;
+};
+
+export type Shipment = {
+    id: string;
+    shipmentNumber: number;
+    palletIds: string[];
+    totals: ShipmentTotal[];
+    createdAt?: Timestamp | null;
+};
 
 export const MAX_CRATES_PER_PALLET = 84;
 export const MAX_KEGS_PER_PALLET = 20;

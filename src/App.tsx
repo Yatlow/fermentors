@@ -36,6 +36,8 @@ import CoolerMap from "./components/Coolermap";
 import { subscribeToZone, type ZoneCounts } from "./SERVICES/Palletservice";
 import type { PalletZone } from "./SERVICES/Pallettypes ";
 import BeerLoader from "./components/Loading";
+import ShipmentReportsView from "./components/ShipmentReportsView";
+import CoolerInventoryReportView from "./components/CoolerReportsView ";
 
 
 
@@ -237,7 +239,7 @@ function App() {
         useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
 
     const [selectedReports, setSelectedReports] =
-        useState<"אריזה" | "גרפים">("אריזה");
+        useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר">("אריזה");
 
     const [selectedAdminTools, setSelectedAdminTools] =
         useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
@@ -857,6 +859,36 @@ function App() {
                                     גרפים לפי אצווה
                                 </span>
                             </button>
+                            <button
+                                type="button"
+                                className={`status-filter-button ${selectedReports === "משלוחים"
+                                    ? "active"
+                                    : ""
+                                    }`}
+                                onClick={() => {
+                                    setSelectedReports("משלוחים")
+                                }
+                                }
+                            >
+                                <span>
+                                    תעודות משלוח
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                className={`status-filter-button ${selectedReports === "מלאי_מקרר"
+                                    ? "active"
+                                    : ""
+                                    }`}
+                                onClick={() => {
+                                    setSelectedReports("מלאי_מקרר")
+                                }
+                                }
+                            >
+                                <span>
+                                     מלאי מוצר מוגמר
+                                </span>
+                            </button>
                         </div>
                     }
                     {selectedView === "ניהול" &&
@@ -1000,6 +1032,8 @@ function App() {
 
             {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
             {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
+            {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
+            {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
 
             {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
