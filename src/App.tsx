@@ -123,8 +123,11 @@ export type NewReading = {
     shrinkagePercent?: number;
 };
 export type ReadingToSend = NewReading & {
-    tankId: string;
+   tankId: string;
+    tankNumber?: string | number | null;
+    batchNumber?: string | number | null;
     sheetUrl?: string | null;
+    id?: string;
 };
 type StatusCounts = Record<string, number>;
 

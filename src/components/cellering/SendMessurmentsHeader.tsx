@@ -271,6 +271,7 @@ export default function SendMessurmentsHeader({
                     id: buildMeasurementId(),
                     tankId: fv.id,
                     tankNumber: fv.tankNumber,
+                    batchNumber: fv.batchNumber,
                     sheetUrl: fv.sheetUrl ?? null,
                     boldNotes: reportName === "אריזה" ? true : undefined,
                 };
@@ -542,14 +543,27 @@ export default function SendMessurmentsHeader({
                 }
             }
 
-            const succeededReadings = readingsToSend.filter((r) => {
-                const result = res.find((rr) => String(rr.tankId) === String(r.tankId));
-                return result?.success !== false;
+            const succeededReadings = readingsToSend.flatMap((reading) => {
+                const result = res.find(
+                    (item) => String(item.tankId) === String(reading.tankId)
+                );
+
+                if (result?.success !== true) return [];
+
+                return [{
+                    ...reading,
+                    sheetResult: result.result,
+                }];
             });
 
-            pushCurrentDataToFirestore(succeededReadings).catch((error) => {
-                console.error("Failed to push current data to Firestore:", error);
-            });
+            try {
+                await pushCurrentDataToFirestore(succeededReadings);
+            } catch (error) {
+                console.error(
+                    "The Sheet was updated, but the realtime Firestore update failed:",
+                    error
+                );
+            }
 
             const allSucceeded = res.every((r) => r.success);
 

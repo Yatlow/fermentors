@@ -123,7 +123,7 @@ export function getBrewAge(
 
 function TankCard({
   tank,
-  onUpdatePasivation,
+//   onUpdatePasivation,
   specs
 }: TankCardProps) {
 
@@ -614,15 +614,15 @@ function TankCard({
        * synchronized as well.
        */
 
-      if (
-        onUpdatePasivation
-      ) {
+    //   if (
+    //     onUpdatePasivation
+    //   ) {
 
-        await onUpdatePasivation(
-          tank.id,
-          newPasivationDate
-        );
-      }
+    //     await onUpdatePasivation(
+    //       tank.id,
+    //       newPasivationDate
+    //     );
+    //   }
 
 
 

@@ -152,6 +152,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             id: buildMeasurementId(),
             tankId: tank.id,
             tankNumber: tank.tankNumber,
+            batchNumber: tank.batchNumber,
             sheetUrl: tank.sheetUrl ?? null,
             notes: noteText,
 
@@ -174,9 +175,14 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                     }
                 }
             }
-            pushCurrentDataToFirestore([reading]).catch((error) => {
-                console.error("Failed to push current data to Firestore:", error);
-            });
+            const successfulResult = res.find(
+                (result) => result.success === true && String(result.tankId) === String(tank.id)
+            );
+
+            await pushCurrentDataToFirestore([{
+                ...reading,
+                sheetResult: successfulResult?.result,
+            }]);
             setStatus("sent");
             onClose();
 
@@ -255,6 +261,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 id: buildMeasurementId(),
                 tankId: tank.id,
                 tankNumber: tank.tankNumber,
+                batchNumber: tank.batchNumber,
                 sheetUrl: tank.sheetUrl ?? null,
                 boldNotes: true,
                 notes: notes || undefined,
@@ -282,9 +289,14 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 totalLiters,
                 shrinkagePercent,
             }]);
-            pushCurrentDataToFirestore([reading]).catch((error) => {
-                console.error("Failed to push current data to Firestore:", error);
-            });
+            const successfulResult = res.find(
+                (result) => result.success === true && String(result.tankId) === String(tank.id)
+            );
+
+            await pushCurrentDataToFirestore([{
+                ...reading,
+                sheetResult: successfulResult?.result,
+            }]);
 
             if (!handedOffToPalletsModal) {
                 setStatus("sent");
