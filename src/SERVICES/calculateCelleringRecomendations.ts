@@ -1098,7 +1098,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             if (Number(lastMeasurement.temp) > 9) { readyToCoolDownText = "לפי הרישום המיכל כבר קורר- במדידת טמפ' זה יעודכן, מומלץ לוודא" }
             else coolDownDisplay = false
         } else {
-            if (Number(lastMeasurement.temp) > 9) readyToCoolDownText = "המיכל מוכן לקירור. מומלץ לכוון טמפ' לקירור ולשנוק את ברזי` הגליקול";
+            if (Number(lastMeasurement.temp) > 9) readyToCoolDownText = "המיכל מוכן לקירור. מומלץ לכוון טמפ' לקירור ולשנוק את ברזי הגליקול";
             dispCoolDownGenerallRec = true;
 
         }

@@ -1483,7 +1483,7 @@ export default function CoolerMap({
         }
 
         try {
-            setOperationLoading("משבץ משטח...");
+            // setOperationLoading("משבץ משטח...");
             setError(null);
 
             await movePalletToCell(
@@ -1569,7 +1569,7 @@ export default function CoolerMap({
         zone: PalletZone
     ) {
         try {
-            setOperationLoading("מעביר משטח...");
+            // setOperationLoading("מעביר משטח...");
             setError(null);
 
             await moveToZone(
@@ -1629,7 +1629,7 @@ export default function CoolerMap({
         }
 
         try {
-            setOperationLoading("מעביר משטחים...");
+            // setOperationLoading("מעביר משטחים...");
             setError(null);
 
             await movePalletsToZone(
@@ -1664,7 +1664,7 @@ export default function CoolerMap({
         pallet: Pallet
     ) {
         try {
-            setOperationLoading("מעדכן סימון משלוח...");
+            // setOperationLoading("מעדכן סימון משלוח...");
             setError(null);
 
             await setMarkedForShipment(
@@ -1698,7 +1698,7 @@ export default function CoolerMap({
         }
 
         try {
-            setOperationLoading("מעביר למשלוח...");
+            // setOperationLoading("מעביר למשלוח...");
             setError(null);
 
             await movePalletsToZone(
@@ -1795,7 +1795,7 @@ export default function CoolerMap({
         }
 
         try {
-            setOperationLoading("מוחק משטח...");
+            // setOperationLoading("מוחק משטח...");
             setDeletingPallet(
                 true
             );
