@@ -22,7 +22,7 @@ import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 // TYPES
 // ============================================================
 
-type ViewMode = "cards" | "table";
+type ViewMode = "cards" | "table" | "zones";
 
 type StyleInventory = {
     beerStyle: string;
@@ -37,6 +37,11 @@ type StyleInventory = {
     totalPallets: number;
 };
 
+type ZoneInventory = {
+    zone: PalletZone;
+    styles: StyleInventory[];
+};
+
 // ============================================================
 // ONLY THESE ZONES COUNT AS ACTIVE INVENTORY
 // ============================================================
@@ -46,6 +51,26 @@ const INVENTORY_ZONES: PalletZone[] = [
     "pending",
     "bottleRoom",
 ];
+
+// ============================================================
+// ZONE LABELS
+// ============================================================
+
+const ZONE_LABELS: Record<string, string> = {
+    cooler: "מקרר",
+    bottleRoom: "חדר בקבוקים",
+    pending: "ממתינים לשיבוץ",
+};
+
+// ============================================================
+// ZONE SORT ORDER
+// ============================================================
+
+const ZONE_ORDER: Record<string, number> = {
+    cooler: 1,
+    bottleRoom: 2,
+    pending: 3,
+};
 
 // ============================================================
 // STYLE SORT ORDER
@@ -102,6 +127,35 @@ function normalizeBeerStyle(style: string): string {
 
     return trimmed;
 }
+
+// ============================================================
+// HELPER - SORT STYLES
+// ============================================================
+
+function sortStyles(
+    styles: StyleInventory[]
+): StyleInventory[] {
+    return [...styles].sort((a, b) => {
+        const aStyle = beerStyleClass(a.beerStyle);
+        const bStyle = beerStyleClass(b.beerStyle);
+
+        const aOrder =
+            STYLE_ORDER[aStyle.category] ?? 99;
+
+        const bOrder =
+            STYLE_ORDER[bStyle.category] ?? 99;
+
+        if (aOrder !== bOrder) {
+            return aOrder - bOrder;
+        }
+
+        return a.beerStyle.localeCompare(
+            b.beerStyle,
+            "he"
+        );
+    });
+}
+
 // ============================================================
 // COMPONENT
 // ============================================================
@@ -172,115 +226,198 @@ export default function InventoryReportView() {
     // GROUP BY BEER STYLE
     // ========================================================
 
-   const inventoryByStyle = useMemo<
-    StyleInventory[]
->(() => {
-    const map = new Map<
-        string,
-        StyleInventory
-    >();
+    const inventoryByStyle = useMemo<
+        StyleInventory[]
+    >(() => {
+        const map = new Map<
+            string,
+            StyleInventory
+        >();
 
-    pallets.forEach((pallet) => {
-        /*
-         * IMPORTANT:
-         *
-         * Normalize the style BEFORE using it
-         * as the Map key.
-         *
-         * Example:
-         * "ipa"
-         * "IPA"
-         * "Ipa"
-         *
-         * all become:
-         * "IPA"
-         */
-        const normalizedStyle =
-            normalizeBeerStyle(
-                pallet.beerStyle
+        pallets.forEach((pallet) => {
+            /*
+             * Normalize the style BEFORE using it
+             * as the Map key.
+             *
+             * Example:
+             * "ipa"
+             * "IPA"
+             * "Ipa"
+             *
+             * all become:
+             * "IPA"
+             */
+
+            const normalizedStyle =
+                normalizeBeerStyle(
+                    pallet.beerStyle
+                );
+
+            let current = map.get(
+                normalizedStyle
             );
 
-        let current = map.get(
-            normalizedStyle
+            if (!current) {
+                current = {
+                    beerStyle: normalizedStyle,
+
+                    cratesQuantity: 0,
+                    cratesPallets: 0,
+
+                    kegsQuantity: 0,
+                    kegsPallets: 0,
+
+                    totalQuantity: 0,
+                    totalPallets: 0,
+                };
+
+                map.set(
+                    normalizedStyle,
+                    current
+                );
+            }
+
+            current.totalQuantity +=
+                pallet.quantity;
+
+            current.totalPallets += 1;
+
+            if (
+                pallet.itemType ===
+                "crates"
+            ) {
+                current.cratesQuantity +=
+                    pallet.quantity;
+
+                current.cratesPallets += 1;
+            }
+
+            if (
+                pallet.itemType ===
+                "kegs"
+            ) {
+                current.kegsQuantity +=
+                    pallet.quantity;
+
+                current.kegsPallets += 1;
+            }
+        });
+
+        return sortStyles(
+            Array.from(map.values())
         );
+    }, [pallets]);
 
-        if (!current) {
-            current = {
-                beerStyle: normalizedStyle,
+    // ========================================================
+    // GROUP BY ZONE
+    // ========================================================
 
-                cratesQuantity: 0,
-                cratesPallets: 0,
+    const inventoryByZone = useMemo<
+        ZoneInventory[]
+    >(() => {
+        const zoneMap = new Map<
+            string,
+            Map<string, StyleInventory>
+        >();
 
-                kegsQuantity: 0,
-                kegsPallets: 0,
+        pallets.forEach((pallet) => {
+            const zone = pallet.zone;
 
-                totalQuantity: 0,
-                totalPallets: 0,
-            };
+            const normalizedStyle =
+                normalizeBeerStyle(
+                    pallet.beerStyle
+                );
 
-            map.set(
-                normalizedStyle,
-                current
+            let styleMap =
+                zoneMap.get(zone);
+
+            if (!styleMap) {
+                styleMap = new Map<
+                    string,
+                    StyleInventory
+                >();
+
+                zoneMap.set(
+                    zone,
+                    styleMap
+                );
+            }
+
+            let current =
+                styleMap.get(
+                    normalizedStyle
+                );
+
+            if (!current) {
+                current = {
+                    beerStyle:
+                        normalizedStyle,
+
+                    cratesQuantity: 0,
+                    cratesPallets: 0,
+
+                    kegsQuantity: 0,
+                    kegsPallets: 0,
+
+                    totalQuantity: 0,
+                    totalPallets: 0,
+                };
+
+                styleMap.set(
+                    normalizedStyle,
+                    current
+                );
+            }
+
+            current.totalQuantity +=
+                pallet.quantity;
+
+            current.totalPallets += 1;
+
+            if (
+                pallet.itemType ===
+                "crates"
+            ) {
+                current.cratesQuantity +=
+                    pallet.quantity;
+
+                current.cratesPallets += 1;
+            }
+
+            if (
+                pallet.itemType ===
+                "kegs"
+            ) {
+                current.kegsQuantity +=
+                    pallet.quantity;
+
+                current.kegsPallets += 1;
+            }
+        });
+
+        return Array.from(
+            zoneMap.entries()
+        )
+            .map(
+                ([zone, styleMap]) => ({
+                    zone:
+                        zone as PalletZone,
+
+                    styles: sortStyles(
+                        Array.from(
+                            styleMap.values()
+                        )
+                    ),
+                })
+            )
+            .sort(
+                (a, b) =>
+                    (ZONE_ORDER[a.zone] ??
+                        99) -
+                    (ZONE_ORDER[b.zone] ??
+                        99)
             );
-        }
-
-        current.totalQuantity +=
-            pallet.quantity;
-
-        current.totalPallets += 1;
-
-        if (
-            pallet.itemType ===
-            "crates"
-        ) {
-            current.cratesQuantity +=
-                pallet.quantity;
-
-            current.cratesPallets += 1;
-        }
-
-        if (
-            pallet.itemType ===
-            "kegs"
-        ) {
-            current.kegsQuantity +=
-                pallet.quantity;
-
-            current.kegsPallets += 1;
-        }
-    });
-
-    return Array.from(
-        map.values()
-    ).sort((a, b) => {
-        const aStyle = beerStyleClass(
-            a.beerStyle
-        );
-
-        const bStyle = beerStyleClass(
-            b.beerStyle
-        );
-
-        const aOrder =
-            STYLE_ORDER[
-                aStyle.category
-            ] ?? 99;
-
-        const bOrder =
-            STYLE_ORDER[
-                bStyle.category
-            ] ?? 99;
-
-        if (aOrder !== bOrder) {
-            return aOrder - bOrder;
-        }
-
-        return a.beerStyle.localeCompare(
-            b.beerStyle,
-            "he"
-        );
-    });
-}, [pallets]);
+    }, [pallets]);
 
     // ========================================================
     // GRAND TOTALS
@@ -352,8 +489,9 @@ export default function InventoryReportView() {
 
             <div className="inventory-header">
                 <div className="inventory-header-title">
-                    <h2>מלאי מוצר מוגמר</h2>
-
+                    <h2>
+                        מלאי מוצר מוגמר
+                    </h2>
                 </div>
 
                 {/* ==================================================
@@ -364,12 +502,15 @@ export default function InventoryReportView() {
                     <button
                         type="button"
                         className={
-                            viewMode === "cards"
+                            viewMode ===
+                                "cards"
                                 ? "inventory-toggle-active"
                                 : ""
                         }
                         onClick={() =>
-                            setViewMode("cards")
+                            setViewMode(
+                                "cards"
+                            )
                         }
                     >
                         <span>▦</span>
@@ -379,16 +520,37 @@ export default function InventoryReportView() {
                     <button
                         type="button"
                         className={
-                            viewMode === "table"
+                            viewMode ===
+                                "table"
                                 ? "inventory-toggle-active"
                                 : ""
                         }
                         onClick={() =>
-                            setViewMode("table")
+                            setViewMode(
+                                "table"
+                            )
                         }
                     >
                         <span>☷</span>
                         טבלה
+                    </button>
+
+                    <button
+                        type="button"
+                        className={
+                            viewMode ===
+                                "zones"
+                                ? "inventory-toggle-active"
+                                : ""
+                        }
+                        onClick={() =>
+                            setViewMode(
+                                "zones"
+                            )
+                        }
+                    >
+                        <span>⌖</span>
+                        לפי אזורים
                     </button>
                 </div>
             </div>
@@ -399,7 +561,9 @@ export default function InventoryReportView() {
 
             <div className="inventory-totals">
                 <div className="inventory-total-box">
-                    <span>ארגזים</span>
+                    <span>
+                        ארגזים
+                    </span>
 
                     <strong>
                         {grandTotals.crates.toLocaleString()}
@@ -407,32 +571,34 @@ export default function InventoryReportView() {
                 </div>
 
                 <div className="inventory-total-box">
-                    <span>חביות</span>
+                    <span>
+                        חביות
+                    </span>
 
                     <strong>
                         {grandTotals.kegs.toLocaleString()}
                     </strong>
                 </div>
-
-                
             </div>
 
             {/* ==================================================
                 EMPTY
             ================================================== */}
 
-            {inventoryByStyle.length === 0 && (
-                <div className="inventory-empty">
-                    אין מלאי פעיל להצגה
-                </div>
-            )}
+            {inventoryByStyle.length ===
+                0 && (
+                    <div className="inventory-empty">
+                        אין מלאי פעיל להצגה
+                    </div>
+                )}
 
             {/* ==================================================
                 CARDS
             ================================================== */}
 
             {viewMode === "cards" &&
-                inventoryByStyle.length > 0 && (
+                inventoryByStyle.length >
+                0 && (
                     <div className="inventory-cards">
                         {inventoryByStyle.map(
                             (style) => {
@@ -467,16 +633,14 @@ export default function InventoryReportView() {
                                             </div>
 
                                             <div className="inventory-card-total">
-                                                {
-                                                    style.totalQuantity.toLocaleString()
-                                                }
+                                                {style.totalQuantity.toLocaleString()}
                                             </div>
                                         </div>
 
                                         {/* ITEMS */}
 
                                         <div className="inventory-card-items">
-                                            {/* BOTTLES */}
+                                            {/* CRATES */}
 
                                             <div className="inventory-card-item">
                                                 <div>
@@ -519,7 +683,7 @@ export default function InventoryReportView() {
                                             </div>
                                         </div>
                                     </div>
-                                );
+                                )
                             }
                         )}
                     </div>
@@ -530,82 +694,341 @@ export default function InventoryReportView() {
             ================================================== */}
 
             {viewMode === "table" &&
-                inventoryByStyle.length > 0 && (
+                inventoryByStyle.length >
+                0 && (
                     <div className="inventory-table-container">
                         <table className="inventory-table">
                             <thead>
                                 <tr>
-                                    <th>סגנון</th>
-                                    <th>סוג</th>
-                                    <th>כמות</th>
-                                    <th>משטחים</th>
+                                    <th>
+                                        סגנון
+                                    </th>
+
+                                    <th>
+                                        סוג
+                                    </th>
+
+                                    <th>
+                                        כמות
+                                    </th>
+
+                                    <th>
+                                        משטחים
+                                    </th>
                                 </tr>
                             </thead>
 
                             <tbody>
-                                {inventoryByStyle.map((style) => {
-                                    const styleInfo = beerStyleClass(
-                                        style.beerStyle
-                                    );
+                                {inventoryByStyle.map(
+                                    (
+                                        style
+                                    ) => {
+                                        const styleInfo =
+                                            beerStyleClass(
+                                                style.beerStyle
+                                            );
 
-                                    const rows = [];
+                                        const rows =
+                                            [];
 
-                                    if (style.kegsQuantity > 0) {
-                                        rows.push(
-                                            <tr key={`${style.beerStyle}-kegs`}>
-                                                <td
-                                                    className={`inventory-table-style ${styleInfo.className}`}
+                                        if (
+                                            style.kegsQuantity >
+                                            0
+                                        ) {
+                                            rows.push(
+                                                <tr
+                                                    key={`${style.beerStyle}-kegs`}
                                                 >
-                                                    <strong>
-                                                        {style.beerStyle}
-                                                    </strong>
-                                                </td>
+                                                    <td
+                                                        className={`inventory-table-style ${styleInfo.className}`}
+                                                    >
+                                                        <strong>
+                                                            {
+                                                                style.beerStyle
+                                                            }
+                                                        </strong>
+                                                    </td>
 
-                                                <td>חביות</td>
+                                                    <td>
+                                                        חביות
+                                                    </td>
 
-                                                <td className="inventory-table-quantity">
-                                                    {style.kegsQuantity.toLocaleString()}
-                                                </td>
+                                                    <td className="inventory-table-quantity">
+                                                        {style.kegsQuantity.toLocaleString()}
+                                                    </td>
 
-                                                <td>
-                                                    {style.kegsPallets}
-                                                </td>
+                                                    <td>
+                                                        {
+                                                            style.kegsPallets
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
 
-                                                
-                                            </tr>
-                                        );
-                                    }
-
-                                    if (style.cratesQuantity > 0) {
-                                        rows.push(
-                                            <tr key={`${style.beerStyle}-crates`}>
-                                                <td
-                                                    className={`inventory-table-style ${styleInfo.className}`}
+                                        if (
+                                            style.cratesQuantity >
+                                            0
+                                        ) {
+                                            rows.push(
+                                                <tr
+                                                    key={`${style.beerStyle}-crates`}
                                                 >
-                                                    <strong>
-                                                        {style.beerStyle}
-                                                    </strong>
-                                                </td>
+                                                    <td
+                                                        className={`inventory-table-style ${styleInfo.className}`}
+                                                    >
+                                                        <strong>
+                                                            {
+                                                                style.beerStyle
+                                                            }
+                                                        </strong>
+                                                    </td>
 
-                                                <td>ארגזים</td>
+                                                    <td>
+                                                        ארגזים
+                                                    </td>
 
-                                                <td className="inventory-table-quantity">
-                                                    {style.cratesQuantity.toLocaleString()}
-                                                </td>
+                                                    <td className="inventory-table-quantity">
+                                                        {style.cratesQuantity.toLocaleString()}
+                                                    </td>
 
-                                                <td>
-                                                    {style.cratesPallets}
-                                                </td>
+                                                    <td>
+                                                        {
+                                                            style.cratesPallets
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }
 
-                                                
-                                            </tr>
-                                        );
+                                        return rows;
                                     }
-
-                                    return rows;
-                                })}
+                                )}
                             </tbody>
                         </table>
+                    </div>
+                )}
+
+            {/* ==================================================
+                ZONES
+            ================================================== */}
+
+            {viewMode === "zones" &&
+                inventoryByZone.length >
+                0 && (
+                    <div className="inventory-zones">
+                        {inventoryByZone.map(
+                            (zoneInventory) => {
+                                const zonePallets =
+                                    pallets.filter(
+                                        (pallet) =>
+                                            pallet.zone ===
+                                            zoneInventory.zone
+                                    );
+
+                                const zoneTotals =
+                                    zonePallets.reduce(
+                                        (
+                                            result,
+                                            pallet
+                                        ) => {
+                                            if (
+                                                pallet.itemType ===
+                                                "crates"
+                                            ) {
+                                                result.crates +=
+                                                    pallet.quantity;
+                                            }
+
+                                            if (
+                                                pallet.itemType ===
+                                                "kegs"
+                                            ) {
+                                                result.kegs +=
+                                                    pallet.quantity;
+                                            }
+
+                                            result.pallets +=
+                                                1;
+
+                                            return result;
+                                        },
+                                        {
+                                            crates: 0,
+                                            kegs: 0,
+                                            pallets: 0,
+                                        }
+                                    );
+
+                                return (
+                                    <section
+                                        key={
+                                            zoneInventory.zone
+                                        }
+                                        className="inventory-zone"
+                                    >
+                                        {/* ZONE HEADER */}
+
+                                        <div className="inventory-zone-header">
+                                            <div className="inventory-zone-title">
+                                                <h3>
+                                                    {
+                                                        ZONE_LABELS[
+                                                        zoneInventory
+                                                            .zone
+                                                        ] ??
+                                                        zoneInventory.zone
+                                                    }
+                                                </h3>
+                                            </div>
+
+                                            <div className="inventory-zone-summary">
+                                                <span>
+                                                    {
+                                                        zoneTotals.pallets
+                                                    }{" "}
+                                                    משטחים{" | "}
+                                                </span>
+
+                                                {zoneTotals.crates >
+                                                    0 && (
+                                                        <span>
+                                                            {
+                                                                zoneTotals.crates
+                                                            }{" "}
+                                                            ארגזים{" | "}
+                                                        </span>
+                                                    )}
+
+                                                {zoneTotals.kegs >
+                                                    0 && (
+                                                        <span>
+                                                            {
+                                                                zoneTotals.kegs
+                                                            }{" "}
+                                                            חביות
+                                                        </span>
+                                                    )}
+                                            </div>
+                                        </div>
+
+                                        {/* ZONE TABLE */}
+
+                                        <div className="inventory-zone-content">
+                                            <table className="inventory-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>
+                                                            סגנון
+                                                        </th>
+
+                                                        <th>
+                                                            ארגזים
+                                                        </th>
+
+                                                        <th>
+                                                            משטחי ארגזים
+                                                        </th>
+
+                                                        <th>
+                                                            חביות
+                                                        </th>
+
+                                                        <th>
+                                                            משטחי חביות
+                                                        </th>
+
+                                                        <th>
+                                                            סה״כ
+                                                        </th>
+
+                                                        <th>
+                                                            משטחים
+                                                        </th>
+                                                    </tr>
+                                                </thead>
+
+                                                <tbody>
+                                                    {zoneInventory.styles.map(
+                                                        (
+                                                            style
+                                                        ) => {
+                                                            const styleInfo =
+                                                                beerStyleClass(
+                                                                    style.beerStyle
+                                                                );
+
+                                                            return (
+                                                                <tr
+                                                                    key={`${zoneInventory.zone}-${style.beerStyle}`}
+                                                                >
+                                                                    <td
+                                                                        className={`inventory-table-style ${styleInfo.className}`}
+                                                                    >
+                                                                        <strong>
+                                                                            {
+                                                                                styleInfo.displayLabel
+                                                                            }
+                                                                        </strong>
+
+                                                                        {styleInfo.displayLabel !==
+                                                                            style.beerStyle && (
+                                                                                <small>
+                                                                                    {
+                                                                                        style.beerStyle
+                                                                                    }
+                                                                                </small>
+                                                                            )}
+                                                                    </td>
+
+                                                                    <td className="inventory-table-quantity">
+                                                                        {style.cratesQuantity >
+                                                                            0
+                                                                            ? style.cratesQuantity.toLocaleString()
+                                                                            : "—"}
+                                                                    </td>
+
+                                                                    <td>
+                                                                        {style.cratesPallets >
+                                                                            0
+                                                                            ? style.cratesPallets
+                                                                            : "—"}
+                                                                    </td>
+
+                                                                    <td className="inventory-table-quantity">
+                                                                        {style.kegsQuantity >
+                                                                            0
+                                                                            ? style.kegsQuantity.toLocaleString()
+                                                                            : "—"}
+                                                                    </td>
+
+                                                                    <td>
+                                                                        {style.kegsPallets >
+                                                                            0
+                                                                            ? style.kegsPallets
+                                                                            : "—"}
+                                                                    </td>
+
+                                                                    <td className="inventory-table-quantity">
+                                                                        {style.totalQuantity.toLocaleString()}
+                                                                    </td>
+
+                                                                    <td>
+                                                                        {
+                                                                            style.totalPallets
+                                                                        }
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        }
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
+                                );
+                            }
+                        )}
                     </div>
                 )}
         </div>
