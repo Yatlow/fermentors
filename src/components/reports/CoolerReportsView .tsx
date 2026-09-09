@@ -937,14 +937,6 @@ export default function InventoryReportView() {
                                                         <th>
                                                             משטחי חביות
                                                         </th>
-
-                                                        <th>
-                                                            סה״כ
-                                                        </th>
-
-                                                        <th>
-                                                            משטחים
-                                                        </th>
                                                     </tr>
                                                 </thead>
 
@@ -1012,15 +1004,7 @@ export default function InventoryReportView() {
                                                                             : "—"}
                                                                     </td>
 
-                                                                    <td className="inventory-table-quantity">
-                                                                        {style.totalQuantity.toLocaleString()}
-                                                                    </td>
-
-                                                                    <td>
-                                                                        {
-                                                                            style.totalPallets
-                                                                        }
-                                                                    </td>
+                                                                    
                                                                 </tr>
                                                             );
                                                         }

@@ -180,6 +180,7 @@ function useAuth() {
     const [loading, setLoading] = useState(true);
     const [admin, setAdmin] = useState(false);
     const [testUser, setTestUser] = useState(false);
+    const [plannerUser, setPlannerUser] = useState(false);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -197,15 +198,18 @@ function useAuth() {
 
                 const isAdmin = userData?.isAdmin;
                 const isTestUser = userData?.isTestUser;
+                const isPlannerUser = userData?.isPlannerUser;
 
 
                 setAdmin(isAdmin ?? false);
                 setTestUser(isTestUser ?? false);
-
+                setPlannerUser(isPlannerUser ?? false);
+                
             } catch (error) {
                 console.error("Error updating last logged in:", error);
                 setAdmin(false);
                 setTestUser(false)
+                setPlannerUser(false);
             } finally {
                 setLoading(false);
             }
@@ -214,11 +218,11 @@ function useAuth() {
         return () => unsubscribe();
     }, []);
 
-    return { user, loading, admin, testUser };
+    return { user, loading, admin, testUser,plannerUser };
 }
 
 function App() {
-    const { user, loading: authLoading, admin, testUser } = useAuth();
+    const { user, loading: authLoading, admin, testUser,plannerUser } = useAuth();
     const [isApproved, setIsApproved] = useState<boolean | null>(null);
     const FCKHMS = testUser
     if (FCKHMS !== testUser) console.log("delete this line hahaha")
@@ -267,6 +271,10 @@ function App() {
                 .catch((e) => {
                     console.error("Error checking approved user:", e);
                     setIsApproved(false);
+                    // if (user.email==="itzik@shapirobeer.co.il"){}
+                    if (user.email==="yisrael@atlow.co.il"){
+                        setSelectedView("תכנון")
+                    }
                 });
             setLoggingIn(false);
         }
@@ -739,6 +747,22 @@ function App() {
                                 מפת מקרר
                                 {!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}
                             </div>
+                            {plannerUser &&
+                            <div className={`views-item ${selectedView === "תכנון" ?
+                                "active" : ""}`}
+                                onClick={() => {
+                                    setSelectedView("תכנון")
+                                    setSelectedStatuses(["הכל"])
+                                    setSelectedStyles(["הכל"])
+                                    setSelectedWrites("לחץ")
+                                    setSelectedReports("אריזה")
+                                    setSelectedAdminTools("calculator")
+                                    setNewReadings({})
+                                }}
+                            >
+                                תכנון
+                                {!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}
+                            </div>}
 
                         </div>
                     </div>
@@ -977,6 +1001,26 @@ function App() {
                             </button>
                         </div>
                     }
+                    {selectedView === "תכנון" &&
+                        <div className="status-filter">
+                            <button
+                                type="button"
+                                className={`status-filter-button ${selectedAdminTools === "calculator"
+                                    ? "active"
+                                    : ""
+                                    }`}
+                                onClick={() => {
+                                    console.log("כפתור בדיקה")
+                                    // setSelectedAdminTools("calculator")
+                                }
+                                }
+                            >
+                                <span>
+                                    כפתור בדיקה
+                                </span>
+                            </button>
+                        </div>
+                    }
 
                 </div>
 
@@ -992,7 +1036,10 @@ function App() {
                     totalVolumes={totalVolumes}
                 ></Dashboard>
             }
-
+            {selectedView === "תכנון" && <div>
+                הכנס פה תכנון
+                
+                </div>}
             {selectedView === "רישום" &&
                 <>
                     <SendMessurmentsHeader

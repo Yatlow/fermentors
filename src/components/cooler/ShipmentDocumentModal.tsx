@@ -1,9 +1,91 @@
 import BeerLoader from "../general/Loading";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import emailjs from "@emailjs/browser";
 import type { Pallet, Shipment } from "../../SERVICES/cooler/Pallettypes ";
 import shpiro from "../../assets/shpiro.jpeg";
 import { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";
+
+// Isolated print document: no dashboard styles, React tree or network services.
+const SHIPMENT_PRINT_CSS = `
+@page { size: A4 portrait; margin: 12mm; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: white; color: #111;
+  font-family: Arial, sans-serif; -webkit-text-size-adjust: 100%; }
+.print-toolbar { padding: 12px; font-size: 14px; }
+.print-toolbar button { font: inherit; padding: 10px 20px; cursor: pointer; }
+.print-sheet { position: relative; width: 186mm; height: 270mm;
+  margin: 0 auto; break-inside: avoid; page-break-inside: avoid; }
+.print-sheet + .print-sheet { break-before: page; page-break-before: always; }
+.print-content { position: absolute; top: 0; right: 0; width: 186mm;
+  padding: 2mm; transform-origin: top right; font-size: 10pt; line-height: 1.25; }
+.shipment-document-header { display: flex; justify-content: space-between;
+  align-items: flex-start; gap: 6mm; margin-bottom: 5mm; }
+.shipment-company-details { min-width: 0; overflow-wrap: anywhere; }
+h1 { font-size: 20pt; margin: 0 0 3mm; }
+.shipment-company-details div { margin-bottom: 1mm; }
+.shipment-logo { width: 28mm; height: 24mm; object-fit: contain; flex-shrink: 0; }
+.shipment-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td { border: 1px solid #aaa; padding: 1.3mm 2mm; text-align: right;
+  vertical-align: top; overflow-wrap: anywhere; }
+th { background: #f1f5f9; }
+th:first-child { width: 24%; } th:last-child { width: 15%; }
+.shipment-signatures { display: flex; gap: 12mm; margin-top: 7mm; }
+.shipment-signature-block { flex: 1; }
+.shipment-signature-line { border-bottom: 1px solid #555; height: 9mm; }
+.shipment-document-footer { border-top: 1px solid #ccc; margin-top: 5mm;
+  padding-top: 2mm; text-align: center; font-size: 8pt; }
+.print-page-number { text-align: center; font-size: 8pt; margin-top: 2mm; }
+@media print { .print-toolbar { display: none !important; } }
+`;
+
+function fitShipmentPages(printDocument: Document) {
+    printDocument.querySelectorAll<HTMLElement>(".print-sheet").forEach((sheet) => {
+        const content = sheet.querySelector<HTMLElement>(".print-content");
+        if (!content) return;
+        // Absolute positioning prevents the unscaled height creating extra pages.
+        content.style.transform = "none";
+        const scale = Math.min(1,
+            (sheet.clientHeight - 4) / content.scrollHeight,
+            (sheet.clientWidth - 4) / content.scrollWidth);
+        content.style.transform = `scale(${scale})`;
+    });
+}
+
+async function prepareShipmentPrint(printWindow: Window) {
+    const printDocument = printWindow.document;
+    const button = printDocument.querySelector<HTMLButtonElement>(".print-toolbar button");
+    if (!button) return;
+    const images = Array.from(printDocument.images);
+    // Failed/slow logo must not leave printing disabled forever.
+    await Promise.all(images.map((img) => new Promise<void>((resolve) => {
+        if (img.complete) { resolve(); return; }
+        const finish = () => {
+            window.clearTimeout(timer);
+            img.removeEventListener("load", finish);
+            img.removeEventListener("error", finish);
+            resolve();
+        };
+        const timer = window.setTimeout(() => {
+            img.removeAttribute("src");
+            img.style.visibility = "hidden";
+            finish();
+        }, 4000);
+        img.addEventListener("load", finish, { once: true });
+        img.addEventListener("error", finish, { once: true });
+    })));
+    if (printWindow.closed) return;
+    fitShipmentPages(printDocument);
+    printWindow.addEventListener("beforeprint", () => fitShipmentPages(printDocument));
+    button.disabled = false;
+    button.textContent = "הדפס / שמור PDF";
+    button.onclick = () => {
+        fitShipmentPages(printDocument);
+        printWindow.focus();
+        printWindow.print();
+    };
+    // Keep the tab and manual button available if iOS suppresses automatic print.
+    try { printWindow.focus(); printWindow.print(); } catch { /* Manual button remains available. */ }
+}
 
 type Props = {
     shipmentId: string;
@@ -18,6 +100,9 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
     const [emails, setEmails] = useState<string[]>([
         "yochai@shapirobeer.co.il",
     ]);
+
+    const documentRef = useRef<HTMLDivElement>(null);
+    const printWindowRef = useRef<Window | null>(null);
 
     const [newEmail, setNewEmail] = useState("");
     const [sending, setSending] = useState(false);
@@ -125,10 +210,61 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
         }
     }
     function printShipment() {
-    window.requestAnimationFrame(() => {
-        window.print();
-    });
-}
+        const source = documentRef.current;
+        if (!source) return;
+        if (printWindowRef.current && !printWindowRef.current.closed) {
+            printWindowRef.current.close();
+        }
+        // Open synchronously inside the click handler to avoid popup blocking.
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) {
+            setMessage("פתיחת תעודת ההדפסה נחסמה. יש לאפשר חלונות קופצים לאתר ולנסות שוב.");
+            return;
+        }
+        printWindowRef.current = printWindow;
+        const printDocument = printWindow.document;
+        printDocument.open();
+        printDocument.write('<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body></body></html>');
+        printDocument.close();
+        printDocument.title = `תעודת משלוח ${shipmentId}`;
+        const style = printDocument.createElement("style");
+        style.textContent = SHIPMENT_PRINT_CSS;
+        printDocument.head.appendChild(style);
+        const toolbar = printDocument.createElement("div");
+        toolbar.className = "print-toolbar";
+        const button = printDocument.createElement("button");
+        button.type = "button";
+        button.disabled = true;
+        button.textContent = "מכין להדפסה…";
+        toolbar.appendChild(button);
+        printDocument.body.appendChild(toolbar);
+
+        // Count displayed item rows AFTER aggregation, not source pallets.
+        const rows = Array.from(source.querySelectorAll(".shipment-table tbody tr"));
+        const pageCount = Math.max(1, Math.ceil(rows.length / 25));
+        for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+            const sheet = printDocument.createElement("section");
+            sheet.className = "print-sheet";
+            const content = source.cloneNode(true) as HTMLDivElement;
+            content.className = "print-content";
+            const tbody = content.querySelector("tbody");
+            tbody?.replaceChildren(...rows.slice(pageIndex * 25, (pageIndex + 1) * 25)
+                .map((row) => row.cloneNode(true)));
+            // Resolve the Vite asset before moving the copy to about:blank.
+            const logo = content.querySelector<HTMLImageElement>(".shipment-logo");
+            if (logo) logo.src = new URL(shpiro, window.location.href).href;
+            const pageNumber = printDocument.createElement("div");
+            pageNumber.className = "print-page-number";
+            pageNumber.textContent = `עמוד ${pageIndex + 1} מתוך ${pageCount}`;
+            content.appendChild(pageNumber);
+            sheet.appendChild(content);
+            printDocument.body.appendChild(sheet);
+        }
+        void prepareShipmentPrint(printWindow).catch((error) => {
+            console.error("Shipment print error:", error);
+            setMessage("לא ניתן להכין את ההדפסה. יש לסגור את לשונית ההדפסה ולנסות שוב.");
+        });
+    }
 
     return (
         <div
@@ -201,7 +337,7 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                     )}
                 </div>
 
-                <div className="shipment-document">
+                <div className="shipment-document" ref={documentRef}>
                     <header className="shipment-document-header">
                         <div className="shipment-company-details">
                             <h1>תעודת משלוח</h1>
