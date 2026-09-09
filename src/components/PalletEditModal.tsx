@@ -67,7 +67,7 @@ export default function PalletEditModal({ pallet, onClose, onDone }: { pallet: P
                 <div className="edit-warning-box"><span>שים לב:</span> שינוי סגנון, אצווה או תאריך תפוגה משנה מידע תפעולי.</div>
 
                 <label>סוג פריט</label>
-                <select value={itemType} onChange={(e) => setItemType(e.target.value as PalletItemType)}>
+                <select className="AddPalletSelect" value={itemType} onChange={(e) => setItemType(e.target.value as PalletItemType)}>
                     <option value="crates">ארגזים</option><option value="kegs">חביות</option>
                 </select>
 

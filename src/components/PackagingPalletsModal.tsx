@@ -49,10 +49,10 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                     <div className="manual-batch-stepper">
                         <div
                             className={`manual-batch-stepper-item ${sendPhase === "done"
-                                    ? "done"
-                                    : sendPhase === "error"
-                                        ? "error"
-                                        : "active sending"
+                                ? "done"
+                                : sendPhase === "error"
+                                    ? "error"
+                                    : "active sending"
                                 }`}
                         >
                             <span className="manual-batch-stepper-dot">1</span>
@@ -105,7 +105,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                     {runtime.sendStatus === "error" && (
                                                         <span className="status-error">
                                                             שגיאה בשליחה: {runtime.sendError}{" "}
-                                                            <button className="btn-secondary" onClick={() => retryJobSend(jobIndex)}>
+                                                            <button className="btn-secondary" type="button" onClick={() => retryJobSend(jobIndex)}>
                                                                 נסה שוב
                                                             </button>
                                                         </span>
@@ -143,6 +143,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                     />
                                                     <div className="packagingPalletRowActions">
                                                         <button
+                                                            type="button"
                                                             className="btn-secondary"
                                                             onClick={() => splitRow(row.id)}
                                                             disabled={row.quantity <= 1}
@@ -150,6 +151,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                             פצל
                                                         </button>
                                                         <button
+                                                            type="button"
                                                             className="btn-secondary cancelBtn"
                                                             onClick={() => removeRow(row.id)}
                                                             disabled={jobRows.length <= 1}
@@ -162,7 +164,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                         </div>
 
                                         <div className="packagingPalletsAddRow">
-                                            <button className="btn-secondary" onClick={() => addRow(jobIndex)}>
+                                            <button type="button" className="btn-secondary" onClick={() => addRow(jobIndex)}>
                                                 הוסף משטח
                                             </button>
                                         </div>
@@ -175,7 +177,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                             })}
 
                             <div className="packagingPalletsSubmitRow">
-                                <button className="btn-primary packagingPalletsSubmitBtn" disabled={!isValid} onClick={confirm}>
+                                <button className="btn-primary packagingPalletsSubmitBtn" type="button" disabled={!isValid} onClick={confirm}>
                                     אישור ויצירת משטחים
                                 </button>
                             </div>
@@ -206,7 +208,7 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                 </ul>
                             )}
                             <div style={{ marginTop: 10 }}>
-                                <button className="btn-primary" onClick={onFinished}>
+                                <button type="button" className="btn-primary" onClick={onFinished}>
                                     סגירה
                                 </button>
                             </div>
@@ -217,10 +219,10 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                         <div className="edit-specs-message error">
                             {submitError || "אירעה שגיאה ביצירת המשטחים"}
                             <div style={{ marginTop: 10 }}>
-                                <button className="btn-secondary" onClick={confirm}>
+                                <button type="button" className="btn-secondary" onClick={confirm}>
                                     נסה שוב
                                 </button>
-                                <button className="btn-secondary cancelBtn" onClick={onFinished}>
+                                <button type="button" className="btn-secondary cancelBtn" onClick={onFinished}>
                                     סגור בכל זאת
                                 </button>
                             </div>

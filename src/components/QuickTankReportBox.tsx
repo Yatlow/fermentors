@@ -495,6 +495,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                 className="btn-primary quickReportSubmit"
                                 disabled={!canSubmit || isSending}
                                 onClick={handleSubmit}
+                                type="button"
                             >
                                 {isSending ? <BeerLoader message="" size="spinner" /> : "שלח"}
                             </button>
