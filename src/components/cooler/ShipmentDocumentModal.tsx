@@ -124,6 +124,11 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
             setSending(false);
         }
     }
+    function printShipment() {
+    window.requestAnimationFrame(() => {
+        window.print();
+    });
+}
 
     return (
         <div
@@ -135,7 +140,7 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                 onClick={(e) => { if (!inline) e.stopPropagation(); }} dir="rtl"
             >
                 <div className="shipment-document-actions no-print">
-                    <button className="shipment-print-btn" onClick={() => window.print()}>
+                    <button className="shipment-print-btn" onClick={printShipment}>
                         🖨️ הדפס
                     </button>
                     <button className="shipment-email-btn" onClick={sendEmails} disabled={sending || !logoLoaded}>

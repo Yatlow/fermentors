@@ -6374,3 +6374,40 @@ body {
         flex: 1;
     }
 }
+
+@media (max-width: 700px) {
+
+    .fermentorInfoOverlay {
+        display: flex;              /* חדש */
+        align-items: center;        /* חדש */
+        justify-content: center;    /* חדש */
+        pointer-events: auto;
+    }
+
+    .fermentorInfoBox {
+        position: static;           /* חדש - מבטל את top/left שחושבו ב-JS */
+
+        width: calc(100vw - 24px);
+        width: min(330px, calc(100vw - 24px));
+        max-width: calc(100vw - 24px);
+
+        max-height: calc(100vh - 24px);
+        overflow-y: auto;
+        overflow-x: hidden;
+
+        padding: 15px;
+
+        border-radius: var(--radius-xl);
+
+        box-shadow:
+            0 18px 40px rgba(15, 23, 42, 0.22);
+    }
+
+    .fermentorInfoBox h3 {
+        font-size: 0.95rem;
+    }
+
+    .recommendation {
+        font-size: 0.82rem;
+    }
+}

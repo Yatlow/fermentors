@@ -974,6 +974,9 @@ export default function InventoryReportView() {
                                                                         {styleInfo.displayLabel !==
                                                                             style.beerStyle && (
                                                                                 <small>
+                                                                        {
+                                                                            "  "
+                                                                        }
                                                                                     {
                                                                                         style.beerStyle
                                                                                     }
