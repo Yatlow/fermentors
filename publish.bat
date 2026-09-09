@@ -27,6 +27,28 @@ if not exist "firebase.json" (
     exit /b 1
 )
 
+set "PUBLISH_DATETIME="
+
+for /f "delims=" %%A in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm'"') do set "PUBLISH_DATETIME=%%A"
+
+set "DEFAULT_MESSAGE=Publish Fermenter Dashboard - %PUBLISH_DATETIME%"
+
+echo.
+echo ==========================================
+echo              COMMIT MESSAGE
+echo ==========================================
+echo.
+echo Default: %DEFAULT_MESSAGE%
+echo.
+echo Press ENTER to use the default message.
+echo Or type your own message and press ENTER.
+echo.
+
+set "PUBLISH_COMMIT_MESSAGE="
+set /p "PUBLISH_COMMIT_MESSAGE=Commit message: "
+
+if not defined PUBLISH_COMMIT_MESSAGE set "PUBLISH_COMMIT_MESSAGE=%DEFAULT_MESSAGE%"
+
 REM ==================================================
 REM 2. BUILD
 REM ==================================================
@@ -123,27 +145,7 @@ REM ==================================================
 
 :CREATE_COMMIT
 
-set "PUBLISH_DATETIME="
 
-for /f "delims=" %%A in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm'"') do set "PUBLISH_DATETIME=%%A"
-
-set "DEFAULT_MESSAGE=Publish Fermenter Dashboard - %PUBLISH_DATETIME%"
-
-echo.
-echo ==========================================
-echo              COMMIT MESSAGE
-echo ==========================================
-echo.
-echo Default: %DEFAULT_MESSAGE%
-echo.
-echo Press ENTER to use the default message.
-echo Or type your own message and press ENTER.
-echo.
-
-set "PUBLISH_COMMIT_MESSAGE="
-set /p "PUBLISH_COMMIT_MESSAGE=Commit message: "
-
-if not defined PUBLISH_COMMIT_MESSAGE set "PUBLISH_COMMIT_MESSAGE=%DEFAULT_MESSAGE%"
 
 echo.
 echo Creating commit...
