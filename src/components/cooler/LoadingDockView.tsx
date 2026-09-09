@@ -57,6 +57,9 @@ export default function LoadingDockView({
     const [showShipmentDocument, setShowShipmentDocument] =
         useState(false);
 
+    const [showCustomerModal, setShowCustomerModal] = useState(false);
+    const [customerName, setCustomerName] = useState("");
+    const [lastCustomerName, setLastCustomerName] = useState<string | null>(null);
     /*
      * =========================================================
      * כל המשטחים שנבחרו
@@ -112,6 +115,8 @@ export default function LoadingDockView({
      */
     const totals = useTotals(pallets);
 
+
+    
     /*
      * =========================================================
      * בחירה / ביטול בחירה
@@ -173,27 +178,30 @@ export default function LoadingDockView({
      * =========================================================
      */
     async function handleShip() {
-        if (selected.size === 0) {
-            return;
-        }
+        if (selected.size === 0) return;
+
+        const trimmedName = customerName.trim();
+        if (!trimmedName) return;
 
         setBusy(true);
         setBusyAction("ship");
         setError(null);
 
         try {
-            const palletsForShipment = pallets.filter((p) =>
-                selected.has(p.id)
-            );
+            const palletsForShipment = pallets.filter((p) => selected.has(p.id));
 
             const shipmentId = await createShipment(
-                palletsForShipment.map((p) => p.id)
+                palletsForShipment.map((p) => p.id),
+                trimmedName
             );
 
             setLastShipmentId(shipmentId);
+            setLastCustomerName(trimmedName);
             setShipmentPallets(palletsForShipment);
             setShowShipmentDocument(true);
+            setShowCustomerModal(false);
             setSelected(new Set());
+            setCustomerName("");
         } catch (e: any) {
             setError(e?.message ?? "שגיאה בשילוח");
         } finally {
@@ -247,11 +255,10 @@ export default function LoadingDockView({
                 קיבולת המשאית — מצב כללי
             ====================================================== */}
             <div
-                className={`truck-capacity-indicator ${
-                    totalTruckOverCapacity
-                        ? "over-capacity"
-                        : ""
-                }`}
+                className={`truck-capacity-indicator ${totalTruckOverCapacity
+                    ? "over-capacity"
+                    : ""
+                    }`}
                 dir="rtl"
             >
                 <div className="truck-capacity-icon">
@@ -275,7 +282,7 @@ export default function LoadingDockView({
                                 100,
                                 (totalTruckSlots /
                                     MAX_TRUCK_SLOTS) *
-                                    100
+                                100
                             )}%`,
                         }}
                     />
@@ -295,11 +302,10 @@ export default function LoadingDockView({
             ====================================================== */}
             {selected.size > 0 && (
                 <div
-                    className={`truck-capacity-indicator ${
-                        selectedTruckOverCapacity
-                            ? "over-capacity"
-                            : ""
-                    }`}
+                    className={`truck-capacity-indicator ${selectedTruckOverCapacity
+                        ? "over-capacity"
+                        : ""
+                        }`}
                     dir="rtl"
                 >
                     <div className="truck-capacity-icon">
@@ -323,7 +329,7 @@ export default function LoadingDockView({
                                     100,
                                     (selectedTruckSlots /
                                         MAX_TRUCK_SLOTS) *
-                                        100
+                                    100
                                 )}%`,
                             }}
                         />
@@ -352,9 +358,8 @@ export default function LoadingDockView({
                     return (
                         <article
                             key={pallet.id}
-                            className={`dock-card ${
-                                isSelected ? "selected" : ""
-                            }`}
+                            className={`dock-card ${isSelected ? "selected" : ""
+                                }`}
                         >
                             <label className="dock-select">
                                 <input
@@ -385,7 +390,7 @@ export default function LoadingDockView({
                                 <span>
                                     {pallet.quantity}{" "}
                                     {pallet.itemType ===
-                                    "kegs"
+                                        "kegs"
                                         ? "חביות"
                                         : "ארגזים"}
 
@@ -436,7 +441,7 @@ export default function LoadingDockView({
 
                                 <td>
                                     {total.itemType ===
-                                    "kegs"
+                                        "kegs"
                                         ? "חביות"
                                         : "ארגזים"}
                                 </td>
@@ -470,15 +475,14 @@ export default function LoadingDockView({
             ====================================================== */}
             <button
                 type="button"
-                className={`shipment-btn ${
-                    selectedTruckOverCapacity
-                        ? "shipment-btn-over-capacity"
-                        : ""
-                }`}
+                className={`shipment-btn ${selectedTruckOverCapacity
+                    ? "shipment-btn-over-capacity"
+                    : ""
+                    }`}
                 disabled={
                     busy || selected.size === 0
                 }
-                onClick={handleShip}
+                onClick={() => setShowCustomerModal(true)}
             >
                 {busyAction === "ship" ? (
                     <BeerLoader
@@ -487,14 +491,57 @@ export default function LoadingDockView({
                         size="spinner"
                     />
                 ) : (
-                    `שלח${
-                        selected.size
-                            ? ` (${selected.size})`
-                            : ""
+                    `שלח${selected.size
+                        ? ` (${selected.size})`
+                        : ""
                     }`
                 )}
             </button>
 
+            {showCustomerModal && (
+                <div className="modal-overlay" onClick={() => !busy && setShowCustomerModal(false)}>
+                    <div
+                        className="customer-name-modal"
+                        dir="rtl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3>לכבוד</h3>
+                        <p>הזן את שם הלקוח עבור תעודת המשלוח</p>
+
+                        <input
+                            type="text"
+                            value={customerName}
+                            autoFocus
+                            placeholder="שם הלקוח"
+                            disabled={busy}
+                            onChange={(e) => setCustomerName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && customerName.trim()) handleShip();
+                            }}
+                        />
+
+                        <div className="customer-name-modal-actions">
+                            <button type="button" onClick={() => setShowCustomerModal(false)} disabled={busy}>
+                                ביטול
+                            </button>
+                            <button
+                                type="button"
+                                className="shipment-btn"
+                                onClick={handleShip}
+                                disabled={!customerName.trim() || busy}
+                            >
+                                {busyAction === "ship" ? (
+                                    <BeerLoader message="יוצר תעודה" overlay={false} size="spinner" />
+                                ) : (
+                                    "אשר ושלח"
+                                )}
+                            </button>
+                        </div>
+
+                        {error && <div className="edit-specs-message error">{error}</div>}
+                    </div>
+                </div>
+            )}
             {/* =====================================================
                 תעודת משלוח
             ====================================================== */}
@@ -502,6 +549,7 @@ export default function LoadingDockView({
                 <ShipmentDocumentModal
                     shipmentId={lastShipmentId!}
                     pallets={shipmentPallets}
+                    customerName={lastCustomerName}
                     onClose={() =>
                         setShowShipmentDocument(false)
                     }

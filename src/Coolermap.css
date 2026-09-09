@@ -355,7 +355,7 @@
 
 .cooler-side-block {
     display: grid;
-    grid-template-columns:50px repeat(6, 250px) 50px;
+    grid-template-columns: 50px repeat(6, 250px) 50px;
     gap: 8px;
     padding: 8px;
 }
@@ -400,9 +400,7 @@
      * כמו cooler-side-block.
      */
     grid-template-columns:
-        50px
-        1540px
-        50px;
+        50px 1540px 50px;
 
     gap: 8px;
 
@@ -455,26 +453,27 @@
  * לכן הן לא נעלמות ולא משפיעות על
  * היישור של 6 העמודות.
  */
-.cooler-corridor-row > .door-marker {
+.cooler-corridor-row>.door-marker {
     width: 50px;
     min-width: 50px;
     box-sizing: border-box;
 }
-.silent-door-marker{
-     width: 50px;
+
+.silent-door-marker {
+    width: 50px;
     min-width: 50px;
     box-sizing: border-box;
 }
 
 
 /* דלת שמאל */
-.cooler-corridor-row > .door-marker:first-child {
+.cooler-corridor-row>.door-marker:first-child {
     right: calc(100% + 8px);
 }
 
 
 /* דלת ימין */
-.cooler-corridor-row > .door-marker:last-child {
+.cooler-corridor-row>.door-marker:last-child {
     left: calc(100% + 8px);
 }
 
@@ -1029,6 +1028,7 @@
     border-color: #147a50;
     color: #fff;
 }
+
 .zone-danger-action {
     background: #7a1414;
     border-color: #7a1414;
@@ -1666,10 +1666,12 @@
     cursor: pointer;
     line-height: 1;
 }
-.zoom-reset{
+
+.zoom-reset {
     font-size: 10px !important;
     min-width: fit-content;
 }
+
 .cooler-zoom-controls button:disabled {
     opacity: .4;
     cursor: not-allowed;
@@ -1803,6 +1805,7 @@
         max-width: none;
         flex: 1;
     }
+
     .AddPalletSelect {
         width: 100%;
         height: 48px !important;
@@ -1822,12 +1825,13 @@
         appearance: none;
 
         background-image: linear-gradient(45deg, transparent 50%, #64748b 50%),
-                          linear-gradient(135deg, #64748b 50%, transparent 50%);
+            linear-gradient(135deg, #64748b 50%, transparent 50%);
         background-position: calc(100% - 16px) 20px,
-                             calc(100% - 11px) 20px;
+            calc(100% - 11px) 20px;
         background-size: 5px 5px, 5px 5px;
         background-repeat: no-repeat;
     }
+
     .modal-box select {
         min-height: 45px;
     }
@@ -1840,6 +1844,7 @@
         grid-column: 1 / -1;
         width: 100%;
     }
+
 }
 
 .shipment-document-overlay {
@@ -1859,6 +1864,11 @@
     color: #111;
 }
 
+.shipment-customer-name {
+    font-size: 12px;
+    margin-bottom: 2mm;
+}
+
 .shipment-document-header {
     display: flex;
     justify-content: space-between;
@@ -1866,6 +1876,11 @@
     gap: 30px;
     padding-bottom: 20px;
     margin-bottom: 30px;
+}
+
+.shipment-customer-name span {
+    font-size: 15px;
+    font-weight: bold !important;
 }
 
 .shipment-logo {
@@ -1988,9 +2003,14 @@
         color: #111 !important;
     }
 
+    .shipment-customer-name span {
+        font-size: 15px !important;
+        font-weight: bold !important;
+    }
     @page {
         margin: 12mm;
     }
+
 }
 
 .truck-capacity-indicator {
@@ -2052,8 +2072,7 @@
     background: #fef2f2;
 }
 
-.truck-capacity-indicator.over-capacity
-.truck-capacity-bar-fill {
+.truck-capacity-indicator.over-capacity .truck-capacity-bar-fill {
     background: #dc2626;
 }
 
@@ -2071,6 +2090,7 @@
         white-space: normal;
     }
 }
+
 /* =========================================================
    ZONE ITEM — manual reorder buttons
    ========================================================= */
@@ -2125,4 +2145,107 @@
     width: 15px;
     height: 15px;
     stroke-width: 2.5;
+}
+
+/* ===== מודאל "לכבוד" - בחירת שם לקוח לפני שליחה ===== */
+.customer-name-modal {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    width: 90%;
+    max-width: 360px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.customer-name-modal h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.customer-name-modal p {
+    margin: 0;
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.customer-name-modal input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    font-size: 16px;
+    /* 16px ולא פחות - מונע זום אוטומטי ב-iOS */
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    outline: none;
+    text-align: right;
+    direction: rtl;
+    transition: border-color 0.15s ease;
+}
+
+.customer-name-modal input[type="text"]:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.customer-name-modal input[type="text"]:disabled {
+    background: #f3f4f6;
+    cursor: not-allowed;
+}
+
+.customer-name-modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.customer-name-modal-actions button {
+    flex: 1;
+    padding: 12px 14px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+/* כפתור ביטול - הראשון ברשימה */
+.customer-name-modal-actions button:first-child {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.customer-name-modal-actions button:first-child:hover:not(:disabled) {
+    background: #e5e7eb;
+}
+
+/* כפתור אישור - shipment-btn, יורש סגנון מהכפתורים הקיימים */
+.customer-name-modal-actions .shipment-btn {
+    background: #147a50;
+    color: #fff;
+}
+
+.customer-name-modal-actions .shipment-btn:hover:not(:disabled) {
+    background: #15803d;
+}
+
+.customer-name-modal-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.customer-name-modal .edit-specs-message.error {
+    margin-top: 4px;
+}
+
+/* מובייל - רוחב כמעט מלא, פחות padding */
+@media (max-width: 480px) {
+    .customer-name-modal {
+        width: 92%;
+        padding: 16px;
+    }
 }

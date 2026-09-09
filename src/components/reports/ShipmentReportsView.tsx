@@ -211,6 +211,7 @@ export default function ShipmentReportsView() {
                     shipmentId={selectedShipmentId}
                     pallets={pallets}
                     inline
+                    customerName={selectedShipment?.customerName ?? ""}
                     shipment={selectedShipment}
                 />
             )}

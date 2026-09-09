@@ -23,6 +23,8 @@ html, body { margin: 0; padding: 0; background: white; color: #111;
 .shipment-company-details { min-width: 0; overflow-wrap: anywhere; }
 h1 { font-size: 20pt; margin: 0 0 3mm; }
 .shipment-company-details div { margin-bottom: 1mm; }
+.shipment-customer-name { font-size: 12pt; font-weight: bold; margin-bottom: 2mm; }
+.shipment-customer-name span { font-weight: bold; }
 .shipment-logo { width: 28mm; height: 24mm; object-fit: contain; flex-shrink: 0; }
 .shipment-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 th, td { border: 1px solid #aaa; padding: 1.3mm 2mm; text-align: right;
@@ -92,11 +94,12 @@ type Props = {
     pallets: Pallet[];
     onClose?: () => void;
     shipment?: Shipment | null;
+    customerName?: string | null;
     inline?: boolean;
 };
 
 
-export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, shipment, inline = false, }: Props) {
+export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, shipment, inline = false, customerName }: Props) {
     const [emails, setEmails] = useState<string[]>([
         "yochai@shapirobeer.co.il",
     ]);
@@ -109,10 +112,15 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
     const [message, setMessage] = useState("");
     const [logoLoaded, setLogoLoaded] = useState(false);
 
-   const date = useMemo(() => 
-    { if (!shipment?.createdAt) return "";
-         return new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short", })
-         .format(shipment.createdAt.toDate()); }, [shipment?.createdAt]);
+    // const date = useMemo(() => {
+    //     if (!shipment?.createdAt) return "";
+    //     return new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short", })
+    //         .format(shipment.createdAt.toDate());
+    // }, [shipment?.createdAt]);
+    const date = useMemo(() => {
+    const source = shipment?.createdAt?.toDate() ?? new Date();
+    return new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short" }).format(source);
+}, [shipment?.createdAt]);
 
     const totals = useMemo(() => {
         const map = new Map<string, { beerStyle: string; itemType: Pallet["itemType"]; quantity: number }>();
@@ -126,19 +134,19 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
     }, [pallets]);
 
     const totalsTableHtml = useMemo(() => {
-    const rows = totals
-        .map((t) => {
-            const entry = getCatalogEntry(t.beerStyle, t.itemType);
-            return `
+        const rows = totals
+            .map((t) => {
+                const entry = getCatalogEntry(t.beerStyle, t.itemType);
+                return `
                 <tr>
                     <td style="border:1px solid #ccc;padding:8px;text-align:right;">${entry?.sku ?? "—"}</td>
                     <td style="border:1px solid #ccc;padding:8px;text-align:right;">${entry?.displayText ?? `${t.beerStyle} (לא נמצא בקטלוג)`}</td>
                     <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.quantity}</td>
                 </tr>`;
-        })
-        .join("");
+            })
+            .join("");
 
-    return `
+        return `
         <table dir="rtl" style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px;">
             <thead>
                 <tr>
@@ -149,7 +157,9 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
             </thead>
             <tbody>${rows}</tbody>
         </table>`;
-}, [totals]);
+    }, [totals]);
+
+    
 
     function addEmail() {
         const email = newEmail.trim();
@@ -193,6 +203,7 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                     {
                         email,
                         shipmentId,
+                        customerName: customerName ?? "",
                         shipmentDate: date,
                         shipmentTableHtml: totalsTableHtml,
                         logoUrl: "https://fermenter-dashboard-bada3.web.app/assets/favicon-DCEmML13.ico",
@@ -268,11 +279,11 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
 
     return (
         <div
-           className={ inline ? "shipment-document-inline" : "modal-overlay shipment-document-overlay" }
+            className={inline ? "shipment-document-inline" : "modal-overlay shipment-document-overlay"}
             onClick={inline ? undefined : onClose} >
-        
+
             <div
-                className={ inline ? "shipment-document-container" : "shipment-document-modal" } 
+                className={inline ? "shipment-document-container" : "shipment-document-modal"}
                 onClick={(e) => { if (!inline) e.stopPropagation(); }} dir="rtl"
             >
                 <div className="shipment-document-actions no-print">
@@ -282,7 +293,7 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                     <button className="shipment-email-btn" onClick={sendEmails} disabled={sending || !logoLoaded}>
                         {sending ? <BeerLoader message="שולח..." size="spinner" /> : "✉️ שלח במייל"}
                     </button>
-                   {!inline && ( <button className="modal-x" onClick={onClose}> × </button> )}
+                    {!inline && (<button className="modal-x" onClick={onClose}> × </button>)}
                 </div>
                 <div className="shipment-email-editor no-print">
                     <h3>שליחה במייל</h3>
@@ -341,6 +352,11 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                     <header className="shipment-document-header">
                         <div className="shipment-company-details">
                             <h1>תעודת משלוח</h1>
+                            {customerName && (
+                                <div className="shipment-customer-name">
+                                    לכבוד: <span>{customerName}</span>
+                                </div>
+                            )}
                             <div>מבשלת שפירא א.ת. שורק (נחם), בית שמש</div>
                             <div>טל: 02-5612622 &nbsp;|&nbsp; ח.פ: 514378678</div>
                             <div>מספר: <strong>{shipmentId}</strong></div>
@@ -386,7 +402,7 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                     </footer>
                 </div>
 
-                
+
             </div>
         </div>
     );

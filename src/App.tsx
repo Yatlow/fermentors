@@ -124,7 +124,7 @@ export type NewReading = {
     shrinkagePercent?: number;
 };
 export type ReadingToSend = NewReading & {
-   tankId: string;
+    tankId: string;
     tankNumber?: string | number | null;
     batchNumber?: string | number | null;
     sheetUrl?: string | null;
@@ -204,7 +204,7 @@ function useAuth() {
                 setAdmin(isAdmin ?? false);
                 setTestUser(isTestUser ?? false);
                 setPlannerUser(isPlannerUser ?? false);
-                
+
             } catch (error) {
                 console.error("Error updating last logged in:", error);
                 setAdmin(false);
@@ -218,11 +218,11 @@ function useAuth() {
         return () => unsubscribe();
     }, []);
 
-    return { user, loading, admin, testUser,plannerUser };
+    return { user, loading, admin, testUser, plannerUser };
 }
 
 function App() {
-    const { user, loading: authLoading, admin, testUser,plannerUser } = useAuth();
+    const { user, loading: authLoading, admin, testUser, plannerUser } = useAuth();
     const [isApproved, setIsApproved] = useState<boolean | null>(null);
     const FCKHMS = testUser
     if (FCKHMS !== testUser) console.log("delete this line hahaha")
@@ -271,10 +271,6 @@ function App() {
                 .catch((e) => {
                     console.error("Error checking approved user:", e);
                     setIsApproved(false);
-                    // if (user.email==="itzik@shapirobeer.co.il"){}
-                    if (user.email==="yisrael@atlow.co.il"){
-                        setSelectedView("תכנון")
-                    }
                 });
             setLoggingIn(false);
         }
@@ -284,7 +280,7 @@ function App() {
     useEffect(() => {
         if (!user || !isApproved) return;
         const zoneNames: PalletZone[] = ["cooler", "pending", "bottleRoom", "loadingDock"];
-        const counts: ZoneCounts = { cooler: 0, pending: 0, bottleRoom: 0, loadingDock: 0,shipped:0 };
+        const counts: ZoneCounts = { cooler: 0, pending: 0, bottleRoom: 0, loadingDock: 0, shipped: 0 };
         const unsubs = zoneNames.map((zone) =>
             subscribeToZone(zone, (data) => {
                 counts[zone] = data.length;
@@ -356,7 +352,9 @@ function App() {
     const idsNeedingStage = brews.filter(t => t.stage === undefined).map(t => t.id).join(",");
     useEffect(() => {
         if (brews.length === 0) return;
-
+        if (user.email === "itzik@shapirobeer.co.il" && plannerUser) {
+            setSelectedView("תכנון")
+        }
 
         const tanksNeedingStage = brews.filter((tank) => tank.stage === undefined);
         if (tanksNeedingStage.length === 0) return;
@@ -631,7 +629,7 @@ function App() {
                     alt="Shpiro"
                     className="login-logo"
                 />
-                 <BeerLoader
+                <BeerLoader
                     message={"מבצע כניסה..."}
                     overlay={false}
                     size={"large"} />
@@ -748,21 +746,20 @@ function App() {
                                 {!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}
                             </div>
                             {plannerUser &&
-                            <div className={`views-item ${selectedView === "תכנון" ?
-                                "active" : ""}`}
-                                onClick={() => {
-                                    setSelectedView("תכנון")
-                                    setSelectedStatuses(["הכל"])
-                                    setSelectedStyles(["הכל"])
-                                    setSelectedWrites("לחץ")
-                                    setSelectedReports("אריזה")
-                                    setSelectedAdminTools("calculator")
-                                    setNewReadings({})
-                                }}
-                            >
-                                תכנון
-                                {!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}
-                            </div>}
+                                <div className={`views-item ${selectedView === "תכנון" ?
+                                    "active" : ""}`}
+                                    onClick={() => {
+                                        setSelectedView("תכנון")
+                                        setSelectedStatuses(["הכל"])
+                                        setSelectedStyles(["הכל"])
+                                        setSelectedWrites("לחץ")
+                                        setSelectedReports("אריזה")
+                                        setSelectedAdminTools("calculator")
+                                        setNewReadings({})
+                                    }}
+                                >
+                                    תכנון
+                                </div>}
 
                         </div>
                     </div>
@@ -902,7 +899,7 @@ function App() {
                                 }
                             >
                                 <span>
-                                     מלאי מוצר מוגמר
+                                    מלאי מוצר מוגמר
                                 </span>
                             </button>
                             <button
@@ -1038,8 +1035,8 @@ function App() {
             }
             {selectedView === "תכנון" && <div>
                 הכנס פה תכנון
-                
-                </div>}
+
+            </div>}
             {selectedView === "רישום" &&
                 <>
                     <SendMessurmentsHeader

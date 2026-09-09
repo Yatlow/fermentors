@@ -424,26 +424,19 @@ async function getNextShipmentNumber(): Promise<number> {
     });
 }
 
-export async function createShipment(palletIds: string[]): Promise<string> {
+export async function createShipment(
+    palletIds: string[],
+    customerName?: string | null
+): Promise<string> {
     if (palletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
 
     const snaps = await Promise.all(
-    palletIds.map((id) =>
-        getDoc(
-            doc(db, PALLETS_COLLECTION, id)
-        )
-    )
-);
-
-const pallets = snaps
-    .filter((snap) => snap.exists())
-    .map(
-        (snap) =>
-            ({
-                id: snap.id,
-                ...snap.data(),
-            } as Pallet)
+        palletIds.map((id) => getDoc(doc(db, PALLETS_COLLECTION, id)))
     );
+
+    const pallets = snaps
+        .filter((snap) => snap.exists())
+        .map((snap) => ({ id: snap.id, ...snap.data() } as Pallet));
 
     const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
     pallets.forEach((p) => {
@@ -459,6 +452,7 @@ const pallets = snaps
         shipmentNumber,
         palletIds,
         totals: Array.from(totalsMap.values()),
+        customerName: customerName?.trim() || null, // חדש
         createdAt: serverTimestamp(),
     });
 

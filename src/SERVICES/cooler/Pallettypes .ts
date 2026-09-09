@@ -53,6 +53,7 @@ export type Shipment = {
     palletIds: string[];
     totals: ShipmentTotal[];
     createdAt?: Timestamp | null;
+    customerName?: string | null;
 };
 
 export const MAX_HEIGHT_UNITS_PER_LOADING_PALLET = 190;
