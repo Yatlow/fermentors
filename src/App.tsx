@@ -13,31 +13,31 @@ import { auth, db, googleProvider } from "./firebase";
 
 
 
-import { getTankStage, type TankStageInfo } from "./SERVICES/tankstage"
+import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
 
 import "./App.css";
 import shpiro from "./assets/shpiro.jpeg";
-import DashboardHeader from "./components/DashboardHeader";
-import Dashboard from "./components/Dashboard";
-import DailyPressureAndTemp from "./components/DailyPressureAndTemp";
-import SendMessurmentsHeader from "./components/SendMessurmentsHeader";
-import DailyPlatoPH from "./components/DailyPlatoPH";
-import NoteToFermentor from "./components/NoteToFermentor";
-import PackagingForm from "./components/PackagingForm";
-import { getSpecsFromFb, type SpecChart } from "./SERVICES/getSpecsFromFb";
-import BatchReportsView from "./components/BatchReportsView";
-import PackagingReportsView from "./components/PackagingReportsView";
-import EditSpecs from "./components/EditSpecs";
-import BrewCalc from "./components/BrewerCalc";
-import ManualBatchAssignment from "./components/ManualBatchAssignment";
-import ManualStatusAssignment from "./components/Manualstatusassignment ";
-import EditApprovedUsers from "./components/EditApprovedUsers";
-import CoolerMap from "./components/Coolermap";
-import { subscribeToZone, type ZoneCounts } from "./SERVICES/Palletservice";
-import type { PalletZone } from "./SERVICES/Pallettypes ";
-import BeerLoader from "./components/Loading";
-import ShipmentReportsView from "./components/ShipmentReportsView";
-import CoolerInventoryReportView from "./components/CoolerReportsView ";
+import DashboardHeader from "./components/dashboard/DashboardHeader";
+import Dashboard from "./components/dashboard/Dashboard";
+import DailyPressureAndTemp from "./components/cellering/DailyPressureAndTemp";
+import SendMessurmentsHeader from "./components/cellering/SendMessurmentsHeader";
+import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
+import NoteToFermentor from "./components/dashboard/NoteToFermentor";
+import PackagingForm from "./components/cellering/PackagingForm";
+import { getSpecsFromFb, type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
+import BatchReportsView from "./components/reports/BatchReportsView";
+import PackagingReportsView from "./components/reports/PackagingReportsView";
+import EditSpecs from "./components/tools/EditSpecs";
+import BrewCalc from "./components/tools/BrewerCalc";
+import ManualBatchAssignment from "./components/tools/ManualBatchAssignment";
+import ManualStatusAssignment from "./components/tools/Manualstatusassignment ";
+import EditApprovedUsers from "./components/tools/EditApprovedUsers";
+import CoolerMap from "./components/cooler/Coolermap";
+import { subscribeToZone, type ZoneCounts } from "./SERVICES/cooler/Palletservice";
+import type { PalletZone } from "./SERVICES/cooler/Pallettypes ";
+import BeerLoader from "./components/general/Loading";
+import ShipmentReportsView from "./components/reports/ShipmentReportsView";
+import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
 
 
 
