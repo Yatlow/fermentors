@@ -1,7 +1,5 @@
 import { doc, writeBatch } from "firebase/firestore";
 import { db } from "../../firebase";
-import { upsertMeasurementInCache } from "./gettAllDataByBatch";
-import type { Measurement } from "../cellering/calculateCelleringRecomendations";
 
 const CURRENT_DATA_FIELDS = [
     "temp",
@@ -84,16 +82,10 @@ export async function pushCurrentDataToFirestore(readings: ReadingLike[]) {
 
     const firestoreBatch = writeBatch(db);
     let writeCount = 0;
-    const cacheUpdates: Array<{
-        batchId: string;
-        measurement: Measurement;
-    }> = [];
 
     readings.forEach((reading) => {
         const sheetResult = asSheetResult(reading.sheetResult);
         const currentData: Record<string, unknown> = {};
-        const revision = sheetResult && hasValue(reading.batchNumber) && buildMeasurementId(sheetResult.date, sheetResult.time)
-            ? crypto.randomUUID() : null;
 
         CURRENT_DATA_FIELDS.forEach((field) => {
             if (reading[field] !== undefined) {
@@ -119,10 +111,7 @@ export async function pushCurrentDataToFirestore(readings: ReadingLike[]) {
 
         if (Object.keys(currentData).length > 0) {
             const tankRef = doc(db, "fermentors", reading.tankId);
-            firestoreBatch.set(tankRef, {
-                currentData,
-                ...(revision ? { measurementsRevision: revision } : {}),
-            }, { merge: true });
+            firestoreBatch.set(tankRef, { currentData }, { merge: true });
             writeCount += 1;
         }
 
@@ -162,21 +151,9 @@ export async function pushCurrentDataToFirestore(readings: ReadingLike[]) {
 
         firestoreBatch.set(measurementRef, measurement, { merge: true });
         writeCount += 1;
-        cacheUpdates.push({
-            batchId,
-            measurement: {
-                id: measurementId,
-                ...measurement,
-            },
-        });
     });
 
     if (writeCount > 0) {
         await firestoreBatch.commit();
-
-        cacheUpdates.forEach(({ batchId, measurement }) => {
-            upsertMeasurementInCache(batchId, measurement);
-        });
     }
 }
-

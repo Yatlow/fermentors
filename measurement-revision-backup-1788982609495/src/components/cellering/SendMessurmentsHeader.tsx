@@ -68,7 +68,7 @@ export default function SendMessurmentsHeader({
     // ⚠️ חדש - דיווחי אריזה שממתינים לעריכת חלוקת משטחים (ר' PackagingPalletsModal)
     const [packagingJobs, setPackagingJobs] = useState<PackagingJobInput[] | null>(null);
 
-
+    const measurementsCache = useRef<Record<string, Measurement[]>>({});
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [showScrollHint, setShowScrollHint] = useState(false);
@@ -100,7 +100,8 @@ export default function SendMessurmentsHeader({
                 return [String(tank.tankNumber), messurments] as const;
             })
         );
-        return Object.fromEntries(entries);
+        measurementsCache.current = Object.fromEntries(entries);
+        return measurementsCache.current;
     }
 
     useEffect(() => {
@@ -436,7 +437,8 @@ export default function SendMessurmentsHeader({
 
                 const entries = await Promise.all(
                     fullTanks.map(async (tank: Fermentor) => {
-                        const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
+                        const messurments = measurementsCache.current[String(tank.tankNumber)]
+                            ?? await getMeasurementsByBatch(tank.batchNumber ?? "");
 
                         if (!tank.stage || !tank.brewDate) {
                             console.warn(

@@ -1,4 +1,3 @@
-import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
     collection,
@@ -293,9 +292,7 @@ function App() {
         const fermentorsRef = collection(db, "fermentors");
         const unsubscribe = onSnapshot(
             fermentorsRef,
-            { includeMetadataChanges: true },
             (snapshot) => {
-                observeMeasurementRevisions(snapshot);
                 setBrews((prevBrews) => {
                     const prevById = new Map(prevBrews.map((t) => [t.id, t]));
 
@@ -324,12 +321,11 @@ function App() {
                 setLoading(false);
             },
             (error) => {
-                stopMeasurementRevisionTracking();
                 console.error("Firestore listener error:", error);
                 setLoading(false);
             }
         );
-        return () => { unsubscribe(); stopMeasurementRevisionTracking(); };
+        return () => unsubscribe();
     }, [user, isApproved]);
 
 
