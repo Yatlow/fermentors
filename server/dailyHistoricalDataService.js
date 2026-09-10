@@ -680,13 +680,274 @@ function syncBrewToFirebase(
   );
 
 
-  uploadHistoricalMeasurements(
-    FIREBASE_PROJECT_ID,
-    documentId,
-    sheetUrl
+  // uploadHistoricalMeasurements(
+  //   FIREBASE_PROJECT_ID,
+  //   documentId,
+  //   sheetUrl
+  // );
+
+  function uploadHistoricalMeasurements(
+  projectId,
+  batchId,
+  sheetUrl
+) {
+
+  const spreadsheetId =
+    extractSpreadsheetId(
+      sheetUrl
+    );
+
+  const ss =
+    SpreadsheetApp.openById(
+      spreadsheetId
+    );
+
+  const sheet =
+    ss.getSheets()[0];
+
+  const values =
+    sheet
+      .getDataRange()
+      .getDisplayValues();
+
+  const headerRow =
+    findRowContaining(
+      values,
+      "טמפרטורה"
+    );
+
+  if (
+    headerRow === -1
+  ) {
+
+    Logger.log(
+      "No fermentation table found."
+    );
+
+    return;
+  }
+
+
+  let revisionTargets = null;
+  let savedCount = 0;
+  let skippedCount = 0;
+
+
+  for (
+    let r = headerRow + 1;
+    r < values.length;
+    r++
+  ) {
+
+    const dateText =
+      String(
+        values[r][0] || ""
+      ).trim();
+
+    const date =
+      parseIsraeliDate(
+        dateText
+      );
+
+    if (!date) {
+      continue;
+    }
+
+
+    const time =
+      String(
+        values[r][1] || ""
+      ).trim();
+
+
+    if (
+      !values[r][2] &&
+      !values[r][3] &&
+      !values[r][4] &&
+      !values[r][5] &&
+      !values[r][6] &&
+      !values[r][7]
+    ) {
+
+      continue;
+    }
+
+
+    const measurement = {
+
+      date:
+        dateText,
+
+      time:
+        time,
+
+      temp:
+        extractNumber(
+          values[r][3]
+        ),
+
+      plato:
+        extractNumber(
+          values[r][2]
+        ),
+      pressure:
+        extractNumber(
+          values[r][4]
+        ),
+      carbonation:
+        extractNumber(
+          values[r][6]
+        ),
+
+      pH:
+        extractNumber(
+          values[r][5]
+        ),
+
+      notes:
+        String(
+          values[r][7] || ""
+        ).trim()
+    };
+
+
+    const measurementId =
+      createMeasurementId(
+        date,
+        time
+      );
+
+
+    const url =
+      "https://firestore.googleapis.com/v1/projects/" +
+      projectId +
+      "/databases/(default)/documents/brews/" +
+      encodeURIComponent(
+        batchId
+      ) +
+      "/measurements/" +
+      encodeURIComponent(
+        measurementId
+      );
+
+
+    // ========================================================
+    // CHECK EXISTING MEASUREMENT
+    // ========================================================
+
+    const existing =
+      getFirestoreDocument(
+        url
+      );
+
+
+    let shouldWrite = true;
+
+
+    if (
+      existing &&
+      existing.fields
+    ) {
+
+      const existingMeasurement = {};
+
+
+      for (
+        const key in existing.fields
+      ) {
+
+        existingMeasurement[key] =
+          normalizeFirestoreValue(
+            existing.fields[key]
+          );
+      }
+
+
+      if (
+        objectsEqual(
+          measurement,
+          existingMeasurement
+        )
+      ) {
+
+        shouldWrite = false;
+      }
+    }
+
+
+    // ========================================================
+    // SKIP UNCHANGED
+    // ========================================================
+
+    if (
+      !shouldWrite
+    ) {
+
+      skippedCount++;
+
+      Logger.log(
+        "SKIPPED unchanged measurement: " +
+        measurementId
+      );
+
+      continue;
+    }
+
+
+    // ========================================================
+    // WRITE
+    // ========================================================
+
+    const document = {
+
+      fields:
+        toFirestoreFields(
+          measurement
+        )
+    };
+
+
+    if (!revisionTargets) revisionTargets = mrTargets_(projectId, batchId);
+    mrCommitMeasurement_(projectId, batchId, measurementId, measurement, revisionTargets);
+    const code = 200;
+
+
+    if (
+      code >= 200 &&
+      code < 300
+    ) {
+
+      savedCount++;
+
+      Logger.log(
+        "SAVED measurement: " +
+        measurementId
+      );
+
+    } else {
+
+      throw new Error(
+        "Measurement " +
+        measurementId +
+        " failed: " +
+        code +
+        " " +
+        "commit failed"
+      );
+    }
+  }
+
+
+  Logger.log(
+    "Historical measurements saved: " +
+    savedCount
   );
 
-
+  Logger.log(
+    "Historical measurements skipped: " +
+    skippedCount
+  );
+}
   // ==========================================================
   // RESULT
   // ==========================================================

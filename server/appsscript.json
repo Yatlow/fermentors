@@ -1,6 +1,19 @@
 {
   "timeZone": "Asia/Jerusalem",
-  "dependencies": {},
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Calendar",
+        "version": "v3",
+        "serviceId": "calendar"
+      },
+      {
+        "userSymbol": "Drive",
+        "version": "v3",
+        "serviceId": "drive"
+      }
+    ]
+  },
   "exceptionLogging": "STACKDRIVER",
   "oauthScopes": [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -8,7 +21,9 @@
     "https://www.googleapis.com/auth/datastore",
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/script.scriptapp",
-    "https://www.googleapis.com/auth/cloud-platform"
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events.readonly"
   ],
   "runtimeVersion": "V8",
   "webapp": {

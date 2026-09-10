@@ -39,14 +39,10 @@ function assignManualBatch(
 
   Logger.log(
     "MANUAL BATCH ASSIGNMENT"
-  );
-
-  Logger.log(
++
     "Tank: " +
     tankID
-  );
-
-  Logger.log(
+ +
     "Batch: " +
     batch
   );

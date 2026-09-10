@@ -13,397 +13,397 @@ const BREW_FOLDER_ID =
 // MAIN EXTRACTION
 // ============================================================
 
-function extractBrew(spreadSheetId) {
-
-  if (!spreadSheetId) {
-    throw new Error(
-      "No Spreadsheet ID or URL was provided."
-    );
-  }
-
-  const spreadsheetId =
-    extractSpreadsheetId(spreadSheetId);
-
-  const ss =
-    SpreadsheetApp.openById(spreadsheetId);
-
-  const sheet =
-    ss.getSheets()[0];
-
-  const values =
-    sheet
-      .getDataRange()
-      .getDisplayValues();
-
-  const brew = {
-
-    batchNumber: null,
-    beerStyle: null,
-    brewDate: null,
-    tankNumber: null,
-
-    sheetUrl:
-      ss.getUrl(),
-
-    tankStatus: null,
-    beerVolume: null,
-    startingPlato: null,
-    pasivationDate: null,
-
-    currentData: {
-
-      date: null,
-      temp: null,
-      plato: null,
-      pressure:null,
-      carbonation: null,
-      pH: null,
-      notes: ""
-    }
-  };
-
-
-  // ==========================================================
-  // BREW HEADER
-  // ==========================================================
-
-  const batchHeader =
-    values[0] || [];
-
-  brew.batchNumber =
-    String(
-      batchHeader[5] || ""
-    )
-      .replace("#", "")
-      .trim() || null;
-
-  brew.beerStyle =
-    String(
-      batchHeader[1] || ""
-    )
-      .trim() || null;
-
-  brew.tankNumber =
-    String(
-      batchHeader[3] || ""
-    )
-      .trim() || null;
-
-  brew.brewDate =
-    String(
-      batchHeader[7] || ""
-    )
-      .trim() || null;
-
-
-  // ==========================================================
-  // FERMENTATION HEADER
-  // ==========================================================
-
-  const fermentationHeader =
-    findRowContaining(
-      values,
-      "דף תסיסה"
-    );
-
-  if (
-    fermentationHeader !== -1
-  ) {
-
-    for (
-      let r = fermentationHeader;
-      r < Math.min(
-        fermentationHeader + 6,
-        values.length
-      );
-      r++
-    ) {
-
-      for (
-        let c = 0;
-        c < values[r].length;
-        c++
-      ) {
-
-        const cell =
-          String(
-            values[r][c] || ""
-          ).trim();
-
-
-        // ------------------------------------------------------
-        // BATCH
-        // ------------------------------------------------------
-
-        if (
-          cell === "אצווה:"
-        ) {
-
-          const batch =
-            String(
-              values[r][c + 1] || ""
-            )
-              .replace("#", "")
-              .trim();
-
-          if (batch) {
-
-            brew.batchNumber =
-              brew.batchNumber
-                ? brew.batchNumber
-                : batch;
-          }
-        }
-
-
-        // ------------------------------------------------------
-        // BEER STYLE
-        // ------------------------------------------------------
-
-        if (
-          cell === "סוג:"
-        ) {
-
-          const beerStyle =
-            String(
-              values[r][c + 1] || ""
-            ).trim();
-
-          brew.beerStyle =
-            brew.beerStyle
-              ? brew.beerStyle
-              : beerStyle || null;
-        }
-
-
-        // ------------------------------------------------------
-        // TANK NUMBER
-        // ------------------------------------------------------
-
-        if (
-          cell === "מספר מיכל:"
-        ) {
-
-          const tankNumber =
-            String(
-              values[r][c + 1] || ""
-            ).trim();
-
-          brew.tankNumber =
-            brew.tankNumber
-              ? brew.tankNumber
-              : tankNumber || null;
-        }
-      }
-    }
-  }
-
-
-  // ==========================================================
-  // BREW DATE
-  // ==========================================================
-
-  const brewDayRow =
-    findRowContaining(
-      values,
-      "יום בישול"
-    );
-
-  if (
-    brewDayRow !== -1
-  ) {
-
-    const col =
-      findColumnContaining(
-        values[brewDayRow],
-        "יום בישול"
-      );
-
-    if (
-      col !== -1
-    ) {
-
-      const brewDate =
-        String(
-          values[brewDayRow][col + 1] || ""
-        ).trim();
-
-      brew.brewDate =
-        brew.brewDate
-          ? brew.brewDate
-          : brewDate || null;
-    }
-  }
-
-
-  // ==========================================================
-  // VOLUME
-  // ==========================================================
-
-  const volumeLocation =
-    findCell(
-      values,
-      "נפח:"
-    );
-
-  if (
-    volumeLocation
-  ) {
-
-    const volumeText =
-      values[
-      volumeLocation.row
-      ][
-      volumeLocation.col + 1
-      ];
-
-    brew.beerVolume =
-      extractNumber(
-        volumeText
-      );
-  }
-
-
-  // ==========================================================
-  // TANK STATUS
-  // ==========================================================
-
-  const statusLocation =
-    findCell(
-      values,
-      "ריק?:"
-    );
-
-  if (
-    statusLocation
-  ) {
-
-    const statusVal =
-      values[
-      statusLocation.row
-      ][
-      statusLocation.col + 1
-      ];
-
-    brew.tankStatus =
-      String(
-        statusVal || ""
-      ).trim() || null;
-  }
-
-
-  // ==========================================================
-  // STARTING PLATO
-  // ==========================================================
-
-  const startingPlatoLocation =
-    findCell(
-      values,
-      "סוכר תחילי"
-    );
-
-  if (
-    startingPlatoLocation
-  ) {
-
-    const startingPlatoValue =
-      values[
-      startingPlatoLocation.row
-      ][
-      startingPlatoLocation.col + 1
-      ];
-
-    const startingPlatoText =
-      String(
-        startingPlatoValue || ""
-      ).trim();
-
-    if (
-      startingPlatoText
-    ) {
-
-      brew.startingPlato =
-        extractNumber(
-          startingPlatoText
-        );
-
-    } else {
-
-      for (
-        let z = 1;
-        z <= startingPlatoLocation.row;
-        z++
-      ) {
-
-        const row =
-          startingPlatoLocation.row - z;
-
-        for (
-          let c = 0;
-          c < values[row].length;
-          c++
-        ) {
-
-          const cell =
-            String(
-              values[row][c] || ""
-            ).trim();
-
-          if (
-            cell === "תחילת תסיסה"
-          ) {
-
-            const possibleValue =
-              values[row][c + 1];
-
-            const number =
-              extractNumber(
-                possibleValue
-              );
-
-            if (
-              number !== null
-            ) {
-
-              brew.startingPlato =
-                number;
-            }
-
-            break;
-          }
-        }
-
-        if (
-          brew.startingPlato !== null
-        ) {
-
-          break;
-        }
-      }
-    }
-  }
-
-
-  // ==========================================================
-  // CURRENT DATA
-  // ==========================================================
-
-  brew.currentData =
-    findLatestAvailableMeasurements(
-      values
-    );
-
-
-  Logger.log(
-    JSON.stringify(
-      brew,
-      null,
-      2
-    )
-  );
-
-  return brew;
-}
+// function extractBrew(spreadSheetId) {
+
+//   if (!spreadSheetId) {
+//     throw new Error(
+//       "No Spreadsheet ID or URL was provided."
+//     );
+//   }
+
+//   const spreadsheetId =
+//     extractSpreadsheetId(spreadSheetId);
+
+//   const ss =
+//     SpreadsheetApp.openById(spreadsheetId);
+
+//   const sheet =
+//     ss.getSheets()[0];
+
+//   const values =
+//     sheet
+//       .getDataRange()
+//       .getDisplayValues();
+
+//   const brew = {
+
+//     batchNumber: null,
+//     beerStyle: null,
+//     brewDate: null,
+//     tankNumber: null,
+
+//     sheetUrl:
+//       ss.getUrl(),
+
+//     tankStatus: null,
+//     beerVolume: null,
+//     startingPlato: null,
+//     pasivationDate: null,
+
+//     currentData: {
+
+//       date: null,
+//       temp: null,
+//       plato: null,
+//       pressure:null,
+//       carbonation: null,
+//       pH: null,
+//       notes: ""
+//     }
+//   };
+
+
+//   // ==========================================================
+//   // BREW HEADER
+//   // ==========================================================
+
+//   const batchHeader =
+//     values[0] || [];
+
+//   brew.batchNumber =
+//     String(
+//       batchHeader[5] || ""
+//     )
+//       .replace("#", "")
+//       .trim() || null;
+
+//   brew.beerStyle =
+//     String(
+//       batchHeader[1] || ""
+//     )
+//       .trim() || null;
+
+//   brew.tankNumber =
+//     String(
+//       batchHeader[3] || ""
+//     )
+//       .trim() || null;
+
+//   brew.brewDate =
+//     String(
+//       batchHeader[7] || ""
+//     )
+//       .trim() || null;
+
+
+//   // ==========================================================
+//   // FERMENTATION HEADER
+//   // ==========================================================
+
+//   const fermentationHeader =
+//     findRowContaining(
+//       values,
+//       "דף תסיסה"
+//     );
+
+//   if (
+//     fermentationHeader !== -1
+//   ) {
+
+//     for (
+//       let r = fermentationHeader;
+//       r < Math.min(
+//         fermentationHeader + 6,
+//         values.length
+//       );
+//       r++
+//     ) {
+
+//       for (
+//         let c = 0;
+//         c < values[r].length;
+//         c++
+//       ) {
+
+//         const cell =
+//           String(
+//             values[r][c] || ""
+//           ).trim();
+
+
+//         // ------------------------------------------------------
+//         // BATCH
+//         // ------------------------------------------------------
+
+//         if (
+//           cell === "אצווה:"
+//         ) {
+
+//           const batch =
+//             String(
+//               values[r][c + 1] || ""
+//             )
+//               .replace("#", "")
+//               .trim();
+
+//           if (batch) {
+
+//             brew.batchNumber =
+//               brew.batchNumber
+//                 ? brew.batchNumber
+//                 : batch;
+//           }
+//         }
+
+
+//         // ------------------------------------------------------
+//         // BEER STYLE
+//         // ------------------------------------------------------
+
+//         if (
+//           cell === "סוג:"
+//         ) {
+
+//           const beerStyle =
+//             String(
+//               values[r][c + 1] || ""
+//             ).trim();
+
+//           brew.beerStyle =
+//             brew.beerStyle
+//               ? brew.beerStyle
+//               : beerStyle || null;
+//         }
+
+
+//         // ------------------------------------------------------
+//         // TANK NUMBER
+//         // ------------------------------------------------------
+
+//         if (
+//           cell === "מספר מיכל:"
+//         ) {
+
+//           const tankNumber =
+//             String(
+//               values[r][c + 1] || ""
+//             ).trim();
+
+//           brew.tankNumber =
+//             brew.tankNumber
+//               ? brew.tankNumber
+//               : tankNumber || null;
+//         }
+//       }
+//     }
+//   }
+
+
+//   // ==========================================================
+//   // BREW DATE
+//   // ==========================================================
+
+//   const brewDayRow =
+//     findRowContaining(
+//       values,
+//       "יום בישול"
+//     );
+
+//   if (
+//     brewDayRow !== -1
+//   ) {
+
+//     const col =
+//       findColumnContaining(
+//         values[brewDayRow],
+//         "יום בישול"
+//       );
+
+//     if (
+//       col !== -1
+//     ) {
+
+//       const brewDate =
+//         String(
+//           values[brewDayRow][col + 1] || ""
+//         ).trim();
+
+//       brew.brewDate =
+//         brew.brewDate
+//           ? brew.brewDate
+//           : brewDate || null;
+//     }
+//   }
+
+
+//   // ==========================================================
+//   // VOLUME
+//   // ==========================================================
+
+//   const volumeLocation =
+//     findCell(
+//       values,
+//       "נפח:"
+//     );
+
+//   if (
+//     volumeLocation
+//   ) {
+
+//     const volumeText =
+//       values[
+//       volumeLocation.row
+//       ][
+//       volumeLocation.col + 1
+//       ];
+
+//     brew.beerVolume =
+//       extractNumber(
+//         volumeText
+//       );
+//   }
+
+
+//   // ==========================================================
+//   // TANK STATUS
+//   // ==========================================================
+
+//   const statusLocation =
+//     findCell(
+//       values,
+//       "ריק?:"
+//     );
+
+//   if (
+//     statusLocation
+//   ) {
+
+//     const statusVal =
+//       values[
+//       statusLocation.row
+//       ][
+//       statusLocation.col + 1
+//       ];
+
+//     brew.tankStatus =
+//       String(
+//         statusVal || ""
+//       ).trim() || null;
+//   }
+
+
+//   // ==========================================================
+//   // STARTING PLATO
+//   // ==========================================================
+
+//   const startingPlatoLocation =
+//     findCell(
+//       values,
+//       "סוכר תחילי"
+//     );
+
+//   if (
+//     startingPlatoLocation
+//   ) {
+
+//     const startingPlatoValue =
+//       values[
+//       startingPlatoLocation.row
+//       ][
+//       startingPlatoLocation.col + 1
+//       ];
+
+//     const startingPlatoText =
+//       String(
+//         startingPlatoValue || ""
+//       ).trim();
+
+//     if (
+//       startingPlatoText
+//     ) {
+
+//       brew.startingPlato =
+//         extractNumber(
+//           startingPlatoText
+//         );
+
+//     } else {
+
+//       for (
+//         let z = 1;
+//         z <= startingPlatoLocation.row;
+//         z++
+//       ) {
+
+//         const row =
+//           startingPlatoLocation.row - z;
+
+//         for (
+//           let c = 0;
+//           c < values[row].length;
+//           c++
+//         ) {
+
+//           const cell =
+//             String(
+//               values[row][c] || ""
+//             ).trim();
+
+//           if (
+//             cell === "תחילת תסיסה"
+//           ) {
+
+//             const possibleValue =
+//               values[row][c + 1];
+
+//             const number =
+//               extractNumber(
+//                 possibleValue
+//               );
+
+//             if (
+//               number !== null
+//             ) {
+
+//               brew.startingPlato =
+//                 number;
+//             }
+
+//             break;
+//           }
+//         }
+
+//         if (
+//           brew.startingPlato !== null
+//         ) {
+
+//           break;
+//         }
+//       }
+//     }
+//   }
+
+
+//   // ==========================================================
+//   // CURRENT DATA
+//   // ==========================================================
+
+//   brew.currentData =
+//     findLatestAvailableMeasurements(
+//       values
+//     );
+
+
+//   // Logger.log(
+//   //   JSON.stringify(
+//   //     brew,
+//   //     null,
+//   //     2
+//   //   )
+//   // );
+
+//   return brew;
+// }
 
 
 // ============================================================
@@ -2540,29 +2540,29 @@ function findNextBrewForTank(
     bestBrew
   ) {
 
-    Logger.log(
-      "NEXT BREW FOUND:"
-    );
+  //   Logger.log(
+  //     "NEXT BREW FOUND:"
+  //   );
 
-    Logger.log(
-      JSON.stringify(
-        bestBrew,
-        null,
-        2
-      )
-    );
+  //   Logger.log(
+  //     JSON.stringify(
+  //       bestBrew,
+  //       null,
+  //       2
+  //     )
+  //   );
 
   } else {
 
-    Logger.log(
-      "NO FUTURE BREW FOUND."
-    );
+  //   Logger.log(
+  //     "NO FUTURE BREW FOUND."
+  //   );
   }
 
 
-  Logger.log(
-    "========================================"
-  );
+  // Logger.log(
+  //   "========================================"
+  // );
 
 
   return bestBrew;
@@ -2610,6 +2610,6 @@ function testFindNextBrewForTank() {
 function testFirebaseUpload() {
 
   uploadBrewToFirebase(
-    "https://docs.google.com/spreadsheets/d/140dqVSyz4UCVFFgxVTVGgQoBlZYGqYF9jaybWr6lulk/edit?usp=drive_link"
+    "https://docs.google.com/spreadsheets/d/140dqVSyz4UCVFFgxVTVGgQoBlZYGqYF9jaybWr6lulk/edit"
   );
 }

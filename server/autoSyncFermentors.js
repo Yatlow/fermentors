@@ -1,0 +1,1052 @@
+// ============================================================
+// AUTO SYNC ALL FERMENTORS
+// ============================================================
+
+/**
+ * סורק את כל המסמכים ב-collection fermentors,
+ * לוקח מכל אחד את ה-sheetUrl,
+ * קורא מחדש את ה-Google Sheet,
+ * ומעדכן את Firestore רק אם הנתונים השתנו.
+ *
+ * השדות:
+ * kegs
+ * crates
+ * totalLiters
+ * shrinkagePercent
+ *
+ * מוגנים מפני דריסה בתוך updateFermentorDocument עצמו
+ * (רק אם לא הגיע ערך חדש אמיתי מהגיליון) - אין צורך
+ * לעשות merge נוסף כאן.
+ *
+ * מיועד להרצה באמצעות Time Trigger פעם בדקה.
+ */
+
+
+function syncAllFermentors() {
+
+  const projectId =
+    FIREBASE_PROJECT_ID;
+
+  Logger.log(
+    "========================================"
+  );
+
+  Logger.log(
+    "STARTING FERMENTORS SYNC"
+  );
+
+  const startTime =
+    new Date();
+
+
+  // ==========================================================
+  // GET ALL FERMENTORS
+  // ==========================================================
+
+  const fermentors =
+    getAllFermentorsFromFirestore(
+      projectId
+    );
+
+
+  Logger.log(
+    "Fermentors found: " +
+    fermentors.length
+  );
+
+
+  let updatedCount = 0;
+  let skippedCount = 0;
+  let errorCount = 0;
+
+
+  // ==========================================================
+  // PROCESS EACH FERMENTOR
+  // ==========================================================
+
+  fermentors.forEach(
+    function (fermentor) {
+
+      const fermentorId =
+        fermentor.id;
+
+      try {
+
+        Logger.log(
+          "----------------------------------------"
+        );
+
+        Logger.log(
+          "Processing fermentor: " +
+          fermentorId
+        );
+
+
+        // ------------------------------------------------------
+        // SHEET URL
+        // ------------------------------------------------------
+
+        const sheetUrl =
+          fermentor.data.sheetUrl;
+
+
+        if (!sheetUrl) {
+
+          Logger.log(
+            "SKIPPED - no sheetUrl: " +
+            fermentorId
+          );
+
+          skippedCount++;
+
+          return;
+        }
+
+
+        // ------------------------------------------------------
+        // READ GOOGLE SHEET
+        // ------------------------------------------------------
+
+        const brew =
+          extractBrew(
+            sheetUrl
+          );
+
+
+        if (!brew) {
+
+          Logger.log(
+            "SKIPPED - extractBrew returned null: " +
+            fermentorId
+          );
+
+          skippedCount++;
+
+          return;
+        }
+
+
+        // ------------------------------------------------------
+        // VALIDATE TANK
+        // ------------------------------------------------------
+
+        if (!brew.tankNumber) {
+
+          Logger.log(
+            "SKIPPED - no tank number: " +
+            fermentorId
+          );
+
+          skippedCount++;
+
+          return;
+        }
+
+
+        // ------------------------------------------------------
+        // EXISTING DATA
+        // ------------------------------------------------------
+
+        const existingData =
+          fermentor.data || {};
+
+
+        // ------------------------------------------------------
+        // CURRENT DATA
+        // ------------------------------------------------------
+        //
+        // הנתונים שמגיעים מה-Sheet נכנסים כמו שהם.
+        //
+        // ההגנה על kegs / crates / totalLiters / shrinkagePercent
+        // מתבצעת בתוך updateFermentorDocument עצמו - שם, ורק שם,
+        // יש גישה נכונה גם לערך הקיים ב-Firestore וגם לערך החדש
+        // שהגיע מהגיליון, כדי להחליט אם לדרוס או לשמר.
+        // ------------------------------------------------------
+
+        const incomingCurrentData =
+          brew.currentData || {};
+
+
+        // ------------------------------------------------------
+        // NEW DATA
+        // ------------------------------------------------------
+
+        const newData = {
+
+          tankNumber:
+            String(
+              brew.tankNumber
+            ).trim(),
+
+          tankStatus:
+            brew.tankStatus === "TRUE",
+
+          batchNumber:
+            brew.batchNumber || null,
+
+          beerStyle:
+            brew.beerStyle || null,
+
+          brewDate:
+            brew.brewDate || null,
+
+          beerVolume:
+            brew.beerVolume || null,
+
+          currentData:
+            incomingCurrentData,
+
+          sheetUrl:
+            brew.sheetUrl || null,
+
+          uid:
+            fermentorId,
+
+          startingPlato:
+            brew.startingPlato || null
+        };
+
+
+        // ------------------------------------------------------
+        // COMPARABLE EXISTING
+        // ------------------------------------------------------
+
+        const comparableExisting =
+          JSON.parse(
+            JSON.stringify(
+              existingData
+            )
+          );
+
+
+        // updatedAt is generated by Firebase,
+        // therefore it must not participate in comparison.
+
+        delete comparableExisting.updatedAt;
+
+
+        // ------------------------------------------------------
+        // COMPARE
+        // ------------------------------------------------------
+
+        if (
+          objectsEqual(
+            newData,
+            comparableExisting
+          )
+        ) {
+
+          Logger.log(
+            "SKIPPED unchanged fermentor: " +
+            fermentorId
+          );
+
+          skippedCount++;
+
+          return;
+        }
+
+
+        // ------------------------------------------------------
+        // UPDATE
+        // ------------------------------------------------------
+
+        newData.updatedAt =
+          new Date();
+
+
+        updateFermentorDocument(
+          projectId,
+          fermentorId,
+          newData
+        );
+
+
+        Logger.log(
+          "UPDATED fermentor: " +
+          fermentorId
+        );
+
+        updatedCount++;
+
+      } catch (
+      error
+      ) {
+
+        errorCount++;
+
+        Logger.log(
+          "ERROR fermentor " +
+          fermentorId +
+          ": " +
+          error.message
+        );
+      }
+
+    }
+  );
+
+
+  // ==========================================================
+  // SUMMARY
+  // ==========================================================
+
+  const duration =
+    (
+      new Date().getTime() -
+      startTime.getTime()
+    ) / 1000;
+
+
+  Logger.log(
+    "========================================"
+  );
+
+  Logger.log(
+    "FERMENTORS SYNC FINISHED"
+  );
+
+  Logger.log(
+    "Updated: " +
+    updatedCount
+  );
+
+  Logger.log(
+    "Skipped unchanged: " +
+    skippedCount
+  );
+
+  Logger.log(
+    "Errors: " +
+    errorCount
+  );
+
+  Logger.log(
+    "Duration: " +
+    duration +
+    " seconds"
+  );
+
+  Logger.log(
+    "========================================"
+  );
+}
+
+
+// ============================================================
+// GET ALL FERMENTORS FROM FIRESTORE
+// ============================================================
+
+function getAllFermentorsFromFirestore(
+  projectId
+) {
+
+  const result = [];
+
+  let pageToken = null;
+
+
+  do {
+
+    let url =
+      "https://firestore.googleapis.com/v1/projects/" +
+      projectId +
+      "/databases/(default)/documents/fermentors" +
+      "?pageSize=100";
+
+
+    if (pageToken) {
+
+      url +=
+        "&pageToken=" +
+        encodeURIComponent(
+          pageToken
+        );
+    }
+
+
+    const response =
+      UrlFetchApp.fetch(
+        url,
+        {
+
+          method: "get",
+
+          headers: {
+
+            Authorization:
+              "Bearer " +
+              ScriptApp.getOAuthToken()
+          },
+
+          muteHttpExceptions:
+            true
+        }
+      );
+
+
+    const code =
+      response.getResponseCode();
+
+
+    if (
+      code < 200 ||
+      code >= 300
+    ) {
+
+      throw new Error(
+        "Firestore list fermentors failed: " +
+        code +
+        " " +
+        response.getContentText()
+      );
+    }
+
+
+    const data =
+      JSON.parse(
+        response.getContentText()
+      );
+
+
+    const documents =
+      data.documents || [];
+
+
+    documents.forEach(
+      function (document) {
+
+        const name =
+          document.name || "";
+
+
+        const match =
+          name.match(
+            /\/documents\/fermentors\/([^/]+)$/
+          );
+
+
+        if (!match) {
+          return;
+        }
+
+
+        const fermentorId =
+          decodeURIComponent(
+            match[1]
+          );
+
+
+        const normalized =
+          {};
+
+
+        const fields =
+          document.fields || {};
+
+
+        for (
+          const key in fields
+        ) {
+
+          normalized[key] =
+            normalizeFirestoreValue(
+              fields[key]
+            );
+        }
+
+
+        result.push({
+
+          id:
+            fermentorId,
+
+          data:
+            normalized
+        });
+      }
+    );
+
+
+    pageToken =
+      data.nextPageToken || null;
+
+  } while (
+    pageToken
+  );
+
+
+  return result;
+}
+
+// ============================================================
+// REFRESH SINGLE TANK
+// ============================================================
+
+function refreshSingleTank(
+  fermentorID,
+  sheetUrl
+) {
+
+  if (!fermentorID) {
+    throw new Error(
+      "Missing fermentorID"
+    );
+  }
+
+  if (!sheetUrl) {
+    throw new Error(
+      "Missing sheetUrl"
+    );
+  }
+
+
+  const projectId =
+    FIREBASE_PROJECT_ID;
+
+
+  // ==========================================================
+  // READ GOOGLE SHEET
+  // ==========================================================
+
+  const brew =
+    extractBrew(
+      sheetUrl
+    );
+
+
+  if (
+    !brew ||
+    !brew.tankNumber
+  ) {
+
+    return {
+      updated: false,
+      reason: "no tankNumber"
+    };
+
+  }
+
+
+  // ==========================================================
+  // NEW CURRENT DATA
+  // ==========================================================
+  //
+  // ההגנה על kegs / crates / totalLiters / shrinkagePercent
+  // מתבצעת בתוך updateFermentorDocument עצמו - אין צורך
+  // ב-merge כפול כאן.
+  // ==========================================================
+
+  const incomingCurrentData =
+    brew.currentData || {};
+
+
+  // ==========================================================
+  // NEW DATA
+  // ==========================================================
+
+  const newData = {
+
+    tankNumber:
+      String(
+        brew.tankNumber
+      ).trim(),
+
+    tankStatus:
+      brew.tankStatus === "TRUE",
+
+    batchNumber:
+      brew.batchNumber || null,
+
+    beerStyle:
+      brew.beerStyle || null,
+
+    brewDate:
+      brew.brewDate || null,
+
+    beerVolume:
+      brew.beerVolume || null,
+
+    currentData:
+      incomingCurrentData,
+
+    sheetUrl:
+      brew.sheetUrl || null,
+
+    uid:
+      fermentorID,
+
+    startingPlato:
+      brew.startingPlato || null
+  };
+
+
+  // ==========================================================
+  // LOCAL CACHE
+  // ==========================================================
+
+  const cacheKey =
+    "fermentor:" +
+    fermentorID;
+
+
+  const changed =
+    hasChangedLocally_(
+      cacheKey,
+      newData
+    );
+
+
+  // ==========================================================
+  // LATEST MEASUREMENT
+  // ==========================================================
+
+  let latestMeasurementWrote =
+    false;
+
+
+  if (
+    newData.batchNumber
+  ) {
+
+    try {
+
+      latestMeasurementWrote =
+        writeLatestMeasurementIfChanged_(
+          projectId,
+          newData.batchNumber,
+          sheetUrl
+        );
+
+    } catch (
+    err
+    ) {
+
+      Logger.log(
+        "refreshSingleTank measurement write error: " +
+        err.message
+      );
+
+    }
+
+  }
+
+
+  // ==========================================================
+  // NO CHANGE
+  // ==========================================================
+
+  if (!changed) {
+
+    return {
+      updated: false,
+      latestMeasurementWrote:
+        latestMeasurementWrote
+    };
+
+  }
+
+
+  // ==========================================================
+  // UPDATE
+  // ==========================================================
+
+  newData.updatedAt =
+    new Date();
+
+
+  updateFermentorDocument(
+    projectId,
+    fermentorID,
+    newData
+  );
+
+
+  return {
+    updated: true,
+    latestMeasurementWrote:
+      latestMeasurementWrote
+  };
+}
+
+// ============================================================
+// GET SINGLE FERMENTOR FROM FIRESTORE
+// ============================================================
+
+function getFermentorFromFirestore(
+  projectId,
+  fermentorId
+) {
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    projectId +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(
+      fermentorId
+    );
+
+
+  const response =
+    UrlFetchApp.fetch(
+      url,
+      {
+
+        method: "get",
+
+        headers: {
+
+          Authorization:
+            "Bearer " +
+            ScriptApp.getOAuthToken()
+
+        },
+
+        muteHttpExceptions:
+          true
+
+      }
+    );
+
+
+  const code =
+    response.getResponseCode();
+
+
+  if (
+    code === 404
+  ) {
+
+    return null;
+
+  }
+
+
+  if (
+    code < 200 ||
+    code >= 300
+  ) {
+
+    throw new Error(
+      "Firestore get fermentor failed: " +
+      code +
+      " " +
+      response.getContentText()
+    );
+
+  }
+
+
+  const document =
+    JSON.parse(
+      response.getContentText()
+    );
+
+
+  const fields =
+    document.fields || {};
+
+
+  const normalized =
+    {};
+
+
+  for (
+    const key in fields
+  ) {
+
+    normalized[key] =
+      normalizeFirestoreValue(
+        fields[key]
+      );
+
+  }
+
+
+  return normalized;
+}
+
+
+// ============================================================
+// UPDATE SINGLE FERMENTOR
+// ============================================================
+//
+// זו הפונקציה היחידה שאמורה להכיל את לוגיקת ההגנה על
+// kegs / crates / totalLiters / shrinkagePercent.
+//
+// היא דורסת ערך קיים ב-Firestore רק אם לא הגיע ערך חדש
+// (undefined/null) עבור אותו שדה ב-fermentor.currentData -
+// כלומר אם הזרימה שקוראת לפונקציה הזו (syncFermentorsFromSheets_
+// עם קריאת readPackagingInfoFromSheet) כבר הביאה ערך אמיתי,
+// הוא לא יידרס.
+// ============================================================
+
+// function updateFermentorDocument(
+//   projectId,
+//   fermentorId,
+//   fermentor
+// ) {
+
+//   const baseUrl =
+//     "https://firestore.googleapis.com/v1/projects/" +
+//     projectId +
+//     "/databases/(default)/documents/fermentors/" +
+//     encodeURIComponent(
+//       fermentorId
+//     );
+
+
+//   // ==========================================================
+//   // GET CURRENT FIRESTORE DATA
+//   // ==========================================================
+
+//   const existingData =
+//     getFermentorFromFirestore(
+//       projectId,
+//       fermentorId
+//     ) || {};
+
+
+//   const existingCurrentData =
+//     existingData.currentData || {};
+
+
+//   // ==========================================================
+//   // PROTECT CURRENT DATA FIELDS
+//   // ==========================================================
+
+//   const protectedFields = [
+//     "kegs",
+//     "crates",
+//     "totalLiters",
+//     "shrinkagePercent"
+//   ];
+
+
+//   if (
+//     fermentor.currentData &&
+//     typeof fermentor.currentData === "object"
+//   ) {
+
+//     const currentDataToWrite = {
+//       ...fermentor.currentData
+//     };
+
+
+//     protectedFields.forEach(function (fieldName) {
+
+//       const incomingValue = fermentor.currentData[fieldName];
+
+//       const hasFreshValue =
+//         incomingValue !== undefined &&
+//         incomingValue !== null;
+
+//       // אם לא הבאנו ערך חדש ומעודכן מהגיליון עבור השדה הזה -
+//       // נשמור על הערך שכבר קיים ב-Firestore.
+//       // אם כן הבאנו ערך חדש - נשאיר אותו, לא נדרוס.
+//       if (
+//         !hasFreshValue &&
+//         Object.prototype.hasOwnProperty.call(existingCurrentData, fieldName)
+//       ) {
+//         currentDataToWrite[fieldName] = existingCurrentData[fieldName];
+//       }
+//     });
+
+
+//     fermentor.currentData =
+//       currentDataToWrite;
+
+//   }
+
+
+//   // ==========================================================
+//   // CONVERT TO FIRESTORE FORMAT
+//   // ==========================================================
+
+//   const fields =
+//     toFirestoreFields(
+//       fermentor
+//     );
+
+
+//   // ==========================================================
+//   // UPDATE MASK
+//   // ==========================================================
+
+//   const fieldNames = [
+//     "tankNumber",
+//     "tankStatus",
+//     "batchNumber",
+//     "beerStyle",
+//     "brewDate",
+//     "beerVolume",
+//     "currentData",
+//     "sheetUrl",
+//     "uid",
+//     "startingPlato",
+//     "updatedAt"
+//   ];
+
+
+//   let url =
+//     baseUrl;
+
+
+//   fieldNames.forEach(
+//     function (fieldName) {
+
+//       url +=
+//         (
+//           url.includes("?")
+//             ? "&"
+//             : "?"
+//         ) +
+//         "updateMask.fieldPaths=" +
+//         encodeURIComponent(
+//           fieldName
+//         );
+
+//     }
+//   );
+
+
+//   // ==========================================================
+//   // FIRESTORE DOCUMENT
+//   // ==========================================================
+
+//   const document = {
+
+//     fields:
+//       fields
+
+//   };
+
+
+//   // ==========================================================
+//   // PATCH
+//   // ==========================================================
+
+//   const response =
+//     UrlFetchApp.fetch(
+//       url,
+//       {
+
+//         method: "patch",
+
+//         contentType:
+//           "application/json",
+
+//         headers: {
+
+//           Authorization:
+//             "Bearer " +
+//             ScriptApp.getOAuthToken()
+
+//         },
+
+//         payload:
+//           JSON.stringify(
+//             document
+//           ),
+
+//         muteHttpExceptions:
+//           true
+
+//       }
+//     );
+
+
+//   // ==========================================================
+//   // VALIDATE RESPONSE
+//   // ==========================================================
+
+//   const code =
+//     response.getResponseCode();
+
+
+//   if (
+//     code < 200 ||
+//     code >= 300
+//   ) {
+
+//     throw new Error(
+//       "Fermentor update failed: " +
+//       code +
+//       " " +
+//       response.getContentText()
+//     );
+
+//   }
+
+// }
+
+
+// ============================================================
+// CREATE TIME TRIGGER
+// ============================================================
+
+/**
+ * מריץ את הסנכרון פעם בדקה.
+ *
+ * להריץ את הפונקציה הזאת פעם אחת בלבד ידנית.
+ *
+ * הערה: אם עברת לזרימה המאוחדת (runFermentorCycle),
+ * אין להריץ גם את הטריגר הזה - זה יגרום לשני jobs
+ * מקבילים לעדכן את אותם מסמכים.
+ */
+function createFermentorSyncTrigger() {
+
+  const functionName =
+    "syncAllFermentors";
+
+
+  // ----------------------------------------------------------
+  // DELETE EXISTING TRIGGERS FOR THIS FUNCTION
+  // ----------------------------------------------------------
+
+  const triggers =
+    ScriptApp.getProjectTriggers();
+
+
+  triggers.forEach(
+    function (trigger) {
+
+      if (
+        trigger.getHandlerFunction() ===
+        functionName
+      ) {
+
+        ScriptApp.deleteTrigger(
+          trigger
+        );
+      }
+    }
+  );
+
+
+  // ----------------------------------------------------------
+  // CREATE NEW TRIGGER
+  // ----------------------------------------------------------
+
+  ScriptApp.newTrigger(
+    functionName
+  )
+    .timeBased()
+    .everyMinutes(1)
+    .create();
+
+
+  Logger.log(
+    "Created fermentor sync trigger."
+  );
+}
+
+
+// ============================================================
+// MANUAL TEST
+// ============================================================
+
+function testSyncAllFermentors() {
+
+  syncAllFermentors();
+}
