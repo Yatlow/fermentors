@@ -196,6 +196,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     function buildPackagingJobInput(): PackagingJobInput | null {
         if (!packagingType || !(Number(amount) > 0)) return null;
         return {
+            submissionId: crypto.randomUUID(),
             tankId: tank.id,
             tankNumber: tank.tankNumber ?? "",
             beerStyle: tank.beerStyle,
@@ -279,6 +280,17 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 throw new Error(res.map((r) => r.error ?? r.message).join(", "));
             }
 
+            const successfulResult = res.find(
+                (result) => result.success === true && String(result.tankId) === String(tank.id)
+            );
+
+            // Firestore מתעדכן מיד אחרי שהמדידה נקלטה. כשל מאוחר יותר
+            // בעדכון תאי האריזה בגיליון לא ימנע שמירת totalLiters/פחת.
+            await pushCurrentDataToFirestore([{
+                ...reading,
+                sheetResult: successfulResult?.result,
+            }]);
+
             await updatePackagingInfo([{
                 tankId: tank.id,
                 tankNumber: tank.tankNumber ?? undefined,
@@ -288,14 +300,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 crates: reading.crates,
                 totalLiters,
                 shrinkagePercent,
-            }]);
-            const successfulResult = res.find(
-                (result) => result.success === true && String(result.tankId) === String(tank.id)
-            );
-
-            await pushCurrentDataToFirestore([{
-                ...reading,
-                sheetResult: successfulResult?.result,
             }]);
 
             if (!handedOffToPalletsModal) {

@@ -39,6 +39,7 @@ import type { PalletZone } from "./SERVICES/cooler/Pallettypes ";
 import BeerLoader from "./components/general/Loading";
 import ShipmentReportsView from "./components/reports/ShipmentReportsView";
 import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
+import PlanningView from "./components/planning/PlanningView";
 
 
 
@@ -1033,10 +1034,12 @@ function App() {
                     totalVolumes={totalVolumes}
                 ></Dashboard>
             }
-            {selectedView === "תכנון" && <div>
-                הכנס פה תכנון
-
-            </div>}
+            {selectedView === "תכנון" && 
+            <PlanningView 
+            brews={brews}
+            canEdit={plannerUser}
+            />
+            }
             {selectedView === "רישום" &&
                 <>
                     <SendMessurmentsHeader

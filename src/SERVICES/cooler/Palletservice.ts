@@ -182,20 +182,34 @@ export async function createPalletsFromCustomSplit(
         );
     }
 
+    // יצירה אטומית: או שכל המשטחים של הדיווח נוצרים, או שאף אחד מהם
+    // לא נוצר. כך ניסיון חוזר לא משכפל משטחים אחרי כשל חלקי באמצע.
+    const palletBatch = writeBatch(db);
     const ids: string[] = [];
-    for (const entry of sanitized) {
-        ids.push(
-            await createPalletDocument({
-                itemType,
-                beerStyle,
-                subLabel: entry.subLabel,
-                quantity: entry.quantity,
-                batchNumber: batchNumber == null ? null : String(batchNumber),
-                expiryDateStr,
-                sourceTankNumber,
-            })
-        );
-    }
+
+    sanitized.forEach((entry) => {
+        const palletRef = doc(collection(db, PALLETS_COLLECTION));
+        ids.push(palletRef.id);
+        palletBatch.set(palletRef, {
+            itemType,
+            beerStyle,
+            subLabel: entry.subLabel ?? null,
+            quantity: entry.quantity,
+            heightCm: calcHeightCm(itemType, entry.quantity),
+            expiryDateStr: expiryDateStr || null,
+            batchNumber: batchNumber == null ? null : String(batchNumber),
+            sourceTankNumber: sourceTankNumber ?? null,
+            markedForShipment: false,
+            zone: "pending" as PalletZone,
+            cell: null,
+            slotIndex: null,
+            orderInCell: null,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        });
+    });
+
+    await palletBatch.commit();
     return ids;
 }
 

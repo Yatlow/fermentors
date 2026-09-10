@@ -382,6 +382,7 @@ export default function SendMessurmentsHeader({
                             : Number(e.crates) / 0.33 // BOTTLE_LITERS
                     );
                     return {
+                        submissionId: crypto.randomUUID(),
                         tankId: e.tankId,
                         tankNumber: e.tankNumber,
                         beerStyle: tank?.beerStyle,
@@ -546,11 +547,14 @@ export default function SendMessurmentsHeader({
                     (item) => String(item.tankId) === String(reading.tankId)
                 );
 
-                if (result?.success !== true) return [];
+                // אם השרת החזיר כשל מפורש למיכל - לא מעדכנים Firestore.
+                // תשובה כללית תקינה שלא כוללת tankId עדיין מאפשרת לעדכן את
+                // currentData המקומי (למשל totalLiters של אריזה סופית).
+                if (result?.success === false) return [];
 
                 return [{
                     ...reading,
-                    sheetResult: result.result,
+                    sheetResult: result?.result,
                 }];
             });
 

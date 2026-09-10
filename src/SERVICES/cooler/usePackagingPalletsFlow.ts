@@ -14,6 +14,8 @@ import {
 import type { PalletItemType } from "./Pallettypes ";
 
 export type PackagingJobInput = {
+    /** מזהה קבוע לדיווח; אותו מזהה משמש גם בניסיון חוזר */
+    submissionId: string;
     tankId: string;
     tankNumber: string | number;
     beerStyle: string | undefined | null;
@@ -92,11 +94,12 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
     // מקור אמת סינכרוני לקריאה בתוך confirm() בלי לחכות לרינדור מחדש
     const runtimesRef = useRef<JobRuntime[]>(runtimes);
     function setRuntimesSynced(updater: (prev: JobRuntime[]) => JobRuntime[]) {
-        setRuntimes((prev) => {
-            const next = updater(prev);
-            runtimesRef.current = next;
-            return next;
-        });
+        // חשוב לעדכן את ה-ref לפני שה-Promise של sendJob מסתיים.
+        // setState יכול להידחות על ידי React; במקרה כזה confirm() היה רואה
+        // palletPlan=null, מדלג על היצירה ובכל זאת מציג הצלחה.
+        const next = updater(runtimesRef.current);
+        runtimesRef.current = next;
+        setRuntimes(next);
     }
 
     const [rows, setRows] = useState<PendingPalletRow[]>(() => buildInitialRows(jobsRef.current));
@@ -112,6 +115,8 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
     function sendJob(jobIndex: number): Promise<void> {
         const job = jobsRef.current[jobIndex];
         const promise = submitPackagingRecord({
+            // submissionId: job.submissionId,
+            // tankId: job.tankId,
             beerStyle: job.beerStyle,
             packagingType: job.packagingType,
             amount: job.amount,
@@ -220,7 +225,7 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
     }, [runtimes]);
 
     async function confirm() {
-        if (!isValid || step !== "review") return;
+        if (!isValid || (step !== "review" && step !== "error")) return;
 
         const stillSending = runtimesRef.current.some(
             (r) => r.reportedQuantity > 0 && r.sendStatus === "pending"
@@ -237,6 +242,17 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         if (failedSend) {
             setStep("error");
             setSubmitError(failedSend.sendError ?? "שגיאה בשליחת הנתונים");
+            return;
+        }
+
+        const missingPlan = finalRuntimes.find(
+            (r) => r.reportedQuantity > 0 && !r.palletPlan
+        );
+        if (missingPlan) {
+            setStep("error");
+            setSubmitError(
+                `לא התקבלה תוכנית משטחים למיכל ${String(missingPlan.job.tankNumber)}. המשטחים לא נוצרו.`
+            );
             return;
         }
 

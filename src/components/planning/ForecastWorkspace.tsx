@@ -1,0 +1,47 @@
+import { useMemo, useState } from 'react';
+import type { Fermentor } from '../../App';
+import type { Pallet } from '../../SERVICES/cooler/Pallettypes ';
+import { addDays, emptyWeek, weekNumber, weekStart, type Actual, type Holiday, type Settings, type Tank, type WeekPlan } from '../../SERVICES/planning/planningEngine';
+import { actualDate, dailyForecast, shortDate, validateDatedPlan, type ShipmentEvent } from '../../SERVICES/planning/dailyPlanner';
+import { tankReleases, validateProduction, validateBrewReleases } from '../../SERVICES/planning/productionCycle';
+import { futureTanks } from '../../SERVICES/planning/dailyPlanner';
+import { brewProposals } from '../../SERVICES/planning/brewScheduler';
+import ProductionCalendar from './ProductionCalendar';
+import TruckRecommendations from './TruckRecommendations';
+import DailyPlanEditor from './DailyPlanEditor';
+const fmt=(n:number|null)=>n===null?'לא ידוע':n.toLocaleString('he-IL',{maximumFractionDigits:1});
+export default function ForecastWorkspace({mode,settings,pallets,tanks,plans,actuals,brews,today,holidays,holidayError,disabled,saveWeek,actualShipments,shipmentsOnly=false,packingOnly=false}:{mode:'recommendations'|'planning';settings:Settings;pallets:Pallet[];tanks:Tank[];plans:WeekPlan[];actuals:Actual[];brews:Fermentor[];today:string;holidays:Holiday[];holidayError:string;disabled:boolean;saveWeek:(w:WeekPlan)=>Promise<void>;actualShipments:ShipmentEvent[];shipmentsOnly?:boolean;packingOnly?:boolean}){
+  const [horizon,setHorizon]=useState(12),[week,setWeek]=useState(weekStart(today)),[editing,setEditing]=useState(false),[message,setMessage]=useState('');
+  const [product,setProduct]=useState(settings.products.find(p=>p.monthly>0)?.id??settings.products[0]?.id??'');
+  const forecast=useMemo(()=>dailyForecast(settings,pallets,tanks,plans,actuals,today,holidays,mode==='recommendations',actualShipments),[settings,pallets,tanks,plans,actuals,today,holidays,mode,actualShipments]);
+  const recommendations=useMemo(()=>mode==='recommendations'?forecast:dailyForecast(settings,pallets,tanks,plans,actuals,today,holidays,true,actualShipments),[forecast,settings,pallets,tanks,plans,actuals,today,holidays,mode,actualShipments]);
+  const start=weekStart(today),weeks=Array.from({length:horizon},(_,i)=>addDays(start,7*i));
+  const current=plans.find(w=>w.id===week)??{...emptyWeek(week),maxRuns:settings.preferredRuns};
+  const brewing=brewProposals(settings,pallets,tanks,plans,actuals,brews,today);
+  async function save(w:WeekPlan){const error=validateDatedPlan(w,settings,plans,today);if(error)throw new Error(error);
+    const next=[...plans.filter(x=>x.id!==w.id),w],pool=futureTanks(tanks,next,settings);
+    const productionError=validateProduction(next,settings,pool,actuals,today);if(productionError)throw new Error(productionError);
+    const releases=tankReleases(brews,tanks,next,settings,actuals,today);
+    const dependencyError=validateBrewReleases(brews,tanks,next,settings,actuals,today);if(dependencyError)throw new Error(dependencyError);
+    const shipmentDates=new Set([...actualShipments.filter(x=>weekStart(x.date)===w.id).map(x=>x.date),...(w.deliveries??[]).map(x=>x.dispatchDate)]);if(actualShipments.filter(x=>weekStart(x.date)===w.id).length+[...shipmentDates].filter(date=>!actualShipments.some(x=>x.date===date)).length>(settings.maxWeeklyDeliveries??2))throw new Error('המשלוחים שבוצעו והתכנון יחד חורגים מהמכסה השבועית');
+    const actualDays=new Set(actuals.map(actualDate).filter((d):d is string=>!!d&&weekStart(d)===w.id));const plannedDays=new Set(w.packaging.filter(r=>r.quantity>0&&r.date).map(r=>r.date!));
+    if(new Set([...actualDays,...plannedDays]).size>w.maxRuns)throw new Error('אריזות שכבר בוצעו והתכנון יחד חורגים ממכסת השבוע');
+    for(const r of w.packaging){const before=current.packaging.find(x=>x.id===r.id);if(r.date&&r.date<today&&JSON.stringify(before)!==JSON.stringify(r))throw new Error('אין להוסיף או לשנות אריזה לתאריך שעבר. יש לבחור יום עתידי.');}
+    for(const b of w.brews){const before=current.brews.find(x=>x.id===b.id);if(JSON.stringify(before)===JSON.stringify(b))continue;if(b.date<today)throw new Error('אין להוסיף בישול לתאריך שעבר');const tank=brews.find(t=>t.id===b.tankId);const release=releases.find(r=>r.tankId===b.tankId);if(!tank||!release?.date||b.date<release.date)throw new Error('המיכל אינו זמין במועד הבישול: נדרש ריקון משויך וניקיון, עד השבוע הבא');if(!release.workLiters||b.liters>release.workLiters)throw new Error('נפח הבישול חורג מנפח העבודה בדאשבורד או שהנפח חסר');}
+    const changed=JSON.stringify(w.deliveries)!==JSON.stringify(current.deliveries);if(changed&&(w.deliveries??[]).some(d=>d.dispatchDate<today&&!current.deliveries?.some(x=>JSON.stringify(x)===JSON.stringify(d))))throw new Error('משלוח חדש חייב לצאת היום או בעתיד');
+    await saveWeek(w);setEditing(false);setMessage('התוכנית נשמרה, כולל גרסה היסטורית וסיבת השינוי');
+  }
+  return <section><div className="bp-section-heading"><h2>{mode==='recommendations'?(shipmentsOnly?'משלוחים לטמפו — מה ומתי':'המלצות ותחזית ל־12 שבועות'):'לוח ייצור · כתיבה ואישור'}</h2><label>אופק תצוגה<select value={horizon} onChange={e=>{setHorizon(Number(e.target.value));if(week>=addDays(start,Number(e.target.value)*7))setWeek(start);}}>{[4,8,12].map(n=><option key={n} value={n}>{n} שבועות</option>)}</select></label></div>
+    <p className="bp-muted">{mode==='recommendations'?'תצוגה לקריאה בלבד: תרחיש הכולל את התוכנית השמורה ואת ההמלצות, שעדיין לא אושרו. לשמירה עברו ללוח הייצור.':'התחזית במסך זה כוללת רק את התוכנית השמורה. ניתן להעתיק המלצות לטיוטה, לערוך תאריכים וכמויות ולאשר.'}</p>
+    <p className="bp-muted">מלאי טמפו מחושב יומית לפי קצב המכירות. אריזה וקליטה נספרות בתחילת היום שנבחר; הגעה מאוחרת במהלך היום אינה ממודלת. משלוח אחד בשבוע, רצוי בראשון או בשני; משלוח שני מוצע רק כשיש סיכון למחסור לפני השבוע הבא. עד 12 מקומות לפי חישוב הערימה הקיים. זמן קליטה משוער ניתן לשינוי בהגדרות ובאישור.</p>
+    {holidayError&&<p className="bp-alert">{holidayError} המלצות עשויות לחול ביום חג שלא נטען.</p>}{message&&<p className="bp-success" role="status">{message}</p>}
+    <div className="bp-week-picker" aria-label="בחירת שבוע">{weeks.map(d=><button key={d} aria-pressed={week===d} disabled={editing} onClick={()=>setWeek(d)}>שבוע {weekNumber(d)}<small>{shortDate(d)}</small></button>)}</div>
+    {forecast.warnings.length>0&&<details><summary>נקודות לבדיקה ({forecast.warnings.length})</summary>{forecast.warnings.map(x=><p className="bp-alert" key={x}>{x}</p>)}</details>}
+    <div className="bp-week-grid">{weeks.map(d=>{const days=forecast.points.filter(x=>x.date>=d&&x.date<addDays(d,7)),short=new Set(days.filter(x=>(x.shortage??0)>.001).map(x=>x.date)),rec=recommendations.suggestions.filter(x=>weekStart(x.date)===d);return <article className="bp-week" key={d}><header><h3>שבוע {weekNumber(d)} · {shortDate(d)}</h3>{holidays.filter(h=>h.date>=d&&h.date<addDays(d,7)).map(h=><small className="bp-holiday" key={h.date+h.title}>{h.title}</small>)}</header><div className="bp-week-body"><p className={short.size?'bp-critical':'bp-success'}>{short.size?`${short.size} ימים עם חוסר צפוי בטמפו`:'לא זוהה חוסר בפריטים עם נתונים מלאים'}</p>{mode==='recommendations'&&!packingOnly&&<TruckRecommendations suggestions={rec} disabled={disabled}/>}
+{mode==='recommendations'?rec.filter(r=>!shipmentsOnly&&r.kind==='packaging').map(r=><div className="bp-plan-line" key={r.id}><b>{r.kind==='packaging'?'אריזה':'משלוח'} · {settings.products.find(p=>p.id===r.productId)?.style}</b><small>{shortDate(r.date)} · {fmt(r.quantity)} {settings.products.find(p=>p.id===r.productId)?.type==='crates'?'ארגזים':'חביות'}{r.arrivalDate?` · קליטה ${shortDate(r.arrivalDate)}`:''}</small>{r.reason&&<small>{r.reason}</small>}{r.allocations.length>0&&<small>{r.allocations.map(a=>`מיכל ${a.number}: ${fmt(a.liters)} ל׳`).join(' · ')}</small>}</div>):<><p>{plans.find(w=>w.id===d)?.packaging.length??0} שורות אריזה · {plans.find(w=>w.id===d)?.brews.length??0} בישולים</p><p>{plans.find(w=>w.id===d)?.note}</p></>}</div></article>;})}</div>
+    {mode==='planning'&&<ProductionCalendar week={current} settings={settings} holidays={holidays}/>}
+    <h3>פירוט יומי · שבוע {weekNumber(week)}</h3><label>פריט<select value={product} onChange={e=>setProduct(e.target.value)}>{settings.products.map(p=><option key={p.id} value={p.id}>{p.style} · {p.type==='crates'?'ארגזים':'חביות'}</option>)}</select></label><div className="bp-table-wrap"><table><thead><tr><th>תאריך</th><th>מלאי מבשלה בסוף יום</th><th>טמפו בסוף יום</th><th>אריזה</th><th>קליטה בטמפו</th><th>ביקוש ללא כיסוי</th></tr></thead><tbody>{forecast.points.filter(p=>p.productId===product&&p.date>=week&&p.date<addDays(week,7)).map(p=><tr key={p.date}><th>{shortDate(p.date)}</th><td>{fmt(p.brewery)}</td><td>{fmt(p.tempo)}</td><td>{fmt(p.packed)}</td><td>{fmt(p.arrived)}</td><td className={(p.shortage??0)>0?'bp-critical':''}>{fmt(p.shortage)}</td></tr>)}</tbody></table></div>
+    {mode==='planning'&&!editing&&<div className="bp-actions"><button disabled={disabled} onClick={()=>setEditing(true)}>עריכת שבוע {weekNumber(week)}</button></div>}
+    {mode==='planning'&&editing&&<DailyPlanEditor key={week} initial={current} brewingSuggestions={brewing.filter(b=>weekStart(b.date)===week)} tanks={futureTanks(tanks,plans,settings)} settings={settings} brews={brews} suggestions={recommendations.suggestions.filter(r=>weekStart(r.date)===week)} disabled={disabled} onSave={save} onCancel={()=>setEditing(false)}/>}
+  </section>;
+}

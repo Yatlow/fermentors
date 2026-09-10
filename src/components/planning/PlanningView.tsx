@@ -1,0 +1,73 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Fermentor } from '../../App';
+import { addDays, brewAdvice, coverage, daysBetween, inventory, litersPerUnit, num, parseDate, sameStyle, tanksFrom, tempoNow, weekNumber, weekStart, weeklyDemand, type Product, type Settings } from '../../SERVICES/planning/planningEngine';
+import { useHolidays, usePlanning, usePlanningToday } from '../../SERVICES/planning/usePlanning';
+import { coverageLabel } from '../../SERVICES/planning/dailyPlanner';
+import ForecastWorkspace from './ForecastWorkspace';
+import ProductionBrewing from './ProductionBrewing';
+import PlanningReview from './PlanningReview';
+import './planning.css';
+
+const fmt=(n:number)=>n.toLocaleString('he-IL',{maximumFractionDigits:1});
+const label=(p:Product)=>`${p.style} · ${p.type==='crates'?'ארגזים':'חביות'}`;
+const displayDate=(s:string)=>s.split('-').reverse().join('/');
+const colors=['#2875d1','#ba7130','#754e4a','#4e9e59','#c19b0b','#d27824','#9362b6'];
+
+export default function PlanningView({brews,canEdit}:{brews:Fermentor[];canEdit:boolean}) {
+  const today=usePlanningToday(),data=usePlanning(today,brews);
+  const weeks=(n:number|null)=>n===null?'—':coverageLabel(n,today);
+  const {settings,plans,pallets,actuals}=data;
+  const [tab,setTab]=useState('overview'),[edit,setEdit]=useState<Settings|null>(null);
+  const editorRef=useRef<HTMLDivElement>(null);
+  const editorOpen=!!edit;
+  useEffect(()=>{if(editorOpen){editorRef.current?.scrollIntoView({behavior:'smooth',block:'start'});editorRef.current?.querySelector<HTMLInputElement>('input,select')?.focus({preventScroll:true});}},[editorOpen]);
+  const [saving,setSaving]=useState(false),[message,setMessage]=useState(''),[actionError,setActionError]=useState('');
+  const [showAll,setShowAll]=useState(false),[recommendationTab,setRecommendationTab]=useState('shipping');
+  const start=weekStart(today),end=addDays(start,83),{holidays,error:holidayError}=useHolidays(start,end);
+  const tanks=useMemo(()=>tanksFrom(brews,settings,actuals),[brews,settings,actuals]);
+
+  const brewing=useMemo(()=>brewAdvice(settings,pallets,tanks,plans,today),[settings,pallets,tanks,plans,today]);
+  const products=settings.products.filter(p=>showAll||p.monthly>0||inventory(p,pallets).brewery+inventory(p,pallets).dock>0||num(p.tempo)>0);
+  const totals=settings.products.reduce((s,p)=> {const i=inventory(p,pallets),unit=litersPerUnit(p);return {brewery:s.brewery+i.brewery*unit,dock:s.dock+i.dock*unit,tempo:s.tempo+(tempoNow(p,today)??0)*unit};},{brewery:0,dock:0,tempo:0});
+  const missing=settings.products.filter(p=>p.monthly>0&&tempoNow(p,today)===null);
+  const unrecognized=pallets.filter(x=>!settings.products.some(p=>p.type===x.itemType&&sameStyle(p.style,x.beerStyle)));
+  const unverified=pallets.filter(x=>!parseDate(x.expiryDateStr)||parseDate(x.expiryDateStr)!<today);
+  const disabled=!canEdit||saving||data.offline||data.loading||!!data.error;
+  async function perform(fn:()=>Promise<void>) {setSaving(true);setActionError('');setMessage('');try {await fn();setMessage('התכנון נשמר');setEdit(null);}catch(e){setActionError(e instanceof Error?e.message:'השמירה נכשלה');}finally{setSaving(false);}}
+  function saveSettings() {
+    if(!edit)return;
+    if(edit.products.some(p=>!Number.isFinite(p.monthly)||p.monthly<0||p.tempo!==null&&(!Number.isFinite(p.tempo)||p.tempo<0||!parseDate(p.tempoDate)||p.tempoDate>today)||!Number.isInteger(p.leadDays)||p.leadDays<1) || edit.targetWeeks<.5 || edit.targetWeeks>12 || !Number.isInteger(edit.deliveryTransitDays??1)||(edit.deliveryTransitDays??1)<1||(edit.deliveryTransitDays??1)>7 || edit.lossPercent<0 || edit.lossPercent>50) {setActionError('בדוק כמויות, תאריך מלאי, זמן הבשלה, יעד מלאי ופחת.');return;}
+    void perform(()=>data.saveSettings({...edit,lossPercent:10}));
+  }
+  function updateProduct(id:string,patch:Partial<Product>) {setEdit(s=>s?{...s,products:s.products.map(p=>p.id===id?{...p,...patch}:p)}:s);}
+
+  const freeTanks=brews.filter(t=>t.tankStatus===true||['stage-empty','stage-clean','stage-sanitized'].includes(t.stage?.className??''));
+  return <section className="brew-planning" dir="rtl">
+    <header className="bp-header"><div><span className="bp-eyebrow">מלאי · אריזה · בישול</span><h1>תכנון המבשלה</h1><p>תמונת מלאי והמלצות מתעדכנות, {displayDate(today)}</p></div>{tab!=='recommendations'&&<button disabled={disabled} onClick={()=>{setTab('settings');setEdit({...structuredClone(settings),lossPercent:10});setActionError('');}}>עריכת נתוני תכנון</button>}</header>
+    {data.error&&<div role="alert" className="bp-alert">טעינת נתוני התכנון נכשלה: {data.error}</div>}
+    {data.loading&&!data.error&&<p role="status">טוען מלאי, אריזות ותוכניות…</p>}
+    {data.offline&&<div className="bp-alert">ממתין לנתונים עדכניים מהשרת. הנתונים עשויים להיות לא עדכניים והשמירה מושבתת.</div>}
+    {message&&<p className="bp-success" role="status">{message}</p>}{actionError&&<p className="bp-alert" role="alert">{actionError}</p>}
+    {!data.loading&&!data.error&&<>
+    <div className="bp-counters">{[['מלאי במבשלה',totals.brewery],['ברציף המשלוחים',totals.dock],['בטמפו · אומדן להיום',totals.tempo],['בירה במיכלים',tanks.filter(t=>t.brewed<=today).reduce((s,t)=>s+t.liters,0)]].map(([text,value])=><div className="bp-counter" key={text}><span>{text}</span><strong>{fmt(Number(value))}</strong><small>ליטר</small></div>)}</div>
+    {!!missing.length&&<p className="bp-alert">חסר מלאי טמפו מתוארך עבור {missing.map(label).join(', ')}. המלצות לפריטים אלה מושהות; מלאי חסר אינו אפס.</p>}
+    {!!unverified.length&&<p className="bp-alert">{unverified.length} משטחים עם תוקף חסר או פג: נכללים במלאי הפיזי, אך אינם מכסים ביקוש בתחזית ואינם מומלצים למשלוח.</p>}
+    {!!unrecognized.length&&<p className="bp-alert">{unrecognized.length} משטחים אינם ממופים לקטלוג ואינם כלולים בחישוב. יש להתאים את הסגנונות ב־PalletCatalog.</p>}
+    <nav className="bp-tabs" aria-label="תכנון">{[['settings','1 · נתונים והגדרות'],['overview','2 · מלאי וכיסוי'],['recommendations','3 · המלצות'],['planning','4 · לוח ייצור'],['review','5 · תכנון מול ביצוע']].map(([id,text])=><button key={id} aria-pressed={tab===id} onClick={()=>{setEdit(id==='settings'?{...structuredClone(settings),lossPercent:10}:null);setTab(id);}}>{text}</button>)}</nav>
+    {tab==='overview'&&<><div className="bp-section-heading"><h2>כמה זמן המלאי מספיק?</h2><label><input type="checkbox" checked={showAll} onChange={e=>setShowAll(e.target.checked)}/> הצגת כל הפריטים</label></div><p className="bp-muted">מכירות שבועיות = מכירות חודשיות ÷ 4.2, בהתאם לטבלה שלך. טמפו נשחק מתאריך המדידה; יש לעדכן מלאי לאחר קליטת משלוח.</p>
+    <div className="bp-table-wrap"><table><thead><tr>{['פריט','מכירות בחודש','במבשלה','ברציף','טמפו להיום','כיסוי טמפו','כיסוי מבשלה','כיסוי כולל'].map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{products.map((p,index)=> {const i=inventory(p,pallets),tempo=tempoNow(p,today),d=weeklyDemand(p);return <tr key={p.id} style={{borderInlineStart:`4px solid ${colors[index%colors.length]}`}}><th>{label(p)}<small>{p.sku}</small></th><td>{fmt(p.monthly)}</td><td>{fmt(i.brewery)}</td><td>{fmt(i.dock)}</td><td>{tempo===null?'טרם הוזן':fmt(tempo)}<small>{p.tempoDate&&`נמדד ${displayDate(p.tempoDate)}`}{p.tempoDate&&daysBetween(p.tempoDate,today)>7?' · נדרש עדכון':''}</small></td><td className={tempo!==null&&d>0&&tempo/d<1?'bp-critical':''}>{weeks(tempo===null?null:coverage(tempo,d))}</td><td>{weeks(coverage(i.brewery,d))}</td><td>{weeks(tempo===null?null:coverage(i.brewery+i.dock+tempo,d))}</td></tr>;})}</tbody></table></div>
+    <p className="bp-muted">הכיסוי מוצג בשבועות וימים מלאים, בעיגול מטה: 2.4 שבועות הם 16.8 ימים, ולכן מוצגים 2 ש׳, 2 י׳. התאריך הוא אומדן שמרני; התחזית היומית מוצגת במסך ההמלצות. הכיסוי הכולל כולל רציף ואינו כולל בירה שטרם נארזה. ללא מכירות מוגדרות מוצג —. ליטרים מחושבים לפי 24×330 מ״ל לארגז ו־20 ליטר לחבית.</p></>}
+    {tab==='recommendations'&&<><button onClick={()=>setTab('planning')}>מעבר ללוח הייצור לשיבוץ ואישור</button><nav className="bp-tabs" aria-label="סוג המלצה">{[['shipping','מה לשלוח'],['packing','מה לארוז'],['brewing','מה לבשל']].map(([id,text])=><button key={id} aria-pressed={recommendationTab===id} onClick={()=>setRecommendationTab(id)}>{text}</button>)}</nav></>}
+    {tab==='recommendations'&&recommendationTab==='shipping'&&<ForecastWorkspace key="shipping" mode="recommendations" shipmentsOnly settings={settings} pallets={pallets} tanks={tanks} plans={plans} actuals={actuals} brews={brews} today={today} holidays={holidays} holidayError={holidayError} disabled={disabled} saveWeek={data.saveWeek} actualShipments={data.actualShipments}/>}
+    {(tab==='recommendations'&&recommendationTab==='packing'||tab==='planning')&&<ForecastWorkspace key={tab} mode={tab==='planning'?'planning':'recommendations'} packingOnly={tab==='recommendations'} settings={settings} pallets={pallets} tanks={tanks} plans={plans} actuals={actuals} brews={brews} today={today} holidays={holidays} holidayError={holidayError} disabled={disabled} saveWeek={data.saveWeek} actualShipments={data.actualShipments}/>}
+    {tab==='review'&&<PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>}
+    {tab==='recommendations'&&recommendationTab==='brewing'&&<><ProductionBrewing settings={settings} pallets={pallets} tanks={tanks} plans={plans} actuals={actuals} brews={brews} today={today}/><h2>לתכנן היום את הבירה הבאה</h2><p className="bp-muted">החישוב מאחד חביות ובקבוקים לפי סגנון, מקזז מלאי ובירה בתהליך, ומתחשב בזמן ההבשלה ובבישולים שכבר תוכננו. 50 יום ללאגר/הופי לאגר, 21 יום לשאר הסגנונות; ניתן לשנות בהגדרות. זהו אומדן ביקוש, לא אישור איכות או קיבולת מיכל.</p><div className="bp-product-grid">{brewing.map(b=><article className="bp-card" key={b.style}><h3>{b.style}</h3><strong>{fmt(b.liters)} ליטר לבישול</strong><p className={b.brewBy<today?'bp-critical':''}>מועד בישול רצוי: {displayDate(b.brewBy)}{b.brewBy<today?' · נדרש טיפול כעת':''}</p><p>ביקוש שבועי {fmt(b.weeklyLiters)} ליטר · {b.lead} ימי הבשלה</p><button disabled={disabled} onClick={()=>setTab('planning')}>שיבוץ בישול</button></article>)}</div>{!brewing.length&&<p>לא נמצא צורך נוסף לבישול לפי הנתונים שהוזנו.</p>}
+    <p className="bp-muted">הנפח המשוער מחושב מנפח הבישול פחות {settings.lossPercent}% פחת ופחות אריזות שכבר דווחו. מיכלים ללא תאריך בישול תקין, סגנון או אצווה אינם נכללים בהמלצות.</p><h3>מיכלים בתהליך — לפי FIFO</h3><div className="bp-table-wrap"><table><thead><tr><th>מיכל / אצווה</th><th>סגנון</th><th>ליטרים משוערים</th><th>בישול</th><th>מועד אריזה משוער</th></tr></thead><tbody>{tanks.map(t=> {return <tr key={t.id}><th>{t.number}<small>{t.batch}</small></th><td>{t.style}</td><td>{fmt(t.liters)}</td><td>{displayDate(t.brewed)}</td><td>{displayDate(t.ready)}<small>{t.cold?'קר':'נדרש מעקב הבשלה'}</small></td></tr>;})}</tbody></table></div>
+    <h3>מיכלים פנויים כעת</h3><p>{freeTanks.map(t=>`${t.tankNumber??t.id} (${t.stage?.name??'נדרשת בדיקת ניקיון'})`).join(' · ')||'אין מיכלים פנויים'}</p><p className="bp-muted">השיבוץ אינו משנה את המיכל בפועל. יש לבדוק נפח עבודה, ניקיון וחיטוי לפני בישול; מיכל שצפוי להתרוקן בתוכנית משויכת יהיה זמין לבישול רק ביום שני של השבוע הבא, בכפוף לביצוע וניקיון.</p>
+    <h3>בישולים מתוכננים</h3>{plans.filter(w=>w.brews.length>0).map(w=><article className="bp-card" key={w.id}><h4>שבוע {weekNumber(w.id)}</h4>{w.brews.map(b=><p key={b.id}>{displayDate(b.date)} · {b.style} · מיכל {brews.find(t=>t.id===b.tankId)?.tankNumber??b.tankId} · {fmt(b.liters)} ליטר {tanks.some(t=>t.id===b.tankId&&t.brewed===b.date&&sameStyle(t.style,b.style))?' · נקלט במיכל':''}</p>)}<button disabled={disabled} onClick={()=>setTab('planning')}>עריכה</button></article>)}</>}
+    </>}
+    {edit&&<div ref={editorRef} className="bp-editor"><h2>נתוני תכנון</h2><p>מלאי טמפו מוזן ביחידות פריט: ארגזים או חביות, יחד עם תאריך המדידה. נתוני הטבלה הישנה אינם מוזנים אוטומטית כמלאי נוכחי.</p><div className="bp-fields"><label>יעד כיסוי טמפו (שבועות)<input type="number" min="0.5" max="12" step="0.5" value={edit.targetWeeks} onChange={e=>setEdit({...edit,targetWeeks:Number(e.target.value)})}/></label><label>ימי אריזה מועדפים<select value={edit.preferredRuns} onChange={e=>setEdit({...edit,preferredRuns:Number(e.target.value)})}>{[3,4,5].map(n=><option key={n}>{n}</option>)}</select></label><label>מכסת משלוחים שבועית<select value={edit.maxWeeklyDeliveries??2} onChange={e=>setEdit({...edit,maxWeeklyDeliveries:Number(e.target.value) as 1|2})}><option value={1}>משלוח אחד בלבד</option><option value={2}>אחד רגיל, שני בעת הצורך</option></select></label><label>יום משלוח מועדף<select value={edit.preferredDeliveryDay??0} onChange={e=>setEdit({...edit,preferredDeliveryDay:Number(e.target.value) as 0|1})}><option value={0}>ראשון</option><option value={1}>שני — כשאפשר להמתין ללא חוסר</option></select></label><label>ימים עד קליטה בטמפו<input type="number" min="1" max="7" value={edit.deliveryTransitDays??1} onChange={e=>setEdit({...edit,deliveryTransitDays:Number(e.target.value)})}/></label><p>פחת קבוע: 10% מנפח העבודה בדאשבורד. ראשון: הכנות ואריזה קטנה; שני–רביעי: בישול רציף ואריזה; חמישי: ניקיון ואריזה חריגה.</p></div>
+    <div className="bp-table-wrap"><table><thead><tr><th>פריט</th><th>מכירות חודשיות</th><th>מלאי טמפו</th><th>תאריך מלאי</th><th>ימי הבשלה</th></tr></thead><tbody>{edit.products.map(p=><tr key={p.id}><th>{label(p)}</th><td><input aria-label={`מכירות ${label(p)}`} type="number" min="0" value={p.monthly} onChange={e=>updateProduct(p.id,{monthly:Number(e.target.value)})}/></td><td><input aria-label={`טמפו ${label(p)}`} type="number" min="0" value={p.tempo??''} onChange={e=>updateProduct(p.id,{tempo:e.target.value===''?null:Number(e.target.value)})}/></td><td><input aria-label={`תאריך ${label(p)}`} type="date" max={today} value={p.tempoDate} onChange={e=>updateProduct(p.id,{tempoDate:e.target.value})}/></td><td><input aria-label={`הבשלה ${label(p)}`} type="number" min="1" value={p.leadDays} onChange={e=>updateProduct(p.id,{leadDays:Number(e.target.value)})}/></td></tr>)}</tbody></table></div>{actionError&&<p role="alert" className="bp-alert">{actionError}</p>}<div className="bp-actions"><button disabled={disabled} onClick={saveSettings}>{saving?'שומר…':'שמירת נתונים'}</button><button disabled={saving} onClick={()=>setEdit(null)}>ביטול</button><button disabled={saving} onClick={()=> {const sales:Record<string,number>={'7009676':500,'7009679':80,'7009670':300,'7009677':150,'7013782':70,'7009940':700,'7009942':120,'7009941':160,'7009939':550,'7013781':50};setEdit({...edit,products:edit.products.map(p=>({...p,monthly:sales[p.id]??p.monthly}))});}}>מילוי מקדמי מכירות מהדוגמה</button></div></div>}
+
+  </section>;
+}
