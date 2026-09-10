@@ -171,7 +171,7 @@ async function logPackagingToFirestore(params: {
     try {
         await updateDoc(docRef, {
             tankStatus: tankStatus,
-            action: 3,
+            action: tankStatus? 3: 1,
         });
     } catch (err) {
         console.error("Failed to update tankStatus in Firestore:", err);
