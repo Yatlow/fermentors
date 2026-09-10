@@ -1,0 +1,97 @@
+// Insert INSIDE the existing match /databases/{database}/documents block.
+// This is a fragment, NOT a replacement for the existing rules file.
+// Broad existing wildcard allow rules can override these restrictions (rules are ORed).
+function isBreweryPlanner() {
+  return request.auth != null
+    && request.auth.token.email is string
+    && exists(/databases/$(database)/documents/approvedUsers/$(request.auth.token.email))
+    && (get(/databases/$(database)/documents/approvedUsers/$(request.auth.token.email)).data.get('isAdmin', false) == true
+      || get(/databases/$(database)/documents/approvedUsers/$(request.auth.token.email)).data.get('isPlannerUser', false) == true);
+}
+function validPlanningRevision() {
+  return request.resource.data.updatedBy == request.auth.uid
+    && request.resource.data.updatedAt == request.time
+    && request.resource.data.revision is int;
+}
+match /planningSettings/{settingsId} {
+  allow read: if isBreweryPlanner();
+  allow create: if isBreweryPlanner() && settingsId == 'main'
+    && validPlanningRevision() && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time
+    && validPlanningSettings() && atomicPlanningRevision('planningSettings', settingsId);
+  allow update: if isBreweryPlanner() && settingsId == 'main'
+    && validPlanningRevision() && request.resource.data.revision == resource.data.revision + 1 && request.resource.data.createdAt == resource.data.get('createdAt', null)
+    && validPlanningSettings() && atomicPlanningRevision('planningSettings', settingsId);
+  allow delete: if false;
+}
+function validPlanningSettings() {
+  return request.resource.data.keys().hasOnly(['products','targetWeeks','totalTargetWeeks','preferredRuns','lossPercent','maxWeeklyDeliveries','deliveryTransitDays','preferredDeliveryDay','revision','updatedAt','updatedBy','createdAt'])
+    && request.resource.data.products is list
+    && request.resource.data.products.size() <= 60
+    && request.resource.data.targetWeeks is number
+    && request.resource.data.targetWeeks >= 0.5 && request.resource.data.targetWeeks <= 12
+    && request.resource.data.get('totalTargetWeeks', 8.5) is number
+    && request.resource.data.get('totalTargetWeeks', 8.5) >= request.resource.data.targetWeeks
+    && request.resource.data.get('totalTargetWeeks', 8.5) <= 26
+    && request.resource.data.preferredRuns in [3,4,5]
+    && request.resource.data.lossPercent is number
+    && request.resource.data.lossPercent == 10
+    && request.resource.data.get('preferredDeliveryDay', 0) in [0,1]
+    && request.resource.data.get('maxWeeklyDeliveries', 2) in [1,2]
+    && request.resource.data.get('deliveryTransitDays', 1) is int
+    && request.resource.data.get('deliveryTransitDays', 0) == 0;
+}
+match /planningWeeks/{weekId} {
+  allow read: if isBreweryPlanner();
+  allow create: if isBreweryPlanner() && validPlanningRevision()
+    && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time && validPlanningWeek(weekId) && atomicPlanningRevision('planningWeeks', weekId);
+  allow update: if isBreweryPlanner() && validPlanningRevision()
+    && request.resource.data.revision == resource.data.revision + 1 && request.resource.data.createdAt == resource.data.get('createdAt', null) && validPlanningWeek(weekId) && atomicPlanningRevision('planningWeeks', weekId);
+  allow delete: if false;
+}
+function validPlanningWeek(weekId) {
+  return request.resource.data.keys().hasOnly(['id','packaging','brews','note','maxRuns','deliveries','deliveryDates','dismissedRecommendations','allowExceptions','changeReason','revision','updatedAt','updatedBy','createdAt'])
+    && request.resource.data.id == weekId
+    && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    && request.resource.data.packaging is list && request.resource.data.packaging.size() <= 60
+    && request.resource.data.brews is list && request.resource.data.brews.size() <= 30
+    && request.resource.data.note is string && request.resource.data.note.size() <= 5000
+    && request.resource.data.maxRuns in [0,1,2,3,4,5]
+    && request.resource.data.get('deliveries', []) is list
+    && request.resource.data.get('deliveries', []).size() <= 60
+    && request.resource.data.get('deliveryDates', []) is list
+    && request.resource.data.get('deliveryDates', []).size() <= 14
+    && request.resource.data.get('dismissedRecommendations', []) is list
+    && request.resource.data.get('dismissedRecommendations', []).size() <= 300
+    && request.resource.data.get('allowExceptions', false) is bool
+    && request.resource.data.get('changeReason', '') is string
+    && request.resource.data.get('changeReason', '').size() <= 200;
+}
+
+// Each live save MUST include the identical immutable revision in the same transaction.
+function atomicPlanningRevision(collectionName, documentId) {
+  let revision = string(request.resource.data.revision);
+  return getAfter(/databases/$(database)/documents/$(collectionName)/$(documentId)/revisions/$(revision)).data == request.resource.data;
+}
+match /planningWeeks/{weekId}/revisions/{revisionId} {
+  allow read: if isBreweryPlanner();
+  allow create: if isBreweryPlanner()
+    && revisionId == string(request.resource.data.revision)
+    && request.resource.data.updatedAt == request.time
+    && request.resource.data.updatedBy == request.auth.uid
+    && getAfter(/databases/$(database)/documents/planningWeeks/$(weekId)).data == request.resource.data;
+  allow update, delete: if false;
+}
+match /planningSettings/{settingsId}/revisions/{revisionId} {
+  allow read: if isBreweryPlanner();
+  allow create: if isBreweryPlanner()
+    && revisionId == string(request.resource.data.revision)
+    && request.resource.data.updatedAt == request.time
+    && request.resource.data.updatedBy == request.auth.uid
+    && getAfter(/databases/$(database)/documents/planningSettings/$(settingsId)).data == request.resource.data;
+  allow update, delete: if false;
+}
+// Admin SDK scheduled jobs create checkpoints. Browsers can only read them.
+match /planningSnapshots/{snapshotId} {
+  allow read: if isBreweryPlanner();
+  allow write: if false;
+}

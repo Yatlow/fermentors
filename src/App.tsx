@@ -39,7 +39,7 @@ import type { PalletZone } from "./SERVICES/cooler/Pallettypes ";
 import BeerLoader from "./components/general/Loading";
 import ShipmentReportsView from "./components/reports/ShipmentReportsView";
 import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
-import PlanningView from "./components/planning/PlanningView";
+import PlanningView, { PLANNING_TABS, type PlanningTab } from "./components/planning/PlanningView";
 
 
 
@@ -223,6 +223,7 @@ function useAuth() {
 }
 
 function App() {
+    const [planningTab, setPlanningTab] = useState<PlanningTab>("stock");
     const { user, loading: authLoading, admin, testUser, plannerUser } = useAuth();
     const [isApproved, setIsApproved] = useState<boolean | null>(null);
     const FCKHMS = testUser
@@ -999,26 +1000,21 @@ function App() {
                             </button>
                         </div>
                     }
-                    {selectedView === "תכנון" &&
-                        <div className="status-filter">
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedAdminTools === "calculator"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    console.log("כפתור בדיקה")
-                                    // setSelectedAdminTools("calculator")
-                                }
-                                }
-                            >
-                                <span>
-                                    כפתור בדיקה
-                                </span>
-                            </button>
-                        </div>
-                    }
+                    {selectedView === "תכנון" && (
+                        <nav className="status-filter" dir="rtl" aria-label="תכנון">
+                            {PLANNING_TABS.map(([id, label]) => (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    className={`status-filter-button ${planningTab === id ? "active" : ""}`}
+                                    aria-pressed={planningTab === id}
+                                    onClick={() => setPlanningTab(id)}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </nav>
+                    )}
 
                 </div>
 
@@ -1037,7 +1033,9 @@ function App() {
             {selectedView === "תכנון" && 
             <PlanningView 
             brews={brews}
-            canEdit={plannerUser}
+            canEdit={plannerUser || admin}
+            tab={planningTab}
+            onTabChange={setPlanningTab}
             />
             }
             {selectedView === "רישום" &&

@@ -1,3 +1,8 @@
+<div dir="rtl" align="right">
+<h2>תכנון המבשלה</h2>
+<p>מלאי, לוח עבודה והחלטות ייצור. <a href="./PLANNING-README.md">מדריך שימוש והתקנה בעברית, מימין לשמאל</a>.</p>
+</div>
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
