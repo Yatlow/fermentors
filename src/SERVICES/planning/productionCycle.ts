@@ -56,15 +56,31 @@ export function tankReleases(
       ["stage-empty", "stage-clean", "stage-sanitized"].includes(
         source.stage?.className ?? "",
       )
-    )
+    ) {
+      const packedThisWeek = actuals
+        .filter(
+          (a) =>
+            source.tankNumber != null &&
+            String(a.tankNumber) === String(source.tankNumber),
+        )
+        .map(actualDate)
+        .filter(
+          (date): date is string =>
+            !!date && date >= weekStart(today) && date <= today,
+        )
+        .sort()
+        .at(-1);
       return {
         tankId: source.id,
-        date: today,
-        emptyDate: null,
+        date: packedThisWeek ? nextBrewingWeek(packedThisWeek) : today,
+        emptyDate: packedThisWeek ?? null,
         remaining: 0,
         workLiters,
-        reason: "פנוי בדאשבורד — יש לאמת ניקיון וחיטוי",
+        reason: packedThisWeek
+          ? "המיכל נארז השבוע; זמין לבישול מהשבוע הבא לאחר ניקיון"
+          : "פנוי בדאשבורד — יש לאמת ניקיון וחיטוי",
       };
+    }
     const tank = tanks.find((t) => t.id === source.id);
     if (!tank)
       return {

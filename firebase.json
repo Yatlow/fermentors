@@ -1,11 +1,14 @@
 {
+  "functions": [
+    {
+      "source": "functions-planning",
+      "codebase": "brewery-planning",
+      "ignore": ["node_modules", ".git", "firebase-debug.log"]
+    }
+  ],
   "hosting": {
     "public": "dist",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {
         "source": "**",

@@ -8,10 +8,12 @@ import {
   type DeliveryPlan,
 } from "../../SERVICES/planning/planningEngine";
 import type { Fermentor } from "../../App";
-import PlanningDateInput from "./PlanningDateInput";
+import PlanningDaySelect from "./PlanningDaySelect";
+import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 
 export default function PlanningWeekEditor({
   initial,
+  day,
   settings,
   tanks,
   brews,
@@ -20,6 +22,7 @@ export default function PlanningWeekEditor({
   onCancel,
 }: {
   initial: WeekPlan;
+  day: string;
   settings: Settings;
   tanks: Tank[];
   brews: Fermentor[];
@@ -27,14 +30,38 @@ export default function PlanningWeekEditor({
   onSave: (plan: WeekPlan) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [draft, setDraft] = useState(() => structuredClone(initial));
+  const [draft, setDraft] = useState(() => {
+    const copy = structuredClone(initial);
+    copy.packaging = copy.packaging.map((r) => ({
+      ...r,
+      id: r.id ?? crypto.randomUUID(),
+    }));
+    return copy;
+  });
+  const [editingIds, setEditingIds] = useState(
+    () =>
+      new Set([
+        ...draft.packaging.filter((r) => r.date === day).map((r) => r.id),
+        ...draft.brews.filter((b) => b.date === day).map((b) => b.id),
+        ...(draft.deliveries ?? [])
+          .filter((d) => d.dispatchDate === day)
+          .map((d) => d.id),
+      ]),
+  );
+  function newRowId() {
+    const id = crypto.randomUUID();
+    setEditingIds((ids) => new Set([...ids, id]));
+    return id;
+  }
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const products = settings.products.map((p) => (
-    <option key={p.id} value={p.id}>
-      {p.style} · {p.type === "crates" ? "ארגזים" : "חביות"}
-    </option>
-  ));
+  const products = settings.products
+    .filter((p) => !p.id.startsWith("special:"))
+    .map((p) => (
+      <option key={p.id} value={p.id}>
+        {p.style} · {p.type === "crates" ? "ארגזים" : "חביות"}
+      </option>
+    ));
   const updatePack = (i: number, patch: Partial<Plan>) =>
     setDraft((w) => ({
       ...w,
@@ -78,122 +105,100 @@ export default function PlanningWeekEditor({
     }
   }
   return (
-    <section className="bp-editor" aria-label="עריכת השבוע">
-      <h3>החלטות לשבוע</h3>
+    <section className="bp-editor" aria-label="עריכת היום">
+      <h3>
+        עריכת יום <bdi>{shortDate(day)}</bdi>
+      </h3>
       <fieldset disabled={disabled || busy} className="bp-fieldset">
-        <h4>ימי איסוף לטמפו</h4>
-        {(draft.deliveryDates ?? []).map((date, i) => (
-          <div className="bp-fields" key={i}>
-            <PlanningDateInput
-              value={date}
-              onChange={(date) =>
-                setDraft({
-                  ...draft,
-                  deliveryDates: draft.deliveryDates!.map((d, j) =>
-                    i === j ? date : d,
-                  ),
-                })
-              }
-            />
-            <button
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  deliveryDates: draft.deliveryDates!.filter((_, j) => i !== j),
-                })
-              }
-            >
-              הסרת יום איסוף
-            </button>
-          </div>
-        ))}
-        <div className="bp-actions">
-          <button
-            onClick={() =>
-              setDraft({
-                ...draft,
-                deliveryDates: [...(draft.deliveryDates ?? []), draft.id],
-              })
+        <label>
+          <input
+            type="checkbox"
+            checked={(draft.deliveryDates ?? []).includes(day)}
+            onChange={(e) =>
+              setDraft((w) => ({
+                ...w,
+                deliveryDates: e.target.checked
+                  ? [...new Set([...(w.deliveryDates ?? []), day])].sort()
+                  : (w.deliveryDates ?? []).filter((d) => d !== day),
+              }))
             }
-          >
-            הוספת יום איסוף
-          </button>
-          <button onClick={() => setDraft({ ...draft, deliveryDates: [] })}>
-            השבוע אין איסוף
-          </button>
-          <button
-            onClick={() => {
-              const next = { ...draft };
-              delete next.deliveryDates;
-              setDraft(next);
-            }}
-          >
-            השארת מועד מוצע
-          </button>
-        </div>
+          />
+          ביום הזה מגיע איסוף לטמפו
+        </label>
         <h4>אריזות</h4>
-        {draft.packaging.map((r, i) => (
-          <div className="bp-edit-card" key={r.id ?? i}>
-            <div className="bp-fields">
-              <label>
-                מוצר
-                <select
-                  value={r.productId}
-                  onChange={(e) => updatePack(i, { productId: e.target.value })}
-                >
-                  {products}
-                </select>
-              </label>
-              <label>
-                כמות
-                <input
-                  type="number"
-                  min="0"
-                  value={r.quantity}
-                  onChange={(e) =>
-                    updatePack(i, { quantity: Number(e.target.value) })
+        {draft.packaging.map(
+          (r, i) =>
+            (r.date === day || editingIds.has(r.id)) && (
+              <div className="bp-edit-card" key={r.id ?? i}>
+                <div className="bp-fields">
+                  <label>
+                    מוצר
+                    <select
+                      value={r.productId}
+                      onChange={(e) =>
+                        updatePack(i, { productId: e.target.value })
+                      }
+                    >
+                      {products}
+                    </select>
+                  </label>
+                  <label>
+                    כמות
+                    <input
+                      type="number"
+                      min="0"
+                      value={r.quantity}
+                      onChange={(e) =>
+                        updatePack(i, { quantity: Number(e.target.value) })
+                      }
+                    />
+                  </label>
+                  <PlanningDaySelect
+                    week={draft.id}
+                    allowWeekend={draft.allowExceptions}
+                    value={r.date ?? ""}
+                    onChange={(date) => updatePack(i, { date })}
+                  />
+                  <label>
+                    מיכל
+                    <select
+                      value={r.tankId ?? ""}
+                      onChange={(e) =>
+                        updatePack(i, { tankId: e.target.value })
+                      }
+                    >
+                      <option value="">בחירת מיכל</option>
+                      {tanks.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.number} · {t.style} · {Math.floor(t.liters)} ל׳
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={r.emptyTank ?? false}
+                    onChange={(e) =>
+                      updatePack(i, { emptyTank: e.target.checked })
+                    }
+                  />
+                  המיכל מסתיים באריזה הזאת, כולל שארית קטנה מ־20 ל׳
+                </label>
+                <button
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      packaging: draft.packaging.filter((_, j) => i !== j),
+                    })
                   }
-                />
-              </label>
-              <PlanningDateInput
-                value={r.date ?? ""}
-                onChange={(date) => updatePack(i, { date })}
-              />
-              <label>
-                מיכל
-                <select
-                  value={r.tankId ?? ""}
-                  onChange={(e) => updatePack(i, { tankId: e.target.value })}
                 >
-                  <option value="">בחירת מיכל</option>
-                  {tanks.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.number} · {t.style} · {Math.floor(t.liters)} ל׳
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <label>
-              <input
-                type="checkbox"
-                checked={r.emptyTank ?? false}
-                onChange={(e) => updatePack(i, { emptyTank: e.target.checked })}
-              />
-              המיכל מסתיים באריזה הזאת, כולל שארית קטנה מ־20 ל׳
-            </label>
-            <button
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  packaging: draft.packaging.filter((_, j) => i !== j),
-                })
-              }
-            >
-              הסרת האריזה
-            </button>
-          </div>
-        ))}
+                  הסרת האריזה
+                </button>
+              </div>
+            ),
+        )}
         <button
           onClick={() =>
             setDraft({
@@ -201,10 +206,10 @@ export default function PlanningWeekEditor({
               packaging: [
                 ...draft.packaging,
                 {
-                  id: crypto.randomUUID(),
+                  id: newRowId(),
                   productId: settings.products[0]?.id ?? "",
                   quantity: 84,
-                  date: draft.id,
+                  date: day,
                   source: "manual",
                 },
               ],
@@ -214,75 +219,84 @@ export default function PlanningWeekEditor({
           הוספת אריזה
         </button>
         <h4>בישולים</h4>
-        {draft.brews.map((b, i) => (
-          <div className="bp-edit-card" key={b.id}>
-            <div className="bp-fields">
-              <label>
-                סגנון
-                <select
-                  value={b.style}
-                  onChange={(e) => updateBrew(i, { style: e.target.value })}
-                >
-                  {[...new Set(settings.products.map((p) => p.style))].map(
-                    (s) => (
-                      <option key={s}>{s}</option>
-                    ),
-                  )}
-                </select>
-              </label>
-              <label>
-                מיכל
-                <select
-                  value={b.tankId}
-                  onChange={(e) =>
-                    updateBrew(i, {
-                      tankId: e.target.value,
-                      liters:
-                        Number(
-                          brews.find((t) => t.id === e.target.value)
-                            ?.beerVolume,
-                        ) || 0,
+        {draft.brews.map(
+          (b, i) =>
+            (b.date === day || editingIds.has(b.id)) && (
+              <div className="bp-edit-card" key={b.id}>
+                <div className="bp-fields">
+                  <label>
+                    סגנון
+                    <select
+                      value={b.style}
+                      onChange={(e) => updateBrew(i, { style: e.target.value })}
+                    >
+                      {[
+                        ...new Set(
+                          settings.products
+                            .filter((p) => !p.id.startsWith("special:"))
+                            .map((p) => p.style),
+                        ),
+                      ].map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    מיכל
+                    <select
+                      value={b.tankId}
+                      onChange={(e) =>
+                        updateBrew(i, {
+                          tankId: e.target.value,
+                          liters:
+                            Number(
+                              brews.find((t) => t.id === e.target.value)
+                                ?.beerVolume,
+                            ) || 0,
+                        })
+                      }
+                    >
+                      <option value="">בחירת מיכל</option>
+                      {brews
+                        .filter((t) => Number(t.tankNumber) !== 1)
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.tankNumber ?? t.id}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label>
+                    ליטרים
+                    <input
+                      type="number"
+                      min="1"
+                      value={b.liters}
+                      onChange={(e) =>
+                        updateBrew(i, { liters: Number(e.target.value) })
+                      }
+                    />
+                  </label>
+                  <PlanningDaySelect
+                    week={draft.id}
+                    allowWeekend={draft.allowExceptions}
+                    value={b.date}
+                    onChange={(date) => updateBrew(i, { date })}
+                  />
+                </div>
+                <button
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      brews: draft.brews.filter((_, j) => i !== j),
                     })
                   }
                 >
-                  <option value="">בחירת מיכל</option>
-                  {brews
-                    .filter((t) => Number(t.tankNumber) !== 1)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.tankNumber ?? t.id}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label>
-                ליטרים
-                <input
-                  type="number"
-                  min="1"
-                  value={b.liters}
-                  onChange={(e) =>
-                    updateBrew(i, { liters: Number(e.target.value) })
-                  }
-                />
-              </label>
-              <PlanningDateInput
-                value={b.date}
-                onChange={(date) => updateBrew(i, { date })}
-              />
-            </div>
-            <button
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  brews: draft.brews.filter((_, j) => i !== j),
-                })
-              }
-            >
-              הסרת הבישול
-            </button>
-          </div>
-        ))}
+                  הסרת הבישול
+                </button>
+              </div>
+            ),
+        )}
         <button
           onClick={() =>
             setDraft({
@@ -290,10 +304,10 @@ export default function PlanningWeekEditor({
               brews: [
                 ...draft.brews,
                 {
-                  id: crypto.randomUUID(),
+                  id: newRowId(),
                   tankId: "",
                   style: settings.products[0]?.style ?? "",
-                  date: draft.id,
+                  date: day,
                   liters: 0,
                 },
               ],
@@ -303,57 +317,65 @@ export default function PlanningWeekEditor({
           הוספת בישול
         </button>
         <h4>תכולת משלוחים שנקבעה</h4>
-        {(draft.deliveries ?? []).map((d, i) => (
-          <div className="bp-edit-card" key={d.id}>
-            <div className="bp-fields">
-              <label>
-                מוצר
-                <select
-                  value={d.productId}
-                  onChange={(e) =>
-                    updateDelivery(i, {
-                      productId: e.target.value,
-                      pallets: [],
+        {(draft.deliveries ?? []).map(
+          (d, i) =>
+            (d.dispatchDate === day || editingIds.has(d.id)) && (
+              <div className="bp-edit-card" key={d.id}>
+                <div className="bp-fields">
+                  <label>
+                    מוצר
+                    <select
+                      value={d.productId}
+                      onChange={(e) =>
+                        updateDelivery(i, {
+                          productId: e.target.value,
+                          pallets: [],
+                        })
+                      }
+                    >
+                      {products}
+                    </select>
+                  </label>
+                  <label>
+                    כמות
+                    <input
+                      type="number"
+                      min="1"
+                      value={d.quantity}
+                      onChange={(e) =>
+                        updateDelivery(i, {
+                          quantity: Number(e.target.value),
+                          pallets: [],
+                        })
+                      }
+                    />
+                  </label>
+                  <PlanningDaySelect
+                    week={draft.id}
+                    allowWeekend={draft.allowExceptions}
+                    value={d.dispatchDate}
+                    label="יום איסוף וקליטה"
+                    onChange={(dispatchDate) =>
+                      updateDelivery(i, {
+                        dispatchDate,
+                        arrivalDate: dispatchDate,
+                      })
+                    }
+                  />
+                </div>
+                <button
+                  onClick={() =>
+                    setDraft({
+                      ...draft,
+                      deliveries: draft.deliveries!.filter((_, j) => i !== j),
                     })
                   }
                 >
-                  {products}
-                </select>
-              </label>
-              <label>
-                כמות
-                <input
-                  type="number"
-                  min="1"
-                  value={d.quantity}
-                  onChange={(e) =>
-                    updateDelivery(i, {
-                      quantity: Number(e.target.value),
-                      pallets: [],
-                    })
-                  }
-                />
-              </label>
-              <PlanningDateInput
-                value={d.dispatchDate}
-                label="יום איסוף וקליטה"
-                onChange={(dispatchDate) =>
-                  updateDelivery(i, { dispatchDate, arrivalDate: dispatchDate })
-                }
-              />
-            </div>
-            <button
-              onClick={() =>
-                setDraft({
-                  ...draft,
-                  deliveries: draft.deliveries!.filter((_, j) => i !== j),
-                })
-              }
-            >
-              הסרת המשלוח
-            </button>
-          </div>
-        ))}
+                  הסרת המשלוח
+                </button>
+              </div>
+            ),
+        )}
         <button
           onClick={() =>
             setDraft({
@@ -361,11 +383,11 @@ export default function PlanningWeekEditor({
               deliveries: [
                 ...(draft.deliveries ?? []),
                 {
-                  id: crypto.randomUUID(),
+                  id: newRowId(),
                   productId: settings.products[0]?.id ?? "",
                   quantity: 84,
-                  dispatchDate: draft.id,
-                  arrivalDate: draft.id,
+                  dispatchDate: day,
+                  arrivalDate: day,
                 },
               ],
             })
@@ -410,7 +432,9 @@ export default function PlanningWeekEditor({
           </p>
         )}
         <div className="bp-actions">
-          <button onClick={save}>{busy ? "שומר…" : "שמירת ההחלטות"}</button>
+          <button onClick={save}>
+            {busy ? "שומר…" : "שמירת השינויים ביום"}
+          </button>
           <button onClick={onCancel}>סגירה ללא שמירת השינויים</button>
         </div>
       </fieldset>

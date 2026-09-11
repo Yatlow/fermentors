@@ -5,13 +5,20 @@ import {
   type Settings,
 } from "../../SERVICES/planning/planningEngine";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
+import {
+  CORE_STYLES,
+  styleGroups,
+} from "../../SERVICES/planning/planningPresentation";
+import { sameStyle } from "../../SERVICES/planning/planningEngine";
 
 export default function PlanningData({
+  mode,
   settings,
   today,
   disabled,
   save,
 }: {
+  mode: "data" | "settings";
   settings: Settings;
   today: string;
   disabled: boolean;
@@ -82,138 +89,173 @@ export default function PlanningData({
   }
   return (
     <section>
-      <h2>עדכון נתונים</h2>
-      <p>
-        מלאי טמפו בארגזים או בחביות. המדידה מתוארכת להיום כשמעדכנים את המלאי או
-        מסמנים שנבדק מחדש.
-      </p>
+      <h2>{mode === "data" ? "עדכון נתונים" : "הגדרות תכנון"}</h2>
+      {mode === "data" && (
+        <p>
+          מלאי טמפו בארגזים או בחביות. המדידה מתוארכת להיום כשמעדכנים את המלאי
+          או מסמנים שנבדק מחדש.
+        </p>
+      )}
       <fieldset disabled={disabled || busy} className="bp-fieldset">
-        <div className="bp-data-grid">
-          {draft.products.map((p) => (
-            <article className="bp-card" key={p.id}>
-              <h3 className={beerStyleClass(p.style).className}>
-                {p.style} · {p.type === "crates" ? "ארגזים" : "חביות"}
-              </h3>
-              <div className="bp-fields">
-                <label>
-                  מלאי טמפו
-                  <input
-                    type="number"
-                    min="0"
-                    value={p.tempo ?? ""}
-                    onChange={(e) => {
-                      update(p.id, {
-                        tempo:
-                          e.target.value === "" ? null : Number(e.target.value),
-                      });
-                      setStockTouched((ids) => [...new Set([...ids, p.id])]);
-                    }}
-                  />
-                </label>
-                <label>
-                  צפי מכירות לחודש
-                  <input
-                    type="number"
-                    min="0"
-                    value={p.monthly}
-                    onChange={(e) =>
-                      update(p.id, { monthly: Number(e.target.value) })
-                    }
-                  />
-                </label>
-              </div>
-              <small>
-                {stockTouched.includes(p.id)
-                  ? "יישמר כמדידה מהיום"
-                  : p.tempoDate
-                    ? `מדידה אחרונה: ${shortDate(p.tempoDate)}`
-                    : "טרם נמדד"}
-              </small>
-              <button
-                type="button"
-                disabled={p.tempo === null || stockTouched.includes(p.id)}
-                onClick={() =>
-                  setStockTouched((ids) => [...new Set([...ids, p.id])])
-                }
-              >
-                המלאי נבדק היום ללא שינוי
-              </button>
-            </article>
-          ))}
-        </div>
-        <details className="bp-settings">
-          <summary>הגדרות קבועות</summary>
-          <div className="bp-fields">
-            <label>
-              יעד מלאי בטמפו · שבועות
-              <input
-                type="number"
-                min=".5"
-                max="12"
-                step=".5"
-                value={draft.targetWeeks}
-                onChange={(e) =>
-                  setDraft({ ...draft, targetWeeks: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label>
-              יעד כולל טמפו ומבשלה · שבועות
-              <input
-                type="number"
-                min=".5"
-                max="26"
-                step=".5"
-                value={draft.totalTargetWeeks ?? 8.5}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    totalTargetWeeks: Number(e.target.value),
-                  })
-                }
-              />
-            </label>
-            <label>
-              כמה ימי אריזה בשבוע רצוי?
-              <select
-                value={draft.preferredRuns}
-                onChange={(e) =>
-                  setDraft({ ...draft, preferredRuns: Number(e.target.value) })
-                }
-              >
-                {[3, 4, 5].map((n) => (
-                  <option key={n} value={n}>
-                    {n} ימים
-                  </option>
-                ))}
-              </select>
-            </label>
+        {mode === "data" && (
+          <div className="bp-data-grid">
+            {styleGroups(draft).map((g) => (
+              <article className="bp-card" key={g.key}>
+                <h3 className={beerStyleClass(g.style).className}>{g.style}</h3>
+                <div className="bp-formats">
+                  {g.products.map((p) => (
+                    <div key={p.id}>
+                      <h4>
+                        {p.type === "crates" ? "בקבוקים · ארגזים" : "חביות"}
+                      </h4>
+                      <div className="bp-fields">
+                        <label>
+                          מלאי טמפו
+                          <input
+                            type="number"
+                            min="0"
+                            value={p.tempo ?? ""}
+                            onChange={(e) => {
+                              update(p.id, {
+                                tempo:
+                                  e.target.value === ""
+                                    ? null
+                                    : Number(e.target.value),
+                              });
+                              setStockTouched((ids) => [
+                                ...new Set([...ids, p.id]),
+                              ]);
+                            }}
+                          />
+                        </label>
+                        <label>
+                          צפי מכירות לחודש
+                          <input
+                            type="number"
+                            min="0"
+                            value={p.monthly}
+                            onChange={(e) =>
+                              update(p.id, { monthly: Number(e.target.value) })
+                            }
+                          />
+                        </label>
+                      </div>
+                      <small>
+                        {stockTouched.includes(p.id)
+                          ? "יישמר כמדידה מהיום"
+                          : p.tempoDate
+                            ? `מדידה אחרונה: ${shortDate(p.tempoDate)}`
+                            : "טרם נמדד"}
+                      </small>
+                      <button
+                        type="button"
+                        disabled={
+                          p.tempo === null || stockTouched.includes(p.id)
+                        }
+                        onClick={() =>
+                          setStockTouched((ids) => [...new Set([...ids, p.id])])
+                        }
+                      >
+                        המלאי נבדק היום ללא שינוי
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
           </div>
-          <p>
-            יעדי הכיסוי מתייחסים למוצר מוגמר. בירה במיכלים מחושבת בנפרד לצורך
-            המלצות ייצור.
-          </p>
-          <details>
-            <summary>זמני הבשלה לפי מוצר</summary>
-            {draft.products.map((p) => (
-              <label key={p.id}>
-                {p.style} · {p.type === "crates" ? "ארגזים" : "חביות"}
+        )}
+        {mode === "settings" && (
+          <div className="bp-settings">
+            <div className="bp-fields">
+              <label>
+                יעד מלאי בטמפו · שבועות
                 <input
                   type="number"
-                  min="1"
-                  value={p.leadDays}
+                  min=".5"
+                  max="12"
+                  step=".5"
+                  value={draft.targetWeeks}
                   onChange={(e) =>
-                    update(p.id, { leadDays: Number(e.target.value) })
+                    setDraft({ ...draft, targetWeeks: Number(e.target.value) })
                   }
                 />
               </label>
-            ))}
-          </details>
-        </details>
+              <label>
+                יעד כולל טמפו ומבשלה · שבועות
+                <input
+                  type="number"
+                  min=".5"
+                  max="26"
+                  step=".5"
+                  value={draft.totalTargetWeeks ?? 8.5}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      totalTargetWeeks: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                כמה ימי אריזה בשבוע רצוי?
+                <select
+                  value={draft.preferredRuns}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      preferredRuns: Number(e.target.value),
+                    })
+                  }
+                >
+                  {[3, 4, 5].map((n) => (
+                    <option key={n} value={n}>
+                      {n} ימים
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p>
+              יעדי הכיסוי מתייחסים למוצר מוגמר. בירה במיכלים מחושבת בנפרד לצורך
+              המלצות ייצור.
+            </p>
+            <h3>ימי הבשלה לפי סגנון</h3>
+            <div className="bp-fields">
+              {CORE_STYLES.map((style) => (
+                <label key={style}>
+                  {style} · ימים מהבישול
+                  <input
+                    type="number"
+                    min="1"
+                    value={
+                      draft.products.find((p) => sameStyle(p.style, style))
+                        ?.leadDays ?? 21
+                    }
+                    onChange={(e) =>
+                      setDraft((s) => ({
+                        ...s,
+                        products: s.products.map((p) =>
+                          sameStyle(p.style, style)
+                            ? { ...p, leadDays: Number(e.target.value) }
+                            : p,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         {message && <p role="alert">{message}</p>}
         <div className="bp-actions">
           <button disabled={!dirty} onClick={submit}>
-            {busy ? "שומר…" : "שמירת הנתונים"}
+            {busy
+              ? "שומר…"
+              : mode === "data"
+                ? "שמירת הנתונים"
+                : "שמירת ההגדרות"}
           </button>
           {dirty && (
             <button

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
 import {
   collection,
   doc,
@@ -30,7 +31,9 @@ export function usePlanning(today: string, tanks: TankInput[]) {
   const [actualShipments, setActualShipments] = useState<ShipmentEvent[]>([]);
   const [snapshots, setSnapshots] = useState<PlanningSnapshot[]>([]);
   const [snapshotError, setSnapshotError] = useState("");
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [settings, setSettings] = useState<Settings>(() =>
+    withSpecialTotals(defaultSettings()),
+  );
   const [plans, setPlans] = useState<WeekPlan[]>([]);
   const [pallets, setPallets] = useState<Pallet[]>([]);
   const [actuals, setActuals] = useState<Actual[]>([]);
@@ -78,15 +81,17 @@ export function usePlanning(today: string, tanks: TankInput[]) {
         { includeMetadataChanges: true },
         (snap) => {
           setSettings(
-            snap.exists()
-              ? ({
-                  ...defaultSettings(),
-                  ...snap.data(),
-                  lossPercent: 10,
-                  deliveryTransitDays: 0,
-                  totalTargetWeeks: snap.data()?.totalTargetWeeks ?? 8.5,
-                } as Settings)
-              : defaultSettings(),
+            withSpecialTotals(
+              snap.exists()
+                ? ({
+                    ...defaultSettings(),
+                    ...snap.data(),
+                    lossPercent: 10,
+                    deliveryTransitDays: 0,
+                    totalTargetWeeks: snap.data()?.totalTargetWeeks ?? 8.5,
+                  } as Settings)
+                : defaultSettings(),
+            ),
           );
           ok("הגדרות", snap.metadata.fromCache);
         },
@@ -170,6 +175,10 @@ export function usePlanning(today: string, tanks: TankInput[]) {
   ) {
     if (!auth.currentUser) throw new Error("יש להתחבר מחדש");
     await runTransaction(db, async (tx) => {
+      if (collectionName === "planningWeeks" && weekIsClosed(id))
+        throw new Error(
+          "השבוע נסגר לתכנון בתחילת יום שישי. ניתן לצפות בו בלבד.",
+        );
       const ref = doc(db, collectionName, id),
         snap = await tx.get(ref);
       if ((snap.data()?.revision ?? 0) !== value.revision)

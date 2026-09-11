@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   defaultSettings,
+  dateKey,
+  num,
   emptyWeek,
   inventory,
   parseDate,
@@ -20,6 +22,21 @@ import {
   adoptAction,
 } from "../src/SERVICES/planning/workspace";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
+import { tankReleases } from "../src/SERVICES/planning/productionCycle";
+import {
+  productionNeeds,
+  productionDay,
+} from "../src/SERVICES/planning/productionNeeds";
+import {
+  actionImpact,
+  dayForWeek,
+  groupKey,
+  recommendationSettings,
+  styleGroups,
+  tankDiagnostics,
+  weekIsClosed,
+  withSpecialTotals,
+} from "../src/SERVICES/planning/planningPresentation";
 
 const today = "2026-09-06";
 const product: Product = {
@@ -66,6 +83,271 @@ test("Israeli dates reject impossible dates and parse day before month", () => {
   assert.equal(parseDate("10/09/2026"), "2026-09-10");
   assert.equal(parseDate("31/02/2026"), null);
   assert.equal(parseDate("09/30/2026"), null);
+});
+test("dashboard short Israeli dates and formatted volumes remain usable", () => {
+  assert.equal(parseDate("1/9/26"), "2026-09-01");
+  assert.equal(parseDate(" 1/9/2026 "), "2026-09-01");
+  assert.equal(parseDate("29/2/26"), null);
+  assert.equal(parseDate("29/2/24"), "2024-02-29");
+  assert.equal(num(" 3,000 "), 3000);
+  const source = {
+    id: "t2",
+    tankNumber: 2,
+    beerStyle: "IPA",
+    batchNumber: 7,
+    brewDate: "1/8/26",
+    beerVolume: "3,000",
+  };
+  assert.equal(tanksFrom([source], settings)[0]?.liters, 2700);
+});
+test("all production tanks are recognized, not just tanks 16 and 17", () => {
+  const sources = Array.from({ length: 16 }, (_, i) => ({
+    id: String(i + 2),
+    tankNumber: i + 2,
+    beerStyle: "IPA",
+    batchNumber: i + 10,
+    brewDate: "1/8/26",
+    beerVolume: 3000,
+  }));
+  const available = tanksFrom(sources, settings);
+  assert.equal(available.length, 16);
+  const diagnostics = tankDiagnostics(sources, available, today);
+  assert.deepEqual(
+    diagnostics.map((t) => Number(t.number)),
+    sources.map((t) => t.tankNumber),
+  );
+  assert.ok(diagnostics.every((t) => t.reason === "זמין לבדיקה ולשיבוץ אריזה"));
+  const invalid = sources.map((s) =>
+    s.id === "2" ? { ...s, brewDate: "" } : s,
+  );
+  assert.match(
+    tankDiagnostics(invalid, tanksFrom(invalid, settings), today)[0].reason,
+    /תאריך/,
+  );
+});
+test("week locks exactly at Friday midnight in Israel, including year rollover", () => {
+  assert.equal(weekIsClosed(today, "2026-09-10"), false);
+  assert.equal(weekIsClosed(today, "2026-09-11"), true);
+  assert.equal(weekIsClosed("2026-12-27", "2027-01-01"), true);
+  assert.equal(weekIsClosed("2026-09-13", "2026-09-11"), false);
+  assert.equal(
+    weekIsClosed(today, dateKey(new Date("2026-09-10T20:59:59Z"))),
+    false,
+  );
+  assert.equal(
+    weekIsClosed(today, dateKey(new Date("2026-09-10T21:00:00Z"))),
+    true,
+  );
+});
+test("day selection resolves to the selected week's Israeli calendar dates", () => {
+  assert.equal(dayForWeek(today, 0), today);
+  assert.equal(dayForWeek(today, 4), "2026-09-10");
+});
+test("special editions share a reporting group without sharing production demand", () => {
+  const original = {
+    ...settings,
+    products: [
+      ...settings.products,
+      { ...product, id: "winter", style: "מהדורת חורף", monthly: 80 },
+    ],
+  };
+  const expanded = withSpecialTotals(original);
+  assert.equal(original.products.length, 3);
+  assert.equal(
+    withSpecialTotals(expanded).products.length,
+    expanded.products.length,
+  );
+  assert.equal(groupKey("אגסים"), "special");
+  assert.equal(groupKey("סשן IPA"), "special");
+  const groups = styleGroups(expanded);
+  assert.deepEqual(
+    groups.find((g) => g.style === "IPA")?.products.map((p) => p.type),
+    ["crates", "kegs"],
+  );
+  assert.deepEqual(
+    groups.find((g) => g.key === "special")?.products.map((p) => p.id),
+    ["special:crates", "special:kegs"],
+  );
+  assert.equal(
+    recommendationSettings(expanded).products.find((p) => p.id === "winter")
+      ?.monthly,
+    0,
+  );
+  assert.equal(expanded.products.find((p) => p.id === "winter")?.monthly, 80);
+});
+test("legacy bottle and keg maturity settings converge on one style duration", () => {
+  const original = {
+    ...settings,
+    products: [
+      { ...product, leadDays: 21 },
+      { ...keg, leadDays: 28 },
+    ],
+  };
+  const normalized = withSpecialTotals(original);
+  assert.deepEqual(
+    normalized.products.filter((p) => p.style === "IPA").map((p) => p.leadDays),
+    [28, 28],
+  );
+  assert.equal(original.products[0].leadDays, 21);
+});
+test("packaging and brewing demand remain visible without any available tank", () => {
+  const workspace = planningWorkspace(
+    settings,
+    [],
+    [],
+    [],
+    [],
+    [],
+    today,
+    [],
+    [],
+  );
+  assert.ok(
+    workspace.needs.some(
+      (n) =>
+        n.kind === "packaging" && n.productId === product.id && !n.nextTank,
+    ),
+  );
+  assert.ok(
+    workspace.needs.some(
+      (n) =>
+        n.kind === "brew" && n.style === "IPA" && n.quantity > 0 && !n.nextTank,
+    ),
+  );
+  assert.ok(
+    !workspace.actions.some((a) => a.kind === "brew" || a.kind === "packaging"),
+  );
+  assert.ok(workspace.forecast.points.every((p) => p.packed === 0));
+});
+test("unmet packaging shows the next matching tank and first maturity date", () => {
+  const immature = {
+    ...tank,
+    number: "2",
+    brewed: "2026-08-27",
+    ready: "2026-09-17",
+  };
+  const workspace = planningWorkspace(
+    settings,
+    [],
+    [immature],
+    [],
+    [],
+    [],
+    today,
+    [],
+    [],
+  );
+  const need = workspace.needs.find(
+    (n) => n.kind === "packaging" && n.productId === product.id,
+  )!;
+  assert.equal(need.nextTank?.id, tank.id);
+  assert.equal(need.nextTank?.ready, "2026-09-17");
+  assert.match(need.problem, /יבשיל|בשל/);
+  assert.ok(need.nextTank!.firstDay >= need.nextTank!.ready);
+});
+test("brewing demand identifies a later release after tank emptying and cleaning", () => {
+  const hypothetical = [
+    {
+      ...plan(),
+      packaging: [
+        {
+          id: "empty",
+          productId: product.id,
+          quantity: 378,
+          date: today,
+          tankId: tank.id,
+          emptyTank: true,
+        },
+      ],
+    },
+  ];
+  const source = {
+    id: tank.id,
+    tankNumber: 2,
+    tankStatus: false,
+    beerVolume: 3333,
+  };
+  const forecast = dailyForecast(settings, [], [tank], [], [], today);
+  const needs = productionNeeds(
+    settings,
+    [],
+    [tank],
+    [],
+    hypothetical,
+    [],
+    forecast,
+    [],
+    [source],
+    [],
+    today,
+    [],
+  );
+  const brew = needs.find((n) => n.kind === "brew")!;
+  assert.ok(brew.quantity > 0);
+  assert.equal(brew.nextTank?.number, "2");
+  assert.equal(brew.nextTank?.ready, "2026-09-14");
+  assert.equal(brew.nextTank?.firstDay, "2026-09-14");
+});
+test("resource-free needs can be dismissed for their own date without creating production", () => {
+  const initial = planningWorkspace(
+    settings,
+    [],
+    [],
+    [],
+    [],
+    [],
+    today,
+    [],
+    [],
+  );
+  const need = initial.needs.find((n) => n.kind === "packaging")!;
+  const next = planningWorkspace(
+    settings,
+    [],
+    [],
+    [{ ...plan(), dismissedRecommendations: [need.id] }],
+    [],
+    [],
+    today,
+    [],
+    [],
+  );
+  assert.ok(!next.needs.some((n) => n.id === need.id));
+  assert.ok(next.needs.some((n) => n.kind === "brew"));
+  assert.ok(next.forecast.points.every((p) => p.packed === 0));
+  assert.equal(productionDay("2026-09-11", "packaging"), "2026-09-13");
+  assert.equal(productionDay("2026-09-11", "brew"), "2026-09-14");
+});
+test("shipment explanation uses daily consumption, including current and added coverage", () => {
+  const s = { ...settings, products: [{ ...keg, tempo: 200 }] };
+  const impact = actionImpact(
+    {
+      id: "ship",
+      kind: "delivery",
+      status: "recommended",
+      date: today,
+      productId: keg.id,
+      quantity: 120,
+      allocations: [],
+      reason: "",
+    },
+    s,
+    today,
+    [
+      {
+        date: today,
+        productId: keg.id,
+        brewery: 0,
+        tempo: 310,
+        packed: 0,
+        arrived: 120,
+        shortage: 0,
+      },
+    ],
+  );
+  assert.match(impact, /כיסוי היום: 20 ימים/);
+  assert.match(impact, /מוסיף כ־12 ימים/);
+  assert.match(impact, /בסוף יום האיסוף: כ־31 ימים/);
 });
 test("all brewery zones count until a shipment is issued", () => {
   const items = [
@@ -281,6 +563,20 @@ test("exceptions relax work-day rules but never truck capacity", () => {
   assert.equal(validateDatedPlan(w, settings, [], today), null);
   assert.ok(
     validateDatedPlan({ ...w, allowExceptions: false }, settings, [], today),
+  );
+});
+test("an empty dashboard tank packaged this week waits until the following Monday", () => {
+  const sources = [
+    { id: "t2", tankNumber: 2, tankStatus: true, beerVolume: 3000 },
+  ];
+  const actuals = [{ id: "packed", tankNumber: 2, date: "2026-09-07" }];
+  assert.equal(
+    tankReleases(sources, [], [], settings, actuals, "2026-09-08")[0].date,
+    "2026-09-14",
+  );
+  assert.equal(
+    tankReleases(sources, [], [], settings, actuals, "2026-09-14")[0].date,
+    "2026-09-14",
   );
 });
 test("fixed shrinkage stays 10 percent", () => {

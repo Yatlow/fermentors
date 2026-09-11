@@ -17,6 +17,7 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { brewProposals, type BrewProposal } from "./brewScheduler";
+import { productionNeeds } from "./productionNeeds";
 import type { TankSource } from "./productionCycle";
 
 export type PlanningAction =
@@ -187,7 +188,21 @@ export function planningWorkspace(
       status: "recommended" as const,
     })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-  return { effectivePlans, forecast, actions, hypothetical, scenario };
+  const needs = productionNeeds(
+    settings,
+    pallets,
+    tanks,
+    effectivePlans,
+    hypothetical,
+    scenario,
+    forecast,
+    brewing,
+    sources,
+    actuals,
+    today,
+    holidays,
+  );
+  return { effectivePlans, forecast, actions, hypothetical, scenario, needs };
 }
 
 export function adoptAction(week: WeekPlan, action: PlanningAction): WeekPlan {

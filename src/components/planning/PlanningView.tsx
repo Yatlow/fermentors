@@ -12,6 +12,7 @@ import {
   usePlanningToday,
 } from "../../SERVICES/planning/usePlanning";
 import { planningWorkspace } from "../../SERVICES/planning/workspace";
+import { recommendationSettings } from "../../SERVICES/planning/planningPresentation";
 import PlanningBoard from "./PlanningBoard";
 import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
@@ -21,7 +22,8 @@ import "./planning.css";
 export const PLANNING_TABS = [
   ["stock", "מלאי"],
   ["calendar", "לוח עבודה"],
-  ["data", "נתונים והגדרות"],
+  ["data", "נתונים"],
+  ["settings", "הגדרות"],
   ["review", "תכנון מול ביצוע"],
 ] as const;
 export type PlanningTab = (typeof PLANNING_TABS)[number][0];
@@ -30,7 +32,6 @@ export default function PlanningView({
   brews,
   canEdit,
   tab,
-  onTabChange,
 }: {
   brews: Fermentor[];
   canEdit: boolean;
@@ -55,7 +56,7 @@ export default function PlanningView({
   const workspace = useMemo(
     () =>
       planningWorkspace(
-        settings,
+        recommendationSettings(settings),
         pallets,
         tanks,
         plans,
@@ -92,7 +93,7 @@ export default function PlanningView({
         </p>
       )}
       {data.offline && <p role="status">ממתין לחיבור לשרת לפני שמירה.</p>}
-      {message && tab === "data" && (
+      {message && (tab === "data" || tab === "settings") && (
         <p role="status" className="bp-success">
           {message}
         </p>
@@ -106,7 +107,7 @@ export default function PlanningView({
               today={today}
               actions={workspace.actions}
               plans={workspace.effectivePlans}
-              openCalendar={() => onTabChange("calendar")}
+              needs={workspace.needs}
             />
           )}
           {tab === "calendar" && (
@@ -132,8 +133,10 @@ export default function PlanningView({
               />
             </>
           )}
-          {tab === "data" && (
+          {(tab === "data" || tab === "settings") && (
             <PlanningData
+              key={tab}
+              mode={tab}
               settings={settings}
               today={today}
               disabled={disabled}

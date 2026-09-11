@@ -118,7 +118,9 @@ export type PackagingSuggestion = {
 };
 export type Holiday = { date: string; title: string; closed?: boolean };
 export const num = (v: unknown) =>
-  Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0;
+  Number.isFinite(Number(typeof v === "string" ? v.replace(/[,\s]/g, "") : v))
+    ? Math.max(0, Number(typeof v === "string" ? v.replace(/[,\s]/g, "") : v))
+    : 0;
 export function dateKey(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jerusalem",
@@ -128,9 +130,11 @@ export function dateKey(d: Date): string {
   }).format(d);
 }
 export function parseDate(s?: string | null): string | null {
-  if (!s) return null;
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
-  const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : s;
+  if (typeof s !== "string" || !s) return null;
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(s.trim());
+  const iso = m
+    ? `${m[3].length === 2 ? "20" + m[3] : m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`
+    : s.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
   const d = new Date(`${iso}T12:00:00Z`);
   return Number.isFinite(+d) && d.toISOString().slice(0, 10) === iso
