@@ -10,6 +10,7 @@ import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import "./planning.css";
+import "./planningV2.css";
 
 export const PLANNING_TABS = [
   ["stock", "מלאי"],
@@ -56,7 +57,7 @@ export default function PlanningView({ brews, canEdit, tab }: {
         {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={workspace.effectivePlans} needs={workspace.needs} />}
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningBoard settings={settings} plans={plans} tanks={tanks} brews={productionTanks} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} workspace={workspace} disabled={disabled} saveWeek={data.saveWeek} />
+          <PlanningBoard settings={settings} plans={plans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} workspace={workspace} disabled={disabled} saveWeek={data.saveWeek} />
         </>}
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={workspace.effectivePlans} settings={settings} actuals={actuals} today={today} />}
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings} />}
