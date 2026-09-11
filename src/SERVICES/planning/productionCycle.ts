@@ -15,6 +15,8 @@ export const weekday = (date: string) =>
   new Date(`${date}T12:00:00Z`).getUTCDay();
 export const nextBrewingWeek = (emptied: string) =>
   addDays(weekStart(emptied), 8);
+
+/** Normal recommendation capacity. A planner may override it manually. */
 export const packagingLimit = (date: string, type: "crates" | "kegs") =>
   weekday(date) === 0
     ? type === "crates"
@@ -53,7 +55,6 @@ function isReadyForBrew(source: TankSource) {
   );
 }
 
-/** A stage-0/waiting tank is a usable brewing resource even before a brew date exists. */
 export function tankReleases(
   sources: TankSource[],
   tanks: Tank[],
@@ -144,7 +145,8 @@ export function validateProduction(
   const used = new Map<string, number>();
 
   for (const r of runs) {
-    if (!r.tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
+    if (!r.tankId || !r.date)
+      return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
     const t = tanks.find((t) => t.id === r.tankId);
     const p = settings.products.find((p) => p.id === r.productId);
     if (!t || !p || !sameStyle(t.style, p.style) || r.date < t.ready)
@@ -165,7 +167,7 @@ export function validateProduction(
     if (used.get(t.id)! > t.liters + 0.01)
       return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין`;
     if (r.emptyTank && t.liters - used.get(t.id)! >= 20)
-      return `מיכל ${t.number}: לא ניתן לסמן סיום כשנותרו 20 ליטר ומעלה`;
+      return `מיכל ${t.number}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמיכל`;
   }
   return null;
 }
@@ -187,12 +189,19 @@ export function validateBrewReleases(
           t.brewed === b.date &&
           sameStyle(t.style, b.style),
       )
-    ) continue;
+    )
+      continue;
     const release = releases.find((r) => r.tankId === b.tankId);
     if (!release?.date || b.date < release.date)
-      return `בישול ${b.style} ב־${b.date}: תוכנית הריקון אינה מאפשרת את זמינות המיכל`;
-    if (!release.workLiters || b.liters > release.workLiters)
-      return "נפח עבודה חסר או חריגה מנפח המיכל בדאשבורד";
+      return `בישול ${b.style}: תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה`;
+    if (!release.workLiters) {
+      const source = sources.find((s) => s.id === b.tankId);
+      return `למיכל ${source?.tankNumber ?? b.tankId} חסר beerVolume בדאשבורד, ולכן אי אפשר לחשב אוטומטית את נפח הבישול`;
+    }
+    if (b.liters > release.workLiters) {
+      const source = sources.find((s) => s.id === b.tankId);
+      return `מיכל ${source?.tankNumber ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה בדאשבורד הוא ${Math.round(release.workLiters)} ל׳`;
+    }
   }
   return null;
 }
