@@ -1,4 +1,5 @@
 import type { Fermentor } from "../../App";
+import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 import {
   addDays,
   type Settings,
@@ -7,6 +8,7 @@ import {
   type Actual,
 } from "../../SERVICES/planning/planningEngine";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { displayStyle } from "../../SERVICES/planning/planningPresentation";
 import { tankReleases } from "../../SERVICES/planning/productionCycle";
 
 export default function PlanningTanks({ tanks, sources, plans, settings, actuals, today }: {
@@ -44,12 +46,12 @@ export default function PlanningTanks({ tanks, sources, plans, settings, actuals
           <tbody>{rows.map(({ source, tank, release, next, plannedEmpty }) => (
             <tr key={source.id}>
               <th>#{source.tankNumber}</th>
-              <td>{tank ? `${tank.style} · אצווה ${tank.batch}` : Number(source.action) === 0 ? "מחכה לבישול" : "—"}</td>
+              <td>{tank ? <><span className={`bp-tank-style ${beerStyleClass(tank.style).className}`}>{displayStyle(tank.style)}</span> · אצווה {tank.batch}</> : Number(source.action) === 0 ? <span className="bp-ready-chip">מחכה לבישול</span> : "—"}</td>
               <td>{tank?.brewed ? shortDate(tank.brewed) : "—"}</td>
               <td>{tank?.ready ? shortDate(tank.ready) : "—"}</td>
               <td>{plannedEmpty ? <><strong>{shortDate(plannedEmpty)}</strong><small className="bp-status"> נקבע</small></> : release?.emptyDate ? shortDate(release.emptyDate) : "טרם נקבע"}</td>
-              <td>{release?.date ? shortDate(release.date) : "תלוי בריקון"}</td>
-              <td>{next ? <><strong>{next.style}</strong> · {shortDate(next.date)}</> : release?.date && release.date <= addDays(today, 84) ? "פנוי לשיבוץ" : "—"}</td>
+              <td>{release?.date ? <span className="bp-ready-chip">{shortDate(release.date)}</span> : "תלוי בריקון"}</td>
+              <td>{next ? <><strong>{displayStyle(next.style)}</strong> · {shortDate(next.date)}</> : release?.date && release.date <= addDays(today, 84) ? <span className="bp-ready-chip">פנוי לשיבוץ</span> : "—"}</td>
             </tr>
           ))}</tbody>
         </table>
