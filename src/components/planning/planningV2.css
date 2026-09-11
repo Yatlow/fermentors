@@ -5,7 +5,6 @@
 .brew-planning .bp-week-brews{margin:12px 0;padding:12px;border:1px solid #dbe2ea;border-radius:12px;background:#fff}
 .brew-planning .bp-week-brew-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}
 
-/* Weekly planning = three managerial decisions, not a daily task list. */
 .brew-planning .bp-week-recommendations{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
 .brew-planning .bp-week-rec-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:12px;border:1px solid #dbe2ea;border-radius:12px;background:#fff;box-shadow:0 2px 7px rgba(15,23,42,.05)}
 .brew-planning .bp-week-rec-card header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-bottom:1px solid #eef2f7;padding-bottom:8px}
@@ -21,7 +20,18 @@
 .brew-planning .bp-week-alerts{display:grid;gap:4px;margin:10px 0;padding:9px 11px;border:1px solid #fbbf24;border-radius:10px;background:#fffbeb;color:#92400e}
 .brew-planning .bp-week-alerts span{font-size:.82rem}
 
-/* Mobile-safe editor. */
+/* Five-day work-manager gantt. */
+.brew-planning .bp-gantt-section{margin-bottom:14px;padding:10px;border:1px solid #dbe2ea;border-radius:12px;background:#fff}
+.brew-planning .bp-gantt{display:grid;grid-template-columns:84px repeat(5,minmax(100px,1fr));overflow:auto;border:1px solid #e2e8f0;border-radius:10px;min-width:0}
+.brew-planning .bp-gantt-head,.brew-planning .bp-gantt-label,.brew-planning .bp-gantt-cell{min-height:52px;padding:6px;border-inline-start:1px solid #eef2f7;border-bottom:1px solid #eef2f7}
+.brew-planning .bp-gantt-head{position:sticky;top:0;z-index:2;display:grid;place-items:center;background:#f1f5f9;font-weight:800}
+.brew-planning .bp-gantt-head small{font-size:.65rem;color:#64748b}
+.brew-planning .bp-gantt-label{position:sticky;right:0;z-index:2;display:flex;align-items:center;background:#f8fafc;font-weight:800}
+.brew-planning .bp-gantt-cell{display:grid;align-content:start;gap:4px;background:#fff}
+.brew-planning .bp-gantt-item{display:block;padding:4px 5px;border-radius:6px;font-size:.68rem;line-height:1.25;overflow-wrap:anywhere}
+.brew-planning .bp-gantt-item.is-saved{background:#dcfce7;border:1px solid #86efac;color:#166534}
+.brew-planning .bp-gantt-item.is-rec{background:#eff6ff;border:1px dashed #60a5fa;color:#1d4ed8}
+
 .brew-planning .bp-modal-backdrop{position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.48);display:flex;align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:hidden}
 .brew-planning .bp-modal{width:min(980px,100%);max-height:92vh;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(15,23,42,.25);overflow:hidden}
 .brew-planning .bp-modal .bp-editor{border:0;margin:0;display:flex;flex-direction:column;max-height:92vh}
@@ -36,7 +46,6 @@
 .brew-planning .bp-day:nth-last-child(-n+2){opacity:.72}
 .brew-planning .bp-day:nth-last-child(-n+2)>button{display:none}
 
-/* Inventory: style + bottles + kegs always fit in one row; detail opens downward. */
 .brew-planning .bp-stock-snapshot{display:grid;gap:8px;width:100%;max-width:100%;overflow:visible}
 .brew-planning .bp-stock-snapshot-row{display:grid;grid-template-columns:130px repeat(2,minmax(0,1fr));gap:8px;align-items:stretch;padding:8px;border:1px solid #dbe2ea;border-radius:12px;background:#fff;min-width:0;max-width:100%;cursor:pointer}
 .brew-planning .bp-stock-snapshot-row:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
@@ -55,14 +64,14 @@
 .brew-planning .bp-stock-detail{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding-top:8px;border-top:1px solid #e2e8f0;cursor:default}
 .brew-planning .bp-stock-detail>div{display:grid;gap:3px;padding:8px;background:#f8fafc;border-radius:8px;min-width:0}
 
-/* Tank timeline: sticky headers plus modest visual hierarchy. */
 .brew-planning .bp-table-scroll:has(.bp-tank-table){max-height:72vh;overflow:auto}
 .brew-planning .bp-tank-table thead th{position:sticky;top:0;z-index:3;background:#eaf0f7;box-shadow:0 1px 0 #cbd5e1}
 .brew-planning .bp-tank-table tbody th{position:sticky;right:0;z-index:2;background:#f8fafc;color:#0f172a}
 .brew-planning .bp-tank-table tbody tr:nth-child(even) td{background:#fbfdff}
 .brew-planning .bp-tank-table tbody tr:hover td{background:#f1f5f9}
+.brew-planning .bp-tank-style{display:inline-block;padding:3px 7px;border-radius:999px;font-weight:800}
+.brew-planning .bp-ready-chip{display:inline-block;padding:3px 7px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:700}
 
-/* Dense data entry: six style cards are visible quickly on phone and desktop. */
 .brew-planning .bp-data-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .brew-planning .bp-data-grid .bp-card{padding:7px;border-radius:9px;min-width:0}
 .brew-planning .bp-data-grid .bp-card h3{margin:0 0 5px;font-size:.92rem;padding:5px}
@@ -91,6 +100,10 @@
   .brew-planning .bp-stock-pair b{display:inline;margin-inline-end:3px;font-size:.64rem}
   .brew-planning .bp-stock-metric em{font-size:.68rem}
   .brew-planning .bp-stock-detail{grid-template-columns:1fr}
+  .brew-planning .bp-gantt-section{padding:7px}
+  .brew-planning .bp-gantt{grid-template-columns:58px repeat(5,minmax(86px,1fr))}
+  .brew-planning .bp-gantt-head,.brew-planning .bp-gantt-label,.brew-planning .bp-gantt-cell{padding:4px;min-height:46px}
+  .brew-planning .bp-gantt-item{font-size:.62rem;padding:3px}
   .brew-planning .bp-focus-recommendation{max-width:none}
   .brew-planning .bp-modal-backdrop{padding:0}
   .brew-planning .bp-modal{width:100%;height:100dvh;max-height:100dvh;border-radius:0}
