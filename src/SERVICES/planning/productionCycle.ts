@@ -29,6 +29,7 @@ export const packagingLimit = (date: string, type: "crates" | "kegs") =>
 export type TankSource = {
   id: string;
   tankNumber?: string | number | null;
+  beerStyle?: string | null;
   beerVolume?: unknown;
   tankStatus?: unknown;
   action?: unknown;
@@ -42,6 +43,38 @@ export type Release = {
   workLiters: number;
   reason: string;
 };
+
+/**
+ * Fallback work volume derived from the same tank/style targets used by the
+ * calendar sync service. It is only used when a ready tank has no beerVolume.
+ */
+export function estimatedBrewVolume(
+  tankNumber: unknown,
+  beerStyle?: string | null,
+): number {
+  const tank = Number(tankNumber);
+  const style = String(beerStyle ?? "");
+  if (!Number.isFinite(tank) || tank <= 0) return 0;
+  if (tank <= 4) return 1100;
+  const isPale = style.includes("פייל");
+  const isHoppyLager = style.includes("הופי") && style.includes("לאגר");
+  const isLager = style.includes("לאגר");
+  const isWheat = style.includes("חיטה");
+  const isIpa = /ipa/i.test(style);
+  if (tank <= 8) {
+    if (isIpa) return 1960;
+    if (isPale) return 2200;
+    if (isHoppyLager || isLager) return 2500;
+    if (isWheat) return 2100;
+    return 2200;
+  }
+  if (isIpa) return 3000;
+  if (isPale) return 3200;
+  if (isHoppyLager) return 3600;
+  if (isLager) return 3700;
+  if (isWheat) return 3400;
+  return 3400;
+}
 
 function isReadyForBrew(source: TankSource) {
   return (
@@ -67,7 +100,8 @@ export function tankReleases(
     (r) => r.date && r.date >= today && r.remaining > 0,
   );
   return sources.map((source) => {
-    const workLiters = num(source.beerVolume);
+    const workLiters =
+      num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, source.beerStyle);
     if (isReadyForBrew(source)) {
       const packedThisWeek = actuals
         .filter(
@@ -91,7 +125,7 @@ export function tankReleases(
         reason: packedThisWeek
           ? "המיכל נארז השבוע; זמין לבישול מהשבוע הבא לאחר ניקיון"
           : Number(source.action) === 0 || source.stage?.name === "מחכה לבישול"
-            ? "המיכל מחכה לבישול וזמין לשיבוץ"
+            ? `המיכל מחכה לבישול וזמין לשיבוץ${num(source.beerVolume) ? "" : " · הנפח משוער לפי גודל המיכל"}`
             : "המיכל פנוי; יש לאמת ניקיון וחיטוי",
       };
     }
@@ -196,11 +230,11 @@ export function validateBrewReleases(
       return `בישול ${b.style}: תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה`;
     if (!release.workLiters) {
       const source = sources.find((s) => s.id === b.tankId);
-      return `למיכל ${source?.tankNumber ?? b.tankId} חסר beerVolume בדאשבורד, ולכן אי אפשר לחשב אוטומטית את נפח הבישול`;
+      return `למיכל ${source?.tankNumber ?? b.tankId} חסר נפח עבודה ולא ניתן היה לחשב אומדן`;
     }
     if (b.liters > release.workLiters) {
       const source = sources.find((s) => s.id === b.tankId);
-      return `מיכל ${source?.tankNumber ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה בדאשבורד הוא ${Math.round(release.workLiters)} ל׳`;
+      return `מיכל ${source?.tankNumber ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב הוא ${Math.round(release.workLiters)} ל׳`;
     }
   }
   return null;
