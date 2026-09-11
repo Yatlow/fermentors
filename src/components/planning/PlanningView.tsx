@@ -10,6 +10,7 @@ import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
+import PlanningWeekGantt from "./PlanningWeekGantt";
 import "./planning.css";
 import "./planningV2.css";
 
@@ -59,13 +60,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange }: {
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {!data.loading && !data.error && <>
         {tab === "stock" && (
-          <PlanningStock
-            settings={settings}
-            pallets={pallets}
-            today={today}
-            actions={workspace.actions}
-            plans={workspace.effectivePlans}
-          />
+          <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={workspace.effectivePlans} />
         )}
 
         {tab === "calendar" && (
@@ -88,6 +83,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange }: {
         {tab === "schedule" && (
           <>
             {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
+            <PlanningWeekGantt settings={settings} plans={plans} tanks={tanks} workspace={workspace} today={today} />
             <PlanningBoard
               settings={settings}
               plans={plans}
@@ -110,14 +106,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange }: {
         )}
 
         {tab === "tanks" && (
-          <PlanningTanks
-            tanks={tanks}
-            sources={productionTanks}
-            plans={workspace.effectivePlans}
-            settings={settings}
-            actuals={actuals}
-            today={today}
-          />
+          <PlanningTanks tanks={tanks} sources={productionTanks} plans={workspace.effectivePlans} settings={settings} actuals={actuals} today={today} />
         )}
 
         {tab === "review" && <>
