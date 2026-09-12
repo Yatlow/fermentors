@@ -49,9 +49,17 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
   const readOnly = disabled || closed;
   const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
   const releasePlans = useMemo(() => forecastDateUndatedPackaging(plans), [plans]);
+  const reservedOutsideWeek = useMemo(() => new Set(
+    plans
+      .filter((w) => w.id !== week)
+      .flatMap((w) => w.brews)
+      .filter((b) => !!b.tankId && b.date >= today)
+      .map((b) => b.tankId),
+  ), [plans, week, today]);
   const releases = useMemo(
-    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today),
-    [brews, tanks, releasePlans, settings, actuals, today],
+    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today)
+      .filter((release) => !reservedOutsideWeek.has(release.tankId)),
+    [brews, tanks, releasePlans, settings, actuals, today, reservedOutsideWeek],
   );
   const productLabel = (id: string) => {
     const p = settings.products.find((x) => x.id === id);
