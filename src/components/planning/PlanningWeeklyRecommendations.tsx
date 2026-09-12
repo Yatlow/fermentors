@@ -2,10 +2,9 @@ import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../../SERVICES/cooler/truckCapacity";
-import { addDays, emptyWeek, litersPerUnit, sameStyle, weeklyDemand, weekNumber, weekStart, type DeliveryPlan, type Holiday, type Settings, type Tank, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { addDays, emptyWeek, sameStyle, weeklyDemand, weekNumber, weekStart, type DeliveryPlan, type Holiday, type Settings, type Tank, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
-import { estimatedBrewVolume } from "../../SERVICES/planning/productionCycle";
 import { CORE_STYLES, displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPresentation";
 import { adoptAction, type PlanningAction, type planningWorkspace } from "../../SERVICES/planning/workspace";
 
@@ -61,10 +60,13 @@ export default function PlanningWeeklyRecommendations({ settings, plans, tanks, 
     const p = product(id);
     if (!p) return { physicalPallets: 0, physicalQty: 0, plannedPallets: 0, plannedQty: 0 };
     const physical = pallets.filter((x) => x.zone !== "shipped" && x.itemType === p.type && sameStyle(x.beerStyle, p.style));
-    const plannedQty = plans.filter((w) => w.id <= week).flatMap((w) => w.packaging).filter((x) => x.productId === p.id && (x.date ?? wFallback(w)) <= weekEnd).reduce((sum, x) => sum + x.quantity, 0);
+    const plannedQty = plans
+      .filter((w) => w.id <= week)
+      .flatMap((w) => w.packaging.map((x) => ({ ...x, weekId: w.id })))
+      .filter((x) => x.productId === p.id && (x.date ?? x.weekId) <= weekEnd)
+      .reduce((sum, x) => sum + x.quantity, 0);
     return { physicalPallets: physical.length, physicalQty: physical.reduce((sum, x) => sum + x.quantity, 0), plannedPallets: plannedQty ? projectedPallets(p, plannedQty, `week:${week}`).length : 0, plannedQty };
   };
-  function wFallback(w: WeekPlan) { return w.id; }
 
   const shipmentRows = coreProducts.map((p) => {
     const recommendedQty = ship.filter((a) => a.productId === p.id).reduce((s, a) => s + a.quantity, 0);
