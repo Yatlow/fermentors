@@ -65,6 +65,21 @@ export function planningWorkspace(
   shipments: ShipmentEvent[],
 ) {
   const effectivePlans = withMarkedDeliveries(plans, pallets, settings, today);
+
+  // Ground truth projection: saved decisions only. Recommendations must never
+  // improve future cover until the planner actually accepts them.
+  const committedForecast = dailyForecast(
+    settings,
+    pallets,
+    tanks,
+    effectivePlans,
+    actuals,
+    today,
+    holidays,
+    false,
+    shipments,
+  );
+
   const first = dailyForecast(settings, pallets, tanks, effectivePlans, actuals, today, holidays, true, shipments);
   const hypothetical = structuredClone(effectivePlans);
   for (const s of first.suggestions.filter((s) => s.kind === "packaging")) {
@@ -100,7 +115,7 @@ export function planningWorkspace(
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
   const needs = productionNeeds(settings, pallets, tanks, effectivePlans, hypothetical, scenario, forecast, brewing, sources, actuals, today, holidays);
-  return { effectivePlans, forecast, actions, hypothetical, scenario, needs };
+  return { effectivePlans, committedForecast, forecast, actions, hypothetical, scenario, needs };
 }
 
 export function adoptAction(week: WeekPlan, action: PlanningAction): WeekPlan {
