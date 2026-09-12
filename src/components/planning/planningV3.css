@@ -25,6 +25,7 @@
 .brew-planning .bp-shipment-plan-row.is-critical{background:#fef2f2;border-inline-start-color:#dc2626}
 .brew-planning .bp-shipment-plan-row.is-warning{background:#fff7ed;border-inline-start-color:#f97316}
 .brew-planning .bp-shipment-plan-row.is-ok{background:#f0fdf4;border-inline-start-color:#22c55e}
+.brew-planning .bp-shipment-plan-row.has-same-week-risk{background:#fff1f2;border-inline-start-color:#e11d48;box-shadow:inset 0 0 0 2px rgba(225,29,72,.22)}
 .brew-planning .bp-shipment-plan-row.gap-critical{box-shadow:inset 0 0 0 2px rgba(220,38,38,.2)}
 .brew-planning .bp-shipment-plan-row.gap-warning{box-shadow:inset 0 0 0 2px rgba(249,115,22,.16)}
 .brew-planning .bp-gap{margin-top:2px;font-weight:800}
@@ -32,10 +33,15 @@
 .brew-planning .bp-gap-warning{color:#c2410c!important}
 .brew-planning .bp-shipment-plan-row span{min-width:0;overflow-wrap:anywhere}
 .brew-planning .bp-shipment-plan-row small{display:block;font-size:.61rem;color:#64748b}
+.brew-planning .bp-shipment-plan-row small.bp-risk-text{color:#be123c;font-weight:900}
 .brew-planning .bp-shipment-plan-row input{min-height:32px!important;margin:0!important;padding:3px!important}
 .brew-planning .bp-stepper{display:grid;grid-template-columns:28px minmax(24px,1fr) 28px;align-items:center;gap:3px;text-align:center}
 .brew-planning .bp-stepper button{min-width:28px;min-height:28px;padding:0;font-size:1rem}
 .brew-planning .bp-stepper small{grid-column:1/-1}
+.brew-planning .bp-same-week-warning{display:grid;gap:3px;margin:8px 0;padding:9px 10px;border:2px solid #e11d48;border-radius:10px;background:#fff1f2;color:#9f1239;box-shadow:0 0 0 3px rgba(225,29,72,.08)}
+.brew-planning .bp-same-week-warning b{font-size:.82rem}
+.brew-planning .bp-same-week-warning span{font-size:.72rem;font-weight:750;line-height:1.35}
+.brew-planning .bp-same-week-warning small{font-size:.66rem;font-weight:800}
 .brew-planning .bp-decided-list{display:grid;gap:5px;padding:7px;border:1px solid #e2e8f0;border-radius:9px;background:#fff}
 .brew-planning .bp-decided-list .bp-rec-line{display:grid;grid-template-columns:minmax(120px,1fr) minmax(80px,130px) auto;align-items:center;gap:6px}
 .brew-planning .bp-decided-list .bp-rec-line.is-muted{opacity:.55;background:#f8fafc}
@@ -79,6 +85,10 @@
   .brew-planning .bp-shipment-plan-row small{font-size:.52rem;line-height:1.2}
   .brew-planning .bp-stepper{grid-template-columns:24px minmax(20px,1fr) 24px;gap:1px}
   .brew-planning .bp-stepper button{min-width:24px;min-height:24px;font-size:.9rem}
+  .brew-planning .bp-same-week-warning{padding:7px 8px}
+  .brew-planning .bp-same-week-warning b{font-size:.72rem}
+  .brew-planning .bp-same-week-warning span{font-size:.62rem}
+  .brew-planning .bp-same-week-warning small{font-size:.56rem}
   .brew-planning .bp-decided-list .bp-rec-line{grid-template-columns:1fr 86px auto;gap:3px}
   .brew-planning .bp-decided-list .bp-rec-line input{min-height:30px;padding:3px}
   .brew-planning .bp-brew-edit-row{grid-template-columns:1fr;gap:3px}
