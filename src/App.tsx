@@ -12,8 +12,6 @@ import {
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
 
-
-
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
 
 import "./App.css";
@@ -41,8 +39,6 @@ import ShipmentReportsView from "./components/reports/ShipmentReportsView";
 import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
 import PlanningView, { PLANNING_TABS, type PlanningTab } from "./components/planning/PlanningView";
 
-
-
 export type FirestoreTimestamp = {
     seconds?: number;
     nanoseconds?: number;
@@ -51,29 +47,15 @@ export type FirestoreTimestamp = {
 
 export type Fermentor = {
     id: string;
-
     uid?: string | number | null;
-
     tankNumber?: string | number | null;
-
     action?: string | number | null;
-
     batchNumber?: string | number | null;
-
     beerStyle?: string | null;
-
     brewDate?: string | null;
-
-    pasivationDate?:
-    | string
-    | Date
-    | FirestoreTimestamp
-    | null;
-
+    pasivationDate?: string | Date | FirestoreTimestamp | null;
     beerVolume?: string | number | null;
-
     sheetUrl?: string | null;
-
     currentData?: {
         temp?: string | number | null;
         plato?: string | number | null;
@@ -92,18 +74,14 @@ export type Fermentor = {
         blockIndex?: number | null;
         stageCode?: number | null;
         stageName?: string | null;
-
         stageStartTime?: string | null;
         stageEndTime?: string | null;
-
         stageStartTimeText?: string | null;
         stageEndTimeText?: string | null;
-
         dateAssumed?: boolean | null;
     } | null;
     [key: string]: unknown;
     stage?: TankStageInfo;
-
     specificTankNote?: string | null;
 };
 
@@ -154,9 +132,7 @@ async function updateLastLoggedInAndGetAdminStatus(user: any): Promise<DocumentD
             return null;
         }
         const data = userDoc.data();
-        await updateDoc(userRef, {
-            lastLoggedIn: serverTimestamp(),
-        });
+        await updateDoc(userRef, { lastLoggedIn: serverTimestamp() });
         return data;
     } catch (error) {
         console.error("Error updating last logged in:", error);
@@ -182,12 +158,9 @@ function useAuth() {
             }
             try {
                 const userData = await updateLastLoggedInAndGetAdminStatus(user);
-                const isAdmin = userData?.isAdmin;
-                const isTestUser = userData?.isTestUser;
-                const isPlannerUser = userData?.isPlannerUser;
-                setAdmin(isAdmin ?? false);
-                setTestUser(isTestUser ?? false);
-                setPlannerUser(isPlannerUser ?? false);
+                setAdmin(userData?.isAdmin ?? false);
+                setTestUser(userData?.isTestUser ?? false);
+                setPlannerUser(userData?.isPlannerUser ?? false);
             } catch (error) {
                 console.error("Error updating last logged in:", error);
                 setAdmin(false);
@@ -212,6 +185,7 @@ function App() {
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
+    const [focusShipmentMap, setFocusShipmentMap] = useState(false);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
@@ -310,9 +284,7 @@ function App() {
             const stageById = new Map<string, TankStageInfo | undefined>();
             await Promise.all(
                 tanksNeedingStage.map(async (tank) => {
-                    const stage = await getTankStage(
-                        tank as Parameters<typeof getTankStage>[0]
-                    ).catch(() => undefined);
+                    const stage = await getTankStage(tank as Parameters<typeof getTankStage>[0]).catch(() => undefined);
                     stageById.set(tank.id, stage);
                 })
             );
@@ -331,8 +303,7 @@ function App() {
     useEffect(() => {
         async function loadSpecs() {
             try {
-                const data = await getSpecsFromFb();
-                setSpecs(data);
+                setSpecs(await getSpecsFromFb());
             } catch (error) {
                 console.error("Failed to load specs:", error);
             }
@@ -361,25 +332,14 @@ function App() {
 
     const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
         try {
-            const tankRef = doc(db, "fermentors", tankId);
-            await updateDoc(tankRef, { pasivationDate: newDate });
+            await updateDoc(doc(db, "fermentors", tankId), { pasivationDate: newDate });
         } catch (error) {
             console.error("Error updating pasivation date:", error);
         }
     }, []);
 
-    const updateReading = (
-        tankId: string,
-        field: keyof NewReading,
-        value: string
-    ) => {
-        setNewReadings((prev) => ({
-            ...prev,
-            [tankId]: {
-                ...prev[tankId],
-                [field]: value,
-            },
-        }));
+    const updateReading = (tankId: string, field: keyof NewReading, value: string) => {
+        setNewReadings((prev) => ({ ...prev, [tankId]: { ...prev[tankId], [field]: value } }));
     };
 
     const totalVolumes = useMemo<Record<string, number>>(() => {
@@ -387,25 +347,19 @@ function App() {
         brews.forEach((brew) => {
             const style = String(brew.beerStyle ?? "");
             const volume = Number(brew.beerVolume ?? 0);
-            if (!style) return;
-            if (Number(brew.action) > 2) return;
+            if (!style || Number(brew.action) > 2) return;
             vols[style] = (vols[style] || 0) + volume;
         });
         return vols;
     }, [brews]);
 
-    const filteredBrews = useMemo<Fermentor[]>(() => {
-        return brews.filter((tank) => {
-            if (Number(tank.tankNumber) === 1) {
-                return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
-            }
-            const matchesStatus = selectedStatuses.includes("הכל") ||
-                (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
-            const style = String(tank.beerStyle ?? "").trim();
-            const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
-            return matchesStatus && matchesStyle;
-        });
-    }, [brews, selectedStatuses, selectedStyles, sortByAge]);
+    const filteredBrews = useMemo<Fermentor[]>(() => brews.filter((tank) => {
+        if (Number(tank.tankNumber) === 1) return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
+        const matchesStatus = selectedStatuses.includes("הכל") || (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
+        const style = String(tank.beerStyle ?? "").trim();
+        const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
+        return matchesStatus && matchesStyle;
+    }), [brews, selectedStatuses, selectedStyles, sortByAge]);
 
     const totalTanks = brews.filter((tank) => Number(tank.tankNumber) !== 1).length;
     const filteredTankCount = filteredBrews.filter((tank) => Number(tank.tankNumber) !== 1).length;
@@ -419,38 +373,21 @@ function App() {
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
         const filtered = brews.filter((tank) => {
-            if (Number(tank.tankNumber) === 1) {
-                return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
-            }
-            const matchesStatus = selectedStatuses.includes("הכל") ||
-                (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
+            if (Number(tank.tankNumber) === 1) return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
+            const matchesStatus = selectedStatuses.includes("הכל") || (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
             const style = String(tank.beerStyle ?? "").trim();
             const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
             return matchesStatus && matchesStyle;
         });
-        if (sortByAge === "oldest") {
-            return [...filtered].sort(
-                (a, b) => getBrewDateValue(a.brewDate) - getBrewDateValue(b.brewDate)
-            );
-        }
+        if (sortByAge === "oldest") return [...filtered].sort((a, b) => getBrewDateValue(a.brewDate) - getBrewDateValue(b.brewDate));
         return filtered;
     }, [brews, selectedStatuses, selectedStyles, sortByAge]);
 
-    if (authLoading) {
-        return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען משתמש..."} overlay={false} size={"large"} /></div>;
-    }
-    if (!user) {
-        return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>כניסה למערכת</h1><button onClick={login} className="status-filter-button active">התחבר באמצעות Google</button></div>;
-    }
-    if (isApproved === false) {
-        return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>אין לך הרשאות גישה למערכת זו.</h1><button onClick={logout} className="status-filter-button">התנתק</button><img src={shpiro} alt="Shpiro" className="login-logo" /></div>;
-    }
-    if (loggingIn || isApproved === null) {
-        return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"מבצע כניסה..."} overlay={false} size={"large"} /></div>;
-    }
-    if (loading) {
-        return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען נתונים..."} overlay={false} size={"large"} /></div>;
-    }
+    if (authLoading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען משתמש..."} overlay={false} size={"large"} /></div>;
+    if (!user) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>כניסה למערכת</h1><button onClick={login} className="status-filter-button active">התחבר באמצעות Google</button></div>;
+    if (isApproved === false) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>אין לך הרשאות גישה למערכת זו.</h1><button onClick={logout} className="status-filter-button">התנתק</button><img src={shpiro} alt="Shpiro" className="login-logo" /></div>;
+    if (loggingIn || isApproved === null) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"מבצע כניסה..."} overlay={false} size={"large"} /></div>;
+    if (loading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען נתונים..."} overlay={false} size={"large"} /></div>;
 
     return (
         <div>
@@ -463,7 +400,7 @@ function App() {
                             <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}>פעולות סלרינג</div>
                             <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דוחות</div>
                             <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
-                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
+                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setFocusShipmentMap(false); setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
                             {plannerUser && <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>}
                         </div>
                     </div>
@@ -492,7 +429,7 @@ function App() {
             </header>
 
             {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} />}
-            {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser || admin} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
+            {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser || admin} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => { setFocusShipmentMap(true); setSelectedView("מקרר"); }} />}
             {selectedView === "רישום" && <>
                 <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} />
                 {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
@@ -510,7 +447,18 @@ function App() {
             {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-            {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+            {selectedView === "מקרר" && (
+                <div className={focusShipmentMap ? "shipment-focus-mode" : ""}>
+                    {focusShipmentMap && <>
+                        <style>{`.shipment-focus-mode .pallet-row:not(.marked-for-shipment){display:none!important}`}</style>
+                        <div dir="rtl" style={{ margin: "8px", padding: "8px 10px", border: "2px solid #2563eb", borderRadius: "10px", background: "#eff6ff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <b>מציג רק את המשטחים שסומנו מהחלטת המשלוח</b>
+                            <button type="button" onClick={() => setFocusShipmentMap(false)}>הצג את כל המקרר</button>
+                        </div>
+                    </>}
+                    <CoolerMap brews={brews} />
+                </div>
+            )}
         </div>
     );
 }
