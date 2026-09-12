@@ -4,9 +4,8 @@ import { validateTruckGroups } from "./truckPlanner";
 
 /**
  * Validation for saved planning decisions.
- * The engine may recommend normal daily capacities (for example 252 crates),
- * but a planner is allowed to deliberately exceed that recommendation. Tank
- * volume remains a hard physical constraint in validateProduction().
+ * Weekly brew decisions may intentionally remain without a tank; the work
+ * manager assigns the physical tank later in the daily schedule.
  */
 export function validatePlanningWeek(
   w: WeekPlan,
@@ -64,25 +63,14 @@ export function validatePlanningWeek(
       .flatMap((x) => x.pallets ?? [])
       .map((x) => x.id),
   );
-  if (
-    (w.deliveries ?? [])
-      .flatMap((x) => x.pallets ?? [])
-      .some((x) => savedIds.has(x.id))
-  )
+  if ((w.deliveries ?? []).flatMap((x) => x.pallets ?? []).some((x) => savedIds.has(x.id)))
     return "משטח כבר משויך למשלוח בשבוע אחר";
 
   for (const b of w.brews) {
     if (!w.allowExceptions && (weekday(b.date) < 1 || weekday(b.date) > 3))
       return "בישול משובץ בימים שני–רביעי בלבד";
-    if (
-      !parseDate(b.date) ||
-      weekStart(b.date) !== w.id ||
-      !b.style ||
-      !b.tankId ||
-      !Number.isFinite(b.liters) ||
-      b.liters <= 0
-    )
-      return "יש להשלים שבוע, סגנון, מיכל ונפח בישול";
+    if (!parseDate(b.date) || weekStart(b.date) !== w.id || !b.style || !Number.isFinite(b.liters) || b.liters <= 0)
+      return "יש להשלים שבוע, סגנון ונפח בישול";
     if (b.date < today) return "לא ניתן ליצור בישול חדש בשבוע שכבר עבר";
   }
   return null;
