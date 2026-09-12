@@ -8,6 +8,34 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- TEMP DEBUG: mobile DevTools for the planning preview branch. -->
+    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+    <script>
+      (() => {
+        try {
+          if (window.eruda) {
+            window.eruda.init();
+            console.info("[MOBILE DEBUG] Eruda initialized");
+          }
+        } catch (error) {
+          console.error("[MOBILE DEBUG] Eruda init failed", error);
+        }
+
+        window.addEventListener("error", (event) => {
+          console.error("[WINDOW ERROR]", event.error || event.message, {
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+          });
+        });
+
+        window.addEventListener("unhandledrejection", (event) => {
+          console.error("[UNHANDLED REJECTION]", event.reason);
+        });
+      })();
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
