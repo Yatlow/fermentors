@@ -10,9 +10,9 @@ import { CORE_STYLES, displayStyle, isCoreStyle } from "../../SERVICES/planning/
 import { adoptAction, type PlanningAction, type planningWorkspace } from "../../SERVICES/planning/workspace";
 
 type Workspace = ReturnType<typeof planningWorkspace>;
-type DeliveryAction = Extract<PlanningAction, { kind: "delivery" }>;
-type PackagingAction = Extract<PlanningAction, { kind: "packaging" }>;
-type BrewAction = Extract<PlanningAction, { kind: "brew" }>;
+type DeliveryAction = PlanningAction & { kind: "delivery"; productId: string; quantity: number; pallets?: Pallet[]; slots?: number; truckId?: string };
+type PackagingAction = PlanningAction & { kind: "packaging"; productId: string; quantity: number; allocations: { tankId: string; number: string; liters: number; ready: string; cold: boolean }[]; reason?: string };
+type BrewAction = PlanningAction & { kind: "brew"; style: string; tankId: string; liters: number; reason: string };
 type Kind = PlanningAction["kind"];
 type BrewDraft = { style: string; tankId: string; liters: number };
 const fmt = (n: number) => Math.round(n).toLocaleString("he-IL", { maximumFractionDigits: 0 });
@@ -30,9 +30,9 @@ export default function PlanningWeeklyRecommendations({ settings, plans, tanks, 
 
   const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
   const actions = useMemo(() => workspace.actions.filter((a) => weekStart(a.date) === week), [workspace.actions, week]);
-  const ship = actions.filter((a): a is DeliveryAction => a.kind === "delivery");
-  const pack = actions.filter((a): a is PackagingAction => a.kind === "packaging");
-  const brew = actions.filter((a): a is BrewAction => a.kind === "brew");
+  const ship = actions.filter((a) => a.kind === "delivery") as DeliveryAction[];
+  const pack = actions.filter((a) => a.kind === "packaging") as PackagingAction[];
+  const brew = actions.filter((a) => a.kind === "brew") as BrewAction[];
   const product = (id: string) => settings.products.find((p) => p.id === id);
   const coreProducts = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const sourceNumber = (id: string) => sources.find((s) => s.id === id)?.tankNumber ?? tanks.find((t) => t.id === id)?.number ?? id;
@@ -116,13 +116,13 @@ export default function PlanningWeeklyRecommendations({ settings, plans, tanks, 
         next.packaging = next.packaging.map((r) => ({ ...r, quantity: Math.max(0, Number(draftQty[`saved:${r.id}`] ?? r.quantity)) })).filter((r) => r.quantity > 0);
         for (const a of pack) if (!next.packaging.some((x) => x.id === a.id)) {
           const quantity = Math.max(0, Number(draftQty[`rec:${a.id}`] ?? 0));
-          if (quantity) next = adoptAction(next, { ...a, quantity });
+          if (quantity) next = adoptAction(next, { ...a, quantity } as PlanningAction);
         }
       } else {
         next.brews = next.brews.map((b) => ({ ...b, ...(brewDraft[`saved:${b.id}`] ?? {}) }));
         for (const a of brew) if (!next.brews.some((x) => x.id === a.id)) {
           const d = brewDraft[`rec:${a.id}`];
-          if (d?.tankId && d.style && d.liters > 0) next = adoptAction(next, { ...a, ...d });
+          if (d?.tankId && d.style && d.liters > 0) next = adoptAction(next, { ...a, ...d } as PlanningAction);
         }
       }
       next.changeReason = `עריכת החלטת ${kind === "delivery" ? "משלוח" : kind === "packaging" ? "אריזה" : "בישול"} שבועית`;
