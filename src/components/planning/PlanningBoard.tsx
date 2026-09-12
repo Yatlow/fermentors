@@ -5,14 +5,11 @@ import { addDays, emptyWeek, weekStart, weekNumber, type Actual, type Holiday, t
 import { futureTanks, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { tankReleases, validateProduction, validateBrewReleases } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
-import type { planningWorkspace } from "../../SERVICES/planning/workspace";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import PlanningWeekEditor from "./PlanningWeekEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
 import PlanningDaySelect from "./PlanningDaySelect";
 import "./planningV2.css";
-
-type Workspace = ReturnType<typeof planningWorkspace>;
 
 function activeWorkWeek(today: string) {
   const current = weekStart(today);
@@ -34,9 +31,9 @@ function forecastDateUndatedPackaging(plans: WeekPlan[]) {
   }));
 }
 
-export default function PlanningBoard({ settings, plans, tanks, brews, pallets, actuals, shipments: _shipments, today, holidays: _holidays, workspace, disabled, saveWeek }: {
+export default function PlanningBoard({ settings, plans, tanks, brews, pallets, actuals, shipments: _shipments, today, holidays: _holidays, disabled, saveWeek }: {
   settings: Settings; plans: WeekPlan[]; tanks: Tank[]; brews: Fermentor[]; pallets: Pallet[]; actuals: Actual[];
-  shipments: ShipmentEvent[]; today: string; holidays: Holiday[]; workspace: Workspace; disabled: boolean;
+  shipments: ShipmentEvent[]; today: string; holidays: Holiday[]; disabled: boolean;
   saveWeek: (week: WeekPlan) => Promise<void>;
 }) {
   const startWeek = activeWorkWeek(today);
@@ -72,8 +69,6 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
     const error = validatePlanningWeek(next, settings, all, today);
     if (error) throw new Error(error);
 
-    // Weekly decisions may intentionally be undated. Production validation only
-    // validates runs that the work manager has actually placed on a day.
     const datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((r) => !!r.date) }));
     const production = validateProduction(datedOnly, settings, futureTanks(tanks, all, settings), actuals, today);
     if (production) throw new Error(production);
