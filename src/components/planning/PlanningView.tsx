@@ -10,7 +10,6 @@ import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
-import PlanningWeekGantt from "./PlanningWeekGantt";
 import "./planning.css";
 import "./planningV2.css";
 
@@ -25,7 +24,7 @@ export const PLANNING_TABS = [
 ] as const;
 export type PlanningTab = (typeof PLANNING_TABS)[number][0];
 
-export default function PlanningView({ brews, canEdit, tab, onTabChange }: {
+export default function PlanningView({ brews, canEdit, tab }: {
   brews: Fermentor[];
   canEdit: boolean;
   tab: PlanningTab;
@@ -37,20 +36,11 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange }: {
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
-  const workspace = useMemo(
-    () => planningWorkspace(
-      recommendationSettings(settings), pallets, tanks, plans, actuals,
-      productionTanks, today, holidays, data.actualShipments,
-    ),
-    [settings, pallets, tanks, plans, actuals, productionTanks, today, holidays, data.actualShipments],
-  );
+  const workspace = useMemo(() => planningWorkspace(recommendationSettings(settings), pallets, tanks, plans, actuals, productionTanks, today, holidays, data.actualShipments), [settings, pallets, tanks, plans, actuals, productionTanks, today, holidays, data.actualShipments]);
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
-  async function saveSettings(next: Settings) {
-    await data.saveSettings(next);
-    setMessage("הנתונים נשמרו");
-  }
+  async function saveSettings(next: Settings) { await data.saveSettings(next); setMessage("הנתונים נשמרו"); }
 
   return (
     <section className="brew-planning" dir="rtl">
@@ -59,65 +49,12 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange }: {
       {data.offline && <p role="status">ממתין לחיבור לשרת לפני שמירה.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {!data.loading && !data.error && <>
-        {tab === "stock" && (
-          <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={workspace.effectivePlans} />
-        )}
-
-        {tab === "calendar" && (
-          <>
-            {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-            <PlanningWeeklyRecommendations
-              settings={settings}
-              plans={plans}
-              tanks={tanks}
-              sources={productionTanks}
-              pallets={pallets}
-              today={today}
-              workspace={workspace}
-              disabled={disabled}
-              saveWeek={data.saveWeek}
-              onOpenSchedule={() => onTabChange("schedule")}
-            />
-          </>
-        )}
-
-        {tab === "schedule" && (
-          <>
-            {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-            <PlanningWeekGantt settings={settings} plans={plans} tanks={tanks} workspace={workspace} today={today} />
-            <PlanningBoard
-              settings={settings}
-              plans={plans}
-              tanks={tanks}
-              brews={productionTanks}
-              pallets={pallets}
-              actuals={actuals}
-              shipments={data.actualShipments}
-              today={today}
-              holidays={holidays}
-              workspace={workspace}
-              disabled={disabled}
-              saveWeek={data.saveWeek}
-            />
-          </>
-        )}
-
-        {(tab === "data" || tab === "settings") && (
-          <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings} />
-        )}
-
-        {tab === "tanks" && (
-          <PlanningTanks tanks={tanks} sources={productionTanks} plans={workspace.effectivePlans} settings={settings} actuals={actuals} today={today} />
-        )}
-
-        {tab === "review" && <>
-          <details><summary>מי שומר את תמונות המצב?</summary>
-            <p>כל החלטה נשמרת כשלוחצים על שמירה. פונקציות Firebase נפרדות מצלמות את ההחלטות בימי שישי ובפתיחת השבוע, ורק לאחר התקנתן ופריסתן.</p>
-            <p>המלצות שלא אושרו משתתפות בתחזית בלוח, אך אינן החלטות שמורות בדוח הזה. אין אישור אוטומטי בשם המתכנן.</p>
-            <p>{data.snapshots.length ? "התקבלו תמונות מצב מהשרת." : "לא התקבלו תמונות מצב בטווח הנוכחי. יש לבדוק את התקנת הפונקציות; אין להסיק שהשמירה המתוזמנת פעילה."}</p>
-          </details>
-          <PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today} />
-        </>}
+        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={workspace.effectivePlans}/>} 
+        {tab === "calendar" && <>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}<PlanningWeeklyRecommendations settings={settings} plans={plans} tanks={tanks} sources={productionTanks} pallets={pallets} today={today} workspace={workspace} disabled={disabled} saveWeek={data.saveWeek}/></>}
+        {tab === "schedule" && <>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}<PlanningBoard settings={settings} plans={plans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} workspace={workspace} disabled={disabled} saveWeek={data.saveWeek}/></>}
+        {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
+        {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={workspace.effectivePlans} settings={settings} actuals={actuals} today={today}/>} 
+        {tab === "review" && <><details><summary>מי שומר את תמונות המצב?</summary><p>כל החלטה נשמרת כשלוחצים על שמירה. פונקציות Firebase נפרדות מצלמות את ההחלטות בימי שישי ובפתיחת השבוע, ורק לאחר התקנתן ופריסתן.</p><p>המלצות שלא אושרו משתתפות בתחזית בלוח, אך אינן החלטות שמורות בדוח הזה. אין אישור אוטומטי בשם המתכנן.</p><p>{data.snapshots.length ? "התקבלו תמונות מצב מהשרת." : "לא התקבלו תמונות מצב בטווח הנוכחי. יש לבדוק את התקנת הפונקציות; אין להסיק שהשמירה המתוזמנת פעילה."}</p></details><PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/></>}
       </>}
     </section>
   );
