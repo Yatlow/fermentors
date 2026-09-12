@@ -28,6 +28,27 @@ import { weekday } from "../../SERVICES/planning/productionCycle";
 type Kind = "delivery" | "packaging" | "brew";
 type BrewDraft = { style: string; liters: number };
 type ManualPackDraft = { id: string; tankId: string; productId: string; quantity: number };
+type PalletSelectionOption = {
+  selected: Pallet[];
+  total: number;
+  slots: number;
+  overage: number;
+  fefoScore: number;
+};
+type ShipmentSelectionState = {
+  selected: Pallet[];
+  details: Array<{
+    product: Product;
+    requested: number;
+    available: number;
+    selectedTotal: number;
+    missing: number;
+    overage: number;
+  }>;
+  slots: number;
+  fefoScore: number;
+  overage: number;
+};
 
 const fmt = (n: number) => Math.round(n).toLocaleString("he-IL");
 const palletSize = (p: Product) => (p.type === "crates" ? 84 : 20);
@@ -52,24 +73,126 @@ function expiryIso(value: string | null | undefined) {
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-function palletsForTarget(candidates: Pallet[], target: number) {
-  const wanted = Math.max(0, Math.round(target));
-  const ordered = [...candidates].sort((a, b) =>
-    String(expiryIso(a.expiryDateStr) ?? "9999").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999")) ||
+function palletQuantity(pallet: Pallet) {
+  return Math.max(0, Math.round(Number(pallet.quantity || 0)));
+}
+
+function compareFefo(a: Pallet, b: Pallet) {
+  return String(expiryIso(a.expiryDateStr) ?? "9999").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999")) ||
     String(a.batchNumber ?? "").localeCompare(String(b.batchNumber ?? "")) ||
-    Number(a.quantity || 0) - Number(b.quantity || 0) ||
-    a.id.localeCompare(b.id),
-  );
+    a.id.localeCompare(b.id);
+}
+
+function greedyPalletSelection(ordered: Pallet[], target: number) {
   const selected: Pallet[] = [];
   let total = 0;
   for (const pallet of ordered) {
-    if (total >= wanted) break;
-    const qty = Math.max(0, Math.round(Number(pallet.quantity || 0)));
+    if (total >= target) break;
+    const qty = palletQuantity(pallet);
     if (!qty) continue;
     selected.push(pallet);
     total += qty;
   }
-  return { selected, total, missing: Math.max(0, wanted - total) };
+  return { selected, total };
+}
+
+function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): PalletSelectionOption[] {
+  const requested = Math.max(0, Math.round(requestedTarget));
+  const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
+  const target = Math.min(requested, available);
+  if (!target) return [{ selected: [], total: 0, slots: 0, overage: 0, fefoScore: 0 }];
+
+  const fefo = [...candidates].filter((p) => palletQuantity(p) > 0).sort(compareFefo);
+  const fefoRank = new Map(fefo.map((pallet, index) => [pallet.id, index]));
+  const byExpiryPartialFirst = [...fefo].sort((a, b) => compareFefo(a, b) || palletQuantity(a) - palletQuantity(b));
+  const byExpiryFullFirst = [...fefo].sort((a, b) => {
+    const expiry = String(expiryIso(a.expiryDateStr) ?? "9999").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999"));
+    if (expiry) return expiry;
+    const batch = String(a.batchNumber ?? "").localeCompare(String(b.batchNumber ?? ""));
+    if (batch) return batch;
+    return palletQuantity(b) - palletQuantity(a) || a.id.localeCompare(b.id);
+  });
+  const compact = [...fefo].sort((a, b) => palletQuantity(b) - palletQuantity(a) || compareFefo(a, b));
+  const partialFirst = [...fefo].sort((a, b) => palletQuantity(a) - palletQuantity(b) || compareFefo(a, b));
+
+  const rawSelections: Pallet[][] = [];
+  const pushGreedy = (ordered: Pallet[]) => {
+    const { selected, total } = greedyPalletSelection(ordered, target);
+    if (total >= target) rawSelections.push(selected);
+  };
+
+  pushGreedy(byExpiryPartialFirst);
+  pushGreedy(byExpiryFullFirst);
+  pushGreedy(compact);
+  pushGreedy(partialFirst);
+
+  // Generate compact alternatives around the greedy solutions. This lets a fuller
+  // pallet replace one or two partial pallets when the FEFO-only choice would waste
+  // truck slots, while still keeping FEFO alternatives in the option pool.
+  for (const base of [...rawSelections]) {
+    const baseIds = new Set(base.map((p) => p.id));
+    const unselected = fefo.filter((p) => !baseIds.has(p.id));
+    const baseTotal = base.reduce((sum, p) => sum + palletQuantity(p), 0);
+
+    for (const add of unselected) {
+      for (let i = 0; i < base.length; i++) {
+        const total = baseTotal - palletQuantity(base[i]) + palletQuantity(add);
+        if (total >= target) {
+          rawSelections.push([...base.filter((_, index) => index !== i), add]);
+        }
+      }
+
+      for (let i = 0; i < base.length; i++) {
+        for (let j = i + 1; j < base.length; j++) {
+          const total = baseTotal - palletQuantity(base[i]) - palletQuantity(base[j]) + palletQuantity(add);
+          if (total >= target) {
+            rawSelections.push([...base.filter((_, index) => index !== i && index !== j), add]);
+          }
+        }
+      }
+    }
+  }
+
+  const uniqueOptions = new Map<string, PalletSelectionOption>();
+  for (const selected of rawSelections) {
+    const deduped = [...new Map(selected.map((p) => [p.id, p])).values()];
+    const total = deduped.reduce((sum, p) => sum + palletQuantity(p), 0);
+    if (total < target) continue;
+    let slots: number;
+    try { slots = calcTruckSlots(deduped); } catch { continue; }
+    const ids = deduped.map((p) => p.id).sort();
+    const key = ids.join("|");
+    const option: PalletSelectionOption = {
+      selected: deduped,
+      total,
+      slots,
+      overage: Math.max(0, total - target),
+      fefoScore: deduped.reduce((sum, p) => sum + (fefoRank.get(p.id) ?? fefo.length), 0),
+    };
+    const existing = uniqueOptions.get(key);
+    if (!existing || option.slots < existing.slots || (option.slots === existing.slots && option.fefoScore < existing.fefoScore)) {
+      uniqueOptions.set(key, option);
+    }
+  }
+
+  return [...uniqueOptions.values()]
+    .sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore || a.overage - b.overage || a.selected.length - b.selected.length)
+    .slice(0, 60);
+}
+
+function pruneShipmentStates(states: ShipmentSelectionState[]) {
+  const deduped = new Map<string, ShipmentSelectionState>();
+  for (const state of states) {
+    const key = state.selected.map((p) => p.id).sort().join("|");
+    const existing = deduped.get(key);
+    if (!existing || state.fefoScore < existing.fefoScore || (state.fefoScore === existing.fefoScore && state.slots < existing.slots)) {
+      deduped.set(key, state);
+    }
+  }
+  const all = [...deduped.values()];
+  const byCapacity = [...all].sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore || a.overage - b.overage).slice(0, 220);
+  const byFefo = [...all].sort((a, b) => a.fefoScore - b.fefoScore || a.overage - b.overage || a.slots - b.slots).slice(0, 220);
+  return [...new Map([...byCapacity, ...byFefo].map((state) => [state.selected.map((p) => p.id).sort().join("|"), state])).values()];
 }
 
 export default function PlanningWeeklyRecommendationsV2({
@@ -278,83 +401,129 @@ export default function PlanningWeeklyRecommendationsV2({
       return;
     }
 
-    const selected: Pallet[] = [];
-    const notes: string[] = [];
+    const shipmentLines = products
+      .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
+      .filter((line) => line.requested > 0)
+      .map((line) => {
+        const candidates = pallets.filter((pallet) =>
+          pallet.zone === "cooler" &&
+          pallet.itemType === line.product.type &&
+          sameStyle(pallet.beerStyle, line.product.style) &&
+          (!expiryIso(pallet.expiryDateStr) || expiryIso(pallet.expiryDateStr)! >= today),
+        );
+        const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
+        const options = palletSelectionOptions(candidates, line.requested);
+        console.log("[SHIPMENT MARK] product options", {
+          productId: line.product.id,
+          style: line.product.style,
+          type: line.product.type,
+          requestedQuantity: line.requested,
+          available,
+          candidateCount: candidates.length,
+          optionCount: options.length,
+          bestOptions: options.slice(0, 8).map((option) => ({
+            ids: option.selected.map((p) => p.id),
+            quantities: option.selected.map((p) => p.quantity),
+            total: option.total,
+            slots: option.slots,
+            overage: option.overage,
+            fefoScore: option.fefoScore,
+          })),
+        });
+        return { ...line, candidates, available, options };
+      });
 
-    for (const p of products) {
-      const quantity = currentShipmentQty(p.id);
-      if (!quantity) continue;
+    let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
 
-      const candidates = pallets.filter((x) =>
-        x.zone === "cooler" &&
-        x.itemType === p.type &&
-        sameStyle(x.beerStyle, p.style) &&
-        (!expiryIso(x.expiryDateStr) || expiryIso(x.expiryDateStr)! >= today),
-      );
+    for (const line of shipmentLines) {
+      if (!line.options.length) {
+        console.warn("[SHIPMENT MARK] no selection options", { productId: line.product.id, requested: line.requested, available: line.available });
+        return setMessage(`לא נמצאה קומבינציית משטחים עבור ${displayStyle(line.product.style)}.`);
+      }
 
-      console.log("[SHIPMENT MARK] product candidates", {
-        productId: p.id,
-        style: p.style,
-        type: p.type,
-        requestedQuantity: quantity,
-        candidates: candidates.map((x) => ({
-          id: x.id,
-          quantity: x.quantity,
-          beerStyle: x.beerStyle,
-          itemType: x.itemType,
-          batchNumber: x.batchNumber,
-          expiryDateStr: x.expiryDateStr,
-          markedForShipment: x.markedForShipment,
-          zone: x.zone,
+      const nextStates: ShipmentSelectionState[] = [];
+      for (const state of states) {
+        for (const option of line.options) {
+          const combined = [...state.selected, ...option.selected];
+          let slots: number;
+          try { slots = calcTruckSlots(combined); } catch { continue; }
+          if (slots > MAX_TRUCK_SLOTS) continue;
+          nextStates.push({
+            selected: combined,
+            details: [...state.details, {
+              product: line.product,
+              requested: line.requested,
+              available: line.available,
+              selectedTotal: option.total,
+              missing: Math.max(0, line.requested - line.available),
+              overage: Math.max(0, option.total - Math.min(line.requested, line.available)),
+            }],
+            slots,
+            fefoScore: state.fefoScore + option.fefoScore,
+            overage: state.overage + option.overage,
+          });
+        }
+      }
+
+      states = pruneShipmentStates(nextStates);
+      console.log("[SHIPMENT MARK] combined states", {
+        productId: line.product.id,
+        remainingStates: states.length,
+        bestByCapacity: states.slice().sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore).slice(0, 5).map((state) => ({
+          slots: state.slots,
+          palletCount: state.selected.length,
+          fefoScore: state.fefoScore,
+          overage: state.overage,
         })),
       });
 
-      const chosen = palletsForTarget(candidates, quantity);
-      console.log("[SHIPMENT MARK] product chosen", {
-        productId: p.id,
-        requestedQuantity: quantity,
-        selectedIds: chosen.selected.map((x) => x.id),
-        selectedQuantities: chosen.selected.map((x) => x.quantity),
-        total: chosen.total,
-        missing: chosen.missing,
-      });
-      selected.push(...chosen.selected);
-
-      if (chosen.missing > 0) {
-        notes.push(`${displayStyle(p.style)}: חסרים ${fmt(chosen.missing)} ${p.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
-      } else if (chosen.total > quantity) {
-        notes.push(`${displayStyle(p.style)}: נבחרו ${fmt(chosen.total)} עבור דרישה של ${fmt(quantity)} כי לא מפצלים משטח קיים`);
+      if (!states.length) {
+        console.warn("[SHIPMENT MARK] no truck-feasible state", { productId: line.product.id, maxSlots: MAX_TRUCK_SLOTS });
+        return setMessage(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
       }
     }
 
-    const palletIds = [...new Set(selected.map((p) => p.id))];
-    const selectedPallets = palletIds
-      .map((id) => selected.find((p) => p.id === id))
-      .filter((p): p is Pallet => !!p);
+    const best = [...states].sort((a, b) =>
+      a.fefoScore - b.fefoScore ||
+      a.overage - b.overage ||
+      a.slots - b.slots ||
+      a.selected.length - b.selected.length,
+    )[0];
 
-    console.log("[SHIPMENT MARK] selected physical pallets", {
-      palletIds,
-      selectedPallets: selectedPallets.map((p) => ({ id: p.id, quantity: p.quantity, style: p.beerStyle, type: p.itemType })),
-      notes,
+    if (!best || !best.selected.length) {
+      console.warn("[SHIPMENT MARK] aborted: no selected pallets", { shipmentLines });
+      return setMessage("לא נמצאו משטחים פיזיים מתאימים לסימון.");
+    }
+
+    const palletIds = [...new Set(best.selected.map((p) => p.id))];
+    const notes = best.details.flatMap((detail) => {
+      const result: string[] = [];
+      if (detail.missing > 0) {
+        result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
+      }
+      if (detail.overage > 0) {
+        result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
+      }
+      return result;
     });
 
-    if (!palletIds.length) {
-      console.warn("[SHIPMENT MARK] aborted: no pallet ids", { notes });
-      return setMessage(notes.length ? `לא נמצאו משטחים מתאימים לסימון. ${notes.join(" · ")}` : "לא נמצאו משטחים מתאימים לסימון.");
-    }
-
-    let slots = Infinity;
-    try {
-      slots = calcTruckSlots(selectedPallets);
-      console.log("[SHIPMENT MARK] truck slots", { slots, maxSlots: MAX_TRUCK_SLOTS });
-    } catch (e) {
-      console.error("[SHIPMENT MARK] calcTruckSlots failed", e);
-      return setMessage(e instanceof Error ? e.message : "לא ניתן לחשב את קיבולת המשאית עבור המשטחים שנבחרו");
-    }
-    if (!Number.isFinite(slots) || slots > MAX_TRUCK_SLOTS) {
-      console.warn("[SHIPMENT MARK] aborted: truck capacity", { slots, maxSlots: MAX_TRUCK_SLOTS });
-      return setMessage(`המשטחים הפיזיים שנבחרו תופסים ${Number.isFinite(slots) ? slots : "יותר מדי"}/${MAX_TRUCK_SLOTS} מקומות במשאית; לא בוצע סימון.`);
-    }
+    console.log("[SHIPMENT MARK] selected truck-feasible pallets", {
+      palletIds,
+      slots: best.slots,
+      palletCount: best.selected.length,
+      fefoScore: best.fefoScore,
+      overage: best.overage,
+      pallets: best.selected.map((p) => ({
+        id: p.id,
+        quantity: p.quantity,
+        style: p.beerStyle,
+        type: p.itemType,
+        batchNumber: p.batchNumber,
+        expiryDateStr: p.expiryDateStr,
+      })),
+      details: best.details,
+      notes,
+    });
 
     setBusy(true); setMessage("");
     try {
@@ -366,9 +535,8 @@ export default function PlanningWeeklyRecommendationsV2({
       }));
       console.log("[SHIPMENT MARK] firebase writes complete", { palletIds });
       setMessage(
-        `סומנו ${palletIds.length} משטחים פיזיים למשלוח (${slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`,
+        `סומנו ${palletIds.length} משטחים פיזיים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`,
       );
-      console.log("[SHIPMENT MARK] opening cooler map");
       onOpenCoolerMap?.();
     } catch (e) {
       console.error("[SHIPMENT MARK] firebase write failed", e);
@@ -548,7 +716,7 @@ export default function PlanningWeeklyRecommendationsV2({
           })}
         </div>
         {!model.shipmentCanFillTruck && model.shipmentSlots > 0 && <p className="bp-alert">אין כרגע מספיק מלאי רגיל צפוי כדי להרכיב המלצה של משאית מלאה. עדיין אפשר לשמור החלטה חלקית ידנית.</p>}
-        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>בוחר משטחים פיזיים קיימים במקרר לפי FEFO/FIFO עד לכיסוי הכמות. משטח חלקי הוא מועמד תקין; קיבולת המשאית מחושבת לפי המשטחים שנבחרו בפועל דרך Palletservice.</small></div>}
+        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>בוחר קומבינציית משטחים פיזיים שנכנסת בפועל ב־12 מקומות, תוך העדפת FEFO/FIFO ומשטחים חלקיים כשאפשר. קיבולת המשאית מחושבת דרך Palletservice.</small></div>}
         <div className="bp-actions">{editing === "delivery" ? <><button disabled={busy} onClick={saveShipment}>שמירת החלטת המשלוח</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button className={(current.deliveries ?? []).length ? "bp-action-warning" : ""} disabled={disabled || busy || !model.shipmentCanFillTruck} onClick={acceptShipmentRecommendation}>{(current.deliveries ?? []).length ? "⚠️ החלף החלטה קיימת בהמלצה" : "צור החלטה מהמלצת 12/12"}</button><button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button></>}</div>
       </article>
 
