@@ -17,7 +17,12 @@ import {
   type Tank,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { actualDate, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import {
+  actualDate,
+  openRuns,
+  shortDate,
+  type ShipmentEvent,
+} from "../../SERVICES/planning/dailyPlanner";
 import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
 import { tankReleases, weekday } from "../../SERVICES/planning/productionCycle";
 import {
@@ -64,12 +69,19 @@ const palletSize = (p: { type: "crates" | "kegs" }) => (p.type === "crates" ? 84
 const plannerDefaultWeek = (today: string) =>
   weekday(today) >= 5 ? addDays(weekStart(today), 7) : weekStart(today);
 
-function gapSeverity(recommended: number, decided: number): GapSeverity {
-  if (!recommended && !decided) return "none";
-  if (!recommended) return decided > 0 ? "warning" : "none";
-  const ratio = Math.abs(decided - recommended) / recommended;
-  if (decided === 0 || ratio >= 0.5) return "critical";
-  if (ratio >= 0.2) return "warning";
+function decisionGap(
+  recommended: number,
+  decided: number,
+  afterCover: number | null,
+  targetCover: number,
+): GapSeverity {
+  // A different decision is not a problem by itself. If the resulting cover is
+  // already at/above target, there is no operational gap to warn about.
+  if (afterCover !== null && afterCover >= targetCover) return "none";
+  if (recommended <= 0 || decided >= recommended) return "none";
+  const shortfall = (recommended - decided) / recommended;
+  if (decided === 0 || shortfall >= 0.5) return "critical";
+  if (shortfall >= 0.2) return "warning";
   return "none";
 }
 
@@ -116,10 +128,9 @@ export default function PlanningWeeklyRecommendations({
   const coreProducts = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const weekHolidays = holidays.filter((h) => h.date >= week && h.date <= weekEnd);
 
-  // Build a stable recommendation for this week with THIS week's decisions removed.
-  // Prior-week decisions stay in place, so the comparison is always "what would the
-  // system recommend now" vs "what did I decide", even after saving or zeroing a plan.
-  const baselineWorkspace = useMemo(() => {
+  // Shipment recommendation: remove this week's own decisions so the planner can
+  // always compare the saved decision with a stable independent recommendation.
+  const shipmentBaselineWorkspace = useMemo(() => {
     const baselinePlans = plans.map((w) =>
       w.id === week
         ? {
@@ -145,26 +156,84 @@ export default function PlanningWeeklyRecommendations({
     );
   }, [plans, week, settings, pallets, tanks, actuals, sources, today, holidays, shipments]);
 
-  const baselineActions = useMemo(
-    () => baselineWorkspace.actions.filter((a) => weekStart(a.date) === week),
-    [baselineWorkspace.actions, week],
+  // Production recommendation: preserve the shipment decision for this week, but
+  // remove packaging/brew decisions. A shipment therefore CAN increase the amount
+  // we recommend producing, while an unaccepted packaging recommendation cannot.
+  const productionBaselineWorkspace = useMemo(() => {
+    const baselinePlans = plans.map((w) =>
+      w.id === week
+        ? {
+            ...structuredClone(w),
+            packaging: [],
+            brews: [],
+            dismissedRecommendations: [],
+          }
+        : w,
+    );
+    return planningWorkspace(
+      recommendationSettings(settings),
+      pallets,
+      tanks,
+      baselinePlans,
+      actuals,
+      sources,
+      today,
+      holidays,
+      shipments,
+    );
+  }, [plans, week, settings, pallets, tanks, actuals, sources, today, holidays, shipments]);
+
+  const shipmentActions = useMemo(
+    () => shipmentBaselineWorkspace.actions.filter((a) => weekStart(a.date) === week),
+    [shipmentBaselineWorkspace.actions, week],
   );
-  const ship = baselineActions.filter((a) => a.kind === "delivery") as DeliveryAction[];
-  const enginePack = baselineActions.filter((a) => a.kind === "packaging") as PackagingAction[];
-  const engineBrew = baselineActions.filter((a) => a.kind === "brew") as BrewAction[];
+  const productionActions = useMemo(
+    () => productionBaselineWorkspace.actions.filter((a) => weekStart(a.date) === week),
+    [productionBaselineWorkspace.actions, week],
+  );
+  const ship = shipmentActions.filter((a) => a.kind === "delivery") as DeliveryAction[];
+  const enginePack = productionActions.filter((a) => a.kind === "packaging") as PackagingAction[];
+  const engineBrew = productionActions.filter((a) => a.kind === "brew") as BrewAction[];
 
   const pointAt = (ws: Workspace, productId: string) =>
     ws.committedForecast.points
       .filter((p) => p.productId === productId && p.date <= weekEnd)
       .sort((a, b) => b.date.localeCompare(a.date))[0];
-  const coverAt = (ws: Workspace, productId: string) => {
+
+  const tempoCoverAt = (ws: Workspace, productId: string) => {
+    const p = product(productId);
+    const point = pointAt(ws, productId);
+    if (!p || !point || weeklyDemand(p) <= 0 || point.tempo === null) return null;
+    return point.tempo / weeklyDemand(p);
+  };
+  const totalCoverAt = (ws: Workspace, productId: string) => {
     const p = product(productId);
     const point = pointAt(ws, productId);
     if (!p || !point || weeklyDemand(p) <= 0 || point.tempo === null) return null;
     return (point.tempo + point.brewery) / weeklyDemand(p);
   };
-  const baselineCover = (id: string) => coverAt(baselineWorkspace, id);
-  const decidedCover = (id: string) => coverAt(workspace, id);
+  const shipmentBaselineCover = (id: string) => tempoCoverAt(shipmentBaselineWorkspace, id);
+  const shipmentDecidedCover = (id: string) => tempoCoverAt(workspace, id);
+  const productionBaselineCover = (id: string) => totalCoverAt(productionBaselineWorkspace, id);
+  const productionDecidedCover = (id: string) => totalCoverAt(workspace, id);
+
+  // An already planned-but-not-yet-executed run from an earlier week must reduce
+  // the usable liters in that tank. Completed actuals are already subtracted by
+  // tanksFrom(), so openRuns prevents both double-counting and resurrecting an
+  // already emptied tank in a later week's recommendation.
+  const openBeforeWeek = useMemo(
+    () => openRuns(plans, settings.products, actuals).filter((r) => r.week < week && r.remaining > 0),
+    [plans, settings.products, actuals, week],
+  );
+  const committedRemainingLiters = (tank: Tank) => {
+    const reserved = openBeforeWeek
+      .filter((r) => r.tankId === tank.id)
+      .reduce((sum, r) => {
+        const p = product(r.productId);
+        return sum + (p ? r.remaining * litersPerUnit(p) : 0);
+      }, 0);
+    return Math.max(0, tank.liters - reserved);
+  };
 
   const availableReleases = useMemo(() => {
     const pool = tankReleases(sources, tanks, plans, settings, actuals, today)
@@ -237,10 +306,7 @@ export default function PlanningWeeklyRecommendations({
     if (!p)
       return { physicalPallets: 0, physicalQty: 0, plannedPallets: 0, plannedQty: 0 };
     const physical = pallets.filter(
-      (x) =>
-        x.zone !== "shipped" &&
-        x.itemType === p.type &&
-        sameStyle(x.beerStyle, p.style),
+      (x) => x.zone !== "shipped" && x.itemType === p.type && sameStyle(x.beerStyle, p.style),
     );
     const plannedQty = plans
       .filter((w) => w.id <= week)
@@ -250,18 +316,14 @@ export default function PlanningWeeklyRecommendations({
     return {
       physicalPallets: physical.length,
       physicalQty: physical.reduce((sum, x) => sum + x.quantity, 0),
-      plannedPallets: plannedQty
-        ? projectedPallets(p, plannedQty, `week:${week}`).length
-        : 0,
+      plannedPallets: plannedQty ? projectedPallets(p, plannedQty, `week:${week}`).length : 0,
       plannedQty,
     };
   };
 
   const slotsFor = (p: (typeof coreProducts)[number], quantity: number) => {
     try {
-      const manifest = projectedPallets(p, quantity, `slots:${week}:${p.id}`).map(
-        (x) => x.pallet,
-      );
+      const manifest = projectedPallets(p, quantity, `slots:${week}:${p.id}`).map((x) => x.pallet);
       return manifest.length ? calcTruckSlots(manifest) : 0;
     } catch {
       return 0;
@@ -269,19 +331,13 @@ export default function PlanningWeeklyRecommendations({
   };
 
   const shipmentRows = coreProducts.map((p) => {
-    const recommendedQty = ship
-      .filter((a) => a.productId === p.id)
-      .reduce((s, a) => s + a.quantity, 0);
-    const decidedQty = (current.deliveries ?? [])
-      .filter((d) => d.productId === p.id)
-      .reduce((s, d) => s + d.quantity, 0);
-    const recPallets = recommendedQty
-      ? projectedPallets(p, recommendedQty, `rec:${week}:${p.id}`).length
-      : 0;
+    const recommendedQty = ship.filter((a) => a.productId === p.id).reduce((s, a) => s + a.quantity, 0);
+    const decidedQty = (current.deliveries ?? []).filter((d) => d.productId === p.id).reduce((s, d) => s + d.quantity, 0);
+    const recPallets = recommendedQty ? projectedPallets(p, recommendedQty, `rec:${week}:${p.id}`).length : 0;
     const decidedPallets = decidedQty ? Math.ceil(decidedQty / palletSize(p)) : 0;
-    const gap = gapSeverity(recPallets, decidedPallets);
-    const before = baselineCover(p.id);
-    const after = decidedCover(p.id);
+    const before = shipmentBaselineCover(p.id);
+    const after = shipmentDecidedCover(p.id);
+    const gap = decisionGap(recPallets, decidedPallets, after, settings.targetWeeks);
     return {
       p,
       recommendedQty,
@@ -304,9 +360,6 @@ export default function PlanningWeeklyRecommendations({
     };
   });
 
-  // Weekly packaging recommendation is generated independently from the saved
-  // decision. Crates can empty a tank in one weekly run even above 252. Keg runs
-  // from multiple tanks of the same style share a day up to 150 kegs.
   const pack = useMemo(() => {
     const target = settings.totalTargetWeeks ?? settings.targetWeeks;
     type Candidate = PackagingAction & { cover: number; type: "crates" | "kegs"; style: string };
@@ -318,8 +371,9 @@ export default function PlanningWeeklyRecommendations({
       cover: number,
       source?: PackagingAction,
     ) => {
-      if (cover >= target || tank.ready > weekEnd) return;
-      const quantity = Math.floor((tank.liters + 1e-8) / litersPerUnit(p));
+      const usableLiters = committedRemainingLiters(tank);
+      if (cover >= target || tank.ready > weekEnd || usableLiters < 20) return;
+      const quantity = Math.floor((usableLiters + 1e-8) / litersPerUnit(p));
       if (quantity <= 0) return;
       const key = `${tank.id}:${p.id}`;
       candidateMap.set(key, {
@@ -333,12 +387,12 @@ export default function PlanningWeeklyRecommendations({
           {
             tankId: tank.id,
             number: String(tank.number),
-            liters: tank.liters,
+            liters: usableLiters,
             ready: tank.ready,
             cold: tank.cold,
           },
         ],
-        reason: `כיסוי צפוי ${cover.toFixed(1)} שבועות; מומלץ לרוקן את מיכל ${tank.number}`,
+        reason: `כיסוי כולל צפוי ${cover.toFixed(1)} שבועות; מומלץ לרוקן את מיכל ${tank.number}`,
         cover,
         type: p.type,
         style: displayStyle(p.style),
@@ -349,13 +403,13 @@ export default function PlanningWeeklyRecommendations({
       const p = product(a.productId);
       const tankId = a.allocations[0]?.tankId;
       const tank = tanks.find((t) => t.id === tankId);
-      const cover = p ? baselineCover(p.id) : null;
+      const cover = p ? productionBaselineCover(p.id) : null;
       if (p && tank && cover !== null) addCandidate(p, tank, cover, a);
     }
     for (const tank of tanks) {
-      if (tank.ready > weekEnd) continue;
+      if (tank.ready > weekEnd || committedRemainingLiters(tank) < 20) continue;
       for (const p of coreProducts.filter((p) => sameStyle(p.style, tank.style))) {
-        const cover = baselineCover(p.id);
+        const cover = productionBaselineCover(p.id);
         if (cover !== null) addCandidate(p, tank, cover);
       }
     }
@@ -363,7 +417,7 @@ export default function PlanningWeeklyRecommendations({
     const selected: Candidate[] = [];
     const usedTankIds = new Set<string>();
     const virtualCover = new Map<string, number>(
-      coreProducts.map((p) => [p.id, baselineCover(p.id) ?? Infinity]),
+      coreProducts.map((p) => [p.id, productionBaselineCover(p.id) ?? Infinity]),
     );
 
     const daysNeeded = (items: Candidate[]) => {
@@ -371,10 +425,7 @@ export default function PlanningWeeklyRecommendations({
       const kegByStyle = new Map<string, number>();
       for (const item of items.filter((x) => x.type === "kegs"))
         kegByStyle.set(item.style, (kegByStyle.get(item.style) ?? 0) + item.quantity);
-      const kegDays = [...kegByStyle.values()].reduce(
-        (sum, qty) => sum + Math.ceil(qty / 150),
-        0,
-      );
+      const kegDays = [...kegByStyle.values()].reduce((sum, qty) => sum + Math.ceil(qty / 150), 0);
       return crateDays + kegDays;
     };
 
@@ -393,13 +444,19 @@ export default function PlanningWeeklyRecommendations({
       usedTankIds.add(next.allocations[0].tankId);
       const p = product(next.productId);
       if (p && weeklyDemand(p) > 0)
-        virtualCover.set(
-          p.id,
-          (virtualCover.get(p.id) ?? 0) + next.quantity / weeklyDemand(p),
-        );
+        virtualCover.set(p.id, (virtualCover.get(p.id) ?? 0) + next.quantity / weeklyDemand(p));
     }
     return selected;
-  }, [enginePack, coreProducts, tanks, week, weekEnd, settings, baselineWorkspace.committedForecast]);
+  }, [
+    enginePack,
+    coreProducts,
+    tanks,
+    week,
+    weekEnd,
+    settings,
+    productionBaselineWorkspace.committedForecast,
+    openBeforeWeek,
+  ]);
 
   const recommendedPackagingDays = useMemo(() => {
     const crateDays = pack.filter((a) => product(a.productId)?.type === "crates").length;
@@ -410,10 +467,7 @@ export default function PlanningWeeklyRecommendations({
       const style = displayStyle(p.style);
       kegByStyle.set(style, (kegByStyle.get(style) ?? 0) + a.quantity);
     }
-    return (
-      crateDays +
-      [...kegByStyle.values()].reduce((sum, qty) => sum + Math.ceil(qty / 150), 0)
-    );
+    return crateDays + [...kegByStyle.values()].reduce((sum, qty) => sum + Math.ceil(qty / 150), 0);
   }, [pack]);
 
   const packagingRows = coreProducts
@@ -422,8 +476,9 @@ export default function PlanningWeeklyRecommendations({
       const saved = current.packaging.filter((x) => x.productId === p.id);
       const recommendedQty = rec.reduce((s, a) => s + a.quantity, 0);
       const decidedQty = saved.reduce((s, a) => s + a.quantity, 0);
-      const before = baselineCover(p.id);
-      const after = decidedCover(p.id);
+      const before = productionBaselineCover(p.id);
+      const after = productionDecidedCover(p.id);
+      const target = settings.totalTargetWeeks ?? settings.targetWeeks;
       return {
         p,
         rec,
@@ -432,13 +487,11 @@ export default function PlanningWeeklyRecommendations({
         after,
         recommendedQty,
         decidedQty,
-        gap: gapSeverity(recommendedQty, decidedQty),
+        gap: decisionGap(recommendedQty, decidedQty, after, target),
         tankText: [
           ...new Set(
             [
-              ...saved.map(
-                (x) => tanks.find((t) => t.id === x.tankId)?.number ?? x.tankNumber,
-              ),
+              ...saved.map((x) => tanks.find((t) => t.id === x.tankId)?.number ?? x.tankNumber),
               ...rec.flatMap((x) => x.allocations.map((a) => a.number)),
             ].filter(Boolean),
           ),
@@ -448,7 +501,7 @@ export default function PlanningWeeklyRecommendations({
             ? "neutral"
             : after < 1
               ? "critical"
-              : after < (settings.totalTargetWeeks ?? settings.targetWeeks)
+              : after < target
                 ? "warning"
                 : "ok",
       };
@@ -466,7 +519,7 @@ export default function PlanningWeeklyRecommendations({
     const styleRows = CORE_STYLES.map((style) => {
       const ps = coreProducts.filter((p) => sameStyle(p.style, style));
       const covers = ps
-        .map((p) => baselineCover(p.id))
+        .map((p) => productionBaselineCover(p.id))
         .filter((v): v is number => v !== null);
       return { style, cover: covers.length ? Math.min(...covers) : Infinity };
     }).sort((a, b) => a.cover - b.cover);
@@ -485,13 +538,21 @@ export default function PlanningWeeklyRecommendations({
         tankId: "",
         liters,
         reason: Number.isFinite(row.cover)
-          ? `הכיסוי הצפוי הוא מהנמוכים ביותר (${row.cover.toFixed(1)} שבועות)`
+          ? `הכיסוי הכולל הצפוי הוא מהנמוכים ביותר (${row.cover.toFixed(1)} שבועות)`
           : "יש קיבולת בישול פנויה השבוע",
       } as BrewAction);
       usedStyles.add(displayStyle(row.style));
     }
     return result;
-  }, [engineBrew, availableTankCount, current.brews, coreProducts, availableReleases, week, baselineWorkspace.committedForecast]);
+  }, [
+    engineBrew,
+    availableTankCount,
+    current.brews,
+    coreProducts,
+    availableReleases,
+    week,
+    productionBaselineWorkspace.committedForecast,
+  ]);
 
   const recommendedTruckSlots = useMemo(() => {
     const manifest = ship.flatMap((a) => a.pallets ?? []);
@@ -565,8 +626,7 @@ export default function PlanningWeeklyRecommendations({
       if (kind === "delivery") {
         if (draftTruckSlots(draftQty) > MAX_TRUCK_SLOTS)
           throw new Error(`המשלוח חורג מ־${MAX_TRUCK_SLOTS} מקומות במשאית`);
-        const date =
-          current.deliveries?.[0]?.dispatchDate ?? ship[0]?.date ?? addDays(week, 1);
+        const date = current.deliveries?.[0]?.dispatchDate ?? ship[0]?.date ?? addDays(week, 1);
         const deliveries: DeliveryPlan[] = [];
         for (const p of coreProducts) {
           const quantity = Math.max(0, Number(draftQty[`ship:${p.id}`] ?? 0));
@@ -598,7 +658,7 @@ export default function PlanningWeeklyRecommendations({
           const added = next.packaging[next.packaging.length - 1];
           const t = tanks.find((x) => x.id === added.tankId);
           const p = product(added.productId);
-          if (t && p && t.liters - added.quantity * litersPerUnit(p) < 20)
+          if (t && p && committedRemainingLiters(t) - added.quantity * litersPerUnit(p) < 20)
             added.emptyTank = true;
         }
       } else {
@@ -649,7 +709,7 @@ export default function PlanningWeeklyRecommendations({
           const added = next.packaging[next.packaging.length - 1];
           const t = tanks.find((x) => x.id === added.tankId);
           const p = product(added.productId);
-          if (t && p && t.liters - added.quantity * litersPerUnit(p) < 20)
+          if (t && p && committedRemainingLiters(t) - added.quantity * litersPerUnit(p) < 20)
             added.emptyTank = true;
         }
       } else {
@@ -700,7 +760,7 @@ export default function PlanningWeeklyRecommendations({
         <div>
           <h2>המלצות שבועיות</h2>
           <p className="bp-muted">
-            ההמלצה נשארת יציבה גם אחרי החלטה, כדי שאפשר יהיה להשוות בין מה שהמערכת הציעה למה שנקבע.
+            ההמלצה נשארת להשוואה מול ההחלטה. רק פער שמשאיר את הכיסוי מתחת ליעד מסומן כאזהרה.
           </p>
         </div>
       </div>
@@ -725,8 +785,7 @@ export default function PlanningWeeklyRecommendations({
           <b>חגים / מגבלות השבוע</b>
           {weekHolidays.map((h) => (
             <span key={`${h.date}:${h.title}`}>
-              {shortDate(h.date)} · {h.title}
-              {h.closed ? " · סגור" : ""}
+              {shortDate(h.date)} · {h.title}{h.closed ? " · סגור" : ""}
             </span>
           ))}
         </div>
@@ -734,23 +793,18 @@ export default function PlanningWeeklyRecommendations({
       {warnings.length > 0 && (
         <div className="bp-week-alerts">
           <b>אזהרות לתוכנית</b>
-          {warnings.map((w) => (
-            <span key={w}>⚠ {w}</span>
-          ))}
+          {warnings.map((w) => <span key={w}>⚠ {w}</span>)}
         </div>
       )}
 
       <div className="bp-week-recommendations">
         <article className="bp-week-rec-card bp-week-shipment-card">
           <header>
-            <div>
-              <small>1 · משלוח</small>
-              <h3>מה לשלוח השבוע</h3>
-            </div>
+            <div><small>1 · משלוח</small><h3>מה לשלוח השבוע</h3></div>
             <b>{recommendedTruckSlots}/{MAX_TRUCK_SLOTS} מקומות בהמלצה</b>
           </header>
           <p className="bp-rec-principle">
-            ההמלצה מחושבת כאילו טרם החלטת השבוע. הכיסוי אחרי ההחלטה מוצג לצד הכיסוי שלפניה.
+            כאן הכיסוי הוא כיסוי טמפו צפוי לסוף השבוע בלבד. מלאי המבשלה הוא מקור למשלוח ולכן אינו נספר בתוך כיסוי טמפו.
           </p>
           <div className="bp-shipment-plan-table">
             <div className="bp-shipment-plan-head">
@@ -760,7 +814,7 @@ export default function PlanningWeeklyRecommendations({
               <div className={`bp-shipment-plan-row is-${r.severity} gap-${r.gap}`} key={r.p.id}>
                 <span>
                   <b>{displayStyle(r.p.style)}</b>
-                  <small>{r.p.type === "crates" ? "ארגזים" : "חביות"} · כיסוי {coverText(r.before, r.after)}</small>
+                  <small>{r.p.type === "crates" ? "ארגזים" : "חביות"} · כיסוי טמפו סוף שבוע {coverText(r.before, r.after)}</small>
                 </span>
                 <span>{r.recPallets} מש׳<small>{r.recSlots} מק׳ במשאית</small></span>
                 <span>
@@ -772,7 +826,14 @@ export default function PlanningWeeklyRecommendations({
                       <small>משטחים</small>
                     </div>
                   ) : (
-                    <>{r.decidedPallets} מש׳{r.gap !== "none" && <small className={`bp-gap bp-gap-${r.gap}`}>פער {r.decidedPallets - r.recPallets > 0 ? "+" : ""}{r.decidedPallets - r.recPallets}</small>}</>
+                    <>
+                      {r.decidedPallets} מש׳
+                      {r.gap !== "none" && (
+                        <small className={`bp-gap bp-gap-${r.gap}`}>
+                          חסרים {r.recPallets - r.decidedPallets} מש׳ לעומת ההמלצה והכיסוי עדיין מתחת ליעד
+                        </small>
+                      )}
+                    </>
                   )}
                 </span>
                 <span>{r.availability.physicalPallets} מש׳<small>פיזי · ועוד {r.availability.plannedPallets} מש׳ מתכנון</small></span>
@@ -801,16 +862,23 @@ export default function PlanningWeeklyRecommendations({
             <b>{pack.length} המלצות · {recommendedPackagingDays}/{maxPackagingRuns} ימי אריזה בהמלצה</b>
           </header>
           <p className="bp-rec-principle">
-            חביות מאותו סגנון יכולות להתאחד באותו יום עד 150 חביות. ארגזים מחושבים לפי נפח המיכל המלא — לא נעצרים ב־252.
+            כאן הכיסוי הוא כיסוי כולל צפוי לסוף השבוע. החלטת משלוח של השבוע כבר משתתפת בחישוב האריזה, אבל המלצת אריזה שלא אושרה לא משתתפת.
           </p>
           <div className="bp-shipment-plan-table">
-            <div className="bp-shipment-plan-head"><span>מקט</span><span>כיסוי</span><span>מומלץ</span><span>נקבע</span></div>
+            <div className="bp-shipment-plan-head"><span>מקט</span><span>כיסוי כולל</span><span>מומלץ</span><span>נקבע</span></div>
             {packagingRows.map((r) => (
               <div className={`bp-shipment-plan-row is-${r.severity} gap-${r.gap}`} key={r.p.id}>
                 <span><b>{displayStyle(r.p.style)}</b><small>{r.p.type === "crates" ? "ארגזים" : "חביות"}{r.tankText ? ` · מיכל ${r.tankText}` : ""}</small></span>
                 <span>{coverText(r.before, r.after)}</span>
                 <span>{fmt(r.recommendedQty)}</span>
-                <span>{fmt(r.decidedQty)}{r.gap !== "none" && <small className={`bp-gap bp-gap-${r.gap}`}>פער {r.decidedQty - r.recommendedQty > 0 ? "+" : ""}{fmt(r.decidedQty - r.recommendedQty)}</small>}</span>
+                <span>
+                  {fmt(r.decidedQty)}
+                  {r.gap !== "none" && (
+                    <small className={`bp-gap bp-gap-${r.gap}`}>
+                      חסרים {fmt(r.recommendedQty - r.decidedQty)} לעומת ההמלצה והכיסוי עדיין מתחת ליעד
+                    </small>
+                  )}
+                </span>
               </div>
             ))}
           </div>
