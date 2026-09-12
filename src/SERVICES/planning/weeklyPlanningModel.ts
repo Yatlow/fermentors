@@ -64,15 +64,16 @@ export type WeeklyPlanningModel = {
   packagingCapacity: number;
   brewRecommendations: WeeklyBrewRecommendation[];
   availableBrewTanks: number;
+  tankAvailableLiters: Map<string, number>;
 };
 
 function forecastSettings(settings: Settings, today: string): Settings {
-  // The last Tempo count is the planner's current anchor. Do not back-calculate
-  // sales between that measurement and today; forecast sales only from today onward.
   return {
     ...settings,
     products: settings.products.map((p) => ({
       ...p,
+      // The planner's Tempo count is the current anchor. Forecast consumption
+      // only from today onward; never invent sales between count date and today.
       tempoDate: p.tempo === null ? p.tempoDate : today,
     })),
   };
@@ -222,7 +223,10 @@ function buildPackagingRecommendation(
     for (const p of products.filter((p) => sameStyle(p.style, tank.style))) {
       const state = rows.get(p.id);
       if (!state || state.totalCover === null || state.totalCover >= target) continue;
-      const quantity = Math.floor((liters + 1e-8) / litersPerUnit(p));
+      const fullQuantity = Math.floor((liters + 1e-8) / litersPerUnit(p));
+      // Recommendation is an operational run. Never recommend >252 crates for
+      // one run; the planner may deliberately override this in the editor.
+      const quantity = p.type === "crates" ? Math.min(252, fullQuantity) : fullQuantity;
       if (quantity <= 0) continue;
       candidates.push({
         id: `weekly-pack:${week}:${tank.id}:${p.id}`,
@@ -336,6 +340,10 @@ export function buildWeeklyPlanningModel(args: {
   const shipment = buildShipmentRecommendation(normalized, rows.base);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, week, weekEnd);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, plans, actuals, sources, today, week, weekEnd);
+  const coreProducts = normalized.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
+  const tankAvailableLiters = new Map(
+    tanks.map((t) => [t.id, remainingTankLiters(t, plans, coreProducts, actuals, week)] as const),
+  );
 
   return {
     week,
@@ -350,5 +358,6 @@ export function buildWeeklyPlanningModel(args: {
     packagingCapacity: packaging.capacity,
     brewRecommendations: brew.recommendations,
     availableBrewTanks: brew.capacity,
+    tankAvailableLiters,
   };
 }
