@@ -1,0 +1,70 @@
+.brew-planning .bp-stock-freshness{display:block;font-style:normal;font-size:.64rem;line-height:1.2;color:#64748b}
+.brew-planning .bp-stock-freshness.is-stale-warning{color:#c2410c;font-weight:800}
+.brew-planning .bp-stock-freshness.is-stale-critical{color:#b91c1c;font-weight:800}
+.brew-planning .bp-stock-freshness.is-fresh{color:#64748b}
+
+.brew-planning .bp-data-grid-open{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.brew-planning .bp-data-grid-open .bp-data-card{grid-column:auto!important;padding:5px}
+.brew-planning .bp-data-grid-open .bp-data-style{margin:0 0 5px;padding:5px!important;border-radius:7px;text-align:center;font-size:.86rem}
+.brew-planning .bp-data-grid-open .bp-formats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.brew-planning .bp-data-grid-open .bp-formats>div+div{border-inline-start:1px solid #e2e8f0;padding-inline-start:4px}
+.brew-planning .bp-data-grid-open h4{font-size:.67rem;margin:1px 0 3px}
+.brew-planning .bp-data-grid-open label{font-size:.64rem}
+.brew-planning .bp-data-grid-open input:not([type=checkbox]){min-height:29px;padding:3px;font-size:.76rem}
+.brew-planning .bp-data-grid-open small{font-size:.58rem;line-height:1.25}
+.brew-planning .bp-data-grid-open button{min-height:28px;padding:3px 4px;font-size:.6rem}
+
+.brew-planning .bp-shipment-plan-table{display:grid;gap:3px}
+.brew-planning .bp-shipment-plan-head,.brew-planning .bp-shipment-plan-row{display:grid;grid-template-columns:minmax(95px,1.2fr) repeat(3,minmax(76px,1fr));gap:4px;align-items:center;padding:6px;border-radius:8px}
+.brew-planning .bp-shipment-plan-head{background:#e2e8f0;font-size:.7rem;font-weight:800}
+.brew-planning .bp-shipment-plan-row{background:#f8fafc;border-inline-start:4px solid #94a3b8;font-size:.74rem}
+.brew-planning .bp-shipment-plan-row.is-critical{background:#fef2f2;border-inline-start-color:#dc2626}
+.brew-planning .bp-shipment-plan-row.is-warning{background:#fff7ed;border-inline-start-color:#f97316}
+.brew-planning .bp-shipment-plan-row.is-ok{background:#f0fdf4;border-inline-start-color:#22c55e}
+.brew-planning .bp-shipment-plan-row span{min-width:0;overflow-wrap:anywhere}
+.brew-planning .bp-shipment-plan-row small{font-size:.61rem;color:#64748b}
+.brew-planning .bp-shipment-plan-row input{min-height:32px!important;margin:0!important;padding:3px!important}
+.brew-planning .bp-decided-list{display:grid;gap:5px;padding:7px;border:1px solid #e2e8f0;border-radius:9px;background:#fff}
+.brew-planning .bp-brew-edit-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:5px}
+
+.brew-planning .bp-daily-sets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
+.brew-planning .bp-daily-set{padding:8px;border:1px solid #dbe2ea;border-radius:10px;background:#fff;display:grid;gap:6px}
+.brew-planning .bp-daily-set h3{margin:0;padding-bottom:5px;border-bottom:1px solid #e2e8f0}
+.brew-planning .bp-daily-set>div{display:grid;gap:2px;font-size:.76rem}
+.brew-planning .bp-daily-set>div>b{font-size:.68rem;color:#64748b}
+.brew-planning .bp-daily-set.is-delivery{border-top:4px solid #22c55e}
+.brew-planning .bp-daily-set.is-packaging{border-top:4px solid #3b82f6}
+.brew-planning .bp-daily-set.is-brew{border-top:4px solid #a855f7}
+.brew-planning .bp-gantt-day-button,.brew-planning .bp-gantt-cell-button{border:0;border-radius:0;margin:0;min-height:0;background:inherit;color:inherit;text-align:start}
+.brew-planning .bp-gantt-day-button:hover,.brew-planning .bp-gantt-cell-button:hover{background:#f8fafc}
+.brew-planning .bp-gantt-empty{display:grid;place-items:center;color:#cbd5e1;font-size:1.2rem;min-height:28px}
+
+@media(max-width:760px){
+  .brew-planning{padding-inline:4px}
+  .brew-planning .bp-stock-snapshot-row{grid-template-columns:52px repeat(2,minmax(0,1fr));gap:3px;padding:3px}
+  .brew-planning .bp-stock-style{font-size:.64rem;min-height:45px;padding:2px!important}
+  .brew-planning .bp-stock-metric{padding:2px 3px}
+  .brew-planning .bp-stock-metric small{font-size:.56rem}
+  .brew-planning .bp-stock-pair{font-size:.61rem}
+  .brew-planning .bp-stock-pair b{font-size:.5rem}
+  .brew-planning .bp-stock-metric em,.brew-planning .bp-stock-freshness{font-size:.52rem}
+  .brew-planning .bp-data-grid-open{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+  .brew-planning .bp-data-grid-open .bp-data-card{padding:3px}
+  .brew-planning .bp-data-grid-open .bp-data-style{font-size:.7rem;padding:3px!important;margin-bottom:3px}
+  .brew-planning .bp-data-grid-open .bp-formats{grid-template-columns:1fr;gap:2px}
+  .brew-planning .bp-data-grid-open .bp-formats>div+div{border-inline-start:0;border-top:1px solid #e2e8f0;padding-inline-start:0;padding-top:2px}
+  .brew-planning .bp-data-grid-open h4{font-size:.57rem}
+  .brew-planning .bp-data-grid-open label{font-size:.55rem}
+  .brew-planning .bp-data-grid-open input:not([type=checkbox]){min-height:26px;font-size:.68rem}
+  .brew-planning .bp-data-grid-open button{min-height:25px;font-size:.52rem}
+  .brew-planning .bp-data-grid-open small{font-size:.5rem}
+  .brew-planning .bp-week-shipment-card{overflow:hidden}
+  .brew-planning .bp-shipment-plan-head,.brew-planning .bp-shipment-plan-row{grid-template-columns:1.15fr .7fr .7fr 1.05fr;padding:4px;gap:2px;font-size:.64rem}
+  .brew-planning .bp-shipment-plan-row small{font-size:.52rem;line-height:1.2}
+  .brew-planning .bp-brew-edit-row{grid-template-columns:1fr;gap:3px}
+  .brew-planning .bp-daily-sets{grid-template-columns:1fr;gap:5px}
+  .brew-planning .bp-gantt{grid-template-columns:48px repeat(5,minmax(61px,1fr));overflow-x:hidden}
+  .brew-planning .bp-gantt-head,.brew-planning .bp-gantt-label,.brew-planning .bp-gantt-cell{padding:2px;min-height:42px}
+  .brew-planning .bp-gantt-item{font-size:.52rem;padding:2px}
+  .brew-planning .bp-gantt-head small{font-size:.5rem}
+}
