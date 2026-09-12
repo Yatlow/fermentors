@@ -17,6 +17,7 @@ import PlanningDaySelect from "./PlanningDaySelect";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { CORE_STYLES, displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPresentation";
 import { estimatedBrewVolume } from "../../SERVICES/planning/productionCycle";
+import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
 
 export default function PlanningWeekEditor({
   initial,
@@ -50,8 +51,9 @@ export default function PlanningWeekEditor({
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [palletToAdd, setPalletToAdd] = useState("");
   const [otherStyle, setOtherStyle] = useState("");
+  const [deliveryProduct, setDeliveryProduct] = useState("");
+  const [deliveryQty, setDeliveryQty] = useState(0);
 
   const dayPacks = draft.packaging.map((r, i) => ({ r, i })).filter(({ r }) => r.date === day);
   const visibleBrews = draft.brews.map((b, i) => ({ b, i }));
@@ -78,40 +80,57 @@ export default function PlanningWeekEditor({
   const updateBrew = (i: number, patch: Partial<BrewPlan>) =>
     setDraft((w) => ({ ...w, brews: w.brews.map((r, j) => j === i ? { ...r, ...patch } : r) }));
 
-  const reservedPallets = new Set((draft.deliveries ?? []).flatMap((d) => d.pallets ?? []).map((p) => p.id));
-  const availablePallets = pallets
-    .filter((p) => p.zone !== "shipped" && !reservedPallets.has(p.id))
-    .sort((a, b) => {
-      const aFull = a.itemType === "crates" && num(a.quantity) >= 60 ? 1 : 0;
-      const bFull = b.itemType === "crates" && num(b.quantity) >= 60 ? 1 : 0;
-      return bFull - aFull || a.beerStyle.localeCompare(b.beerStyle);
-    });
+  const availableFor = (productId: string) => {
+    const product = settings.products.find((p) => p.id === productId);
+    if (!product) return { physicalPallets: 0, physicalQty: 0, plannedPallets: 0, plannedQty: 0 };
+    const physical = pallets.filter(
+      (p) =>
+        p.zone !== "shipped" &&
+        p.itemType === product.type &&
+        sameStyle(p.beerStyle, product.style),
+    );
+    const plannedQty = draft.packaging
+      .filter((p) => p.productId === productId && p.date && p.date >= day)
+      .reduce((sum, p) => sum + p.quantity, 0);
+    return {
+      physicalPallets: physical.length,
+      physicalQty: physical.reduce((sum, p) => sum + num(p.quantity), 0),
+      plannedPallets: plannedQty > 0 ? projectedPallets(product, plannedQty, `editor:${day}`).length : 0,
+      plannedQty,
+    };
+  };
 
-  function addPallet() {
-    const pallet = availablePallets.find((p) => p.id === palletToAdd);
-    if (!pallet) return;
-    const product = settings.products.find((p) => p.type === pallet.itemType && sameStyle(p.style, pallet.beerStyle));
-    if (!product) {
-      setError(`לא נמצא מוצר תכנון מתאים למשטח ${pallet.beerStyle}`);
-      return;
-    }
-    const qty = Math.round(num(pallet.quantity));
+  function addDelivery() {
+    const product = settings.products.find((p) => p.id === deliveryProduct);
+    if (!product || deliveryQty <= 0) return;
     setDraft((w) => {
       const deliveries = [...(w.deliveries ?? [])];
-      const existingIndex = deliveries.findIndex((d) => d.dispatchDate === day && d.productId === product.id);
-      if (existingIndex >= 0) {
-        const current = deliveries[existingIndex];
-        deliveries[existingIndex] = { ...current, quantity: current.quantity + qty, pallets: [...(current.pallets ?? []), pallet] };
+      const existing = deliveries.findIndex((d) => d.dispatchDate === day && d.productId === product.id);
+      if (existing >= 0) {
+        deliveries[existing] = {
+          ...deliveries[existing],
+          quantity: deliveries[existing].quantity + deliveryQty,
+          pallets: [],
+        };
       } else {
         const next: DeliveryPlan = {
-          id: crypto.randomUUID(), productId: product.id, quantity: qty,
-          dispatchDate: day, arrivalDate: day, truckId: `truck:${day}`, pallets: [pallet],
+          id: crypto.randomUUID(),
+          productId: product.id,
+          quantity: deliveryQty,
+          dispatchDate: day,
+          arrivalDate: day,
+          truckId: `truck:${day}`,
+          pallets: [],
         };
         deliveries.push(next);
       }
-      return { ...w, deliveries, deliveryDates: [...new Set([...(w.deliveryDates ?? []), day])].sort() };
+      return {
+        ...w,
+        deliveries,
+        deliveryDates: [...new Set([...(w.deliveryDates ?? []), day])].sort(),
+      };
     });
-    setPalletToAdd("");
+    setDeliveryQty(0);
   }
 
   async function save() {
@@ -182,7 +201,7 @@ export default function PlanningWeekEditor({
                   updatePack(i, { tankId: e.target.value, productId: nextProduct?.id ?? r.productId, quantity: nextProduct ? maxTankQuantity(e.target.value, nextProduct.id, r.id) : 0 });
                 }}><option value="">בחירת מיכל</option>{tanks.filter((t) => t.ready <= day).map((t) => <option key={t.id} value={t.id}>{t.number} · {displayStyle(t.style)} · {Math.floor(Math.max(0, t.liters - usedLiters(t.id, r.id)))} ל׳</option>)}</select></label>
                 <label>מה אורזים<select value={r.productId} onChange={(e) => updatePack(i, { productId: e.target.value, quantity: maxTankQuantity(r.tankId ?? "", e.target.value, r.id) })}>{products.map((p) => <option key={p.id} value={p.id}>{p.type === "crates" ? "בקבוקים" : "חביות"} · {displayStyle(p.style)}</option>)}</select></label>
-                <label>כמות<input type="number" min="1" max={max || undefined} value={r.quantity} onChange={(e) => updatePack(i, { quantity: Math.min(Number(e.target.value), max || Number(e.target.value)) })}/>{max > 0 && <small>עד {max} לפי יתרת המיכל. 252 הוא יעד עבודה רגיל בלבד, לא מגבלה.</small>}</label>
+                <label>כמות<input type="number" min="1" max={max || undefined} value={r.quantity} onChange={(e) => updatePack(i, { quantity: Math.min(Number(e.target.value), max || Number(e.target.value)) })}/>{max > 0 && <small>עד {max} לפי יתרת המיכל.</small>}</label>
                 <PlanningDaySelect week={draft.id} allowWeekend={draft.allowExceptions} value={r.date ?? day} label="העברת האריזה ליום אחר" onChange={(date) => updatePack(i, { date })}/>
               </div>
               <label><input type="checkbox" checked={r.emptyTank ?? false} onChange={(e) => updatePack(i, { emptyTank: e.target.checked })}/>זו האריזה האחרונה מהמיכל</label>
@@ -192,8 +211,36 @@ export default function PlanningWeekEditor({
           <button type="button" onClick={addPackaging}>הוספת אריזה</button>
 
           <h4>משלוח</h4>
-          {dayDeliveries.length ? <div className="bp-edit-card"><b>משלוח אחד · {dayDeliveries.reduce((s, x) => s + (x.d.pallets?.length ?? 0), 0)} משטחים</b>{dayDeliveries.map(({ d, i }) => <div className="bp-shipment-row" key={d.id}><span>{displayStyle(settings.products.find((p) => p.id === d.productId)?.style ?? d.productId)} · {d.quantity} {settings.products.find((p) => p.id === d.productId)?.type === "crates" ? "ארגזים" : "חביות"}</span><button type="button" onClick={() => setDraft((w) => ({ ...w, deliveries: (w.deliveries ?? []).filter((_, j) => i !== j) }))}>הסר</button></div>)}</div> : <p className="bp-muted">לא נקבעה תכולת משלוח ליום זה.</p>}
-          <div className="bp-add-pallet"><label>הוספת משטח מהמקרר<select value={palletToAdd} onChange={(e) => setPalletToAdd(e.target.value)}><option value="">בחירת משטח</option>{availablePallets.map((p) => <option key={p.id} value={p.id}>{displayStyle(p.beerStyle)} · {Math.round(num(p.quantity))} {p.itemType === "crates" ? "ארגזים" : "חביות"} · משטח {p.palletNumber ?? p.id.slice(0, 6)}{p.itemType === "crates" && num(p.quantity) >= 60 ? " · מלא" : ""}</option>)}</select></label><button type="button" disabled={!palletToAdd} onClick={addPallet}>הוסף למשלוח</button></div>
+          {dayDeliveries.length ? <div className="bp-edit-card">
+            <b>תכולת המשלוח</b>
+            {dayDeliveries.map(({ d, i }) => {
+              const p = settings.products.find((p) => p.id === d.productId);
+              const availability = availableFor(d.productId);
+              return <div className="bp-shipment-row bp-shipment-qty-row" key={d.id}>
+                <div>
+                  <b>{displayStyle(p?.style ?? d.productId)} · {p?.type === "crates" ? "ארגזים" : "חביות"}</b>
+                  <small>זמין עכשיו: {availability.physicalPallets} משטחים / {Math.round(availability.physicalQty)} · מתכנון: {availability.plannedPallets} משטחים / {Math.round(availability.plannedQty)}</small>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  value={d.quantity}
+                  onChange={(e) => setDraft((w) => ({
+                    ...w,
+                    deliveries: (w.deliveries ?? []).map((x, j) => j === i ? { ...x, quantity: Math.max(0, Number(e.target.value)), pallets: [] } : x),
+                  }))}
+                />
+                <button type="button" onClick={() => setDraft((w) => ({ ...w, deliveries: (w.deliveries ?? []).filter((_, j) => i !== j) }))}>הסר</button>
+              </div>;
+            })}
+          </div> : <p className="bp-muted">לא נקבעה תכולת משלוח ליום זה.</p>}
+
+          <div className="bp-add-delivery-line">
+            <label>הוספת מוצר למשלוח<select value={deliveryProduct} onChange={(e) => setDeliveryProduct(e.target.value)}><option value="">בחירת מוצר</option>{settings.products.filter((p) => p.monthly > 0).map((p) => <option value={p.id} key={p.id}>{displayStyle(p.style)} · {p.type === "crates" ? "ארגזים" : "חביות"}</option>)}</select></label>
+            <label>כמות<input type="number" min="0" value={deliveryQty || ""} onChange={(e) => setDeliveryQty(Number(e.target.value))}/></label>
+            <button type="button" disabled={!deliveryProduct || deliveryQty <= 0} onClick={addDelivery}>הוסף למשלוח</button>
+            {deliveryProduct && (() => { const a = availableFor(deliveryProduct); return <small>המערכת תבחר את המשטחים בפועל לפי FIFO. זמינים כעת {a.physicalPallets} משטחים; עוד {a.plannedPallets} משטחים צפויים מהתכנון.</small>; })()}
+          </div>
         </>}
 
         {scope === "brews" && <>
@@ -211,7 +258,7 @@ export default function PlanningWeekEditor({
                   const style = value === "אחר" ? otherStyle : value;
                   const volume = source ? num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, style) : b.liters;
                   updateBrew(i, { style, liters: volume || b.liters });
-                }}>{CORE_STYLES.map((s) => <option key={s} value={s}>{s}</option>)}<option value="אחר">אחר</option></select></label>
+                }}>{CORE_STYLES.map((s) => <option key={s} value={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option></select></label>
                 {(styleIsOther || b.style === "") && <label>סגנון אחר<input value={otherStyle || (styleIsOther ? b.style : "")} onChange={(e) => { setOtherStyle(e.target.value); const volume = source ? num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, e.target.value) : b.liters; updateBrew(i, { style: e.target.value, liters: volume || b.liters }); }}/></label>}
                 <label>מיכל<select value={b.tankId} onChange={(e) => {
                   const sourceTank = brews.find((t) => t.id === e.target.value);
