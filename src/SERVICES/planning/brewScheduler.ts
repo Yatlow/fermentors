@@ -48,9 +48,14 @@ export function brewProposals(
       .filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId))
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
       if (remaining <= 0) break;
-      let date = [today, release.date!, need.brewBy].sort().at(-1)!;
+
+      // A genuinely free tank should not sit idle until the theoretical last
+      // brew-by date. Brew on the earliest regular brewing day and use the
+      // demand calculation only to choose WHAT should go into the tank.
+      let date = [today, release.date!].sort().at(-1)!;
       while (weekday(date) < 1 || weekday(date) > 3) date = addDays(date, 1);
       if (date >= addDays(weekStart(today), 84)) continue;
+
       const lead = Math.max(
         ...settings.products
           .filter((p) => sameStyle(p.style, need.style))
@@ -67,7 +72,11 @@ export function brewProposals(
         dependent: !!release.emptyDate,
         reason:
           release.reason +
-          (date > need.brewBy ? " · מאוחר ממועד הביקוש הרצוי" : ""),
+          (date > need.brewBy
+            ? " · מאוחר ממועד הביקוש הרצוי"
+            : date < need.brewBy
+              ? " · מנצל מיכל פנוי מראש כדי למנוע מחסור עתידי"
+              : ""),
       });
       remaining -= release.workLiters * 0.9;
       booked.add(release.tankId);
