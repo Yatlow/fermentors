@@ -67,7 +67,7 @@ function palletsForTarget(candidates: Pallet[], target: number) {
     selected.push(pallet);
     total += qty;
   }
-  return total >= wanted ? { selected, total } : null;
+  return { selected, total, missing: Math.max(0, wanted - total) };
 }
 
 export default function PlanningWeeklyRecommendationsV2({
@@ -258,7 +258,7 @@ export default function PlanningWeeklyRecommendationsV2({
     .filter((w) => w.id >= weekStart(today) && (w.deliveries ?? []).some((d) => d.quantity > 0))
     .sort((a, b) => a.id.localeCompare(b.id))[0]?.id;
   const isNearShipmentWeek = week === weekStart(today) || week === addDays(weekStart(today), 7);
-  const hasMarkedPallets = pallets.some((p) => p.zone !== "shipped" && p.markedForShipment);
+  const hasMarkedPallets = pallets.some((p) => p.zone === "cooler" && p.markedForShipment);
   const canOfferMapMarking = isNearShipmentWeek && nearestShipmentWeek === week && (current.deliveries ?? []).some((d) => d.quantity > 0);
 
   async function markShipmentOnCoolerMap() {
@@ -267,34 +267,60 @@ export default function PlanningWeeklyRecommendationsV2({
       setMessage("כבר קיימים משטחים מסומנים במפת המקרר. לא נדרוס אותם; יש לטפל קודם בסימון הקיים דרך המפה.");
       return;
     }
+
     const selected: Pallet[] = [];
-    const differences: string[] = [];
+    const notes: string[] = [];
+    let requestedPallets = 0;
+    let missingPallets = 0;
+
     for (const p of products) {
       const quantity = currentShipmentQty(p.id);
       if (!quantity) continue;
+      requestedPallets += quantity / palletSize(p);
+
       const candidates = pallets.filter((x) =>
-        x.zone !== "shipped" && !x.markedForShipment && x.itemType === p.type && sameStyle(x.beerStyle, p.style) &&
+        x.zone === "cooler" &&
+        !x.markedForShipment &&
+        x.itemType === p.type &&
+        sameStyle(x.beerStyle, p.style) &&
         (!expiryIso(x.expiryDateStr) || expiryIso(x.expiryDateStr)! >= today),
       );
+
       const chosen = palletsForTarget(candidates, quantity);
-      if (!chosen) {
-        setMessage(`${displayStyle(p.style)}: אין מספיק משטחים פיזיים קיימים לסימון. אם חלק מהמלאי עדיין מתוכנן לאריזה, יהיה אפשר לסמן אותו רק אחרי שהמשטחים נוצרו.`);
-        return;
-      }
       selected.push(...chosen.selected);
-      if (chosen.total !== quantity) differences.push(`${displayStyle(p.style)}: התכנון ${fmt(quantity)}, המשטחים שסומנו מכילים ${fmt(chosen.total)}`);
+
+      if (chosen.missing > 0) {
+        missingPallets += chosen.missing / palletSize(p);
+        notes.push(`${displayStyle(p.style)}: חסרים ${palletLabel(chosen.missing, p)} שעדיין אינם קיימים במקרר`);
+      } else if (chosen.total > quantity) {
+        notes.push(`${displayStyle(p.style)}: התכנון ${fmt(quantity)}, המשטחים הפיזיים שנבחרו מכילים ${fmt(chosen.total)}`);
+      }
     }
-    if (!selected.length) return setMessage("אין משטחים בהחלטת המשלוח לסימון.");
+
+    if (!selected.length) {
+      return setMessage(`לא נמצאו כרגע משטחים פיזיים מתאימים במקרר לסימון.${missingPallets > 0 ? ` כ־${missingPallets.toLocaleString("he-IL", { maximumFractionDigits: 2 })} משטחים עדיין תלויים באריזה/הכנסה למקרר.` : ""}`);
+    }
+
     let slots = Infinity;
     try { slots = calcTruckSlots(selected); } catch { slots = Infinity; }
-    if (!Number.isFinite(slots) || slots > MAX_TRUCK_SLOTS) return setMessage("הרכב המשטחים הפיזי חורג מקיבולת המשאית; לא בוצע סימון.");
+    if (!Number.isFinite(slots) || slots > MAX_TRUCK_SLOTS) {
+      return setMessage("הרכב המשטחים הפיזי שכבר קיים במקרר חורג מקיבולת המשאית; לא בוצע סימון.");
+    }
+
     setBusy(true); setMessage("");
     try {
       await Promise.all(selected.map((p) => setMarkedForShipment(p.id, true)));
-      setMessage(`סומנו ${selected.length} משטחים למשלוח הקרוב במפת המקרר.${differences.length ? ` ⚠️ ${differences.join(" · ")}. בדוק את הכמויות במפה.` : ""}`);
+      const markedCount = selected.length;
+      const partial = notes.length > 0 || markedCount < requestedPallets;
+      setMessage(
+        `סומנו ${markedCount} משטחים פיזיים במקרר למשלוח הקרוב.${partial ? ` ⚠️ הסימון חלקי: ${notes.join(" · ")}. המשטחים העתידיים יסומנו רק אחרי שייווצרו וייכנסו למקרר.` : ""}`,
+      );
       onOpenCoolerMap?.();
-    } catch (e) { setMessage(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל"); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function allDraftPackLines() {
@@ -466,7 +492,7 @@ export default function PlanningWeeklyRecommendationsV2({
           })}
         </div>
         {!model.shipmentCanFillTruck && model.shipmentSlots > 0 && <p className="bp-alert">אין כרגע מספיק מלאי רגיל צפוי כדי להרכיב המלצה של משאית מלאה. עדיין אפשר לשמור החלטה חלקית ידנית.</p>}
-        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy || hasMarkedPallets} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>{hasMarkedPallets ? "כבר קיים סימון במפה — לא דורסים אותו." : "רק למשלוח הקרוב. המערכת מסמנת FIFO משטחים פיזיים עד לכמות הנדרשת; אם חלוקת המשטחים לא תואמת בדיוק מתקבלת אזהרה."}</small></div>}
+        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy || hasMarkedPallets} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>{hasMarkedPallets ? "כבר קיים סימון במקרר — לא דורסים אותו." : "מסמן רק משטחים פיזיים שנמצאים כרגע במקרר, לפי FIFO. אם חלק מהמשלוח עדיין תלוי באריזה, החלק הקיים יסומן והיתרה תישאר ממתינה."}</small></div>}
         <div className="bp-actions">{editing === "delivery" ? <><button disabled={busy} onClick={saveShipment}>שמירת החלטת המשלוח</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button className={(current.deliveries ?? []).length ? "bp-action-warning" : ""} disabled={disabled || busy || !model.shipmentCanFillTruck} onClick={acceptShipmentRecommendation}>{(current.deliveries ?? []).length ? "⚠️ החלף החלטה קיימת בהמלצה" : "צור החלטה מהמלצת 12/12"}</button><button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button></>}</div>
       </article>
 
