@@ -70,6 +70,13 @@
 .brew-planning .bp-gantt-empty{display:grid;place-items:center;color:#cbd5e1;font-size:1.2rem;min-height:28px}
 .brew-planning .bp-gantt-item.is-selected{outline:2px solid #1d4ed8;outline-offset:1px;box-shadow:0 0 0 3px rgba(59,130,246,.14)}
 
+/* Shipment focus in the physical cooler map.
+   The map already renders marked pallets with .marked-for-shipment; when at least
+   one exists, hide every unmarked pallet so the planner's push becomes an actual
+   filter instead of only a subtle highlight. */
+.cooler-map-page:has(.cooler-physical-map .pallet-row.marked-for-shipment) .cooler-physical-map .pallet-row:not(.marked-for-shipment){display:none!important}
+.cooler-map-page:has(.cooler-physical-map .pallet-row.marked-for-shipment) .cooler-map-wrap::before{content:"מציג רק משטחים שסומנו למשלוח";display:block;margin:6px 8px;padding:7px 10px;border:1px solid #0f766e;border-radius:9px;background:#f0fdfa;color:#115e59;font-size:.72rem;font-weight:800;text-align:center}
+
 @media(max-width:760px){
   .brew-planning{padding-inline:4px}
   .brew-planning .bp-stock-snapshot-row{grid-template-columns:52px repeat(2,minmax(0,1fr));gap:3px;padding:3px}
