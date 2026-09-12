@@ -74,5 +74,15 @@ export function validatePlanningWeek(
       return "יש להשלים שבוע, סגנון ונפח בישול";
     if (b.date < today) return "לא ניתן ליצור בישול חדש בשבוע שכבר עבר";
   }
+
+  const occupied = new Map<string, { date: string; style: string }>();
+  for (const b of all.flatMap((plan) => plan.brews).filter((brew) => !!brew.tankId && brew.date >= today).sort((a, b) => a.date.localeCompare(b.date))) {
+    const previous = occupied.get(b.tankId);
+    if (previous) {
+      return `מיכל ${b.tankId} כבר שובץ לבישול ${previous.style} ב־${previous.date}; אי אפשר לשבץ אליו בישול נוסף לפני שנוצר מחזור ריקון חדש`;
+    }
+    occupied.set(b.tankId, { date: b.date, style: b.style });
+  }
+
   return null;
 }
