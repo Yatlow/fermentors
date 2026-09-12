@@ -55,9 +55,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
 
       {!data.loading && !data.error && <>
-        {tab === "stock" && (
-          <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={plans}/>
-        )}
+        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={plans}/>}
 
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
@@ -89,19 +87,14 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
             shipments={data.actualShipments}
             today={today}
             holidays={holidays}
-            workspace={workspace}
             disabled={disabled}
             saveWeek={data.saveWeek}
           />
         </>}
 
-        {(tab === "data" || tab === "settings") && (
-          <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>
-        )}
+        {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>}
 
-        {tab === "tanks" && (
-          <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>
-        )}
+        {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>}
 
         {tab === "review" && <>
           <details>
