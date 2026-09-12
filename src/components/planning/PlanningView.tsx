@@ -9,7 +9,7 @@ import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
-import PlanningWeeklyRecommendationsV2 from "./PlanningWeeklyRecommendationsV2";
+import PlanningWeeklyPlanner from "./PlanningWeeklyPlanner";
 import "./planning.css";
 import "./planningV2.css";
 import "./planningV3.css";
@@ -51,7 +51,7 @@ export default function PlanningView({ brews, canEdit, tab }: {
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {!data.loading && !data.error && <>
         {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={workspace.effectivePlans}/>} 
-        {tab === "calendar" && <>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}<PlanningWeeklyRecommendationsV2 settings={settings} plans={plans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} saveWeek={data.saveWeek}/></>}
+        {tab === "calendar" && <>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}<PlanningWeeklyPlanner settings={settings} plans={plans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} saveWeek={data.saveWeek}/></>}
         {tab === "schedule" && <>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}<PlanningBoard settings={settings} plans={plans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} workspace={workspace} disabled={disabled} saveWeek={data.saveWeek}/></>}
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={workspace.effectivePlans} settings={settings} actuals={actuals} today={today}/>} 
