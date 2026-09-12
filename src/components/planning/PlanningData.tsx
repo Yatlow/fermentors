@@ -7,6 +7,7 @@ import {
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import {
   CORE_STYLES,
+  displayStyle,
   styleGroups,
 } from "../../SERVICES/planning/planningPresentation";
 import { sameStyle } from "../../SERVICES/planning/planningEngine";
@@ -29,6 +30,7 @@ export default function PlanningData({
   const [stockTouched, setStockTouched] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [expandedStyle, setExpandedStyle] = useState<string | null>(null);
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(baseline) ||
     stockTouched.length > 0;
@@ -89,80 +91,96 @@ export default function PlanningData({
   }
   return (
     <section>
-      <h2>{mode === "data" ? "עדכון נתונים" : "הגדרות תכנון"}</h2>
+      <h2>{mode === "data" ? "הזנת נתונים" : "הגדרות תכנון"}</h2>
       {mode === "data" && (
         <p>
-          מלאי טמפו בארגזים או בחביות. המדידה מתוארכת להיום כשמעדכנים את המלאי
-          או מסמנים שנבדק מחדש.
+          ששת הסגנונות מוצגים כתמונת מצב אחת. לחיצה על סגנון פותחת את שדות העדכון שלו.
         </p>
       )}
       <fieldset disabled={disabled || busy} className="bp-fieldset">
         {mode === "data" && (
           <div className="bp-data-grid">
-            {styleGroups(draft).map((g) => (
-              <article className="bp-card" key={g.key}>
-                <h3 className={beerStyleClass(g.style).className}>{g.style}</h3>
-                <div className="bp-formats">
-                  {g.products.map((p) => (
-                    <div key={p.id}>
-                      <h4>
-                        {p.type === "crates" ? "בקבוקים · ארגזים" : "חביות"}
-                      </h4>
-                      <div className="bp-fields">
-                        <label>
-                          מלאי טמפו
-                          <input
-                            type="number"
-                            min="0"
-                            value={p.tempo ?? ""}
-                            onChange={(e) => {
-                              update(p.id, {
-                                tempo:
-                                  e.target.value === ""
-                                    ? null
-                                    : Number(e.target.value),
-                              });
-                              setStockTouched((ids) => [
-                                ...new Set([...ids, p.id]),
-                              ]);
-                            }}
-                          />
-                        </label>
-                        <label>
-                          צפי מכירות לחודש
-                          <input
-                            type="number"
-                            min="0"
-                            value={p.monthly}
-                            onChange={(e) =>
-                              update(p.id, { monthly: Number(e.target.value) })
-                            }
-                          />
-                        </label>
+            {styleGroups(draft).map((g) => {
+              const open = expandedStyle === g.key;
+              return (
+                <article className={`bp-card bp-data-card ${open ? "is-open" : ""}`} key={g.key}>
+                  <button
+                    type="button"
+                    className={`bp-data-card-head ${beerStyleClass(g.style).className}`}
+                    aria-expanded={open}
+                    onClick={() => setExpandedStyle(open ? null : g.key)}
+                  >
+                    <b>{displayStyle(g.style)}</b>
+                    <small>
+                      {g.products.map((p) => `${p.type === "crates" ? "בק׳" : "חב׳"}: ${p.tempo ?? "—"}`).join(" · ")}
+                    </small>
+                  </button>
+                  {open && (
+                    <div className="bp-data-card-body">
+                      <div className="bp-formats">
+                        {g.products.map((p) => (
+                          <div key={p.id}>
+                            <h4>
+                              {p.type === "crates" ? "בקבוקים · ארגזים" : "חביות"}
+                            </h4>
+                            <div className="bp-fields">
+                              <label>
+                                מלאי טמפו
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={p.tempo ?? ""}
+                                  onChange={(e) => {
+                                    update(p.id, {
+                                      tempo:
+                                        e.target.value === ""
+                                          ? null
+                                          : Number(e.target.value),
+                                    });
+                                    setStockTouched((ids) => [
+                                      ...new Set([...ids, p.id]),
+                                    ]);
+                                  }}
+                                />
+                              </label>
+                              <label>
+                                צפי מכירות לחודש
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={p.monthly}
+                                  onChange={(e) =>
+                                    update(p.id, { monthly: Number(e.target.value) })
+                                  }
+                                />
+                              </label>
+                            </div>
+                            <small>
+                              {stockTouched.includes(p.id)
+                                ? "יישמר כמדידה מהיום"
+                                : p.tempoDate
+                                  ? `מדידה אחרונה: ${shortDate(p.tempoDate)}`
+                                  : "טרם נמדד"}
+                            </small>
+                            <button
+                              type="button"
+                              disabled={
+                                p.tempo === null || stockTouched.includes(p.id)
+                              }
+                              onClick={() =>
+                                setStockTouched((ids) => [...new Set([...ids, p.id])])
+                              }
+                            >
+                              המלאי נבדק היום ללא שינוי
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                      <small>
-                        {stockTouched.includes(p.id)
-                          ? "יישמר כמדידה מהיום"
-                          : p.tempoDate
-                            ? `מדידה אחרונה: ${shortDate(p.tempoDate)}`
-                            : "טרם נמדד"}
-                      </small>
-                      <button
-                        type="button"
-                        disabled={
-                          p.tempo === null || stockTouched.includes(p.id)
-                        }
-                        onClick={() =>
-                          setStockTouched((ids) => [...new Set([...ids, p.id])])
-                        }
-                      >
-                        המלאי נבדק היום ללא שינוי
-                      </button>
                     </div>
-                  ))}
-                </div>
-              </article>
-            ))}
+                  )}
+                </article>
+              );
+            })}
           </div>
         )}
         {mode === "settings" && (
@@ -224,7 +242,7 @@ export default function PlanningData({
             <div className="bp-fields">
               {CORE_STYLES.map((style) => (
                 <label key={style}>
-                  {style} · ימים מהבישול
+                  {displayStyle(style)} · ימים מהבישול
                   <input
                     type="number"
                     min="1"
