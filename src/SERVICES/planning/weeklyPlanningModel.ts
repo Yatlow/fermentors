@@ -79,6 +79,31 @@ function forecastSettings(settings: Settings, today: string): Settings {
   };
 }
 
+/**
+ * Weekly planning decisions intentionally do not have to choose an execution day.
+ * The daily forecast, however, only treats dated packaging as committed supply.
+ * For the weekly model we therefore give undated packaging a forecast-only date:
+ * - if the week already contains a shipment decision, use that dispatch day. This
+ *   models the explicit (risky) option of packing and shipping on the same day;
+ * - otherwise use Thursday, so a saved weekly packaging decision is available to
+ *   the following week's shipment forecast.
+ *
+ * This does not mutate the stored plan. openRuns() still subtracts packaging that
+ * already happened, so actual stock in the cooler is never added a second time.
+ */
+function dateWeeklyPackaging(plans: WeekPlan[]): WeekPlan[] {
+  return plans.map((week) => {
+    const next = structuredClone(week);
+    const sameWeekDispatch = [...(next.deliveries ?? [])]
+      .map((d) => d.dispatchDate)
+      .filter((date) => date >= week.id && date <= addDays(week.id, 6))
+      .sort()[0];
+    const forecastDate = sameWeekDispatch ?? addDays(week.id, 4);
+    next.packaging = next.packaging.map((run) => run.date ? run : { ...run, date: forecastDate });
+    return next;
+  });
+}
+
 function plansAtStage(plans: WeekPlan[], week: string, stage: WeeklyStage): WeekPlan[] {
   const found = plans.some((w) => w.id === week);
   const source = found ? plans : [...plans, emptyWeek(week)];
@@ -224,9 +249,17 @@ function buildPackagingRecommendation(
       const state = rows.get(p.id);
       if (!state || state.totalCover === null || state.totalCover >= target) continue;
       const fullQuantity = Math.floor((liters + 1e-8) / litersPerUnit(p));
-      // Recommendation is an operational run. Never recommend >252 crates for
-      // one run; the planner may deliberately override this in the editor.
-      const quantity = p.type === "crates" ? Math.min(252, fullQuantity) : fullQuantity;
+      let quantity = fullQuantity;
+      if (p.type === "crates") {
+        const normalQuantity = Math.min(252, fullQuantity);
+        const remainderAfterNormal = Math.max(0, liters - normalQuantity * litersPerUnit(p));
+        const remainderRatio = liters > 0 ? remainderAfterNormal / liters : 0;
+        // If the normal 252-crate run leaves a tiny heel, finish the tank instead
+        // of forcing a second, operationally pointless keg run. The automatic
+        // exception is deliberately bounded at 270 crates.
+        const shouldFinishTank = fullQuantity > 252 && fullQuantity <= 270 && remainderRatio < 0.07;
+        quantity = shouldFinishTank ? fullQuantity : normalQuantity;
+      }
       if (quantity <= 0) continue;
       candidates.push({
         id: `weekly-pack:${week}:${tank.id}:${p.id}`,
@@ -319,6 +352,7 @@ export function buildWeeklyPlanningModel(args: {
   const { settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments } = args;
   const weekEnd = addDays(week, 6);
   const normalized = forecastSettings(settings, today);
+  const forecastPlans = dateWeeklyPackaging(plans);
   const stages: WeeklyStage[] = ["base", "afterShipment", "afterPackaging", "committed"];
   const forecasts = {} as Record<WeeklyStage, DailyResult>;
   const rows = {} as Record<WeeklyStage, Map<string, WeeklySkuState>>;
@@ -327,7 +361,7 @@ export function buildWeeklyPlanningModel(args: {
       normalized,
       pallets,
       tanks,
-      plansAtStage(plans, week, stage),
+      plansAtStage(forecastPlans, week, stage),
       actuals,
       today,
       holidays,
