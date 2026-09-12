@@ -78,23 +78,11 @@ function forecastSettings(settings: Settings, today: string): Settings {
     ...settings,
     products: settings.products.map((p) => ({
       ...p,
-      // Tempo's latest count is the planner's current anchor. Forecast sales
-      // from today forward; do not invent consumption before today.
       tempoDate: p.tempo === null ? p.tempoDate : today,
     })),
   };
 }
 
-/**
- * Weekly planning chooses WHAT to package, not the exact work day. Forecasting
- * still needs a date. Give undated packaging a forecast-only date without
- * mutating Firestore:
- * - if a shipment is already planned in that week, use its dispatch date;
- * - otherwise use Thursday, so the result is available to the next week.
- *
- * This is also used by tankReleases, so a weekly decision that empties a tank
- * can release it for future brewing even before the daily manager assigns a day.
- */
 function dateWeeklyPackaging(plans: WeekPlan[]): WeekPlan[] {
   return plans.map((week) => {
     const next = structuredClone(week);
@@ -343,10 +331,16 @@ function buildBrewRecommendation(
   week: string,
   weekEnd: string,
 ) {
+  const occupiedTankIds = new Set(
+    plans
+      .flatMap((w) => w.brews)
+      .filter((b) => !!b.tankId && b.date >= today && b.date <= weekEnd)
+      .map((b) => b.tankId),
+  );
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today)
-    .filter((r) => !!r.date && r.date! <= weekEnd);
-  const currentBrews = plans.find((w) => w.id === week)?.brews.length ?? 0;
-  const capacity = Math.max(0, releases.length - currentBrews);
+    .filter((r) => !!r.date && r.date! <= weekEnd && !occupiedTankIds.has(r.tankId));
+  const unassignedCurrentBrews = plans.find((w) => w.id === week)?.brews.filter((b) => !b.tankId).length ?? 0;
+  const capacity = Math.max(0, releases.length - unassignedCurrentBrews);
 
   const styles = [
     ...new Set(
@@ -423,9 +417,6 @@ export function buildWeeklyPlanningModel(args: {
     weekEnd,
   );
 
-  // IMPORTANT: use forecast-dated clones here. Weekly packaging decisions are
-  // enough to establish a planned tank release; exact execution day is assigned
-  // later by the daily manager and is not written back by this forecast helper.
   const brew = buildBrewRecommendation(
     normalized,
     rows.afterPackaging,
