@@ -14,7 +14,13 @@ import {
   type Tank,
   type WeekPlan,
 } from "./planningEngine";
-import { actualDate, dailyForecast, openRuns, type DailyResult, type ShipmentEvent } from "./dailyPlanner";
+import {
+  actualDate,
+  dailyForecast,
+  openRuns,
+  type DailyResult,
+  type ShipmentEvent,
+} from "./dailyPlanner";
 import { projectedPallets } from "./truckPlanner";
 import { tankReleases } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
@@ -72,41 +78,40 @@ function forecastSettings(settings: Settings, today: string): Settings {
     ...settings,
     products: settings.products.map((p) => ({
       ...p,
-      // The planner's Tempo count is the current anchor. Forecast consumption
-      // only from today onward; never invent sales between count date and today.
+      // Tempo's latest count is the planner's current anchor. Forecast sales
+      // from today forward; do not invent consumption before today.
       tempoDate: p.tempo === null ? p.tempoDate : today,
     })),
   };
 }
 
 /**
- * Weekly planning decisions intentionally do not have to choose an execution day.
- * The daily forecast, however, only treats dated packaging as committed supply.
- * For the weekly model we therefore give undated packaging a forecast-only date:
- * - if the week already contains a shipment decision, use that dispatch day. This
- *   models the explicit (risky) option of packing and shipping on the same day;
- * - otherwise use Thursday, so a saved weekly packaging decision is available to
- *   the following week's shipment forecast.
+ * Weekly planning chooses WHAT to package, not the exact work day. Forecasting
+ * still needs a date. Give undated packaging a forecast-only date without
+ * mutating Firestore:
+ * - if a shipment is already planned in that week, use its dispatch date;
+ * - otherwise use Thursday, so the result is available to the next week.
  *
- * This does not mutate the stored plan. openRuns() still subtracts packaging that
- * already happened, so actual stock in the cooler is never added a second time.
+ * This is also used by tankReleases, so a weekly decision that empties a tank
+ * can release it for future brewing even before the daily manager assigns a day.
  */
 function dateWeeklyPackaging(plans: WeekPlan[]): WeekPlan[] {
   return plans.map((week) => {
     const next = structuredClone(week);
-    const sameWeekDispatch = [...(next.deliveries ?? [])]
+    const dispatch = [...(next.deliveries ?? [])]
       .map((d) => d.dispatchDate)
       .filter((date) => date >= week.id && date <= addDays(week.id, 6))
       .sort()[0];
-    const forecastDate = sameWeekDispatch ?? addDays(week.id, 4);
-    next.packaging = next.packaging.map((run) => run.date ? run : { ...run, date: forecastDate });
+    const forecastDate = dispatch ?? addDays(week.id, 4);
+    next.packaging = next.packaging.map((run) =>
+      run.date ? run : { ...run, date: forecastDate },
+    );
     return next;
   });
 }
 
 function plansAtStage(plans: WeekPlan[], week: string, stage: WeeklyStage): WeekPlan[] {
-  const found = plans.some((w) => w.id === week);
-  const source = found ? plans : [...plans, emptyWeek(week)];
+  const source = plans.some((w) => w.id === week) ? plans : [...plans, emptyWeek(week)];
   return source.map((w) => {
     if (w.id !== week) return structuredClone(w);
     const next = structuredClone(w);
@@ -160,10 +165,10 @@ function buildShipmentRecommendation(settings: Settings, rows: Map<string, Weekl
   const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const quantities = new Map<string, number>();
   const palletSize = (p: Product) => (p.type === "crates" ? 84 : 20);
-  const availablePallets = new Map<string, number>();
+  const available = new Map<string, number>();
+
   for (const p of products) {
-    const state = rows.get(p.id);
-    availablePallets.set(p.id, Math.floor((state?.breweryUnits ?? 0) / palletSize(p)));
+    available.set(p.id, Math.floor((rows.get(p.id)?.breweryUnits ?? 0) / palletSize(p)));
   }
 
   const coverAfter = (p: Product) => {
@@ -175,18 +180,22 @@ function buildShipmentRecommendation(settings: Settings, rows: Map<string, Weekl
 
   while (true) {
     const candidates = products
-      .filter((p) => ((quantities.get(p.id) ?? 0) / palletSize(p)) < (availablePallets.get(p.id) ?? 0))
+      .filter((p) => ((quantities.get(p.id) ?? 0) / palletSize(p)) < (available.get(p.id) ?? 0))
       .sort((a, b) => coverAfter(a) - coverAfter(b) || a.id.localeCompare(b.id));
+
     let added = false;
     for (const p of candidates) {
       const next = new Map(quantities);
       next.set(p.id, (next.get(p.id) ?? 0) + palletSize(p));
-      const manifest = manifestForQuantities(products, next, "weekly-truck");
       let slots = Infinity;
-      try { slots = calcTruckSlots(manifest); } catch { slots = Infinity; }
+      try {
+        slots = calcTruckSlots(manifestForQuantities(products, next, "weekly-truck"));
+      } catch {
+        slots = Infinity;
+      }
       if (slots > MAX_TRUCK_SLOTS) continue;
       quantities.clear();
-      next.forEach((v, k) => quantities.set(k, v));
+      next.forEach((value, key) => quantities.set(key, value));
       added = true;
       break;
     }
@@ -202,8 +211,14 @@ function buildShipmentRecommendation(settings: Settings, rows: Map<string, Weekl
     if (!quantity) return [];
     const pallets = projectedPallets(p, quantity, `weekly-rec:${p.id}`).length;
     const rowManifest = projectedPallets(p, quantity, `weekly-rec-slots:${p.id}`).map((x) => x.pallet);
-    return [{ productId: p.id, quantity, pallets, slots: rowManifest.length ? calcTruckSlots(rowManifest) : 0 }];
+    return [{
+      productId: p.id,
+      quantity,
+      pallets,
+      slots: rowManifest.length ? calcTruckSlots(rowManifest) : 0,
+    }];
   });
+
   return { recommendation, slots, full: slots === MAX_TRUCK_SLOTS };
 }
 
@@ -215,7 +230,9 @@ function remainingTankLiters(
   selectedWeek: string,
 ) {
   let liters = tank.liters;
-  const priorPlans = plans.map((w) => w.id === selectedWeek ? { ...w, packaging: [] } : w);
+  const priorPlans = plans.map((w) =>
+    w.id === selectedWeek ? { ...w, packaging: [] } : w,
+  );
   for (const run of openRuns(priorPlans, products, actuals)) {
     if (run.remaining <= 0 || !run.tankId || run.tankId !== tank.id || run.week >= selectedWeek) continue;
     const p = products.find((x) => x.id === run.productId);
@@ -238,29 +255,32 @@ function buildPackagingRecommendation(
   const actualDays = new Set(
     actuals.map(actualDate).filter((d): d is string => !!d && d >= week && d <= weekEnd),
   );
-  const capacity = Math.max(0, (plans.find((w) => w.id === week)?.maxRuns ?? settings.preferredRuns) - actualDays.size);
+  const capacity = Math.max(
+    0,
+    (plans.find((w) => w.id === week)?.maxRuns ?? settings.preferredRuns) - actualDays.size,
+  );
   const candidates: WeeklyPackagingRecommendation[] = [];
 
   for (const tank of tanks) {
     if (tank.ready > weekEnd) continue;
     const liters = remainingTankLiters(tank, plans, products, actuals, week);
     if (liters < 20) continue;
-    for (const p of products.filter((p) => sameStyle(p.style, tank.style))) {
+
+    for (const p of products.filter((x) => sameStyle(x.style, tank.style))) {
       const state = rows.get(p.id);
       if (!state || state.totalCover === null || state.totalCover >= target) continue;
+
       const fullQuantity = Math.floor((liters + 1e-8) / litersPerUnit(p));
       let quantity = fullQuantity;
       if (p.type === "crates") {
-        const normalQuantity = Math.min(252, fullQuantity);
-        const remainderAfterNormal = Math.max(0, liters - normalQuantity * litersPerUnit(p));
-        const remainderRatio = liters > 0 ? remainderAfterNormal / liters : 0;
-        // If the normal 252-crate run leaves a tiny heel, finish the tank instead
-        // of forcing a second, operationally pointless keg run. The automatic
-        // exception is deliberately bounded at 270 crates.
-        const shouldFinishTank = fullQuantity > 252 && fullQuantity <= 270 && remainderRatio < 0.07;
-        quantity = shouldFinishTank ? fullQuantity : normalQuantity;
+        const normal = Math.min(252, fullQuantity);
+        const residual = Math.max(0, liters - normal * litersPerUnit(p));
+        const ratio = liters > 0 ? residual / liters : 0;
+        const finishTank = fullQuantity > 252 && fullQuantity <= 270 && ratio < 0.07;
+        quantity = finishTank ? fullQuantity : normal;
       }
       if (quantity <= 0) continue;
+
       candidates.push({
         id: `weekly-pack:${week}:${tank.id}:${p.id}`,
         productId: p.id,
@@ -280,27 +300,33 @@ function buildPackagingRecommendation(
 
   const daysNeeded = (items: WeeklyPackagingRecommendation[]) => {
     const crates = items.filter((x) => products.find((p) => p.id === x.productId)?.type === "crates").length;
-    const kegGroups = new Map<string, number>();
+    const kegs = new Map<string, number>();
     for (const item of items) {
-      const p = products.find((p) => p.id === item.productId);
+      const p = products.find((x) => x.id === item.productId);
       if (p?.type !== "kegs") continue;
       const key = displayStyle(p.style);
-      kegGroups.set(key, (kegGroups.get(key) ?? 0) + item.quantity);
+      kegs.set(key, (kegs.get(key) ?? 0) + item.quantity);
     }
-    return crates + [...kegGroups.values()].reduce((s, q) => s + Math.ceil(q / 150), 0);
+    return crates + [...kegs.values()].reduce((sum, qty) => sum + Math.ceil(qty / 150), 0);
   };
 
   while (true) {
     const choices = candidates
       .filter((c) => !usedTanks.has(c.tankId))
       .filter((c) => (virtualCover.get(c.productId) ?? Infinity) < target)
-      .sort((a, b) => (virtualCover.get(a.productId) ?? Infinity) - (virtualCover.get(b.productId) ?? Infinity));
+      .sort((a, b) =>
+        (virtualCover.get(a.productId) ?? Infinity) - (virtualCover.get(b.productId) ?? Infinity),
+      );
     const next = choices.find((c) => daysNeeded([...selected, c]) <= capacity);
     if (!next) break;
+
     selected.push(next);
     usedTanks.add(next.tankId);
-    const p = products.find((p) => p.id === next.productId)!;
-    virtualCover.set(p.id, (virtualCover.get(p.id) ?? 0) + next.quantity / weeklyDemand(p));
+    const p = products.find((x) => x.id === next.productId)!;
+    virtualCover.set(
+      p.id,
+      (virtualCover.get(p.id) ?? 0) + next.quantity / weeklyDemand(p),
+    );
   }
 
   return { recommendation: selected, days: daysNeeded(selected), capacity };
@@ -321,18 +347,31 @@ function buildBrewRecommendation(
     .filter((r) => !!r.date && r.date! <= weekEnd);
   const currentBrews = plans.find((w) => w.id === week)?.brews.length ?? 0;
   const capacity = Math.max(0, releases.length - currentBrews);
-  const styles = [...new Set(settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style)).map((p) => displayStyle(p.style)))];
+
+  const styles = [
+    ...new Set(
+      settings.products
+        .filter((p) => p.monthly > 0 && isCoreStyle(p.style))
+        .map((p) => displayStyle(p.style)),
+    ),
+  ];
   const ranked = styles
     .map((style) => {
       const productRows = [...rows.values()].filter((r) => sameStyle(r.product.style, style));
-      const covers = productRows.map((r) => r.totalCover).filter((v): v is number => v !== null);
+      const covers = productRows
+        .map((r) => r.totalCover)
+        .filter((value): value is number => value !== null);
       return { style, cover: covers.length ? Math.min(...covers) : Infinity };
     })
     .sort((a, b) => a.cover - b.cover);
+
   const recommendations: WeeklyBrewRecommendation[] = [];
   for (let i = 0; i < Math.min(capacity, ranked.length); i++) {
     const release = releases[i];
-    recommendations.push({ style: ranked[i].style, liters: release?.workLiters || 2500 });
+    recommendations.push({
+      style: ranked[i].style,
+      liters: release?.workLiters || 2500,
+    });
   }
   return { recommendations, capacity };
 }
@@ -353,9 +392,11 @@ export function buildWeeklyPlanningModel(args: {
   const weekEnd = addDays(week, 6);
   const normalized = forecastSettings(settings, today);
   const forecastPlans = dateWeeklyPackaging(plans);
+
   const stages: WeeklyStage[] = ["base", "afterShipment", "afterPackaging", "committed"];
   const forecasts = {} as Record<WeeklyStage, DailyResult>;
   const rows = {} as Record<WeeklyStage, Map<string, WeeklySkuState>>;
+
   for (const stage of stages) {
     forecasts[stage] = dailyForecast(
       normalized,
@@ -372,11 +413,37 @@ export function buildWeeklyPlanningModel(args: {
   }
 
   const shipment = buildShipmentRecommendation(normalized, rows.base);
-  const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, week, weekEnd);
-  const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, plans, actuals, sources, today, week, weekEnd);
+  const packaging = buildPackagingRecommendation(
+    normalized,
+    rows.afterShipment,
+    tanks,
+    plans,
+    actuals,
+    week,
+    weekEnd,
+  );
+
+  // IMPORTANT: use forecast-dated clones here. Weekly packaging decisions are
+  // enough to establish a planned tank release; exact execution day is assigned
+  // later by the daily manager and is not written back by this forecast helper.
+  const brew = buildBrewRecommendation(
+    normalized,
+    rows.afterPackaging,
+    tanks,
+    forecastPlans,
+    actuals,
+    sources,
+    today,
+    week,
+    weekEnd,
+  );
+
   const coreProducts = normalized.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const tankAvailableLiters = new Map(
-    tanks.map((t) => [t.id, remainingTankLiters(t, plans, coreProducts, actuals, week)] as const),
+    tanks.map((tank) => [
+      tank.id,
+      remainingTankLiters(tank, plans, coreProducts, actuals, week),
+    ] as const),
   );
 
   return {
