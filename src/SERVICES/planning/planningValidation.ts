@@ -5,7 +5,7 @@ import { validateTruckGroups } from "./truckPlanner";
 /**
  * Validation for saved planning decisions.
  * Weekly brew decisions may intentionally remain without a tank; the work
- * manager assigns the physical tank later in the daily schedule.
+ * manager assigns the physical tank later in the work board.
  */
 export function validatePlanningWeek(
   w: WeekPlan,
@@ -67,8 +67,9 @@ export function validatePlanningWeek(
     return "משטח כבר משויך למשלוח בשבוע אחר";
 
   for (const b of w.brews) {
-    if (!w.allowExceptions && (weekday(b.date) < 1 || weekday(b.date) > 3))
-      return "בישול משובץ בימים שני–רביעי בלבד";
+    const day = weekday(b.date);
+    if (!w.allowExceptions && day > 4)
+      return "בישול רגיל משובץ בתוך שבוע העבודה ראשון–חמישי";
     if (!parseDate(b.date) || weekStart(b.date) !== w.id || !b.style || !Number.isFinite(b.liters) || b.liters <= 0)
       return "יש להשלים שבוע, סגנון ונפח בישול";
     if (b.date < today) return "לא ניתן ליצור בישול חדש בשבוע שכבר עבר";
