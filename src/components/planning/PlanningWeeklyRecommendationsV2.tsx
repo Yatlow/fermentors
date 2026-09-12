@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { calcTruckSlots, MAX_TRUCK_SLOTS, setMarkedForShipment } from "../../SERVICES/cooler/Palletservice";
+import { getColumnDef } from "../../SERVICES/cooler/Coolergridconfig";
 import {
   addDays,
   emptyWeek,
@@ -77,8 +78,34 @@ function palletQuantity(pallet: Pallet) {
   return Math.max(0, Math.round(Number(pallet.quantity || 0)));
 }
 
+function palletAccessRank(pallet: Pallet) {
+  const cell = pallet.cell;
+  if (!cell) return [9, 99, 99, 99] as const;
+
+  if (cell.side === "corridor") {
+    return [0, 0, cell.col, pallet.orderInCell ?? pallet.slotIndex ?? 0] as const;
+  }
+
+  const column = getColumnDef(cell.side, cell.col);
+  const rowDistanceFromCorridor = cell.side === "right"
+    ? Math.max(0, (column?.rows ?? cell.row) - cell.row)
+    : Math.max(0, cell.row - 1);
+
+  return [1, rowDistanceFromCorridor, cell.col, pallet.orderInCell ?? pallet.slotIndex ?? 0] as const;
+}
+
+function compareAccess(a: Pallet, b: Pallet) {
+  const ar = palletAccessRank(a);
+  const br = palletAccessRank(b);
+  for (let i = 0; i < ar.length; i++) {
+    if (ar[i] !== br[i]) return ar[i] - br[i];
+  }
+  return 0;
+}
+
 function compareFefo(a: Pallet, b: Pallet) {
   return String(expiryIso(a.expiryDateStr) ?? "9999").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999")) ||
+    compareAccess(a, b) ||
     String(a.batchNumber ?? "").localeCompare(String(b.batchNumber ?? "")) ||
     a.id.localeCompare(b.id);
 }
@@ -108,6 +135,8 @@ function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): 
   const byExpiryFullFirst = [...fefo].sort((a, b) => {
     const expiry = String(expiryIso(a.expiryDateStr) ?? "9999").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999"));
     if (expiry) return expiry;
+    const access = compareAccess(a, b);
+    if (access) return access;
     const batch = String(a.batchNumber ?? "").localeCompare(String(b.batchNumber ?? ""));
     if (batch) return batch;
     return palletQuantity(b) - palletQuantity(a) || a.id.localeCompare(b.id);
@@ -126,9 +155,6 @@ function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): 
   pushGreedy(compact);
   pushGreedy(partialFirst);
 
-  // Generate compact alternatives around the greedy solutions. This lets a fuller
-  // pallet replace one or two partial pallets when the FEFO-only choice would waste
-  // truck slots, while still keeping FEFO alternatives in the option pool.
   for (const base of [...rawSelections]) {
     const baseIds = new Set(base.map((p) => p.id));
     const unselected = fefo.filter((p) => !baseIds.has(p.id));
@@ -137,17 +163,13 @@ function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): 
     for (const add of unselected) {
       for (let i = 0; i < base.length; i++) {
         const total = baseTotal - palletQuantity(base[i]) + palletQuantity(add);
-        if (total >= target) {
-          rawSelections.push([...base.filter((_, index) => index !== i), add]);
-        }
+        if (total >= target) rawSelections.push([...base.filter((_, index) => index !== i), add]);
       }
 
       for (let i = 0; i < base.length; i++) {
         for (let j = i + 1; j < base.length; j++) {
           const total = baseTotal - palletQuantity(base[i]) - palletQuantity(base[j]) + palletQuantity(add);
-          if (total >= target) {
-            rawSelections.push([...base.filter((_, index) => index !== i && index !== j), add]);
-          }
+          if (total >= target) rawSelections.push([...base.filter((_, index) => index !== i && index !== j), add]);
         }
       }
     }
@@ -170,9 +192,7 @@ function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): 
       fefoScore: deduped.reduce((sum, p) => sum + (fefoRank.get(p.id) ?? fefo.length), 0),
     };
     const existing = uniqueOptions.get(key);
-    if (!existing || option.slots < existing.slots || (option.slots === existing.slots && option.fefoScore < existing.fefoScore)) {
-      uniqueOptions.set(key, option);
-    }
+    if (!existing || option.slots < existing.slots || (option.slots === existing.slots && option.fefoScore < existing.fefoScore)) uniqueOptions.set(key, option);
   }
 
   return [...uniqueOptions.values()]
@@ -185,9 +205,7 @@ function pruneShipmentStates(states: ShipmentSelectionState[]) {
   for (const state of states) {
     const key = state.selected.map((p) => p.id).sort().join("|");
     const existing = deduped.get(key);
-    if (!existing || state.fefoScore < existing.fefoScore || (state.fefoScore === existing.fefoScore && state.slots < existing.slots)) {
-      deduped.set(key, state);
-    }
+    if (!existing || state.fefoScore < existing.fefoScore || (state.fefoScore === existing.fefoScore && state.slots < existing.slots)) deduped.set(key, state);
   }
   const all = [...deduped.values()];
   const byCapacity = [...all].sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore || a.overage - b.overage).slice(0, 220);
@@ -196,7 +214,7 @@ function pruneShipmentStates(states: ShipmentSelectionState[]) {
 }
 
 export default function PlanningWeeklyRecommendationsV2({
-  settings, plans, tanks, sources, pallets, actuals, shipments, holidays, today, disabled, saveWeek, onOpenCoolerMap,
+  settings, plans, tanks, sources, pallets, actuals, shipments, holidays, today, disabled, saveWeek, onOpenCoolerMap: _onOpenCoolerMap,
 }: {
   settings: Settings;
   plans: WeekPlan[];
@@ -238,9 +256,7 @@ export default function PlanningWeeklyRecommendationsV2({
     !currentOpenPackaging.some((saved) => saved.tankId === rec.tankId && saved.productId === rec.productId),
   );
   const packagingRecByProduct = new Map<string, number>();
-  for (const r of visiblePackagingRecommendations) {
-    packagingRecByProduct.set(r.productId, (packagingRecByProduct.get(r.productId) ?? 0) + r.quantity);
-  }
+  for (const r of visiblePackagingRecommendations) packagingRecByProduct.set(r.productId, (packagingRecByProduct.get(r.productId) ?? 0) + r.quantity);
 
   const shipmentProducts = [...products].sort((a, b) =>
     (model.rows.base.get(a.id)?.tempoCover ?? Infinity) - (model.rows.base.get(b.id)?.tempoCover ?? Infinity),
@@ -290,23 +306,17 @@ export default function PlanningWeeklyRecommendationsV2({
   }
   function draftShipmentCover(p: Product) {
     const base = model.rows.base.get(p.id);
-    return !base || base.tempoUnits === null || weeklyDemand(p) <= 0
-      ? null
-      : (base.tempoUnits + (shipDraft[p.id] ?? 0)) / weeklyDemand(p);
+    return !base || base.tempoUnits === null || weeklyDemand(p) <= 0 ? null : (base.tempoUnits + (shipDraft[p.id] ?? 0)) / weeklyDemand(p);
   }
   function shipmentRecommendationCover(p: Product) {
     const base = model.rows.base.get(p.id);
     const rec = shipmentRec.get(p.id);
-    return !base || base.tempoUnits === null || !rec || weeklyDemand(p) <= 0
-      ? null
-      : (base.tempoUnits + rec.quantity) / weeklyDemand(p);
+    return !base || base.tempoUnits === null || !rec || weeklyDemand(p) <= 0 ? null : (base.tempoUnits + rec.quantity) / weeklyDemand(p);
   }
   function packagingRecommendationCover(p: Product) {
     const before = model.rows.afterShipment.get(p.id);
     const quantity = packagingRecByProduct.get(p.id) ?? 0;
-    return !before || before.tempoUnits === null || !quantity || weeklyDemand(p) <= 0
-      ? null
-      : (before.tempoUnits + before.breweryUnits + quantity) / weeklyDemand(p);
+    return !before || before.tempoUnits === null || !quantity || weeklyDemand(p) <= 0 ? null : (before.tempoUnits + before.breweryUnits + quantity) / weeklyDemand(p);
   }
   function recommendationTankLabel(productId: string) {
     const values = unique(visiblePackagingRecommendations.filter((r) => r.productId === productId).map((r) => r.tankNumber));
@@ -386,20 +396,7 @@ export default function PlanningWeeklyRecommendationsV2({
   const canOfferMapMarking = isNearShipmentWeek && nearestShipmentWeek === week && (current.deliveries ?? []).some((d) => d.quantity > 0);
 
   async function markShipmentOnCoolerMap() {
-    console.log("[SHIPMENT MARK] start", {
-      week,
-      today,
-      canOfferMapMarking,
-      deliveries: current.deliveries,
-      products: products.map((p) => ({ id: p.id, style: p.style, type: p.type, requested: currentShipmentQty(p.id) })),
-      palletCount: pallets.length,
-      coolerPalletCount: pallets.filter((p) => p.zone === "cooler").length,
-    });
-
-    if (!canOfferMapMarking) {
-      console.warn("[SHIPMENT MARK] aborted: canOfferMapMarking=false");
-      return;
-    }
+    if (!canOfferMapMarking) return;
 
     const shipmentLines = products
       .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
@@ -413,33 +410,13 @@ export default function PlanningWeeklyRecommendationsV2({
         );
         const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
         const options = palletSelectionOptions(candidates, line.requested);
-        console.log("[SHIPMENT MARK] product options", {
-          productId: line.product.id,
-          style: line.product.style,
-          type: line.product.type,
-          requestedQuantity: line.requested,
-          available,
-          candidateCount: candidates.length,
-          optionCount: options.length,
-          bestOptions: options.slice(0, 8).map((option) => ({
-            ids: option.selected.map((p) => p.id),
-            quantities: option.selected.map((p) => p.quantity),
-            total: option.total,
-            slots: option.slots,
-            overage: option.overage,
-            fefoScore: option.fefoScore,
-          })),
-        });
         return { ...line, candidates, available, options };
       });
 
     let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
 
     for (const line of shipmentLines) {
-      if (!line.options.length) {
-        console.warn("[SHIPMENT MARK] no selection options", { productId: line.product.id, requested: line.requested, available: line.available });
-        return setMessage(`לא נמצאה קומבינציית משטחים עבור ${displayStyle(line.product.style)}.`);
-      }
+      if (!line.options.length) return setMessage(`לא נמצאה קומבינציית משטחים עבור ${displayStyle(line.product.style)}.`);
 
       const nextStates: ShipmentSelectionState[] = [];
       for (const state of states) {
@@ -466,21 +443,7 @@ export default function PlanningWeeklyRecommendationsV2({
       }
 
       states = pruneShipmentStates(nextStates);
-      console.log("[SHIPMENT MARK] combined states", {
-        productId: line.product.id,
-        remainingStates: states.length,
-        bestByCapacity: states.slice().sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore).slice(0, 5).map((state) => ({
-          slots: state.slots,
-          palletCount: state.selected.length,
-          fefoScore: state.fefoScore,
-          overage: state.overage,
-        })),
-      });
-
-      if (!states.length) {
-        console.warn("[SHIPMENT MARK] no truck-feasible state", { productId: line.product.id, maxSlots: MAX_TRUCK_SLOTS });
-        return setMessage(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
-      }
+      if (!states.length) return setMessage(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
     }
 
     const best = [...states].sort((a, b) =>
@@ -490,60 +453,24 @@ export default function PlanningWeeklyRecommendationsV2({
       a.selected.length - b.selected.length,
     )[0];
 
-    if (!best || !best.selected.length) {
-      console.warn("[SHIPMENT MARK] aborted: no selected pallets", { shipmentLines });
-      return setMessage("לא נמצאו משטחים פיזיים מתאימים לסימון.");
-    }
+    if (!best || !best.selected.length) return setMessage("לא נמצאו משטחים פיזיים מתאימים לסימון.");
 
     const palletIds = [...new Set(best.selected.map((p) => p.id))];
     const notes = best.details.flatMap((detail) => {
       const result: string[] = [];
-      if (detail.missing > 0) {
-        result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
-      }
-      if (detail.overage > 0) {
-        result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
-      }
+      if (detail.missing > 0) result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
+      if (detail.overage > 0) result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
       return result;
-    });
-
-    console.log("[SHIPMENT MARK] selected truck-feasible pallets", {
-      palletIds,
-      slots: best.slots,
-      palletCount: best.selected.length,
-      fefoScore: best.fefoScore,
-      overage: best.overage,
-      pallets: best.selected.map((p) => ({
-        id: p.id,
-        quantity: p.quantity,
-        style: p.beerStyle,
-        type: p.itemType,
-        batchNumber: p.batchNumber,
-        expiryDateStr: p.expiryDateStr,
-      })),
-      details: best.details,
-      notes,
     });
 
     setBusy(true); setMessage("");
     try {
-      console.log("[SHIPMENT MARK] firebase writes start", { palletIds });
-      await Promise.all(palletIds.map(async (id) => {
-        console.log("[SHIPMENT MARK] marking pallet", id);
-        await setMarkedForShipment(id, true);
-        console.log("[SHIPMENT MARK] marked pallet", id);
-      }));
-      console.log("[SHIPMENT MARK] firebase writes complete", { palletIds });
-      setMessage(
-        `סומנו ${palletIds.length} משטחים פיזיים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`,
-      );
-      onOpenCoolerMap?.();
+      await Promise.all(palletIds.map((id) => setMarkedForShipment(id, true)));
+      setMessage(`סומנו ${palletIds.length} משטחים פיזיים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`);
     } catch (e) {
-      console.error("[SHIPMENT MARK] firebase write failed", e);
       setMessage(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
     } finally {
       setBusy(false);
-      console.log("[SHIPMENT MARK] done");
     }
   }
 
@@ -716,7 +643,7 @@ export default function PlanningWeeklyRecommendationsV2({
           })}
         </div>
         {!model.shipmentCanFillTruck && model.shipmentSlots > 0 && <p className="bp-alert">אין כרגע מספיק מלאי רגיל צפוי כדי להרכיב המלצה של משאית מלאה. עדיין אפשר לשמור החלטה חלקית ידנית.</p>}
-        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>בוחר קומבינציית משטחים פיזיים שנכנסת בפועל ב־12 מקומות, תוך העדפת FEFO/FIFO ומשטחים חלקיים כשאפשר. קיבולת המשאית מחושבת דרך Palletservice.</small></div>}
+        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>FEFO לפי התוקף הקצר ביותר; בתוך אותו תוקף נבחר קודם את המשטחים הקרובים ביותר למסדרון וליציאה. משטח חלקי נשאר מועמד תקין, והקומבינציה חייבת להיכנס בפועל ב־12 מקומות.</small></div>}
         <div className="bp-actions">{editing === "delivery" ? <><button disabled={busy} onClick={saveShipment}>שמירת החלטת המשלוח</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button className={(current.deliveries ?? []).length ? "bp-action-warning" : ""} disabled={disabled || busy || !model.shipmentCanFillTruck} onClick={acceptShipmentRecommendation}>{(current.deliveries ?? []).length ? "⚠️ החלף החלטה קיימת בהמלצה" : "צור החלטה מהמלצת 12/12"}</button><button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button></>}</div>
       </article>
 
@@ -752,7 +679,7 @@ export default function PlanningWeeklyRecommendationsV2({
         <p className="bp-rec-principle">החלטת אריזה שמרוקנת מיכל נחשבת כריקון מתוכנן. אחרי ששיבצת בישול למיכל בלוח העבודה, אותו מיכל נחשב תפוס ואינו מוצע לבישול נוסף.</p>
         <div className="bp-decided-list"><b>המלצת המערכת</b>{model.brewRecommendations.length ? model.brewRecommendations.map((r, i) => <div className="bp-rec-line" key={`${r.style}:${i}`}><span><b>{displayStyle(r.style)}</b></span><span>{fmt(r.liters)} ל׳</span></div>) : <small>אין כרגע המלצת בישול נוספת.</small>}</div>
         <div className="bp-decided-list"><b>החלטות שנקבעו</b>{current.brews.length ? current.brews.map((b) => <div className="bp-rec-line" key={b.id}><span><b>{displayStyle(b.style)}</b></span><span>{fmt(b.liters)} ל׳{b.tankId ? ` · שובץ למיכל ${tanks.find((t) => t.id === b.tankId)?.number ?? b.tankId}` : " · טרם שובץ למיכל"}</span></div>) : <small>טרם נקבעו בישולים.</small>}</div>
-        {editing === "brew" && <div className="bp-decided-list"><b>עריכת החלטת הבישול</b>{brewDraft.map((b, i) => <div className="bp-brew-edit-row" key={i}><select value={b.style} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, style: e.target.value } : x))}>{CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}</select><input type="number" min="1" value={b.liters} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, liters: Number(e.target.value) } : x))}/><button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button></div>)}</div>}
+        {editing === "brew" && <div className="bp-decided-list"><b>עריכת החלטת הבישול</b>{brewDraft.map((b, i) => <div className="bp-brew-edit-row" key={i}><select value={b.style} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, style: e.target.value } : x))}>{CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option></select><input type="number" min="1" value={b.liters} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, liters: Number(e.target.value) } : x))}/><button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button></div>)}</div>}
         <div className="bp-actions">{editing === "brew" ? <><button type="button" disabled={!model.brewRecommendations.length} onClick={pushBrewRecommendationsToDraft}>הוסף את ההמלצות לעריכה</button><button type="button" onClick={addBrew}>+ הוסף בישול</button><button disabled={busy} onClick={saveBrews}>שמירת החלטת הבישול</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button type="button" disabled={disabled || busy || !model.brewRecommendations.length} onClick={acceptBrewRecommendations}>{current.brews.length ? "הוסף המלצות בישול להחלטות" : "צור החלטות מהמלצות הבישול"}</button><button type="button" disabled={disabled || busy} onClick={addBrew}>+ הוסף בישול</button><button disabled={disabled || busy} onClick={() => beginEdit("brew")}>עריכת הבישולים</button></>}</div>
       </article>
     </div>
