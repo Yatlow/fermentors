@@ -90,9 +90,9 @@ export default function PlanningWeekEditor({
   function availableSourcesForBrew(brew: BrewPlan, index: number) {
     return brews.filter((source) => {
       if (Number(source.tankNumber) === 1) return false;
-      if (source.id === brew.tankId) return true;
-      const occupiedByAnotherPlan = draft.brews.some((other, j) => j !== index && other.tankId === source.id);
+      const occupiedByAnotherPlan = draft.brews.some((other, j) => j !== index && !!other.tankId && other.tankId === source.id);
       if (occupiedByAnotherPlan) return false;
+      if (source.id === brew.tankId) return true;
       const release = releases.find((r) => r.tankId === source.id);
       return !!release?.date && release.date <= brew.date;
     });
@@ -198,17 +198,18 @@ export default function PlanningWeekEditor({
           {visibleBrews.map(({ b, i }) => {
             const source = brews.find((t) => t.id === b.tankId);
             const available = availableSourcesForBrew(b, i);
+            const unassignedAvailable = available.filter((t) => t.id !== b.tankId);
             const capacity = b.tankId ? releaseVolume(b.tankId, b.style) : 0;
             const styleIsOther = !CORE_STYLES.some((s) => sameStyle(s, b.style));
             const counts = { single: 0, double: 0, triple: 0 };
-            for (const t of available) {
+            for (const t of unassignedAvailable) {
               const type = tankType(t.tankNumber);
               if (type === "בודד") counts.single++;
               if (type === "כפול") counts.double++;
               if (type === "משולש") counts.triple++;
             }
             return <div className="bp-edit-card" key={b.id}>
-              <div className="bp-saved-summary">פנויים ל־{shortDate(b.date)}: בודד {counts.single} · כפול {counts.double} · משולש {counts.triple}</div>
+              <div className="bp-saved-summary">{b.tankId ? `שובץ למיכל ${source?.tankNumber ?? b.tankId} · ` : ""}פנויים נוספים ל־{shortDate(b.date)}: בודד {counts.single} · כפול {counts.double} · משולש {counts.triple}</div>
               <div className="bp-fields">
                 <label>סגנון<select value={styleIsOther ? "אחר" : displayStyle(b.style)} onChange={(e) => {
                   const value = e.target.value;
@@ -228,7 +229,7 @@ export default function PlanningWeekEditor({
                 }}><option value="">בחירת מיכל</option>{available.map((t) => {
                   const release = releases.find((r) => r.tankId === t.id);
                   const volume = release?.workLiters || estimatedBrewVolume(t.tankNumber, b.style);
-                  return <option key={t.id} value={t.id}>מיכל {t.tankNumber ?? t.id} · {tankType(t.tankNumber)} · פנוי {release?.date ? `מ־${shortDate(release.date)}` : ""} · {Math.round(volume)} ל׳</option>;
+                  return <option key={t.id} value={t.id}>מיכל {t.tankNumber ?? t.id} · {tankType(t.tankNumber)} · {t.id === b.tankId ? "משובץ לבישול הזה" : `פנוי ${release?.date ? `מ־${shortDate(release.date)}` : ""}`} · {Math.round(volume)} ל׳</option>;
                 })}</select></label>
                 <label>נפח בישול<input type="number" min="1" value={b.liters || ""} readOnly={capacity > 0} onChange={(e) => updateBrew(i, { liters: Number(e.target.value) })}/><small>{capacity > 0 ? `לפי נפח העבודה של מיכל ${source?.tankNumber ?? ""}` : "בחר מיכל לקבלת נפח עבודה אוטומטי."}</small></label>
               </div>
