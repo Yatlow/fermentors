@@ -1,23 +1,29 @@
 import { useState } from "react";
 import {
+  addDays,
   litersPerUnit,
   sameStyle,
-  num,
   weekNumber,
   type Settings,
   type Tank,
   type WeekPlan,
   type BrewPlan,
   type Plan,
-  type DeliveryPlan,
 } from "../../SERVICES/planning/planningEngine";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import PlanningDaySelect from "./PlanningDaySelect";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
-import { CORE_STYLES, displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPresentation";
-import { estimatedBrewVolume } from "../../SERVICES/planning/productionCycle";
-import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
+import { CORE_STYLES, displayStyle, isCoreStyle, WEEK_DAYS } from "../../SERVICES/planning/planningPresentation";
+import { estimatedBrewVolume, type Release } from "../../SERVICES/planning/productionCycle";
+
+const tankType = (value: unknown) => {
+  const n = Number(value);
+  if (n >= 2 && n <= 4) return "בודד";
+  if (n >= 5 && n <= 8) return "כפול";
+  if (n >= 9) return "משולש";
+  return "";
+};
 
 export default function PlanningWeekEditor({
   initial,
@@ -26,8 +32,9 @@ export default function PlanningWeekEditor({
   defaultBrewDate,
   settings,
   tanks,
+  releases,
   brews,
-  pallets,
+  pallets: _pallets,
   disabled,
   onSave,
   onCancel,
@@ -38,6 +45,7 @@ export default function PlanningWeekEditor({
   defaultBrewDate?: string;
   settings: Settings;
   tanks: Tank[];
+  releases: Release[];
   brews: Fermentor[];
   pallets: Pallet[];
   disabled: boolean;
@@ -52,12 +60,11 @@ export default function PlanningWeekEditor({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [otherStyle, setOtherStyle] = useState("");
-  const [deliveryProduct, setDeliveryProduct] = useState("");
-  const [deliveryQty, setDeliveryQty] = useState(0);
+  const [brewRangeStart, setBrewRangeStart] = useState(1);
+  const [brewRangeEnd, setBrewRangeEnd] = useState(4);
 
-  const dayPacks = draft.packaging.map((r, i) => ({ r, i })).filter(({ r }) => r.date === day);
+  const dayPacks = draft.packaging.map((r, i) => ({ r, i })).filter(({ r }) => r.date === day || !r.date);
   const visibleBrews = draft.brews.map((b, i) => ({ b, i }));
-  const dayDeliveries = (draft.deliveries ?? []).map((d, i) => ({ d, i })).filter(({ d }) => d.dispatchDate === day);
 
   const usedLiters = (tankId: string, exceptId?: string) =>
     draft.packaging
@@ -80,57 +87,21 @@ export default function PlanningWeekEditor({
   const updateBrew = (i: number, patch: Partial<BrewPlan>) =>
     setDraft((w) => ({ ...w, brews: w.brews.map((r, j) => j === i ? { ...r, ...patch } : r) }));
 
-  const availableFor = (productId: string) => {
-    const product = settings.products.find((p) => p.id === productId);
-    if (!product) return { physicalPallets: 0, physicalQty: 0, plannedPallets: 0, plannedQty: 0 };
-    const physical = pallets.filter(
-      (p) =>
-        p.zone !== "shipped" &&
-        p.itemType === product.type &&
-        sameStyle(p.beerStyle, product.style),
-    );
-    const plannedQty = draft.packaging
-      .filter((p) => p.productId === productId && p.date && p.date >= day)
-      .reduce((sum, p) => sum + p.quantity, 0);
-    return {
-      physicalPallets: physical.length,
-      physicalQty: physical.reduce((sum, p) => sum + num(p.quantity), 0),
-      plannedPallets: plannedQty > 0 ? projectedPallets(product, plannedQty, `editor:${day}`).length : 0,
-      plannedQty,
-    };
-  };
-
-  function addDelivery() {
-    const product = settings.products.find((p) => p.id === deliveryProduct);
-    if (!product || deliveryQty <= 0) return;
-    setDraft((w) => {
-      const deliveries = [...(w.deliveries ?? [])];
-      const existing = deliveries.findIndex((d) => d.dispatchDate === day && d.productId === product.id);
-      if (existing >= 0) {
-        deliveries[existing] = {
-          ...deliveries[existing],
-          quantity: deliveries[existing].quantity + deliveryQty,
-          pallets: [],
-        };
-      } else {
-        const next: DeliveryPlan = {
-          id: crypto.randomUUID(),
-          productId: product.id,
-          quantity: deliveryQty,
-          dispatchDate: day,
-          arrivalDate: day,
-          truckId: `truck:${day}`,
-          pallets: [],
-        };
-        deliveries.push(next);
-      }
-      return {
-        ...w,
-        deliveries,
-        deliveryDates: [...new Set([...(w.deliveryDates ?? []), day])].sort(),
-      };
+  function availableSourcesForBrew(brew: BrewPlan, index: number) {
+    return brews.filter((source) => {
+      if (Number(source.tankNumber) === 1) return false;
+      if (source.id === brew.tankId) return true;
+      const occupiedByAnotherPlan = draft.brews.some((other, j) => j !== index && other.tankId === source.id);
+      if (occupiedByAnotherPlan) return false;
+      const release = releases.find((r) => r.tankId === source.id);
+      return !!release?.date && release.date <= brew.date;
     });
-    setDeliveryQty(0);
+  }
+
+  function releaseVolume(tankId: string, style: string) {
+    const release = releases.find((r) => r.tankId === tankId);
+    const source = brews.find((t) => t.id === tankId);
+    return release?.workLiters || estimatedBrewVolume(source?.tankNumber, style);
   }
 
   async function save() {
@@ -165,35 +136,39 @@ export default function PlanningWeekEditor({
 
   function addBrew() {
     if (!defaultBrewDate) { setError("אין עוד יום בישול זמין בשבוע הזה"); return; }
+    const preferred = Array.from({ length: brewRangeEnd - brewRangeStart + 1 }, (_, i) => addDays(draft.id, brewRangeStart + i))
+      .find((date) => date >= defaultBrewDate) ?? addDays(draft.id, brewRangeStart);
     setDraft((w) => ({
       ...w,
       brews: [...w.brews, {
         id: crypto.randomUUID(), tankId: "", style: CORE_STYLES[0],
-        date: defaultBrewDate, liters: 0,
+        date: preferred, liters: 0,
       }],
     }));
   }
 
+  const brewDays = Array.from({ length: Math.max(0, brewRangeEnd - brewRangeStart + 1) }, (_, i) => brewRangeStart + i);
+
   return (
-    <section className="bp-editor" aria-label={scope === "brews" ? "עריכת בישולים" : "עריכת היום"}>
+    <section className="bp-editor" aria-label={scope === "brews" ? "עריכת בישולים" : "עריכת אריזות היום"}>
       <div className="bp-editor-header">
         <div>
-          <h3>{scope === "brews" ? `בישולים · שבוע ${weekNumber(draft.id)}` : `עריכת ${shortDate(day)}`}</h3>
-          <small>{scope === "brews" ? "הבישול שייך לשבוע. היום הפנימי משמש לתחזית ולשיבוץ של מנהל העבודה." : "שינוי יום פעולה מעביר אותה ליום אחר בלוח."}</small>
+          <h3>{scope === "brews" ? `בישולים · שבוע ${weekNumber(draft.id)}` : `אריזות · ${shortDate(day)}`}</h3>
+          <small>{scope === "brews" ? "כאן משבצים את החלטות הבישול השבועיות למיכלים פנויים/מתוכננים להתפנות וליום ביצוע." : "הטבלה היומית עוסקת באריזות בלבד."}</small>
         </div>
         <button type="button" onClick={onCancel}>סגירה</button>
       </div>
 
       <fieldset disabled={disabled || busy} className="bp-fieldset bp-editor-body">
         {scope === "day" && <>
-          <label><input type="checkbox" checked={(draft.deliveryDates ?? []).includes(day)} onChange={(e) => setDraft((w) => ({ ...w, deliveryDates: e.target.checked ? [...new Set([...(w.deliveryDates ?? []), day])].sort() : (w.deliveryDates ?? []).filter((d) => d !== day) }))}/>ביום הזה מגיע איסוף לטמפו</label>
-
           <h4>אריזות</h4>
+          {dayPacks.length === 0 && <p className="bp-muted">אין אריזות ליום הזה ואין אריזות שממתינות לשיבוץ.</p>}
           {dayPacks.map(({ r, i }) => {
             const tank = tanks.find((t) => t.id === r.tankId);
             const products = settings.products.filter((p) => isCoreStyle(p.style) && (!tank || sameStyle(p.style, tank.style)));
             const max = r.tankId ? maxTankQuantity(r.tankId, r.productId, r.id) : 0;
             return <div className="bp-edit-card" key={r.id}>
+              {!r.date && <div className="bp-alert"><b>טרם שובץ ליום</b> · <button type="button" onClick={() => updatePack(i, { date: day })}>שבץ ל־{shortDate(day)}</button></div>}
               <div className="bp-fields">
                 <label>מיכל<select value={r.tankId ?? ""} onChange={(e) => {
                   const nextTank = tanks.find((t) => t.id === e.target.value);
@@ -202,73 +177,60 @@ export default function PlanningWeekEditor({
                 }}><option value="">בחירת מיכל</option>{tanks.filter((t) => t.ready <= day).map((t) => <option key={t.id} value={t.id}>{t.number} · {displayStyle(t.style)} · {Math.floor(Math.max(0, t.liters - usedLiters(t.id, r.id)))} ל׳</option>)}</select></label>
                 <label>מה אורזים<select value={r.productId} onChange={(e) => updatePack(i, { productId: e.target.value, quantity: maxTankQuantity(r.tankId ?? "", e.target.value, r.id) })}>{products.map((p) => <option key={p.id} value={p.id}>{p.type === "crates" ? "בקבוקים" : "חביות"} · {displayStyle(p.style)}</option>)}</select></label>
                 <label>כמות<input type="number" min="1" max={max || undefined} value={r.quantity} onChange={(e) => updatePack(i, { quantity: Math.min(Number(e.target.value), max || Number(e.target.value)) })}/>{max > 0 && <small>עד {max} לפי יתרת המיכל.</small>}</label>
-                <PlanningDaySelect week={draft.id} allowWeekend={draft.allowExceptions} value={r.date ?? day} label="העברת האריזה ליום אחר" onChange={(date) => updatePack(i, { date })}/>
+                <PlanningDaySelect week={draft.id} allowWeekend={draft.allowExceptions} value={r.date ?? ""} label="יום האריזה" onChange={(date) => updatePack(i, { date })}/>
               </div>
               <label><input type="checkbox" checked={r.emptyTank ?? false} onChange={(e) => updatePack(i, { emptyTank: e.target.checked })}/>זו האריזה האחרונה מהמיכל</label>
               <button type="button" onClick={() => setDraft((w) => ({ ...w, packaging: w.packaging.filter((_, j) => i !== j) }))}>הסרת האריזה</button>
             </div>;
           })}
-          <button type="button" onClick={addPackaging}>הוספת אריזה</button>
-
-          <h4>משלוח</h4>
-          {dayDeliveries.length ? <div className="bp-edit-card">
-            <b>תכולת המשלוח</b>
-            {dayDeliveries.map(({ d, i }) => {
-              const p = settings.products.find((p) => p.id === d.productId);
-              const availability = availableFor(d.productId);
-              return <div className="bp-shipment-row bp-shipment-qty-row" key={d.id}>
-                <div>
-                  <b>{displayStyle(p?.style ?? d.productId)} · {p?.type === "crates" ? "ארגזים" : "חביות"}</b>
-                  <small>זמין עכשיו: {availability.physicalPallets} משטחים / {Math.round(availability.physicalQty)} · מתכנון: {availability.plannedPallets} משטחים / {Math.round(availability.plannedQty)}</small>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  value={d.quantity}
-                  onChange={(e) => setDraft((w) => ({
-                    ...w,
-                    deliveries: (w.deliveries ?? []).map((x, j) => j === i ? { ...x, quantity: Math.max(0, Number(e.target.value)), pallets: [] } : x),
-                  }))}
-                />
-                <button type="button" onClick={() => setDraft((w) => ({ ...w, deliveries: (w.deliveries ?? []).filter((_, j) => i !== j) }))}>הסר</button>
-              </div>;
-            })}
-          </div> : <p className="bp-muted">לא נקבעה תכולת משלוח ליום זה.</p>}
-
-          <div className="bp-add-delivery-line">
-            <label>הוספת מוצר למשלוח<select value={deliveryProduct} onChange={(e) => setDeliveryProduct(e.target.value)}><option value="">בחירת מוצר</option>{settings.products.filter((p) => p.monthly > 0).map((p) => <option value={p.id} key={p.id}>{displayStyle(p.style)} · {p.type === "crates" ? "ארגזים" : "חביות"}</option>)}</select></label>
-            <label>כמות<input type="number" min="0" value={deliveryQty || ""} onChange={(e) => setDeliveryQty(Number(e.target.value))}/></label>
-            <button type="button" disabled={!deliveryProduct || deliveryQty <= 0} onClick={addDelivery}>הוסף למשלוח</button>
-            {deliveryProduct && (() => { const a = availableFor(deliveryProduct); return <small>המערכת תבחר את המשטחים בפועל לפי FIFO. זמינים כעת {a.physicalPallets} משטחים; עוד {a.plannedPallets} משטחים צפויים מהתכנון.</small>; })()}
-          </div>
+          <button type="button" onClick={addPackaging}>הוספת אריזה ליום הזה</button>
         </>}
 
         {scope === "brews" && <>
+          <div className="bp-settings">
+            <b>טווח ימי בישול</b>
+            <label>מיום<select value={brewRangeStart} onChange={(e) => setBrewRangeStart(Math.min(Number(e.target.value), brewRangeEnd))}>{WEEK_DAYS.slice(0, 5).map((name, i) => <option value={i} key={name}>{name}</option>)}</select></label>
+            <label>עד יום<select value={brewRangeEnd} onChange={(e) => setBrewRangeEnd(Math.max(Number(e.target.value), brewRangeStart))}>{WEEK_DAYS.slice(0, 5).map((name, i) => <option value={i} key={name}>{name}</option>)}</select></label>
+            <small>ברירת מחדל: שני–חמישי. אפשר להרחיב/לצמצם בתוך שבוע העבודה.</small>
+          </div>
+
           <h4>בישולים השבוע</h4>
           {visibleBrews.map(({ b, i }) => {
             const source = brews.find((t) => t.id === b.tankId);
-            const explicit = num(source?.beerVolume);
-            const estimated = source ? estimatedBrewVolume(source.tankNumber, b.style) : 0;
-            const capacity = explicit || estimated;
+            const available = availableSourcesForBrew(b, i);
+            const capacity = b.tankId ? releaseVolume(b.tankId, b.style) : 0;
             const styleIsOther = !CORE_STYLES.some((s) => sameStyle(s, b.style));
+            const counts = { single: 0, double: 0, triple: 0 };
+            for (const t of available) {
+              const type = tankType(t.tankNumber);
+              if (type === "בודד") counts.single++;
+              if (type === "כפול") counts.double++;
+              if (type === "משולש") counts.triple++;
+            }
             return <div className="bp-edit-card" key={b.id}>
+              <div className="bp-saved-summary">פנויים ל־{shortDate(b.date)}: בודד {counts.single} · כפול {counts.double} · משולש {counts.triple}</div>
               <div className="bp-fields">
                 <label>סגנון<select value={styleIsOther ? "אחר" : displayStyle(b.style)} onChange={(e) => {
                   const value = e.target.value;
                   const style = value === "אחר" ? otherStyle : value;
-                  const volume = source ? num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, style) : b.liters;
+                  const volume = b.tankId ? releaseVolume(b.tankId, style) : b.liters;
                   updateBrew(i, { style, liters: volume || b.liters });
                 }}>{CORE_STYLES.map((s) => <option key={s} value={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option></select></label>
-                {(styleIsOther || b.style === "") && <label>סגנון אחר<input value={otherStyle || (styleIsOther ? b.style : "")} onChange={(e) => { setOtherStyle(e.target.value); const volume = source ? num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, e.target.value) : b.liters; updateBrew(i, { style: e.target.value, liters: volume || b.liters }); }}/></label>}
+                {(styleIsOther || b.style === "") && <label>סגנון אחר<input value={otherStyle || (styleIsOther ? b.style : "")} onChange={(e) => { setOtherStyle(e.target.value); const volume = b.tankId ? releaseVolume(b.tankId, e.target.value) : b.liters; updateBrew(i, { style: e.target.value, liters: volume || b.liters }); }}/></label>}
+                <label>יום בישול<select value={b.date} onChange={(e) => {
+                  const nextDate = e.target.value;
+                  const selectedStillAvailable = availableSourcesForBrew({ ...b, date: nextDate }, i).some((t) => t.id === b.tankId);
+                  updateBrew(i, { date: nextDate, ...(b.tankId && !selectedStillAvailable ? { tankId: "" } : {}) });
+                }}>{brewDays.map((offset) => <option key={offset} value={addDays(draft.id, offset)}>{WEEK_DAYS[offset]} · {shortDate(addDays(draft.id, offset))}</option>)}</select></label>
                 <label>מיכל<select value={b.tankId} onChange={(e) => {
-                  const sourceTank = brews.find((t) => t.id === e.target.value);
-                  const volume = sourceTank ? num(sourceTank.beerVolume) || estimatedBrewVolume(sourceTank.tankNumber, b.style) : 0;
+                  const volume = e.target.value ? releaseVolume(e.target.value, b.style) : 0;
                   updateBrew(i, { tankId: e.target.value, liters: volume || b.liters });
-                }}><option value="">בחירת מיכל</option>{brews.filter((t) => Number(t.tankNumber) !== 1).map((t) => {
-                  const volume = num(t.beerVolume) || estimatedBrewVolume(t.tankNumber, b.style);
-                  return <option key={t.id} value={t.id}>{t.tankNumber ?? t.id}{Number(t.action) === 0 ? " · מחכה לבישול" : ""} · {Math.round(volume)} ל׳{num(t.beerVolume) ? "" : " משוער"}</option>;
+                }}><option value="">בחירת מיכל</option>{available.map((t) => {
+                  const release = releases.find((r) => r.tankId === t.id);
+                  const volume = release?.workLiters || estimatedBrewVolume(t.tankNumber, b.style);
+                  return <option key={t.id} value={t.id}>מיכל {t.tankNumber ?? t.id} · {tankType(t.tankNumber)} · פנוי {release?.date ? `מ־${shortDate(release.date)}` : ""} · {Math.round(volume)} ל׳</option>;
                 })}</select></label>
-                <label>נפח בישול<input type="number" min="1" value={b.liters || ""} readOnly={capacity > 0} onChange={(e) => updateBrew(i, { liters: Number(e.target.value) })}/><small>{explicit > 0 ? `מחושב מנפח העבודה של מיכל ${source?.tankNumber ?? ""}` : estimated > 0 ? `משוער לפי ברירות המחדל של גודל מיכל ${source?.tankNumber ?? ""}` : "לא נמצא נפח אוטומטי — אפשר להזין ידנית."}</small></label>
+                <label>נפח בישול<input type="number" min="1" value={b.liters || ""} readOnly={capacity > 0} onChange={(e) => updateBrew(i, { liters: Number(e.target.value) })}/><small>{capacity > 0 ? `לפי נפח העבודה של מיכל ${source?.tankNumber ?? ""}` : "בחר מיכל לקבלת נפח עבודה אוטומטי."}</small></label>
               </div>
               <button type="button" onClick={() => setDraft((w) => ({ ...w, brews: w.brews.filter((_, j) => i !== j) }))}>הסרת הבישול</button>
             </div>;
