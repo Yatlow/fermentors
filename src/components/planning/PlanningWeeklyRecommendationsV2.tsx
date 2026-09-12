@@ -263,7 +263,20 @@ export default function PlanningWeeklyRecommendationsV2({
   const canOfferMapMarking = isNearShipmentWeek && nearestShipmentWeek === week && (current.deliveries ?? []).some((d) => d.quantity > 0);
 
   async function markShipmentOnCoolerMap() {
-    if (!canOfferMapMarking) return;
+    console.log("[SHIPMENT MARK] start", {
+      week,
+      today,
+      canOfferMapMarking,
+      deliveries: current.deliveries,
+      products: products.map((p) => ({ id: p.id, style: p.style, type: p.type, requested: currentShipmentQty(p.id) })),
+      palletCount: pallets.length,
+      coolerPalletCount: pallets.filter((p) => p.zone === "cooler").length,
+    });
+
+    if (!canOfferMapMarking) {
+      console.warn("[SHIPMENT MARK] aborted: canOfferMapMarking=false");
+      return;
+    }
 
     const selected: Pallet[] = [];
     const notes: string[] = [];
@@ -279,7 +292,32 @@ export default function PlanningWeeklyRecommendationsV2({
         (!expiryIso(x.expiryDateStr) || expiryIso(x.expiryDateStr)! >= today),
       );
 
+      console.log("[SHIPMENT MARK] product candidates", {
+        productId: p.id,
+        style: p.style,
+        type: p.type,
+        requestedQuantity: quantity,
+        candidates: candidates.map((x) => ({
+          id: x.id,
+          quantity: x.quantity,
+          beerStyle: x.beerStyle,
+          itemType: x.itemType,
+          batchNumber: x.batchNumber,
+          expiryDateStr: x.expiryDateStr,
+          markedForShipment: x.markedForShipment,
+          zone: x.zone,
+        })),
+      });
+
       const chosen = palletsForTarget(candidates, quantity);
+      console.log("[SHIPMENT MARK] product chosen", {
+        productId: p.id,
+        requestedQuantity: quantity,
+        selectedIds: chosen.selected.map((x) => x.id),
+        selectedQuantities: chosen.selected.map((x) => x.quantity),
+        total: chosen.total,
+        missing: chosen.missing,
+      });
       selected.push(...chosen.selected);
 
       if (chosen.missing > 0) {
@@ -294,29 +332,50 @@ export default function PlanningWeeklyRecommendationsV2({
       .map((id) => selected.find((p) => p.id === id))
       .filter((p): p is Pallet => !!p);
 
+    console.log("[SHIPMENT MARK] selected physical pallets", {
+      palletIds,
+      selectedPallets: selectedPallets.map((p) => ({ id: p.id, quantity: p.quantity, style: p.beerStyle, type: p.itemType })),
+      notes,
+    });
+
     if (!palletIds.length) {
+      console.warn("[SHIPMENT MARK] aborted: no pallet ids", { notes });
       return setMessage(notes.length ? `לא נמצאו משטחים מתאימים לסימון. ${notes.join(" · ")}` : "לא נמצאו משטחים מתאימים לסימון.");
     }
 
     let slots = Infinity;
-    try { slots = calcTruckSlots(selectedPallets); } catch (e) {
+    try {
+      slots = calcTruckSlots(selectedPallets);
+      console.log("[SHIPMENT MARK] truck slots", { slots, maxSlots: MAX_TRUCK_SLOTS });
+    } catch (e) {
+      console.error("[SHIPMENT MARK] calcTruckSlots failed", e);
       return setMessage(e instanceof Error ? e.message : "לא ניתן לחשב את קיבולת המשאית עבור המשטחים שנבחרו");
     }
     if (!Number.isFinite(slots) || slots > MAX_TRUCK_SLOTS) {
+      console.warn("[SHIPMENT MARK] aborted: truck capacity", { slots, maxSlots: MAX_TRUCK_SLOTS });
       return setMessage(`המשטחים הפיזיים שנבחרו תופסים ${Number.isFinite(slots) ? slots : "יותר מדי"}/${MAX_TRUCK_SLOTS} מקומות במשאית; לא בוצע סימון.`);
     }
 
     setBusy(true); setMessage("");
     try {
-      await Promise.all(palletIds.map((id) => setMarkedForShipment(id, true)));
+      console.log("[SHIPMENT MARK] firebase writes start", { palletIds });
+      await Promise.all(palletIds.map(async (id) => {
+        console.log("[SHIPMENT MARK] marking pallet", id);
+        await setMarkedForShipment(id, true);
+        console.log("[SHIPMENT MARK] marked pallet", id);
+      }));
+      console.log("[SHIPMENT MARK] firebase writes complete", { palletIds });
       setMessage(
         `סומנו ${palletIds.length} משטחים פיזיים למשלוח (${slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`,
       );
+      console.log("[SHIPMENT MARK] opening cooler map");
       onOpenCoolerMap?.();
     } catch (e) {
+      console.error("[SHIPMENT MARK] firebase write failed", e);
       setMessage(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
     } finally {
       setBusy(false);
+      console.log("[SHIPMENT MARK] done");
     }
   }
 
@@ -384,7 +443,7 @@ export default function PlanningWeeklyRecommendationsV2({
         const quantity = Math.max(0, packDraft[`rec:${rec.id}`] ?? 0);
         if (!quantity) continue;
         const p = product(rec.productId)!;
-        packaging.push({ id: rec.id, productId: rec.productId, quantity, tankId: rec.tankId, tankNumber: rec.tankNumber, source: "recommendation", emptyTank: rec.liters - quantity * litersPerUnit(p) < 20 });
+        packaging.push({ id: rec.id, productId: rec.productId, quantity, tankId: rec.tankId, tankNumber: rec.tankNumber, source: "recommendation", emptyTank: rec.liters - rec.quantity * litersPerUnit(p) < 20 });
       }
       for (const manual of manualPacks) {
         if (!manual.tankId || !manual.productId || manual.quantity <= 0) continue;
