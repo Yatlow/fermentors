@@ -69,17 +69,17 @@ export default function PlanningWeekGantt({
   return (
     <section className="bp-gantt-section">
       <div className="bp-section-heading">
-        <div><h2>שיבוץ שבועי למנהל העבודה</h2><p className="bp-muted">מלא = החלטה שמורה · מקווקו = המלצה שעדיין אפשר לשבץ או לשנות.</p></div>
+        <div><h2>שיבוץ שבועי למנהל העבודה</h2><p className="bp-muted">מלא = החלטה שמורה · מקווקו = המלצה שעדיין אפשר לשבץ או לשנות. לכל סוג פעולה צבע קבוע.</p></div>
         <label>שבוע<select value={week} onChange={(e) => setWeek(e.target.value)}>{Array.from({ length: 8 }, (_, i) => addDays(weekStart(today), i * 7)).map((w) => <option key={w} value={w}>שבוע {weekNumber(w)} · {shortDate(w)}</option>)}</select></label>
       </div>
       <div className="bp-gantt" role="table" aria-label="גאנט שבועי">
         <div className="bp-gantt-head" />
         {dates.map((date, i) => <div className="bp-gantt-head" key={date}>{names[i]}<small>{shortDate(date)}</small></div>)}
         {lanes.flatMap((lane) => [
-          <div className="bp-gantt-label" key={`${lane.id}:label`}>{lane.label}</div>,
-          ...lane.cells.map((cell, i) => <div className="bp-gantt-cell" key={`${lane.id}:${dates[i]}`}>
-            {cell.saved.map((text, j) => <span className="bp-gantt-item is-saved" key={`s:${j}`}>{text}</span>)}
-            {cell.rec.map((text, j) => <span className="bp-gantt-item is-rec" key={`r:${j}`}>{text}</span>)}
+          <div className={`bp-gantt-label is-${lane.id}`} key={`${lane.id}:label`}>{lane.label}</div>,
+          ...lane.cells.map((cell, i) => <div className={`bp-gantt-cell is-${lane.id}`} key={`${lane.id}:${dates[i]}`}>
+            {cell.saved.map((text, j) => <span className={`bp-gantt-item is-saved is-${lane.id}`} key={`s:${j}`}>{text}</span>)}
+            {cell.rec.map((text, j) => <span className={`bp-gantt-item is-rec is-${lane.id}`} key={`r:${j}`}>{text}</span>)}
           </div>),
         ])}
       </div>
