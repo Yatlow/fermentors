@@ -185,7 +185,6 @@ function App() {
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
-    const [focusShipmentMap, setFocusShipmentMap] = useState(false);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
@@ -400,7 +399,7 @@ function App() {
                             <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}>פעולות סלרינג</div>
                             <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דוחות</div>
                             <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
-                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setFocusShipmentMap(false); setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
+                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
                             {plannerUser && <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>}
                         </div>
                     </div>
@@ -429,7 +428,7 @@ function App() {
             </header>
 
             {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} />}
-            {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser || admin} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => { setFocusShipmentMap(true); setSelectedView("מקרר"); }} />}
+            {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser || admin} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
             {selectedView === "רישום" && <>
                 <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} />
                 {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
@@ -447,18 +446,7 @@ function App() {
             {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-            {selectedView === "מקרר" && (
-                <div className={focusShipmentMap ? "shipment-focus-mode" : ""}>
-                    {focusShipmentMap && <>
-                        <style>{`.shipment-focus-mode .pallet-row:not(.marked-for-shipment){display:none!important}`}</style>
-                        <div dir="rtl" style={{ margin: "8px", padding: "8px 10px", border: "2px solid #2563eb", borderRadius: "10px", background: "#eff6ff", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                            <b>מציג רק את המשטחים שסומנו מהחלטת המשלוח</b>
-                            <button type="button" onClick={() => setFocusShipmentMap(false)}>הצג את כל המקרר</button>
-                        </div>
-                    </>}
-                    <CoolerMap brews={brews} />
-                </div>
-            )}
+            {selectedView === "מקרר" && <CoolerMap brews={brews} />}
         </div>
     );
 }
