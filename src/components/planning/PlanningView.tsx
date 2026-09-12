@@ -12,6 +12,7 @@ import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
 import "./planning.css";
 import "./planningV2.css";
+import "./planningV3.css";
 
 export const PLANNING_TABS = [
   ["stock", "מלאי"],
