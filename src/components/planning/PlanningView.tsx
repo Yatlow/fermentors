@@ -25,11 +25,12 @@ export const PLANNING_TABS = [
 ] as const;
 export type PlanningTab = (typeof PLANNING_TABS)[number][0];
 
-export default function PlanningView({ brews, canEdit, tab }: {
+export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
   canEdit: boolean;
   tab: PlanningTab;
   onTabChange: (tab: PlanningTab) => void;
+  onOpenCoolerMap?: () => void;
 }) {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
@@ -55,13 +56,7 @@ export default function PlanningView({ brews, canEdit, tab }: {
 
       {!data.loading && !data.error && <>
         {tab === "stock" && (
-          <PlanningStock
-            settings={settings}
-            pallets={pallets}
-            today={today}
-            actions={workspace.actions}
-            plans={workspace.effectivePlans}
-          />
+          <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={plans}/>
         )}
 
         {tab === "calendar" && <>
@@ -78,6 +73,7 @@ export default function PlanningView({ brews, canEdit, tab }: {
             today={today}
             disabled={disabled}
             saveWeek={data.saveWeek}
+            onOpenCoolerMap={onOpenCoolerMap}
           />
         </>}
 
@@ -100,42 +96,21 @@ export default function PlanningView({ brews, canEdit, tab }: {
         </>}
 
         {(tab === "data" || tab === "settings") && (
-          <PlanningData
-            key={tab}
-            mode={tab}
-            settings={settings}
-            today={today}
-            disabled={disabled}
-            save={saveSettings}
-          />
+          <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>
         )}
 
         {tab === "tanks" && (
-          <PlanningTanks
-            tanks={tanks}
-            sources={productionTanks}
-            plans={workspace.effectivePlans}
-            settings={settings}
-            actuals={actuals}
-            today={today}
-          />
+          <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>
         )}
 
         {tab === "review" && <>
           <details>
             <summary>מי שומר את תמונות המצב?</summary>
             <p>כל החלטה נשמרת כשלוחצים על שמירה. פונקציות Firebase נפרדות מצלמות את ההחלטות בימי שישי ובפתיחת השבוע, ורק לאחר התקנתן ופריסתן.</p>
-            <p>המלצות שלא אושרו משתתפות בתחזית בלוח, אך אינן החלטות שמורות בדוח הזה. אין אישור אוטומטי בשם המתכנן.</p>
+            <p>המלצות שלא אושרו אינן החלטות שמורות בדוח הזה. אין אישור אוטומטי בשם המתכנן.</p>
             <p>{data.snapshots.length ? "התקבלו תמונות מצב מהשרת." : "לא התקבלו תמונות מצב בטווח הנוכחי. יש לבדוק את התקנת הפונקציות; אין להסיק שהשמירה המתוזמנת פעילה."}</p>
           </details>
-          <PlanningReview
-            settings={settings}
-            plans={plans}
-            actuals={actuals}
-            snapshots={data.snapshots}
-            error={data.snapshotError}
-            today={today}
-          />
+          <PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>
         </>}
       </>}
     </section>
