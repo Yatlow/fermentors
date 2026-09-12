@@ -16,9 +16,9 @@ import "./planningV2.css";
 
 export const PLANNING_TABS = [
   ["stock", "מלאי"],
+  ["data", "הזנת נתונים"],
   ["calendar", "המלצות שבועיות"],
   ["schedule", "לוח עבודה יומי"],
-  ["data", "הזנת נתונים"],
   ["settings", "הגדרות"],
   ["tanks", "מיכלים ותזמון"],
   ["review", "תכנון מול ביצוע"],
@@ -71,6 +71,7 @@ export default function PlanningView({ brews, canEdit, tab, onTabChange }: {
               plans={plans}
               tanks={tanks}
               sources={productionTanks}
+              pallets={pallets}
               today={today}
               workspace={workspace}
               disabled={disabled}
