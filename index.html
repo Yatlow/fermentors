@@ -5,43 +5,6 @@
     <link rel="icon" type="image/svg+xml" href="favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>fermenter-dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <script>
-      window.addEventListener("DOMContentLoaded", function () {
-        if (window.eruda) {
-          window.eruda.init();
-          console.log("[MOBILE DEBUG] Eruda initialized");
-        }
-
-        function describeTarget(eventName, event) {
-          var target = event.target;
-          var button = target && target.closest ? target.closest("button") : null;
-          console.log("[UI DEBUG] " + eventName, {
-            targetTag: target && target.tagName,
-            targetClass: target && target.className,
-            buttonText: button ? button.innerText : null,
-            buttonDisabled: button ? button.disabled : null,
-            buttonClass: button ? button.className : null
-          });
-        }
-
-        document.addEventListener("pointerdown", function (event) {
-          describeTarget("pointerdown", event);
-        }, true);
-
-        document.addEventListener("click", function (event) {
-          describeTarget("click", event);
-        }, true);
-
-        window.addEventListener("error", function (event) {
-          console.error("[WINDOW ERROR]", event.error || event.message);
-        });
-
-        window.addEventListener("unhandledrejection", function (event) {
-          console.error("[UNHANDLED REJECTION]", event.reason);
-        });
-      });
-    </script>
   </head>
   <body>
     <div id="root"></div>
