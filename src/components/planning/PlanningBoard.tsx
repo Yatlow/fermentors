@@ -87,7 +87,10 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
   }
   function openBrews() {
     if (readOnly) return;
-    setEditingScope("brews"); setEditingDay(nextBrewDate(week, today) ?? addDays(week, 1)); setDraft(structuredClone(current));
+    const fallback = nextBrewDate(week, today) ?? addDays(week, 1);
+    const next = structuredClone(current);
+    next.brews = next.brews.map((brew) => !brew.tankId && brew.date < today ? { ...brew, date: fallback } : brew);
+    setEditingScope("brews"); setEditingDay(fallback); setDraft(next);
   }
 
   async function saveShipmentDay(date: string) {
