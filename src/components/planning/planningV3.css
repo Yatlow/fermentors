@@ -17,6 +17,9 @@
 .brew-planning .bp-week-events{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}
 .brew-planning .bp-week-events>b{width:100%;font-size:.78rem;color:#475569}
 .brew-planning .bp-week-events span{padding:4px 7px;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:.72rem;font-weight:700}
+.brew-planning .bp-week-sticky{position:sticky;top:0;z-index:12;display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0;padding:7px 10px;border:1px solid #cbd5e1;border-radius:10px;background:rgba(248,250,252,.97);box-shadow:0 3px 10px rgba(15,23,42,.08);backdrop-filter:blur(8px)}
+.brew-planning .bp-week-sticky b{font-size:.78rem;color:#1e293b}
+.brew-planning .bp-week-sticky small{font-size:.64rem;color:#64748b}
 
 .brew-planning .bp-shipment-plan-table{display:grid;gap:3px}
 .brew-planning .bp-shipment-plan-head,.brew-planning .bp-shipment-plan-row{display:grid;grid-template-columns:minmax(95px,1.2fr) repeat(3,minmax(76px,1fr));gap:4px;align-items:center;padding:6px;border-radius:8px}
@@ -42,6 +45,8 @@
 .brew-planning .bp-same-week-warning b{font-size:.82rem}
 .brew-planning .bp-same-week-warning span{font-size:.72rem;font-weight:750;line-height:1.35}
 .brew-planning .bp-same-week-warning small{font-size:.66rem;font-weight:800}
+.brew-planning .bp-map-marking{display:grid;gap:4px;margin-top:8px;padding:8px;border:1px dashed #94a3b8;border-radius:9px;background:#f8fafc}
+.brew-planning .bp-map-marking small{font-size:.62rem;color:#64748b;line-height:1.3}
 .brew-planning .bp-decided-list{display:grid;gap:5px;padding:7px;border:1px solid #e2e8f0;border-radius:9px;background:#fff}
 .brew-planning .bp-decided-list .bp-rec-line{display:grid;grid-template-columns:minmax(120px,1fr) minmax(80px,130px) auto;align-items:center;gap:6px}
 .brew-planning .bp-decided-list .bp-rec-line.is-muted{opacity:.55;background:#f8fafc}
@@ -80,6 +85,9 @@
   .brew-planning .bp-data-grid-open input:not([type=checkbox]){min-height:26px;font-size:.68rem}
   .brew-planning .bp-data-grid-open button{min-height:25px;font-size:.52rem}
   .brew-planning .bp-data-grid-open small{font-size:.5rem}
+  .brew-planning .bp-week-sticky{padding:5px 7px;border-radius:8px}
+  .brew-planning .bp-week-sticky b{font-size:.67rem}
+  .brew-planning .bp-week-sticky small{font-size:.54rem}
   .brew-planning .bp-week-shipment-card{overflow:hidden}
   .brew-planning .bp-shipment-plan-head,.brew-planning .bp-shipment-plan-row{grid-template-columns:1.15fr .7fr .7fr 1.05fr;padding:4px;gap:2px;font-size:.64rem}
   .brew-planning .bp-shipment-plan-row small{font-size:.52rem;line-height:1.2}
@@ -89,6 +97,8 @@
   .brew-planning .bp-same-week-warning b{font-size:.72rem}
   .brew-planning .bp-same-week-warning span{font-size:.62rem}
   .brew-planning .bp-same-week-warning small{font-size:.56rem}
+  .brew-planning .bp-map-marking{padding:6px}
+  .brew-planning .bp-map-marking small{font-size:.54rem}
   .brew-planning .bp-decided-list .bp-rec-line{grid-template-columns:1fr 86px auto;gap:3px}
   .brew-planning .bp-decided-list .bp-rec-line input{min-height:30px;padding:3px}
   .brew-planning .bp-brew-edit-row{grid-template-columns:1fr;gap:3px}
