@@ -5,6 +5,9 @@ import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import type { planningWorkspace } from "../../SERVICES/planning/workspace";
 
 type Workspace = ReturnType<typeof planningWorkspace>;
+type GanttItem = { text: string; id?: string };
+type GanttCell = { saved: GanttItem[]; rec: GanttItem[] };
+type GanttLane = { id: "delivery" | "packaging" | "brew"; label: string; cells: GanttCell[] };
 const names = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳"];
 
 export default function PlanningWeekGantt({ settings, plans, tanks, workspace, week, onSelectDate, selectedPackagingId, onSelectPackaging }: {
@@ -24,7 +27,7 @@ export default function PlanningWeekGantt({ settings, plans, tanks, workspace, w
     const p = settings.products.find((x) => x.id === id);
     return p ? `${displayStyle(p.style)} · ${p.type === "crates" ? "ארגזים" : "חביות"}` : id;
   };
-  const lanes = [
+  const lanes: GanttLane[] = [
     { id: "delivery", label: "משלוח", cells: dates.map((date) => ({ saved: (current?.deliveries ?? []).filter((x) => x.dispatchDate === date).map((x) => ({ text: productName(x.productId) })), rec: recommendations.filter((x) => x.kind === "delivery" && x.date === date).map((x) => ({ text: x.kind === "delivery" ? productName(x.productId) : "" })) })) },
     { id: "packaging", label: "אריזה", cells: dates.map((date) => ({ saved: (current?.packaging ?? []).filter((x) => x.date === date).map((x) => ({ id: x.id, text: `${productName(x.productId)} · מיכל ${tanks.find((t) => t.id === x.tankId)?.number ?? x.tankNumber ?? "?"}` })), rec: recommendations.filter((x) => x.kind === "packaging" && x.date === date).map((x) => ({ text: x.kind === "packaging" ? `${productName(x.productId)} · מיכל ${x.allocations[0]?.number ?? "?"}` : "" })) })) },
     { id: "brew", label: "בישול", cells: dates.map((date) => ({ saved: (current?.brews ?? []).filter((x) => x.date === date).map((x) => ({ text: `${displayStyle(x.style)} · ${x.tankId ? `מיכל ${tanks.find((t) => t.id === x.tankId)?.number ?? x.tankId}` : "טרם שובץ"}` })), rec: recommendations.filter((x) => x.kind === "brew" && x.date === date).map((x) => ({ text: x.kind === "brew" ? `${displayStyle(x.style)} · המלצה` : "" })) })) },
