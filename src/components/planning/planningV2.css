@@ -19,6 +19,7 @@
 .brew-planning .bp-saved-summary{margin:0;padding:6px 8px;border-radius:8px;background:#ecfdf5;color:#166534;font-size:.8rem}
 .brew-planning .bp-week-alerts{display:grid;gap:4px;margin:10px 0;padding:9px 11px;border:1px solid #fbbf24;border-radius:10px;background:#fffbeb;color:#92400e}
 .brew-planning .bp-week-alerts span{font-size:.82rem}
+.brew-planning .bp-week-edit{display:grid;gap:8px;padding:9px;border:1px solid #bfdbfe;border-radius:9px;background:#eff6ff}
 
 /* Five-day work-manager gantt. */
 .brew-planning .bp-gantt-section{margin-bottom:14px;padding:10px;border:1px solid #dbe2ea;border-radius:12px;background:#fff}
@@ -29,8 +30,15 @@
 .brew-planning .bp-gantt-label{position:sticky;right:0;z-index:2;display:flex;align-items:center;background:#f8fafc;font-weight:800}
 .brew-planning .bp-gantt-cell{display:grid;align-content:start;gap:4px;background:#fff}
 .brew-planning .bp-gantt-item{display:block;padding:4px 5px;border-radius:6px;font-size:.68rem;line-height:1.25;overflow-wrap:anywhere}
-.brew-planning .bp-gantt-item.is-saved{background:#dcfce7;border:1px solid #86efac;color:#166534}
-.brew-planning .bp-gantt-item.is-rec{background:#eff6ff;border:1px dashed #60a5fa;color:#1d4ed8}
+.brew-planning .bp-gantt-label.is-delivery{background:#ecfdf5;color:#166534}
+.brew-planning .bp-gantt-label.is-packaging{background:#eff6ff;color:#1d4ed8}
+.brew-planning .bp-gantt-label.is-brew{background:#faf5ff;color:#7e22ce}
+.brew-planning .bp-gantt-item.is-saved.is-delivery{background:#dcfce7;border:1px solid #86efac;color:#166534}
+.brew-planning .bp-gantt-item.is-rec.is-delivery{background:#f0fdf4;border:1px dashed #4ade80;color:#166534}
+.brew-planning .bp-gantt-item.is-saved.is-packaging{background:#dbeafe;border:1px solid #93c5fd;color:#1d4ed8}
+.brew-planning .bp-gantt-item.is-rec.is-packaging{background:#eff6ff;border:1px dashed #60a5fa;color:#1d4ed8}
+.brew-planning .bp-gantt-item.is-saved.is-brew{background:#f3e8ff;border:1px solid #d8b4fe;color:#7e22ce}
+.brew-planning .bp-gantt-item.is-rec.is-brew{background:#faf5ff;border:1px dashed #c084fc;color:#7e22ce}
 
 .brew-planning .bp-modal-backdrop{position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.48);display:flex;align-items:flex-start;justify-content:center;padding:4vh 12px;overflow:hidden}
 .brew-planning .bp-modal{width:min(980px,100%);max-height:92vh;background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(15,23,42,.25);overflow:hidden}
@@ -46,12 +54,12 @@
 .brew-planning .bp-day:nth-last-child(-n+2){opacity:.72}
 .brew-planning .bp-day:nth-last-child(-n+2)>button{display:none}
 
-.brew-planning .bp-stock-snapshot{display:grid;gap:8px;width:100%;max-width:100%;overflow:visible}
+.brew-planning .bp-stock-snapshot{display:grid;gap:6px;width:100%;max-width:100%;overflow:visible}
 .brew-planning .bp-stock-snapshot-row{display:grid;grid-template-columns:130px repeat(2,minmax(0,1fr));gap:8px;align-items:stretch;padding:8px;border:1px solid #dbe2ea;border-radius:12px;background:#fff;min-width:0;max-width:100%;cursor:pointer}
 .brew-planning .bp-stock-snapshot-row:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 .brew-planning .bp-stock-snapshot-row.is-open{box-shadow:0 3px 12px rgba(15,23,42,.08)}
-.brew-planning .bp-stock-style{display:flex;align-items:center;justify-content:center;min-width:0;min-height:62px;padding:7px 8px!important;border-radius:9px;font-weight:800;text-align:center;overflow:hidden;text-overflow:ellipsis}
-.brew-planning .bp-stock-metric{display:grid;align-content:center;gap:4px;padding:7px 8px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;min-width:0}
+.brew-planning .bp-stock-style{display:flex;align-items:center;justify-content:center;min-width:0;min-height:56px;padding:6px 8px!important;border-radius:9px;font-weight:800;text-align:center;overflow:hidden;text-overflow:ellipsis}
+.brew-planning .bp-stock-metric{display:grid;align-content:center;gap:3px;padding:6px 8px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;min-width:0}
 .brew-planning .bp-stock-metric small{font-weight:800;color:#334155}
 .brew-planning .bp-stock-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;font-size:.82rem}
 .brew-planning .bp-stock-pair span{min-width:0;padding:3px 5px;border-radius:6px;background:#fff;white-space:normal}
@@ -73,8 +81,12 @@
 .brew-planning .bp-ready-chip{display:inline-block;padding:3px 7px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:700}
 
 .brew-planning .bp-data-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.brew-planning .bp-data-grid .bp-card{padding:7px;border-radius:9px;min-width:0}
-.brew-planning .bp-data-grid .bp-card h3{margin:0 0 5px;font-size:.92rem;padding:5px}
+.brew-planning .bp-data-grid .bp-card{padding:6px;border-radius:9px;min-width:0}
+.brew-planning .bp-data-card-head{width:100%;min-height:56px;display:grid;place-items:center;gap:1px;padding:5px!important}
+.brew-planning .bp-data-card-head b{font-size:.92rem}
+.brew-planning .bp-data-card-head small{font-size:.68rem;font-weight:700}
+.brew-planning .bp-data-card.is-open{grid-column:1/-1}
+.brew-planning .bp-data-card-body{padding-top:6px}
 .brew-planning .bp-data-grid .bp-formats{gap:5px}
 .brew-planning .bp-data-grid .bp-formats>div+div{padding-inline-start:5px}
 .brew-planning .bp-data-grid .bp-formats h4{margin:1px 0 4px;font-size:.78rem}
@@ -86,19 +98,20 @@
 
 @media(max-width:900px){
   .brew-planning .bp-week-recommendations{grid-template-columns:1fr}
-  .brew-planning .bp-data-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .brew-planning .bp-data-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
 @media(max-width:760px){
   .brew-planning{padding-inline:6px}
-  .brew-planning .bp-stock-snapshot-row{grid-template-columns:72px repeat(2,minmax(0,1fr));padding:6px;gap:5px}
-  .brew-planning .bp-stock-style{min-height:72px;padding:5px!important;font-size:.8rem}
-  .brew-planning .bp-stock-metric{padding:5px;gap:3px}
-  .brew-planning .bp-stock-metric small{font-size:.68rem}
-  .brew-planning .bp-stock-pair{grid-template-columns:1fr;gap:2px;font-size:.75rem}
-  .brew-planning .bp-stock-pair span{padding:2px 4px}
-  .brew-planning .bp-stock-pair b{display:inline;margin-inline-end:3px;font-size:.64rem}
-  .brew-planning .bp-stock-metric em{font-size:.68rem}
+  .brew-planning .bp-stock-snapshot{gap:4px}
+  .brew-planning .bp-stock-snapshot-row{grid-template-columns:62px repeat(2,minmax(0,1fr));padding:4px;gap:4px;border-radius:9px}
+  .brew-planning .bp-stock-style{min-height:50px;padding:3px!important;font-size:.72rem;border-radius:7px}
+  .brew-planning .bp-stock-metric{padding:3px 4px;gap:1px;border-radius:7px}
+  .brew-planning .bp-stock-metric small{font-size:.61rem;line-height:1.2}
+  .brew-planning .bp-stock-pair{grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;font-size:.68rem}
+  .brew-planning .bp-stock-pair span{padding:1px 2px;line-height:1.2}
+  .brew-planning .bp-stock-pair b{display:block;margin:0;font-size:.55rem}
+  .brew-planning .bp-stock-metric em{font-size:.59rem;line-height:1.2}
   .brew-planning .bp-stock-detail{grid-template-columns:1fr}
   .brew-planning .bp-gantt-section{padding:7px}
   .brew-planning .bp-gantt{grid-template-columns:58px repeat(5,minmax(86px,1fr))}
@@ -117,8 +130,12 @@
   .brew-planning .bp-tank-table{font-size:.78rem}
   .brew-planning .bp-tank-table td,.brew-planning .bp-tank-table th{padding:7px;white-space:nowrap}
   .brew-planning .bp-data-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
-  .brew-planning .bp-data-grid .bp-card{padding:5px}
-  .brew-planning .bp-data-grid .bp-formats{display:grid;grid-template-columns:1fr;gap:3px}
-  .brew-planning .bp-data-grid .bp-formats>div+div{padding-inline-start:0;padding-top:3px;border-top:1px solid #e2e8f0}
-  .brew-planning .bp-data-grid .bp-fields{grid-template-columns:1fr}
+  .brew-planning .bp-data-grid .bp-card{padding:4px}
+  .brew-planning .bp-data-card-head{min-height:58px;padding:4px!important}
+  .brew-planning .bp-data-card-head b{font-size:.82rem}
+  .brew-planning .bp-data-card-head small{font-size:.59rem;line-height:1.25}
+  .brew-planning .bp-data-card.is-open{grid-column:1/-1}
+  .brew-planning .bp-data-card.is-open .bp-formats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+  .brew-planning .bp-data-card.is-open .bp-formats>div+div{padding-inline-start:5px;border-inline-start:1px solid #e2e8f0}
+  .brew-planning .bp-data-card.is-open .bp-fields{grid-template-columns:1fr}
 }
