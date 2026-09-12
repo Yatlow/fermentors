@@ -122,17 +122,25 @@ export default function PlanningStock({
       formats: (["crates", "kegs"] as const).map((type) => {
         const product = g.products.find((p) => p.type === type);
         const inv = product ? inventory(product, pallets) : { brewery: 0, dock: 0 };
-        const tempo = product ? tempoNow(product, today) : null;
+        // The loading dock is still brewery stock until a shipment is actually
+        // closed. Show it inside the brewery total, but also expose the subset.
+        const brewery = inv.brewery + inv.dock;
+        const tempoProjected = product ? tempoNow(product, today) : null;
+        const tempoMeasured = product?.tempo ?? null;
         const daily = product ? weeklyDemand(product) / 7 : 0;
         return {
           type,
           product,
-          brewery: inv.brewery,
+          brewery,
           dock: inv.dock,
-          tempo,
+          tempoProjected,
+          tempoMeasured,
           daily,
-          tempoCover: cover(tempo, daily),
-          totalCover: cover(tempo === null ? null : tempo + inv.brewery, daily),
+          tempoCover: cover(tempoProjected, daily),
+          totalCover: cover(
+            tempoProjected === null ? null : tempoProjected + brewery,
+            daily,
+          ),
         };
       }),
     }));
@@ -146,7 +154,9 @@ export default function PlanningStock({
       <div className="bp-section-heading">
         <div>
           <h2>מלאי וכיסוי</h2>
-          <p className="bp-muted">מבשלה וטמפו מוצגים בנפרד. לחיצה על כל השורה פותחת פירוט.</p>
+          <p className="bp-muted">
+            מבשלה כוללת גם משטחים שברמפה עד שתעודת המשלוח נסגרת. טמפו מוצג כאומדן להיום.
+          </p>
         </div>
       </div>
 
@@ -178,7 +188,7 @@ export default function PlanningStock({
                 <small>בקבוקים · ארגזים</small>
                 <div className="bp-stock-pair">
                   <span><b>מבשלה</b> {fmt(crates.brewery)}</span>
-                  <span><b>טמפו</b> {crates.tempo === null ? "—" : fmt(crates.tempo)}</span>
+                  <span><b>טמפו היום</b> {crates.tempoProjected === null ? "—" : fmt(crates.tempoProjected)}</span>
                 </div>
                 <em>כיסוי כולל {crates.totalCover.label}</em>
               </div>
@@ -187,7 +197,7 @@ export default function PlanningStock({
                 <small>חביות</small>
                 <div className="bp-stock-pair">
                   <span><b>מבשלה</b> {fmt(kegs.brewery)}</span>
-                  <span><b>טמפו</b> {kegs.tempo === null ? "—" : fmt(kegs.tempo)}</span>
+                  <span><b>טמפו היום</b> {kegs.tempoProjected === null ? "—" : fmt(kegs.tempoProjected)}</span>
                 </div>
                 <em>כיסוי כולל {kegs.totalCover.label}</em>
               </div>
@@ -198,11 +208,15 @@ export default function PlanningStock({
                     <div key={f.type}>
                       <b>{f.type === "crates" ? "בקבוקים / ארגזים" : "חביות"}</b>
                       <span>מלאי במבשלה: {fmt(f.brewery)}</span>
-                      <span>מלאי בטמפו: {f.tempo === null ? "לא עודכן" : fmt(f.tempo)}</span>
-                      {f.dock > 0 && <span>ברציף / מיועד ליציאה: {fmt(f.dock)}</span>}
+                      {f.dock > 0 && <span>מתוכם ברמפה: {fmt(f.dock)}</span>}
+                      <span>
+                        מדידת טמפו אחרונה: {f.tempoMeasured === null ? "לא עודכן" : fmt(f.tempoMeasured)}
+                        {f.product?.tempoDate ? ` · ${shortDate(f.product.tempoDate)}` : ""}
+                      </span>
+                      <span>אומדן טמפו להיום: {f.tempoProjected === null ? "לא עודכן" : fmt(f.tempoProjected)}</span>
                       <span>כיסוי בטמפו: {f.tempoCover.label}</span>
                       <span>כיסוי כולל: {f.totalCover.label}</span>
-                      {f.tempo !== null && f.daily > 0 && (
+                      {f.tempoProjected !== null && f.daily > 0 && (
                         <small>אומדן כולל עד {shortDate(addDays(today, f.totalCover.days))}</small>
                       )}
                     </div>
