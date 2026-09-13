@@ -1,12 +1,13 @@
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../cooler/Pallettypes ";
-import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../cooler/truckCapacity";
+import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../cooler/Palletservice";
 import {
   addDays,
   emptyWeek,
   litersPerUnit,
   sameStyle,
   weeklyDemand,
+  weekStart,
   type Actual,
   type Holiday,
   type Product,
@@ -287,15 +288,12 @@ function buildPackagingRecommendation(
   for (const p of products) virtualCover.set(p.id, rows.get(p.id)?.totalCover ?? Infinity);
 
   const daysNeeded = (items: WeeklyPackagingRecommendation[]) => {
-    const crates = items.filter((x) => products.find((p) => p.id === x.productId)?.type === "crates").length;
-    const kegs = new Map<string, number>();
-    for (const item of items) {
+    const crateRuns = items.filter((x) => products.find((p) => p.id === x.productId)?.type === "crates").length;
+    const totalKegs = items.reduce((sum, item) => {
       const p = products.find((x) => x.id === item.productId);
-      if (p?.type !== "kegs") continue;
-      const key = displayStyle(p.style);
-      kegs.set(key, (kegs.get(key) ?? 0) + item.quantity);
-    }
-    return crates + [...kegs.values()].reduce((sum, qty) => sum + Math.ceil(qty / 150), 0);
+      return sum + (p?.type === "kegs" ? item.quantity : 0);
+    }, 0);
+    return crateRuns + (totalKegs > 0 ? Math.ceil(totalKegs / 150) : 0);
   };
 
   while (true) {
@@ -331,14 +329,18 @@ function buildBrewRecommendation(
   week: string,
   weekEnd: string,
 ) {
+  const planningStart = weekStart(today);
   const occupiedTankIds = new Set(
     plans
+      .filter((w) => w.id >= planningStart && w.id <= week)
       .flatMap((w) => w.brews)
-      .filter((b) => !!b.tankId && b.date >= today && b.date <= weekEnd)
+      .filter((b) => !!b.tankId && b.date <= weekEnd)
       .map((b) => b.tankId),
   );
+
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today)
     .filter((r) => !!r.date && r.date! <= weekEnd && !occupiedTankIds.has(r.tankId));
+
   const unassignedCurrentBrews = plans.find((w) => w.id === week)?.brews.filter((b) => !b.tankId).length ?? 0;
   const capacity = Math.max(0, releases.length - unassignedCurrentBrews);
 
