@@ -52,9 +52,12 @@ export type WeeklyPackagingRecommendation = {
   dayCost: number;
 };
 
+export type BrewSizeLabel = "בודד" | "כפול" | "משולש";
+
 export type WeeklyBrewRecommendation = {
   style: string;
   liters: number;
+  sizeLabel: BrewSizeLabel;
 };
 
 export type WeeklyPlanningModel = {
@@ -69,7 +72,10 @@ export type WeeklyPlanningModel = {
   packagingDays: number;
   packagingCapacity: number;
   brewRecommendations: WeeklyBrewRecommendation[];
+  /** Remaining tank positions after decisions already saved for the selected week. */
   availableBrewTanks: number;
+  /** Tank capacity available at the start of the selected week, before that week's decisions. */
+  brewTankCapacity: number;
   tankAvailableLiters: Map<string, number>;
 };
 
@@ -250,6 +256,18 @@ function buildPackagingRecommendation(
   return { recommendation: selected, days: daysNeeded(selected), capacity };
 }
 
+function brewSizeForTankNumber(value: unknown, liters: number): BrewSizeLabel {
+  const tankNumber = Number(value);
+  if (Number.isFinite(tankNumber)) {
+    if (tankNumber >= 2 && tankNumber <= 4) return "בודד";
+    if (tankNumber >= 5 && tankNumber <= 8) return "כפול";
+    if (tankNumber >= 9) return "משולש";
+  }
+  if (liters <= 1500) return "בודד";
+  if (liters <= 2800) return "כפול";
+  return "משולש";
+}
+
 function buildBrewRecommendation(
   settings: Settings,
   rows: Map<string, WeeklySkuState>,
@@ -262,6 +280,7 @@ function buildBrewRecommendation(
   weekEnd: string,
 ) {
   const planningStart = weekStart(today);
+  const currentWeek = plans.find((w) => w.id === week);
   const occupiedTankIds = new Set(
     plans
       .filter((w) => w.id >= planningStart && w.id <= week)
@@ -271,10 +290,32 @@ function buildBrewRecommendation(
   );
 
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today)
-    .filter((r) => !!r.date && r.date! <= weekEnd && !occupiedTankIds.has(r.tankId));
+    .filter((r) => !!r.date && r.date! <= weekEnd && !occupiedTankIds.has(r.tankId))
+    .sort((a, b) =>
+      (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31") ||
+      Number(sources.find((s) => s.id === a.tankId)?.tankNumber ?? Infinity) -
+        Number(sources.find((s) => s.id === b.tankId)?.tankNumber ?? Infinity),
+    );
 
-  const unassignedCurrentBrews = plans.find((w) => w.id === week)?.brews.filter((b) => !b.tankId).length ?? 0;
-  const capacity = Math.max(0, releases.length - unassignedCurrentBrews);
+  // Unassigned weekly brew decisions still reserve a tank even before the daily
+  // board assigns a concrete tank id. Keep reservations from earlier planned weeks
+  // in the same planning horizon, otherwise week N+1 incorrectly sees those tanks
+  // as free again (e.g. 3 brews in week 38 + 2 emptied tanks => week 39 has 2 free,
+  // not 5).
+  const priorUnassigned = plans
+    .filter((w) => w.id >= planningStart && w.id < week)
+    .flatMap((w) => w.brews)
+    .filter((b) => !b.tankId && b.date <= weekEnd).length;
+  const currentUnassigned = currentWeek?.brews.filter((b) => !b.tankId && b.date <= weekEnd).length ?? 0;
+  const currentAssigned = currentWeek?.brews.filter((b) => !!b.tankId && b.date <= weekEnd).length ?? 0;
+
+  // `releases` already excludes assigned current-week tanks, therefore add them
+  // back only when calculating capacity before this week's own decisions.
+  const capacityBeforeCurrent = Math.max(0, releases.length + currentAssigned - priorUnassigned);
+  const remainingCapacity = Math.max(0, releases.length - priorUnassigned - currentUnassigned);
+
+  const anonymousReservations = Math.min(releases.length, priorUnassigned + currentUnassigned);
+  const availableReleases = releases.slice(anonymousReservations);
 
   const styles = [
     ...new Set(
@@ -294,14 +335,16 @@ function buildBrewRecommendation(
     .sort((a, b) => a.cover - b.cover);
 
   const recommendations: WeeklyBrewRecommendation[] = [];
-  for (let i = 0; i < Math.min(capacity, ranked.length); i++) {
-    const release = releases[i];
+  for (let i = 0; i < Math.min(remainingCapacity, ranked.length, availableReleases.length); i++) {
+    const release = availableReleases[i];
+    const source = sources.find((s) => s.id === release.tankId);
     recommendations.push({
       style: ranked[i].style,
-      liters: release?.workLiters || 2500,
+      liters: release.workLiters || 2500,
+      sizeLabel: brewSizeForTankNumber(source?.tankNumber, release.workLiters || 2500),
     });
   }
-  return { recommendations, capacity };
+  return { recommendations, capacity: remainingCapacity, capacityBeforeCurrent };
 }
 
 export function buildWeeklyPlanningModel(args: {
@@ -384,6 +427,7 @@ export function buildWeeklyPlanningModel(args: {
     packagingCapacity: packaging.capacity,
     brewRecommendations: brew.recommendations,
     availableBrewTanks: brew.capacity,
+    brewTankCapacity: brew.capacityBeforeCurrent,
     tankAvailableLiters,
   };
 }
