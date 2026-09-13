@@ -1,3 +1,4 @@
+import BeerLoader from "../general/Loading";
 import { useState } from "react";
 import {
   addDays,
@@ -159,6 +160,7 @@ export default function PlanningWeekEditor({
         <button type="button" onClick={onCancel}>סגירה</button>
       </div>
 
+      {busy && <BeerLoader overlay message="שומר את השינויים…" />}
       <fieldset disabled={disabled || busy} className="bp-fieldset bp-editor-body">
         {scope === "day" && <>
           <h4>אריזות</h4>

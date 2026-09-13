@@ -1794,3 +1794,5 @@
         gap: 5px
     }
 }
+.brew-planning .bp-stock-expand-hint { display: block; margin-top: 6px; font-size: 12px; font-weight: 500; }
+.brew-planning .bp-shipment-feedback { position: sticky; bottom: 12px; z-index: 5; padding: 12px; background: #fff3cd; color: #543d00; border: 1px solid #d6ad45; border-radius: 10px; }

@@ -1,6 +1,5 @@
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../cooler/Pallettypes ";
-import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../cooler/Palletservice";
 import {
   addDays,
   emptyWeek,
@@ -22,7 +21,7 @@ import {
   type DailyResult,
   type ShipmentEvent,
 } from "./dailyPlanner";
-import { projectedPallets } from "./truckPlanner";
+import { buildShipmentRecommendation } from "./shipmentRecommendation";
 import { tankReleases } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 
@@ -142,73 +141,6 @@ function skuRows(settings: Settings, result: DailyResult, date: string) {
     });
   }
   return map;
-}
-
-function manifestForQuantities(products: Product[], quantities: Map<string, number>, key: string) {
-  return products.flatMap((p) =>
-    projectedPallets(p, quantities.get(p.id) ?? 0, `${key}:${p.id}`).map((x) => x.pallet),
-  );
-}
-
-function buildShipmentRecommendation(settings: Settings, rows: Map<string, WeeklySkuState>) {
-  const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
-  const quantities = new Map<string, number>();
-  const palletSize = (p: Product) => (p.type === "crates" ? 84 : 20);
-  const available = new Map<string, number>();
-
-  for (const p of products) {
-    available.set(p.id, Math.floor((rows.get(p.id)?.breweryUnits ?? 0) / palletSize(p)));
-  }
-
-  const coverAfter = (p: Product) => {
-    const state = rows.get(p.id);
-    const demand = weeklyDemand(p);
-    if (!state || state.tempoUnits === null || demand <= 0) return Infinity;
-    return (state.tempoUnits + (quantities.get(p.id) ?? 0)) / demand;
-  };
-
-  while (true) {
-    const candidates = products
-      .filter((p) => ((quantities.get(p.id) ?? 0) / palletSize(p)) < (available.get(p.id) ?? 0))
-      .sort((a, b) => coverAfter(a) - coverAfter(b) || a.id.localeCompare(b.id));
-
-    let added = false;
-    for (const p of candidates) {
-      const next = new Map(quantities);
-      next.set(p.id, (next.get(p.id) ?? 0) + palletSize(p));
-      let slots = Infinity;
-      try {
-        slots = calcTruckSlots(manifestForQuantities(products, next, "weekly-truck"));
-      } catch {
-        slots = Infinity;
-      }
-      if (slots > MAX_TRUCK_SLOTS) continue;
-      quantities.clear();
-      next.forEach((value, key) => quantities.set(key, value));
-      added = true;
-      break;
-    }
-    if (!added) break;
-    const slots = calcTruckSlots(manifestForQuantities(products, quantities, "weekly-truck"));
-    if (slots >= MAX_TRUCK_SLOTS) break;
-  }
-
-  const manifest = manifestForQuantities(products, quantities, "weekly-truck-final");
-  const slots = manifest.length ? calcTruckSlots(manifest) : 0;
-  const recommendation = products.flatMap((p) => {
-    const quantity = quantities.get(p.id) ?? 0;
-    if (!quantity) return [];
-    const pallets = projectedPallets(p, quantity, `weekly-rec:${p.id}`).length;
-    const rowManifest = projectedPallets(p, quantity, `weekly-rec-slots:${p.id}`).map((x) => x.pallet);
-    return [{
-      productId: p.id,
-      quantity,
-      pallets,
-      slots: rowManifest.length ? calcTruckSlots(rowManifest) : 0,
-    }];
-  });
-
-  return { recommendation, slots, full: slots === MAX_TRUCK_SLOTS };
 }
 
 function remainingTankLiters(

@@ -1,3 +1,4 @@
+import BeerLoader from "../general/Loading";
 import { useState } from "react";
 import type { DailySuggestion } from "../../SERVICES/planning/dailyPlanner";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
@@ -19,6 +20,7 @@ export default function TruckRecommendations({
   ];
   return (
     <>
+      {busy && <BeerLoader overlay message="מסמן משטחים…" />}
       {message && <p role="status">{message}</p>}
       {trucks.map((id) => {
         const rows = suggestions.filter(

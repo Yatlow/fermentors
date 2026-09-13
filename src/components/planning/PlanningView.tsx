@@ -1,3 +1,4 @@
+import BeerLoader from "../general/Loading";
 import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
@@ -48,7 +49,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   return (
     <section className="brew-planning" dir="rtl">
       {data.loading && !data.error && 
-      <p role="status">טוען את לוח העבודה…</p>}
+      <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}

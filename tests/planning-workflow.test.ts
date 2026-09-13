@@ -143,7 +143,7 @@ test("day selection resolves to the selected week's Israeli calendar dates", () 
   assert.equal(dayForWeek(today, 0), today);
   assert.equal(dayForWeek(today, 4), "2026-09-10");
 });
-test("special editions share a reporting group without sharing production demand", () => {
+test("special editions remain saved but are excluded from core data entry and demand", () => {
   const original = {
     ...settings,
     products: [
@@ -157,17 +157,14 @@ test("special editions share a reporting group without sharing production demand
     withSpecialTotals(expanded).products.length,
     expanded.products.length,
   );
-  assert.equal(groupKey("אגסים"), "special");
-  assert.equal(groupKey("סשן IPA"), "special");
+  assert.equal(groupKey("אגסים"), "other");
+  assert.equal(groupKey("סשן IPA"), "other");
   const groups = styleGroups(expanded);
   assert.deepEqual(
     groups.find((g) => g.style === "IPA")?.products.map((p) => p.type),
     ["crates", "kegs"],
   );
-  assert.deepEqual(
-    groups.find((g) => g.key === "special")?.products.map((p) => p.id),
-    ["special:crates", "special:kegs"],
-  );
+  assert.equal(groups.some((g) => g.products.some((p) => p.id === "winter")), false);
   assert.equal(
     recommendationSettings(expanded).products.find((p) => p.id === "winter")
       ?.monthly,
@@ -593,4 +590,66 @@ test("fixed shrinkage stays 10 percent", () => {
     { ...settings, lossPercent: 0 },
   );
   assert.equal(result[0].liters, 2700);
+});
+
+import { buildShipmentRecommendation } from "../src/SERVICES/planning/shipmentRecommendation";
+import { palletSelectionOptions, compareAccess, hasMarkedPallets } from "../src/SERVICES/planning/shipmentPicking";
+import { isDataProduct } from "../src/SERVICES/planning/planningPresentation";
+
+test("data entry excludes lager bottles and stout kegs, preserving hoppy lager", () => {
+  assert.equal(isDataProduct({ ...product, style: "לאגר" }), false);
+  assert.equal(isDataProduct({ ...keg, style: "סטאוט" }), false);
+  assert.equal(isDataProduct({ ...product, style: "הופי לאגר" }), true);
+  assert.equal(isDataProduct({ ...keg, style: "לאגר" }), true);
+  assert.equal(isDataProduct({ ...product, style: "סטאוט" }), true);
+});
+test("truck fills the second keg layer even after all 12 floor positions are occupied", () => {
+  const result = buildShipmentRecommendation({ ...settings, products: [keg] }, new Map([
+    [keg.id, { breweryUnits: 1000, tempoUnits: 0 }],
+  ]));
+  assert.equal(result.slots, 12);
+  assert.equal(result.recommendation[0].quantity, 480);
+  assert.equal(result.recommendation[0].pallets, 24);
+});
+test("eleven crates pallets leave room for two keg pallets, not just one", () => {
+  const result = buildShipmentRecommendation(settings, new Map([
+    [product.id, { breweryUnits: 11 * 84, tempoUnits: 0 }],
+    [keg.id, { breweryUnits: 40, tempoUnits: 100000 }],
+  ]));
+  assert.equal(result.slots, 12);
+  assert.equal(result.recommendation.find((r) => r.productId === keg.id)?.quantity, 40);
+});
+test("truck does not invent unavailable inventory to fill capacity", () => {
+  const result = buildShipmentRecommendation({ ...settings, products: [keg] }, new Map([
+    [keg.id, { breweryUnits: 20, tempoUnits: 0 }],
+  ]));
+  assert.equal(result.recommendation[0].quantity, 20);
+  assert.equal(result.full, false);
+});
+test("physical picking never substitutes excess stock for missing planned packaging", () => {
+  assert.deepEqual(palletSelectionOptions([pallet("one")], 3 * 84), []);
+  assert.deepEqual(palletSelectionOptions([pallet("one", 90)], 84), []);
+  const options = palletSelectionOptions([pallet("a", 60), pallet("b", 24), pallet("extra", 84)], 84);
+  assert.ok(options.length);
+  assert.ok(options.every((o) => o.total === 84 && o.selected.reduce((s, p) => s + p.quantity, 0) === 84));
+  assert.ok(options.every((o) => new Set(o.selected.map((p) => p.id)).size === o.selected.length));
+});
+test("picking searches exact subsets instead of rounding up a greedy selection", () => {
+  const options = palletSelectionOptions([pallet("a", 60), pallet("b", 50), pallet("c", 34)], 84);
+  assert.deepEqual(options[0].selected.map((p) => p.id).sort(), ["b", "c"]);
+});
+test("picking prefers highest row, then lowest order on both cooler sides", () => {
+  for (const side of ["left", "right"] as const) {
+    const far = { ...pallet("far"), cell: { side, col: 1, row: 1 }, orderInCell: 0 };
+    const near = { ...pallet("near"), cell: { side, col: 2, row: 4 }, orderInCell: 1 };
+    const top = { ...pallet("top"), cell: { side, col: 3, row: 4 }, orderInCell: 0 };
+    assert.ok(compareAccess(near, far) < 0);
+    assert.ok(compareAccess(top, near) < 0);
+    assert.equal(palletSelectionOptions([far, near, top], 84)[0].selected[0].id, "top");
+  }
+});
+test("existing active marks block planning, including outside the cooler", () => {
+  assert.equal(hasMarkedPallets([{ ...pallet(), markedForShipment: true }]), true);
+  assert.equal(hasMarkedPallets([{ ...pallet(), zone: "loadingDock", markedForShipment: true }]), true);
+  assert.equal(hasMarkedPallets([{ ...pallet(), zone: "shipped", markedForShipment: true }]), false);
 });

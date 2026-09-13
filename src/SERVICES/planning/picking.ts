@@ -1,4 +1,4 @@
-import { doc, runTransaction, serverTimestamp } from "firebase/firestore";
+import { collection, getDocsFromServer, query, where, doc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import { dateKey, parseDate } from "./planningEngine";
@@ -9,6 +9,9 @@ export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
     throw new Error("ניתן לסמן רק משטחים קיימים בפועל");
   if (new Set(selected.map((p) => p.id)).size !== selected.length)
     throw new Error("משטח כפול");
+  const marked = await getDocsFromServer(query(collection(db, "pallets"), where("markedForShipment", "==", true)));
+  if (marked.docs.some((snapshot) => snapshot.data().zone !== "shipped"))
+    throw new Error("כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.");
   await runTransaction(db, async (tx) => {
     const refs = selected.map((p) => doc(db, "pallets", p.id));
     const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
@@ -21,6 +24,12 @@ export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
         !["cooler", "pending", "bottleRoom", "loadingDock"].includes(
           now.zone,
         ) ||
+        now.markedForShipment ||
+        now.zone !== expected.zone ||
+        now.cell?.row !== expected.cell?.row ||
+        now.cell?.col !== expected.cell?.col ||
+        now.cell?.side !== expected.cell?.side ||
+        now.orderInCell !== expected.orderInCell ||
         now.quantity !== expected.quantity ||
         now.itemType !== expected.itemType ||
         now.beerStyle !== expected.beerStyle ||

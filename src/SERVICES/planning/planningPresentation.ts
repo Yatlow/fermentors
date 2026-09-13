@@ -70,7 +70,9 @@ export function withSpecialTotals(settings: Settings): Settings {
   return { ...settings, products };
 }
 
-export const isDataProduct = (p: Product) => isCoreStyle(p.style);
+export const isDataProduct = (p: Product) => isCoreStyle(p.style) &&
+  !(p.type === "kegs" && sameStyle(p.style, "סטאוט")) &&
+  !(p.type === "crates" && sameStyle(p.style, "לאגר"));
 
 export function recommendationSettings(settings: Settings): Settings {
   return {
@@ -165,4 +167,8 @@ export function tankDiagnostics(
 
 export function dayForWeek(week: string, day: number) {
   return addDays(week, day);
+}
+
+export function formatPalletCount(count: number) {
+  return `${count.toLocaleString("he-IL", { maximumFractionDigits: 2 })} ${count === 1 ? "משטח" : "משטחים"}`;
 }
