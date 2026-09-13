@@ -1,6 +1,5 @@
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
-  addDays,
   daysBetween,
   inventory,
   num,
@@ -30,7 +29,7 @@ export type WeekStartProjection = {
  * The weekly planner should not consume the selected week's sales yet. It does,
  * however, need to carry forward everything that is expected to happen before
  * that week starts:
- *  - sales forecast after the latest Tempo count and through the previous week;
+ *  - sales forecast after the latest Tempo count up to the selected week's opening;
  *  - shipment decisions arriving at Tempo before the selected week;
  *  - open packaging decisions from earlier planning weeks;
  *  - shipment decisions that will leave the brewery before the selected week.
@@ -49,7 +48,6 @@ export function buildWeekStartProjection(args: {
 }): Map<string, WeekStartProjection> {
   const { settings, pallets, plans, actuals, today, week } = args;
   const currentWeek = weekStart(today);
-  const previousWeekEnd = addDays(week, -1);
   const open = openRuns(plans, settings.products, actuals);
   const result = new Map<string, WeekStartProjection>();
 
@@ -63,9 +61,9 @@ export function buildWeekStartProjection(args: {
       : num(product.tempo);
 
     if (tempoUnits !== null && tempoDate < week) {
-      // Do not consume the selected week itself. When the latest count is already
-      // inside the selected week, use that real count as-is.
-      const salesDays = Math.max(0, daysBetween(tempoDate, previousWeekEnd));
+      // Project to Sunday morning of the selected week. The selected week's own
+      // demand starts only after this opening value, so it is not subtracted here.
+      const salesDays = Math.max(0, daysBetween(tempoDate, week));
       tempoUnits = Math.max(0, tempoUnits - salesDays * daily);
 
       const arrivalsBeforeWeek = plans
