@@ -16,8 +16,6 @@ try {
       "commonjs",
       "--target",
       "es2022",
-      "--jsx",
-      "react-jsx",
       "--esModuleInterop",
       "--skipLibCheck",
       "--noEmitOnError",
