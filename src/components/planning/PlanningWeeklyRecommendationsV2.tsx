@@ -79,20 +79,24 @@ function palletQuantity(pallet: Pallet) {
   return Math.max(0, Math.round(Number(pallet.quantity || 0)));
 }
 
+function stackOrder(pallet: Pallet) {
+  return pallet.orderInCell ?? pallet.slotIndex ?? palletQuantity(pallet);
+}
+
 function palletAccessRank(pallet: Pallet) {
   const cell = pallet.cell;
   if (!cell) return [9, 99, 99, 99] as const;
 
   if (cell.side === "corridor") {
-    return [0, 0, cell.col, pallet.orderInCell ?? pallet.slotIndex ?? 0] as const;
+    return [0, 0, cell.col, stackOrder(pallet)] as const;
   }
 
-  const column = getColumnDef(cell.side, cell.col);
-  const rowDistanceFromCorridor = cell.side === "right"
-    ? Math.max(0, (column?.rows ?? cell.row) - cell.row)
-    : Math.max(0, cell.row - 1);
-
-  return [1, rowDistanceFromCorridor, cell.col, pallet.orderInCell ?? pallet.slotIndex ?? 0] as const;
+  getColumnDef(cell.side, cell.col);
+  // In the rendered map row 1 is the upper/nearest row, and column 1 is the
+  // door-side column. Inside a cell, orderInCell/slotIndex is authoritative;
+  // old pallets without it use the same quantity fallback as CoolerMap.
+  const rowDistanceFromExit = Math.max(0, cell.row - 1);
+  return [1, rowDistanceFromExit, cell.col, stackOrder(pallet)] as const;
 }
 
 function compareAccess(a: Pallet, b: Pallet) {
@@ -135,8 +139,6 @@ function palletSelectionPriority(selected: Pallet[], fefo: Pallet[]) {
   const latestSelectedExpiry = selectedExpiries.at(-1) ?? "9999-12-31";
   let score = 0;
 
-  // Hard FEFO preference: skipping an earlier-expiry pallet while taking a
-  // later-expiry pallet is enormously more expensive than any slot/access gain.
   for (let index = 0; index < fefo.length; index++) {
     const pallet = fefo[index];
     const expiry = expiryIso(pallet.expiryDateStr) ?? "9999-12-31";
@@ -147,9 +149,6 @@ function palletSelectionPriority(selected: Pallet[], fefo: Pallet[]) {
     }
   }
 
-  // Within the same batch+expiry, avoid digging underneath a usable upper
-  // crates pallet. A >=60-crate upper pallet wins unless quantity/capacity
-  // makes that impossible. Keg pallets simply follow physical access order.
   for (const chosen of selected) {
     for (const candidate of fefo) {
       if (selectedIds.has(candidate.id) || !sameFefoGroup(candidate, chosen)) continue;
@@ -431,16 +430,23 @@ export default function PlanningWeeklyRecommendationsV2({
     .sort((a, b) => a.id.localeCompare(b.id))[0]?.id;
   const isNearShipmentWeek = week === weekStart(today) || week === addDays(weekStart(today), 7);
   const canOfferMapMarking = isNearShipmentWeek && nearestShipmentWeek === week && (current.deliveries ?? []).some((d) => d.quantity > 0);
+  const markedCoolerPallets = pallets.filter((pallet) => pallet.zone === "cooler" && pallet.markedForShipment);
+  const hasMarkedCoolerPallets = markedCoolerPallets.length > 0;
 
   async function markShipmentOnCoolerMap() {
     if (!canOfferMapMarking) return;
+    if (hasMarkedCoolerPallets) {
+      setMessage(`כבר קיימים ${markedCoolerPallets.length} משטחים מסומנים למשלוח. יש לסיים/לבטל אותם לפני סימון משלוח חדש.`);
+      return;
+    }
 
-    const shipmentLines = products
+    const shipmentLines = shipmentProducts
       .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
       .filter((line) => line.requested > 0)
       .map((line) => {
         const candidates = pallets.filter((pallet) =>
           pallet.zone === "cooler" &&
+          !pallet.markedForShipment &&
           pallet.itemType === line.product.type &&
           sameStyle(pallet.beerStyle, line.product.style) &&
           (!expiryIso(pallet.expiryDateStr) || expiryIso(pallet.expiryDateStr)! >= today),
@@ -453,7 +459,7 @@ export default function PlanningWeeklyRecommendationsV2({
     let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
 
     for (const line of shipmentLines) {
-      if (!line.options.length) return setMessage(`לא נמצאה קומבינציית משטחים עבור ${displayStyle(line.product.style)}.`);
+      if (!line.options.length) continue;
 
       const nextStates: ShipmentSelectionState[] = [];
       for (const state of states) {
@@ -479,8 +485,46 @@ export default function PlanningWeeklyRecommendationsV2({
         }
       }
 
-      states = pruneShipmentStates(nextStates);
-      if (!states.length) return setMessage(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
+      if (nextStates.length) {
+        states = pruneShipmentStates(nextStates);
+        continue;
+      }
+
+      // This SKU cannot be fully represented by physical pallets within the
+      // remaining truck capacity. Mark as much of THIS SKU as possible, then
+      // stop. Do not fill the remaining slot(s) with lower-priority SKUs.
+      const base = [...states].sort((a, b) =>
+        a.fefoScore - b.fefoScore || a.overage - b.overage || a.slots - b.slots,
+      )[0];
+      const partial: Pallet[] = [];
+      let partialTotal = 0;
+      for (const candidate of [...line.candidates].sort(compareFefo)) {
+        if (partialTotal >= line.requested) break;
+        const combined = [...base.selected, ...partial, candidate];
+        let slots = Infinity;
+        try { slots = calcTruckSlots(combined); } catch { slots = Infinity; }
+        if (slots > MAX_TRUCK_SLOTS) continue;
+        partial.push(candidate);
+        partialTotal += palletQuantity(candidate);
+      }
+
+      const combined = [...base.selected, ...partial];
+      const slots = combined.length ? calcTruckSlots(combined) : base.slots;
+      states = [{
+        selected: combined,
+        details: [...base.details, {
+          product: line.product,
+          requested: line.requested,
+          available: line.available,
+          selectedTotal: partialTotal,
+          missing: Math.max(0, line.requested - partialTotal),
+          overage: Math.max(0, partialTotal - line.requested),
+        }],
+        slots,
+        fefoScore: base.fefoScore + palletSelectionPriority(partial, [...line.candidates].sort(compareFefo)),
+        overage: base.overage + Math.max(0, partialTotal - line.requested),
+      }];
+      break;
     }
 
     const best = [...states].sort((a, b) =>
@@ -495,15 +539,15 @@ export default function PlanningWeeklyRecommendationsV2({
     const palletIds = [...new Set(best.selected.map((p) => p.id))];
     const notes = best.details.flatMap((detail) => {
       const result: string[] = [];
-      if (detail.missing > 0) result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
-      if (detail.overage > 0) result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
+      if (detail.missing > 0) result.push(`${displayStyle(detail.product.style)}: ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} נשארו לא מסומנים בגלל מלאי/קיבולת פיזית`);
+      if (detail.overage > 0) result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה של ${fmt(detail.requested)} כי לא מפצלים משטח קיים`);
       return result;
     });
 
     setBusy(true); setMessage("");
     try {
       await Promise.all(palletIds.map((id) => setMarkedForShipment(id, true)));
-      setMessage(`סומנו ${palletIds.length} משטחים פיזיים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`);
+      setMessage(`✓ סומנו ${palletIds.length} משטחים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
     } finally {
@@ -608,6 +652,14 @@ export default function PlanningWeeklyRecommendationsV2({
     finally { setBusy(false); }
   }
 
+  const priorUnassignedBrewReservations = plans
+    .filter((w) => w.id >= weekStart(today) && w.id < week)
+    .flatMap((w) => w.brews)
+    .filter((b) => !b.tankId && b.date <= model.weekEnd)
+    .length;
+  const effectiveBrewCapacity = Math.max(0, model.availableBrewTanks - priorUnassignedBrewReservations);
+  const effectiveBrewRecommendations = model.brewRecommendations.slice(0, effectiveBrewCapacity);
+
   async function saveBrews() {
     setBusy(true); setMessage("");
     try {
@@ -618,8 +670,8 @@ export default function PlanningWeeklyRecommendationsV2({
     finally { setBusy(false); }
   }
   async function acceptBrewRecommendations() {
-    if (!model.brewRecommendations.length) return;
-    const additions = model.brewRecommendations.map((b) => ({ id: crypto.randomUUID(), style: b.style, liters: b.liters, tankId: "", date: addDays(week, 1) }));
+    if (!effectiveBrewRecommendations.length) return;
+    const additions = effectiveBrewRecommendations.map((b) => ({ id: crypto.randomUUID(), style: b.style, liters: b.liters, tankId: "", date: addDays(week, 1) }));
     setBusy(true); setMessage("");
     try {
       await saveWeek({ ...current, brews: [...current.brews, ...additions], changeReason: "הוספת המלצות בישול שבועיות" });
@@ -630,15 +682,15 @@ export default function PlanningWeeklyRecommendationsV2({
   function addBrew() {
     if (editing !== "brew") {
       setEditing("brew");
-      setBrewDraft([...current.brews.map((b) => ({ style: b.style, liters: b.liters })), { style: model.brewRecommendations[0]?.style ?? CORE_STYLES[0], liters: model.brewRecommendations[0]?.liters ?? 2500 }]);
+      setBrewDraft([...current.brews.map((b) => ({ style: b.style, liters: b.liters })), { style: effectiveBrewRecommendations[0]?.style ?? CORE_STYLES[0], liters: effectiveBrewRecommendations[0]?.liters ?? 2500 }]);
     } else {
-      setBrewDraft((rows) => [...rows, { style: model.brewRecommendations[rows.length]?.style ?? CORE_STYLES[0], liters: model.brewRecommendations[rows.length]?.liters ?? 2500 }]);
+      setBrewDraft((rows) => [...rows, { style: effectiveBrewRecommendations[rows.length]?.style ?? CORE_STYLES[0], liters: effectiveBrewRecommendations[rows.length]?.liters ?? 2500 }]);
     }
   }
   function pushBrewRecommendationsToDraft() {
-    if (!model.brewRecommendations.length) return;
+    if (!effectiveBrewRecommendations.length) return;
     setEditing("brew");
-    setBrewDraft([...current.brews.map((b) => ({ style: b.style, liters: b.liters })), ...model.brewRecommendations]);
+    setBrewDraft([...current.brews.map((b) => ({ style: b.style, liters: b.liters })), ...effectiveBrewRecommendations]);
   }
 
   const usedShipSlots = editing === "delivery" ? shipmentSlots(shipDraft) : null;
@@ -680,7 +732,11 @@ export default function PlanningWeeklyRecommendationsV2({
           })}
         </div>
         {!model.shipmentCanFillTruck && model.shipmentSlots > 0 && <p className="bp-alert">אין כרגע מספיק מלאי רגיל צפוי כדי להרכיב המלצה של משאית מלאה. עדיין אפשר לשמור החלטה חלקית ידנית.</p>}
-        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>FEFO קודם: תוקף קצר קודם. בתוך אותו תוקף/אצווה נעדיף משטח נגיש וקרוב למסדרון/יציאה; משטח ארגזים עליון עם 60+ מקבל עדיפות כל עוד הוא מספיק לכמות והמשאית נשארת עד 12 מקומות.</small></div>}
+        {canOfferMapMarking && <div className="bp-map-marking">
+          <button type="button" disabled={disabled || busy || hasMarkedCoolerPallets} onClick={markShipmentOnCoolerMap}>{hasMarkedCoolerPallets ? "כבר קיימים משטחים מסומנים" : "סמן את המשלוח במפת המקרר"}</button>
+          {hasMarkedCoolerPallets && <b>✓ {markedCoolerPallets.length} משטחים מסומנים כרגע למשלוח</b>}
+          <small>{hasMarkedCoolerPallets ? "כדי למנוע דריסה או כפילות, אפשר לסמן החלטת משלוח חדשה רק אחרי שהסימון הקיים טופל במפת המקרר." : "FEFO קודם. בתוך אותו תוקף/אצווה נבחר קודם את המשטח העליון והנגיש ביותר. אם SKU בעדיפות גבוהה כבר לא נכנס במשאית, משאירים את היתרה לא מסומנת ולא ממלאים את המקום במוצר אחר."}</small>
+        </div>}
         <div className="bp-actions">{editing === "delivery" ? <><button disabled={busy} onClick={saveShipment}>שמירת החלטת המשלוח</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button className={(current.deliveries ?? []).length ? "bp-action-warning" : ""} disabled={disabled || busy || !model.shipmentCanFillTruck} onClick={acceptShipmentRecommendation}>{(current.deliveries ?? []).length ? "⚠️ החלף החלטה קיימת בהמלצה" : "צור החלטה מהמלצת 12/12"}</button><button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button></>}</div>
       </article>
 
@@ -712,12 +768,12 @@ export default function PlanningWeeklyRecommendationsV2({
       </article>
 
       <article className="bp-week-rec-card">
-        <header><div><small>3 · בישול · {selectedWeekText}</small><h3>מה לבשל השבוע</h3></div><b>{model.availableBrewTanks} מקומות בישול פנויים אחרי ההחלטות</b></header>
-        <p className="bp-rec-principle">החלטת אריזה שמרוקנת מיכל נחשבת כריקון מתוכנן. אחרי ששיבצת בישול למיכל בלוח העבודה, אותו מיכל נחשב תפוס ואינו מוצע לבישול נוסף.</p>
-        <div className="bp-decided-list"><b>המלצת המערכת</b>{model.brewRecommendations.length ? model.brewRecommendations.map((r, i) => <div className="bp-rec-line" key={`${r.style}:${i}`}><span><b>{displayStyle(r.style)}</b></span><span>{fmt(r.liters)} ל׳</span></div>) : <small>אין כרגע המלצת בישול נוספת.</small>}</div>
+        <header><div><small>3 · בישול · {selectedWeekText}</small><h3>מה לבשל השבוע</h3></div><b>{effectiveBrewCapacity} מקומות בישול פנויים אחרי ההחלטות</b></header>
+        <p className="bp-rec-principle">החלטת אריזה שמרוקנת מיכל נחשבת כריקון מתוכנן. החלטות בישול משבועות קודמים שעדיין לא שובצו למיכל שומרות מקום במיכל עתידי, ולכן אינן נספרות שוב כקיבולת פנויה.</p>
+        <div className="bp-decided-list"><b>המלצת המערכת</b>{effectiveBrewRecommendations.length ? effectiveBrewRecommendations.map((r, i) => <div className="bp-rec-line" key={`${r.style}:${i}`}><span><b>{displayStyle(r.style)}</b></span><span>{fmt(r.liters)} ל׳</span></div>) : <small>אין כרגע המלצת בישול נוספת.</small>}</div>
         <div className="bp-decided-list"><b>החלטות שנקבעו</b>{current.brews.length ? current.brews.map((b) => <div className="bp-rec-line" key={b.id}><span><b>{displayStyle(b.style)}</b></span><span>{fmt(b.liters)} ל׳{b.tankId ? ` · שובץ למיכל ${tanks.find((t) => t.id === b.tankId)?.number ?? b.tankId}` : " · טרם שובץ למיכל"}</span></div>) : <small>טרם נקבעו בישולים.</small>}</div>
         {editing === "brew" && <div className="bp-decided-list"><b>עריכת החלטת הבישול</b>{brewDraft.map((b, i) => <div className="bp-brew-edit-row" key={i}><select value={b.style} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, style: e.target.value } : x))}>{CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option></select><input type="number" min="1" value={b.liters} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, liters: Number(e.target.value) } : x))}/><button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button></div>)}</div>}
-        <div className="bp-actions">{editing === "brew" ? <><button type="button" disabled={!model.brewRecommendations.length} onClick={pushBrewRecommendationsToDraft}>הוסף את ההמלצות לעריכה</button><button type="button" onClick={addBrew}>+ הוסף בישול</button><button disabled={busy} onClick={saveBrews}>שמירת החלטת הבישול</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button type="button" disabled={disabled || busy || !model.brewRecommendations.length} onClick={acceptBrewRecommendations}>{current.brews.length ? "הוסף המלצות בישול להחלטות" : "צור החלטות מהמלצות הבישול"}</button><button type="button" disabled={disabled || busy} onClick={addBrew}>+ הוסף בישול</button><button disabled={disabled || busy} onClick={() => beginEdit("brew")}>עריכת הבישולים</button></>}</div>
+        <div className="bp-actions">{editing === "brew" ? <><button type="button" disabled={!effectiveBrewRecommendations.length} onClick={pushBrewRecommendationsToDraft}>הוסף את ההמלצות לעריכה</button><button type="button" onClick={addBrew}>+ הוסף בישול</button><button disabled={busy} onClick={saveBrews}>שמירת החלטת הבישול</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button type="button" disabled={disabled || busy || !effectiveBrewRecommendations.length} onClick={acceptBrewRecommendations}>{current.brews.length ? "הוסף המלצות בישול להחלטות" : "צור החלטות מהמלצות הבישול"}</button><button type="button" disabled={disabled || busy} onClick={addBrew}>+ הוסף בישול</button><button disabled={disabled || busy} onClick={() => beginEdit("brew")}>עריכת הבישולים</button></>}</div>
       </article>
     </div>
   </section>;
