@@ -9,10 +9,8 @@ import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
-import PlanningWeeklyRecommendationsV2 from "./PlanningWeeklyRecommendationsV2";
+import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
 import "./planning.css";
-import "./planningV2.css";
-import "./planningV3.css";
 
 export const PLANNING_TABS = [
   ["stock", "מלאי"],
@@ -49,9 +47,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   return (
     <section className="brew-planning" dir="rtl">
-      {data.loading && !data.error && <p role="status">טוען את לוח העבודה…</p>}
+      {data.loading && !data.error && 
+      <p role="status">טוען את לוח העבודה…</p>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
-      {data.offline && <p role="status">ממתין לחיבור לשרת לפני שמירה.</p>}
+      {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
 
       {!data.loading && !data.error && <>
@@ -59,7 +58,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningWeeklyRecommendationsV2
+          <PlanningWeeklyRecommendations
             settings={settings}
             plans={plans}
             tanks={tanks}
@@ -97,12 +96,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>}
 
         {tab === "review" && <>
-          <details>
-            <summary>מי שומר את תמונות המצב?</summary>
-            <p>כל החלטה נשמרת כשלוחצים על שמירה. פונקציות Firebase נפרדות מצלמות את ההחלטות בימי שישי ובפתיחת השבוע, ורק לאחר התקנתן ופריסתן.</p>
-            <p>המלצות שלא אושרו אינן החלטות שמורות בדוח הזה. אין אישור אוטומטי בשם המתכנן.</p>
-            <p>{data.snapshots.length ? "התקבלו תמונות מצב מהשרת." : "לא התקבלו תמונות מצב בטווח הנוכחי. יש לבדוק את התקנת הפונקציות; אין להסיק שהשמירה המתוזמנת פעילה."}</p>
-          </details>
           <PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>
         </>}
       </>}

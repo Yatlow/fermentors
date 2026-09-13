@@ -9,7 +9,6 @@ import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPres
 import PlanningWeekEditor from "./PlanningWeekEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
 import PlanningDaySelect from "./PlanningDaySelect";
-import "./planningV2.css";
 
 function activeWorkWeek(today: string) {
   const current = weekStart(today);

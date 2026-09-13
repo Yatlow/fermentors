@@ -123,7 +123,7 @@ export default function PlanningWeeklyPlanner({ settings, plans, tanks, sources,
 
     <div className="bp-week-recommendations">
       <article className="bp-week-rec-card bp-week-shipment-card">
-        <header><div><small>1 · משלוח</small><h3>מה לשלוח השבוע</h3></div><b>{model.shipmentSlots}/12 מקומות בהמלצה</b></header>
+        <header><div><small>1 · משלוח</small><h3>מה לשלוח השבוע</h3></div><b>{model.shipmentSlots}/12 מקומות</b></header>
         <p className="bp-rec-principle">כיסוי טמפו צפוי לסוף השבוע. המדידה האחרונה היא נקודת הפתיחה; מכירות נגרעות רק מהיום קדימה. ההמלצה לא נשענת על החלטת המשלוח של אותו שבוע.</p>
         <div className="bp-shipment-plan-table"><div className="bp-shipment-plan-head"><span>מקט</span><span>כיסוי</span><span>מומלץ</span><span>נקבע</span></div>{products.map((p) => {
           const base = model.rows.base.get(p.id); const after = model.rows.afterShipment.get(p.id); const rec = shipRec.get(p.id); const decided = decidedShip(p.id); const decidedPallets = Math.ceil(decided / palletSize(p));
