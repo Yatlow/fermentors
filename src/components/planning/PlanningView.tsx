@@ -12,6 +12,7 @@ import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
 import "./planning.css";
+import "./planningEnhancements.css";
 
 export const PLANNING_TABS = [
   ["stock", "מלאי"],
@@ -48,7 +49,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   return (
     <section className="brew-planning" dir="rtl">
-      {data.loading && !data.error && 
+      {data.loading && !data.error &&
       <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
