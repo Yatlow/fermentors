@@ -57,6 +57,17 @@ export type WeeklyBrewRecommendation = {
   style: string;
   liters: number;
   sizeLabel: BrewSizeLabel;
+  tankId: string;
+  tankNumber: string;
+  availableDate: string;
+};
+
+export type WeeklyBrewTankOption = {
+  tankId: string;
+  tankNumber: string;
+  availableDate: string;
+  workLiters: number;
+  sizeLabel: BrewSizeLabel;
 };
 
 export type WeeklyPlanningModel = {
@@ -73,6 +84,8 @@ export type WeeklyPlanningModel = {
   packagingDays: number;
   packagingCapacity: number;
   brewRecommendations: WeeklyBrewRecommendation[];
+  /** Tank choices available during this week before decisions saved in this week consume them. */
+  brewTankOptions: WeeklyBrewTankOption[];
   /** Remaining tank positions after decisions already saved for the selected week. */
   availableBrewTanks: number;
   /** Tank capacity available at the start of the selected week, before that week's decisions. */
@@ -274,33 +287,75 @@ function buildBrewRecommendation(
 ) {
   const planningStart = weekStart(today);
   const currentWeek = plans.find((w) => w.id === week);
-  const occupiedTankIds = new Set(
+
+  // Only brews from earlier planning weeks are already committed capacity here.
+  // Current-week decisions are applied later so we can still expose the physical
+  // tank options that existed before those decisions were saved.
+  const priorAssignedTankIds = new Set(
     plans
-      .filter((w) => w.id >= planningStart && w.id <= week)
+      .filter((w) => w.id >= planningStart && w.id < week)
       .flatMap((w) => w.brews)
       .filter((b) => !!b.tankId && b.date <= weekEnd)
       .map((b) => b.tankId),
   );
 
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today)
-    .filter((r) => !!r.date && r.date! <= weekEnd && !occupiedTankIds.has(r.tankId))
+    .filter((r) => !!r.date && r.date! <= weekEnd && !priorAssignedTankIds.has(r.tankId))
     .sort((a, b) =>
       (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31") ||
       Number(sources.find((s) => s.id === a.tankId)?.tankNumber ?? Infinity) -
         Number(sources.find((s) => s.id === b.tankId)?.tankNumber ?? Infinity),
     );
 
-  const priorUnassigned = plans
+  // Reserve prior unassigned brews only against tanks that were actually available
+  // by that brew's planned date. A tank released later must not be consumed again
+  // by an older anonymous reservation (the week-39 -> week-40 regression).
+  const priorReservedTankIds = new Set<string>();
+  const priorUnassignedBrews = plans
     .filter((w) => w.id >= planningStart && w.id < week)
     .flatMap((w) => w.brews)
-    .filter((b) => !b.tankId && b.date <= weekEnd).length;
-  const currentUnassigned = currentWeek?.brews.filter((b) => !b.tankId && b.date <= weekEnd).length ?? 0;
-  const currentAssigned = currentWeek?.brews.filter((b) => !!b.tankId && b.date <= weekEnd).length ?? 0;
+    .filter((b) => !b.tankId && b.date <= weekEnd)
+    .sort((a, b) => a.date.localeCompare(b.date));
 
-  const capacityBeforeCurrent = Math.max(0, releases.length + currentAssigned - priorUnassigned);
-  const remainingCapacity = Math.max(0, releases.length - priorUnassigned - currentUnassigned);
-  const anonymousReservations = Math.min(releases.length, priorUnassigned + currentUnassigned);
-  const availableReleases = releases.slice(anonymousReservations);
+  for (const brew of priorUnassignedBrews) {
+    const release = releases.find((r) =>
+      !priorReservedTankIds.has(r.tankId) && !!r.date && r.date <= brew.date,
+    );
+    if (release) priorReservedTankIds.add(release.tankId);
+  }
+
+  const capacityReleases = releases.filter((r) => !priorReservedTankIds.has(r.tankId));
+  const currentReservedTankIds = new Set<string>();
+
+  for (const brew of currentWeek?.brews.filter((b) => !!b.tankId && b.date <= weekEnd) ?? []) {
+    if (capacityReleases.some((r) => r.tankId === brew.tankId)) {
+      currentReservedTankIds.add(brew.tankId);
+    }
+  }
+
+  const currentUnassigned = currentWeek?.brews.filter((b) => !b.tankId && b.date <= weekEnd) ?? [];
+  for (const brew of currentUnassigned) {
+    const release = capacityReleases.find((r) =>
+      !currentReservedTankIds.has(r.tankId) && !!r.date && r.date <= weekEnd,
+    );
+    if (release) currentReservedTankIds.add(release.tankId);
+  }
+
+  const availableReleases = capacityReleases.filter((r) => !currentReservedTankIds.has(r.tankId));
+  const capacityBeforeCurrent = capacityReleases.length;
+  const remainingCapacity = availableReleases.length;
+  const tankOptions: WeeklyBrewTankOption[] = capacityReleases.map((release) => {
+    const source = sources.find((s) => s.id === release.tankId);
+    const tankNumber = String(source?.tankNumber ?? release.tankId);
+    const workLiters = release.workLiters || 2500;
+    return {
+      tankId: release.tankId,
+      tankNumber,
+      availableDate: release.date!,
+      workLiters,
+      sizeLabel: brewSizeLabel(workLiters, source?.tankNumber),
+    };
+  });
 
   const styles = [
     ...new Set(
@@ -323,13 +378,22 @@ function buildBrewRecommendation(
   for (let i = 0; i < Math.min(remainingCapacity, ranked.length, availableReleases.length); i++) {
     const release = availableReleases[i];
     const source = sources.find((s) => s.id === release.tankId);
+    const tankNumber = String(source?.tankNumber ?? release.tankId);
     recommendations.push({
       style: ranked[i].style,
       liters: release.workLiters || 2500,
       sizeLabel: brewSizeLabel(release.workLiters || 2500, source?.tankNumber),
+      tankId: release.tankId,
+      tankNumber,
+      availableDate: release.date!,
     });
   }
-  return { recommendations, capacity: remainingCapacity, capacityBeforeCurrent };
+  return {
+    recommendations,
+    capacity: remainingCapacity,
+    capacityBeforeCurrent,
+    tankOptions,
+  };
 }
 
 export function buildWeeklyPlanningModel(args: {
@@ -413,6 +477,7 @@ export function buildWeeklyPlanningModel(args: {
     packagingDays: packaging.days,
     packagingCapacity: packaging.capacity,
     brewRecommendations: brew.recommendations,
+    brewTankOptions: brew.tankOptions,
     availableBrewTanks: brew.capacity,
     brewTankCapacity: brew.capacityBeforeCurrent,
     tankAvailableLiters,
