@@ -1,5 +1,5 @@
 import BeerLoader from "../general/Loading";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../../SERVICES/cooler/truckCapacity";
@@ -96,6 +96,13 @@ export default function PlanningWeeklyRecommendations({
     const [brewDraft, setBrewDraft] = useState<BrewDraft[]>([]);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
+    const [markFeedback, setMarkFeedback] = useState("");
+    const markFeedbackRef = useRef<HTMLParagraphElement>(null);
+    useEffect(() => {
+        if (!markFeedback) return;
+        markFeedbackRef.current?.focus({ preventScroll: true });
+        markFeedbackRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [markFeedback]);
     const [shipmentError, setShipmentError] = useState<{ productId: string; text: string } | null>(null);
 
     const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
@@ -260,82 +267,87 @@ export default function PlanningWeeklyRecommendations({
 
     async function markShipmentOnCoolerMap() {
         if (!canOfferMapMarking || disabled || busy) return;
-        if (markingBlocked) return setMessage("כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.");
+        if (markingBlocked) return setMarkFeedback("כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.");
 
-        if (current.deliveries?.some((d) => d.quantity > 0 && !product(d.productId))) return setMessage("ההחלטה כוללת מק״ט לא מוכר. יש לתקן את ההחלטה לפני הסימון.");
-        const shipmentLines = products
-            .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
-            .filter((line) => line.requested > 0)
-            .map((line) => {
-                const candidates = pallets.filter((pallet) =>
-                    pallet.zone === "cooler" && !pallet.markedForShipment &&
-                    pallet.itemType === line.product.type &&
-                    sameStyle(pallet.beerStyle, line.product.style) &&
-                    (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= today),
-                );
-                const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
-                const options = palletSelectionOptions(candidates, line.requested);
-                return { ...line, candidates, available, options };
-            });
+        setBusy(true);
+        setMarkFeedback("בודק התאמה של המשטחים להחלטת המשלוח…");
+        try {
+            // Paint progress before starting the subset search; failures in the
+            // calculation must use the same visible feedback as write failures.
+            await new Promise<void>((resolve) => setTimeout(resolve, 0));
+            if (current.deliveries?.some((d) => d.quantity > 0 && !product(d.productId))) return setMarkFeedback("ההחלטה כוללת מק״ט לא מוכר. יש לתקן את ההחלטה לפני הסימון.");
+            const shipmentLines = products
+                .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
+                .filter((line) => line.requested > 0)
+                .map((line) => {
+                    const candidates = pallets.filter((pallet) =>
+                        pallet.zone === "cooler" && !pallet.markedForShipment &&
+                        pallet.itemType === line.product.type &&
+                        sameStyle(pallet.beerStyle, line.product.style) &&
+                        (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= today),
+                    );
+                    const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
+                    const options = palletSelectionOptions(candidates, line.requested);
+                    return { ...line, candidates, available, options };
+                });
 
-        let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
+            let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
 
-        for (const line of shipmentLines) {
-            if (!line.options.length) return setMessage(line.available < line.requested
-                ? `אין מספיק מלאי פיזי במקרר עבור ${displayStyle(line.product.style)}: ההחלטה היא ${fmt(line.requested)} ${line.product.type === "crates" ? "ארגזים" : "חביות"}, חסרים ${fmt(line.requested - line.available)}. יש להשלים את האריזה והשיבוץ במקרר לפני הסימון. לא סומנו משטחים.`
-                : `לא ניתן להתאים משטחים שלמים בדיוק להחלטה עבור ${displayStyle(line.product.style)} (${fmt(line.requested)}). יש לפצל משטח או לעדכן את ההחלטה. לא סומנו משטחים.`);
+            for (const line of shipmentLines) {
+                if (!line.options.length) return setMarkFeedback(line.available < line.requested
+                    ? `אין מספיק מלאי פיזי במקרר עבור ${displayStyle(line.product.style)}: ההחלטה היא ${fmt(line.requested)} ${line.product.type === "crates" ? "ארגזים" : "חביות"}, חסרים ${fmt(line.requested - line.available)}. יש להשלים את האריזה והשיבוץ במקרר לפני הסימון. לא סומנו משטחים.`
+                    : `לא ניתן להתאים משטחים שלמים בדיוק להחלטה עבור ${displayStyle(line.product.style)} (${fmt(line.requested)}). יש לפצל משטח או לעדכן את ההחלטה. לא סומנו משטחים.`);
 
-            const nextStates: ShipmentSelectionState[] = [];
-            for (const state of states) {
-                for (const option of line.options) {
-                    const combined = [...state.selected, ...option.selected];
-                    let slots: number;
-                    try { slots = calcTruckSlots(combined); } catch { continue; }
-                    if (slots > MAX_TRUCK_SLOTS) continue;
-                    nextStates.push({
-                        selected: combined,
-                        details: [...state.details, {
-                            product: line.product,
-                            requested: line.requested,
-                            available: line.available,
-                            selectedTotal: option.total,
-                            missing: Math.max(0, line.requested - line.available),
-                            overage: Math.max(0, option.total - Math.min(line.requested, line.available)),
-                        }],
-                        slots,
-                        fefoScore: state.fefoScore + option.fefoScore,
-                        overage: state.overage + option.overage,
-                    });
+                const nextStates: ShipmentSelectionState[] = [];
+                for (const state of states) {
+                    for (const option of line.options) {
+                        const combined = [...state.selected, ...option.selected];
+                        let slots: number;
+                        try { slots = calcTruckSlots(combined); } catch { continue; }
+                        if (slots > MAX_TRUCK_SLOTS) continue;
+                        nextStates.push({
+                            selected: combined,
+                            details: [...state.details, {
+                                product: line.product,
+                                requested: line.requested,
+                                available: line.available,
+                                selectedTotal: option.total,
+                                missing: Math.max(0, line.requested - line.available),
+                                overage: Math.max(0, option.total - Math.min(line.requested, line.available)),
+                            }],
+                            slots,
+                            fefoScore: state.fefoScore + option.fefoScore,
+                            overage: state.overage + option.overage,
+                        });
+                    }
                 }
+
+                states = pruneShipmentStates(nextStates);
+                if (!states.length) return setMarkFeedback(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
             }
 
-            states = pruneShipmentStates(nextStates);
-            if (!states.length) return setMessage(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
-        }
+            const best = [...states].sort((a, b) =>
+                a.fefoScore - b.fefoScore ||
+                a.overage - b.overage ||
+                a.slots - b.slots ||
+                a.selected.length - b.selected.length,
+            )[0];
 
-        const best = [...states].sort((a, b) =>
-            a.fefoScore - b.fefoScore ||
-            a.overage - b.overage ||
-            a.slots - b.slots ||
-            a.selected.length - b.selected.length,
-        )[0];
+            if (!best || !best.selected.length) return setMarkFeedback("לא נמצאו משטחים פיזיים מתאימים לסימון.");
 
-        if (!best || !best.selected.length) return setMessage("לא נמצאו משטחים פיזיים מתאימים לסימון.");
+            const palletIds = [...new Set(best.selected.map((p) => p.id))];
+            const notes = best.details.flatMap((detail) => {
+                const result: string[] = [];
+                if (detail.missing > 0) result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
+                if (detail.overage > 0) result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
+                return result;
+            });
 
-        const palletIds = [...new Set(best.selected.map((p) => p.id))];
-        const notes = best.details.flatMap((detail) => {
-            const result: string[] = [];
-            if (detail.missing > 0) result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
-            if (detail.overage > 0) result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
-            return result;
-        });
-
-        setBusy(true); setMessage("");
-        try {
+            setMarkFeedback("מסמן את המשטחים במפת המקרר…");
             await markPlanningPallets(best.selected);
-            setMessage(`סומנו ${formatPalletCount(palletIds.length)} למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`);
+            setMarkFeedback(`סומנו ${formatPalletCount(palletIds.length)} למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`);
         } catch (e) {
-            setMessage(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
+            setMarkFeedback(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
         } finally {
             setBusy(false);
         }
@@ -482,7 +494,7 @@ export default function PlanningWeeklyRecommendations({
 
     return <section className="bp-weekly-planner">
         {busy && <BeerLoader overlay message="מעדכן את התכנון…" />}
-        <div className="bp-week-picker">{Array.from({ length: 8 }, (_, i) => addDays(weekStart(today), i * 7)).map((w) => <button key={w} aria-pressed={w === week} onClick={() => { setWeek(w); setEditing(null); setMessage(""); }}>שבוע {weekNumber(w)}<small>{shortDate(w)}</small></button>)}</div>
+        <div className="bp-week-picker">{Array.from({ length: 8 }, (_, i) => addDays(weekStart(today), i * 7)).map((w) => <button key={w} aria-pressed={w === week} disabled={busy} onClick={() => { setWeek(w); setEditing(null); setMessage(""); setMarkFeedback(""); }}>שבוע {weekNumber(w)}<small>{shortDate(w)}</small></button>)}</div>
         <div className="bp-week-sticky"><b>{selectedWeekText}</b><small>{editing ? `עורך: ${editing === "delivery" ? "משלוח" : editing === "packaging" ? "אריזה" : "בישול"}` : "תכנון שבועי"}</small></div>
         {holidaysThisWeek.length > 0 && <div className="bp-week-events"><b>חגים ואירועים השבוע</b>{holidaysThisWeek.map((h) => <span key={`${h.date}:${h.title}`}>{shortDate(h.date)} · {h.title}</span>)}</div>}
         {message && <p role="status" className="bp-week-message">{message}</p>}
@@ -515,6 +527,7 @@ export default function PlanningWeeklyRecommendations({
                 {canOfferMapMarking && <div className="bp-map-marking">
                     <button type="button" disabled={disabled || busy || markingBlocked || editing === "delivery"} onClick={markShipmentOnCoolerMap}
                     >סמן את המשלוח במפת המקרר</button>
+                    {markFeedback && <p ref={markFeedbackRef} tabIndex={-1} role="status" aria-live="polite" className="bp-shipment-feedback">{markFeedback}</p>}
                     {markingBlocked && <p role="status">כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.</p>}
                 </div>}
                 <div className="bp-shipment-plan-table"><div className="bp-shipment-plan-head"><span>מקט</span><span>כיסוי</span><span>מומלץ</span><span>החלטה</span></div>
@@ -525,6 +538,8 @@ export default function PlanningWeeklyRecommendations({
                         const risky = riskyShipmentQty(p, draftQty); const shownAfter = editing === "delivery" ? draftShipmentCover(p) : after?.tempoCover ?? null;
                         const showSameWeek = sameWeek > 0 && regularMaxCover(p) < settings.targetWeeks;
                         const recAfter = shipmentRecommendationCover(p);
+                        const decidedSlots = shipmentSlots({ [p.id]: draftQty });
+                        const decidedSlotsLabel = Number.isFinite(decidedSlots) ? `${decidedSlots} מקומות` : "חורג ממגבלת הגובה";
                         return <div className={`bp-shipment-plan-row ${risky > 0 ? "has-same-week-risk" : (shownAfter ?? Infinity) < settings.targetWeeks ? "is-warning" : "is-ok"}`} key={p.id}>
                             <span><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(base?.tempoCover ?? null)}<small>
@@ -534,14 +549,13 @@ export default function PlanningWeeklyRecommendations({
                                 { /* plannedDelta > 0 ? ` · +${palletLabel(plannedDelta, p)} צפויים להיארז` : 
                                    plannedDelta < 0 ? ` · ${palletLabel(plannedDelta, p)} מהחלטות קודמות` : "" */}
                             </small>{showSameWeek && <small className="bp-risk-text">{palletLabel(sameWeek, p)} מאריזה השבוע</small>}</span>
-                            <span>{formatPalletCount(rec?.pallets ?? 0)}<small>{rec?.slots ?? 0} מק׳</small>{rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}</span>
-                            <span>{editing === "delivery" ? <div className="bp-stepper"><button onClick={() => stepShipment(p, -1)}>−</button><b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b><button onClick={() => stepShipment(p, 1)}>+</button><small>משטחים · אחרי: {coverLabel(shownAfter)}</small>{shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</div> : <>{palletLabel(decided, p)}<small>אחרי החלטה: {coverLabel(shownAfter)}</small>{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</>}</span>
+                            <span>{formatPalletCount(rec?.pallets ?? 0)}<small>{rec?.slots ?? 0} מקומות</small>{rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}</span>
+                            <span>{editing === "delivery" ? <div className="bp-stepper"><button onClick={() => stepShipment(p, -1)}>−</button><b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b><button onClick={() => stepShipment(p, 1)}>+</button><small>{decidedSlotsLabel}</small><small>משטחים · אחרי: {coverLabel(shownAfter)}</small>{shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</div> : <>{palletLabel(decided, p)}<small>{decidedSlotsLabel}</small><small>אחרי החלטה: {coverLabel(shownAfter)}</small>{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</>}</span>
                         </div>;
                     })}
                 </div>
 
 
-                {message && <p role="status" className="bp-shipment-feedback">{message}</p>}
             </article>
 
             <article className="bp-week-rec-card">
