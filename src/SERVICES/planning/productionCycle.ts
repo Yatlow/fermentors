@@ -10,10 +10,13 @@ import {
 } from "./planningEngine";
 import { actualDate, openRuns } from "./dailyPlanner";
 import type { Actual } from "./planningEngine";
+
 export const weekday = (date: string) =>
   new Date(`${date}T12:00:00Z`).getUTCDay();
 export const nextBrewingWeek = (emptied: string) =>
   addDays(weekStart(emptied), 8);
+
+/** Normal recommendation capacity. A planner may override it manually. */
 export const packagingLimit = (date: string, type: "crates" | "kegs") =>
   weekday(date) === 0
     ? type === "crates"
@@ -22,12 +25,15 @@ export const packagingLimit = (date: string, type: "crates" | "kegs") =>
     : type === "crates"
       ? 252
       : Infinity;
+
 export type TankSource = {
   id: string;
   tankNumber?: string | number | null;
+  beerStyle?: string | null;
   beerVolume?: unknown;
   tankStatus?: unknown;
-  stage?: { className?: string };
+  action?: unknown;
+  stage?: { className?: string; name?: string };
 };
 export type Release = {
   tankId: string;
@@ -37,7 +43,47 @@ export type Release = {
   workLiters: number;
   reason: string;
 };
-/** Only explicit tank-linked, remaining runs can release a currently occupied tank. */
+
+export function estimatedBrewVolume(
+  tankNumber: unknown,
+  beerStyle?: string | null,
+): number {
+  const tank = Number(tankNumber);
+  const style = String(beerStyle ?? "");
+  if (!Number.isFinite(tank) || tank <= 0) return 0;
+  if (tank <= 4) return 1100;
+  const isPale = style.includes("פייל");
+  const isHoppyLager = style.includes("הופי") && style.includes("לאגר");
+  const isLager = style.includes("לאגר");
+  const isWheat = style.includes("חיטה");
+  const isIpa = /ipa/i.test(style);
+  if (tank <= 8) {
+    if (isIpa) return 1960;
+    if (isPale) return 2200;
+    if (isHoppyLager || isLager) return 2500;
+    if (isWheat) return 2100;
+    return 2200;
+  }
+  if (isIpa) return 3000;
+  if (isPale) return 3200;
+  if (isHoppyLager) return 3600;
+  if (isLager) return 3700;
+  if (isWheat) return 3400;
+  return 3400;
+}
+
+function isReadyForBrew(source: TankSource) {
+  return (
+    Number(source.action) === 0 ||
+    source.stage?.name === "מחכה לבישול" ||
+    source.stage?.className === "stage-waiting" ||
+    source.tankStatus === true ||
+    ["stage-empty", "stage-clean", "stage-sanitized"].includes(
+      source.stage?.className ?? "",
+    )
+  );
+}
+
 export function tankReleases(
   sources: TankSource[],
   tanks: Tank[],
@@ -50,13 +96,9 @@ export function tankReleases(
     (r) => r.date && r.date >= today && r.remaining > 0,
   );
   return sources.map((source) => {
-    const workLiters = num(source.beerVolume);
-    if (
-      source.tankStatus === true ||
-      ["stage-empty", "stage-clean", "stage-sanitized"].includes(
-        source.stage?.className ?? "",
-      )
-    ) {
+    const workLiters =
+      num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, source.beerStyle);
+    if (isReadyForBrew(source)) {
       const packedThisWeek = actuals
         .filter(
           (a) =>
@@ -78,7 +120,9 @@ export function tankReleases(
         workLiters,
         reason: packedThisWeek
           ? "המיכל נארז השבוע; זמין לבישול מהשבוע הבא לאחר ניקיון"
-          : "פנוי בדאשבורד — יש לאמת ניקיון וחיטוי",
+          : Number(source.action) === 0 || source.stage?.name === "מחכה לבישול"
+            ? `המיכל מחכה לבישול וזמין לשיבוץ${num(source.beerVolume) ? "" : " · הנפח משוער לפי גודל המיכל"}`
+            : "המיכל פנוי; יש לאמת ניקיון וחיטוי",
       };
     }
     const tank = tanks.find((t) => t.id === source.id);
@@ -91,16 +135,18 @@ export function tankReleases(
         workLiters,
         reason: "חסרים נתוני מיכל מאומתים",
       };
-    let remaining = tank.liters,
-      emptyDate: string | null = null;
+    let remaining = tank.liters;
+    let emptyDate: string | null = null;
     for (const r of runs
       .filter((r) => r.tankId === source.id)
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
       const p = settings.products.find((p) => p.id === r.productId);
-      if (!p || !sameStyle(p.style, tank.style) || r.date! < tank.ready)
-        continue;
+      if (!p || !sameStyle(p.style, tank.style) || r.date! < tank.ready) continue;
       remaining -= r.remaining * litersPerUnit(p);
-      if (remaining <= 0.01 || (r.emptyTank && remaining < 20)) {
+      // Operational heel below 20L is considered an emptied tank for planning.
+      // This is also how the weekly planner treats a full-tank recommendation
+      // after converting liters to whole crates/kegs.
+      if (remaining < 20) {
         emptyDate = r.date!;
         break;
       }
@@ -112,11 +158,12 @@ export function tankReleases(
       remaining: Math.max(0, remaining),
       workLiters,
       reason: emptyDate
-        ? "לאחר ריקון מתוכנן וניקיון חמישי; שארית קטנה מ־20 ל׳ מחייבת אישור"
+        ? "לאחר ריקון מתוכנן וניקיון חמישי"
         : "אין עדיין תוכנית לריקון המיכל",
     };
   });
 }
+
 export function validateProduction(
   plans: WeekPlan[],
   settings: Settings,
@@ -127,40 +174,37 @@ export function validateProduction(
   const runs = openRuns(plans, settings.products, actuals)
     .filter((r) => r.remaining > 0 && (!r.date || r.date >= today))
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
-  const dates = new Map<string, Set<string>>(),
-    used = new Map<string, number>();
+  const tankRuns = new Map<string, { date: string; type: "crates" | "kegs" }[]>();
+  const used = new Map<string, number>();
+
   for (const r of runs) {
-    if (!r.tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
-    const t = tanks.find((t) => t.id === r.tankId),
-      p = settings.products.find((p) => p.id === r.productId);
-    if (!t || !p || !sameStyle(t.style, p.style) || r.date! < t.ready)
+    if (!r.tankId || !r.date)
+      return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
+    const t = tanks.find((t) => t.id === r.tankId);
+    const p = settings.products.find((p) => p.id === r.productId);
+    if (!t || !p || !sameStyle(t.style, p.style) || r.date < t.ready)
       return "מיכל האריזה אינו תואם לסגנון או טרם הבשיל";
-    const ds =
-      dates.get(t.id) ??
-      new Set<string>(
-        actuals
-          .filter(
-            (a) =>
-              String(a.tankNumber) === t.number &&
-              String(a.batchNumber) === t.batch,
-          )
-          .map(actualDate)
-          .filter((d): d is string => !!d && d >= t.brewed),
-      );
-    ds.add(r.date!);
-    dates.set(t.id, ds);
-    if (ds.size > 2 && !plans.find((w) => w.id === r.week)?.allowExceptions)
+
+    const history = tankRuns.get(t.id) ?? [];
+    history.push({ date: r.date, type: p.type });
+    tankRuns.set(t.id, history);
+    const dates = [...new Set(history.map((x) => x.date))];
+    const types = new Set(history.map((x) => x.type));
+    const allowExceptions = plans.find((w) => w.id === r.week)?.allowExceptions;
+    if (!allowExceptions && dates.length > 1 && types.size < 2)
+      return `מיכל ${t.number}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`;
+    if (!allowExceptions && dates.length > 2)
       return `מיכל ${t.number}: ניתן לפצל לכל היותר לשני ימי אריזה`;
+
     used.set(t.id, (used.get(t.id) ?? 0) + r.remaining * litersPerUnit(p));
     if (used.get(t.id)! > t.liters + 0.01)
-      return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין לאחר פחת`;
+      return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין`;
     if (r.emptyTank && t.liters - used.get(t.id)! >= 20)
-      return `מיכל ${t.number}: לא ניתן לסמן סיום כשנותרו 20 ליטר ומעלה`;
+      return `מיכל ${t.number}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמיכל`;
   }
   return null;
 }
 
-/** Recheck ALL downstream bookings when an earlier packaging week changes. */
 export function validateBrewReleases(
   sources: TankSource[],
   tanks: Tank[],
@@ -169,17 +213,11 @@ export function validateBrewReleases(
   actuals: Actual[],
   today: string,
 ): string | null {
-  const releases = tankReleases(
-    sources,
-    tanks,
-    plans,
-    settings,
-    actuals,
-    today,
-  );
-  for (const b of plans
-    .flatMap((w) => w.brews)
-    .filter((b) => b.date >= today)) {
+  const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
+  for (const b of plans.flatMap((w) => w.brews).filter((b) => b.date >= today)) {
+    // Weekly planner decisions intentionally have no tank yet. Tank release
+    // validation belongs to the daily work-manager assignment step.
+    if (!b.tankId) continue;
     if (
       tanks.some(
         (t) =>
@@ -191,9 +229,15 @@ export function validateBrewReleases(
       continue;
     const release = releases.find((r) => r.tankId === b.tankId);
     if (!release?.date || b.date < release.date)
-      return `בישול ${b.style} ב־${b.date}: תוכנית הריקון אינה מאפשרת את זמינות המיכל`;
-    if (!release.workLiters || b.liters > release.workLiters)
-      return "נפח עבודה חסר או חריגה מנפח המיכל בדאשבורד";
+      return `בישול ${b.style}: תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה`;
+    if (!release.workLiters) {
+      const source = sources.find((s) => s.id === b.tankId);
+      return `למיכל ${source?.tankNumber ?? b.tankId} חסר נפח עבודה ולא ניתן היה לחשב אומדן`;
+    }
+    if (b.liters > release.workLiters) {
+      const source = sources.find((s) => s.id === b.tankId);
+      return `מיכל ${source?.tankNumber ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב הוא ${Math.round(release.workLiters)} ל׳`;
+    }
   }
   return null;
 }
