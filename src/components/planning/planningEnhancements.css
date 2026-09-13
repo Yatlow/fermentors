@@ -43,13 +43,13 @@
     background: #f6fff8;
 }
 
-/* A saved execution decision is a second dimension, independent from coverage color. */
+/* Saved packaging decisions get a blue outline; brew decisions stay coverage-only. */
 .brew-planning .bp-shipment-plan-row.is-decided,
 .brew-planning .bp-rec-line.is-decided {
     box-shadow: inset 0 0 0 2px #3b82f6;
 }
 
-/* Legacy chip kept hidden; the blue outline now communicates the decision state. */
+/* Legacy chip kept hidden; the blue outline now communicates the packaging decision state. */
 .brew-planning .bp-decision-chip {
     display: none !important;
 }
@@ -75,6 +75,33 @@
 .brew-planning .bp-brew-capacity-warning span {
     font-size: .78rem;
     line-height: 1.45;
+}
+
+.brew-planning .bp-brew-tank-options {
+    display: grid;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid #dbeafe;
+    border-radius: 9px;
+    background: #f8fbff;
+}
+
+.brew-planning .bp-brew-tank-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.brew-planning .bp-brew-tank-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 8px;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #fff;
+    font-size: .72rem;
+    line-height: 1.2;
 }
 
 .brew-planning .bp-manual-pack-actions {
@@ -121,6 +148,11 @@
     .brew-planning .bp-week-sku small,
     .brew-planning .bp-partial-pallet-hint {
         font-size: .56rem;
+    }
+
+    .brew-planning .bp-brew-tank-chip {
+        width: 100%;
+        justify-content: space-between;
     }
 
     .brew-planning .bp-manual-pack-actions {
