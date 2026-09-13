@@ -755,7 +755,7 @@ export default function PlanningWeeklyRecommendations({
                     <b>משלוח: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות</b>
                 </header>
                 <p className="bp-rec-principle">
-                    ● הכיסוי הצפוי בטמפו מייצג כמה שבועות מכירה צפויים להיות בטמפו בתחילת השבוע הנבחר, אחרי מלאי קיים, החלטות קודמות וצפי המכירה.<br />
+                    ● המק"טים ממוינים לפי הכיסוי הנמוך ביותר.<br />
                     ● משטח חלקי יכול לייצג מקום משטח מלא כשאין מספיק מלאי למשטח מלא; הכמות הפיזית נשמרת במפת המקרר.
                 </p>
                 <div className="bp-saved-summary">
