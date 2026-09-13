@@ -22,6 +22,7 @@ try {
       "--outDir",
       output,
       "tests/planning-workflow.test.ts",
+      "tests/shipment-picking-regression.test.ts",
     ],
     { stdio: "inherit" },
   );
@@ -30,7 +31,11 @@ try {
   } else {
     const run = spawnSync(
       process.execPath,
-      ["--test", join(output, "tests/planning-workflow.test.js")],
+      [
+        "--test",
+        join(output, "tests/planning-workflow.test.js"),
+        join(output, "tests/shipment-picking-regression.test.js"),
+      ],
       { stdio: "inherit" },
     );
     process.exitCode = run.status ?? 1;
