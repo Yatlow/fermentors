@@ -626,8 +626,8 @@ export default function PlanningWeeklyRecommendations({
                 .map((b) => ({ id: crypto.randomUUID(), style: b.style, liters: b.liters, tankId: "", date: addDays(week, 1) }));
             await saveWeek({ ...current, brews, changeReason: "עדכון החלטת בישול שבועית" });
             setEditing(null);
-            setMessage(brews.length > model.brewTankCapacity
-                ? "החלטת הבישול נשמרה, אך מספר הבישולים גדול ממספר המיכלים הצפויים להיות פנויים."
+            setMessage(brews.length > model.brewTankCapacity || brewDraftExceedsSizeCapacity(brewDraft)
+                ? "החלטת הבישול נשמרה, אך לפחות אחד מסוגי הבישול אינו תואם לקיבולת המיכלים הצפויה השבוע."
                 : "החלטת הבישול נשמרה.");
         } catch (e) {
             setMessage(e instanceof Error ? e.message : "שמירת הבישול נכשלה");
@@ -653,11 +653,32 @@ export default function PlanningWeeklyRecommendations({
         }
     }
 
+    function brewSizeCapacity(size: BrewSizeLabel) {
+        return model.brewTankOptions.filter((option) => option.sizeLabel === size).length;
+    }
+
+    function brewSizeCount(rows: BrewDraft[], size: BrewSizeLabel, excludeIndex = -1) {
+        return rows.filter((row, index) => index !== excludeIndex && brewSizeLabel(row.liters) === size).length;
+    }
+
+    function canUseBrewSize(rows: BrewDraft[], size: BrewSizeLabel, excludeIndex = -1) {
+        return brewSizeCount(rows, size, excludeIndex) < brewSizeCapacity(size);
+    }
+
+    function brewDraftExceedsSizeCapacity(rows: BrewDraft[]) {
+        return BREW_SIZES.some((size) => brewSizeCount(rows, size) > brewSizeCapacity(size));
+    }
+
     function addBrew() {
-        setBrewDraft((rows) => [...rows, {
-            style: model.brewRecommendations[rows.length]?.style ?? CORE_STYLES[0],
-            liters: model.brewRecommendations[rows.length]?.liters ?? brewLitersForSize(CORE_STYLES[0], "כפול"),
-        }]);
+        setBrewDraft((rows) => {
+            const recommendation = model.brewRecommendations[rows.length];
+            const recommendedSize = recommendation?.sizeLabel;
+            const size = recommendedSize && canUseBrewSize(rows, recommendedSize)
+                ? recommendedSize
+                : BREW_SIZES.find((candidate) => canUseBrewSize(rows, candidate)) ?? recommendedSize ?? "כפול";
+            const style = recommendation?.style ?? CORE_STYLES[0];
+            return [...rows, { style, liters: brewLitersForSize(style, size) }];
+        });
     }
 
     function changeBrewStyle(index: number, style: string) {
@@ -667,9 +688,12 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function changeBrewSize(index: number, size: BrewSizeLabel) {
-        setBrewDraft((rows) => rows.map((row, i) => i === index
-            ? { ...row, liters: brewLitersForSize(row.style, size) }
-            : row));
+        setBrewDraft((rows) => {
+            if (!canUseBrewSize(rows, size, index)) return rows;
+            return rows.map((row, i) => i === index
+                ? { ...row, liters: brewLitersForSize(row.style, size) }
+                : row);
+        });
     }
 
     function pushBrewRecommendationsToDraft() {
@@ -699,8 +723,11 @@ export default function PlanningWeeklyRecommendations({
     const selectedWeekText = `שבוע ${weekNumber(week)} · ${shortDate(week)}–${shortDate(model.weekEnd)}`;
     const packagingDecisionCount = currentOpenPackaging.length;
     const packagingRecommendationCount = model.packagingRecommendation.length;
-    const plannedBrewCount = editing === "brew" ? brewDraft.length : current.brews.length;
-    const brewCapacityWarning = plannedBrewCount > model.brewTankCapacity;
+    const plannedBrewRows = editing === "brew"
+        ? brewDraft
+        : current.brews.map((b) => ({ style: b.style, liters: b.liters }));
+    const plannedBrewCount = plannedBrewRows.length;
+    const brewCapacityWarning = plannedBrewCount > model.brewTankCapacity || brewDraftExceedsSizeCapacity(plannedBrewRows);
 
     return <section className="bp-weekly-planner">
         {busy && <BeerLoader overlay message="מעדכן את התכנון…" />}
@@ -728,7 +755,7 @@ export default function PlanningWeeklyRecommendations({
                     <b>משלוח: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות</b>
                 </header>
                 <p className="bp-rec-principle">
-                    ● הכיסוי והמלאי הצפוי מייצגים את מצב הפתיחה של השבוע: החלטות משבועות קודמים בפנים, אבל מכירות ואריזות של השבוע הנבחר עדיין לא.<br />
+                    ● המק"טים ממוינים לפי הכיסוי הנמוך ביותר.<br />
                     ● משטח חלקי יכול לייצג מקום משטח מלא כשאין מספיק מלאי למשטח מלא; הכמות הפיזית נשמרת במפת המקרר.
                 </p>
                 <div className="bp-saved-summary">
@@ -762,13 +789,12 @@ export default function PlanningWeeklyRecommendations({
                 </div>}
 
                 <div className="bp-shipment-plan-table">
-                    <div className="bp-shipment-plan-head"><span>מק"ט</span><span>כיסוי צפוי</span><span>המלצת מערכת</span><span>החלטה לביצוע</span></div>
+                    <div className="bp-shipment-plan-head"><span>מק"ט</span><span>כיסוי צפוי בטמפו</span><span>המלצת מערכת</span><span>החלטה לביצוע</span></div>
                     {shipmentProducts.map((p) => {
                         const rec = shipmentRec.get(p.id);
                         const projected = model.weekStartRows.get(p.id);
                         const decided = currentShipmentQty(p.id);
                         const draftQty = editing === "delivery" ? shipDraft[p.id] ?? 0 : decided;
-                        const sameWeek = sameWeekPackagingQty(p);
                         const expectedCover = projected?.tempoCover ?? null;
                         const shownAfter = editing === "delivery" ? draftShipmentCover(p) : shipmentCoverAfter(p, decided);
                         const recAfter = shipmentRecommendationCover(p);
@@ -778,20 +804,11 @@ export default function PlanningWeeklyRecommendations({
                         const partial = draftQty > 0 ? partialCrateHint(p) : null;
                         return <div className={`bp-shipment-plan-row ${coverageClass(expectedCover, settings.targetWeeks)}`} key={p.id}>
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
-                            <span>
-                                {coverLabel(expectedCover)}
-                                {projected?.tempoUnits == null
-                                    ? <small>טמפו: לא עודכן</small>
-                                    : <small>{palletLabel(projected.tempoUnits, p)} בטמפו צפוי</small>}
-                                <small>{palletLabel(projected?.breweryUnits ?? 0, p)} במבשלה צפוי</small>
-                                {(projected?.packagingBeforeWeek ?? 0) > 0 && <small>+ {palletLabel(projected!.packagingBeforeWeek, p)} מאריזות בשבועות קודמים</small>}
-                                {(projected?.shipmentsBeforeWeek ?? 0) > 0 && <small>− {palletLabel(projected!.shipmentsBeforeWeek, p)} ממשלוחים בשבועות קודמים</small>}
-                                {sameWeek > 0 && <small className="bp-risk-text">+ {palletLabel(sameWeek, p)} אפשריים מאריזה השבוע</small>}
-                            </span>
+                            <span>{coverLabel(expectedCover)}</span>
                             <span>
                                 {rec ? formatPalletCount(rec.pallets) : "—"}
                                 {rec && <small>{rec.slots} מקומות</small>}
-                                {rec && <small>יביא כיסוי בטמפו לכ־{coverLabel(recAfter)}</small>}
+                                {rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
                             </span>
                             <span>{editing === "delivery" ?
                                 <div className="bp-stepper">
@@ -799,7 +816,7 @@ export default function PlanningWeeklyRecommendations({
                                     <b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b>
                                     <button onClick={() => stepShipment(p, 1)}>+</button>
                                     <small>{decidedSlotsLabel}</small>
-                                    {(shipDraft[p.id] ?? 0) > 0 && <small>כיסוי בטמפו לאחר המשלוח: {coverLabel(shownAfter)}</small>}
+                                    {(shipDraft[p.id] ?? 0) > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
                                     {shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}
                                     {dependency > 0 && <small className="bp-risk-text">⚠️ {palletLabel(dependency, p)} מאריזה השבוע</small>}
                                     {partial && <small className="bp-partial-pallet-hint">⚠️ קיים משטח חלקי של {fmt(palletQuantity(partial))} ארגזים; ייתכן שכדאי להחליף ידנית במפה.</small>}
@@ -807,9 +824,9 @@ export default function PlanningWeeklyRecommendations({
                                 : <>
                                     {decided > 0 ? palletLabel(decided, p) : "—"}
                                     {decided > 0 && <small>{decidedSlotsLabel}</small>}
-                                    {decided > 0 && <small>כיסוי בטמפו לאחר המשלוח: {coverLabel(shownAfter)}</small>}
+                                    {decided > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
                                     {dependency > 0 && <small className="bp-risk-text">⚠️ {palletLabel(dependency, p)} מאריזה השבוע</small>}
-                                    {partial && <small className="bp-partial-pallet-hint">⚠️ קיים משטח חלקי של {fmt(palletQuantity(partial))} ארגזים; ייתכן שכדאי להחליף ידנית במפה.</small>}
+                                    {partial && <small className="bp-partial-pallet-hint">⚠️ קיים משטח חלקי של {fmt(palletQuantity(partial))} ארגזים; ייתכן שכדאי להחליף אותו ידנית במפה.</small>}
                                 </>}
                             </span>
                         </div>;
@@ -940,14 +957,25 @@ export default function PlanningWeeklyRecommendations({
                     <div><small>3 · בישול · {selectedWeekText}</small><h3>מה לבשל השבוע</h3></div>
                     <b>{model.availableBrewTanks} מיכלים פנויים</b>
                 </header>
+
+                <div className="bp-brew-tank-options">
+                    <b>מיכלים שיכולים לשמש לבישולים השבוע</b>
+                    {model.brewTankOptions.length ? <div className="bp-brew-tank-list">
+                        {model.brewTankOptions.map((option) =>
+                            <span className="bp-brew-tank-chip" key={option.tankId}>
+                                <b>מיכל {option.tankNumber}</b>
+                                <span>{option.sizeLabel}</span>
+                            </span>)}
+                    </div> : <small>לא ידוע כרגע על מיכל שיכול לקבל בישול בשבוע הזה.</small>}
+                </div>
+
                 {brewCapacityWarning && <div className="bp-brew-capacity-warning" role="alert">
-                    <b>⚠️ אין מספיק מיכלים פנויים לכל הבישולים המתוכננים</b>
-                    <span>מתוכננים {plannedBrewCount} בישולים, אבל ידועים רק {model.brewTankCapacity} מיכלים שניתן להשתמש בהם בשבוע הזה.</span>
+                    <b>⚠️ הבישולים המתוכננים לא תואמים לקיבולת המיכלים השבוע</b>
+                    <span>מתוכננים {plannedBrewCount} בישולים מול {model.brewTankCapacity} מיכלים אפשריים. יש להתאים גם את גודל הבישול — בודד/כפול/משולש — למיכלים שמופיעים למעלה.</span>
                 </div>}
                 <div className="bp-actions">
                     {editing === "brew" ? <>
                         <button type="button" disabled={!model.brewRecommendations.length} onClick={pushBrewRecommendationsToDraft}>צור בישולים מההמלצות</button>
-                        <button type="button" onClick={addBrew}>+ הוסף בישול</button>
                         <button disabled={busy} onClick={saveBrews}>שמירת הבישולים</button>
                         <button onClick={() => setEditing(null)}>ביטול</button>
                     </> : <>
@@ -960,16 +988,24 @@ export default function PlanningWeeklyRecommendations({
 
                 {editing === "brew" && <div className="bp-decided-list">
                     <b>עריכת הבישולים</b>
-                    {brewDraft.map((b, i) => <div className="bp-brew-edit-row" key={i}>
-                        <select value={b.style} onChange={(e) => changeBrewStyle(i, e.target.value)}>
-                            {CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option>
-                        </select>
-                        <select value={brewSizeLabel(b.liters)} onChange={(e) => changeBrewSize(i, e.target.value as BrewSizeLabel)}>
-                            {BREW_SIZES.map((size) => <option value={size} key={size}>בישול {size}</option>)}
-                        </select>
-                        <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>
-                    </div>)}
-                    {!brewDraft.length && <small>אין בישולים בטיוטה. לחץ על "+ הוסף בישול" כדי להתחיל.</small>}
+                    {brewDraft.map((b, i) => {
+                        const currentSize = brewSizeLabel(b.liters);
+                        return <div className="bp-brew-edit-row" key={i}>
+                            <select value={b.style} onChange={(e) => changeBrewStyle(i, e.target.value)}>
+                                {CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option>
+                            </select>
+                            <select value={currentSize} onChange={(e) => changeBrewSize(i, e.target.value as BrewSizeLabel)}>
+                                {BREW_SIZES.map((size) => <option
+                                    value={size}
+                                    key={size}
+                                    disabled={size !== currentSize && !canUseBrewSize(brewDraft, size, i)}
+                                >בישול {size} · {brewSizeCapacity(size)} מיכלים</option>)}
+                            </select>
+                            <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>
+                        </div>;
+                    })}
+                    {!brewDraft.length && <small>אין בישולים בטיוטה. הוסף בישול כדי להתחיל.</small>}
+                    <button type="button" disabled={brewDraft.length >= model.brewTankCapacity} onClick={addBrew}>+ הוסף בישול</button>
                 </div>}
 
                 <div className="bp-decided-list">
@@ -977,14 +1013,14 @@ export default function PlanningWeeklyRecommendations({
                     {model.brewRecommendations.length ? model.brewRecommendations.map((r, i) =>
                         <div className={`bp-rec-line ${coverageClass(styleCover(r.style), settings.totalTargetWeeks ?? settings.targetWeeks)}`} key={`${r.style}:${i}`}>
                             <span className={`bp-week-sku ${beerStyleClass(r.style).className}`}><b>{displayStyle(r.style)}</b></span>
-                            <span>בישול {r.sizeLabel}</span>
+                            <span>בישול {r.sizeLabel} · מתאים למיכל {r.tankNumber}<small> · זמין מ־{shortDate(r.availableDate)}</small></span>
                         </div>) : <small>אין כרגע המלצת בישול נוספת.</small>}
                 </div>
 
                 <div className="bp-decided-list">
                     <b>החלטות שנקבעו</b>
                     {current.brews.length ? current.brews.map((b) =>
-                        <div className={`bp-rec-line is-decided ${coverageClass(styleCover(b.style), settings.totalTargetWeeks ?? settings.targetWeeks)}`} key={b.id}>
+                        <div className={`bp-rec-line ${coverageClass(styleCover(b.style), settings.totalTargetWeeks ?? settings.targetWeeks)}`} key={b.id}>
                             <span className={`bp-week-sku ${beerStyleClass(b.style).className}`}><b>{displayStyle(b.style)}</b></span>
                             <span>בישול {brewSizeLabel(b.liters)}{b.tankId ? ` · שובץ למיכל ${tanks.find((t) => t.id === b.tankId)?.number ?? b.tankId}` : " · טרם שובץ למיכל"}</span>
                         </div>) : <small>טרם נקבעו בישולים.</small>}

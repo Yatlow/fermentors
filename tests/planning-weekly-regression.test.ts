@@ -97,8 +97,6 @@ test("future-week opening stock carries prior packaging and shipment decisions b
     week: "2026-09-27",
   }).get(product.id)!;
 
-  // Demand is 70/week = 10/day. Two prior weeks consume 140 units before the
-  // opening of 27/9, then the earlier shipment adds 84 units at Tempo.
   assert.equal(projected.tempoUnits, 944);
   assert.equal(projected.packagingBeforeWeek, 84);
   assert.equal(projected.shipmentsBeforeWeek, 84);
@@ -115,8 +113,6 @@ test("selected week sales are not deducted from the opening coverage", () => {
     week: "2026-09-20",
   }).get(product.id)!;
 
-  // Opening of 20/9 carries one complete prior week's forecast (70), and none
-  // of the 20/9-26/9 demand is deducted yet.
   assert.equal(projected.tempoUnits, 930);
 });
 
@@ -198,4 +194,126 @@ test("unassigned brews from week 38 keep their tanks reserved in week 39", () =>
 
   assert.equal(model.availableBrewTanks, 2);
   assert.equal(model.brewTankCapacity, 2);
+});
+
+test("week 39 brews do not consume tanks that only become free in week 40", () => {
+  const readySources = [2, 3, 4].map((tankNumber) => ({
+    id: `ready-${tankNumber}`,
+    tankNumber,
+    tankStatus: true,
+    beerVolume: 2500,
+  }));
+  const occupiedTanks: Tank[] = [5, 6, 7, 8].map((tankNumber) => ({
+    id: `occupied-${tankNumber}`,
+    number: String(tankNumber),
+    batch: `batch-${tankNumber}`,
+    style: "IPA",
+    brewed: "2026-08-01",
+    ready: "2026-09-20",
+    liters: 2500,
+    cold: true,
+  }));
+  const occupiedSources = occupiedTanks.map((tank) => ({
+    id: tank.id,
+    tankNumber: Number(tank.number),
+    beerStyle: "IPA",
+    beerVolume: 2500,
+    tankStatus: false,
+    action: 1,
+  }));
+  const week39 = {
+    ...emptyWeek("2026-09-20"),
+    packaging: occupiedTanks.map((tank, i) => ({
+      id: `empty-${i}`,
+      productId: product.id,
+      quantity: 252,
+      date: "2026-09-24",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    })),
+    brews: [0, 1, 2].map((i) => ({
+      id: `week39-brew-${i}`,
+      style: "IPA",
+      tankId: "",
+      date: "2026-09-21",
+      liters: 2500,
+    })),
+  };
+
+  const model = buildWeeklyPlanningModel({
+    settings,
+    pallets: [],
+    tanks: occupiedTanks,
+    plans: [week39],
+    actuals: [],
+    sources: [...readySources, ...occupiedSources],
+    today,
+    week: "2026-09-27",
+    holidays: [],
+    shipments: [],
+  });
+
+  assert.equal(model.brewTankCapacity, 4);
+  assert.equal(model.availableBrewTanks, 4);
+  assert.deepEqual(
+    model.brewTankOptions.map((option) => option.tankNumber),
+    ["5", "6", "7", "8"],
+  );
+});
+
+test("undated weekly keg packaging waits for tank readiness and releases it next week", () => {
+  const localSettings = { ...settings, products: [product, kegProduct] };
+  const tank: Tank = {
+    id: "tank-2",
+    number: "2",
+    batch: "batch-2",
+    style: "IPA",
+    brewed: "2026-08-15",
+    ready: "2026-09-23",
+    liters: 1071,
+    cold: true,
+  };
+  const week39 = {
+    ...emptyWeek("2026-09-20"),
+    deliveries: [{
+      id: "early-shipment",
+      productId: product.id,
+      quantity: 84,
+      dispatchDate: "2026-09-21",
+      arrivalDate: "2026-09-21",
+    }],
+    packaging: [{
+      id: "tank-2-kegs",
+      productId: kegProduct.id,
+      quantity: 53,
+      tankId: tank.id,
+      tankNumber: tank.number,
+    }],
+  };
+
+  const model = buildWeeklyPlanningModel({
+    settings: localSettings,
+    pallets: [],
+    tanks: [tank],
+    plans: [week39],
+    actuals: [],
+    sources: [{
+      id: tank.id,
+      tankNumber: 2,
+      beerStyle: "IPA",
+      beerVolume: 1190,
+      tankStatus: false,
+      action: 1,
+    }],
+    today,
+    week: "2026-09-27",
+    holidays: [],
+    shipments: [],
+  });
+
+  const option = model.brewTankOptions.find((item) => item.tankNumber === "2");
+  assert.ok(option);
+  assert.equal(option.availableDate, "2026-09-28");
+  assert.equal(model.brewTankCapacity, 1);
 });
