@@ -11,7 +11,6 @@ import {
     emptyWeek,
     litersPerUnit,
     sameStyle,
-    tempoNow,
     weeklyDemand,
     weekNumber,
     weekStart,
@@ -28,7 +27,12 @@ import { openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning
 import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../../SERVICES/planning/planningPresentation";
 import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
-import { weekday } from "../../SERVICES/planning/productionCycle";
+import {
+    brewLitersForSize,
+    brewSizeLabel,
+    weekday,
+    type BrewSizeLabel,
+} from "../../SERVICES/planning/productionCycle";
 
 type Kind = "delivery" | "packaging" | "brew";
 type BrewDraft = { style: string; liters: number };
@@ -52,9 +56,10 @@ type ShipmentSelectionState = {
 const fmt = (n: number) => Math.round(n).toLocaleString("he-IL");
 const palletSize = (p: Product) => (p.type === "crates" ? 84 : 20);
 const defaultWeek = (today: string) => weekday(today) >= 5 ? addDays(weekStart(today), 7) : weekStart(today);
-const coverLabel = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)} שב׳`;
+const coverLabel = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)} שב׳`;
 const PARTIAL_CRATE_HINT_THRESHOLD = 60;
 const MAX_MANUAL_CRATES = 252;
+const BREW_SIZES: BrewSizeLabel[] = ["בודד", "כפול", "משולש"];
 
 function palletLabel(quantity: number, p: Product) {
     return formatPalletCount(quantity / palletSize(p));
@@ -112,20 +117,23 @@ export default function PlanningWeeklyRecommendations({
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [markFeedback, setMarkFeedback] = useState("");
+    const [shipmentError, setShipmentError] = useState<{ productId: string; text: string } | null>(null);
     const markFeedbackRef = useRef<HTMLParagraphElement>(null);
+
     useEffect(() => {
         if (!markFeedback) return;
         markFeedbackRef.current?.focus({ preventScroll: true });
         markFeedbackRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }, [markFeedback]);
-    const [shipmentError, setShipmentError] = useState<{ productId: string; text: string } | null>(null);
 
     const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
     const model = useMemo(
         () => buildWeeklyPlanningModel({ settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments }),
         [settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments],
     );
-    const products = settings.products.filter((p) => (p.monthly > 0 && isCoreStyle(p.style)) || current.deliveries?.some((d) => d.productId === p.id && d.quantity > 0));
+    const products = settings.products.filter((p) =>
+        (p.monthly > 0 && isCoreStyle(p.style)) || current.deliveries?.some((d) => d.productId === p.id && d.quantity > 0),
+    );
     const product = (id: string) => settings.products.find((p) => p.id === id);
     const holidaysThisWeek = holidays.filter((h) => h.date >= week && h.date <= model.weekEnd);
     const shipmentRec = new Map(model.shipmentRecommendation.map((r) => [r.productId, r]));
@@ -142,9 +150,15 @@ export default function PlanningWeeklyRecommendations({
         allPackagingRecByProduct.set(r.productId, (allPackagingRecByProduct.get(r.productId) ?? 0) + r.quantity);
     }
 
-    const currentShipmentQty = (id: string) => (current.deliveries ?? []).filter((d) => d.productId === id).reduce((s, d) => s + d.quantity, 0);
-    const currentPackagingQty = (id: string) => current.packaging.filter((r) => r.productId === id).reduce((s, r) => s + r.quantity, 0);
-    const currentPackagingRemainingQty = (id: string) => currentOpenPackaging.filter((r) => r.productId === id).reduce((s, r) => s + r.remaining, 0);
+    const currentShipmentQty = (id: string) => (current.deliveries ?? [])
+        .filter((d) => d.productId === id)
+        .reduce((s, d) => s + d.quantity, 0);
+    const currentPackagingQty = (id: string) => current.packaging
+        .filter((r) => r.productId === id)
+        .reduce((s, r) => s + r.quantity, 0);
+    const currentPackagingRemainingQty = (id: string) => currentOpenPackaging
+        .filter((r) => r.productId === id)
+        .reduce((s, r) => s + r.remaining, 0);
 
     function openRunForSavedPlan(run: Plan) {
         return run.id
@@ -158,8 +172,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function effectiveSavedRemaining(run: Plan, targetQuantity: number) {
-        const completed = completedQty(run);
-        return Math.max(0, targetQuantity - completed);
+        return Math.max(0, targetQuantity - completedQty(run));
     }
 
     function shipmentSlots(draft: Record<string, number>) {
@@ -170,14 +183,8 @@ export default function PlanningWeeklyRecommendations({
         try { return calcTruckSlots(manifest); } catch { return Infinity; }
     }
 
-    function physicalInventory(p: Product) {
-        return pallets
-            .filter((x) => x.zone !== "shipped" && x.itemType === p.type && sameStyle(x.beerStyle, p.style))
-            .reduce((s, x) => s + Number(x.quantity || 0), 0);
-    }
-
     const sameWeekPackagingQty = (p: Product) => currentPackagingRemainingQty(p.id);
-    const safeShipmentQty = (p: Product) => Math.max(0, model.rows.base.get(p.id)?.breweryUnits ?? 0);
+    const safeShipmentQty = (p: Product) => Math.max(0, model.weekStartRows.get(p.id)?.breweryUnits ?? 0);
 
     function maxShipmentQty(p: Product) {
         const units = safeShipmentQty(p) + sameWeekPackagingQty(p);
@@ -185,30 +192,21 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function packagingDependencyQty(p: Product, qty: number) {
-        const fromCurrentStock = safeShipmentQty(p);
-        return Math.max(0, Math.min(qty - fromCurrentStock, sameWeekPackagingQty(p)));
-    }
-
-    function currentTempoCover(p: Product) {
-        const units = tempoNow(p, today);
-        const demand = weeklyDemand(p);
-        return units === null || demand <= 0 ? null : units / demand;
+        const fromExpectedBrewery = safeShipmentQty(p);
+        return Math.max(0, Math.min(qty - fromExpectedBrewery, sameWeekPackagingQty(p)));
     }
 
     function expectedShipmentCover(p: Product) {
-        const units = tempoNow(p, today);
-        const demand = weeklyDemand(p);
-        if (units === null || demand <= 0) return null;
-        return (units + sameWeekPackagingQty(p)) / demand;
+        return model.weekStartRows.get(p.id)?.tempoCover ?? null;
     }
 
     function shipmentCoverAfter(p: Product, nominalQty: number) {
-        const tempoUnits = tempoNow(p, today);
+        const state = model.weekStartRows.get(p.id);
         const demand = weeklyDemand(p);
-        if (tempoUnits === null || demand <= 0) return null;
-        const physicallyExpected = Math.max(0, physicalInventory(p) + sameWeekPackagingQty(p));
+        if (!state || state.tempoUnits === null || demand <= 0) return null;
+        const physicallyExpected = Math.max(0, state.breweryUnits + sameWeekPackagingQty(p));
         const deliverable = Math.min(Math.max(0, nominalQty), physicallyExpected);
-        return (tempoUnits + deliverable) / demand;
+        return (state.tempoUnits + deliverable) / demand;
     }
 
     function draftShipmentCover(p: Product) {
@@ -259,7 +257,7 @@ export default function PlanningWeeklyRecommendations({
         setMessage("");
         setShipmentError(null);
         if (kind === "delivery") {
-            setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)])));
+            setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)]));
         } else if (kind === "packaging") {
             setPackDraft(Object.fromEntries(current.packaging.map((r) => [r.id ?? `${r.productId}:${r.tankId}`, r.quantity])));
             setManualPacks([]);
@@ -273,7 +271,7 @@ export default function PlanningWeeklyRecommendations({
         setShipDraft((prev) => {
             const proposed = Math.max(0, (prev[p.id] ?? 0) + delta * palletSize(p));
             if (delta > 0 && proposed > maxShipmentQty(p)) {
-                setShipmentError({ productId: p.id, text: `אין עוד משטח פיזי או אריזה מתוכננת שיכולים לייצג מקום נוסף עבור ${displayStyle(p.style)}.` });
+                setShipmentError({ productId: p.id, text: `אין עוד משטח צפוי או אריזה מתוכננת שיכולים לייצג מקום נוסף עבור ${displayStyle(p.style)}.` });
                 return prev;
             }
             const next = { ...prev, [p.id]: proposed };
@@ -512,6 +510,24 @@ export default function PlanningWeeklyRecommendations({
         return (before.tempoUnits + before.breweryUnits + planned) / weeklyDemand(p);
     }
 
+    function recomputeEmptyTankFlags(lines: Plan[]) {
+        const usedByTank = new Map<string, number>();
+        return lines.map((run) => {
+            if (!run.tankId) return run;
+            const p = product(run.productId);
+            if (!p) return run;
+            const base = model.tankAvailableLiters.get(run.tankId) ?? tanks.find((t) => t.id === run.tankId)?.liters ?? 0;
+            const existing = current.packaging.find((saved) =>
+                saved.id && run.id ? saved.id === run.id : saved.productId === run.productId && saved.tankId === run.tankId,
+            );
+            const futureQuantity = existing ? effectiveSavedRemaining(existing, run.quantity) : run.quantity;
+            const usedBefore = usedByTank.get(run.tankId) ?? 0;
+            const usedNow = futureQuantity * litersPerUnit(p);
+            usedByTank.set(run.tankId, usedBefore + usedNow);
+            return { ...run, emptyTank: base - usedBefore - usedNow < 20 };
+        });
+    }
+
     async function savePackaging() {
         setBusy(true);
         setMessage("");
@@ -529,7 +545,6 @@ export default function PlanningWeeklyRecommendations({
             for (const rec of visiblePackagingRecommendations) {
                 const quantity = Math.max(0, packDraft[`rec:${rec.id}`] ?? 0);
                 if (!quantity) continue;
-                const p = product(rec.productId)!;
                 packaging.push({
                     id: rec.id,
                     productId: rec.productId,
@@ -537,7 +552,6 @@ export default function PlanningWeeklyRecommendations({
                     tankId: rec.tankId,
                     tankNumber: rec.tankNumber,
                     source: "recommendation",
-                    emptyTank: rec.liters - quantity * litersPerUnit(p) < 20,
                 });
             }
 
@@ -561,11 +575,10 @@ export default function PlanningWeeklyRecommendations({
                     tankId: t.id,
                     tankNumber: String(t.number),
                     source: "manual",
-                    emptyTank: base - used - quantity * litersPerUnit(p) < 20,
                 });
             }
 
-            await saveWeek({ ...current, packaging, changeReason: "עדכון החלטת אריזה שבועית" });
+            await saveWeek({ ...current, packaging: recomputeEmptyTankFlags(packaging), changeReason: "עדכון החלטת אריזה שבועית" });
             setEditing(null);
             setManualPacks([]);
             setCancelledPackagingKeys(new Set());
@@ -585,14 +598,17 @@ export default function PlanningWeeklyRecommendations({
             tankId: r.tankId,
             tankNumber: r.tankNumber,
             source: "recommendation",
-            emptyTank: r.liters - r.quantity * litersPerUnit(product(r.productId)!) < 20,
         }));
         if (!additions.length) return;
         setBusy(true);
         setMessage("");
         try {
             const packaging = current.packaging.length ? [...current.packaging, ...additions] : additions;
-            await saveWeek({ ...current, packaging, changeReason: current.packaging.length ? "הוספת המלצות אריזה חסרות" : "אישור המלצת אריזה שבועית" });
+            await saveWeek({
+                ...current,
+                packaging: recomputeEmptyTankFlags(packaging),
+                changeReason: current.packaging.length ? "הוספת המלצות אריזה חסרות" : "אישור המלצת אריזה שבועית",
+            });
             setMessage(current.packaging.length ? "המלצות האריזה החסרות נוספו להחלטה הקיימת." : "המלצת האריזה נשמרה כהחלטה חדשה.");
         } catch (e) {
             setMessage(e instanceof Error ? e.message : "שמירת האריזה נכשלה");
@@ -640,8 +656,20 @@ export default function PlanningWeeklyRecommendations({
     function addBrew() {
         setBrewDraft((rows) => [...rows, {
             style: model.brewRecommendations[rows.length]?.style ?? CORE_STYLES[0],
-            liters: model.brewRecommendations[rows.length]?.liters ?? 2500,
+            liters: model.brewRecommendations[rows.length]?.liters ?? brewLitersForSize(CORE_STYLES[0], "כפול"),
         }]);
+    }
+
+    function changeBrewStyle(index: number, style: string) {
+        setBrewDraft((rows) => rows.map((row, i) => i === index
+            ? { style, liters: brewLitersForSize(style, brewSizeLabel(row.liters)) }
+            : row));
+    }
+
+    function changeBrewSize(index: number, size: BrewSizeLabel) {
+        setBrewDraft((rows) => rows.map((row, i) => i === index
+            ? { ...row, liters: brewLitersForSize(row.style, size) }
+            : row));
     }
 
     function pushBrewRecommendationsToDraft() {
@@ -700,7 +728,7 @@ export default function PlanningWeeklyRecommendations({
                     <b>משלוח: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות</b>
                 </header>
                 <p className="bp-rec-principle">
-                    ● המק"טים ממוינים לפי הכיסוי הצפוי הנמוך ביותר.<br />
+                    ● הכיסוי והמלאי הצפוי מייצגים את מצב הפתיחה של השבוע: החלטות משבועות קודמים בפנים, אבל מכירות ואריזות של השבוע הנבחר עדיין לא.<br />
                     ● משטח חלקי יכול לייצג מקום משטח מלא כשאין מספיק מלאי למשטח מלא; הכמות הפיזית נשמרת במפת המקרר.
                 </p>
                 <div className="bp-saved-summary">
@@ -737,10 +765,11 @@ export default function PlanningWeeklyRecommendations({
                     <div className="bp-shipment-plan-head"><span>מק"ט</span><span>כיסוי צפוי</span><span>המלצת מערכת</span><span>החלטה לביצוע</span></div>
                     {shipmentProducts.map((p) => {
                         const rec = shipmentRec.get(p.id);
+                        const projected = model.weekStartRows.get(p.id);
                         const decided = currentShipmentQty(p.id);
                         const draftQty = editing === "delivery" ? shipDraft[p.id] ?? 0 : decided;
                         const sameWeek = sameWeekPackagingQty(p);
-                        const expectedCover = expectedShipmentCover(p);
+                        const expectedCover = projected?.tempoCover ?? null;
                         const shownAfter = editing === "delivery" ? draftShipmentCover(p) : shipmentCoverAfter(p, decided);
                         const recAfter = shipmentRecommendationCover(p);
                         const dependency = packagingDependencyQty(p, draftQty);
@@ -751,9 +780,13 @@ export default function PlanningWeeklyRecommendations({
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>
                                 {coverLabel(expectedCover)}
-                                <small>טמפו היום: {coverLabel(currentTempoCover(p))}</small>
-                                <small>{palletLabel(physicalInventory(p), p)} במלאי במבשלה</small>
-                                {sameWeek > 0 && <small>+ {palletLabel(sameWeek, p)} מאריזה שנקבעה</small>}
+                                {projected?.tempoUnits == null
+                                    ? <small>טמפו: לא עודכן</small>
+                                    : <small>{palletLabel(projected.tempoUnits, p)} בטמפו צפוי</small>}
+                                <small>{palletLabel(projected?.breweryUnits ?? 0, p)} במבשלה צפוי</small>
+                                {(projected?.packagingBeforeWeek ?? 0) > 0 && <small>+ {palletLabel(projected!.packagingBeforeWeek, p)} מאריזות בשבועות קודמים</small>}
+                                {(projected?.shipmentsBeforeWeek ?? 0) > 0 && <small>− {palletLabel(projected!.shipmentsBeforeWeek, p)} ממשלוחים בשבועות קודמים</small>}
+                                {sameWeek > 0 && <small className="bp-risk-text">+ {palletLabel(sameWeek, p)} אפשריים מאריזה השבוע</small>}
                             </span>
                             <span>
                                 {rec ? formatPalletCount(rec.pallets) : "—"}
@@ -892,7 +925,7 @@ export default function PlanningWeeklyRecommendations({
                                 {rec > 0 && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
                             </span>
                             <span>
-                                {remaining > 0 ? <>{fmt(remaining)} {p.type === "crates" ? "ארגזים" : "חביות"}<small className="bp-decision-chip">נקבע לביצוע</small></> : "—"}
+                                {remaining > 0 ? <>{fmt(remaining)} {p.type === "crates" ? "ארגזים" : "חביות"}</> : "—"}
                                 {decisionTank && <small>{decisionTank}</small>}
                                 {remaining > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
                                 {completed > 0 && <small>{fmt(completed)} כבר נארזו בפועל</small>}
@@ -928,10 +961,12 @@ export default function PlanningWeeklyRecommendations({
                 {editing === "brew" && <div className="bp-decided-list">
                     <b>עריכת הבישולים</b>
                     {brewDraft.map((b, i) => <div className="bp-brew-edit-row" key={i}>
-                        <select value={b.style} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, style: e.target.value } : x))}>
+                        <select value={b.style} onChange={(e) => changeBrewStyle(i, e.target.value)}>
                             {CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option>
                         </select>
-                        <input type="number" min="1" value={b.liters} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, liters: Number(e.target.value) } : x))} />
+                        <select value={brewSizeLabel(b.liters)} onChange={(e) => changeBrewSize(i, e.target.value as BrewSizeLabel)}>
+                            {BREW_SIZES.map((size) => <option value={size} key={size}>בישול {size}</option>)}
+                        </select>
                         <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>
                     </div>)}
                     {!brewDraft.length && <small>אין בישולים בטיוטה. לחץ על "+ הוסף בישול" כדי להתחיל.</small>}
@@ -951,7 +986,7 @@ export default function PlanningWeeklyRecommendations({
                     {current.brews.length ? current.brews.map((b) =>
                         <div className={`bp-rec-line is-decided ${coverageClass(styleCover(b.style), settings.totalTargetWeeks ?? settings.targetWeeks)}`} key={b.id}>
                             <span className={`bp-week-sku ${beerStyleClass(b.style).className}`}><b>{displayStyle(b.style)}</b></span>
-                            <span>{fmt(b.liters)} ל׳{b.tankId ? ` · שובץ למיכל ${tanks.find((t) => t.id === b.tankId)?.number ?? b.tankId}` : " · טרם שובץ למיכל"}</span>
+                            <span>בישול {brewSizeLabel(b.liters)}{b.tankId ? ` · שובץ למיכל ${tanks.find((t) => t.id === b.tankId)?.number ?? b.tankId}` : " · טרם שובץ למיכל"}</span>
                         </div>) : <small>טרם נקבעו בישולים.</small>}
                 </div>
             </article>
