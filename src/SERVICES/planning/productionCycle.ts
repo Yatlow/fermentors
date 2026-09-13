@@ -44,6 +44,8 @@ export type Release = {
   reason: string;
 };
 
+export type BrewSizeLabel = "בודד" | "כפול" | "משולש";
+
 export function estimatedBrewVolume(
   tankNumber: unknown,
   beerStyle?: string | null,
@@ -70,6 +72,25 @@ export function estimatedBrewVolume(
   if (isLager) return 3700;
   if (isWheat) return 3400;
   return 3400;
+}
+
+/** Human operational size for weekly planning. */
+export function brewSizeLabel(liters: number, tankNumber?: unknown): BrewSizeLabel {
+  const tank = Number(tankNumber);
+  if (Number.isFinite(tank)) {
+    if (tank >= 2 && tank <= 4) return "בודד";
+    if (tank >= 5 && tank <= 8) return "כפול";
+    if (tank >= 9) return "משולש";
+  }
+  if (liters <= 1500) return "בודד";
+  if (liters <= 2800) return "כפול";
+  return "משולש";
+}
+
+/** Convert an operational size selection back to the style-specific planning liters. */
+export function brewLitersForSize(style: string, size: BrewSizeLabel): number {
+  const representativeTank = size === "בודד" ? 2 : size === "כפול" ? 5 : 9;
+  return estimatedBrewVolume(representativeTank, style);
 }
 
 function isReadyForBrew(source: TankSource) {
@@ -143,10 +164,12 @@ export function tankReleases(
       const p = settings.products.find((p) => p.id === r.productId);
       if (!p || !sameStyle(p.style, tank.style) || r.date! < tank.ready) continue;
       remaining -= r.remaining * litersPerUnit(p);
-      // Operational heel below 20L is considered an emptied tank for planning.
-      // This is also how the weekly planner treats a full-tank recommendation
-      // after converting liters to whole crates/kegs.
-      if (remaining < 20) {
+
+      // `emptyTank` is an explicit weekly-planner decision and is authoritative.
+      // Recomputing only from liters can miss a real emptying because the dashboard
+      // volume and whole-unit conversion differ by a small operational heel.
+      if (r.emptyTank || remaining < 20) {
+        remaining = 0;
         emptyDate = r.date!;
         break;
       }
