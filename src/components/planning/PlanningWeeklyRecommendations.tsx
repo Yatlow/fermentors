@@ -257,7 +257,7 @@ export default function PlanningWeeklyRecommendations({
         setMessage("");
         setShipmentError(null);
         if (kind === "delivery") {
-            setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)]));
+            setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)])));
         } else if (kind === "packaging") {
             setPackDraft(Object.fromEntries(current.packaging.map((r) => [r.id ?? `${r.productId}:${r.tankId}`, r.quantity])));
             setManualPacks([]);
