@@ -5,6 +5,7 @@ import {
   emptyWeek,
   litersPerUnit,
   sameStyle,
+  tempoNow,
   weeklyDemand,
   weekStart,
   type Actual,
@@ -22,8 +23,9 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { buildShipmentRecommendation } from "./shipmentRecommendation";
-import { tankReleases } from "./productionCycle";
+import { brewSizeLabel, tankReleases, type BrewSizeLabel } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
+import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 
 export type WeeklyStage = "base" | "afterShipment" | "afterPackaging" | "committed";
 
@@ -52,8 +54,6 @@ export type WeeklyPackagingRecommendation = {
   dayCost: number;
 };
 
-export type BrewSizeLabel = "בודד" | "כפול" | "משולש";
-
 export type WeeklyBrewRecommendation = {
   style: string;
   liters: number;
@@ -65,6 +65,8 @@ export type WeeklyPlanningModel = {
   weekEnd: string;
   forecasts: Record<WeeklyStage, DailyResult>;
   rows: Record<WeeklyStage, Map<string, WeeklySkuState>>;
+  /** Expected stock immediately before the selected week begins. */
+  weekStartRows: Map<string, WeekStartProjection>;
   shipmentRecommendation: WeeklyShipmentRecommendation[];
   shipmentSlots: number;
   shipmentCanFillTruck: boolean;
@@ -82,10 +84,14 @@ export type WeeklyPlanningModel = {
 function forecastSettings(settings: Settings, today: string): Settings {
   return {
     ...settings,
-    products: settings.products.map((p) => ({
-      ...p,
-      tempoDate: p.tempo === null ? p.tempoDate : today,
-    })),
+    products: settings.products.map((p) => {
+      const projectedTempo = tempoNow(p, today);
+      return {
+        ...p,
+        tempo: projectedTempo,
+        tempoDate: projectedTempo === null ? p.tempoDate : today,
+      };
+    }),
   };
 }
 
@@ -256,18 +262,6 @@ function buildPackagingRecommendation(
   return { recommendation: selected, days: daysNeeded(selected), capacity };
 }
 
-function brewSizeForTankNumber(value: unknown, liters: number): BrewSizeLabel {
-  const tankNumber = Number(value);
-  if (Number.isFinite(tankNumber)) {
-    if (tankNumber >= 2 && tankNumber <= 4) return "בודד";
-    if (tankNumber >= 5 && tankNumber <= 8) return "כפול";
-    if (tankNumber >= 9) return "משולש";
-  }
-  if (liters <= 1500) return "בודד";
-  if (liters <= 2800) return "כפול";
-  return "משולש";
-}
-
 function buildBrewRecommendation(
   settings: Settings,
   rows: Map<string, WeeklySkuState>,
@@ -297,11 +291,6 @@ function buildBrewRecommendation(
         Number(sources.find((s) => s.id === b.tankId)?.tankNumber ?? Infinity),
     );
 
-  // Unassigned weekly brew decisions still reserve a tank even before the daily
-  // board assigns a concrete tank id. Keep reservations from earlier planned weeks
-  // in the same planning horizon, otherwise week N+1 incorrectly sees those tanks
-  // as free again (e.g. 3 brews in week 38 + 2 emptied tanks => week 39 has 2 free,
-  // not 5).
   const priorUnassigned = plans
     .filter((w) => w.id >= planningStart && w.id < week)
     .flatMap((w) => w.brews)
@@ -309,11 +298,8 @@ function buildBrewRecommendation(
   const currentUnassigned = currentWeek?.brews.filter((b) => !b.tankId && b.date <= weekEnd).length ?? 0;
   const currentAssigned = currentWeek?.brews.filter((b) => !!b.tankId && b.date <= weekEnd).length ?? 0;
 
-  // `releases` already excludes assigned current-week tanks, therefore add them
-  // back only when calculating capacity before this week's own decisions.
   const capacityBeforeCurrent = Math.max(0, releases.length + currentAssigned - priorUnassigned);
   const remainingCapacity = Math.max(0, releases.length - priorUnassigned - currentUnassigned);
-
   const anonymousReservations = Math.min(releases.length, priorUnassigned + currentUnassigned);
   const availableReleases = releases.slice(anonymousReservations);
 
@@ -341,7 +327,7 @@ function buildBrewRecommendation(
     recommendations.push({
       style: ranked[i].style,
       liters: release.workLiters || 2500,
-      sizeLabel: brewSizeForTankNumber(source?.tankNumber, release.workLiters || 2500),
+      sizeLabel: brewSizeLabel(release.workLiters || 2500, source?.tankNumber),
     });
   }
   return { recommendations, capacity: remainingCapacity, capacityBeforeCurrent };
@@ -383,7 +369,8 @@ export function buildWeeklyPlanningModel(args: {
     rows[stage] = skuRows(normalized, forecasts[stage], weekEnd);
   }
 
-  const shipment = buildShipmentRecommendation(normalized, rows.base);
+  const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week });
+  const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(
     normalized,
     rows.afterShipment,
@@ -419,6 +406,7 @@ export function buildWeeklyPlanningModel(args: {
     weekEnd,
     forecasts,
     rows,
+    weekStartRows,
     shipmentRecommendation: shipment.recommendation,
     shipmentSlots: shipment.slots,
     shipmentCanFillTruck: shipment.full,
