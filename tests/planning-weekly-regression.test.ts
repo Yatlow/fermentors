@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
+import { defaultSettings, emptyWeek, type Product, type Tank } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 import { buildShipmentRecommendation } from "../src/SERVICES/planning/shipmentRecommendation";
 import { shipmentDecisionPickOptions } from "../src/SERVICES/planning/shipmentDecisionPicking";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
+import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
+import { brewLitersForSize, brewSizeLabel, tankReleases } from "../src/SERVICES/planning/productionCycle";
 
 const today = "2026-09-13";
 const product: Product = {
@@ -16,6 +18,12 @@ const product: Product = {
   tempo: 1000,
   tempoDate: today,
   leadDays: 21,
+};
+const kegProduct: Product = {
+  ...product,
+  id: "ipa-kegs",
+  sku: "ipa-kegs",
+  type: "kegs",
 };
 const settings = {
   ...defaultSettings(),
@@ -60,6 +68,100 @@ test("shipment picking treats a partial as a nominal pallet only when needed", (
   const hoppy = shipmentDecisionPickOptions([tiny, fullA, fullB], 40, 20)[0];
   assert.deepEqual(hoppy.selected.map((p) => p.id).sort(), ["full-a", "full-b"]);
   assert.equal(hoppy.actualTotal, 40);
+});
+
+test("future-week opening stock carries prior packaging and shipment decisions but not selected-week sales", () => {
+  const week38 = {
+    ...emptyWeek("2026-09-13"),
+    packaging: [{
+      id: "pack-before",
+      productId: product.id,
+      quantity: 84,
+      tankId: "tank-2",
+    }],
+    deliveries: [{
+      id: "ship-before",
+      productId: product.id,
+      quantity: 84,
+      dispatchDate: "2026-09-20",
+      arrivalDate: "2026-09-20",
+    }],
+  };
+
+  const projected = buildWeekStartProjection({
+    settings,
+    pallets: [pallet("stock-a", 84), pallet("stock-b", 84)],
+    plans: [week38],
+    actuals: [],
+    today,
+    week: "2026-09-27",
+  }).get(product.id)!;
+
+  // Demand is 70/week = 10/day. From 13/9 through end of 26/9 we consume
+  // 13 forecast days (130 units), then add the prior shipment received at Tempo.
+  assert.equal(projected.tempoUnits, 954);
+  assert.equal(projected.packagingBeforeWeek, 84);
+  assert.equal(projected.shipmentsBeforeWeek, 84);
+  assert.equal(projected.breweryUnits, 168);
+});
+
+test("selected week sales are not deducted from the opening coverage", () => {
+  const projected = buildWeekStartProjection({
+    settings,
+    pallets: [],
+    plans: [],
+    actuals: [],
+    today,
+    week: "2026-09-20",
+  }).get(product.id)!;
+
+  // Opening of 20/9 consumes only 13/9..19/9 forecast, not the selected week.
+  assert.equal(projected.tempoUnits, 940);
+});
+
+test("an explicit emptyTank packaging decision releases the tank despite a liters rounding heel", () => {
+  const localSettings = { ...settings, products: [product, kegProduct] };
+  const tank: Tank = {
+    id: "tank-5",
+    number: "5",
+    batch: "55",
+    style: "IPA",
+    brewed: "2026-08-01",
+    ready: today,
+    liters: 3300,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek(today),
+    packaging: [{
+      id: "kegs-empty",
+      productId: kegProduct.id,
+      quantity: 160,
+      date: "2026-09-16",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    }],
+  };
+  const releases = tankReleases(
+    [{ id: tank.id, tankNumber: 5, beerStyle: "IPA", beerVolume: 3300, tankStatus: false, action: 1 }],
+    [tank],
+    [plan],
+    localSettings,
+    [],
+    today,
+  );
+
+  assert.equal(releases[0].emptyDate, "2026-09-16");
+  assert.equal(releases[0].date, "2026-09-21");
+  assert.equal(releases[0].remaining, 0);
+});
+
+test("brew size helpers keep weekly editing on single/double/triple labels", () => {
+  assert.equal(brewSizeLabel(1100), "בודד");
+  assert.equal(brewSizeLabel(2200), "כפול");
+  assert.equal(brewSizeLabel(3200), "משולש");
+  assert.equal(brewSizeLabel(brewLitersForSize("IPA", "כפול")), "כפול");
 });
 
 test("unassigned brews from week 38 keep their tanks reserved in week 39", () => {
