@@ -23,21 +23,7 @@ export type WeekStartProjection = {
   shipmentsBeforeWeek: number;
 };
 
-/**
- * Expected state at the START of the selected planning week.
- *
- * The weekly planner should not consume the selected week's sales yet. It does,
- * however, need to carry forward everything that is expected to happen before
- * that week starts:
- *  - sales forecast after the latest Tempo count up to the selected week's opening;
- *  - shipment decisions arriving at Tempo before the selected week;
- *  - open packaging decisions from earlier planning weeks;
- *  - shipment decisions that will leave the brewery before the selected week.
- *
- * Physical brewery stock is today's real map state, so only still-future/open
- * decisions are applied on top of it. This avoids counting completed packaging
- * twice or subtracting shipments that have already disappeared from the map.
- */
+/** Expected state at the START of the selected planning week. */
 export function buildWeekStartProjection(args: {
   settings: Settings;
   pallets: Pallet[];
@@ -54,15 +40,16 @@ export function buildWeekStartProjection(args: {
   for (const product of settings.products) {
     const demand = weeklyDemand(product);
     const daily = demand / 7;
-    const tempoDate = parseDate(product.tempoDate);
+    const parsedTempoDate = parseDate(product.tempoDate);
 
-    let tempoUnits: number | null = product.tempo === null || !tempoDate
+    let tempoUnits: number | null = product.tempo === null || parsedTempoDate === null
       ? null
       : num(product.tempo);
 
-    if (tempoUnits !== null && tempoDate < week) {
+    if (tempoUnits !== null && parsedTempoDate !== null && parsedTempoDate < week) {
       // Project to Sunday morning of the selected week. The selected week's own
       // demand starts only after this opening value, so it is not subtracted here.
+      const tempoDate = parsedTempoDate;
       const salesDays = Math.max(0, daysBetween(tempoDate, week));
       tempoUnits = Math.max(0, tempoUnits - salesDays * daily);
 
