@@ -1418,6 +1418,25 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, .14)
 }
 
+.brew-planning .bp-stock-expand-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+
+.brew-planning .bp-shipment-feedback {
+    margin: 0;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px;
+    background: #fff3cd;
+    color: #543d00;
+    border: 1px solid #d6ad45;
+    border-radius: 10px;
+}
 /* ===== Breakpoints ===== */
 
 @media(min-width:640px) {
@@ -1446,6 +1465,7 @@
 }
 
 @media(min-width:1050px) {
+
     .brew-planning .bp-stock-grid,
     .brew-planning .bp-data-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr))
@@ -1499,7 +1519,10 @@
         font-size: .64rem;
         border-radius: 7px
     }
+    .brew-planning .bp-stock-expand-hint {
 
+        font-size: .35  rem;
+    }
     .brew-planning .bp-stock-metric {
         padding: 2px 3px;
         gap: 1px;
@@ -1795,5 +1818,5 @@
         gap: 5px
     }
 }
-.brew-planning .bp-stock-expand-hint { display: block; margin-top: 6px; font-size: 12px; font-weight: 500; }
-.brew-planning .bp-shipment-feedback { margin: 0; width: 100%; box-sizing: border-box; padding: 12px; background: #fff3cd; color: #543d00; border: 1px solid #d6ad45; border-radius: 10px; }
+
+

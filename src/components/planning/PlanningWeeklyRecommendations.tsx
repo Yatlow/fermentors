@@ -500,13 +500,16 @@ export default function PlanningWeeklyRecommendations({
         <div className="bp-week-recommendations">
             <article className="bp-week-rec-card bp-week-shipment-card">
                 <header><div>
-                    <small>1 · משלוח · {selectedWeekText}</small><h3>מה לשלוח השבוע</h3></div><b>המלצה: {model.shipmentSlots}/{MAX_TRUCK_SLOTS} מקומות</b></header>
-                <p className="bp-rec-principle">הכיסוי הוא כיסוי טמפו צפוי לסוף השבוע.
-                    <br />
+                    <small>1 · משלוח · {selectedWeekText}</small><h3>מה לשלוח השבוע</h3></div>
+                    {/* <b>המלצה: {model.shipmentSlots}/{MAX_TRUCK_SLOTS} מקומות</b> */}
+                    <b>משלוח: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות</b>
+                </header>
+                <p className="bp-rec-principle">
+                    ●
                     המק"טים ממוינים לפי הכיסוי הנמוך ביותר.
-                    <br />הזמינות מוצגת במשטחים.
-                    <br />מלאי מאריזה של אותו שבוע מוצג כאפשרות חריגה רק כשבלעדיו לא ניתן להגיע לכיסוי היעד.</p>
-                <div className="bp-saved-summary"><b>החלטה{editing === "delivery" ? " בעריכה" : ""}: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות בשימוש</b> · נותרו {Number.isFinite(usedShipSlots) ? Math.max(0, MAX_TRUCK_SLOTS - Number(usedShipSlots)) : 0}</div>
+                    <br />● מלאי מאריזה של אותו שבוע מוצג כאפשרות חריגה רק כשבלעדיו לא ניתן להגיע לכיסוי היעד.</p>
+                <div className="bp-saved-summary">
+                    <b>משלוח{editing === "delivery" ? " בעריכה" : ""}: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות בשימוש</b> · נותרו {Number.isFinite(usedShipSlots) ? Math.max(0, MAX_TRUCK_SLOTS - Number(usedShipSlots)) : 0}</div>
                 {riskyShipmentLines.length > 0 && <div className="bp-same-week-warning" role="alert"><b>⚠️ משלוח תלוי באריזה של אותו שבוע</b><span>יש לארוז לפני או ביום המשלוח.</span>{riskyShipmentLines.map(({ p, risky }) => <small key={p.id}>{palletLabel(risky, p)} {displayStyle(p.style)} עדיין תלויים באריזה השבוע.</small>)}</div>}
                 <div className="bp-actions">
                     {editing === "delivery" ?
@@ -515,7 +518,7 @@ export default function PlanningWeeklyRecommendations({
                         </> :
                         <>
                             <button className={(current.deliveries ?? []).length ? "bp-action-warning" : ""} disabled={disabled || busy || !model.shipmentCanFillTruck} onClick={acceptShipmentRecommendation}>
-                                {(current.deliveries ?? []).length ? " החלף משלוח במשלוח מההמלצה" : "צור משלוח מההמלצה"}</button><button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button>
+                                {(current.deliveries ?? []).length ? " מחק נתונים ואשר המלצה" : "צור משלוח מההמלצה"}</button><button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button>
                         </>}
 
                 </div>
@@ -528,7 +531,7 @@ export default function PlanningWeeklyRecommendations({
                     {markFeedback && <p ref={markFeedbackRef} tabIndex={-1} role="status" aria-live="polite" className="bp-shipment-feedback">{markFeedback}</p>}
                     {markingBlocked && <p role="status">כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.</p>}
                 </div>}
-                <div className="bp-shipment-plan-table"><div className="bp-shipment-plan-head"><span>מקט</span><span>כיסוי</span><span>מומלץ</span><span>החלטה</span></div>
+                <div className="bp-shipment-plan-table"><div className="bp-shipment-plan-head"><span>מק"ט</span><span>כיסוי בטמפו</span><span>המלצת מערכת</span><span>החלטה לביצוע</span></div>
                     {shipmentProducts.map((p) => {
                         const base = model.rows.base.get(p.id); const after = model.rows.committed.get(p.id); const rec = shipmentRec.get(p.id);
                         const decided = currentShipmentQty(p.id); const draftQty = editing === "delivery" ? shipDraft[p.id] ?? 0 : decided;
@@ -542,13 +545,19 @@ export default function PlanningWeeklyRecommendations({
                             <span><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(base?.tempoCover ?? null)}<small>
                                 {/* {palletLabel(expected, p)} · */}
-                                {palletLabel(physical, p)} במלאי
-                                {` · +${palletLabel(plannedDelta, p)} צפויים להיארז`}
+                                {palletLabel(physical, p)} במלאי <br />
+                                {`${palletLabel(plannedDelta, p)} בתכנון`}
                                 { /* plannedDelta > 0 ? ` · +${palletLabel(plannedDelta, p)} צפויים להיארז` : 
                                    plannedDelta < 0 ? ` · ${palletLabel(plannedDelta, p)} מהחלטות קודמות` : "" */}
-                            </small>{showSameWeek && <small className="bp-risk-text">{palletLabel(sameWeek, p)} מאריזה השבוע</small>}</span>
-                            <span>{formatPalletCount(rec?.pallets ?? 0)}<small>{rec?.slots ?? 0} מקומות</small>{rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}</span>
-                            <span>{editing === "delivery" ? <div className="bp-stepper"><button onClick={() => stepShipment(p, -1)}>−</button><b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b><button onClick={() => stepShipment(p, 1)}>+</button><small>{decidedSlotsLabel}</small><small>משטחים · אחרי: {coverLabel(shownAfter)}</small>{shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</div> : <>{palletLabel(decided, p)}<small>{decidedSlotsLabel}</small><small>אחרי החלטה: {coverLabel(shownAfter)}</small>{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</>}</span>
+                            </small>{showSameWeek && <small className="bp-risk-text">+ {palletLabel(sameWeek, p)} השבוע</small>}</span>
+                            <span>{formatPalletCount(rec?.pallets ?? 0)}<small>{rec?.slots ?? 0} מקומות</small>
+                            {rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}</span>
+                            <span>{editing === "delivery" ?
+                                <div className="bp-stepper"><button onClick={() => stepShipment(p, -1)}>−</button><b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b><button onClick={() => stepShipment(p, 1)}>+</button><small>{decidedSlotsLabel}</small>
+                                <small> יגדיל כיסוי ל- {coverLabel(shownAfter)}</small>
+                                {shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</div>
+                                 : <>{palletLabel(decided, p)}<small>{decidedSlotsLabel}</small><small>
+                    {decidedSlots>0 && `יגדיל כיסוי ל-${coverLabel(shownAfter)}`}</small>{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</>}</span>
                         </div>;
                     })}
                 </div>
@@ -557,9 +566,31 @@ export default function PlanningWeeklyRecommendations({
             </article>
 
             <article className="bp-week-rec-card">
-                <header><div><small>2 · אריזה · {selectedWeekText}</small><h3>מה לארוז השבוע</h3></div><b>{packagingDecisionCount ? `${packagingDecisionCount} פעולות בתכנון · קיבולת ${model.packagingCapacity} ימים` : `${packagingRecommendationCount} פעולות בהמלצה · קיבולת ${model.packagingCapacity} ימים`}</b></header>
-                <p className="bp-rec-principle">ברירת המחדל היא עד 252 ארגזים בריצה. אם 252 משאירים פחות מ־7% והמיכל כולו נכנס בעד 270, ההמלצה מסיימת את המיכל. המלצה שכבר הפכה להחלטה אינה מוצגת שוב כהמלצה.</p>
-                <div className="bp-shipment-plan-table"><div className="bp-shipment-plan-head"><span>מקט</span><span>כיסוי כולל</span><span>מומלץ</span><span>החלטה</span></div>
+                <header><div><small>2 · אריזה · {selectedWeekText}</small><h3>מה לארוז השבוע</h3></div>
+                    <b>{packagingDecisionCount ? `${packagingDecisionCount} אריזות` :
+                        `${packagingRecommendationCount} אריזות מומלצות`}</b></header>
+                <p className="bp-rec-principle">
+                    ●
+                    המק"טים ממוינים לפי הכיסוי הנמוך ביותר.
+                    <br/>●
+                    ברירת המחדל היא עד 252 ארגזים בביקבוק וריקון מיכל בחביות.
+
+                </p>
+                <div className="bp-actions">{editing === "packaging" ? <><button disabled={busy} onClick={savePackaging}>שמירת האריזות</button>
+                    <button onClick={() => { setEditing(null); setManualPacks([]); }}>ביטול</button></> :
+                    <><button disabled={disabled || busy || !visiblePackagingRecommendations.length} onClick={acceptPackagingRecommendation}>
+                        {current.packaging.length ? "הוסף אריזות מהמלצה לביצוע" : "צור אריזות מההמלצה"}</button>
+                        <button disabled={disabled || busy} onClick={() => beginEdit("packaging")}>עריכת האריזות</button></>}</div>
+                {editing === "packaging" && <div className="bp-decided-list"><b>החלטות קיימות</b>{current.packaging.length ? current.packaging.map((r) => {
+                    const p = product(r.productId); const key = r.id ?? `${r.productId}:${r.tankId}`; const value = packDraft[key] ?? r.quantity; const open = openRunForSavedPlan(r); const completed = Math.max(0, r.quantity - (open?.remaining ?? r.quantity));
+                    return <div className="bp-rec-line" key={key}><span><b>{p ? displayStyle(p.style) : r.productId}</b> · מיכל {r.tankNumber ?? tanks.find((t) => t.id === r.tankId)?.number ?? "—"}{completed > 0 && <small> · {fmt(completed)} כבר בוצעו</small>}</span><input type="number" min={completed} value={value} onChange={(e) => setPackDraft((d) => ({ ...d, [key]: Math.max(completed, Number(e.target.value)) }))} /><button onClick={() => setPackDraft((d) => ({ ...d, [key]: completed }))}>בטל</button></div>;
+                }) : <small>אין החלטות אריזה שמורות.</small>}
+                    <b>המלצות זמינות</b>{visiblePackagingRecommendations.length ? visiblePackagingRecommendations.map((r) => { const p = product(r.productId)!; const key = `rec:${r.id}`; const value = packDraft[key] ?? 0; return <div className="bp-rec-line" key={r.id}><span><b>{displayStyle(p.style)} · {p.type === "crates" ? "ארגזים" : "חביות"}
+                        </b> · מיכל {r.tankNumber}</span><input type="number" min="0" value={value} onChange={(e) => setPackDraft((d) => ({ ...d, [key]: Math.max(0, Number(e.target.value)) }))} /><button onClick={() => setPackDraft((d) => ({ ...d, [key]: value ? 0 : r.quantity }))}>{value ? "בטל" : `הוסף ${fmt(r.quantity)}`}</button></div>; }) : <small>אין המלצות נוספות מעבר להחלטות שכבר נקבעו.</small>}
+                    {manualPacks.map((r) => { const remaining = r.tankId ? remainingLitersForTank(r.tankId, r.id) : 0; return <div className="bp-manual-pack" key={r.id}><label>מיכל<select value={r.tankId} onChange={(e) => changeManualTank(r.id, e.target.value)}><option value="">בחר מיכל</option>{tanks.filter((t) => t.ready <= model.weekEnd && (model.tankAvailableLiters.get(t.id) ?? t.liters) >= 20).map((t) => <option value={t.id} key={t.id}>מיכל {t.number} · {displayStyle(t.style)} · {fmt(model.tankAvailableLiters.get(t.id) ?? t.liters)} ל׳</option>)}</select></label><label>סוג אריזה<select value={r.productId} disabled={!r.tankId} onChange={(e) => changeManualProduct(r.id, e.target.value)}><option value="">בחר</option>{manualProductsForTank(r.tankId).map((p) => <option value={p.id} key={p.id}>{p.type === "crates" ? "ארגזים" : "חביות"}</option>)}</select></label><label>כמות<input type="number" min="0" value={r.quantity || ""} onChange={(e) => setManualPacks((rows) => rows.map((x) => x.id === r.id ? { ...x, quantity: Math.max(0, Number(e.target.value)) } : x))} /><small>יתרה במיכל לפני שורה זו: {fmt(remaining)} ל׳</small></label><button type="button" onClick={() => setManualPacks((rows) => rows.filter((x) => x.id !== r.id))}>הסר</button></div>; })}
+                    <button type="button" onClick={addManualPack}>+ הוסף אריזה</button>
+                </div>}
+                <div className="bp-shipment-plan-table"><div className="bp-shipment-plan-head"><span>מק"ט</span><span>כיסוי כולל</span><span>המלצת מערכת</span><span>החלטה לביצוע</span></div>
                     {packagingProducts.map((p) => {
                         const before = model.rows.afterShipment.get(p.id); const after = model.rows.afterPackaging.get(p.id);
                         const rec = packagingRecByProduct.get(p.id) ?? 0; const decided = currentPackagingQty(p.id); const remaining = currentPackagingRemainingQty(p.id); const completed = Math.max(0, decided - remaining);
@@ -568,28 +599,38 @@ export default function PlanningWeeklyRecommendations({
                         return <div className={`bp-shipment-plan-row ${(shownAfter ?? Infinity) < (settings.totalTargetWeeks ?? settings.targetWeeks) ? "is-warning" : "is-ok"}`} key={p.id}>
                             <span><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span><span>{coverLabel(before?.totalCover ?? null)}</span>
                             <span>{fmt(rec)}{recTank && <small>{recTank}</small>}{rec > 0 && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}</span>
-                            <span>{fmt(remaining)}{decisionTank && <small>{decisionTank}</small>}<small>נותר בתכנון · אחרי החלטה: {coverLabel(shownAfter)}</small>{completed > 0 && <small>{fmt(completed)} כבר נארזו בפועל</small>}</span>
+                            <span>
+                                {fmt(remaining)}
+                                {" "}
+                                {p.type === "crates" ? "ארגזים" : "חביות"}
+                                {decisionTank && 
+                                <small>{decisionTank}</small>
+                                }
+                            {remaining>0 && <small>
+                             יגדיל כיסוי ל-{coverLabel(shownAfter)}
+                            </small>}
+                            {completed > 0 && <small>{fmt(completed)} כבר נארזו בפועל</small>}</span>
                         </div>;
                     })}
                 </div>
-                {editing === "packaging" && <div className="bp-decided-list"><b>החלטות קיימות</b>{current.packaging.length ? current.packaging.map((r) => {
-                    const p = product(r.productId); const key = r.id ?? `${r.productId}:${r.tankId}`; const value = packDraft[key] ?? r.quantity; const open = openRunForSavedPlan(r); const completed = Math.max(0, r.quantity - (open?.remaining ?? r.quantity));
-                    return <div className="bp-rec-line" key={key}><span><b>{p ? displayStyle(p.style) : r.productId}</b> · מיכל {r.tankNumber ?? tanks.find((t) => t.id === r.tankId)?.number ?? "—"}{completed > 0 && <small> · {fmt(completed)} כבר בוצעו</small>}</span><input type="number" min={completed} value={value} onChange={(e) => setPackDraft((d) => ({ ...d, [key]: Math.max(completed, Number(e.target.value)) }))} /><button onClick={() => setPackDraft((d) => ({ ...d, [key]: completed }))}>בטל יתרה</button></div>;
-                }) : <small>אין החלטות אריזה שמורות.</small>}
-                    <b>המלצות זמינות</b>{visiblePackagingRecommendations.length ? visiblePackagingRecommendations.map((r) => { const p = product(r.productId)!; const key = `rec:${r.id}`; const value = packDraft[key] ?? 0; return <div className="bp-rec-line" key={r.id}><span><b>{displayStyle(p.style)} · {p.type === "crates" ? "ארגזים" : "חביות"}</b> · מיכל {r.tankNumber}</span><input type="number" min="0" value={value} onChange={(e) => setPackDraft((d) => ({ ...d, [key]: Math.max(0, Number(e.target.value)) }))} /><button onClick={() => setPackDraft((d) => ({ ...d, [key]: value ? 0 : r.quantity }))}>{value ? "בטל" : `הוסף ${fmt(r.quantity)}`}</button></div>; }) : <small>אין המלצות נוספות מעבר להחלטות שכבר נקבעו.</small>}
-                    {manualPacks.map((r) => { const remaining = r.tankId ? remainingLitersForTank(r.tankId, r.id) : 0; return <div className="bp-manual-pack" key={r.id}><label>מיכל<select value={r.tankId} onChange={(e) => changeManualTank(r.id, e.target.value)}><option value="">בחר מיכל</option>{tanks.filter((t) => t.ready <= model.weekEnd && (model.tankAvailableLiters.get(t.id) ?? t.liters) >= 20).map((t) => <option value={t.id} key={t.id}>מיכל {t.number} · {displayStyle(t.style)} · {fmt(model.tankAvailableLiters.get(t.id) ?? t.liters)} ל׳</option>)}</select></label><label>פורמט<select value={r.productId} disabled={!r.tankId} onChange={(e) => changeManualProduct(r.id, e.target.value)}><option value="">בחר</option>{manualProductsForTank(r.tankId).map((p) => <option value={p.id} key={p.id}>{p.type === "crates" ? "ארגזים" : "חביות"}</option>)}</select></label><label>כמות<input type="number" min="0" value={r.quantity || ""} onChange={(e) => setManualPacks((rows) => rows.map((x) => x.id === r.id ? { ...x, quantity: Math.max(0, Number(e.target.value)) } : x))} /><small>יתרה לפני שורה זו: {fmt(remaining)} ל׳</small></label><button type="button" onClick={() => setManualPacks((rows) => rows.filter((x) => x.id !== r.id))}>הסר</button></div>; })}
-                    <button type="button" onClick={addManualPack}>+ הוסף אריזה</button>
-                </div>}
-                <div className="bp-actions">{editing === "packaging" ? <><button disabled={busy} onClick={savePackaging}>שמירת החלטת האריזה</button><button onClick={() => { setEditing(null); setManualPacks([]); }}>ביטול</button></> : <><button disabled={disabled || busy || !visiblePackagingRecommendations.length} onClick={acceptPackagingRecommendation}>{current.packaging.length ? "הוסף המלצות חסרות להחלטה" : "צור החלטה מההמלצה"}</button><button disabled={disabled || busy} onClick={() => beginEdit("packaging")}>עריכת האריזות</button></>}</div>
+
             </article>
 
             <article className="bp-week-rec-card">
-                <header><div><small>3 · בישול · {selectedWeekText}</small><h3>מה לבשל השבוע</h3></div><b>{model.availableBrewTanks} מקומות בישול פנויים אחרי ההחלטות</b></header>
-                <p className="bp-rec-principle">החלטת אריזה שמרוקנת מיכל נחשבת כריקון מתוכנן. אחרי ששיבצת בישול למיכל בלוח העבודה, אותו מיכל נחשב תפוס ואינו מוצע לבישול נוסף.</p>
+                <header><div><small>3 · בישול · {selectedWeekText}</small><h3>מה לבשל השבוע</h3></div>
+                <b>{model.availableBrewTanks} מיכלים פנויים</b></header>
+                {/* <p className="bp-rec-principle">החלטת אריזה שמרוקנת מיכל נחשבת כריקון מתוכנן. אחרי ששיבצת בישול למיכל בלוח העבודה, אותו מיכל נחשב תפוס ואינו מוצע לבישול נוסף.</p> */}
+                <div className="bp-actions">{editing === "brew" ?
+                 <><button type="button" disabled={!model.brewRecommendations.length} onClick={pushBrewRecommendationsToDraft}>צור בישולים מההמלצות
+                    </button><button type="button" onClick={addBrew}>+ הוסף בישול</button><button disabled={busy} onClick={saveBrews}>שמירת הבישולים</button><button onClick={() => setEditing(null)}>ביטול</button></> :
+                     <><button type="button" disabled={disabled || busy || !model.brewRecommendations.length} onClick={acceptBrewRecommendations}>
+                        {current.brews.length ? "הוסף המלצות לבישולים" : "צור בישולים מהמלצות"}</button><button type="button" disabled={disabled || busy} onClick={addBrew}>
+                            + הוסף בישול</button><button disabled={disabled || busy} onClick={() => beginEdit("brew")}>עריכת הבישולים</button></>}</div>
+                {editing === "brew" && <div className="bp-decided-list"><b>עריכת הבישולים</b>{brewDraft.map((b, i) => <div className="bp-brew-edit-row" key={i}><select value={b.style} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, style: e.target.value } : x))}>{CORE_STYLES.map((s) =>
+                     <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option></select><input type="number" min="1" value={b.liters} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? 
+                     { ...x, liters: Number(e.target.value) } : x))} /><button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button></div>)}</div>}
                 <div className="bp-decided-list"><b>המלצת המערכת</b>{model.brewRecommendations.length ? model.brewRecommendations.map((r, i) => <div className="bp-rec-line" key={`${r.style}:${i}`}><span><b>{displayStyle(r.style)}</b></span><span>{fmt(r.liters)} ל׳</span></div>) : <small>אין כרגע המלצת בישול נוספת.</small>}</div>
                 <div className="bp-decided-list"><b>החלטות שנקבעו</b>{current.brews.length ? current.brews.map((b) => <div className="bp-rec-line" key={b.id}><span><b>{displayStyle(b.style)}</b></span><span>{fmt(b.liters)} ל׳{b.tankId ? ` · שובץ למיכל ${tanks.find((t) => t.id === b.tankId)?.number ?? b.tankId}` : " · טרם שובץ למיכל"}</span></div>) : <small>טרם נקבעו בישולים.</small>}</div>
-                {editing === "brew" && <div className="bp-decided-list"><b>עריכת החלטת הבישול</b>{brewDraft.map((b, i) => <div className="bp-brew-edit-row" key={i}><select value={b.style} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, style: e.target.value } : x))}>{CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option></select><input type="number" min="1" value={b.liters} onChange={(e) => setBrewDraft((d) => d.map((x, j) => j === i ? { ...x, liters: Number(e.target.value) } : x))} /><button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button></div>)}</div>}
-                <div className="bp-actions">{editing === "brew" ? <><button type="button" disabled={!model.brewRecommendations.length} onClick={pushBrewRecommendationsToDraft}>הוסף את ההמלצות לעריכה</button><button type="button" onClick={addBrew}>+ הוסף בישול</button><button disabled={busy} onClick={saveBrews}>שמירת החלטת הבישול</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button type="button" disabled={disabled || busy || !model.brewRecommendations.length} onClick={acceptBrewRecommendations}>{current.brews.length ? "הוסף המלצות בישול להחלטות" : "צור החלטות מהמלצות הבישול"}</button><button type="button" disabled={disabled || busy} onClick={addBrew}>+ הוסף בישול</button><button disabled={disabled || busy} onClick={() => beginEdit("brew")}>עריכת הבישולים</button></>}</div>
             </article>
         </div>
     </section>;
