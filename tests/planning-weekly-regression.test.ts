@@ -97,9 +97,9 @@ test("future-week opening stock carries prior packaging and shipment decisions b
     week: "2026-09-27",
   }).get(product.id)!;
 
-  // Demand is 70/week = 10/day. From 13/9 through end of 26/9 we consume
-  // 13 forecast days (130 units), then add the prior shipment received at Tempo.
-  assert.equal(projected.tempoUnits, 954);
+  // Demand is 70/week = 10/day. Two prior weeks consume 140 units before the
+  // opening of 27/9, then the earlier shipment adds 84 units at Tempo.
+  assert.equal(projected.tempoUnits, 944);
   assert.equal(projected.packagingBeforeWeek, 84);
   assert.equal(projected.shipmentsBeforeWeek, 84);
   assert.equal(projected.breweryUnits, 168);
@@ -115,8 +115,9 @@ test("selected week sales are not deducted from the opening coverage", () => {
     week: "2026-09-20",
   }).get(product.id)!;
 
-  // Opening of 20/9 consumes only 13/9..19/9 forecast, not the selected week.
-  assert.equal(projected.tempoUnits, 940);
+  // Opening of 20/9 carries one complete prior week's forecast (70), and none
+  // of the 20/9-26/9 demand is deducted yet.
+  assert.equal(projected.tempoUnits, 930);
 });
 
 test("an explicit emptyTank packaging decision releases the tank despite a liters rounding heel", () => {
