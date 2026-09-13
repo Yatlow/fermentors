@@ -334,7 +334,7 @@ function buildBrewRecommendation(
   }
 
   const currentUnassigned = currentWeek?.brews.filter((b) => !b.tankId && b.date <= weekEnd) ?? [];
-  for (const brew of currentUnassigned) {
+  for (let i = 0; i < currentUnassigned.length; i++) {
     const release = capacityReleases.find((r) =>
       !currentReservedTankIds.has(r.tankId) && !!r.date && r.date <= weekEnd,
     );
