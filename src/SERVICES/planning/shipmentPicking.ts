@@ -23,9 +23,10 @@ export type PalletSelectionOption = {
   fefoScore: number;
 };
 
-/** Exact quantities only. Height-equivalent subsets have identical capacity;
+/** Never exceed the decision. Partial mode selects the largest available subset.
+ * Height-equivalent subsets have identical capacity;
  * retain the preferred subset for each quantity and height signature. */
-export function palletSelectionOptions(candidates: Pallet[], target: number): PalletSelectionOption[] {
+export function palletSelectionOptions(candidates: Pallet[], target: number, allowPartial = false): PalletSelectionOption[] {
   if (!Number.isInteger(target) || target < 0) return [];
   const ordered = [...candidates].filter((p) => Number.isInteger(p.quantity) && p.quantity > 0)
     .sort((a, b) => String(expiryIso(a.expiryDateStr) ?? "9999-12-31").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999-12-31")) || compareAccess(a, b));
@@ -51,5 +52,6 @@ export function palletSelectionOptions(candidates: Pallet[], target: number): Pa
       }
     }
   }
-  return [...(states.get(target)?.values() ?? [])].sort((a, b) => a.fefoScore - b.fefoScore || a.slots - b.slots);
+  const selectedTotal = allowPartial ? Math.max(...states.keys()) : target;
+  return [...(states.get(selectedTotal)?.values() ?? [])].sort((a, b) => a.fefoScore - b.fefoScore || a.slots - b.slots);
 }

@@ -653,3 +653,24 @@ test("existing active marks block planning, including outside the cooler", () =>
   assert.equal(hasMarkedPallets([{ ...pallet(), zone: "loadingDock", markedForShipment: true }]), true);
   assert.equal(hasMarkedPallets([{ ...pallet(), zone: "shipped", markedForShipment: true }]), false);
 });
+
+test("partial picking keeps available products when wheat kegs are not yet packed", () => {
+  const ipa = palletSelectionOptions([pallet("ipa-1")], 84, true)[0];
+  const wheat = palletSelectionOptions([], 40, true)[0];
+  assert.equal(ipa.total, 84);
+  assert.equal(wheat.total, 0);
+  assert.deepEqual(wheat.selected, []);
+  assert.equal(40 - wheat.total, 40);
+  assert.deepEqual([...ipa.selected, ...wheat.selected].map((p) => p.id), ["ipa-1"]);
+});
+test("partial picking reports the remainder without adding an excess pallet", () => {
+  const choice = palletSelectionOptions([pallet("one", 60), pallet("two", 50)], 84, true)[0];
+  assert.equal(choice.total, 60);
+  assert.equal(84 - choice.total, 24);
+  assert.deepEqual(choice.selected.map((p) => p.id), ["one"]);
+});
+test("partial picking prefers exact quantities whenever they are available", () => {
+  const choice = palletSelectionOptions([pallet("one", 60), pallet("two", 50), pallet("three", 34)], 84, true)[0];
+  assert.equal(choice.total, 84);
+  assert.deepEqual(choice.selected.map((p) => p.id), ["three", "two"]);
+});

@@ -287,17 +287,13 @@ export default function PlanningWeeklyRecommendations({
                         (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= today),
                     );
                     const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
-                    const options = palletSelectionOptions(candidates, line.requested);
+                    const options = palletSelectionOptions(candidates, line.requested, true);
                     return { ...line, candidates, available, options };
                 });
 
             let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
 
             for (const line of shipmentLines) {
-                if (!line.options.length) return setMarkFeedback(line.available < line.requested
-                    ? `אין מספיק מלאי פיזי במקרר עבור ${displayStyle(line.product.style)}: ההחלטה היא ${fmt(line.requested)} ${line.product.type === "crates" ? "ארגזים" : "חביות"}, חסרים ${fmt(line.requested - line.available)}. יש להשלים את האריזה והשיבוץ במקרר לפני הסימון. לא סומנו משטחים.`
-                    : `לא ניתן להתאים משטחים שלמים בדיוק להחלטה עבור ${displayStyle(line.product.style)} (${fmt(line.requested)}). יש לפצל משטח או לעדכן את ההחלטה. לא סומנו משטחים.`);
-
                 const nextStates: ShipmentSelectionState[] = [];
                 for (const state of states) {
                     for (const option of line.options) {
@@ -312,7 +308,7 @@ export default function PlanningWeeklyRecommendations({
                                 requested: line.requested,
                                 available: line.available,
                                 selectedTotal: option.total,
-                                missing: Math.max(0, line.requested - line.available),
+                                missing: Math.max(0, line.requested - option.total),
                                 overage: Math.max(0, option.total - Math.min(line.requested, line.available)),
                             }],
                             slots,
@@ -333,19 +329,21 @@ export default function PlanningWeeklyRecommendations({
                 a.selected.length - b.selected.length,
             )[0];
 
-            if (!best || !best.selected.length) return setMarkFeedback("לא נמצאו משטחים פיזיים מתאימים לסימון.");
+            if (!best) return setMarkFeedback("לא נמצאה בחירה שמתאימה למגבלות המשאית.");
 
             const palletIds = [...new Set(best.selected.map((p) => p.id))];
-            const notes = best.details.flatMap((detail) => {
-                const result: string[] = [];
-                if (detail.missing > 0) result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
-                if (detail.overage > 0) result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
-                return result;
-            });
+            const notes = best.details.filter((detail) => detail.missing > 0).map((detail) =>
+                `${displayStyle(detail.product.style)}: נותר להוסיף ידנית ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} (${palletLabel(detail.missing, detail.product)}) לאחר האריזה והשיבוץ במקרר, או פיצול משטח לפי הצורך.`,
+            );
 
-            setMarkFeedback("מסמן את המשטחים במפת המקרר…");
-            await markPlanningPallets(best.selected);
-            setMarkFeedback(`סומנו ${formatPalletCount(palletIds.length)} למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`);
+            if (best.selected.length) {
+                setMarkFeedback("מסמן את המשטחים הזמינים במפת המקרר…");
+                await markPlanningPallets(best.selected);
+            }
+            const result = best.selected.length
+                ? `סומנו ${formatPalletCount(palletIds.length)} זמינים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).`
+                : "אין כרגע משטחים מתאימים לסימון אוטומטי.";
+            setMarkFeedback(`${result}${notes.length ? ` המשלוח עדיין אינו מלא: ${notes.join(" · ")} ההחלטה נשארה ללא שינוי; יש להשלים את הסימון ידנית במפת המקרר.` : ""}`);
         } catch (e) {
             setMarkFeedback(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
         } finally {
