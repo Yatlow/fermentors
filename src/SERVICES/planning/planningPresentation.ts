@@ -6,7 +6,6 @@ import {
   sameStyle,
   styleKey,
   tempoNow,
-  weekStart,
   weeklyDemand,
   type Product,
   type Settings,
@@ -20,16 +19,23 @@ export const CORE_STYLES = [
   "IPA",
   "לאגר",
   "סטאוט",
-  "פייל אייל",
+  "פייל",
   "חיטה",
   "הופי לאגר",
 ];
+
+export const displayStyle = (style: string) =>
+  sameStyle(style, "פייל") ? "פייל" : style;
+
 export const isCoreStyle = (style: string) =>
   CORE_STYLES.some((core) => sameStyle(core, style));
+
 export const groupKey = (style: string) =>
-  isCoreStyle(style) ? styleKey(style) : "special";
+  isCoreStyle(style) ? styleKey(style) : "other";
+
 export const weekIsClosed = (week: string, today = dateKey(new Date())) =>
   today >= addDays(week, 5);
+
 export const WEEK_DAYS = [
   "ראשון",
   "שני",
@@ -40,12 +46,14 @@ export const WEEK_DAYS = [
   "שבת",
 ];
 
-/** Special editions are a reporting aggregate, never an interchangeable production recipe. */
+/**
+ * Keep saved products intact, but normalize the lead time of each core style.
+ * Special/seasonal products stay available in Firestore/history; they are not
+ * part of the standard planning dashboard and can be selected manually as אחר.
+ */
 export function withSpecialTotals(settings: Settings): Settings {
   const products = settings.products.map((p) => {
     if (!isCoreStyle(p.style)) return p;
-    // Existing bottle/keg records may disagree. Show and use the same conservative
-    // style duration until the planner changes it once for both formats.
     const leads = settings.products
       .filter((x) => sameStyle(x.style, p.style))
       .map((x) => x.leadDays)
@@ -59,24 +67,11 @@ export function withSpecialTotals(settings: Settings): Settings {
           : 21,
     };
   });
-  for (const type of ["crates", "kegs"] as const) {
-    const id = `special:${type}`;
-    if (!products.some((p) => p.id === id))
-      products.push({
-        id,
-        sku: "",
-        style: "בירה מיוחדת",
-        type,
-        monthly: 0,
-        tempo: null,
-        tempoDate: "",
-        leadDays: 21,
-      });
-  }
   return { ...settings, products };
 }
-export const isDataProduct = (p: Product) =>
-  isCoreStyle(p.style) || p.id.startsWith("special:");
+
+export const isDataProduct = (p: Product) => isCoreStyle(p.style);
+
 export function recommendationSettings(settings: Settings): Settings {
   return {
     ...settings,
@@ -85,8 +80,9 @@ export function recommendationSettings(settings: Settings): Settings {
     ),
   };
 }
+
 export function styleGroups(settings: Settings) {
-  return [...CORE_STYLES, "בירה מיוחדת"].map((style) => ({
+  return CORE_STYLES.map((style) => ({
     key: groupKey(style),
     style,
     products: settings.products.filter(
@@ -94,6 +90,7 @@ export function styleGroups(settings: Settings) {
     ),
   }));
 }
+
 export function coverageDays(product: Product, today: string): number | null {
   const stock = tempoNow(product, today),
     daily = weeklyDemand(product) / 7;
@@ -101,6 +98,7 @@ export function coverageDays(product: Product, today: string): number | null {
     ? null
     : Math.max(0, Math.floor(stock / daily));
 }
+
 export function actionImpact(
   action: PlanningAction,
   settings: Settings,
@@ -120,18 +118,14 @@ export function actionImpact(
   const point = points.find(
     (x) => x.productId === p.id && x.date === action.date,
   );
-  const after =
-    point?.tempo == null || !daily ? null : Math.floor(point.tempo / daily);
+  const after = point?.tempo == null || !daily ? null : Math.floor(point.tempo / daily);
   return [
-    current === null
-      ? "הכיסוי הנוכחי אינו ידוע"
-      : `כיסוי היום: ${current} ימים`,
+    current === null ? "הכיסוי הנוכחי אינו ידוע" : `כיסוי היום: ${current} ימים`,
     extra === null ? "" : `המשלוח מוסיף כ־${extra} ימים`,
     after === null ? "" : `בסוף יום האיסוף: כ־${after} ימים`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].filter(Boolean).join(" · ");
 }
+
 export function tankDiagnostics(
   sources: TankInput[],
   tanks: Tank[],
@@ -142,32 +136,33 @@ export function tankDiagnostics(
     .map((source) => {
       const t = tanks.find((t) => t.id === source.id);
       let reason: string;
-      if (
+      if (Number(source.action) === 0)
+        reason = "מחכה לבישול · פנוי לשיבוץ";
+      else if (
         source.tankStatus === true ||
         ["stage-empty", "stage-clean", "stage-sanitized"].includes(
           source.stage?.className ?? "",
         )
       )
         reason = "ריק / בתהליך ניקיון";
-      else if (!parseDate(source.brewDate))
-        reason = "תאריך הבישול חסר או לא תקין";
+      else if (!parseDate(source.brewDate)) reason = "תאריך הבישול חסר או לא תקין";
       else if (!source.beerStyle) reason = "חסר סגנון בירה";
       else if (!source.batchNumber) reason = "חסר מספר אצווה";
       else if (!num(source.beerVolume)) reason = "חסר נפח עבודה";
       else if (!t || t.liters <= 0) reason = "אין יתרה משוערת לאחר אריזות ופחת";
-      else if (t.ready > today)
-        reason = `הבשלה משוערת עד ${shortDate(t.ready)}`;
+      else if (t.ready > today) reason = `הבשלה משוערת עד ${shortDate(t.ready)}`;
       else reason = "זמין לבדיקה ולשיבוץ אריזה";
       return {
         id: source.id,
         number: String(source.tankNumber ?? source.id),
-        style: source.beerStyle ?? "—",
+        style: source.beerStyle ? displayStyle(source.beerStyle) : "—",
         liters: t?.liters ?? null,
         reason,
       };
     })
     .sort((a, b) => Number(a.number) - Number(b.number));
 }
+
 export function dayForWeek(week: string, day: number) {
-  return addDays(weekStart(week), day);
+  return addDays(week, day);
 }

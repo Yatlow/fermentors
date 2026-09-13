@@ -12,8 +12,6 @@ import {
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
 
-
-
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
 
 import "./App.css";
@@ -41,8 +39,6 @@ import ShipmentReportsView from "./components/reports/ShipmentReportsView";
 import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
 import PlanningView, { PLANNING_TABS, type PlanningTab } from "./components/planning/PlanningView";
 
-
-
 export type FirestoreTimestamp = {
     seconds?: number;
     nanoseconds?: number;
@@ -51,29 +47,15 @@ export type FirestoreTimestamp = {
 
 export type Fermentor = {
     id: string;
-
     uid?: string | number | null;
-
     tankNumber?: string | number | null;
-
     action?: string | number | null;
-
     batchNumber?: string | number | null;
-
     beerStyle?: string | null;
-
     brewDate?: string | null;
-
-    pasivationDate?:
-    | string
-    | Date
-    | FirestoreTimestamp
-    | null;
-
+    pasivationDate?: string | Date | FirestoreTimestamp | null;
     beerVolume?: string | number | null;
-
     sheetUrl?: string | null;
-
     currentData?: {
         temp?: string | number | null;
         plato?: string | number | null;
@@ -92,18 +74,14 @@ export type Fermentor = {
         blockIndex?: number | null;
         stageCode?: number | null;
         stageName?: string | null;
-
         stageStartTime?: string | null;
         stageEndTime?: string | null;
-
         stageStartTimeText?: string | null;
         stageEndTimeText?: string | null;
-
         dateAssumed?: boolean | null;
     } | null;
     [key: string]: unknown;
     stage?: TankStageInfo;
-
     specificTankNote?: string | null;
 };
 
@@ -118,8 +96,8 @@ export type NewReading = {
     isEmpty?: boolean;
     kegs?: string | number;
     crates?: string | number;
-    refreshTank?: boolean;      // מהתשובה הקודמת (חלק א')
-    dryHopGrams?: number;       // חדש
+    refreshTank?: boolean;
+    dryHopGrams?: number;
     dryHopType?: string;
     totalLiters?: number;
     shrinkagePercent?: number;
@@ -133,8 +111,6 @@ export type ReadingToSend = NewReading & {
 };
 type StatusCounts = Record<string, number>;
 
-
-
 async function checkAproovedUser(user: any): Promise<boolean> {
     try {
         const docRef = doc(db, "approvedUsers", user.email);
@@ -147,34 +123,22 @@ async function checkAproovedUser(user: any): Promise<boolean> {
 }
 
 async function updateLastLoggedInAndGetAdminStatus(user: any): Promise<DocumentData | null> {
-
     if (!user?.email) return null;
     try {
         const userRef = doc(db, "approvedUsers", user.email);
         const userDoc = await getDoc(userRef);
-
-
         if (!userDoc.exists()) {
             console.warn(`User ${user.email} was not found in approvedUsers`);
             return null;
         }
-
         const data = userDoc.data();
-
-
-        await updateDoc(userRef, {
-            lastLoggedIn: serverTimestamp(),
-        });
-
+        await updateDoc(userRef, { lastLoggedIn: serverTimestamp() });
         return data;
     } catch (error) {
         console.error("Error updating last logged in:", error);
     }
     return null
-
 }
-
-
 
 function useAuth() {
     const [user, setUser] = useState<any>(null);
@@ -187,25 +151,16 @@ function useAuth() {
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
             setUser(user);
             setLoading(false);
-
             if (!user) {
                 setAdmin(false);
                 setLoading(false);
                 return;
             }
-
             try {
                 const userData = await updateLastLoggedInAndGetAdminStatus(user);
-
-                const isAdmin = userData?.isAdmin;
-                const isTestUser = userData?.isTestUser;
-                const isPlannerUser = userData?.isPlannerUser;
-
-
-                setAdmin(isAdmin ?? false);
-                setTestUser(isTestUser ?? false);
-                setPlannerUser(isPlannerUser ?? false);
-
+                setAdmin(userData?.isAdmin ?? false);
+                setTestUser(userData?.isTestUser ?? false);
+                setPlannerUser(userData?.isPlannerUser ?? false);
             } catch (error) {
                 console.error("Error updating last logged in:", error);
                 setAdmin(false);
@@ -214,11 +169,9 @@ function useAuth() {
             } finally {
                 setLoading(false);
             }
-
         })
         return () => unsubscribe();
     }, []);
-
     return { user, loading, admin, testUser, plannerUser };
 }
 
@@ -229,42 +182,20 @@ function App() {
     const FCKHMS = testUser
     if (FCKHMS !== testUser) console.log("delete this line hahaha")
     const [loggingIn, setLoggingIn] = useState<boolean>(true);
-
-    const [brews, setBrews] =
-        useState<Fermentor[]>([]);
-
-    const [loading, setLoading] =
-        useState<boolean>(true);
-
-    const [selectedView, setSelectedView] =
-        useState<string>("דאשבורד");
-
-    const [selectedStatuses, setSelectedStatuses] =
-        useState<string[]>(["הכל"]);
-
-    const [selectedStyles, setSelectedStyles] =
-        useState<string[]>(["הכל"]);
-
-    const [selectedWrites, setSelectedWrites] =
-        useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
-
-    const [selectedReports, setSelectedReports] =
-        useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר">("אריזה");
-
-    const [selectedAdminTools, setSelectedAdminTools] =
-        useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
-
-    const [newReadings, setNewReadings] =
-        useState<Record<string, NewReading>>({});
-
+    const [brews, setBrews] = useState<Fermentor[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
+    const [selectedView, setSelectedView] = useState<string>("דאשבורד");
+    const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
+    const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
+    const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
+    const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר">("אריזה");
+    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
+    const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
     const [resetKey, setResetKey] = useState(0);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
-
     const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
-
-    const [sortByAge, setSortByAge] =
-        useState<"tank" | "oldest">("tank");
+    const [sortByAge, setSortByAge] = useState<"tank" | "oldest">("tank");
 
     useEffect(() => {
         if (user) {
@@ -277,7 +208,6 @@ function App() {
             setLoggingIn(false);
         }
     }, [user]);
-
 
     useEffect(() => {
         if (!user || !isApproved) return;
@@ -293,9 +223,7 @@ function App() {
     }, [user, isApproved]);
 
     useEffect(() => {
-        if (!user || !isApproved) {
-            return
-        }
+        if (!user || !isApproved) return;
         const fermentorsRef = collection(db, "fermentors");
         const unsubscribe = onSnapshot(
             fermentorsRef,
@@ -304,27 +232,22 @@ function App() {
                 observeMeasurementRevisions(snapshot);
                 setBrews((prevBrews) => {
                     const prevById = new Map(prevBrews.map((t) => [t.id, t]));
-
                     const data: Fermentor[] = snapshot.docs.map((firebaseDoc) => {
                         const firestoreData = firebaseDoc.data() as Record<string, unknown>;
                         const id = firebaseDoc.id;
                         const prevTank = prevById.get(id);
-
                         if (prevTank) {
                             const { stage: _s, ...prevRest } = prevTank;
                             const sameData = JSON.stringify(prevRest) === JSON.stringify({ ...firestoreData, id });
-                            if (sameData) return prevTank; // רפרנס זהה -> React.memo יוכל לדלג
+                            if (sameData) return prevTank;
                         }
-
                         return { ...firestoreData, id, stage: undefined } as Fermentor;
                     });
-
                     data.sort((a, b) => {
                         const numA = parseInt(String(a.uid ?? "").replace(/\D/g, ""), 10) || 0;
                         const numB = parseInt(String(b.uid ?? "").replace(/\D/g, ""), 10) || 0;
                         return numA - numB;
                     });
-
                     return data;
                 });
                 setLoading(false);
@@ -338,18 +261,14 @@ function App() {
         return () => { unsubscribe(); stopMeasurementRevisionTracking(); };
     }, [user, isApproved]);
 
-
     function login() {
-
         signInWithPopup(auth, googleProvider).catch((e) => console.error(e));
         console.log("Initiated Google sign-in redirect");
     }
 
-
     function logout() {
         signOut(auth)
     }
-
 
     const idsNeedingStage = brews.filter(t => t.stage === undefined).map(t => t.id).join(",");
     useEffect(() => {
@@ -357,19 +276,14 @@ function App() {
         if (user.email === "itzik@shapirobeer.co.il" && plannerUser) {
             setSelectedView("תכנון")
         }
-
         const tanksNeedingStage = brews.filter((tank) => tank.stage === undefined);
         if (tanksNeedingStage.length === 0) return;
-
         let cancelled = false;
-
         (async () => {
             const stageById = new Map<string, TankStageInfo | undefined>();
             await Promise.all(
                 tanksNeedingStage.map(async (tank) => {
-                    const stage = await getTankStage(
-                        tank as Parameters<typeof getTankStage>[0]
-                    ).catch(() => undefined);
+                    const stage = await getTankStage(tank as Parameters<typeof getTankStage>[0]).catch(() => undefined);
                     stageById.set(tank.id, stage);
                 })
             );
@@ -378,21 +292,17 @@ function App() {
                 prev.map((tank) =>
                     stageById.has(tank.id)
                         ? { ...tank, stage: stageById.get(tank.id) }
-                        : tank // לא נגענו בו -> אותו רפרנס בדיוק
+                        : tank
                 )
             );
         })();
-
-        return () => {
-            cancelled = true;
-        };
+        return () => { cancelled = true; };
     }, [idsNeedingStage]);
 
     useEffect(() => {
         async function loadSpecs() {
             try {
-                const data = await getSpecsFromFb();
-                setSpecs(data);
+                setSpecs(await getSpecsFromFb());
             } catch (error) {
                 console.error("Failed to load specs:", error);
             }
@@ -410,689 +320,132 @@ function App() {
         return counts;
     }, [brews]);
 
-    const statuses =
-        useMemo<string[]>(() => {
-            const order = [
-                "בישול חדש",
-                "בתסיסה",
-                "קר",
-                "מלוכלך",
-                "נקי",
-                "מחוטא",
-            ];
-
-            const existingStatuses =
-                Object.keys(statusCounts);
-
-            return [
-                ...order.filter((status) =>
-                    existingStatuses.includes(
-                        status
-                    )
-                ),
-
-                ...existingStatuses.filter(
-                    (status) =>
-                        !order.includes(status)
-                ),
-            ];
-        }, [statusCounts]);
+    const statuses = useMemo<string[]>(() => {
+        const order = ["בישול חדש", "בתסיסה", "קר", "מלוכלך", "נקי", "מחוטא"];
+        const existingStatuses = Object.keys(statusCounts);
+        return [
+            ...order.filter((status) => existingStatuses.includes(status)),
+            ...existingStatuses.filter((status) => !order.includes(status)),
+        ];
+    }, [statusCounts]);
 
     const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
         try {
-            const tankRef = doc(
-                db,
-                "fermentors",
-                tankId
-            );
-
-            await updateDoc(tankRef, {
-                pasivationDate: newDate,
-            });
+            await updateDoc(doc(db, "fermentors", tankId), { pasivationDate: newDate });
         } catch (error) {
-            console.error(
-                "Error updating pasivation date:",
-                error
-            );
+            console.error("Error updating pasivation date:", error);
         }
     }, []);
 
-    const updateReading = (
-        tankId: string,
-        field: keyof NewReading,
-        value: string
-    ) => {
-        setNewReadings((prev) => ({
-            ...prev,
-            [tankId]: {
-                ...prev[tankId],
-                [field]: value,
-            },
-        }));
+    const updateReading = (tankId: string, field: keyof NewReading, value: string) => {
+        setNewReadings((prev) => ({ ...prev, [tankId]: { ...prev[tankId], [field]: value } }));
     };
-
-
 
     const totalVolumes = useMemo<Record<string, number>>(() => {
         const vols: Record<string, number> = {};
-
         brews.forEach((brew) => {
             const style = String(brew.beerStyle ?? "");
             const volume = Number(brew.beerVolume ?? 0);
-
-            if (!style) return;
-            if (Number(brew.action) > 2) return;
+            if (!style || Number(brew.action) > 2) return;
             vols[style] = (vols[style] || 0) + volume;
         });
         return vols;
     }, [brews]);
 
-    const filteredBrews = useMemo<Fermentor[]>(() => {
-        const filtered = brews.filter((tank) => {
-            if (Number(tank.tankNumber) === 1) {
-                return (
-                    selectedStatuses.includes("הכל") &&
-                    selectedStyles.includes("הכל")
-                );
-            }
+    const filteredBrews = useMemo<Fermentor[]>(() => brews.filter((tank) => {
+        if (Number(tank.tankNumber) === 1) return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
+        const matchesStatus = selectedStatuses.includes("הכל") || (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
+        const style = String(tank.beerStyle ?? "").trim();
+        const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
+        return matchesStatus && matchesStyle;
+    }), [brews, selectedStatuses, selectedStyles, sortByAge]);
 
-            const matchesStatus =
-                selectedStatuses.includes("הכל") ||
-                (
-                    tank.stage?.name !== undefined &&
-                    selectedStatuses.includes(tank.stage.name)
-                );
-
-            const style =
-                String(tank.beerStyle ?? "").trim();
-
-            const matchesStyle =
-                selectedStyles.includes("הכל") ||
-                selectedStyles.includes(style);
-
-            return matchesStatus && matchesStyle;
-        });
-
-        // כאן נשמור רק את תוצאת הסינון.
-        // הסידור עצמו מתבצע בהמשך ב־sortedFilteredBrews.
-        return filtered;
-
-    }, [
-        brews,
-        selectedStatuses,
-        selectedStyles,
-        sortByAge
-    ]);
-
-    const totalTanks = brews.filter(
-        (tank) => Number(tank.tankNumber) !== 1
-    ).length;
-    const filteredTankCount =
-        filteredBrews.filter(
-            (tank) => Number(tank.tankNumber) !== 1
-        ).length;
+    const totalTanks = brews.filter((tank) => Number(tank.tankNumber) !== 1).length;
+    const filteredTankCount = filteredBrews.filter((tank) => Number(tank.tankNumber) !== 1).length;
 
     function getBrewDateValue(brewDate?: string | null): number {
         if (!brewDate) return 0;
-
         const [day, month, year] = brewDate.split("/").map(Number);
-
         if (!day || !month || !year) return 0;
-
         return new Date(year, month - 1, day).getTime();
     }
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
         const filtered = brews.filter((tank) => {
-            if (Number(tank.tankNumber) === 1) {
-                return selectedStatuses.includes("הכל") &&
-                    selectedStyles.includes("הכל");
-            }
-
-            const matchesStatus =
-                selectedStatuses.includes("הכל") ||
-                (tank.stage?.name !== undefined &&
-                    selectedStatuses.includes(tank.stage.name));
-
+            if (Number(tank.tankNumber) === 1) return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
+            const matchesStatus = selectedStatuses.includes("הכל") || (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
             const style = String(tank.beerStyle ?? "").trim();
-
-            const matchesStyle =
-                selectedStyles.includes("הכל") ||
-                selectedStyles.includes(style);
-
+            const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
             return matchesStatus && matchesStyle;
         });
-
-        if (sortByAge === "oldest") {
-            return [...filtered].sort(
-                (a, b) =>
-                    getBrewDateValue(a.brewDate) -
-                    getBrewDateValue(b.brewDate)
-            );
-        }
-
+        if (sortByAge === "oldest") return [...filtered].sort((a, b) => getBrewDateValue(a.brewDate) - getBrewDateValue(b.brewDate));
         return filtered;
-    }, [
-        brews,
-        selectedStatuses,
-        selectedStyles,
-        sortByAge
-    ]);
+    }, [brews, selectedStatuses, selectedStyles, sortByAge]);
 
-    if (authLoading) {
-        return (
-            <div className="dashboard-loading">
-                <img
-                    src={shpiro}
-                    alt="Shpiro"
-                    className="login-logo"
-                />
-                <BeerLoader
-                    message={"טוען משתמש..."}
-                    overlay={false}
-                    size={"large"} />
-            </div>
-        );
-    }
-
-    if (!user) {
-        return (
-            <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}>
-                <h1>כניסה למערכת</h1>
-                <button onClick={login} className="status-filter-button active">
-                    התחבר באמצעות Google
-                </button>
-            </div>
-        );
-    }
-
-
-    if (isApproved === false) {
-        return (
-            <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}>
-                <h1>אין לך הרשאות גישה למערכת זו.</h1>
-                <button onClick={logout} className="status-filter-button">
-                    התנתק
-                </button>
-                <img
-                    src={shpiro}
-                    alt="Shpiro"
-                    className="login-logo"
-                />
-            </div>
-        );
-    }
-
-    if (loggingIn || isApproved === null) {
-        return (
-            <div className="dashboard-loading">
-                <img
-                    src={shpiro}
-                    alt="Shpiro"
-                    className="login-logo"
-                />
-                <BeerLoader
-                    message={"מבצע כניסה..."}
-                    overlay={false}
-                    size={"large"} />
-            </div>
-        );
-    }
-
-
-
-    if (loading) {
-        return (
-            <div className="dashboard-loading">
-                <img
-                    src={shpiro}
-                    alt="Shpiro"
-                    className="login-logo"
-                />
-                <BeerLoader
-                    message={"טוען נתונים..."}
-                    overlay={false}
-                    size={"large"} />
-            </div>
-        );
-    }
-
+    if (authLoading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען משתמש..."} overlay={false} size={"large"} /></div>;
+    if (!user) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>כניסה למערכת</h1><button onClick={login} className="status-filter-button active">התחבר באמצעות Google</button></div>;
+    if (isApproved === false) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>אין לך הרשאות גישה למערכת זו.</h1><button onClick={logout} className="status-filter-button">התנתק</button><img src={shpiro} alt="Shpiro" className="login-logo" /></div>;
+    if (loggingIn || isApproved === null) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"מבצע כניסה..."} overlay={false} size={"large"} /></div>;
+    if (loading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען נתונים..."} overlay={false} size={"large"} /></div>;
 
     return (
         <div>
             <header className="dashboard-header">
-
                 <div className="headerBox">
-
                     <div className="header-brand">
-
-                        <img
-                            src={shpiro}
-                            alt="Shpiro"
-                            className="header-logo"
-                            onClick={() => window.location.reload()}
-                        />
-
+                        <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
                         <div className="views-box">
-                            <div className={`views-item ${selectedView === "דאשבורד"
-                                ? "active" : ""}`}
-                                onClick={() => {
-                                    setSelectedView("דאשבורד")
-                                    setSelectedStatuses(["הכל"])
-                                    setSelectedStyles(["הכל"])
-                                    setSelectedWrites("לחץ")
-                                    setSelectedReports("אריזה")
-                                    setSelectedAdminTools("calculator")
-                                    setNewReadings({})
-                                }
-                                }
-                            >
-                                דאשבורד
-                            </div>
-                            <div className={`views-item ${selectedView === "רישום"
-                                ? "active" : ""}`}
-                                onClick={() => {
-                                    setSelectedView("רישום")
-                                    setSelectedStatuses(["הכל"])
-                                    setSelectedStyles(["הכל"])
-                                    setSelectedWrites("לחץ")
-                                    setSelectedReports("אריזה")
-                                    setNewReadings({})
-                                }
-                                }
-                            >
-                                פעולות סלרינג
-                            </div>
-                            <div className={`views-item ${selectedView === "דוחות"
-                                ? "active" : ""}`}
-                                onClick={() => {
-                                    setSelectedView("דוחות")
-                                    setSelectedStatuses(["הכל"])
-                                    setSelectedStyles(["הכל"])
-                                    setSelectedWrites("לחץ")
-                                    setSelectedReports("אריזה")
-                                    setSelectedAdminTools("calculator")
-                                    setNewReadings({})
-                                }}
-                            >
-                                דוחות
-                            </div>
-                            <div className={`views-item ${selectedView === "ניהול" ?
-                                "active" : ""}`}
-                                onClick={() => {
-                                    setSelectedView("ניהול")
-                                    setSelectedStatuses(["הכל"])
-                                    setSelectedStyles(["הכל"])
-                                    setSelectedWrites("לחץ")
-                                    setSelectedReports("אריזה")
-                                    setSelectedAdminTools("calculator")
-                                    setNewReadings({})
-                                }}
-                            >
-                                כלים
-                            </div>
-
-                            <div className={`views-item ${selectedView === "מקרר" ?
-                                "active" : ""}`}
-                                onClick={() => {
-                                    setSelectedView("מקרר")
-                                    setSelectedStatuses(["הכל"])
-                                    setSelectedStyles(["הכל"])
-                                    setSelectedWrites("לחץ")
-                                    setSelectedReports("אריזה")
-                                    setSelectedAdminTools("calculator")
-                                    setNewReadings({})
-                                }}
-                            >
-                                מפת מקרר
-                                {!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}
-                            </div>
-                            {plannerUser &&
-                                <div className={`views-item ${selectedView === "תכנון" ?
-                                    "active" : ""}`}
-                                    onClick={() => {
-                                        setSelectedView("תכנון")
-                                        setSelectedStatuses(["הכל"])
-                                        setSelectedStyles(["הכל"])
-                                        setSelectedWrites("לחץ")
-                                        setSelectedReports("אריזה")
-                                        setSelectedAdminTools("calculator")
-                                        setNewReadings({})
-                                    }}
-                                >
-                                    תכנון
-                                </div>}
-
+                            <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דאשבורד</div>
+                            <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}>פעולות סלרינג</div>
+                            <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דוחות</div>
+                            <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
+                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
+                            {plannerUser && <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>}
                         </div>
                     </div>
-
-
-                    {selectedView === "דאשבורד" &&
-                        <DashboardHeader
-                            statusCounts={statusCounts}
-                            setSelectedStatuses={setSelectedStatuses}
-                            selectedStatuses={selectedStatuses}
-                            totalTanks={totalTanks}
-                            statuses={statuses}
-                            sortByAge={sortByAge}
-                            setSortByAge={setSortByAge}
-                        />
-                    }
-
-
-                    {selectedView === "רישום" &&
-                        <div className="status-filter">
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedWrites === "לחץ"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedWrites(
-                                        "לחץ"
-                                    )
-                                    setNewReadings({})
-                                }
-                                }
-                            >
-                                <span>
-                                    סבב יומי- טמפ' ולחץ
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedWrites === "חם"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedWrites(
-                                        "חם"
-                                    )
-                                    setNewReadings({})
-                                }
-                                }
-                            >
-                                <span>
-                                    בדיקות סוכר וpH למיכלים חמים
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedWrites === "פעולות"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedWrites(
-                                        "פעולות"
-                                    )
-                                    setNewReadings({})
-                                }
-                                }
-                            >
-                                <span>
-                                    דיווח פעולות סלרינג
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedWrites === "אריזה"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedWrites(
-                                        "אריזה"
-                                    )
-                                    setNewReadings({})
-                                }
-                                }
-                            >
-                                <span>
-                                    דיווח אריזה
-                                </span>
-                            </button>
-                        </div>
-                    }
-                    {selectedView === "דוחות" &&
-                        <div className="status-filter">
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedReports === "אריזה"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedReports("אריזה")
-
-                                }
-                                }
-                            >
-                                <span>
-                                    דוח אריזות
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedReports === "משלוחים"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedReports("משלוחים")
-                                }
-                                }
-                            >
-                                <span>
-                                    תעודות משלוח
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedReports === "מלאי_מקרר"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedReports("מלאי_מקרר")
-                                }
-                                }
-                            >
-                                <span>
-                                    מלאי מוצר מוגמר
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedReports === "גרפים"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedReports("גרפים")
-                                }
-                                }
-                            >
-                                <span>
-                                    גרפים לפי אצווה
-                                </span>
-                            </button>
-                        </div>
-                    }
-                    {selectedView === "ניהול" &&
-                        <div className="status-filter">
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedAdminTools === "calculator"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedAdminTools("calculator")
-                                }
-                                }
-                            >
-                                <span>
-                                    מחשבון למבשלן
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedAdminTools === "specs"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedAdminTools("specs")
-                                }
-                                }
-                            >
-                                <span>
-                                    הגדרות מערכת
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedAdminTools("changeBatchNumInFv")
-                                }
-                                }
-                            >
-                                <span>
-                                    שינוי אצווה במיכל- ידנית
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedAdminTools === "changeFvStatus"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedAdminTools("changeFvStatus")
-                                }
-                                }
-                            >
-                                <span>
-                                    שינוי סטטוס במיכל- ידנית
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`status-filter-button ${selectedAdminTools === "editEmails"
-                                    ? "active"
-                                    : ""
-                                    }`}
-                                onClick={() => {
-                                    setSelectedAdminTools("editEmails")
-                                }
-                                }
-                            >
-                                <span>
-                                    אימיילים מורשים
-                                </span>
-                            </button>
-                        </div>
-                    }
-                    {selectedView === "תכנון" && (
-                        <nav className="status-filter" dir="rtl" aria-label="תכנון">
-                            {PLANNING_TABS.map(([id, label]) => (
-                                <button
-                                    key={id}
-                                    type="button"
-                                    className={`status-filter-button ${planningTab === id ? "active" : ""}`}
-                                    aria-pressed={planningTab === id}
-                                    onClick={() => setPlanningTab(id)}
-                                >
-                                    {label}
-                                </button>
-                            ))}
-                        </nav>
-                    )}
-
+                    {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} />}
+                    {selectedView === "רישום" && <div className="status-filter">
+                        <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>סבב יומי- טמפ' ולחץ</span></button>
+                        <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>בדיקות סוכר וpH למיכלים חמים</span></button>
+                        <button type="button" className={`status-filter-button ${selectedWrites === "פעולות" ? "active" : ""}`} onClick={() => { setSelectedWrites("פעולות"); setNewReadings({}); }}><span>דיווח פעולות סלרינג</span></button>
+                        <button type="button" className={`status-filter-button ${selectedWrites === "אריזה" ? "active" : ""}`} onClick={() => { setSelectedWrites("אריזה"); setNewReadings({}); }}><span>דיווח אריזה</span></button>
+                    </div>}
+                    {selectedView === "דוחות" && <div className="status-filter">
+                        <button type="button" className={`status-filter-button ${selectedReports === "אריזה" ? "active" : ""}`} onClick={() => setSelectedReports("אריזה")}><span>דוח אריזות</span></button>
+                        <button type="button" className={`status-filter-button ${selectedReports === "משלוחים" ? "active" : ""}`} onClick={() => setSelectedReports("משלוחים")}><span>תעודות משלוח</span></button>
+                        <button type="button" className={`status-filter-button ${selectedReports === "מלאי_מקרר" ? "active" : ""}`} onClick={() => setSelectedReports("מלאי_מקרר")}><span>מלאי מוצר מוגמר</span></button>
+                        <button type="button" className={`status-filter-button ${selectedReports === "גרפים" ? "active" : ""}`} onClick={() => setSelectedReports("גרפים")}><span>גרפים לפי אצווה</span></button>
+                    </div>}
+                    {selectedView === "ניהול" && <div className="status-filter">
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "calculator" ? "active" : ""}`} onClick={() => setSelectedAdminTools("calculator")}><span>מחשבון למבשלן</span></button>
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "specs" ? "active" : ""}`} onClick={() => setSelectedAdminTools("specs")}><span>הגדרות מערכת</span></button>
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
+                    </div>}
+                    {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{PLANNING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
-
             </header>
-            {selectedView === "דאשבורד" &&
-                <Dashboard
-                    filteredBrews={sortedFilteredBrews}
-                    filteredTankCount={filteredTankCount}
-                    handleUpdatePasivation={handleUpdatePasivation}
-                    selectedStatuses={selectedStatuses}
-                    selectedStyles={selectedStyles}
-                    setSelectedStyles={setSelectedStyles}
-                    totalVolumes={totalVolumes}
-                ></Dashboard>
-            }
-            {selectedView === "תכנון" && 
-            <PlanningView 
-            brews={brews}
-            canEdit={plannerUser || admin}
-            tab={planningTab}
-            onTabChange={setPlanningTab}
-            />
-            }
-            {selectedView === "רישום" &&
-                <>
-                    <SendMessurmentsHeader
-                        brews={brews}
-                        newReadings={newReadings}
-                        setNewReadings={setNewReadings}
-                        reportName={selectedWrites}
-                        hasIncompleteNotes={hasIncompleteNotes}
-                        onResetAll={() => setResetKey((k) => k + 1)}
-                    ></SendMessurmentsHeader>
-                    {selectedWrites === "לחץ" && (
-                        <DailyPressureAndTemp
-                            brews={brews}
-                            newReadings={newReadings}
-                            updateReading={updateReading}
-                        ></DailyPressureAndTemp>
-                    )}
-                    {selectedWrites === "חם" &&
-                        <DailyPlatoPH
-                            brews={brews}
-                            newReadings={newReadings}
-                            updateReading={updateReading}
-                        ></DailyPlatoPH>
-                    }
-                    {selectedWrites === "פעולות" &&
-                        <NoteToFermentor
-                            brews={brews}
-                            updateReading={updateReading}
-                            onValidityChange={setHasIncompleteNotes}
-                            key={resetKey}
-                            specs={specs}
-                        >
-                        </NoteToFermentor>}
-                    {selectedWrites === "אריזה" &&
-                        <PackagingForm
-                            brews={brews}
-                            updateReading={updateReading}
-                            onValidityChange={setHasIncompleteNotes}
-                            key={resetKey}
-                        >
-                        </PackagingForm>}
-                </>
-            }
+
+            {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} />}
+            {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser || admin} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
+            {selectedView === "רישום" && <>
+                <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} />
+                {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
+                {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
+                {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
+                {selectedWrites === "אריזה" && <PackagingForm brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} />}
+            </>}
 
             {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
             {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
             {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
             {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
-
             {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
             {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
             {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-
             {selectedView === "מקרר" && <CoolerMap brews={brews} />}
         </div>
     );
