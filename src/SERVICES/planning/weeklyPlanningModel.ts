@@ -107,7 +107,7 @@ function forecastSettings(settings: Settings, today: string): Settings {
   };
 }
 
-function dateWeeklyPackaging(plans: WeekPlan[]): WeekPlan[] {
+function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[]): WeekPlan[] {
   return plans.map((week) => {
     const next = structuredClone(week);
     const dispatch = [...(next.deliveries ?? [])]
@@ -115,9 +115,11 @@ function dateWeeklyPackaging(plans: WeekPlan[]): WeekPlan[] {
       .filter((date) => date >= week.id && date <= addDays(week.id, 6))
       .sort()[0];
     const forecastDate = dispatch ?? addDays(week.id, 4);
-    next.packaging = next.packaging.map((run) =>
-      run.date ? run : { ...run, date: forecastDate },
-    );
+    next.packaging = next.packaging.map((run) => {
+      if (run.date) return run;
+      const tankReady = run.tankId ? tanks.find((tank) => tank.id === run.tankId)?.ready : undefined;
+      return { ...run, date: tankReady && tankReady > forecastDate ? tankReady : forecastDate };
+    });
     return next;
   });
 }
@@ -288,9 +290,6 @@ function buildBrewRecommendation(
   const planningStart = weekStart(today);
   const currentWeek = plans.find((w) => w.id === week);
 
-  // Only brews from earlier planning weeks are already committed capacity here.
-  // Current-week decisions are applied later so we can still expose the physical
-  // tank options that existed before those decisions were saved.
   const priorAssignedTankIds = new Set(
     plans
       .filter((w) => w.id >= planningStart && w.id < week)
@@ -307,9 +306,6 @@ function buildBrewRecommendation(
         Number(sources.find((s) => s.id === b.tankId)?.tankNumber ?? Infinity),
     );
 
-  // Reserve prior unassigned brews only against tanks that were actually available
-  // by that brew's planned date. A tank released later must not be consumed again
-  // by an older anonymous reservation (the week-39 -> week-40 regression).
   const priorReservedTankIds = new Set<string>();
   const priorUnassignedBrews = plans
     .filter((w) => w.id >= planningStart && w.id < week)
@@ -411,7 +407,7 @@ export function buildWeeklyPlanningModel(args: {
   const { settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments } = args;
   const weekEnd = addDays(week, 6);
   const normalized = forecastSettings(settings, today);
-  const forecastPlans = dateWeeklyPackaging(plans);
+  const forecastPlans = dateWeeklyPackaging(plans, tanks);
 
   const stages: WeeklyStage[] = ["base", "afterShipment", "afterPackaging", "committed"];
   const forecasts = {} as Record<WeeklyStage, DailyResult>;
