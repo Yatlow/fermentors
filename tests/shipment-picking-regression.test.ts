@@ -8,7 +8,7 @@ function pallet(
   quantity: number,
   expiryDateStr: string,
   row: number,
-  orderInCell = 0,
+  orderInCell: number | null = 0,
   col = 1,
 ): Pallet {
   return {
@@ -34,6 +34,17 @@ test("FEFO is strict: earlier expiry wins before distance from the door", () => 
   assert.deepEqual(choice.selected.map((p) => p.id), ["earlier-far"]);
 });
 
+test("FEFO does not replace an earlier partial pallet with a later exact pallet", () => {
+  const earlier82 = pallet("earlier-82", 82, "02/03/2027", 1);
+  const later84 = pallet("later-84", 84, "07/03/2027", 5);
+
+  const choice = palletSelectionOptions([later84, earlier82], 84, true)[0];
+
+  assert.ok(choice);
+  assert.equal(choice.total, 82);
+  assert.deepEqual(choice.selected.map((p) => p.id), ["earlier-82"]);
+});
+
 test("same expiry: a pallet on top is preferred to the pallet below it", () => {
   const top = pallet("top", 84, "10/01/2027", 3, 0, 2);
   const below = pallet("below", 84, "10/01/2027", 3, 1, 2);
@@ -42,6 +53,30 @@ test("same expiry: a pallet on top is preferred to the pallet below it", () => {
 
   assert.ok(choice);
   assert.deepEqual(choice.selected.map((p) => p.id), ["top"]);
+});
+
+test("legacy cellOrder is honored when current stack fields are missing", () => {
+  const top = { ...pallet("legacy-top", 84, "10/01/2027", 3, null, 2), cellOrder: 0 };
+  const below = { ...pallet("legacy-below", 84, "10/01/2027", 3, null, 2), cellOrder: 1 };
+
+  const choice = palletSelectionOptions([below, top], 84)[0];
+
+  assert.ok(choice);
+  assert.deepEqual(choice.selected.map((p) => p.id), ["legacy-top"]);
+});
+
+test("identical legacy pallets keep visual/input order instead of arbitrary document-id order", () => {
+  const partial = pallet("zz-partial-4", 4, "06/01/2027", 3, null, 1);
+  const first = pallet("zz-first", 20, "06/01/2027", 3, null, 1);
+  const second = pallet("aa-second", 20, "06/01/2027", 3, null, 1);
+  const third = pallet("mm-third", 20, "06/01/2027", 3, null, 1);
+
+  const choice = palletSelectionOptions([partial, first, second, third], 40, true)[0];
+
+  assert.ok(choice);
+  assert.equal(choice.total, 40);
+  assert.deepEqual(choice.selected.map((p) => p.id), ["zz-first", "aa-second"]);
+  assert.equal(choice.selected.some((p) => p.id === "zz-partial-4"), false);
 });
 
 test("identical pallets are picked as the preferred access prefix after skipping an unusable partial pallet", () => {
@@ -62,7 +97,7 @@ test("identical pallets are picked as the preferred access prefix after skipping
   assert.equal(choice.selected.some((p) => p.id === "partial-4"), false);
 });
 
-test("subset search may skip an early pallet only when required to reach the exact target", () => {
+test("subset search may skip an early pallet only inside the same expiry to maximize that expiry tier", () => {
   const first = pallet("first-60", 60, "10/01/2027", 5);
   const second = pallet("second-50", 50, "10/01/2027", 4);
   const third = pallet("third-34", 34, "10/01/2027", 3);
