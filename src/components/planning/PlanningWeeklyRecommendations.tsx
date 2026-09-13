@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import BeerLoader from "../general/Loading";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
-import { calcTruckSlots, MAX_TRUCK_SLOTS, setMarkedForShipment } from "../../SERVICES/cooler/Palletservice";
-import { getColumnDef } from "../../SERVICES/cooler/Coolergridconfig";
+import { calcTruckSlots, MAX_TRUCK_SLOTS } from "../../SERVICES/cooler/truckCapacity";
+import { markPlanningPallets } from "../../SERVICES/planning/picking";
+import { expiryIso, palletQuantity, palletSelectionOptions, hasMarkedPallets } from "../../SERVICES/planning/shipmentPicking";
 import {
     addDays,
     emptyWeek,
@@ -21,7 +23,7 @@ import {
     type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
 import { openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
-import { displayStyle, isCoreStyle, CORE_STYLES } from "../../SERVICES/planning/planningPresentation";
+import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../../SERVICES/planning/planningPresentation";
 import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { weekday } from "../../SERVICES/planning/productionCycle";
@@ -29,13 +31,6 @@ import { weekday } from "../../SERVICES/planning/productionCycle";
 type Kind = "delivery" | "packaging" | "brew";
 type BrewDraft = { style: string; liters: number };
 type ManualPackDraft = { id: string; tankId: string; productId: string; quantity: number };
-type PalletSelectionOption = {
-    selected: Pallet[];
-    total: number;
-    slots: number;
-    overage: number;
-    fefoScore: number;
-};
 type ShipmentSelectionState = {
     selected: Pallet[];
     details: Array<{
@@ -57,184 +52,11 @@ const defaultWeek = (today: string) => weekday(today) >= 5 ? addDays(weekStart(t
 const coverLabel = (value: number | null) => value === null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)} שב׳`;
 
 function palletLabel(quantity: number, p: Product) {
-    return `${(quantity / palletSize(p)).toLocaleString("he-IL", { maximumFractionDigits: 2 })} מש׳`;
+    return formatPalletCount(quantity / palletSize(p));
 }
 
 function unique(values: (string | number | null | undefined)[]) {
     return [...new Set(values.filter((v): v is string | number => v !== null && v !== undefined && String(v) !== ""))];
-}
-
-function expiryIso(value: string | null | undefined) {
-    if (!value) return null;
-    const trimmed = String(value).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-    const parts = trimmed.split(/[./-]/).map(Number);
-    if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
-    const [d, m, rawY] = parts;
-    const y = rawY < 100 ? rawY + 2000 : rawY;
-    return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-
-function palletQuantity(pallet: Pallet) {
-    return Math.max(0, Math.round(Number(pallet.quantity || 0)));
-}
-
-function palletAccessRank(pallet: Pallet) {
-    const cell = pallet.cell;
-    if (!cell) return [9, 99, 99, 99] as const;
-
-    if (cell.side === "corridor") {
-        return [0, 0, cell.col, pallet.orderInCell ?? pallet.slotIndex ?? 0] as const;
-    }
-
-    const column = getColumnDef(cell.side, cell.col);
-    const rowDistanceFromCorridor = cell.side === "right"
-        ? Math.max(0, (column?.rows ?? cell.row) - cell.row)
-        : Math.max(0, cell.row - 1);
-
-    return [1, rowDistanceFromCorridor, cell.col, pallet.orderInCell ?? pallet.slotIndex ?? 0] as const;
-}
-
-function compareAccess(a: Pallet, b: Pallet) {
-    const ar = palletAccessRank(a);
-    const br = palletAccessRank(b);
-    for (let i = 0; i < ar.length; i++) {
-        if (ar[i] !== br[i]) return ar[i] - br[i];
-    }
-    return 0;
-}
-
-function compareFefo(a: Pallet, b: Pallet) {
-    return String(expiryIso(a.expiryDateStr) ?? "9999-12-31").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999-12-31")) ||
-        compareAccess(a, b) ||
-        String(a.batchNumber ?? "").localeCompare(String(b.batchNumber ?? "")) ||
-        a.id.localeCompare(b.id);
-}
-
-function greedyPalletSelection(ordered: Pallet[], target: number) {
-    const selected: Pallet[] = [];
-    let total = 0;
-    for (const pallet of ordered) {
-        if (total >= target) break;
-        const qty = palletQuantity(pallet);
-        if (!qty) continue;
-        selected.push(pallet);
-        total += qty;
-    }
-    return { selected, total };
-}
-
-function sameFefoGroup(a: Pallet, b: Pallet) {
-    return (expiryIso(a.expiryDateStr) ?? "9999-12-31") === (expiryIso(b.expiryDateStr) ?? "9999-12-31") &&
-        String(a.batchNumber ?? "") === String(b.batchNumber ?? "");
-}
-
-function palletSelectionPriority(selected: Pallet[], fefo: Pallet[]) {
-    const selectedIds = new Set(selected.map((p) => p.id));
-    const selectedExpiries = selected.map((p) => expiryIso(p.expiryDateStr) ?? "9999-12-31").sort();
-    const latestSelectedExpiry = selectedExpiries.at(-1) ?? "9999-12-31";
-    let score = 0;
-
-    // Hard FEFO preference: skipping an earlier-expiry pallet while taking a
-    // later-expiry pallet is enormously more expensive than any slot/access gain.
-    for (let index = 0; index < fefo.length; index++) {
-        const pallet = fefo[index];
-        const expiry = expiryIso(pallet.expiryDateStr) ?? "9999-12-31";
-        if (selectedIds.has(pallet.id)) {
-            score += index;
-        } else if (expiry < latestSelectedExpiry) {
-            score += 1_000_000 + index * 1_000;
-        }
-    }
-
-    // Within the same batch+expiry, avoid digging underneath a usable upper
-    // crates pallet. A >=60-crate upper pallet wins unless quantity/capacity
-    // makes that impossible. Keg pallets simply follow physical access order.
-    for (const chosen of selected) {
-        for (const candidate of fefo) {
-            if (selectedIds.has(candidate.id) || !sameFefoGroup(candidate, chosen)) continue;
-            const candidateUsable = candidate.itemType !== "crates" || palletQuantity(candidate) >= 60;
-            if (candidateUsable && compareAccess(candidate, chosen) < 0) score += 100_000;
-        }
-    }
-
-    return score;
-}
-
-function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): PalletSelectionOption[] {
-    const requested = Math.max(0, Math.round(requestedTarget));
-    const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
-    const target = Math.min(requested, available);
-    if (!target) return [{ selected: [], total: 0, slots: 0, overage: 0, fefoScore: 0 }];
-
-    const fefo = [...candidates].filter((p) => palletQuantity(p) > 0).sort(compareFefo);
-    const byStrictFefo = [...fefo];
-    const byExpiryFullFirst = [...fefo].sort((a, b) => {
-        const expiry = String(expiryIso(a.expiryDateStr) ?? "9999-12-31").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999-12-31"));
-        if (expiry) return expiry;
-        const access = compareAccess(a, b);
-        if (access) return access;
-        const batch = String(a.batchNumber ?? "").localeCompare(String(b.batchNumber ?? ""));
-        if (batch) return batch;
-        return palletQuantity(b) - palletQuantity(a) || a.id.localeCompare(b.id);
-    });
-    const compact = [...fefo].sort((a, b) => palletQuantity(b) - palletQuantity(a) || compareFefo(a, b));
-    const partialFirst = [...fefo].sort((a, b) => palletQuantity(a) - palletQuantity(b) || compareFefo(a, b));
-
-    const rawSelections: Pallet[][] = [];
-    const pushGreedy = (ordered: Pallet[]) => {
-        const { selected, total } = greedyPalletSelection(ordered, target);
-        if (total >= target) rawSelections.push(selected);
-    };
-
-    pushGreedy(byStrictFefo);
-    pushGreedy(byExpiryFullFirst);
-    pushGreedy(compact);
-    pushGreedy(partialFirst);
-
-    for (const base of [...rawSelections]) {
-        const baseIds = new Set(base.map((p) => p.id));
-        const unselected = fefo.filter((p) => !baseIds.has(p.id));
-        const baseTotal = base.reduce((sum, p) => sum + palletQuantity(p), 0);
-
-        for (const add of unselected) {
-            for (let i = 0; i < base.length; i++) {
-                const total = baseTotal - palletQuantity(base[i]) + palletQuantity(add);
-                if (total >= target) rawSelections.push([...base.filter((_, index) => index !== i), add]);
-            }
-
-            for (let i = 0; i < base.length; i++) {
-                for (let j = i + 1; j < base.length; j++) {
-                    const total = baseTotal - palletQuantity(base[i]) - palletQuantity(base[j]) + palletQuantity(add);
-                    if (total >= target) rawSelections.push([...base.filter((_, index) => index !== i && index !== j), add]);
-                }
-            }
-        }
-    }
-
-    const uniqueOptions = new Map<string, PalletSelectionOption>();
-    for (const selected of rawSelections) {
-        const deduped = [...new Map(selected.map((p) => [p.id, p])).values()];
-        const total = deduped.reduce((sum, p) => sum + palletQuantity(p), 0);
-        if (total < target) continue;
-        let slots: number;
-        try { slots = calcTruckSlots(deduped); } catch { continue; }
-        const ids = deduped.map((p) => p.id).sort();
-        const key = ids.join("|");
-        const option: PalletSelectionOption = {
-            selected: deduped,
-            total,
-            slots,
-            overage: Math.max(0, total - target),
-            fefoScore: palletSelectionPriority(deduped, fefo),
-        };
-        const existing = uniqueOptions.get(key);
-        if (!existing || option.fefoScore < existing.fefoScore || (option.fefoScore === existing.fefoScore && option.slots < existing.slots)) uniqueOptions.set(key, option);
-    }
-
-    return [...uniqueOptions.values()]
-        .sort((a, b) => a.fefoScore - b.fefoScore || a.slots - b.slots || a.overage - b.overage || a.selected.length - b.selected.length)
-        .slice(0, 60);
 }
 
 function pruneShipmentStates(states: ShipmentSelectionState[]) {
@@ -274,13 +96,21 @@ export default function PlanningWeeklyRecommendations({
     const [brewDraft, setBrewDraft] = useState<BrewDraft[]>([]);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
+    const [markFeedback, setMarkFeedback] = useState("");
+    const markFeedbackRef = useRef<HTMLParagraphElement>(null);
+    useEffect(() => {
+        if (!markFeedback) return;
+        markFeedbackRef.current?.focus({ preventScroll: true });
+        markFeedbackRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [markFeedback]);
+    const [shipmentError, setShipmentError] = useState<{ productId: string; text: string } | null>(null);
 
     const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
     const model = useMemo(
         () => buildWeeklyPlanningModel({ settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments }),
         [settings, pallets, tanks, plans, actuals, sources, today, week, holidays, shipments],
     );
-    const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
+    const products = settings.products.filter((p) => (p.monthly > 0 && isCoreStyle(p.style)) || current.deliveries?.some((d) => d.productId === p.id && d.quantity > 0));
     const product = (id: string) => settings.products.find((p) => p.id === id);
     const holidaysThisWeek = holidays.filter((h) => h.date >= week && h.date <= model.weekEnd);
     const shipmentRec = new Map(model.shipmentRecommendation.map((r) => [r.productId, r]));
@@ -317,7 +147,7 @@ export default function PlanningWeeklyRecommendations({
         return Math.max(0, targetQuantity - completed);
     }
     function shipmentSlots(draft: Record<string, number>) {
-        const manifest = products.flatMap((p) =>
+        const manifest = settings.products.flatMap((p) =>
             projectedPallets(p, Math.max(0, draft[p.id] ?? 0), `weekly-edit:${week}:${p.id}`).map((x) => x.pallet),
         );
         if (!manifest.length) return 0;
@@ -367,7 +197,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function beginEdit(kind: Kind) {
-        setEditing(kind); setMessage("");
+        setEditing(kind); setMessage(""); setShipmentError(null);
         if (kind === "delivery") {
             setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)])));
         } else if (kind === "packaging") {
@@ -382,7 +212,7 @@ export default function PlanningWeeklyRecommendations({
         setShipDraft((prev) => {
             const proposed = Math.max(0, (prev[p.id] ?? 0) + delta * palletSize(p));
             if (delta > 0 && proposed > maxShipmentQty(p)) {
-                setMessage(`אין מספיק מלאי זמין עד השבוע הזה עבור ${displayStyle(p.style)}.`);
+                setShipmentError({ productId: p.id, text: `אין מספיק מלאי זמין עד השבוע הזה עבור ${displayStyle(p.style)}.` });
                 return prev;
             }
             const next = { ...prev, [p.id]: proposed };
@@ -390,13 +220,15 @@ export default function PlanningWeeklyRecommendations({
                 setMessage(`המשאית מלאה — מקסימום ${MAX_TRUCK_SLOTS} מקומות.`);
                 return prev;
             }
-            setMessage("");
+            setMessage(""); setShipmentError(null);
             return next;
         });
     }
 
     async function saveShipment() {
+        if (disabled || busy) return;
         const slots = shipmentSlots(shipDraft);
+        if (slots > MAX_TRUCK_SLOTS || products.some((p) => (shipDraft[p.id] ?? 0) > maxShipmentQty(p))) return setMessage("המלאי או הקיבולת השתנו. יש לעדכן את החלטת המשלוח לפני השמירה.");
         const risky = products.some((p) => riskyShipmentQty(p, shipDraft[p.id] ?? 0) > 0);
         setBusy(true); setMessage("");
         try {
@@ -430,82 +262,90 @@ export default function PlanningWeeklyRecommendations({
         .filter((w) => w.id >= weekStart(today) && (w.deliveries ?? []).some((d) => d.quantity > 0))
         .sort((a, b) => a.id.localeCompare(b.id))[0]?.id;
     const isNearShipmentWeek = week === weekStart(today) || week === addDays(weekStart(today), 7);
+    const markingBlocked = hasMarkedPallets(pallets);
     const canOfferMapMarking = isNearShipmentWeek && nearestShipmentWeek === week && (current.deliveries ?? []).some((d) => d.quantity > 0);
 
     async function markShipmentOnCoolerMap() {
-        if (!canOfferMapMarking) return;
+        if (!canOfferMapMarking || disabled || busy) return;
+        if (markingBlocked) return setMarkFeedback("כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.");
 
-        const shipmentLines = products
-            .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
-            .filter((line) => line.requested > 0)
-            .map((line) => {
-                const candidates = pallets.filter((pallet) =>
-                    pallet.zone === "cooler" &&
-                    pallet.itemType === line.product.type &&
-                    sameStyle(pallet.beerStyle, line.product.style) &&
-                    (!expiryIso(pallet.expiryDateStr) || expiryIso(pallet.expiryDateStr)! >= today),
-                );
-                const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
-                const options = palletSelectionOptions(candidates, line.requested);
-                return { ...line, candidates, available, options };
-            });
+        setBusy(true);
+        setMarkFeedback("בודק התאמה של המשטחים להחלטת המשלוח…");
+        try {
+            // Paint progress before starting the subset search; failures in the
+            // calculation must use the same visible feedback as write failures.
+            await new Promise<void>((resolve) => setTimeout(resolve, 0));
+            if (current.deliveries?.some((d) => d.quantity > 0 && !product(d.productId))) return setMarkFeedback("ההחלטה כוללת מק״ט לא מוכר. יש לתקן את ההחלטה לפני הסימון.");
+            const shipmentLines = products
+                .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
+                .filter((line) => line.requested > 0)
+                .map((line) => {
+                    const candidates = pallets.filter((pallet) =>
+                        pallet.zone === "cooler" && !pallet.markedForShipment &&
+                        pallet.itemType === line.product.type &&
+                        sameStyle(pallet.beerStyle, line.product.style) &&
+                        (!!expiryIso(pallet.expiryDateStr) && expiryIso(pallet.expiryDateStr)! >= today),
+                    );
+                    const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
+                    const options = palletSelectionOptions(candidates, line.requested, true);
+                    return { ...line, candidates, available, options };
+                });
 
-        let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
+            let states: ShipmentSelectionState[] = [{ selected: [], details: [], slots: 0, fefoScore: 0, overage: 0 }];
 
-        for (const line of shipmentLines) {
-            if (!line.options.length) return setMessage(`לא נמצאה קומבינציית משטחים עבור ${displayStyle(line.product.style)}.`);
-
-            const nextStates: ShipmentSelectionState[] = [];
-            for (const state of states) {
-                for (const option of line.options) {
-                    const combined = [...state.selected, ...option.selected];
-                    let slots: number;
-                    try { slots = calcTruckSlots(combined); } catch { continue; }
-                    if (slots > MAX_TRUCK_SLOTS) continue;
-                    nextStates.push({
-                        selected: combined,
-                        details: [...state.details, {
-                            product: line.product,
-                            requested: line.requested,
-                            available: line.available,
-                            selectedTotal: option.total,
-                            missing: Math.max(0, line.requested - line.available),
-                            overage: Math.max(0, option.total - Math.min(line.requested, line.available)),
-                        }],
-                        slots,
-                        fefoScore: state.fefoScore + option.fefoScore,
-                        overage: state.overage + option.overage,
-                    });
+            for (const line of shipmentLines) {
+                const nextStates: ShipmentSelectionState[] = [];
+                for (const state of states) {
+                    for (const option of line.options) {
+                        const combined = [...state.selected, ...option.selected];
+                        let slots: number;
+                        try { slots = calcTruckSlots(combined); } catch { continue; }
+                        if (slots > MAX_TRUCK_SLOTS) continue;
+                        nextStates.push({
+                            selected: combined,
+                            details: [...state.details, {
+                                product: line.product,
+                                requested: line.requested,
+                                available: line.available,
+                                selectedTotal: option.total,
+                                missing: Math.max(0, line.requested - option.total),
+                                overage: Math.max(0, option.total - Math.min(line.requested, line.available)),
+                            }],
+                            slots,
+                            fefoScore: state.fefoScore + option.fefoScore,
+                            overage: state.overage + option.overage,
+                        });
+                    }
                 }
+
+                states = pruneShipmentStates(nextStates);
+                if (!states.length) return setMarkFeedback(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
             }
 
-            states = pruneShipmentStates(nextStates);
-            if (!states.length) return setMessage(`לא נמצאה קומבינציית משטחים פיזית שמכסה את החלטת המשלוח ונכנסת ב־${MAX_TRUCK_SLOTS} מקומות במשאית.`);
-        }
+            const best = [...states].sort((a, b) =>
+                a.fefoScore - b.fefoScore ||
+                a.overage - b.overage ||
+                a.slots - b.slots ||
+                a.selected.length - b.selected.length,
+            )[0];
 
-        const best = [...states].sort((a, b) =>
-            a.fefoScore - b.fefoScore ||
-            a.overage - b.overage ||
-            a.slots - b.slots ||
-            a.selected.length - b.selected.length,
-        )[0];
+            if (!best) return setMarkFeedback("לא נמצאה בחירה שמתאימה למגבלות המשאית.");
 
-        if (!best || !best.selected.length) return setMessage("לא נמצאו משטחים פיזיים מתאימים לסימון.");
+            const palletIds = [...new Set(best.selected.map((p) => p.id))];
+            const notes = best.details.filter((detail) => detail.missing > 0).map((detail) =>
+                `${displayStyle(detail.product.style)}: נותר להוסיף ידנית ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} (${palletLabel(detail.missing, detail.product)}) לאחר האריזה והשיבוץ במקרר, או פיצול משטח לפי הצורך.`,
+            );
 
-        const palletIds = [...new Set(best.selected.map((p) => p.id))];
-        const notes = best.details.flatMap((detail) => {
-            const result: string[] = [];
-            if (detail.missing > 0) result.push(`${displayStyle(detail.product.style)}: חסרים ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} פיזיים במקרר`);
-            if (detail.overage > 0) result.push(`${displayStyle(detail.product.style)}: נבחרו ${fmt(detail.selectedTotal)} עבור דרישה פיזית של ${fmt(Math.min(detail.requested, detail.available))} כי לא מפצלים משטח קיים`);
-            return result;
-        });
-
-        setBusy(true); setMessage("");
-        try {
-            await Promise.all(palletIds.map((id) => setMarkedForShipment(id, true)));
-            setMessage(`סומנו ${palletIds.length} משטחים פיזיים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).${notes.length ? ` ⚠️ ${notes.join(" · ")}` : ""}`);
+            if (best.selected.length) {
+                setMarkFeedback("מסמן את המשטחים הזמינים במפת המקרר…");
+                await markPlanningPallets(best.selected);
+            }
+            const result = best.selected.length
+                ? `סומנו ${formatPalletCount(palletIds.length)} זמינים למשלוח (${best.slots}/${MAX_TRUCK_SLOTS} מקומות במשאית).`
+                : "אין כרגע משטחים מתאימים לסימון אוטומטי.";
+            setMarkFeedback(`${result}${notes.length ? ` המשלוח עדיין אינו מלא: ${notes.join(" · ")} ההחלטה נשארה ללא שינוי; יש להשלים את הסימון ידנית במפת המקרר.` : ""}`);
         } catch (e) {
-            setMessage(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
+            setMarkFeedback(e instanceof Error ? e.message : "סימון המשטחים במפה נכשל");
         } finally {
             setBusy(false);
         }
@@ -641,7 +481,7 @@ export default function PlanningWeeklyRecommendations({
         setBrewDraft([...current.brews.map((b) => ({ style: b.style, liters: b.liters })), ...model.brewRecommendations]);
     }
 
-    const usedShipSlots = editing === "delivery" ? shipmentSlots(shipDraft) : null;
+    const usedShipSlots = shipmentSlots(editing === "delivery" ? shipDraft : Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)])));
     const riskyShipmentLines = products
         .map((p) => ({ p, quantity: editing === "delivery" ? shipDraft[p.id] ?? 0 : currentShipmentQty(p.id) }))
         .map((x) => ({ ...x, risky: riskyShipmentQty(x.p, x.quantity) }))
@@ -651,7 +491,8 @@ export default function PlanningWeeklyRecommendations({
     const packagingRecommendationCount = visiblePackagingRecommendations.length;
 
     return <section className="bp-weekly-planner">
-        <div className="bp-week-picker">{Array.from({ length: 8 }, (_, i) => addDays(weekStart(today), i * 7)).map((w) => <button key={w} aria-pressed={w === week} onClick={() => { setWeek(w); setEditing(null); setMessage(""); }}>שבוע {weekNumber(w)}<small>{shortDate(w)}</small></button>)}</div>
+        {busy && <BeerLoader overlay message="מעדכן את התכנון…" />}
+        <div className="bp-week-picker">{Array.from({ length: 8 }, (_, i) => addDays(weekStart(today), i * 7)).map((w) => <button key={w} aria-pressed={w === week} disabled={busy} onClick={() => { setWeek(w); setEditing(null); setMessage(""); setMarkFeedback(""); }}>שבוע {weekNumber(w)}<small>{shortDate(w)}</small></button>)}</div>
         <div className="bp-week-sticky"><b>{selectedWeekText}</b><small>{editing ? `עורך: ${editing === "delivery" ? "משלוח" : editing === "packaging" ? "אריזה" : "בישול"}` : "תכנון שבועי"}</small></div>
         {holidaysThisWeek.length > 0 && <div className="bp-week-events"><b>חגים ואירועים השבוע</b>{holidaysThisWeek.map((h) => <span key={`${h.date}:${h.title}`}>{shortDate(h.date)} · {h.title}</span>)}</div>}
         {message && <p role="status" className="bp-week-message">{message}</p>}
@@ -659,13 +500,13 @@ export default function PlanningWeeklyRecommendations({
         <div className="bp-week-recommendations">
             <article className="bp-week-rec-card bp-week-shipment-card">
                 <header><div>
-                    <small>1 · משלוח · {selectedWeekText}</small><h3>מה לשלוח השבוע</h3></div><b>{model.shipmentSlots}/{MAX_TRUCK_SLOTS} מקומות</b></header>
+                    <small>1 · משלוח · {selectedWeekText}</small><h3>מה לשלוח השבוע</h3></div><b>המלצה: {model.shipmentSlots}/{MAX_TRUCK_SLOTS} מקומות</b></header>
                 <p className="bp-rec-principle">הכיסוי הוא כיסוי טמפו צפוי לסוף השבוע.
                     <br />
                     המק"טים ממוינים לפי הכיסוי הנמוך ביותר.
                     <br />הזמינות מוצגת במשטחים.
                     <br />מלאי מאריזה של אותו שבוע מוצג כאפשרות חריגה רק כשבלעדיו לא ניתן להגיע לכיסוי היעד.</p>
-                {editing === "delivery" && <div className="bp-saved-summary"><b>{Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות בשימוש</b> · נותרו {Number.isFinite(usedShipSlots) ? Math.max(0, MAX_TRUCK_SLOTS - Number(usedShipSlots)) : 0}</div>}
+                <div className="bp-saved-summary"><b>החלטה{editing === "delivery" ? " בעריכה" : ""}: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות בשימוש</b> · נותרו {Number.isFinite(usedShipSlots) ? Math.max(0, MAX_TRUCK_SLOTS - Number(usedShipSlots)) : 0}</div>
                 {riskyShipmentLines.length > 0 && <div className="bp-same-week-warning" role="alert"><b>⚠️ משלוח תלוי באריזה של אותו שבוע</b><span>יש לארוז לפני או ביום המשלוח.</span>{riskyShipmentLines.map(({ p, risky }) => <small key={p.id}>{palletLabel(risky, p)} {displayStyle(p.style)} עדיין תלויים באריזה השבוע.</small>)}</div>}
                 <div className="bp-actions">
                     {editing === "delivery" ?
@@ -682,8 +523,10 @@ export default function PlanningWeeklyRecommendations({
                 {!model.shipmentCanFillTruck && model.shipmentSlots > 0 &&
                     <p className="bp-alert">אין כרגע מספיק מלאי צפוי כדי להרכיב משלוח של משאית מלאה. אפשר לשמור משלוח חלקי ידנית. תכנן אריזות בשבועות קודמים בכדי ליצור מלאי מספיק</p>}
                 {canOfferMapMarking && <div className="bp-map-marking">
-                    <button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}
+                    <button type="button" disabled={disabled || busy || markingBlocked || editing === "delivery"} onClick={markShipmentOnCoolerMap}
                     >סמן את המשלוח במפת המקרר</button>
+                    {markFeedback && <p ref={markFeedbackRef} tabIndex={-1} role="status" aria-live="polite" className="bp-shipment-feedback">{markFeedback}</p>}
+                    {markingBlocked && <p role="status">כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.</p>}
                 </div>}
                 <div className="bp-shipment-plan-table"><div className="bp-shipment-plan-head"><span>מקט</span><span>כיסוי</span><span>מומלץ</span><span>החלטה</span></div>
                     {shipmentProducts.map((p) => {
@@ -693,6 +536,8 @@ export default function PlanningWeeklyRecommendations({
                         const risky = riskyShipmentQty(p, draftQty); const shownAfter = editing === "delivery" ? draftShipmentCover(p) : after?.tempoCover ?? null;
                         const showSameWeek = sameWeek > 0 && regularMaxCover(p) < settings.targetWeeks;
                         const recAfter = shipmentRecommendationCover(p);
+                        const decidedSlots = shipmentSlots({ [p.id]: draftQty });
+                        const decidedSlotsLabel = Number.isFinite(decidedSlots) ? `${decidedSlots} מקומות` : "חורג ממגבלת הגובה";
                         return <div className={`bp-shipment-plan-row ${risky > 0 ? "has-same-week-risk" : (shownAfter ?? Infinity) < settings.targetWeeks ? "is-warning" : "is-ok"}`} key={p.id}>
                             <span><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(base?.tempoCover ?? null)}<small>
@@ -702,8 +547,8 @@ export default function PlanningWeeklyRecommendations({
                                 { /* plannedDelta > 0 ? ` · +${palletLabel(plannedDelta, p)} צפויים להיארז` : 
                                    plannedDelta < 0 ? ` · ${palletLabel(plannedDelta, p)} מהחלטות קודמות` : "" */}
                             </small>{showSameWeek && <small className="bp-risk-text">{palletLabel(sameWeek, p)} מאריזה השבוע</small>}</span>
-                            <span>{rec?.pallets ?? 0}{" "}משטחים<small>{rec?.slots ?? 0} מק׳</small>{rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}</span>
-                            <span>{editing === "delivery" ? <div className="bp-stepper"><button onClick={() => stepShipment(p, -1)}>−</button><b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b><button onClick={() => stepShipment(p, 1)}>+</button><small>משטחים · אחרי: {coverLabel(shownAfter)}</small>{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</div> : <>{Math.ceil(decided / palletSize(p))} מש׳<small>אחרי החלטה: {coverLabel(shownAfter)}</small>{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</>}</span>
+                            <span>{formatPalletCount(rec?.pallets ?? 0)}<small>{rec?.slots ?? 0} מקומות</small>{rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}</span>
+                            <span>{editing === "delivery" ? <div className="bp-stepper"><button onClick={() => stepShipment(p, -1)}>−</button><b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b><button onClick={() => stepShipment(p, 1)}>+</button><small>{decidedSlotsLabel}</small><small>משטחים · אחרי: {coverLabel(shownAfter)}</small>{shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</div> : <>{palletLabel(decided, p)}<small>{decidedSlotsLabel}</small><small>אחרי החלטה: {coverLabel(shownAfter)}</small>{risky > 0 && <small className="bp-risk-text">⚠️ {palletLabel(risky, p)} מאריזה השבוע</small>}</>}</span>
                         </div>;
                     })}
                 </div>

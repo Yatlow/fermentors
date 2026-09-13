@@ -106,7 +106,7 @@
                 <article className={`bp-stock-snapshot-row ${open ? "is-open" : ""}`} key={g.key} role="button" tabIndex={0} aria-expanded={open}
                 onClick={() => setExpanded((current) => current === g.key ? null : g.key)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded((current) => current === g.key ? null : g.key); } }}>
-                <div className={`bp-stock-style ${beerStyleClass(g.style).className}`}>{displayStyle(g.style)}</div>
+                <div className={`bp-stock-style ${beerStyleClass(g.style).className}`}>{displayStyle(g.style)}<small className="bp-stock-expand-hint">{open ? "סגירת הפרטים ▴" : "לחץ לפרטים נוספים ▾"}</small></div>
                 {[crates, kegs].map((f) => (
                     <div className="bp-stock-metric" key={f.type}>
                     <small>{f.type === "crates" ? "ארגזים" : "חביות"}</small>

@@ -1,3 +1,4 @@
+import BeerLoader from "../general/Loading";
 import { useEffect, useState } from "react";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 import { type Product, type Settings, sameStyle } from "../../SERVICES/planning/planningEngine";
@@ -60,6 +61,7 @@ export default function PlanningData({ mode, settings, today, disabled, save }: 
 
     return (
         <section>
+            {busy && <BeerLoader overlay message="שומר את הנתונים…" />}
             {/* <h2>{mode === "data" ? "הזנת נתונים" : "הגדרות תכנון"}</h2> */}
             {/* {mode === "data" && <p className="bp-muted">כל ששת הסגנונות פתוחים יחד כדי לאפשר מעבר מהיר בין מלאי טמפו וצפי המכירות.</p>} */}
             <fieldset disabled={disabled || busy} className="bp-fieldset">

@@ -752,6 +752,7 @@
 .brew-planning .bp-week-recommendations {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
     gap: 10px;
     margin-top: 12px
 }
@@ -1794,3 +1795,5 @@
         gap: 5px
     }
 }
+.brew-planning .bp-stock-expand-hint { display: block; margin-top: 6px; font-size: 12px; font-weight: 500; }
+.brew-planning .bp-shipment-feedback { margin: 0; width: 100%; box-sizing: border-box; padding: 12px; background: #fff3cd; color: #543d00; border: 1px solid #d6ad45; border-radius: 10px; }

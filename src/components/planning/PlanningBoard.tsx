@@ -1,3 +1,4 @@
+import BeerLoader from "../general/Loading";
 import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
@@ -127,6 +128,7 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
   }
 
   return <section>
+    {busy && !draft && <BeerLoader overlay message="שומר את התכנון…" />}
     <div className="bp-section-heading"><div><h2>לוח עבודה</h2><p className="bp-muted">החלטות המשלוח והבישול הן שבועיות. רק האריזות משובצות בטבלה היומית.</p></div></div>
     <div className="bp-week-picker">{Array.from({ length: 8 }, (_, i) => addDays(startWeek, i * 7)).map((w) => <button key={w} aria-pressed={week === w} disabled={!!draft} onClick={() => { setWeek(w); setSelectedPackaging(null); }}>שבוע {weekNumber(w)}<small>{shortDate(w)}</small></button>)}</div>
     <div className="bp-week-sticky"><b>שבוע {weekNumber(week)} · {shortDate(week)}–{shortDate(addDays(week, 6))}</b><small>לוח עבודה</small></div>
