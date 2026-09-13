@@ -1,4 +1,3 @@
-import type { Fermentor } from "../../App";
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
   addDays,
@@ -23,7 +22,7 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { buildShipmentRecommendation } from "./shipmentRecommendation";
-import { brewSizeLabel, tankReleases, type BrewSizeLabel } from "./productionCycle";
+import { brewSizeLabel, tankReleases, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 
@@ -268,7 +267,7 @@ function buildBrewRecommendation(
   tanks: Tank[],
   plans: WeekPlan[],
   actuals: Actual[],
-  sources: Fermentor[],
+  sources: TankSource[],
   today: string,
   week: string,
   weekEnd: string,
@@ -339,7 +338,7 @@ export function buildWeeklyPlanningModel(args: {
   tanks: Tank[];
   plans: WeekPlan[];
   actuals: Actual[];
-  sources: Fermentor[];
+  sources: TankSource[];
   today: string;
   week: string;
   holidays: Holiday[];
