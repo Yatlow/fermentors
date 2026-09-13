@@ -692,7 +692,7 @@ export default function PlanningWeeklyRecommendations({
             if (!canUseBrewSize(rows, size, index)) return rows;
             return rows.map((row, i) => i === index
                 ? { ...row, liters: brewLitersForSize(row.style, size) }
-                : row));
+                : row);
         });
     }
 
@@ -826,7 +826,7 @@ export default function PlanningWeeklyRecommendations({
                                     {decided > 0 && <small>{decidedSlotsLabel}</small>}
                                     {decided > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
                                     {dependency > 0 && <small className="bp-risk-text">⚠️ {palletLabel(dependency, p)} מאריזה השבוע</small>}
-                                    {partial && <small className="bp-partial-pallet-hint">⚠️ קיים משטח חלקי של {fmt(palletQuantity(partial))} ארגזים; ייתכן שכדאי להחליף ידנית במפה.</small>}
+                                    {partial && <small className="bp-partial-pallet-hint">⚠️ קיים משטח חלקי של {fmt(palletQuantity(partial))} ארגזים; ייתכן שכדאי להחליף אותו ידנית במפה.</small>}
                                 </>}
                             </span>
                         </div>;
