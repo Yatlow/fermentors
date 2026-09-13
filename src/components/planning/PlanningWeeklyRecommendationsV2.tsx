@@ -66,8 +66,9 @@ function unique(values: (string | number | null | undefined)[]) {
 
 function expiryIso(value: string | null | undefined) {
   if (!value) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const parts = value.split(/[./]/).map(Number);
+  const trimmed = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const parts = trimmed.split(/[./-]/).map(Number);
   if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
   const [d, m, rawY] = parts;
   const y = rawY < 100 ? rawY + 2000 : rawY;
@@ -104,7 +105,7 @@ function compareAccess(a: Pallet, b: Pallet) {
 }
 
 function compareFefo(a: Pallet, b: Pallet) {
-  return String(expiryIso(a.expiryDateStr) ?? "9999").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999")) ||
+  return String(expiryIso(a.expiryDateStr) ?? "9999-12-31").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999-12-31")) ||
     compareAccess(a, b) ||
     String(a.batchNumber ?? "").localeCompare(String(b.batchNumber ?? "")) ||
     a.id.localeCompare(b.id);
@@ -123,6 +124,43 @@ function greedyPalletSelection(ordered: Pallet[], target: number) {
   return { selected, total };
 }
 
+function sameFefoGroup(a: Pallet, b: Pallet) {
+  return (expiryIso(a.expiryDateStr) ?? "9999-12-31") === (expiryIso(b.expiryDateStr) ?? "9999-12-31") &&
+    String(a.batchNumber ?? "") === String(b.batchNumber ?? "");
+}
+
+function palletSelectionPriority(selected: Pallet[], fefo: Pallet[]) {
+  const selectedIds = new Set(selected.map((p) => p.id));
+  const selectedExpiries = selected.map((p) => expiryIso(p.expiryDateStr) ?? "9999-12-31").sort();
+  const latestSelectedExpiry = selectedExpiries.at(-1) ?? "9999-12-31";
+  let score = 0;
+
+  // Hard FEFO preference: skipping an earlier-expiry pallet while taking a
+  // later-expiry pallet is enormously more expensive than any slot/access gain.
+  for (let index = 0; index < fefo.length; index++) {
+    const pallet = fefo[index];
+    const expiry = expiryIso(pallet.expiryDateStr) ?? "9999-12-31";
+    if (selectedIds.has(pallet.id)) {
+      score += index;
+    } else if (expiry < latestSelectedExpiry) {
+      score += 1_000_000 + index * 1_000;
+    }
+  }
+
+  // Within the same batch+expiry, avoid digging underneath a usable upper
+  // crates pallet. A >=60-crate upper pallet wins unless quantity/capacity
+  // makes that impossible. Keg pallets simply follow physical access order.
+  for (const chosen of selected) {
+    for (const candidate of fefo) {
+      if (selectedIds.has(candidate.id) || !sameFefoGroup(candidate, chosen)) continue;
+      const candidateUsable = candidate.itemType !== "crates" || palletQuantity(candidate) >= 60;
+      if (candidateUsable && compareAccess(candidate, chosen) < 0) score += 100_000;
+    }
+  }
+
+  return score;
+}
+
 function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): PalletSelectionOption[] {
   const requested = Math.max(0, Math.round(requestedTarget));
   const available = candidates.reduce((sum, pallet) => sum + palletQuantity(pallet), 0);
@@ -130,10 +168,9 @@ function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): 
   if (!target) return [{ selected: [], total: 0, slots: 0, overage: 0, fefoScore: 0 }];
 
   const fefo = [...candidates].filter((p) => palletQuantity(p) > 0).sort(compareFefo);
-  const fefoRank = new Map(fefo.map((pallet, index) => [pallet.id, index]));
-  const byExpiryPartialFirst = [...fefo].sort((a, b) => compareFefo(a, b) || palletQuantity(a) - palletQuantity(b));
+  const byStrictFefo = [...fefo];
   const byExpiryFullFirst = [...fefo].sort((a, b) => {
-    const expiry = String(expiryIso(a.expiryDateStr) ?? "9999").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999"));
+    const expiry = String(expiryIso(a.expiryDateStr) ?? "9999-12-31").localeCompare(String(expiryIso(b.expiryDateStr) ?? "9999-12-31"));
     if (expiry) return expiry;
     const access = compareAccess(a, b);
     if (access) return access;
@@ -150,7 +187,7 @@ function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): 
     if (total >= target) rawSelections.push(selected);
   };
 
-  pushGreedy(byExpiryPartialFirst);
+  pushGreedy(byStrictFefo);
   pushGreedy(byExpiryFullFirst);
   pushGreedy(compact);
   pushGreedy(partialFirst);
@@ -189,14 +226,14 @@ function palletSelectionOptions(candidates: Pallet[], requestedTarget: number): 
       total,
       slots,
       overage: Math.max(0, total - target),
-      fefoScore: deduped.reduce((sum, p) => sum + (fefoRank.get(p.id) ?? fefo.length), 0),
+      fefoScore: palletSelectionPriority(deduped, fefo),
     };
     const existing = uniqueOptions.get(key);
-    if (!existing || option.slots < existing.slots || (option.slots === existing.slots && option.fefoScore < existing.fefoScore)) uniqueOptions.set(key, option);
+    if (!existing || option.fefoScore < existing.fefoScore || (option.fefoScore === existing.fefoScore && option.slots < existing.slots)) uniqueOptions.set(key, option);
   }
 
   return [...uniqueOptions.values()]
-    .sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore || a.overage - b.overage || a.selected.length - b.selected.length)
+    .sort((a, b) => a.fefoScore - b.fefoScore || a.slots - b.slots || a.overage - b.overage || a.selected.length - b.selected.length)
     .slice(0, 60);
 }
 
@@ -208,9 +245,9 @@ function pruneShipmentStates(states: ShipmentSelectionState[]) {
     if (!existing || state.fefoScore < existing.fefoScore || (state.fefoScore === existing.fefoScore && state.slots < existing.slots)) deduped.set(key, state);
   }
   const all = [...deduped.values()];
-  const byCapacity = [...all].sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore || a.overage - b.overage).slice(0, 220);
-  const byFefo = [...all].sort((a, b) => a.fefoScore - b.fefoScore || a.overage - b.overage || a.slots - b.slots).slice(0, 220);
-  return [...new Map([...byCapacity, ...byFefo].map((state) => [state.selected.map((p) => p.id).sort().join("|"), state])).values()];
+  const byFefo = [...all].sort((a, b) => a.fefoScore - b.fefoScore || a.overage - b.overage || a.slots - b.slots).slice(0, 260);
+  const byCapacity = [...all].sort((a, b) => a.slots - b.slots || a.fefoScore - b.fefoScore || a.overage - b.overage).slice(0, 120);
+  return [...new Map([...byFefo, ...byCapacity].map((state) => [state.selected.map((p) => p.id).sort().join("|"), state])).values()];
 }
 
 export default function PlanningWeeklyRecommendationsV2({
@@ -643,7 +680,7 @@ export default function PlanningWeeklyRecommendationsV2({
           })}
         </div>
         {!model.shipmentCanFillTruck && model.shipmentSlots > 0 && <p className="bp-alert">אין כרגע מספיק מלאי רגיל צפוי כדי להרכיב המלצה של משאית מלאה. עדיין אפשר לשמור החלטה חלקית ידנית.</p>}
-        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>FEFO לפי התוקף הקצר ביותר; בתוך אותו תוקף נבחר קודם את המשטחים הקרובים ביותר למסדרון וליציאה. משטח חלקי נשאר מועמד תקין, והקומבינציה חייבת להיכנס בפועל ב־12 מקומות.</small></div>}
+        {canOfferMapMarking && <div className="bp-map-marking"><button type="button" disabled={disabled || busy} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button><small>FEFO קודם: תוקף קצר קודם. בתוך אותו תוקף/אצווה נעדיף משטח נגיש וקרוב למסדרון/יציאה; משטח ארגזים עליון עם 60+ מקבל עדיפות כל עוד הוא מספיק לכמות והמשאית נשארת עד 12 מקומות.</small></div>}
         <div className="bp-actions">{editing === "delivery" ? <><button disabled={busy} onClick={saveShipment}>שמירת החלטת המשלוח</button><button onClick={() => setEditing(null)}>ביטול</button></> : <><button className={(current.deliveries ?? []).length ? "bp-action-warning" : ""} disabled={disabled || busy || !model.shipmentCanFillTruck} onClick={acceptShipmentRecommendation}>{(current.deliveries ?? []).length ? "⚠️ החלף החלטה קיימת בהמלצה" : "צור החלטה מהמלצת 12/12"}</button><button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button></>}</div>
       </article>
 
