@@ -72,15 +72,54 @@ function compareSelectionPriority(
 }
 
 /**
- * Find the largest quantity <= target that can be taken from ONE expiry batch.
- * Among equal totals, retain the most accessible subset for every height signature.
+ * Quantity that must be physically moved out of the way to extract `selected`.
  *
- * This is the important FEFO rule: we maximize usage of the current (earliest)
- * expiry BEFORE looking at a later expiry. A later 84-unit pallet therefore cannot
- * replace an earlier 82-unit pallet merely because 84 happens to hit the decision
- * exactly. On the other hand, within one expiry, [20,20] correctly beats [4,20]
- * for a target of 40, so a tiny partial pallet is skipped when full pallets satisfy
- * more of the decision.
+ * A blocker is a pallet in the SAME cell that is above a selected pallet but is
+ * not itself selected. We count every blocker only once. When legacy pallets do
+ * not have an explicit stack order, the stable FEFO/access order is used; this is
+ * the same deterministic order used by the picker instead of falling back to ids.
+ */
+function blockerQuantity(
+  selected: Pallet[],
+  group: Pallet[],
+  priorityById: Map<string, number>,
+) {
+  const selectedIds = new Set(selected.map((p) => p.id));
+  const blockerIds = new Set<string>();
+
+  for (const picked of selected) {
+    const pickedPriority = priorityById.get(picked.id) ?? Infinity;
+    for (const other of group) {
+      if (selectedIds.has(other.id) || blockerIds.has(other.id) || !sameCell(other, picked)) continue;
+
+      const otherOrder = stackOrder(other);
+      const pickedOrder = stackOrder(picked);
+      const isAbove = otherOrder !== null && pickedOrder !== null
+        ? otherOrder < pickedOrder
+        : (priorityById.get(other.id) ?? Infinity) < pickedPriority;
+
+      if (isAbove) blockerIds.add(other.id);
+    }
+  }
+
+  return group
+    .filter((p) => blockerIds.has(p.id))
+    .reduce((sum, p) => sum + palletQuantity(p), 0);
+}
+
+/**
+ * Choose stock from ONE expiry batch.
+ *
+ * The operational cost is:
+ *   missing quantity + quantity that must be moved out of the way.
+ *
+ * This captures the two real examples from the cooler:
+ * - 82 crates on top of 84 crates, target 84 -> choose 82 (cost 2) instead of
+ *   digging out the blocked 84 (cost 82).
+ * - 4 kegs on top of 20 + 20, target 40 -> skip the 4 and take 20 + 20
+ *   (move 4, cost 4) instead of shipping only 24 (missing 16).
+ *
+ * Only after that cost ties do FEFO/access order and truck slots break the tie.
  */
 function bestWithinExpiry(
   group: Pallet[],
@@ -128,10 +167,23 @@ function bestWithinExpiry(
     }
   }
 
-  const bestTotal = Math.max(...states.keys());
-  return [...(states.get(bestTotal)?.values() ?? [])].sort((a, b) =>
-    compareSelectionPriority(a, b, globalPriorityById),
-  );
+  const options = [...states.entries()]
+    .filter(([total]) => total > 0)
+    .flatMap(([, bucket]) => [...bucket.values()]);
+
+  if (!options.length) return [];
+
+  const cost = (option: PalletSelectionOption) =>
+    Math.max(0, target - option.total) + blockerQuantity(option.selected, group, globalPriorityById);
+
+  const bestCost = Math.min(...options.map(cost));
+  return options
+    .filter((option) => cost(option) === bestCost)
+    .sort((a, b) =>
+      compareSelectionPriority(a, b, globalPriorityById) ||
+      b.total - a.total ||
+      a.slots - b.slots,
+    );
 }
 
 /**
@@ -139,13 +191,9 @@ function bestWithinExpiry(
  *
  * Selection is expiry-tiered FEFO:
  *   1. earliest expiry first;
- *   2. take the maximum usable quantity from that expiry;
+ *   2. choose the lowest operational-cost subset from that expiry;
  *   3. only then continue to the next expiry;
- *   4. inside the same expiry, accessibility decides between equivalent subsets.
- *
- * This is intentionally different from a global subset-sum search. A global search
- * can silently skip older stock just to reach a prettier exact total with newer stock,
- * which is precisely what FEFO must prevent.
+ *   4. a later expiry never replaces stock from an earlier expiry.
  */
 export function palletSelectionOptions(
   candidates: Pallet[],
@@ -190,7 +238,7 @@ export function palletSelectionOptions(
 
     const nextBySignature = new Map<string, PalletSelectionOption>();
     for (const state of states) {
-      for (const option of groupOptions) {
+      for (const option of groupOptions.filter((x) => x.total === takenFromExpiry)) {
         const selected = [...state.selected, ...option.selected];
         let slots: number;
         try {
