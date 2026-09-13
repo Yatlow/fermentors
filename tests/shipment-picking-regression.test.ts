@@ -45,6 +45,17 @@ test("FEFO does not replace an earlier partial pallet with a later exact pallet"
   assert.deepEqual(choice.selected.map((p) => p.id), ["earlier-82"]);
 });
 
+test("same expiry: accessible 82 above blocked 84 wins for target 84", () => {
+  const top82 = pallet("top-82", 82, "02/03/2027", 3, 0, 2);
+  const below84 = pallet("below-84", 84, "02/03/2027", 3, 1, 2);
+
+  const choice = palletSelectionOptions([top82, below84], 84, true)[0];
+
+  assert.ok(choice);
+  assert.equal(choice.total, 82);
+  assert.deepEqual(choice.selected.map((p) => p.id), ["top-82"]);
+});
+
 test("same expiry: a pallet on top is preferred to the pallet below it", () => {
   const top = pallet("top", 84, "10/01/2027", 3, 0, 2);
   const below = pallet("below", 84, "10/01/2027", 3, 1, 2);
@@ -79,6 +90,18 @@ test("identical legacy pallets keep visual/input order instead of arbitrary docu
   assert.equal(choice.selected.some((p) => p.id === "zz-partial-4"), false);
 });
 
+test("4-unit blocker may be skipped when moving it is cheaper than leaving 16 units missing", () => {
+  const partial = pallet("partial-4", 4, "10/01/2027", 3, 0, 1);
+  const first = pallet("first-20", 20, "10/01/2027", 3, 1, 1);
+  const second = pallet("second-20", 20, "10/01/2027", 3, 2, 1);
+
+  const choice = palletSelectionOptions([partial, first, second], 40, true)[0];
+
+  assert.ok(choice);
+  assert.equal(choice.total, 40);
+  assert.deepEqual(choice.selected.map((p) => p.id), ["first-20", "second-20"]);
+});
+
 test("identical pallets are picked as the preferred access prefix after skipping an unusable partial pallet", () => {
   const partial = pallet("partial-4", 4, "10/01/2027", 5, 0, 1);
   const first = pallet("first", 20, "10/01/2027", 4, 0, 1);
@@ -97,7 +120,7 @@ test("identical pallets are picked as the preferred access prefix after skipping
   assert.equal(choice.selected.some((p) => p.id === "partial-4"), false);
 });
 
-test("subset search may skip an early pallet only inside the same expiry to maximize that expiry tier", () => {
+test("subset search may skip an early pallet only inside the same expiry when operational cost is lower", () => {
   const first = pallet("first-60", 60, "10/01/2027", 5);
   const second = pallet("second-50", 50, "10/01/2027", 4);
   const third = pallet("third-34", 34, "10/01/2027", 3);
