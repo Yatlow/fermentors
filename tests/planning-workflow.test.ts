@@ -638,11 +638,11 @@ test("picking searches exact subsets instead of rounding up a greedy selection",
   const options = palletSelectionOptions([pallet("a", 60), pallet("b", 50), pallet("c", 34)], 84);
   assert.deepEqual(options[0].selected.map((p) => p.id).sort(), ["b", "c"]);
 });
-test("picking prefers highest row, then lowest order on both cooler sides", () => {
+test("picking prefers highest row, then top pallet inside the same cell", () => {
   for (const side of ["left", "right"] as const) {
     const far = { ...pallet("far"), cell: { side, col: 1, row: 1 }, orderInCell: 0 };
     const near = { ...pallet("near"), cell: { side, col: 2, row: 4 }, orderInCell: 1 };
-    const top = { ...pallet("top"), cell: { side, col: 3, row: 4 }, orderInCell: 0 };
+    const top = { ...pallet("top"), cell: { side, col: 2, row: 4 }, orderInCell: 0 };
     assert.ok(compareAccess(near, far) < 0);
     assert.ok(compareAccess(top, near) < 0);
     assert.equal(palletSelectionOptions([far, near, top], 84)[0].selected[0].id, "top");
@@ -672,5 +672,6 @@ test("partial picking reports the remainder without adding an excess pallet", ()
 test("partial picking prefers exact quantities whenever they are available", () => {
   const choice = palletSelectionOptions([pallet("one", 60), pallet("two", 50), pallet("three", 34)], 84, true)[0];
   assert.equal(choice.total, 84);
-  assert.deepEqual(choice.selected.map((p) => p.id), ["three", "two"]);
+  assert.deepEqual(choice.selected.map((p) => p.id).sort(), ["three", "two"]);
+  assert.equal(choice.slots, 2);
 });

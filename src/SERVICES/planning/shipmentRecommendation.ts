@@ -16,7 +16,11 @@ export function buildShipmentRecommendation(settings: Settings, rows: Map<string
   const available = new Map<string, number>();
 
   for (const p of products) {
-    available.set(p.id, Math.floor((rows.get(p.id)?.breweryUnits ?? 0) / palletSize(p)));
+    const units = Math.max(0, rows.get(p.id)?.breweryUnits ?? 0);
+    // The weekly decision is made in pallet slots. A physical partial pallet still
+    // occupies one pallet position, so when it is the last stock available we let
+    // it represent one planned pallet instead of making the planner enter fractions.
+    available.set(p.id, units > 0 ? Math.ceil(units / palletSize(p)) : 0);
   }
 
   const coverAfter = (p: Product) => {
@@ -69,4 +73,3 @@ export function buildShipmentRecommendation(settings: Settings, rows: Map<string
 
   return { recommendation, slots, full: slots === MAX_TRUCK_SLOTS };
 }
-

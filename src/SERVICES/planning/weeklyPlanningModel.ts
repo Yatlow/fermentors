@@ -1,10 +1,10 @@
-import type { Fermentor } from "../../App";
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
   addDays,
   emptyWeek,
   litersPerUnit,
   sameStyle,
+  tempoNow,
   weeklyDemand,
   weekStart,
   type Actual,
@@ -22,8 +22,9 @@ import {
   type ShipmentEvent,
 } from "./dailyPlanner";
 import { buildShipmentRecommendation } from "./shipmentRecommendation";
-import { tankReleases } from "./productionCycle";
+import { brewSizeLabel, tankReleases, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
+import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 
 export type WeeklyStage = "base" | "afterShipment" | "afterPackaging" | "committed";
 
@@ -55,6 +56,7 @@ export type WeeklyPackagingRecommendation = {
 export type WeeklyBrewRecommendation = {
   style: string;
   liters: number;
+  sizeLabel: BrewSizeLabel;
 };
 
 export type WeeklyPlanningModel = {
@@ -62,6 +64,8 @@ export type WeeklyPlanningModel = {
   weekEnd: string;
   forecasts: Record<WeeklyStage, DailyResult>;
   rows: Record<WeeklyStage, Map<string, WeeklySkuState>>;
+  /** Expected stock immediately before the selected week begins. */
+  weekStartRows: Map<string, WeekStartProjection>;
   shipmentRecommendation: WeeklyShipmentRecommendation[];
   shipmentSlots: number;
   shipmentCanFillTruck: boolean;
@@ -69,17 +73,24 @@ export type WeeklyPlanningModel = {
   packagingDays: number;
   packagingCapacity: number;
   brewRecommendations: WeeklyBrewRecommendation[];
+  /** Remaining tank positions after decisions already saved for the selected week. */
   availableBrewTanks: number;
+  /** Tank capacity available at the start of the selected week, before that week's decisions. */
+  brewTankCapacity: number;
   tankAvailableLiters: Map<string, number>;
 };
 
 function forecastSettings(settings: Settings, today: string): Settings {
   return {
     ...settings,
-    products: settings.products.map((p) => ({
-      ...p,
-      tempoDate: p.tempo === null ? p.tempoDate : today,
-    })),
+    products: settings.products.map((p) => {
+      const projectedTempo = tempoNow(p, today);
+      return {
+        ...p,
+        tempo: projectedTempo,
+        tempoDate: projectedTempo === null ? p.tempoDate : today,
+      };
+    }),
   };
 }
 
@@ -256,12 +267,13 @@ function buildBrewRecommendation(
   tanks: Tank[],
   plans: WeekPlan[],
   actuals: Actual[],
-  sources: Fermentor[],
+  sources: TankSource[],
   today: string,
   week: string,
   weekEnd: string,
 ) {
   const planningStart = weekStart(today);
+  const currentWeek = plans.find((w) => w.id === week);
   const occupiedTankIds = new Set(
     plans
       .filter((w) => w.id >= planningStart && w.id <= week)
@@ -271,10 +283,24 @@ function buildBrewRecommendation(
   );
 
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today)
-    .filter((r) => !!r.date && r.date! <= weekEnd && !occupiedTankIds.has(r.tankId));
+    .filter((r) => !!r.date && r.date! <= weekEnd && !occupiedTankIds.has(r.tankId))
+    .sort((a, b) =>
+      (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31") ||
+      Number(sources.find((s) => s.id === a.tankId)?.tankNumber ?? Infinity) -
+        Number(sources.find((s) => s.id === b.tankId)?.tankNumber ?? Infinity),
+    );
 
-  const unassignedCurrentBrews = plans.find((w) => w.id === week)?.brews.filter((b) => !b.tankId).length ?? 0;
-  const capacity = Math.max(0, releases.length - unassignedCurrentBrews);
+  const priorUnassigned = plans
+    .filter((w) => w.id >= planningStart && w.id < week)
+    .flatMap((w) => w.brews)
+    .filter((b) => !b.tankId && b.date <= weekEnd).length;
+  const currentUnassigned = currentWeek?.brews.filter((b) => !b.tankId && b.date <= weekEnd).length ?? 0;
+  const currentAssigned = currentWeek?.brews.filter((b) => !!b.tankId && b.date <= weekEnd).length ?? 0;
+
+  const capacityBeforeCurrent = Math.max(0, releases.length + currentAssigned - priorUnassigned);
+  const remainingCapacity = Math.max(0, releases.length - priorUnassigned - currentUnassigned);
+  const anonymousReservations = Math.min(releases.length, priorUnassigned + currentUnassigned);
+  const availableReleases = releases.slice(anonymousReservations);
 
   const styles = [
     ...new Set(
@@ -294,14 +320,16 @@ function buildBrewRecommendation(
     .sort((a, b) => a.cover - b.cover);
 
   const recommendations: WeeklyBrewRecommendation[] = [];
-  for (let i = 0; i < Math.min(capacity, ranked.length); i++) {
-    const release = releases[i];
+  for (let i = 0; i < Math.min(remainingCapacity, ranked.length, availableReleases.length); i++) {
+    const release = availableReleases[i];
+    const source = sources.find((s) => s.id === release.tankId);
     recommendations.push({
       style: ranked[i].style,
-      liters: release?.workLiters || 2500,
+      liters: release.workLiters || 2500,
+      sizeLabel: brewSizeLabel(release.workLiters || 2500, source?.tankNumber),
     });
   }
-  return { recommendations, capacity };
+  return { recommendations, capacity: remainingCapacity, capacityBeforeCurrent };
 }
 
 export function buildWeeklyPlanningModel(args: {
@@ -310,7 +338,7 @@ export function buildWeeklyPlanningModel(args: {
   tanks: Tank[];
   plans: WeekPlan[];
   actuals: Actual[];
-  sources: Fermentor[];
+  sources: TankSource[];
   today: string;
   week: string;
   holidays: Holiday[];
@@ -340,7 +368,8 @@ export function buildWeeklyPlanningModel(args: {
     rows[stage] = skuRows(normalized, forecasts[stage], weekEnd);
   }
 
-  const shipment = buildShipmentRecommendation(normalized, rows.base);
+  const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week });
+  const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(
     normalized,
     rows.afterShipment,
@@ -376,6 +405,7 @@ export function buildWeeklyPlanningModel(args: {
     weekEnd,
     forecasts,
     rows,
+    weekStartRows,
     shipmentRecommendation: shipment.recommendation,
     shipmentSlots: shipment.slots,
     shipmentCanFillTruck: shipment.full,
@@ -384,6 +414,7 @@ export function buildWeeklyPlanningModel(args: {
     packagingCapacity: packaging.capacity,
     brewRecommendations: brew.recommendations,
     availableBrewTanks: brew.capacity,
+    brewTankCapacity: brew.capacityBeforeCurrent,
     tankAvailableLiters,
   };
 }
