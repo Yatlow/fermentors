@@ -43,21 +43,15 @@
     background: #f6fff8;
 }
 
+/* A saved execution decision is a second dimension, independent from coverage color. */
 .brew-planning .bp-shipment-plan-row.is-decided,
 .brew-planning .bp-rec-line.is-decided {
-    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .2);
+    box-shadow: inset 0 0 0 2px #3b82f6;
 }
 
+/* Legacy chip kept hidden; the blue outline now communicates the decision state. */
 .brew-planning .bp-decision-chip {
-    display: inline-block;
-    width: fit-content;
-    margin-top: 3px;
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: #dbeafe;
-    color: #1d4ed8;
-    font-size: .62rem;
-    font-weight: 800;
+    display: none !important;
 }
 
 .brew-planning .bp-partial-pallet-hint {
@@ -107,12 +101,16 @@
 
     .brew-planning .bp-stock-expand-hint {
         display: block;
+        width: 100%;
         max-width: 100%;
+        margin: 2px 0 0;
         font-size: .56rem;
         line-height: 1.1;
         font-weight: 650;
         opacity: .72;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        text-align: center;
     }
 
     .brew-planning .bp-week-sku {
@@ -121,7 +119,6 @@
     }
 
     .brew-planning .bp-week-sku small,
-    .brew-planning .bp-decision-chip,
     .brew-planning .bp-partial-pallet-hint {
         font-size: .56rem;
     }
