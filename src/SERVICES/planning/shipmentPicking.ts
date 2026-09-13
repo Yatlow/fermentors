@@ -20,7 +20,7 @@ export type PalletSelectionOption = {
   total: number;
   slots: number;
   overage: number;
-  /** Kept for compatibility/debugging only; selection is NOT ranked by this sum. */
+  /** Lower is better. This is the final FEFO/access rank consumed by the UI combiner. */
   fefoScore: number;
 };
 
@@ -32,9 +32,6 @@ export type PalletSelectionOption = {
  *   1. earliest expiry
  *   2. best access within the same expiry
  *   3. next-best pallet, and so on
- *
- * This avoids ties such as [0, 4] vs [1, 3], which had the same summed score even
- * though the first subset correctly contains the highest-priority pallet.
  */
 function compareSelectionPriority(
   a: PalletSelectionOption,
@@ -117,7 +114,9 @@ export function palletSelectionOptions(
           total: nextTotal,
           slots,
           overage: 0,
-          fefoScore: option.fefoScore + index,
+          // Temporary value only while building states. Final score is assigned
+          // from the strict FEFO/access ordering below.
+          fefoScore: 0,
         };
 
         const bucket = states.get(nextTotal) ?? new Map<string, PalletSelectionOption>();
@@ -133,8 +132,13 @@ export function palletSelectionOptions(
   }
 
   const selectedTotal = allowPartial ? Math.max(...states.keys()) : target;
-
-  return [...(states.get(selectedTotal)?.values() ?? [])].sort((a, b) =>
+  const preferred = [...(states.get(selectedTotal)?.values() ?? [])].sort((a, b) =>
     compareSelectionPriority(a, b, priorityById),
   );
+
+  // PlanningWeeklyRecommendations combines products by `fefoScore`.
+  // Therefore this score must reflect the strict option ordering, not the old
+  // sum-of-candidate-indexes heuristic (which could tie [0,4] with [1,3] and
+  // reintroduce apparently random pallet choices after this function returned).
+  return preferred.map((option, rank) => ({ ...option, fefoScore: rank }));
 }
