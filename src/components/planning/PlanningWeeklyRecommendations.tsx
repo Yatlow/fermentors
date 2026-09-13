@@ -200,20 +200,21 @@ export default function PlanningWeeklyRecommendations({
         return model.weekStartRows.get(p.id)?.tempoCover ?? null;
     }
 
-    function shipmentTempoAfter(p: Product, nominalQty: number) {
+    function shipmentCoverAfter(p: Product, nominalQty: number) {
         const state = model.weekStartRows.get(p.id);
-        if (!state || state.tempoUnits === null) return null;
+        const demand = weeklyDemand(p);
+        if (!state || state.tempoUnits === null || demand <= 0) return null;
         const physicallyExpected = Math.max(0, state.breweryUnits + sameWeekPackagingQty(p));
         const deliverable = Math.min(Math.max(0, nominalQty), physicallyExpected);
-        return state.tempoUnits + deliverable;
+        return (state.tempoUnits + deliverable) / demand;
     }
 
-    function draftShipmentTempo(p: Product) {
-        return shipmentTempoAfter(p, shipDraft[p.id] ?? 0);
+    function draftShipmentCover(p: Product) {
+        return shipmentCoverAfter(p, shipDraft[p.id] ?? 0);
     }
 
-    function shipmentRecommendationTempo(p: Product) {
-        return shipmentTempoAfter(p, shipmentRec.get(p.id)?.quantity ?? 0);
+    function shipmentRecommendationCover(p: Product) {
+        return shipmentCoverAfter(p, shipmentRec.get(p.id)?.quantity ?? 0);
     }
 
     function partialCrateHint(p: Product) {
@@ -691,7 +692,7 @@ export default function PlanningWeeklyRecommendations({
             if (!canUseBrewSize(rows, size, index)) return rows;
             return rows.map((row, i) => i === index
                 ? { ...row, liters: brewLitersForSize(row.style, size) }
-                : row);
+                : row));
         });
     }
 
@@ -754,7 +755,7 @@ export default function PlanningWeeklyRecommendations({
                     <b>משלוח: {Number.isFinite(usedShipSlots) ? usedShipSlots : 0}/{MAX_TRUCK_SLOTS} מקומות</b>
                 </header>
                 <p className="bp-rec-principle">
-                    ● הצפי בטמפו הוא הכמות שאמורה להיות בתחילת השבוע הנבחר אחרי מלאי קיים, החלטות קודמות וצפי המכירה.<br />
+                    ● הכיסוי הצפוי בטמפו מייצג כמה שבועות מכירה צפויים להיות בטמפו בתחילת השבוע הנבחר, אחרי מלאי קיים, החלטות קודמות וצפי המכירה.<br />
                     ● משטח חלקי יכול לייצג מקום משטח מלא כשאין מספיק מלאי למשטח מלא; הכמות הפיזית נשמרת במפת המקרר.
                 </p>
                 <div className="bp-saved-summary">
@@ -788,29 +789,26 @@ export default function PlanningWeeklyRecommendations({
                 </div>}
 
                 <div className="bp-shipment-plan-table">
-                    <div className="bp-shipment-plan-head"><span>מק"ט</span><span>צפי בטמפו</span><span>המלצת מערכת</span><span>החלטה לביצוע</span></div>
+                    <div className="bp-shipment-plan-head"><span>מק"ט</span><span>כיסוי צפוי בטמפו</span><span>המלצת מערכת</span><span>החלטה לביצוע</span></div>
                     {shipmentProducts.map((p) => {
                         const rec = shipmentRec.get(p.id);
                         const projected = model.weekStartRows.get(p.id);
                         const decided = currentShipmentQty(p.id);
                         const draftQty = editing === "delivery" ? shipDraft[p.id] ?? 0 : decided;
                         const expectedCover = projected?.tempoCover ?? null;
-                        const shownAfter = editing === "delivery" ? draftShipmentTempo(p) : shipmentTempoAfter(p, decided);
-                        const recAfter = shipmentRecommendationTempo(p);
+                        const shownAfter = editing === "delivery" ? draftShipmentCover(p) : shipmentCoverAfter(p, decided);
+                        const recAfter = shipmentRecommendationCover(p);
                         const dependency = packagingDependencyQty(p, draftQty);
                         const decidedSlots = shipmentSlots({ [p.id]: draftQty });
                         const decidedSlotsLabel = Number.isFinite(decidedSlots) ? `${decidedSlots} מקומות` : "חורג ממגבלת הגובה";
                         const partial = draftQty > 0 ? partialCrateHint(p) : null;
                         return <div className={`bp-shipment-plan-row ${coverageClass(expectedCover, settings.targetWeeks)}`} key={p.id}>
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
-                            <span>
-                                {projected?.tempoUnits == null ? "—" : palletLabel(projected.tempoUnits, p)}
-                                {projected?.tempoUnits != null && <small>{fmt(projected.tempoUnits)} {p.type === "crates" ? "ארגזים" : "חביות"} צפויים בטמפו בתחילת השבוע</small>}
-                            </span>
+                            <span>{coverLabel(expectedCover)}</span>
                             <span>
                                 {rec ? formatPalletCount(rec.pallets) : "—"}
                                 {rec && <small>{rec.slots} מקומות</small>}
-                                {rec && recAfter != null && <small>אחרי המשלוח: {palletLabel(recAfter, p)} בטמפו</small>}
+                                {rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
                             </span>
                             <span>{editing === "delivery" ?
                                 <div className="bp-stepper">
@@ -818,7 +816,7 @@ export default function PlanningWeeklyRecommendations({
                                     <b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b>
                                     <button onClick={() => stepShipment(p, 1)}>+</button>
                                     <small>{decidedSlotsLabel}</small>
-                                    {(shipDraft[p.id] ?? 0) > 0 && shownAfter != null && <small>אחרי המשלוח: {palletLabel(shownAfter, p)} בטמפו</small>}
+                                    {(shipDraft[p.id] ?? 0) > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
                                     {shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}
                                     {dependency > 0 && <small className="bp-risk-text">⚠️ {palletLabel(dependency, p)} מאריזה השבוע</small>}
                                     {partial && <small className="bp-partial-pallet-hint">⚠️ קיים משטח חלקי של {fmt(palletQuantity(partial))} ארגזים; ייתכן שכדאי להחליף ידנית במפה.</small>}
@@ -826,7 +824,7 @@ export default function PlanningWeeklyRecommendations({
                                 : <>
                                     {decided > 0 ? palletLabel(decided, p) : "—"}
                                     {decided > 0 && <small>{decidedSlotsLabel}</small>}
-                                    {decided > 0 && shownAfter != null && <small>אחרי המשלוח: {palletLabel(shownAfter, p)} בטמפו</small>}
+                                    {decided > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
                                     {dependency > 0 && <small className="bp-risk-text">⚠️ {palletLabel(dependency, p)} מאריזה השבוע</small>}
                                     {partial && <small className="bp-partial-pallet-hint">⚠️ קיים משטח חלקי של {fmt(palletQuantity(partial))} ארגזים; ייתכן שכדאי להחליף ידנית במפה.</small>}
                                 </>}
@@ -967,7 +965,6 @@ export default function PlanningWeeklyRecommendations({
                             <span className="bp-brew-tank-chip" key={option.tankId}>
                                 <b>מיכל {option.tankNumber}</b>
                                 <span>{option.sizeLabel}</span>
-                                <small>מ־{shortDate(option.availableDate)}</small>
                             </span>)}
                     </div> : <small>לא ידוע כרגע על מיכל שיכול לקבל בישול בשבוע הזה.</small>}
                 </div>
