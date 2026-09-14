@@ -35,6 +35,10 @@ jobs:
 
           app = Path('src/App.tsx')
           text = app.read_text()
+          text = text.replace(
+              'import { getSpecsFromFb, type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";',
+              'import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";'
+          )
           old = '''    useEffect(() => {\n        async function loadSpecs() {\n            try {\n                setSpecs(await getSpecsFromFb());\n            } catch (error) {\n                console.error("Failed to load specs:", error);\n            }\n        }\n        loadSpecs();\n    }, []);'''
           new = '''    useEffect(() => {\n        const specsRef = collection(db, "specs");\n        const unsubscribe = onSnapshot(\n            specsRef,\n            (snapshot) => {\n                const nextSpecs: SpecChart = {};\n                snapshot.docs.forEach((firebaseDoc) => {\n                    nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;\n                });\n                setSpecs(nextSpecs);\n            },\n            (error) => {\n                console.error("Failed to subscribe to specs:", error);\n            }\n        );\n        return unsubscribe;\n    }, []);'''
           if old in text:
