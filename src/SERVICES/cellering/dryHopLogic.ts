@@ -55,6 +55,40 @@ export function getClosingPressureForStyle(
     return typeof value === "number" ? value : null;
 }
 
+/**
+ * Returns the aa percentage configured in the hops document.
+ * Both the document id and field names are matched case-insensitively so
+ * Firestore values such as hops/Hops and Citra_aa/citra_aa all resolve.
+ */
+export function getHopAa(
+    hopType: string | null | undefined,
+    specs: SpecChart | null | undefined
+): number | null {
+    const normalizedHop = String(hopType || "").trim().toLowerCase();
+    if (!specs || !normalizedHop) return null;
+
+    const hopsEntry = Object.entries(specs).find(
+        ([docId]) => docId.trim().toLowerCase() === "hops"
+    );
+    const hops = hopsEntry?.[1];
+    if (!hops) return null;
+
+    const expectedKey = `${normalizedHop}_aa`;
+    const match = Object.entries(hops).find(
+        ([fieldName]) => fieldName.trim().toLowerCase() === expectedKey
+    );
+
+    if (!match) return null;
+    const value = Number(match[1]);
+    return Number.isFinite(value) ? value : null;
+}
+
+export function isValidHopAa(value: string | number | null | undefined): boolean {
+    if (value === "" || value === null || value === undefined) return false;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 && numeric <= 100;
+}
+
 export function buildDryHopNoteText(grams: number, hopType: string, closingPressure: number | string | null): string {
     const gramsText = grams > 0 ? grams.toFixed(0) : "0";
     const pressureText = closingPressure !== null && closingPressure !== "" ? String(closingPressure) : "—";

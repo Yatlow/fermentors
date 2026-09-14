@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../../SERVICES/getAndPost/writeReadingToSheets";
 import type { Fermentor, NewReading } from "../../App";
 import { calcCelleringRecomendations, type Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
-import { getSpecsFromFb, type SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
+import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
@@ -23,6 +23,7 @@ export type SendMessurmentsHeaderProps = {
     reportName: "לחץ" | "חם" | "פעולות" | "אריזה",
     hasIncompleteNotes?: boolean,
     onResetAll?: () => void,
+    specs: SpecChart | null,
 }
 
 type RecommendationsByTank = Record<
@@ -46,6 +47,7 @@ export default function SendMessurmentsHeader({
     reportName,
     hasIncompleteNotes,
     onResetAll,
+    specs,
 }: SendMessurmentsHeaderProps) {
 
     const [sendingReading, setSendingReading] = useState<"idle" | "loading" | "sent" | "error" | "sync" | "getRecs" | "checking">("idle");
@@ -59,7 +61,6 @@ export default function SendMessurmentsHeader({
     });
     const [sendResults, setSendResults] = useState<writeReadingResult[]>([]);
     const [showSendStatus, setShowSendStatus] = useState(false);
-    const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [rcs, setRcs] = useState<RecommendationsByTank>({});
 
     // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
@@ -103,30 +104,6 @@ export default function SendMessurmentsHeader({
         return Object.fromEntries(entries);
     }
 
-    useEffect(() => {
-
-        async function loadSpecs() {
-
-            try {
-
-                const data = await getSpecsFromFb();
-
-                setSpecs(data);
-
-            } catch (error) {
-
-                console.error(
-                    "Failed to load specs:",
-                    error
-                );
-
-            }
-
-        }
-
-        loadSpecs();
-
-    }, []);
     const handleSendClick = () => {
         const missing = getMissingTanks();
         if (missing.length > 0) {
@@ -503,7 +480,7 @@ export default function SendMessurmentsHeader({
             setSendResults(res);
             if (reportName === "פעולות") {
                 const dryHopEntries = readingsToSend.filter(
-                    (r) => (r as any).dryHopGrams && (r as any).dryHopType
+                    (r) => (r as any).dryHopGrams && (r as any).dryHopType && (r as any).dryHopAa
                 );
 
                 if (dryHopEntries.length > 0) {
@@ -514,7 +491,8 @@ export default function SendMessurmentsHeader({
                                 await assignDryHopToHopsTable(
                                     String(r.sheetUrl),
                                     Number((r as any).dryHopGrams),
-                                    String((r as any).dryHopType)
+                                    String((r as any).dryHopType),
+                                    Number((r as any).dryHopAa)
                                 );
                             } catch (error) {
                                 console.error(

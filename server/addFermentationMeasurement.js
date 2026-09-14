@@ -448,10 +448,26 @@ function buildMergedNotesRichText(
   return builder.build();
 }
 
-function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
+function assignDryHopToHopsTable(sheetUrl, grams, hopType, aa) {
 
   if (!sheetUrl) throw new Error("Missing sheetUrl");
   if (!grams || !hopType) throw new Error("Missing grams or hopType");
+
+  let cleanHopType = String(hopType || "").trim();
+  let resolvedAa = Number(aa);
+
+  // Compatibility bridge for the short period between frontend and
+  // server deployment: aa may also be encoded in the third argument.
+  const transportMatch = cleanHopType.match(/^(.*)::aa=([0-9]+(?:\.[0-9]+)?)$/);
+  if (transportMatch) {
+    cleanHopType = transportMatch[1].trim();
+    if (!Number.isFinite(resolvedAa)) resolvedAa = Number(transportMatch[2]);
+  }
+
+  if (!cleanHopType) throw new Error("Missing hopType");
+  if (!Number.isFinite(resolvedAa) || resolvedAa <= 0 || resolvedAa > 100) {
+    throw new Error("Missing or invalid aa");
+  }
 
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
   const ss = SpreadsheetApp.openById(spreadsheetId);
@@ -504,19 +520,56 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
     let entryNumber = -1;
     const maxRowsToScan = 10;
     const emptySlotPattern = /^(\d+)\)\s*$/;
+    const numberedPrefixPattern = /^(\d+)\)/;
 
-    for (let r = lastHeaderRow + 1; r < Math.min(lastHeaderRow + 1 + maxRowsToScan, values.length); r++) {
-      const colC = String(values[r][2] || "").trim();
-      const match = colC.match(emptySlotPattern);
-      if (match) {
-        targetRow = r + 1; // 1-indexed ל-Range
-        entryNumber = parseInt(match[1], 10);
-        break;
+    // Read a fixed-size block directly from the sheet so completely empty rows
+    // are included even when they fall outside getDataRange().
+    const slotStartRow = lastHeaderRow + 2; // first data row, 1-indexed
+    const slotRows = sheet
+      .getRange(slotStartRow, 1, maxRowsToScan, 3)
+      .getDisplayValues();
+
+    let firstCompletelyEmptyRow = -1;
+    let highestEntryNumber = 0;
+
+    // Prefer an explicitly prepared "N)" slot when one exists.
+    // Otherwise remember the first truly empty A:C row and derive
+    // the next number from the entries that are already in the table.
+    for (let i = 0; i < slotRows.length; i++) {
+      const colA = String(slotRows[i][0] || "").trim();
+      const colB = String(slotRows[i][1] || "").trim();
+      const colC = String(slotRows[i][2] || "").trim();
+
+      const numberedMatch = colC.match(numberedPrefixPattern);
+      if (numberedMatch) {
+        highestEntryNumber = Math.max(
+          highestEntryNumber,
+          parseInt(numberedMatch[1], 10)
+        );
+      }
+
+      const emptyNumberedMatch = colC.match(emptySlotPattern);
+      if (targetRow === -1 && emptyNumberedMatch && !colA && !colB) {
+        targetRow = slotStartRow + i;
+        entryNumber = parseInt(emptyNumberedMatch[1], 10);
+      }
+
+      if (firstCompletelyEmptyRow === -1 && !colA && !colB && !colC) {
+        firstCompletelyEmptyRow = slotStartRow + i;
       }
     }
 
+    if (targetRow === -1 && firstCompletelyEmptyRow !== -1) {
+      targetRow = firstCompletelyEmptyRow;
+      entryNumber = highestEntryNumber + 1;
+      Logger.log(
+        "No prepared numbered hop slot found; using empty row " + targetRow +
+        " as entry #" + entryNumber
+      );
+    }
+
     if (targetRow === -1) {
-      throw new Error("No empty numbered slot (e.g. '4)') found in hops table");
+      throw new Error("No empty slot found in the first 10 rows of the hops table");
     }
 
     Logger.log("Target row for dry hop: " + targetRow + " (entry #" + entryNumber + ")");
@@ -537,11 +590,12 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
     }
 
     // ----------------------------------------------------------
-    // WRITE HOP AMOUNT + TYPE
+    // WRITE HOP AMOUNT + aa + TYPE
     // ----------------------------------------------------------
 
-    sheet.getRange(targetRow, 1).setValue(grams);                          // כמות
-    sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + hopType);    // סוג/אצווה
+    sheet.getRange(targetRow, 1).setValue(grams);                               // כמות
+    sheet.getRange(targetRow, 2).setValue(resolvedAa).setNumberFormat('0.0"%aa"'); // אחוז אלפה
+    sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + cleanHopType);    // סוג/אצווה
 
     // ----------------------------------------------------------
     // FILL FIRST EMPTY "הוספת כשות N" TIMESTAMP CELL
@@ -607,7 +661,7 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
 
     Logger.log(
       "Dry hop written to row " + targetRow + ": " +
-      grams + "g " + hopType
+      grams + "g " + cleanHopType + " (" + resolvedAa + "%aa)"
     );
 
     return {
@@ -616,7 +670,8 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
       headerRow: lastHeaderRow + 1,
       entryNumber: entryNumber,
       grams: grams,
-      hopType: hopType,
+      hopType: cleanHopType,
+      aa: resolvedAa,
       additionLabelFilled: additionRow !== -1 ? ("הוספת כשות " + additionNum) : null,
       additionTimestampRow: additionRow !== -1 ? additionRow : null,
       additionTimestampCol: additionRow !== -1 ? valueCol : null

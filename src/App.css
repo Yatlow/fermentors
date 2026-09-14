@@ -6625,3 +6625,26 @@ body {
         font-size: 0.95rem;
     }
 }
+/* Compact aa inputs in dry-hop reports */
+.quickReportForm input[placeholder="aa"],
+.note-RowsBox input[placeholder="aa"] {
+  width: 86px !important;
+  max-width: 86px !important;
+  min-width: 86px !important;
+  flex: 0 0 86px !important;
+}
+
+
+/* Keep mixed Hebrew / Latin dry-hop report fields in semantic RTL order. */
+.dry-hop-inline {
+    display: inline-flex;
+    direction: rtl;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.dry-hop-inline input {
+    direction: ltr;
+    text-align: center;
+}

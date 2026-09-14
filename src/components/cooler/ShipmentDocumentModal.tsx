@@ -1,9 +1,17 @@
 import BeerLoader from "../general/Loading";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import emailjs from "@emailjs/browser";
+import {
+    doc,
+    getDoc,
+    runTransaction,
+    serverTimestamp,
+    Timestamp,
+} from "firebase/firestore";
 import type { Pallet, Shipment } from "../../SERVICES/cooler/Pallettypes ";
 import shpiro from "../../assets/shpiro.jpeg";
 import { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";
+import { auth, db } from "../../firebase";
 
 // Isolated print document: no dashboard styles, React tree or network services.
 const SHIPMENT_PRINT_CSS = `
@@ -18,6 +26,8 @@ html, body { margin: 0; padding: 0; background: white; color: #111;
 .print-sheet + .print-sheet { break-before: page; page-break-before: always; }
 .print-content { position: absolute; top: 0; right: 0; width: 186mm;
   padding: 2mm; transform-origin: top right; font-size: 10pt; line-height: 1.25; }
+.shipment-copy-mark { display: inline-block; border: 2px solid #111; padding: 1.5mm 5mm;
+  margin-bottom: 4mm; font-size: 14pt; font-weight: 700; }
 .shipment-document-header { display: flex; justify-content: space-between;
   align-items: flex-start; gap: 6mm; margin-bottom: 5mm; }
 .shipment-company-details { min-width: 0; overflow-wrap: anywhere; }
@@ -40,15 +50,26 @@ th:first-child { width: 24%; } th:last-child { width: 15%; }
 @media print { .print-toolbar { display: none !important; } }
 `;
 
+type PrintMark = "מקור" | "העתק" | "מקור משוחזר";
+
+type ShipmentTotalRow = {
+    key: string;
+    sku: string;
+    displayText: string;
+    itemType: Pallet["itemType"];
+    quantity: number;
+};
+
 function fitShipmentPages(printDocument: Document) {
     printDocument.querySelectorAll<HTMLElement>(".print-sheet").forEach((sheet) => {
         const content = sheet.querySelector<HTMLElement>(".print-content");
         if (!content) return;
-        // Absolute positioning prevents the unscaled height creating extra pages.
         content.style.transform = "none";
-        const scale = Math.min(1,
+        const scale = Math.min(
+            1,
             (sheet.clientHeight - 4) / content.scrollHeight,
-            (sheet.clientWidth - 4) / content.scrollWidth);
+            (sheet.clientWidth - 4) / content.scrollWidth
+        );
         content.style.transform = `scale(${scale})`;
     });
 }
@@ -57,8 +78,8 @@ async function prepareShipmentPrint(printWindow: Window) {
     const printDocument = printWindow.document;
     const button = printDocument.querySelector<HTMLButtonElement>(".print-toolbar button");
     if (!button) return;
+
     const images = Array.from(printDocument.images);
-    // Failed/slow logo must not leave printing disabled forever.
     await Promise.all(images.map((img) => new Promise<void>((resolve) => {
         if (img.complete) { resolve(); return; }
         const finish = () => {
@@ -75,6 +96,7 @@ async function prepareShipmentPrint(printWindow: Window) {
         img.addEventListener("load", finish, { once: true });
         img.addEventListener("error", finish, { once: true });
     })));
+
     if (printWindow.closed) return;
     fitShipmentPages(printDocument);
     printWindow.addEventListener("beforeprint", () => fitShipmentPages(printDocument));
@@ -85,8 +107,34 @@ async function prepareShipmentPrint(printWindow: Window) {
         printWindow.focus();
         printWindow.print();
     };
-    // Keep the tab and manual button available if iOS suppresses automatic print.
-    try { printWindow.focus(); printWindow.print(); } catch { /* Manual button remains available. */ }
+
+    // iOS may suppress automatic print. In that case the manual button stays available.
+    try { printWindow.focus(); printWindow.print(); } catch { /* manual button remains */ }
+}
+
+function openPrintWindow(): Window | null {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return null;
+
+    const printDocument = printWindow.document;
+    printDocument.open();
+    printDocument.write('<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body></body></html>');
+    printDocument.close();
+
+    const style = printDocument.createElement("style");
+    style.textContent = SHIPMENT_PRINT_CSS;
+    printDocument.head.appendChild(style);
+
+    const toolbar = printDocument.createElement("div");
+    toolbar.className = "print-toolbar";
+    const button = printDocument.createElement("button");
+    button.type = "button";
+    button.disabled = true;
+    button.textContent = "מכין להדפסה…";
+    toolbar.appendChild(button);
+    printDocument.body.appendChild(toolbar);
+
+    return printWindow;
 }
 
 type Props = {
@@ -98,52 +146,99 @@ type Props = {
     inline?: boolean;
 };
 
-
-export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, shipment, inline = false, customerName }: Props) {
-    const [emails, setEmails] = useState<string[]>([
-        "yochai@shapirobeer.co.il",
-    ]);
-
+export default function ShipmentDocumentModal({
+    shipmentId,
+    pallets,
+    onClose,
+    shipment,
+    inline = false,
+    customerName,
+}: Props) {
+    const [emails, setEmails] = useState<string[]>(["yochai@shapirobeer.co.il"]);
     const documentRef = useRef<HTMLDivElement>(null);
     const printWindowRef = useRef<Window | null>(null);
 
+    const [shipmentState, setShipmentState] = useState<Shipment | null>(shipment ?? null);
+    const [originalIssued, setOriginalIssued] = useState(Boolean(shipment?.originalIssuedAt));
     const [newEmail, setNewEmail] = useState("");
     const [sending, setSending] = useState(false);
+    const [printing, setPrinting] = useState(false);
     const [message, setMessage] = useState("");
     const [logoLoaded, setLogoLoaded] = useState(false);
 
-    // const date = useMemo(() => {
-    //     if (!shipment?.createdAt) return "";
-    //     return new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short", })
-    //         .format(shipment.createdAt.toDate());
-    // }, [shipment?.createdAt]);
-    const date = useMemo(() => {
-    const source = shipment?.createdAt?.toDate() ?? new Date();
-    return new Intl.DateTimeFormat("he-IL", { dateStyle: "full", timeStyle: "short" }).format(source);
-}, [shipment?.createdAt]);
+    useEffect(() => {
+        if (!shipment) return;
+        setShipmentState(shipment);
+        setOriginalIssued(Boolean(shipment.originalIssuedAt));
+    }, [shipment]);
 
-    const totals = useMemo(() => {
-        const map = new Map<string, { beerStyle: string; itemType: Pallet["itemType"]; quantity: number }>();
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadShipment() {
+            try {
+                const snap = await getDoc(doc(db, "shipments", shipmentId));
+                if (cancelled || !snap.exists()) return;
+                const loaded = { id: snap.id, ...(snap.data() as Omit<Shipment, "id">) } as Shipment;
+                setShipmentState(loaded);
+                setOriginalIssued(Boolean(loaded.originalIssuedAt));
+            } catch (error) {
+                console.error("Failed to load shipment source/copy status:", error);
+            }
+        }
+
+        void loadShipment();
+        return () => { cancelled = true; };
+    }, [shipmentId]);
+
+    const effectiveCustomerName = customerName ?? shipmentState?.customerName ?? "";
+
+    const date = useMemo(() => {
+        const source = shipmentState?.createdAt?.toDate() ?? new Date();
+        return new Intl.DateTimeFormat("he-IL", {
+            dateStyle: "full",
+            timeStyle: "short",
+        }).format(source);
+    }, [shipmentState?.createdAt]);
+
+    // Aggregate by the catalog identity (SKU), not by the raw style string.
+    // This makes aliases/casing such as ipa + IPA one shipment line.
+    const totals = useMemo<ShipmentTotalRow[]>(() => {
+        const map = new Map<string, ShipmentTotalRow>();
+
         pallets.forEach((p) => {
-            const key = `${p.itemType}__${p.beerStyle}`;
-            const cur = map.get(key);
-            if (cur) cur.quantity += p.quantity;
-            else map.set(key, { beerStyle: p.beerStyle, itemType: p.itemType, quantity: p.quantity });
+            const entry = getCatalogEntry(p.beerStyle, p.itemType);
+            const normalizedFallback = p.beerStyle.trim().toLowerCase();
+            const key = entry?.sku
+                ? `sku__${entry.sku}`
+                : `${p.itemType}__${normalizedFallback}`;
+
+            const current = map.get(key);
+            if (current) {
+                current.quantity += p.quantity;
+                return;
+            }
+
+            map.set(key, {
+                key,
+                sku: entry?.sku ?? "—",
+                displayText: entry?.displayText ?? `${p.beerStyle} (לא נמצא בקטלוג)`,
+                itemType: p.itemType,
+                quantity: p.quantity,
+            });
         });
+
         return Array.from(map.values());
     }, [pallets]);
 
     const totalsTableHtml = useMemo(() => {
         const rows = totals
-            .map((t) => {
-                const entry = getCatalogEntry(t.beerStyle, t.itemType);
-                return `
+            .map((t) => `
                 <tr>
-                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${entry?.sku ?? "—"}</td>
-                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${entry?.displayText ?? `${t.beerStyle} (לא נמצא בקטלוג)`}</td>
+                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.sku}</td>
+                    <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.displayText}</td>
                     <td style="border:1px solid #ccc;padding:8px;text-align:right;">${t.quantity}</td>
-                </tr>`;
-            })
+                </tr>`)
             .join("");
 
         return `
@@ -159,32 +254,16 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
         </table>`;
     }, [totals]);
 
-    
-
     function addEmail() {
         const email = newEmail.trim();
-
-        if (
-            !email ||
-            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-        ) {
-            return;
-        }
-
-        if (!emails.includes(email)) {
-            setEmails((prev) => [...prev, email]);
-        }
-
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+        if (!emails.includes(email)) setEmails((prev) => [...prev, email]);
         setNewEmail("");
     }
 
     function removeEmail(email: string) {
-        setEmails((prev) =>
-            prev.filter((x) => x !== email)
-        );
+        setEmails((prev) => prev.filter((x) => x !== email));
     }
-
-
 
     async function sendEmails() {
         if (emails.length === 0) {
@@ -203,7 +282,7 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                     {
                         email,
                         shipmentId,
-                        customerName: customerName ?? "",
+                        customerName: effectiveCustomerName,
                         shipmentDate: date,
                         shipmentTableHtml: totalsTableHtml,
                         logoUrl: "https://fermenter-dashboard-bada3.web.app/assets/favicon-DCEmML13.ico",
@@ -220,99 +299,202 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
             setSending(false);
         }
     }
-    function printShipment() {
+
+    async function claimOriginal(): Promise<boolean> {
+        const shipmentRef = doc(db, "shipments", shipmentId);
+        const userEmail = auth.currentUser?.email ?? null;
+
+        const claimed = await runTransaction(db, async (tx) => {
+            const snap = await tx.get(shipmentRef);
+            if (!snap.exists()) throw new Error("Shipment document was not found");
+
+            const data = snap.data() as Shipment;
+            if (data.originalIssuedAt) return false;
+
+            tx.update(shipmentRef, {
+                originalIssuedAt: serverTimestamp(),
+                originalIssuedBy: userEmail,
+            });
+            return true;
+        });
+
+        if (claimed) {
+            setOriginalIssued(true);
+            setShipmentState((prev) => prev ? {
+                ...prev,
+                originalIssuedAt: Timestamp.now(),
+                originalIssuedBy: userEmail,
+            } : prev);
+        }
+
+        return claimed;
+    }
+
+    async function recordOriginalRestore() {
+        const shipmentRef = doc(db, "shipments", shipmentId);
+        const userEmail = auth.currentUser?.email ?? null;
+
+        await runTransaction(db, async (tx) => {
+            const snap = await tx.get(shipmentRef);
+            if (!snap.exists()) throw new Error("Shipment document was not found");
+
+            const data = snap.data() as Shipment;
+            if (!data.originalIssuedAt) {
+                throw new Error("לא ניתן לשחזר מקור לפני שהופק המקור הראשון");
+            }
+
+            tx.update(shipmentRef, {
+                originalRestoreCount: Number(data.originalRestoreCount ?? 0) + 1,
+                originalLastRestoredAt: serverTimestamp(),
+                originalLastRestoredBy: userEmail,
+            });
+        });
+    }
+
+    function buildPrintDocument(printWindow: Window, marks: PrintMark[]) {
         const source = documentRef.current;
-        if (!source) return;
+        if (!source) throw new Error("Shipment document is not ready");
+
+        const printDocument = printWindow.document;
+        printDocument.title = `תעודת משלוח ${shipmentId}`;
+
+        const rows = Array.from(source.querySelectorAll(".shipment-table tbody tr"));
+        const pageCount = Math.max(1, Math.ceil(rows.length / 25));
+
+        marks.forEach((mark) => {
+            for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+                const sheet = printDocument.createElement("section");
+                sheet.className = "print-sheet";
+
+                const content = source.cloneNode(true) as HTMLDivElement;
+                content.className = "print-content";
+
+                const markNode = printDocument.createElement("div");
+                markNode.className = "shipment-copy-mark";
+                markNode.textContent = mark;
+                content.prepend(markNode);
+
+                const tbody = content.querySelector("tbody");
+                tbody?.replaceChildren(
+                    ...rows
+                        .slice(pageIndex * 25, (pageIndex + 1) * 25)
+                        .map((row) => row.cloneNode(true))
+                );
+
+                const logo = content.querySelector<HTMLImageElement>(".shipment-logo");
+                if (logo) logo.src = new URL(shpiro, window.location.href).href;
+
+                const pageNumber = printDocument.createElement("div");
+                pageNumber.className = "print-page-number";
+                pageNumber.textContent = `${mark} · עמוד ${pageIndex + 1} מתוך ${pageCount}`;
+                content.appendChild(pageNumber);
+
+                sheet.appendChild(content);
+                printDocument.body.appendChild(sheet);
+            }
+        });
+    }
+
+    function beginPrintWindow(): Window | null {
         if (printWindowRef.current && !printWindowRef.current.closed) {
             printWindowRef.current.close();
         }
-        // Open synchronously inside the click handler to avoid popup blocking.
-        const printWindow = window.open("", "_blank");
+
+        const printWindow = openPrintWindow();
         if (!printWindow) {
             setMessage("פתיחת תעודת ההדפסה נחסמה. יש לאפשר חלונות קופצים לאתר ולנסות שוב.");
-            return;
+            return null;
         }
-        printWindowRef.current = printWindow;
-        const printDocument = printWindow.document;
-        printDocument.open();
-        printDocument.write('<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body></body></html>');
-        printDocument.close();
-        printDocument.title = `תעודת משלוח ${shipmentId}`;
-        const style = printDocument.createElement("style");
-        style.textContent = SHIPMENT_PRINT_CSS;
-        printDocument.head.appendChild(style);
-        const toolbar = printDocument.createElement("div");
-        toolbar.className = "print-toolbar";
-        const button = printDocument.createElement("button");
-        button.type = "button";
-        button.disabled = true;
-        button.textContent = "מכין להדפסה…";
-        toolbar.appendChild(button);
-        printDocument.body.appendChild(toolbar);
 
-        // Count displayed item rows AFTER aggregation, not source pallets.
-        const rows = Array.from(source.querySelectorAll(".shipment-table tbody tr"));
-        const pageCount = Math.max(1, Math.ceil(rows.length / 25));
-        for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-            const sheet = printDocument.createElement("section");
-            sheet.className = "print-sheet";
-            const content = source.cloneNode(true) as HTMLDivElement;
-            content.className = "print-content";
-            const tbody = content.querySelector("tbody");
-            tbody?.replaceChildren(...rows.slice(pageIndex * 25, (pageIndex + 1) * 25)
-                .map((row) => row.cloneNode(true)));
-            // Resolve the Vite asset before moving the copy to about:blank.
-            const logo = content.querySelector<HTMLImageElement>(".shipment-logo");
-            if (logo) logo.src = new URL(shpiro, window.location.href).href;
-            const pageNumber = printDocument.createElement("div");
-            pageNumber.className = "print-page-number";
-            pageNumber.textContent = `עמוד ${pageIndex + 1} מתוך ${pageCount}`;
-            content.appendChild(pageNumber);
-            sheet.appendChild(content);
-            printDocument.body.appendChild(sheet);
-        }
-        void prepareShipmentPrint(printWindow).catch((error) => {
-            console.error("Shipment print error:", error);
-            setMessage("לא ניתן להכין את ההדפסה. יש לסגור את לשונית ההדפסה ולנסות שוב.");
-        });
+        printWindowRef.current = printWindow;
+        return printWindow;
+    }
+
+    function printShipment() {
+        const printWindow = beginPrintWindow();
+        if (!printWindow) return;
+
+        setPrinting(true);
+        setMessage("");
+
+        void (async () => {
+            try {
+                const claimedOriginal = await claimOriginal();
+                const marks: PrintMark[] = claimedOriginal ? ["מקור", "העתק"] : ["העתק"];
+                buildPrintDocument(printWindow, marks);
+                await prepareShipmentPrint(printWindow);
+            } catch (error) {
+                console.error("Shipment print error:", error);
+                if (!printWindow.closed) printWindow.close();
+                setMessage("לא ניתן להכין את ההדפסה. יש לנסות שוב.");
+            } finally {
+                setPrinting(false);
+            }
+        })();
+    }
+
+    function restoreOriginal() {
+        const printWindow = beginPrintWindow();
+        if (!printWindow) return;
+
+        setPrinting(true);
+        setMessage("");
+
+        void (async () => {
+            try {
+                // Audit is saved before the restored original is generated.
+                await recordOriginalRestore();
+                buildPrintDocument(printWindow, ["מקור משוחזר"]);
+                await prepareShipmentPrint(printWindow);
+            } catch (error) {
+                console.error("Restore original shipment error:", error);
+                if (!printWindow.closed) printWindow.close();
+                setMessage(error instanceof Error ? error.message : "שחזור המקור נכשל");
+            } finally {
+                setPrinting(false);
+            }
+        })();
     }
 
     return (
         <div
             className={inline ? "shipment-document-inline" : "modal-overlay shipment-document-overlay"}
-            onClick={inline ? undefined : onClose} >
-
+            onClick={inline ? undefined : onClose}
+        >
             <div
                 className={inline ? "shipment-document-container" : "shipment-document-modal"}
-                onClick={(e) => { if (!inline) e.stopPropagation(); }} dir="rtl"
+                onClick={(e) => { if (!inline) e.stopPropagation(); }}
+                dir="rtl"
             >
                 <div className="shipment-document-actions no-print">
-                    <button className="shipment-print-btn" onClick={printShipment}>
-                        🖨️ הדפס
+                    <button className="shipment-print-btn" onClick={printShipment} disabled={printing}>
+                        {printing
+                            ? "מכין הדפסה…"
+                            : originalIssued
+                                ? "🖨️ הדפס העתק"
+                                : "🖨️ הדפס מקור + העתק"}
                     </button>
+
+                    {originalIssued && (
+                        <button className="shipment-print-btn" onClick={restoreOriginal} disabled={printing}>
+                            ↻ שחזור מקור
+                        </button>
+                    )}
+
                     <button className="shipment-email-btn" onClick={sendEmails} disabled={sending || !logoLoaded}>
                         {sending ? <BeerLoader message="שולח..." size="spinner" /> : "✉️ שלח במייל"}
                     </button>
-                    {!inline && (<button className="modal-x" onClick={onClose}> × </button>)}
+
+                    {!inline && <button className="modal-x" onClick={onClose}> × </button>}
                 </div>
+
                 <div className="shipment-email-editor no-print">
                     <h3>שליחה במייל</h3>
-
                     <div className="shipment-email-list">
                         {emails.map((email) => (
-                            <div
-                                key={email}
-                                className="shipment-email-row"
-                            >
+                            <div key={email} className="shipment-email-row">
                                 <span>{email}</span>
-
-                                <button
-                                    onClick={() =>
-                                        removeEmail(email)
-                                    }
-                                >
-                                    ×
-                                </button>
+                                <button onClick={() => removeEmail(email)}>×</button>
                             </div>
                         ))}
                     </div>
@@ -322,49 +504,36 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                             type="email"
                             value={newEmail}
                             placeholder="כתובת אימייל"
-                            onChange={(e) =>
-                                setNewEmail(
-                                    e.target.value
-                                )
-                            }
-                            onKeyDown={(e) => {
-                                if (
-                                    e.key === "Enter"
-                                ) {
-                                    addEmail();
-                                }
-                            }}
+                            onChange={(e) => setNewEmail(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") addEmail(); }}
                         />
-
-                        <button onClick={addEmail} className="shipment-email-btn">
-                            הוסף
-                        </button>
+                        <button onClick={addEmail} className="shipment-email-btn">הוסף</button>
                     </div>
 
-                    {message && (
-                        <div className="edit-specs-message success">
-                            {message}
-                        </div>
-                    )}
+                    {message && <div className="edit-specs-message success">{message}</div>}
                 </div>
 
                 <div className="shipment-document" ref={documentRef}>
                     <header className="shipment-document-header">
                         <div className="shipment-company-details">
                             <h1>תעודת משלוח</h1>
-                            {customerName && (
+                            {effectiveCustomerName && (
                                 <div className="shipment-customer-name">
-                                    לכבוד: <span>{customerName}</span>
+                                    לכבוד: <span>{effectiveCustomerName}</span>
                                 </div>
                             )}
                             <div>מבשלת שפירא א.ת. שורק (נחם), בית שמש</div>
                             <div>טל: 02-5612622 &nbsp;|&nbsp; ח.פ: 514378678</div>
                             <div>מספר: <strong>{shipmentId}</strong></div>
-                            <div>תאריך: {date}</div>
+                            <div>{date}</div>
                         </div>
-                        <img src={shpiro} alt="Shpiro" className="shipment-logo" onLoad={() => setLogoLoaded(true)} />
+                        <img
+                            src={shpiro}
+                            alt="Shpiro"
+                            className="shipment-logo"
+                            onLoad={() => setLogoLoaded(true)}
+                        />
                     </header>
-
 
                     <table className="shipment-table">
                         <thead>
@@ -375,18 +544,16 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                             </tr>
                         </thead>
                         <tbody>
-                            {totals.map((t) => {
-                                const entry = getCatalogEntry(t.beerStyle, t.itemType);
-                                return (
-                                    <tr key={`${t.beerStyle}-${t.itemType}`}>
-                                        <td>{entry?.sku ?? "—"}</td>
-                                        <td>{entry?.displayText ?? `${t.beerStyle} (לא נמצא בקטלוג)`}</td>
-                                        <td>{t.quantity}</td>
-                                    </tr>
-                                );
-                            })}
+                            {totals.map((t) => (
+                                <tr key={t.key}>
+                                    <td>{t.sku}</td>
+                                    <td>{t.displayText}</td>
+                                    <td>{t.quantity}</td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
+
                     <div className="shipment-signatures">
                         <div className="shipment-signature-block">
                             <span>שם מפיק התעודה:</span>
@@ -397,12 +564,11 @@ export default function ShipmentDocumentModal({ shipmentId, pallets, onClose, sh
                             <div className="shipment-signature-line"></div>
                         </div>
                     </div>
+
                     <footer className="shipment-document-footer">
                         הופק ממערכת ניהול המלאי
                     </footer>
                 </div>
-
-
             </div>
         </div>
     );

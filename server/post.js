@@ -270,12 +270,13 @@ function doPost(e) {
 
     if (data.action === "assignDryHop") {
 
-      logToSheet("Executing assignDryHop. Type: " + data.hopType + ", Grams: " + data.grams);
+      logToSheet("Executing assignDryHop. Type: " + data.hopType + ", Grams: " + data.grams + ", aa: " + data.aa);
 
       const result = assignDryHopToHopsTable(
         data.sheetUrl,
         data.grams,
-        data.hopType
+        data.hopType,
+        data.aa
       );
 
       return jsonResponse({

@@ -7,8 +7,11 @@ import {
     calcDryHopDose,
     roundGramsUp5,
     getClosingPressureForStyle,
+    getHopAa,
+    isValidHopAa,
     buildDryHopNoteText,
 } from "../../SERVICES/cellering/dryHopLogic";
+import { rememberDryHopAa } from "../../SERVICES/cellering/assignDryHop";
 
 export type NoteToFermentorProps = {
     brews: Fermentor[];
@@ -23,6 +26,7 @@ type NoteRow = {
     noteType: string;
     value: string;
     value2: string;
+    aa: string;
     direction: string;
 };
 
@@ -40,10 +44,10 @@ const NOTE_TYPES = [
 
 let rowIdCounter = 0;
 function makeEmptyRow(): NoteRow {
-    return { id: rowIdCounter++, tankNumber: "", noteType: "", value: "", value2: "", direction: "" };
+    return { id: rowIdCounter++, tankNumber: "", noteType: "", value: "", value2: "", aa: "", direction: "" };
 }
 
-const EMPTY_VALUES = { value: "", value2: "", direction: "" };
+const EMPTY_VALUES = { value: "", value2: "", aa: "", direction: "" };
 
 
 export default function NoteToFermentor({
@@ -100,8 +104,6 @@ export default function NoteToFermentor({
             case "סגירת מיכל":
                 if (row.value === "") return null;
                 return `סגירת נשם, כיוון פורק ל ${row.value}`;
-
-            case "דיאציטיל":
             case "דיאציטיל":
                 return "חימום מיכל ל14° למנוחת דיאציטיל";
             case "קירור":
@@ -119,11 +121,13 @@ export default function NoteToFermentor({
                 const hopType = calc.needsManualInput ? row.value2.trim() : calc.hopType;
 
                 if (calc.needsManualInput && (row.value === "" || row.value2.trim() === "")) return null;
-                if (!grams || grams <= 0 || !hopType) return null;
+                if (!grams || grams <= 0 || !hopType || !isValidHopAa(row.aa)) return null;
 
                 const pressure = getClosingPressureForStyle(fermentor.beerStyle, specs);
                 if (pressure === null) return null;
 
+                // aa is intentionally not written into the fermentation note.
+                // It is sent separately to the hops table in the brew sheet.
                 return buildDryHopNoteText(grams, hopType, pressure);
             }
             default:
@@ -141,13 +145,13 @@ export default function NoteToFermentor({
         const notesByTank = new Map<number, string[]>();
         const carbonationByTank = new Map<number, string>();
         const refreshTanks = new Set<number>();
-        const dryHopByTank = new Map<number, { grams: number; hopType: string }>();
+        const dryHopByTank = new Map<number, { grams: number; hopType: string; aa: number }>();
 
         rows.forEach((row) => {
             if (!row.tankNumber) return;
 
             const tankNum = Number(row.tankNumber);
-            const fermentor = brews.find((fv) => Number(fv.tankNumber) === tankNum); // חסר- זה מה שהיה שובר
+            const fermentor = brews.find((fv) => Number(fv.tankNumber) === tankNum);
 
             const noteText = buildNoteText(row, fermentor);
             if (noteText === null) return;
@@ -163,15 +167,15 @@ export default function NoteToFermentor({
                 refreshTanks.add(tankNum);
             }
 
-
-
             if (row.noteType === "דרייהופ" && fermentor && specs) {
                 const category = getDryHopStyleCategory(fermentor.beerStyle);
                 const calc = calcDryHopDose(category, fermentor.beerVolume);
                 const grams = calc.needsManualInput ? Number(row.value) : roundGramsUp5(calc.grams);
                 const hopType = calc.needsManualInput ? row.value2.trim() : calc.hopType;
-                if (grams > 0 && hopType) {
-                    dryHopByTank.set(tankNum, { grams, hopType });
+                const aa = Number(row.aa);
+                if (grams > 0 && hopType && isValidHopAa(aa)) {
+                    dryHopByTank.set(tankNum, { grams, hopType, aa });
+                    if (fermentor.sheetUrl) rememberDryHopAa(fermentor.sheetUrl, aa);
                 }
             }
         });
@@ -197,6 +201,7 @@ export default function NoteToFermentor({
             const dryHop = dryHopByTank.get(tankNum);
             updateReading(fv.id, "dryHopGrams", dryHop ? dryHop.grams : undefined);
             updateReading(fv.id, "dryHopType", dryHop ? dryHop.hopType : undefined);
+            updateReading(fv.id, "dryHopAa", dryHop ? dryHop.aa : undefined);
         });
 
         onValidityChange?.(
@@ -209,11 +214,11 @@ export default function NoteToFermentor({
     }, [rows, specs]);
 
     function handleNoteTypeChange(row: NoteRow, newType: string) {
-        if (newType === "סגירת מיכל") {
-            const fermentor = brews.find(
-                (fv) => Number(fv.tankNumber) === Number(row.tankNumber)
-            );
+        const fermentor = brews.find(
+            (fv) => Number(fv.tankNumber) === Number(row.tankNumber)
+        );
 
+        if (newType === "סגירת מיכל") {
             const pressure =
                 fermentor && specs
                     ? getClosingPressureForStyle(fermentor.beerStyle, specs)
@@ -223,9 +228,23 @@ export default function NoteToFermentor({
                 noteType: newType,
                 value: pressure !== null ? String(pressure) : "",
                 value2: "",
+                aa: "",
                 direction: "",
             });
 
+            return;
+        }
+
+        if (newType === "דרייהופ" && fermentor && specs) {
+            const category = getDryHopStyleCategory(fermentor.beerStyle);
+            const calc = calcDryHopDose(category, fermentor.beerVolume);
+            const defaultAa = calc.needsManualInput ? null : getHopAa(calc.hopType, specs);
+
+            updateRow(row.id, {
+                noteType: newType,
+                ...EMPTY_VALUES,
+                aa: defaultAa !== null ? String(defaultAa) : "",
+            });
             return;
         }
 
@@ -341,14 +360,50 @@ export default function NoteToFermentor({
                                                 onChange={(e) => updateRow(row.id, { value: e.target.value })} />
                                             <span>גרם </span>
                                             <input type="text" value={row.value2} placeholder="סוג כשות"
-                                                onChange={(e) => updateRow(row.id, { value2: e.target.value })} />
+                                                onChange={(e) => {
+                                                    const hopType = e.target.value;
+                                                    const defaultAa = specs ? getHopAa(hopType, specs) : null;
+                                                    updateRow(row.id, {
+                                                        value2: hopType,
+                                                        aa: defaultAa !== null ? String(defaultAa) : "",
+                                                    });
+                                                }} />
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                min="0"
+                                                max="100"
+                                                value={row.aa}
+                                                placeholder="aa"
+                                                onChange={(e) => updateRow(row.id, { aa: e.target.value })}
+                                            />
+                                            <span>%aa</span>
                                         </>
                                     );
                                 }
                                 const grams = roundGramsUp5(calc.grams);
                                 const pressure = specs ? getClosingPressureForStyle(fermentor.beerStyle, specs) : null;
                                 const pressureText = pressure !== null ? pressure : "—";
-                                return <span>הכנסת כשות 4: {grams} גרם {calc.hopType}, סגירת נשם, כיוון פורק ל {pressureText} </span>;
+                                return (
+                                    <span className="dry-hop-inline" dir="rtl">
+                                        <span>הכנסת כשות 4:</span>
+                                        <bdi dir="ltr">{grams}</bdi>
+                                        <span>גרם</span>
+                                        <bdi dir="ltr">{calc.hopType}</bdi>
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            min="0"
+                                            max="100"
+                                            value={row.aa}
+                                            placeholder="aa"
+                                            onChange={(e) => updateRow(row.id, { aa: e.target.value })}
+                                        />
+                                        <bdi dir="ltr">%aa</bdi>
+                                        <span>, סגירת נשם, כיוון פורק ל</span>
+                                        <bdi dir="ltr">{pressureText}</bdi>
+                                    </span>
+                                );
                             })()}
 
                             {row.noteType === "גיזוז" && (

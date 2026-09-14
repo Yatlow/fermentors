@@ -23,7 +23,7 @@ import SendMessurmentsHeader from "./components/cellering/SendMessurmentsHeader"
 import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
 import NoteToFermentor from "./components/dashboard/NoteToFermentor";
 import PackagingForm from "./components/cellering/PackagingForm";
-import { getSpecsFromFb, type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
+import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
 import BatchReportsView from "./components/reports/BatchReportsView";
 import PackagingReportsView from "./components/reports/PackagingReportsView";
 import EditSpecs from "./components/tools/EditSpecs";
@@ -99,6 +99,7 @@ export type NewReading = {
     refreshTank?: boolean;
     dryHopGrams?: number;
     dryHopType?: string;
+    dryHopAa?: number;
     totalLiters?: number;
     shrinkagePercent?: number;
 };
@@ -300,14 +301,21 @@ function App() {
     }, [idsNeedingStage]);
 
     useEffect(() => {
-        async function loadSpecs() {
-            try {
-                setSpecs(await getSpecsFromFb());
-            } catch (error) {
-                console.error("Failed to load specs:", error);
+        const specsRef = collection(db, "specs");
+        const unsubscribe = onSnapshot(
+            specsRef,
+            (snapshot) => {
+                const nextSpecs: SpecChart = {};
+                snapshot.docs.forEach((firebaseDoc) => {
+                    nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;
+                });
+                setSpecs(nextSpecs);
+            },
+            (error) => {
+                console.error("Failed to subscribe to specs:", error);
             }
-        }
-        loadSpecs();
+        );
+        return unsubscribe;
     }, []);
 
     const statusCounts = useMemo<StatusCounts>(() => {
@@ -427,10 +435,10 @@ function App() {
                 </div>
             </header>
 
-            {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} />}
+            {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
             {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
             {selectedView === "רישום" && <>
-                <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} />
+                <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
                 {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
                 {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
                 {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
