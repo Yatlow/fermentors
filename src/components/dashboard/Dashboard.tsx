@@ -1,10 +1,9 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import type { Fermentor } from "../../App"
-import { getSpecsFromFb, type SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
+import { collection, onSnapshot } from "firebase/firestore";
+import type { Fermentor } from "../../App";
+import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
+import { db } from "../../firebase";
 import TankCard from "./TankCard";
-
-
-
 
 export type DashboardProps = {
     selectedStatuses: string[],
@@ -17,7 +16,6 @@ export type DashboardProps = {
         tankId: string,
         newDate: string
     ) => Promise<void>,
-    //    specs:SpecChart
 }
 
 export default function Dashboard({
@@ -28,7 +26,6 @@ export default function Dashboard({
     filteredBrews,
     setSelectedStyles,
     handleUpdatePasivation,
-    // specs,
 }: DashboardProps) {
 
     const [specs, setSpecs] = useState<SpecChart | null>(null);
@@ -45,154 +42,90 @@ export default function Dashboard({
                 : [...prev];
 
             if (nextState.includes(style)) {
-                nextState = nextState.filter(
-                    (s) => s !== style
-                );
+                nextState = nextState.filter((s) => s !== style);
             } else {
                 nextState.push(style);
             }
 
-            return nextState.length === 0
-                ? ["הכל"]
-                : nextState;
+            return nextState.length === 0 ? ["הכל"] : nextState;
         });
     };
 
+    // Keep dashboard specs live. This matters for dry-hop aa defaults because
+    // the hops document may be added/edited while the dashboard is already open.
     useEffect(() => {
-
-        async function loadSpecs() {
-
-            try {
-
-                const data = await getSpecsFromFb();
-
-                setSpecs(data);
-
-            } catch (error) {
-
-                console.error(
-                    "Failed to load specs:",
-                    error
-                );
-
+        const specsRef = collection(db, "specs");
+        const unsubscribe = onSnapshot(
+            specsRef,
+            (snapshot) => {
+                const nextSpecs: SpecChart = {};
+                snapshot.docs.forEach((firebaseDoc) => {
+                    nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;
+                });
+                setSpecs(nextSpecs);
+            },
+            (error) => {
+                console.error("Failed to subscribe to dashboard specs:", error);
             }
+        );
 
-        }
-
-        loadSpecs();
-
+        return unsubscribe;
     }, []);
 
     return (
         <div className="dashboard">
-
-
-
-
-            {/* FILTER INFO */}
-
             <div className="dashboard-filter-info">
-
-                <span>
-                    מציג מסננים:
-                </span>
-
+                <span>מציג מסננים:</span>
                 <strong>
-                    {selectedStatuses.includes(
-                        "הכל"
-                    )
+                    {selectedStatuses.includes("הכל")
                         ? "הכל"
-                        : selectedStatuses.join(
-                            ", "
-                        )}
+                        : selectedStatuses.join(", ")}
                 </strong>
-
                 <span className="filter-count-badge">
                     · {filteredTankCount} מיכלים
                 </span>
-
             </div>
+
             <div className="volumeCounter">
+                <span>סיכום נפחים במיכלים:</span>
 
-                <span>
-                    סיכום נפחים במיכלים:
-                </span>
-
-                {Object.entries(totalVolumes).map(
-                    ([style, volume]) => (
-                        <div
-                            key={style}
-                            className={`volume-filter ${selectedStyles.includes(style)
-                                ? "active"
-                                : ""
-                                }`}
-                            onClick={() =>
-                                handleStyleToggle(style)
-                            }
-                        >
-                            <span>{style}:</span>{" "}
-                            {volume} ל'
-                        </div>
-                    )
-                )}
+                {Object.entries(totalVolumes).map(([style, volume]) => (
+                    <div
+                        key={style}
+                        className={`volume-filter ${selectedStyles.includes(style) ? "active" : ""}`}
+                        onClick={() => handleStyleToggle(style)}
+                    >
+                        <span>{style}:</span>{" "}
+                        {volume} ל'
+                    </div>
+                ))}
 
                 <div
-                    className={`totalVolume ${selectedStyles.includes("הכל")
-                        ? "active"
-                        : ""
-                        }`}
-                    onClick={() =>
-                        handleStyleToggle("הכל")
-                    }
+                    className={`totalVolume ${selectedStyles.includes("הכל") ? "active" : ""}`}
+                    onClick={() => handleStyleToggle("הכל")}
                 >
                     סה״כ:{" "}
-                    {Object.values(totalVolumes).reduce(
-                        (total, volume) => total + volume,
-                        0
-                    )}{" "}
+                    {Object.values(totalVolumes).reduce((total, volume) => total + volume, 0)}{" "}
                     ל'
                 </div>
-
             </div>
-
-            {/* TANK GRID */}
 
             <div className="tank-grid">
-
-                {specs && filteredBrews.map(
-                    (fermentor) => (
-
-                        <TankCard
-                            key={fermentor.id}
-                            tank={fermentor}
-                            onUpdatePasivation={
-                                handleUpdatePasivation
-                            }
-                            specs={specs}
-                        />
-
-                    )
-                )}
-
+                {specs && filteredBrews.map((fermentor) => (
+                    <TankCard
+                        key={fermentor.id}
+                        tank={fermentor}
+                        onUpdatePasivation={handleUpdatePasivation}
+                        specs={specs}
+                    />
+                ))}
             </div>
 
-
-            {/* NO RESULTS */}
-
-            {filteredBrews.length ===
-                0 && (
-
-                    <div className="no-tanks">
-
-                        <p>
-                            אין מיכלים העונים על
-                            הסינון שנבחר
-                        </p>
-
-                    </div>
-
-                )}
-
+            {filteredBrews.length === 0 && (
+                <div className="no-tanks">
+                    <p>אין מיכלים העונים על הסינון שנבחר</p>
+                </div>
+            )}
         </div>
-    )
+    );
 }
