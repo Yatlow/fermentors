@@ -1,6 +1,8 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useState } from "react";
+import { doc, onSnapshot } from "firebase/firestore";
 import type { Fermentor } from "../../App";
+import { db } from "../../firebase";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { writeReadingsToSheets } from "../../SERVICES/getAndPost/writeReadingToSheets";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
@@ -61,6 +63,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const [value, setValue] = useState("");
     const [value2, setValue2] = useState("");
     const [dryHopAa, setDryHopAa] = useState("");
+    const [hopAaSpecs, setHopAaSpecs] = useState<Record<string, number> | null>(null);
     const [direction, setDirection] = useState("");
 
     const [packagingType, setPackagingType] = useState<"kegs" | "bottles" | "">("");
@@ -77,6 +80,44 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
 
     const isSending = status === "sending";
 
+    // Read specs/hops directly while the quick-report modal is open.
+    // This avoids relying on a parent specs snapshot for the dry-hop aa default.
+    useEffect(() => {
+        const hopsRef = doc(db, "specs", "hops");
+        return onSnapshot(
+            hopsRef,
+            (snapshot) => {
+                setHopAaSpecs(snapshot.exists()
+                    ? snapshot.data() as Record<string, number>
+                    : null);
+            },
+            (error) => {
+                console.error("Failed to subscribe to specs/hops:", error);
+                setHopAaSpecs(null);
+            }
+        );
+    }, []);
+
+    function resolveConfiguredHopAa(hopType: string | null | undefined): number | null {
+        const normalizedHop = String(hopType || "").trim().toLowerCase();
+        if (!normalizedHop) return null;
+
+        const expectedKey = `${normalizedHop}_aa`;
+        const directMatch = hopAaSpecs
+            ? Object.entries(hopAaSpecs).find(
+                ([fieldName]) => fieldName.trim().toLowerCase() === expectedKey
+            )
+            : undefined;
+
+        if (directMatch) {
+            const numeric = Number(directMatch[1]);
+            if (Number.isFinite(numeric)) return numeric;
+        }
+
+        // Fallback to the already-loaded specs object for compatibility.
+        return getHopAa(hopType, specs);
+    }
+
     useEffect(() => {
         if (noteType !== "דרייהופ" || !specs || dryHopAa !== "") return;
 
@@ -84,9 +125,9 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         const calc = calcDryHopDose(category, tank.beerVolume);
         if (calc.needsManualInput || !calc.hopType) return;
 
-        const defaultAa = getHopAa(calc.hopType, specs);
+        const defaultAa = resolveConfiguredHopAa(calc.hopType);
         if (defaultAa !== null) setDryHopAa(String(defaultAa));
-    }, [noteType, specs, dryHopAa, tank.beerStyle, tank.beerVolume]);
+    }, [noteType, specs, hopAaSpecs, dryHopAa, tank.beerStyle, tank.beerVolume]);
 
     function resolveDryHopAaValue(): string {
         if (dryHopAa !== "") return dryHopAa;
@@ -97,7 +138,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
         if (!hopType) return "";
 
-        const defaultAa = getHopAa(hopType, specs);
+        const defaultAa = resolveConfiguredHopAa(hopType);
         return defaultAa !== null ? String(defaultAa) : "";
     }
 
@@ -390,7 +431,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                         const category = getDryHopStyleCategory(tank.beerStyle);
                                         const calc = calcDryHopDose(category, tank.beerVolume);
                                         if (!calc.needsManualInput) {
-                                            const defaultAa = getHopAa(calc.hopType, specs);
+                                            const defaultAa = resolveConfiguredHopAa(calc.hopType);
                                             setDryHopAa(defaultAa !== null ? String(defaultAa) : "");
                                         }
                                     }
