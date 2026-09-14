@@ -1,0 +1,72 @@
+name: Patch aa direct Firestore lookup
+
+on:
+  push:
+    branches:
+      - feature/shipment-aa-appsscript-deploy
+    paths:
+      - ".github/workflows/patch-aa-direct-firestore.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shipment-aa-appsscript-deploy
+
+      - name: Patch QuickTankReportBox
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/dashboard/QuickTankReportBox.tsx')
+          text = p.read_text()
+
+          text = text.replace(
+              'import { useEffect, useState } from "react";\n',
+              'import { useEffect, useState } from "react";\nimport { doc, onSnapshot } from "firebase/firestore";\n'
+          )
+          text = text.replace(
+              'import type { Fermentor } from "../../App";\n',
+              'import type { Fermentor } from "../../App";\nimport { db } from "../../firebase";\n'
+          )
+
+          state_anchor = '    const [dryHopAa, setDryHopAa] = useState("");\n'
+          if 'const [hopAaSpecs, setHopAaSpecs]' not in text:
+              text = text.replace(
+                  state_anchor,
+                  state_anchor + '    const [hopAaSpecs, setHopAaSpecs] = useState<Record<string, number> | null>(null);\n',
+                  1
+              )
+
+          effect_anchor = '    const isSending = status === "sending";\n\n'
+          direct_effect = '''    const isSending = status === "sending";\n\n    // Read specs/hops directly while the quick-report modal is open.\n    // This avoids relying on a parent specs snapshot for the dry-hop aa default.\n    useEffect(() => {\n        const hopsRef = doc(db, "specs", "hops");\n        return onSnapshot(\n            hopsRef,\n            (snapshot) => {\n                setHopAaSpecs(snapshot.exists()\n                    ? snapshot.data() as Record<string, number>\n                    : null);\n            },\n            (error) => {\n                console.error("Failed to subscribe to specs/hops:", error);\n                setHopAaSpecs(null);\n            }\n        );\n    }, []);\n\n    function resolveConfiguredHopAa(hopType: string | null | undefined): number | null {\n        const normalizedHop = String(hopType || "").trim().toLowerCase();\n        if (!normalizedHop) return null;\n\n        const expectedKey = `${normalizedHop}_aa`;\n        const directMatch = hopAaSpecs\n            ? Object.entries(hopAaSpecs).find(\n                ([fieldName]) => fieldName.trim().toLowerCase() === expectedKey\n            )\n            : undefined;\n\n        if (directMatch) {\n            const numeric = Number(directMatch[1]);\n            if (Number.isFinite(numeric)) return numeric;\n        }\n\n        // Fallback to the already-loaded specs object for compatibility.\n        return getHopAa(hopType, specs);\n    }\n\n'''
+          if 'function resolveConfiguredHopAa(' not in text:
+              text = text.replace(effect_anchor, direct_effect, 1)
+
+          text = text.replace('const defaultAa = getHopAa(calc.hopType, specs);', 'const defaultAa = resolveConfiguredHopAa(calc.hopType);')
+          text = text.replace('const defaultAa = getHopAa(hopType, specs);', 'const defaultAa = resolveConfiguredHopAa(hopType);')
+
+          # The effect must rerun once the direct hops document arrives.
+          text = text.replace(
+              '}, [noteType, specs, dryHopAa, tank.beerStyle, tank.beerVolume]);',
+              '}, [noteType, specs, hopAaSpecs, dryHopAa, tank.beerStyle, tank.beerVolume]);'
+          )
+
+          p.write_text(text)
+          PY
+
+      - name: Verify build
+        run: npm ci && npm run build
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/dashboard/QuickTankReportBox.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "Read dry-hop aa directly from specs hops"
+          git push origin HEAD:feature/shipment-aa-appsscript-deploy
