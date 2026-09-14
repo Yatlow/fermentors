@@ -77,7 +77,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         [plans, settings.products, actuals, selectedWeek],
     );
 
-    const product = (id: string) => settings.products.find((item) => item.id === id);
+    const product = (id: string): Product | undefined => settings.products.find((item) => item.id === id);
 
     function completedForPlan(run: Plan) {
         const open = run.id
