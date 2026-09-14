@@ -1,0 +1,56 @@
+name: Fix final UI
+
+on:
+  push:
+    branches: [feature/shipment-aa-appsscript-deploy]
+    paths: [.github/workflows/fix-final-ui.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shipment-aa-appsscript-deploy
+      - name: Apply fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('src/components/cooler/ShipmentDocumentModal.tsx')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('async function recordOriginalRestore(reason: string) {','async function recordOriginalRestore() {')
+          s=s.replace('                originalLastRestoredBy: userEmail,\n                originalLastRestoreReason: reason,','                originalLastRestoredBy: userEmail,')
+          old='''    function restoreOriginal() {\n        const rawReason = window.prompt("סיבת שחזור המקור:", "");\n        if (rawReason === null) return;\n\n        const reason = rawReason.trim();\n        if (!reason) {\n            setMessage("יש להזין סיבה לשחזור המקור.");\n            return;\n        }\n\n        const printWindow = beginPrintWindow();'''
+          new='''    function restoreOriginal() {\n        const printWindow = beginPrintWindow();'''
+          if old not in s: raise SystemExit('restore prompt block not found')
+          s=s.replace(old,new,1)
+          s=s.replace('await recordOriginalRestore(reason);','await recordOriginalRestore();')
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('src/components/dashboard/NoteToFermentor.tsx')
+          s=p.read_text(encoding='utf-8')
+          old='''                                return (\n                                    <>\n                                        <span>הכנסת כשות 4: {grams} גרם {calc.hopType} </span>\n                                        <input\n                                            type="number"\n                                            step="0.1"\n                                            min="0"\n                                            max="100"\n                                            value={row.aa}\n                                            placeholder="aa"\n                                            onChange={(e) => updateRow(row.id, { aa: e.target.value })}\n                                        />\n                                        <span>%aa, סגירת נשם, כיוון פורק ל {pressureText}</span>\n                                    </>\n                                );'''
+          new='''                                return (\n                                    <span className="dry-hop-inline" dir="rtl">\n                                        <span>הכנסת כשות 4:</span>\n                                        <bdi dir="ltr">{grams}</bdi>\n                                        <span>גרם</span>\n                                        <bdi dir="ltr">{calc.hopType}</bdi>\n                                        <input\n                                            type="number"\n                                            step="0.1"\n                                            min="0"\n                                            max="100"\n                                            value={row.aa}\n                                            placeholder="aa"\n                                            onChange={(e) => updateRow(row.id, { aa: e.target.value })}\n                                        />\n                                        <bdi dir="ltr">%aa</bdi>\n                                        <span>, סגירת נשם, כיוון פורק ל</span>\n                                        <bdi dir="ltr">{pressureText}</bdi>\n                                    </span>\n                                );'''
+          if old not in s: raise SystemExit('dry hop block not found')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('src/App.css')
+          s=p.read_text(encoding='utf-8')
+          s += '''\n\n/* Keep mixed Hebrew / Latin dry-hop report fields in semantic RTL order. */\n.dry-hop-inline {\n    display: inline-flex;\n    direction: rtl;\n    align-items: center;\n    flex-wrap: wrap;\n    gap: 4px;\n}\n\n.dry-hop-inline input {\n    direction: ltr;\n    text-align: center;\n}\n'''
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Build
+        run: npm ci && npm run build
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/cooler/ShipmentDocumentModal.tsx src/components/dashboard/NoteToFermentor.tsx src/App.css
+          git commit -m "Fix dry hop RTL and simplify original restore"
+          git push origin HEAD:feature/shipment-aa-appsscript-deploy
