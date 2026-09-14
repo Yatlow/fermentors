@@ -6625,3 +6625,11 @@ body {
         font-size: 0.95rem;
     }
 }
+/* Compact aa inputs in dry-hop reports */
+.quickReportForm input[placeholder="aa"],
+.note-RowsBox input[placeholder="aa"] {
+  width: 86px !important;
+  max-width: 86px !important;
+  min-width: 86px !important;
+  flex: 0 0 86px !important;
+}

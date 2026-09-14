@@ -1,5 +1,5 @@
 import BeerLoader from "../general/Loading";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { writeReadingsToSheets } from "../../SERVICES/getAndPost/writeReadingToSheets";
@@ -76,6 +76,17 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const [packagingJob, setPackagingJob] = useState<PackagingJobInput | null>(null);
 
     const isSending = status === "sending";
+
+    useEffect(() => {
+        if (noteType !== "דרייהופ" || !specs || dryHopAa !== "") return;
+
+        const category = getDryHopStyleCategory(tank.beerStyle);
+        const calc = calcDryHopDose(category, tank.beerVolume);
+        if (calc.needsManualInput || !calc.hopType) return;
+
+        const defaultAa = getHopAa(calc.hopType, specs);
+        if (defaultAa !== null) setDryHopAa(String(defaultAa));
+    }, [noteType, specs, dryHopAa, tank.beerStyle, tank.beerVolume]);
 
     function resetValues() {
         setValue(""); setValue2(""); setDryHopAa(""); setDirection("");

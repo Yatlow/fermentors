@@ -23,7 +23,7 @@ import SendMessurmentsHeader from "./components/cellering/SendMessurmentsHeader"
 import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
 import NoteToFermentor from "./components/dashboard/NoteToFermentor";
 import PackagingForm from "./components/cellering/PackagingForm";
-import { getSpecsFromFb, type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
+import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
 import BatchReportsView from "./components/reports/BatchReportsView";
 import PackagingReportsView from "./components/reports/PackagingReportsView";
 import EditSpecs from "./components/tools/EditSpecs";
@@ -301,14 +301,21 @@ function App() {
     }, [idsNeedingStage]);
 
     useEffect(() => {
-        async function loadSpecs() {
-            try {
-                setSpecs(await getSpecsFromFb());
-            } catch (error) {
-                console.error("Failed to load specs:", error);
+        const specsRef = collection(db, "specs");
+        const unsubscribe = onSnapshot(
+            specsRef,
+            (snapshot) => {
+                const nextSpecs: SpecChart = {};
+                snapshot.docs.forEach((firebaseDoc) => {
+                    nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;
+                });
+                setSpecs(nextSpecs);
+            },
+            (error) => {
+                console.error("Failed to subscribe to specs:", error);
             }
-        }
-        loadSpecs();
+        );
+        return unsubscribe;
     }, []);
 
     const statusCounts = useMemo<StatusCounts>(() => {
