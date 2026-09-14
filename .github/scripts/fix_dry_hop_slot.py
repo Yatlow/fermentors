@@ -3,27 +3,22 @@ from pathlib import Path
 path = Path("server/addFermentationMeasurement.js")
 text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
 
-old = '''    let targetRow = -1;
+start_marker = '''    let targetRow = -1;
     let entryNumber = -1;
     const maxRowsToScan = 10;
-    const emptySlotPattern = /^(\\d+)\\)\\s*$/;
-
-    for (let r = lastHeaderRow + 1; r < Math.min(lastHeaderRow + 1 + maxRowsToScan, values.length); r++) {
-      const colC = String(values[r][2] || "").trim();
-      const match = colC.match(emptySlotPattern);
-      if (match) {
-        targetRow = r + 1; // 1-indexed ל-Range
-        entryNumber = parseInt(match[1], 10);
-        break;
-      }
-    }
-
-    if (targetRow === -1) {
-      throw new Error("No empty numbered slot (e.g. '4)') found in hops table");
-    }
+'''
+end_marker = '''    Logger.log("Target row for dry hop: " + targetRow + " (entry #" + entryNumber + ")");
 '''
 
-new = '''    let targetRow = -1;
+start = text.find(start_marker)
+if start == -1:
+    raise SystemExit("Dry-hop slot start marker was not found; refusing to patch")
+
+end = text.find(end_marker, start)
+if end == -1:
+    raise SystemExit("Dry-hop slot end marker was not found; refusing to patch")
+
+new_block = '''    let targetRow = -1;
     let entryNumber = -1;
     const maxRowsToScan = 10;
     const emptySlotPattern = /^(\\d+)\\)\\s*$/;
@@ -78,9 +73,8 @@ new = '''    let targetRow = -1;
     if (targetRow === -1) {
       throw new Error("No empty slot found in the first 10 rows of the hops table");
     }
+
 '''
 
-if old not in text:
-    raise SystemExit("Expected dry-hop slot block was not found; refusing to patch")
-
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
+patched = text[:start] + new_block + text[end:]
+path.write_text(patched, encoding="utf-8")
