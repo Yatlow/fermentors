@@ -16,6 +16,7 @@ import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
+import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
 import "./planning.css";
 import "./planningEnhancements.css";
 
@@ -97,6 +98,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
             disabled={disabled}
             saveWeek={saveWeeklyPlan}
             onOpenCoolerMap={onOpenCoolerMap}
+          />
+          <PlanningShipmentStatusPortal
+            plans={plans}
+            shipments={data.actualShipments}
+            products={settings.products}
           />
         </>}
 
