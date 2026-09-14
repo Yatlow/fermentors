@@ -1,7 +1,7 @@
 from pathlib import Path
 
 path = Path("server/addFermentationMeasurement.js")
-text = path.read_text(encoding="utf-8")
+text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 old = '''    let targetRow = -1;
     let entryNumber = -1;
