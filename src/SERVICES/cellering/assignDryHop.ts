@@ -31,17 +31,11 @@ export async function assignDryHopToHopsTable(
     }
 
     const numericAa = Number(resolvedAa);
-
-    // The currently deployed Apps Script dispatcher forwards only its third
-    // argument to assignDryHopToHopsTable. Encode aa in that argument as a
-    // backwards-compatible bridge, while also sending a dedicated aa field.
-    // The server function strips this suffix before writing the hop name.
-    const transportHopType = `${hopType.trim()}::aa=${numericAa}`;
     const payload = {
         action: "assignDryHop",
         sheetUrl,
         grams,
-        hopType: transportHopType,
+        hopType: hopType.trim(),
         aa: numericAa,
     };
 
