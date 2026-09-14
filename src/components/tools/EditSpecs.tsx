@@ -51,10 +51,10 @@ export default function EditSpecs(
         bottleExpDat: "תוקף (מספר חודשים)",
         kegBBE: "חבית",
         tolorances: "הגדרות כלליות לחישוב המלצות",
-        hops: "אחוז חומצות אלפא בכשות",
+        hops: "aa%",
         Citra_aa: "סיטרה",
         Cascade_aa: "קסקייד",
-        Talos_aa: "טלוס",
+        Talos_aa: "טאלוס",
 
         // General fields
         carbonation: "גיזוז תקין",
