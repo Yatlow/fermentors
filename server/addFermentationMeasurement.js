@@ -448,10 +448,26 @@ function buildMergedNotesRichText(
   return builder.build();
 }
 
-function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
+function assignDryHopToHopsTable(sheetUrl, grams, hopType, aa) {
 
   if (!sheetUrl) throw new Error("Missing sheetUrl");
   if (!grams || !hopType) throw new Error("Missing grams or hopType");
+
+  let cleanHopType = String(hopType || "").trim();
+  let resolvedAa = Number(aa);
+
+  // Compatibility bridge for the short period between frontend and
+  // server deployment: aa may also be encoded in the third argument.
+  const transportMatch = cleanHopType.match(/^(.*)::aa=([0-9]+(?:\.[0-9]+)?)$/);
+  if (transportMatch) {
+    cleanHopType = transportMatch[1].trim();
+    if (!Number.isFinite(resolvedAa)) resolvedAa = Number(transportMatch[2]);
+  }
+
+  if (!cleanHopType) throw new Error("Missing hopType");
+  if (!Number.isFinite(resolvedAa) || resolvedAa <= 0 || resolvedAa > 100) {
+    throw new Error("Missing or invalid aa");
+  }
 
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
   const ss = SpreadsheetApp.openById(spreadsheetId);
@@ -537,11 +553,12 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
     }
 
     // ----------------------------------------------------------
-    // WRITE HOP AMOUNT + TYPE
+    // WRITE HOP AMOUNT + aa + TYPE
     // ----------------------------------------------------------
 
-    sheet.getRange(targetRow, 1).setValue(grams);                          // כמות
-    sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + hopType);    // סוג/אצווה
+    sheet.getRange(targetRow, 1).setValue(grams);                               // כמות
+    sheet.getRange(targetRow, 2).setValue(resolvedAa).setNumberFormat('0.0"%aa"'); // אחוז אלפה
+    sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + cleanHopType);    // סוג/אצווה
 
     // ----------------------------------------------------------
     // FILL FIRST EMPTY "הוספת כשות N" TIMESTAMP CELL
@@ -607,7 +624,7 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
 
     Logger.log(
       "Dry hop written to row " + targetRow + ": " +
-      grams + "g " + hopType
+      grams + "g " + cleanHopType + " (" + resolvedAa + "%aa)"
     );
 
     return {
@@ -616,7 +633,8 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType) {
       headerRow: lastHeaderRow + 1,
       entryNumber: entryNumber,
       grams: grams,
-      hopType: hopType,
+      hopType: cleanHopType,
+      aa: resolvedAa,
       additionLabelFilled: additionRow !== -1 ? ("הוספת כשות " + additionNum) : null,
       additionTimestampRow: additionRow !== -1 ? additionRow : null,
       additionTimestampCol: additionRow !== -1 ? valueCol : null

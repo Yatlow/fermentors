@@ -11,6 +11,7 @@ import {
     isValidHopAa,
     buildDryHopNoteText,
 } from "../../SERVICES/cellering/dryHopLogic";
+import { rememberDryHopAa } from "../../SERVICES/cellering/assignDryHop";
 
 export type NoteToFermentorProps = {
     brews: Fermentor[];
@@ -174,6 +175,7 @@ export default function NoteToFermentor({
                 const aa = Number(row.aa);
                 if (grams > 0 && hopType && isValidHopAa(aa)) {
                     dryHopByTank.set(tankNum, { grams, hopType, aa });
+                    if (fermentor.sheetUrl) rememberDryHopAa(fermentor.sheetUrl, aa);
                 }
             }
         });

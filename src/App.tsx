@@ -99,6 +99,7 @@ export type NewReading = {
     refreshTank?: boolean;
     dryHopGrams?: number;
     dryHopType?: string;
+    dryHopAa?: number;
     totalLiters?: number;
     shrinkagePercent?: number;
 };

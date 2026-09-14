@@ -8,31 +8,31 @@ import {
     MAX_TRUCK_SLOTS,
 } from "../../SERVICES/cooler/Palletservice";
 import BeerLoader from "../general/Loading";
+import { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";
 
 function useTotals(pallets: Pallet[]) {
     return useMemo(() => {
         const map = new Map<
-            string,
-            {
-                itemType: string;
-                beerStyle: string;
-                totalQuantity: number;
-            }
+  string,
+  { itemType: string; beerStyle: string; totalQuantity: number }
         >();
 
         pallets.forEach((p) => {
-            const key = `${p.itemType}__${p.beerStyle}`;
-            const cur = map.get(key);
+  const entry = getCatalogEntry(p.beerStyle, p.itemType);
+  const key = entry?.sku
+      ? `sku__${entry.sku}`
+      : `${p.itemType}__${p.beerStyle.trim().toLowerCase()}`;
+  const cur = map.get(key);
 
-            if (cur) {
-                cur.totalQuantity += p.quantity;
-            } else {
-                map.set(key, {
-                    itemType: p.itemType,
-                    beerStyle: p.beerStyle,
-                    totalQuantity: p.quantity,
-                });
-            }
+  if (cur) {
+      cur.totalQuantity += p.quantity;
+  } else {
+      map.set(key, {
+itemType: p.itemType,
+beerStyle: entry?.displayText ?? p.beerStyle,
+totalQuantity: p.quantity,
+      });
+  }
         });
 
         return Array.from(map.values());

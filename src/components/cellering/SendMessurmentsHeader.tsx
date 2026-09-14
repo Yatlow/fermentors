@@ -503,7 +503,7 @@ export default function SendMessurmentsHeader({
             setSendResults(res);
             if (reportName === "פעולות") {
                 const dryHopEntries = readingsToSend.filter(
-                    (r) => (r as any).dryHopGrams && (r as any).dryHopType
+                    (r) => (r as any).dryHopGrams && (r as any).dryHopType && (r as any).dryHopAa
                 );
 
                 if (dryHopEntries.length > 0) {
@@ -514,7 +514,8 @@ export default function SendMessurmentsHeader({
                                 await assignDryHopToHopsTable(
                                     String(r.sheetUrl),
                                     Number((r as any).dryHopGrams),
-                                    String((r as any).dryHopType)
+                                    String((r as any).dryHopType),
+                                    Number((r as any).dryHopAa)
                                 );
                             } catch (error) {
                                 console.error(
