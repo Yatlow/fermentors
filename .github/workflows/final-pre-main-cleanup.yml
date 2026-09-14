@@ -1,0 +1,98 @@
+name: Final pre-main cleanup
+
+on:
+  push:
+    branches:
+      - feature/shipment-aa-appsscript-deploy
+    paths:
+      - ".github/workflows/final-pre-main-cleanup.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shipment-aa-appsscript-deploy
+          fetch-depth: 0
+
+      - name: Apply cleanup
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # 1) Shipment document: show the timestamp without the verbose label.
+          p = Path("src/components/cooler/ShipmentDocumentModal.tsx")
+          s = p.read_text(encoding="utf-8")
+          old = '<div>תאריך ושעת יציאת טובין: {date}</div>'
+          new = '<div>{date}</div>'
+          if old not in s:
+              raise SystemExit("Shipment date label target not found")
+          p.write_text(s.replace(old, new, 1), encoding="utf-8")
+
+          # 2) Dashboard: consume the single specs subscription owned by App.
+          p = Path("src/components/dashboard/Dashboard.tsx")
+          s = p.read_text(encoding="utf-8")
+          s = s.replace('import { useEffect, useState, type Dispatch, type SetStateAction } from "react";\n', 'import { type Dispatch, type SetStateAction } from "react";\n')
+          s = s.replace('import { collection, onSnapshot } from "firebase/firestore";\n', '')
+          s = s.replace('import { db } from "../../firebase";\n', '')
+          s = s.replace('    handleUpdatePasivation: (\n        tankId: string,\n        newDate: string\n    ) => Promise<void>,\n}', '    handleUpdatePasivation: (\n        tankId: string,\n        newDate: string\n    ) => Promise<void>,\n    specs: SpecChart | null,\n}')
+          s = s.replace('    setSelectedStyles,\n    handleUpdatePasivation,\n}: DashboardProps) {\n\n    const [specs, setSpecs] = useState<SpecChart | null>(null);\n', '    setSelectedStyles,\n    handleUpdatePasivation,\n    specs,\n}: DashboardProps) {\n')
+          start = s.find('    // Keep dashboard specs live.')
+          if start == -1:
+              raise SystemExit("Dashboard specs listener start not found")
+          end_marker = '    }, []);\n\n'
+          end = s.find(end_marker, start)
+          if end == -1:
+              raise SystemExit("Dashboard specs listener end not found")
+          s = s[:start] + s[end + len(end_marker):]
+          p.write_text(s, encoding="utf-8")
+
+          # 3) SendMeasurementsHeader: receive shared specs instead of fetching again.
+          p = Path("src/components/cellering/SendMessurmentsHeader.tsx")
+          s = p.read_text(encoding="utf-8")
+          s = s.replace('import { getSpecsFromFb, type SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";', 'import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";')
+          s = s.replace('    onResetAll?: () => void,\n}', '    onResetAll?: () => void,\n    specs: SpecChart | null,\n}')
+          s = s.replace('    hasIncompleteNotes,\n    onResetAll,\n}: SendMessurmentsHeaderProps) {', '    hasIncompleteNotes,\n    onResetAll,\n    specs,\n}: SendMessurmentsHeaderProps) {')
+          s = s.replace('    const [specs, setSpecs] = useState<SpecChart | null>(null);\n', '')
+          load_start = s.find('    useEffect(() => {\n\n        async function loadSpecs()')
+          if load_start == -1:
+              raise SystemExit("SendMeasurementsHeader loadSpecs start not found")
+          load_end_marker = '    }, []);\n'
+          load_end = s.find(load_end_marker, load_start)
+          if load_end == -1:
+              raise SystemExit("SendMeasurementsHeader loadSpecs end not found")
+          s = s[:load_start] + s[load_end + len(load_end_marker):]
+          p.write_text(s, encoding="utf-8")
+
+          # 4) App: pass the one live specs object down to both consumers.
+          p = Path("src/App.tsx")
+          s = p.read_text(encoding="utf-8")
+          dashboard_old = '<Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} />'
+          dashboard_new = '<Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />'
+          if dashboard_old not in s:
+              raise SystemExit("Dashboard render target not found")
+          s = s.replace(dashboard_old, dashboard_new, 1)
+
+          send_old = '<SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} />'
+          send_new = '<SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />'
+          if send_old not in s:
+              raise SystemExit("SendMeasurementsHeader render target not found")
+          s = s.replace(send_old, send_new, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+
+      - name: Build
+        run: npm ci && npm run build
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/components/dashboard/Dashboard.tsx src/components/cellering/SendMessurmentsHeader.tsx src/components/cooler/ShipmentDocumentModal.tsx
+          git commit -m "Centralize specs reads and simplify shipment date"
+          git push origin HEAD:feature/shipment-aa-appsscript-deploy
