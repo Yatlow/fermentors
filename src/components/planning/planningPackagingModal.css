@@ -1,16 +1,19 @@
 .bp-actual-shipment-status {
-  margin: 10px 0;
-  padding: 10px 12px;
-  border: 1px solid #b8d9bf;
-  border-radius: 10px;
-  background: #f3fbf5;
+  display: none;
+}
+
+.bp-actual-shipment-inline {
   display: flex;
+  flex-basis: 100%;
   flex-wrap: wrap;
   gap: 4px 6px;
   align-items: baseline;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid #b8d9bf;
 }
 
-.bp-actual-shipment-status small {
+.bp-actual-shipment-inline small {
   flex-basis: 100%;
 }
 
