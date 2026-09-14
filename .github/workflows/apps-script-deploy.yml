@@ -1,0 +1,70 @@
+name: Deploy Apps Script
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "server/**"
+      - ".github/workflows/apps-script-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apps-script-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Push and update Web App
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp
+
+      - name: Restore clasp credentials
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "Missing GitHub Actions secret: CLASPRC_JSON"
+            exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      - name: Validate Apps Script project
+        run: |
+          test -f .clasp.json
+          test -f appsscript.json
+          node --check post.js
+          node --check addFermentationMeasurement.js
+
+      - name: Push Apps Script sources
+        run: clasp push --force
+
+      - name: Update production Web App deployment
+        env:
+          # This deployment id is already public in the Web App URL used by the frontend.
+          APPS_SCRIPT_DEPLOYMENT_ID: AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h
+        run: |
+          clasp deploy \
+            --deploymentId "$APPS_SCRIPT_DEPLOYMENT_ID" \
+            --description "GitHub ${GITHUB_SHA::7}"
+
+      - name: Show deployments
+        run: clasp deployments
