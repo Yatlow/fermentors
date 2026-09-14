@@ -56,17 +56,22 @@ export function getClosingPressureForStyle(
 }
 
 /**
- * Returns the aa percentage configured in specs/hops.
- * Firestore field names are stored as e.g. Citra_aa, Cascade_aa, Talos_aa.
- * Lookup is case-insensitive so a manually-entered "citra" still resolves.
+ * Returns the aa percentage configured in the hops document.
+ * Both the document id and field names are matched case-insensitively so
+ * Firestore values such as hops/Hops and Citra_aa/citra_aa all resolve.
  */
 export function getHopAa(
     hopType: string | null | undefined,
     specs: SpecChart | null | undefined
 ): number | null {
-    const hops = specs?.hops;
     const normalizedHop = String(hopType || "").trim().toLowerCase();
-    if (!hops || !normalizedHop) return null;
+    if (!specs || !normalizedHop) return null;
+
+    const hopsEntry = Object.entries(specs).find(
+        ([docId]) => docId.trim().toLowerCase() === "hops"
+    );
+    const hops = hopsEntry?.[1];
+    if (!hops) return null;
 
     const expectedKey = `${normalizedHop}_aa`;
     const match = Object.entries(hops).find(
