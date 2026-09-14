@@ -1,0 +1,269 @@
+name: Apply shipment-aa feature patches
+
+on:
+  push:
+    branches:
+      - feature/shipment-aa-appsscript-deploy
+    paths:
+      - ".github/feature-patch-trigger"
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shipment-aa-appsscript-deploy
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Apply targeted patches
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"Expected text not found in {path}: {old[:100]!r}")
+              text = text.replace(old, new, 1)
+              p.write_text(text, encoding="utf-8")
+
+          # ---------------------------------------------------------
+          # Loading dock summary: aggregate by catalog SKU, not raw style.
+          # ---------------------------------------------------------
+          path = "src/components/cooler/LoadingDockView.tsx"
+          replace_once(
+              path,
+              'import BeerLoader from "../general/Loading";\n',
+              'import BeerLoader from "../general/Loading";\nimport { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";\n'
+          )
+          old = '''function useTotals(pallets: Pallet[]) {
+              return useMemo(() => {
+                  const map = new Map<
+                      string,
+                      {
+                          itemType: string;
+                          beerStyle: string;
+                          totalQuantity: number;
+                      }
+                  >();
+          
+                  pallets.forEach((p) => {
+                      const key = `${p.itemType}__${p.beerStyle}`;
+                      const cur = map.get(key);
+          
+                      if (cur) {
+                          cur.totalQuantity += p.quantity;
+                      } else {
+                          map.set(key, {
+                              itemType: p.itemType,
+                              beerStyle: p.beerStyle,
+                              totalQuantity: p.quantity,
+                          });
+                      }
+                  });
+          
+                  return Array.from(map.values());
+              }, [pallets]);
+          }'''.replace('          ', '')
+          new = '''function useTotals(pallets: Pallet[]) {
+              return useMemo(() => {
+                  const map = new Map<
+                      string,
+                      {
+                          itemType: string;
+                          beerStyle: string;
+                          totalQuantity: number;
+                      }
+                  >();
+          
+                  pallets.forEach((p) => {
+                      const entry = getCatalogEntry(p.beerStyle, p.itemType);
+                      const key = entry?.sku
+                          ? `sku__${entry.sku}`
+                          : `${p.itemType}__${p.beerStyle.trim().toLowerCase()}`;
+                      const cur = map.get(key);
+          
+                      if (cur) {
+                          cur.totalQuantity += p.quantity;
+                      } else {
+                          map.set(key, {
+                              itemType: p.itemType,
+                              beerStyle: entry?.displayText ?? p.beerStyle,
+                              totalQuantity: p.quantity,
+                          });
+                      }
+                  });
+          
+                  return Array.from(map.values());
+              }, [pallets]);
+          }'''.replace('          ', '')
+          replace_once(path, old, new)
+
+          # ---------------------------------------------------------
+          # Actions report: forward the user-edited aa value.
+          # ---------------------------------------------------------
+          path = "src/components/cellering/SendMessurmentsHeader.tsx"
+          replace_once(
+              path,
+              '(r) => (r as any).dryHopGrams && (r as any).dryHopType',
+              '(r) => (r as any).dryHopGrams && (r as any).dryHopType && (r as any).dryHopAa'
+          )
+          replace_once(
+              path,
+              '''                                    Number((r as any).dryHopGrams),
+                                      String((r as any).dryHopType)
+                                  );''',
+              '''                                    Number((r as any).dryHopGrams),
+                                      String((r as any).dryHopType),
+                                      Number((r as any).dryHopAa)
+                                  );'''
+          )
+
+          # Keep NewReading explicit instead of relying on any-casts alone.
+          path = "src/App.tsx"
+          replace_once(
+              path,
+              '    dryHopType?: string;\n',
+              '    dryHopType?: string;\n    dryHopAa?: number;\n'
+          )
+
+          # ---------------------------------------------------------
+          # Specs UI labels for the manually-created specs/hops document.
+          # ---------------------------------------------------------
+          path = "src/components/tools/EditSpecs.tsx"
+          replace_once(
+              path,
+              '        tolorances: "הגדרות כלליות לחישוב המלצות",\n',
+              '        tolorances: "הגדרות כלליות לחישוב המלצות",\n        hops: "אחוז חומצות אלפא בכשות",\n        Citra_aa: "Citra",\n        Cascade_aa: "Cascade",\n        Talos_aa: "Talos",\n'
+          )
+
+          # ---------------------------------------------------------
+          # Keep edited aa available until the batch actions sender runs.
+          # ---------------------------------------------------------
+          path = "src/components/dashboard/NoteToFermentor.tsx"
+          replace_once(
+              path,
+              '} from "../../SERVICES/cellering/dryHopLogic";\n',
+              '} from "../../SERVICES/cellering/dryHopLogic";\nimport { rememberDryHopAa } from "../../SERVICES/cellering/assignDryHop";\n'
+          )
+          replace_once(
+              path,
+              '                    dryHopByTank.set(tankNum, { grams, hopType, aa });\n',
+              '                    dryHopByTank.set(tankNum, { grams, hopType, aa });\n                    if (fermentor.sheetUrl) rememberDryHopAa(fermentor.sheetUrl, aa);\n'
+          )
+
+          # ---------------------------------------------------------
+          # Apps Script dispatcher: forward aa as a dedicated argument.
+          # ---------------------------------------------------------
+          path = "server/post.js"
+          replace_once(
+              path,
+              '      logToSheet("Executing assignDryHop. Type: " + data.hopType + ", Grams: " + data.grams);',
+              '      logToSheet("Executing assignDryHop. Type: " + data.hopType + ", Grams: " + data.grams + ", aa: " + data.aa);'
+          )
+          replace_once(
+              path,
+              '''        data.sheetUrl,
+                  data.grams,
+                  data.hopType
+                );'''.replace('      ', ''),
+              '''        data.sheetUrl,
+                  data.grams,
+                  data.hopType,
+                  data.aa
+                );'''.replace('      ', '')
+          )
+
+          # ---------------------------------------------------------
+          # Apps Script brew-sheet writer: validate/write aa to column B.
+          # Also understands the short-lived encoded client bridge so the
+          # new frontend remains compatible until this server deploy lands.
+          # ---------------------------------------------------------
+          path = "server/addFermentationMeasurement.js"
+          replace_once(
+              path,
+              'function assignDryHopToHopsTable(sheetUrl, grams, hopType) {\n\n  if (!sheetUrl) throw new Error("Missing sheetUrl");\n  if (!grams || !hopType) throw new Error("Missing grams or hopType");',
+              '''function assignDryHopToHopsTable(sheetUrl, grams, hopType, aa) {
+          
+            if (!sheetUrl) throw new Error("Missing sheetUrl");
+            if (!grams || !hopType) throw new Error("Missing grams or hopType");
+          
+            let cleanHopType = String(hopType || "").trim();
+            let resolvedAa = Number(aa);
+          
+            // Compatibility bridge: the frontend can carry aa inside hopType
+            // until the dispatcher that forwards the fourth argument is deployed.
+            const transportMatch = cleanHopType.match(/^(.*)::aa=([0-9]+(?:\\.[0-9]+)?)$/);
+            if (transportMatch) {
+              cleanHopType = transportMatch[1].trim();
+              if (!Number.isFinite(resolvedAa)) resolvedAa = Number(transportMatch[2]);
+            }
+          
+            if (!cleanHopType) throw new Error("Missing hopType");
+            if (!Number.isFinite(resolvedAa) || resolvedAa <= 0 || resolvedAa > 100) {
+              throw new Error("Missing or invalid aa");
+            }'''.replace('          ', '')
+          )
+          replace_once(
+              path,
+              '''    // WRITE HOP AMOUNT + TYPE
+              // ----------------------------------------------------------
+          
+              sheet.getRange(targetRow, 1).setValue(grams);                          // כמות
+              sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + hopType);    // סוג/אצווה'''.replace('          ', ''),
+              '''    // WRITE HOP AMOUNT + aa + TYPE
+              // ----------------------------------------------------------
+          
+              sheet.getRange(targetRow, 1).setValue(grams);                               // כמות
+              sheet.getRange(targetRow, 2).setValue(resolvedAa).setNumberFormat('0.0"%aa"'); // אחוז אלפה
+              sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + cleanHopType);    // סוג/אצווה'''.replace('          ', '')
+          )
+          replace_once(
+              path,
+              '      grams + "g " + hopType\n',
+              '      grams + "g " + cleanHopType + " (" + resolvedAa + "%aa)"\n'
+          )
+          replace_once(
+              path,
+              '''      grams: grams,
+                hopType: hopType,
+                additionLabelFilled:'''.replace('      ', ''),
+              '''      grams: grams,
+                hopType: cleanHopType,
+                aa: resolvedAa,
+                additionLabelFilled:'''.replace('      ', '')
+          )
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify client build
+        run: npm run build
+
+      - name: Verify Apps Script syntax
+        run: |
+          node --check server/post.js
+          node --check server/addFermentationMeasurement.js
+
+      - name: Commit generated feature patches
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src server
+          git commit -m "Complete shipment and dry-hop aa plumbing"
+          git push origin HEAD:feature/shipment-aa-appsscript-deploy
