@@ -88,6 +88,19 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         if (defaultAa !== null) setDryHopAa(String(defaultAa));
     }, [noteType, specs, dryHopAa, tank.beerStyle, tank.beerVolume]);
 
+    function resolveDryHopAaValue(): string {
+        if (dryHopAa !== "") return dryHopAa;
+        if (noteType !== "דרייהופ" || !specs) return "";
+
+        const category = getDryHopStyleCategory(tank.beerStyle);
+        const calc = calcDryHopDose(category, tank.beerVolume);
+        const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
+        if (!hopType) return "";
+
+        const defaultAa = getHopAa(hopType, specs);
+        return defaultAa !== null ? String(defaultAa) : "";
+    }
+
     function resetValues() {
         setValue(""); setValue2(""); setDryHopAa(""); setDirection("");
         setPackagingType(""); setAmount(""); setIsEmpty(false);
@@ -113,7 +126,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
 
                 if (calc.needsManualInput && (value === "" || value2.trim() === "")) return null;
-                if (!grams || grams <= 0 || !hopType || !isValidHopAa(dryHopAa)) return null;
+                if (!grams || grams <= 0 || !hopType || !isValidHopAa(resolveDryHopAaValue())) return null;
 
                 const pressure = getClosingPressureForStyle(tank.beerStyle, specs);
                 if (pressure === null) return null;
@@ -132,7 +145,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         const calc = calcDryHopDose(category, tank.beerVolume);
         const grams = calc.needsManualInput ? Number(value) : roundGramsUp5(calc.grams);
         const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
-        const aa = Number(dryHopAa);
+        const aa = Number(resolveDryHopAaValue());
         if (!grams || grams <= 0 || !hopType || !isValidHopAa(aa)) return null;
         return { grams, hopType, aa };
     }
@@ -467,7 +480,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                             min={0}
                                             max={100}
                                             placeholder="aa"
-                                            value={dryHopAa}
+                                            value={resolveDryHopAaValue()}
                                             disabled={isSending}
                                             onChange={(e) => setDryHopAa(e.target.value)}
                                         />
@@ -482,7 +495,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                             min={0}
                                             max={100}
                                             placeholder="aa"
-                                            value={dryHopAa}
+                                            value={resolveDryHopAaValue()}
                                             disabled={isSending}
                                             onChange={(e) => setDryHopAa(e.target.value)}
                                         />
