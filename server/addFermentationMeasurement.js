@@ -520,19 +520,68 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType, aa) {
     let entryNumber = -1;
     const maxRowsToScan = 10;
     const emptySlotPattern = /^(\d+)\)\s*$/;
+    const numberedPrefixPattern = /^(\d+)\)/;
 
-    for (let r = lastHeaderRow + 1; r < Math.min(lastHeaderRow + 1 + maxRowsToScan, values.length); r++) {
-      const colC = String(values[r][2] || "").trim();
-      const match = colC.match(emptySlotPattern);
-      if (match) {
-        targetRow = r + 1; // 1-indexed ל-Range
-        entryNumber = parseInt(match[1], 10);
-        break;
+    // Read a fixed-size block directly from the sheet so completely empty rows
+    // are included even when they fall outside getDataRange().
+    const slotStartRow = lastHeaderRow + 2; // first data row, 1-indexed
+    const slotRows = sheet
+      .getRange(slotStartRow, 1, maxRowsToScan, 3)
+      .getDisplayValues();
+
+    let firstCompletelyEmptyRow = -1;
+    let highestEntryNumber = 0;
+
+    // Primary behavior stays unchanged: prefer an explicitly prepared "N)" slot.
+    // While scanning, also remember the first truly empty A:C row and the
+    // highest existing hop number so we can create the next slot ourselves.
+    for (let i = 0; i < slotRows.length; i++) {
+      const colA = String(slotRows[i][0] || "").trim();
+      const colB = String(slotRows[i][1] || "").trim();
+      const colC = String(slotRows[i][2] || "").trim();
+
+      const numberedMatch = colC.match(numberedPrefixPattern);
+      if (numberedMatch) {
+        highestEntryNumber = Math.max(
+          highestEntryNumber,
+          parseInt(numberedMatch[1], 10)
+        );
+      }
+
+      const emptyNumberedMatch = colC.match(emptySlotPattern);
+      if (
+        targetRow === -1 &&
+        emptyNumberedMatch &&
+        !colA &&
+        !colB
+      ) {
+        targetRow = slotStartRow + i;
+        entryNumber = parseInt(emptyNumberedMatch[1], 10);
+      }
+
+      if (
+        firstCompletelyEmptyRow === -1 &&
+        !colA &&
+        !colB &&
+        !colC
+      ) {
+        firstCompletelyEmptyRow = slotStartRow + i;
       }
     }
 
+    // Fallback: no pre-numbered placeholder exists. Use the first completely
+    // empty row and derive the next number from the entries already in the table.
+    if (targetRow === -1 && firstCompletelyEmptyRow !== -1) {
+      targetRow = firstCompletelyEmptyRow;
+      entryNumber = highestEntryNumber + 1;
+      Logger.log(
+        "No prepared numbered hop slot found; using empty row " + targetRow +
+        " as entry #" + entryNumber
+      );
+    }
+
     if (targetRow === -1) {
-      throw new Error("No empty numbered slot (e.g. '4)') found in hops table");
+      throw new Error("No empty slot found in the first 10 rows of the hops table");
     }
 
     Logger.log("Target row for dry hop: " + targetRow + " (entry #" + entryNumber + ")");
