@@ -3,6 +3,7 @@ import {
   weekStart,
   type DeliveryPlan,
   type Product,
+  type WeekPlan,
 } from "./planningEngine";
 import type { ShipmentEvent } from "./dailyPlanner";
 
@@ -101,16 +102,78 @@ export function matchActualShipments(
     const best = ranked[0];
     if (!best) return { planned, score: null, status: "pending" as const };
 
-    // For old/manual shipments without totals, order within the week is the fallback.
     if (best.score === null || best.score >= threshold) {
       unused.delete(best.actual.id);
       return { planned, actual: best.actual, score: best.score, status: "matched" as const };
     }
 
-    // There was a real shipment this week, but its SKU mix differs materially.
+    // A shipment happened in the planned week, but its SKU mix differs materially.
+    // It still closes that trip operationally; the UI flags the mismatch instead of hiding it.
     unused.delete(best.actual.id);
     return { planned, actual: best.actual, score: best.score, status: "actual-different" as const };
   });
+}
+
+export function shipmentMatchesForPlans(
+  plans: WeekPlan[],
+  actualEvents: ShipmentEvent[],
+  products: Product[],
+) {
+  return plans.flatMap((week) =>
+    matchActualShipments(week.deliveries ?? [], actualEvents, products)
+      .map((match) => ({ ...match, week: week.id })),
+  );
+}
+
+/**
+ * Planning UI works only with trips that are still operationally open.
+ * Completed trips are omitted, but remain in Firestore and can be merged back on save.
+ */
+export function pendingPlansAfterActualShipments(
+  plans: WeekPlan[],
+  actualEvents: ShipmentEvent[],
+  products: Product[],
+): WeekPlan[] {
+  return plans.map((week) => {
+    const deliveries = week.deliveries ?? [];
+    const matches = matchActualShipments(deliveries, actualEvents, products);
+    const pendingGroupIds = new Set(
+      matches.filter((match) => match.status === "pending").map((match) => match.planned.id),
+    );
+    if (!matches.some((match) => match.status !== "pending")) return week;
+    return {
+      ...week,
+      deliveries: deliveries.filter((delivery) =>
+        pendingGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`),
+      ),
+      deliveryDates: [...new Set(
+        deliveries
+          .filter((delivery) => pendingGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`))
+          .map((delivery) => delivery.dispatchDate),
+      )],
+    };
+  });
+}
+
+export function mergeCompletedDeliveriesBack(
+  original: WeekPlan,
+  pendingEdited: WeekPlan,
+  actualEvents: ShipmentEvent[],
+  products: Product[],
+): WeekPlan {
+  const matches = matchActualShipments(original.deliveries ?? [], actualEvents, products);
+  const completedGroupIds = new Set(
+    matches.filter((match) => match.status !== "pending").map((match) => match.planned.id),
+  );
+  const completed = (original.deliveries ?? []).filter((delivery) =>
+    completedGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`),
+  );
+  const deliveries = [...completed, ...(pendingEdited.deliveries ?? [])];
+  return {
+    ...pendingEdited,
+    deliveries,
+    deliveryDates: [...new Set(deliveries.map((delivery) => delivery.dispatchDate))].sort(),
+  };
 }
 
 export function nextUnfulfilledShipment(
