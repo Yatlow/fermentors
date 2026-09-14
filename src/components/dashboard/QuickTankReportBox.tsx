@@ -12,13 +12,11 @@ import {
     calcDryHopDose,
     roundGramsUp5,
     getClosingPressureForStyle,
+    getHopAa,
+    isValidHopAa,
     buildDryHopNoteText,
 } from "../../SERVICES/cellering/dryHopLogic";
 import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurrentDataToFirestore";
-// ⚠️ שינוי - לא כותבים יותר ישירות לטבלת המאסטר מכאן. במקום זה פותחים את מודל
-// עריכת המשטחים, שהוא זה שמריץ את submitPackagingRecord מיד ברקע (דרך
-// usePackagingPalletsFlow) ומאפשר עריכה. הוא נפתח מיד עם הלחיצה על "שלח" -
-// לא מחכים לכתיבת המדידה/updatePackagingInfo, כדי לא לעכב את המשתמש.
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
 
@@ -28,7 +26,6 @@ type QuickTankReportBoxProps = {
     onClose: () => void;
     position: { top: number; left: number } | null;
 };
-
 
 const NOTE_TYPES = [
     { value: "סגירת מיכל", label: "סגירת מיכל", stage: "warm" },
@@ -63,30 +60,25 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const [noteType, setNoteType] = useState("");
     const [value, setValue] = useState("");
     const [value2, setValue2] = useState("");
+    const [dryHopAa, setDryHopAa] = useState("");
     const [direction, setDirection] = useState("");
 
     const [packagingType, setPackagingType] = useState<"kegs" | "bottles" | "">("");
     const [amount, setAmount] = useState("");
     const [isEmpty, setIsEmpty] = useState(false);
 
-    // --- פיצ'ר 1: הורדת לחץ אחרי אריזה ---
     const [pressureAfter, setPressureAfter] = useState("");
     const [pressureAutoFilled, setPressureAutoFilled] = useState(true);
 
     const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
     const [errorMsg, setErrorMsg] = useState("");
 
-    // ⚠️ חדש - כשיש דיווח אריזה עם כמות, נפתח כאן את מודל עריכת המשטחים מיד,
-    // בלי לחכות לשום כתיבה. ברגע שיש packagingJob, קופסת הדיווח המהיר מוסתרת
-    // (ר' render למטה) כדי שלא תהיה חפיפה בין שתי הקופסאות. onClose האמיתי
-    // (prop של ההורה) נקרא רק מ-onFinished של PackagingPalletsModal - לא לפני,
-    // כי קריאה מוקדמת תסיר את כל הקומפוננטה הזו, כולל את המודל שבתוכה.
     const [packagingJob, setPackagingJob] = useState<PackagingJobInput | null>(null);
 
     const isSending = status === "sending";
 
     function resetValues() {
-        setValue(""); setValue2(""); setDirection("");
+        setValue(""); setValue2(""); setDryHopAa(""); setDirection("");
         setPackagingType(""); setAmount(""); setIsEmpty(false);
         setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
@@ -94,13 +86,10 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
 
     function buildNoteText(): string | null {
         switch (noteType) {
-            // case "גיזוז": return value === "" ? null : `בדיקת גיזוז: ${value}`;
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
-            case "סגירת מיכל": {
-                return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
-            }
+            case "סגירת מיכל": return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
             case "דיאציטיל": return "חימום מיכל ל14° למנוחת דיאציטיל";
             case "קירור": return "קירור מיכל ל0.3°";
             case "אחר": return value === "" ? null : value;
@@ -113,25 +102,28 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
 
                 if (calc.needsManualInput && (value === "" || value2.trim() === "")) return null;
-                if (!grams || grams <= 0 || !hopType) return null;
+                if (!grams || grams <= 0 || !hopType || !isValidHopAa(dryHopAa)) return null;
 
                 const pressure = getClosingPressureForStyle(tank.beerStyle, specs);
                 if (pressure === null) return null;
 
+                // aa is deliberately kept out of the fermentation note. It is
+                // written only to column B of the hops table in the brew sheet.
                 return buildDryHopNoteText(grams, hopType, pressure);
             }
             default: return null;
         }
     }
 
-    function getDryHopValues(): { grams: number; hopType: string } | null {
+    function getDryHopValues(): { grams: number; hopType: string; aa: number } | null {
         if (noteType !== "דרייהופ" || !specs) return null;
         const category = getDryHopStyleCategory(tank.beerStyle);
         const calc = calcDryHopDose(category, tank.beerVolume);
         const grams = calc.needsManualInput ? Number(value) : roundGramsUp5(calc.grams);
         const hopType = calc.needsManualInput ? value2.trim() : calc.hopType;
-        if (!grams || grams <= 0 || !hopType) return null;
-        return { grams, hopType };
+        const aa = Number(dryHopAa);
+        if (!grams || grams <= 0 || !hopType || !isValidHopAa(aa)) return null;
+        return { grams, hopType, aa };
     }
 
     function calcReportLiters(): number {
@@ -155,7 +147,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             batchNumber: tank.batchNumber,
             sheetUrl: tank.sheetUrl ?? null,
             notes: noteText,
-
         };
         if (noteType === "גיזוז") reading.carbonation = value;
 
@@ -169,12 +160,28 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 const dryHop = getDryHopValues();
                 if (dryHop) {
                     try {
-                        await assignDryHopToHopsTable(tank.sheetUrl, dryHop.grams, dryHop.hopType);
+                        await assignDryHopToHopsTable(
+                            tank.sheetUrl,
+                            dryHop.grams,
+                            dryHop.hopType,
+                            dryHop.aa
+                        );
                     } catch (err) {
                         console.error("Failed to assign dry hop to hops table", err);
+                        // The fermentation note is already written at this point.
+                        // Surface a warning and do not invite an automatic retry that
+                        // could duplicate the note.
+                        await pushCurrentDataToFirestore([{
+                            ...reading,
+                            sheetResult: res.find((r) => r.success)?.result,
+                        }]);
+                        setStatus("error");
+                        setErrorMsg("הדיווח נשמר, אך עדכון טבלת הכשות נכשל. אין לשלוח שוב; יש לבדוק את גיליון הבישול.");
+                        return;
                     }
                 }
             }
+
             const successfulResult = res.find(
                 (result) => result.success === true && String(result.tankId) === String(tank.id)
             );
@@ -192,7 +199,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         }
     }
 
-    /** בונה את קלט עבודת האריזה (למודל המשטחים), או null אם אין כמות ממשית */
     function buildPackagingJobInput(): PackagingJobInput | null {
         if (!packagingType || !(Number(amount) > 0)) return null;
         return {
@@ -208,9 +214,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     }
 
     async function submitPackaging() {
-        // ⚠️ שינוי מרכזי: אם יש עבודת משטחים - פותחים את PackagingPalletsModal
-        // מייד, סינכרונית, לפני כל await. הוא זה שמריץ את submitPackagingRecord
-        // ברקע (דרך usePackagingPalletsFlow) ומציג במקביל את עריכת המשטחים.
         const job = buildPackagingJobInput();
         if (job) {
             setPackagingJob(job);
@@ -219,8 +222,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             setErrorMsg("");
         }
 
-        // כתיבת המדידה/ההערה בפועל (הגיליון + updatePackagingInfo) רצה ברקע,
-        // בלי שום קשר למודל המשטחים.
         void writeMeasurementReading(job !== null);
     }
 
@@ -251,7 +252,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 notes = notes ? `${notes}, סה"כ ${reportLiters.toFixed(2)} ליטר` : `סה"כ ${reportLiters.toFixed(2)} ליטר`;
             }
 
-            // --- פיצ'ר 1: הוספת טקסט הורדת לחץ (רק אם המיכל לא ריק) ---
             const hasValidPressure = pressureAfter !== "" && !Number.isNaN(Number(pressureAfter));
             if (!isEmpty && hasValidPressure) {
                 const pressureText = `הורדת לחץ ל-${pressureAfter}`;
@@ -269,7 +269,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 isEmpty: isEmpty ? true : undefined,
                 kegs: packagingType === "kegs" && reportLiters > 0 ? reportLiters : undefined,
                 crates: packagingType === "bottles" && reportLiters > 0 ? reportLiters : undefined,
-                // רושמים גם את הלחץ החדש כמדידת לחץ רגילה של המיכל
                 pressure: !isEmpty && hasValidPressure ? Number(pressureAfter) : undefined,
                 totalLiters,
                 shrinkagePercent,
@@ -284,8 +283,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 (result) => result.success === true && String(result.tankId) === String(tank.id)
             );
 
-            // Firestore מתעדכן מיד אחרי שהמדידה נקלטה. כשל מאוחר יותר
-            // בעדכון תאי האריזה בגיליון לא ימנע שמירת totalLiters/פחת.
             await pushCurrentDataToFirestore([{
                 ...reading,
                 sheetResult: successfulResult?.result,
@@ -308,8 +305,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             }
         } catch (err: any) {
             if (handedOffToPalletsModal) {
-                // הקופסה הזו כבר מוסתרת - PackagingPalletsModal ממשיך לרוץ בעצמו,
-                // אין למי להציג פה שגיאה, רק לתעד אותה.
                 console.error("Failed to write packaging measurement reading:", err);
             } else {
                 setStatus("error");
@@ -322,6 +317,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         if (noteType === "אריזה") void submitPackaging();
         else void submitNote();
     }
+
     const canSubmit =
         noteType === "אריזה"
             ? (!!packagingType && amount !== "") || isEmpty
@@ -338,11 +334,10 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
 
     return (
         <>
-            {/* ⚠️ שינוי - מוסתר ברגע שיש packagingJob, כדי לא לחפוף עם PackagingPalletsModal */}
             {!packagingJob && (
                 <div
                     className="fermentorInfoOverlay"
-                    onClick={() => { if (!isSending) onClose(); }} // לא לסגור בטעות תוך כדי שליחה
+                    onClick={() => { if (!isSending) onClose(); }}
                 >
                     <div
                         className="fermentorInfoBox quickReportBox"
@@ -366,6 +361,15 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                     if (newType === "סגירת מיכל" && closingPressure !== null) {
                                         setValue(String(closingPressure));
                                     }
+
+                                    if (newType === "דרייהופ" && specs) {
+                                        const category = getDryHopStyleCategory(tank.beerStyle);
+                                        const calc = calcDryHopDose(category, tank.beerVolume);
+                                        if (!calc.needsManualInput) {
+                                            const defaultAa = getHopAa(calc.hopType, specs);
+                                            setDryHopAa(defaultAa !== null ? String(defaultAa) : "");
+                                        }
+                                    }
                                 }}
                             >
                                 <option value="" disabled>בחר סוג דיווח</option>
@@ -385,7 +389,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                             {noteType === "סגירת מיכל" && (
                                 <div className="quickReportInline">
                                     <span>סגירת נשם, כיוון פורק ל:</span>
-
                                     <input
                                         type="number"
                                         step="0.1"
@@ -435,12 +438,44 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                     <div className="quickReportInline">
                                         <input type="number" placeholder="גרם" value={value} disabled={isSending}
                                             onChange={(e) => setValue(e.target.value)} />
-                                        <input type="text" placeholder="סוג כשות" value={value2} disabled={isSending}
-                                            onChange={(e) => setValue2(e.target.value)} />
+                                        <input
+                                            type="text"
+                                            placeholder="סוג כשות"
+                                            value={value2}
+                                            disabled={isSending}
+                                            onChange={(e) => {
+                                                const hopType = e.target.value;
+                                                setValue2(hopType);
+                                                const defaultAa = specs ? getHopAa(hopType, specs) : null;
+                                                setDryHopAa(defaultAa !== null ? String(defaultAa) : "");
+                                            }}
+                                        />
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            min={0}
+                                            max={100}
+                                            placeholder="aa"
+                                            value={dryHopAa}
+                                            disabled={isSending}
+                                            onChange={(e) => setDryHopAa(e.target.value)}
+                                        />
+                                        <span>%aa</span>
                                     </div>
                                 ) : (
                                     <div className="quickReportDryHopPreview">
-                                        הכנסת כשות 4: {roundGramsUp5(dryHopCalc.grams)} גרם {dryHopCalc.hopType}, סגירת לחץ, כיוון פורק ל{dryHopPressure ?? "—"} bar
+                                        <span>הכנסת כשות 4: {roundGramsUp5(dryHopCalc.grams)} גרם {dryHopCalc.hopType} </span>
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            min={0}
+                                            max={100}
+                                            placeholder="aa"
+                                            value={dryHopAa}
+                                            disabled={isSending}
+                                            onChange={(e) => setDryHopAa(e.target.value)}
+                                        />
+                                        <span>%aa, סגירת לחץ, כיוון פורק ל{dryHopPressure ?? "—"} bar</span>
                                     </div>
                                 )
                             )}
@@ -455,7 +490,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                             const pt = e.target.value as "kegs" | "bottles";
                                             setPackagingType(pt);
                                             setAmount("");
-                                            // פיצ'ר 1: ברירת מחדל = הלחץ הנוכחי של המיכל
                                             setPressureAfter(
                                                 tank.currentData?.pressure !== undefined && tank.currentData?.pressure !== null
                                                     ? String(tank.currentData.pressure)
@@ -473,7 +507,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                             onChange={(e) => setAmount(e.target.value)} />
                                     )}
 
-                                    {/* פיצ'ר 1: הורדת לחץ - רק כשהמיכל לא מסומן כריק */}
                                     {packagingType && !isEmpty && (
                                         <div className="quickReportInline quickReportPressureRow">
                                             <span>הורדת לחץ ל: </span>
