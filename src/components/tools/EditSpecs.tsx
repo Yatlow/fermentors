@@ -52,9 +52,9 @@ export default function EditSpecs(
         kegBBE: "חבית",
         tolorances: "הגדרות כלליות לחישוב המלצות",
         hops: "אחוז חומצות אלפא בכשות",
-        Citra_aa: "Citra",
-        Cascade_aa: "Cascade",
-        Talos_aa: "Talos",
+        Citra_aa: "סיטרה",
+        Cascade_aa: "קסקייד",
+        Talos_aa: "טלוס",
 
         // General fields
         carbonation: "גיזוז תקין",
