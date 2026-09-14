@@ -1,8 +1,10 @@
 import {
+  parseDate,
   sameStyle,
   weekStart,
   type DeliveryPlan,
   type Product,
+  type Settings,
   type WeekPlan,
 } from "./planningEngine";
 import type { ShipmentEvent } from "./dailyPlanner";
@@ -56,6 +58,33 @@ function actualQuantity(actual: DetailedShipmentEvent, product: Product) {
       sameStyle(line.beerStyle, product.style),
     )
     .reduce((sum, line) => sum + Number(line.totalQuantity || 0), 0);
+}
+
+/**
+ * Actual shipments are Tempo receipts for planning purposes.  Apply only shipments
+ * that happened after the last explicit Tempo snapshot, so a newly entered stock
+ * count remains the source of truth and is never double-counted.
+ */
+export function settingsAfterActualShipments(
+  settings: Settings,
+  actualEvents: ShipmentEvent[],
+  throughDate: string,
+): Settings {
+  const actuals = actualEvents as DetailedShipmentEvent[];
+  return {
+    ...settings,
+    products: settings.products.map((product) => {
+      if (product.tempo === null) return product;
+      const tempoDate = parseDate(product.tempoDate);
+      const received = actuals
+        .filter((shipment) =>
+          shipment.date <= throughDate &&
+          (!tempoDate || shipment.date > tempoDate),
+        )
+        .reduce((sum, shipment) => sum + actualQuantity(shipment, product), 0);
+      return received > 0 ? { ...product, tempo: product.tempo + received } : product;
+    }),
+  };
 }
 
 /** Weighted overlap: 1 is identical, 0 has no SKU/quantity overlap. */
