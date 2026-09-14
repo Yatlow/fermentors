@@ -532,9 +532,9 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType, aa) {
     let firstCompletelyEmptyRow = -1;
     let highestEntryNumber = 0;
 
-    // Primary behavior stays unchanged: prefer an explicitly prepared "N)" slot.
-    // While scanning, also remember the first truly empty A:C row and the
-    // highest existing hop number so we can create the next slot ourselves.
+    // Prefer an explicitly prepared "N)" slot when one exists.
+    // Otherwise remember the first truly empty A:C row and derive
+    // the next number from the entries that are already in the table.
     for (let i = 0; i < slotRows.length; i++) {
       const colA = String(slotRows[i][0] || "").trim();
       const colB = String(slotRows[i][1] || "").trim();
@@ -549,28 +549,16 @@ function assignDryHopToHopsTable(sheetUrl, grams, hopType, aa) {
       }
 
       const emptyNumberedMatch = colC.match(emptySlotPattern);
-      if (
-        targetRow === -1 &&
-        emptyNumberedMatch &&
-        !colA &&
-        !colB
-      ) {
+      if (targetRow === -1 && emptyNumberedMatch && !colA && !colB) {
         targetRow = slotStartRow + i;
         entryNumber = parseInt(emptyNumberedMatch[1], 10);
       }
 
-      if (
-        firstCompletelyEmptyRow === -1 &&
-        !colA &&
-        !colB &&
-        !colC
-      ) {
+      if (firstCompletelyEmptyRow === -1 && !colA && !colB && !colC) {
         firstCompletelyEmptyRow = slotStartRow + i;
       }
     }
 
-    // Fallback: no pre-numbered placeholder exists. Use the first completely
-    // empty row and derive the next number from the entries already in the table.
     if (targetRow === -1 && firstCompletelyEmptyRow !== -1) {
       targetRow = firstCompletelyEmptyRow;
       entryNumber = highestEntryNumber + 1;
