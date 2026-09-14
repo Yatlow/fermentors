@@ -54,6 +54,16 @@ export type Shipment = {
     totals: ShipmentTotal[];
     createdAt?: Timestamp | null;
     customerName?: string | null;
+
+    // Source/copy audit. The first successful issuance reserves the one and
+    // only ordinary original. Reprints are copies; exceptional restorations
+    // are recorded separately instead of clearing originalIssuedAt.
+    originalIssuedAt?: Timestamp | null;
+    originalIssuedBy?: string | null;
+    originalRestoreCount?: number;
+    originalLastRestoredAt?: Timestamp | null;
+    originalLastRestoredBy?: string | null;
+    originalLastRestoreReason?: string | null;
 };
 
 export const MAX_HEIGHT_UNITS_PER_LOADING_PALLET = 190;
