@@ -1,0 +1,67 @@
+name: Fix dry hop slot and deploy
+
+on:
+  push:
+    branches:
+      - feature/shipment-aa-appsscript-deploy
+    paths:
+      - ".github/workflows/fix-dry-hop-slot-now.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/shipment-aa-appsscript-deploy
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python .github/scripts/fix_dry_hop_slot.py
+
+      - name: Validate server file
+        run: node --check server/addFermentationMeasurement.js
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/addFermentationMeasurement.js
+          git commit -m "Fix dry hop fallback to empty hops row"
+          git push origin HEAD:feature/shipment-aa-appsscript-deploy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp
+
+      - name: Restore clasp credentials
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          test -n "$CLASPRC_JSON"
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      - name: Push Apps Script sources
+        working-directory: server
+        run: clasp push --force
+
+      - name: Update production Web App deployment
+        working-directory: server
+        env:
+          APPS_SCRIPT_DEPLOYMENT_ID: AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h
+        run: clasp deploy --deploymentId "$APPS_SCRIPT_DEPLOYMENT_ID" --description "Dry-hop slot fallback"
+
+      - name: Verify deployment
+        working-directory: server
+        env:
+          APPS_SCRIPT_DEPLOYMENT_ID: AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h
+        run: clasp deployments | grep -F "$APPS_SCRIPT_DEPLOYMENT_ID"
