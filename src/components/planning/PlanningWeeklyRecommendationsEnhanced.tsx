@@ -204,6 +204,24 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
     function addManualRow() {
         if (!packStyle) return;
+
+        const recommended = model.packagingRecommendation.find((rec) => {
+            const p = product(rec.productId);
+            return p && sameStyle(p.style, packStyle) && !rows.some((row) => row.key === `rec:${rec.id}`);
+        });
+
+        if (recommended) {
+            setRows((currentRows) => [...currentRows, {
+                key: `rec:${recommended.id}`,
+                source: "recommendation",
+                tankId: recommended.tankId,
+                productId: recommended.productId,
+                quantity: recommended.quantity,
+                completed: 0,
+            }]);
+            return;
+        }
+
         const products = styleProducts(packStyle);
         const styleTanks = tanksForStyle(packStyle);
         setRows((currentRows) => [...currentRows, {
