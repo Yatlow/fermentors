@@ -1,0 +1,178 @@
+name: Fix dry hop slot and deploy
+
+on:
+  push:
+    branches:
+      - feature/shipment-aa-appsscript-deploy
+    paths:
+      - ".github/workflows/fix-dry-hop-slot-now.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apps-script-production
+  cancel-in-progress: false
+
+jobs:
+  fix-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/shipment-aa-appsscript-deploy
+          fetch-depth: 0
+
+      - name: Patch dry-hop slot selection
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("server/addFermentationMeasurement.js")
+          text = path.read_text(encoding="utf-8")
+
+          old = r'''    let targetRow = -1;
+    let entryNumber = -1;
+    const maxRowsToScan = 10;
+    const emptySlotPattern = /^(\d+)\)\s*$/;
+
+    for (let r = lastHeaderRow + 1; r < Math.min(lastHeaderRow + 1 + maxRowsToScan, values.length); r++) {
+      const colC = String(values[r][2] || "").trim();
+      const match = colC.match(emptySlotPattern);
+      if (match) {
+        targetRow = r + 1; // 1-indexed ל-Range
+        entryNumber = parseInt(match[1], 10);
+        break;
+      }
+    }
+
+    if (targetRow === -1) {
+      throw new Error("No empty numbered slot (e.g. '4)') found in hops table");
+    }
+'''
+
+          new = r'''    let targetRow = -1;
+    let entryNumber = -1;
+    const maxRowsToScan = 10;
+    const emptySlotPattern = /^(\d+)\)\s*$/;
+    const numberedPrefixPattern = /^(\d+)\)/;
+
+    // Read a fixed-size block directly from the sheet so completely empty rows
+    // are included even when they fall outside getDataRange().
+    const slotStartRow = lastHeaderRow + 2; // first data row, 1-indexed
+    const slotRows = sheet
+      .getRange(slotStartRow, 1, maxRowsToScan, 3)
+      .getDisplayValues();
+
+    let firstCompletelyEmptyRow = -1;
+    let highestEntryNumber = 0;
+
+    // Primary behavior stays unchanged: prefer an explicitly prepared "N)" slot.
+    // While scanning, also remember the first truly empty A:C row and the
+    // highest existing hop number so we can create the next slot ourselves.
+    for (let i = 0; i < slotRows.length; i++) {
+      const colA = String(slotRows[i][0] || "").trim();
+      const colB = String(slotRows[i][1] || "").trim();
+      const colC = String(slotRows[i][2] || "").trim();
+
+      const numberedMatch = colC.match(numberedPrefixPattern);
+      if (numberedMatch) {
+        highestEntryNumber = Math.max(
+          highestEntryNumber,
+          parseInt(numberedMatch[1], 10)
+        );
+      }
+
+      const emptyNumberedMatch = colC.match(emptySlotPattern);
+      if (
+        targetRow === -1 &&
+        emptyNumberedMatch &&
+        !colA &&
+        !colB
+      ) {
+        targetRow = slotStartRow + i;
+        entryNumber = parseInt(emptyNumberedMatch[1], 10);
+      }
+
+      if (
+        firstCompletelyEmptyRow === -1 &&
+        !colA &&
+        !colB &&
+        !colC
+      ) {
+        firstCompletelyEmptyRow = slotStartRow + i;
+      }
+    }
+
+    // Fallback: no pre-numbered placeholder exists. Use the first completely
+    // empty row and derive the next number from the entries already in the table.
+    if (targetRow === -1 && firstCompletelyEmptyRow !== -1) {
+      targetRow = firstCompletelyEmptyRow;
+      entryNumber = highestEntryNumber + 1;
+      Logger.log(
+        "No prepared numbered hop slot found; using empty row " + targetRow +
+        " as entry #" + entryNumber
+      );
+    }
+
+    if (targetRow === -1) {
+      throw new Error("No empty slot found in the first 10 rows of the hops table");
+    }
+'''
+
+          if old not in text:
+              raise SystemExit("Expected dry-hop slot block was not found; refusing to patch")
+
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          node --check server/addFermentationMeasurement.js
+
+      - name: Commit fix to feature branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/addFermentationMeasurement.js
+          git commit -m "Fix dry hop fallback to empty hops row"
+          git push origin HEAD:feature/shipment-aa-appsscript-deploy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp
+
+      - name: Restore clasp credentials
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          test -n "$CLASPRC_JSON"
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      - name: Push Apps Script sources
+        working-directory: server
+        run: clasp push --force
+
+      - name: Update production Web App deployment
+        working-directory: server
+        env:
+          APPS_SCRIPT_DEPLOYMENT_ID: AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h
+        run: |
+          clasp deploy \
+            --deploymentId "$APPS_SCRIPT_DEPLOYMENT_ID" \
+            --description "Dry-hop slot fallback ${GITHUB_SHA::7}"
+
+      - name: Verify deployment
+        working-directory: server
+        env:
+          APPS_SCRIPT_DEPLOYMENT_ID: AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h
+        run: |
+          clasp deployments | tee /tmp/deployments.txt
+          grep -F "$APPS_SCRIPT_DEPLOYMENT_ID" /tmp/deployments.txt
