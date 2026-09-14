@@ -407,14 +407,14 @@ export default function PlanningWeeklyRecommendations({
 
             const palletIds = [...new Set(best.selected.map((p) => p.id))];
             const missingNotes = best.details.filter((detail) => detail.missing > 0).map((detail) =>
-                `${displayStyle(detail.product.style)}: חסר עוד ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} מבחינת מקומות משטח.`,
+                `${displayStyle(detail.product.style)} (${detail.product.type === "crates" ? "בקבוקים" : "חביות"}): חסר עוד ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} מבחינת מקומות משטח.`,
             );
             const partialNotes = best.details.filter((detail) => detail.partialEquivalentGap > 0).map((detail) =>
-                `${displayStyle(detail.product.style)}: משטח חלקי נספר כמקום משטח מלא; בפועל סומנו ${fmt(detail.actualSelected)} מתוך ${fmt(detail.nominalCovered)} יחידות מתוכננות.`,
+                `${displayStyle(detail.product.style)} (${detail.product.type === "crates" ? "בקבוקים" : "חביות"}): משטח חלקי נספר כמקום משטח מלא; בפועל סומנו ${fmt(detail.actualSelected)} מתוך ${fmt(detail.nominalCovered)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} מתוכננים.`,
             );
             const smallPartialNotes = best.selected
                 .filter((p) => p.itemType === "crates" && palletQuantity(p) < PARTIAL_CRATE_HINT_THRESHOLD)
-                .map((p) => `${displayStyle(p.beerStyle)}: סומן משטח חלקי של ${fmt(palletQuantity(p))} ארגזים — ייתכן שכדאי להחליף אותו ידנית במפת המקרר.`);
+                .map((p) => `${displayStyle(p.beerStyle)} (בקבוקים): סומן משטח חלקי של ${fmt(palletQuantity(p))} ארגזים — ייתכן שכדאי להחליף אותו ידנית במפת המקרר.`);
 
             if (best.selected.length) {
                 setMarkFeedback("מסמן את המשטחים הזמינים במפת המקרר…");
