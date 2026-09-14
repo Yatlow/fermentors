@@ -3,14 +3,18 @@ import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { useHolidays, usePlanning, usePlanningToday } from "../../SERVICES/planning/usePlanning";
-import { planningWorkspace } from "../../SERVICES/planning/workspace";
-import { recommendationSettings } from "../../SERVICES/planning/planningPresentation";
+import {
+  mergeCompletedDeliveriesBack,
+  pendingPlansAfterActualShipments,
+  settingsAfterActualShipments,
+} from "../../SERVICES/planning/shipmentActuals";
 import PlanningBoard from "./PlanningBoard";
 import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
-import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
+import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
+import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
 import "./planning.css";
 import "./planningEnhancements.css";
 
@@ -38,13 +42,30 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
-  const workspace = useMemo(() => planningWorkspace(recommendationSettings(settings), pallets, tanks, plans, actuals, productionTanks, today, holidays, data.actualShipments), [settings, pallets, tanks, plans, actuals, productionTanks, today, holidays, data.actualShipments]);
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
+
+  const weeklyPlans = useMemo(
+    () => pendingPlansAfterActualShipments(plans, data.actualShipments, settings.products),
+    [plans, data.actualShipments, settings.products],
+  );
+
+  const calendarSettings = useMemo(
+    () => settingsAfterActualShipments(settings, data.actualShipments, today),
+    [settings, data.actualShipments, today],
+  );
 
   async function saveSettings(next: Settings) {
     await data.saveSettings(next);
     setMessage("הנתונים נשמרו");
+  }
+
+  async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0]) {
+    const original = plans.find((week) => week.id === next.id);
+    const merged = original
+      ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products)
+      : next;
+    await data.saveWeek(merged);
   }
 
   return (
@@ -56,13 +77,14 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
 
       {!data.loading && !data.error && <>
-        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} actions={workspace.actions} plans={plans}/>}
+        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={plans}/>}
 
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningWeeklyRecommendations
-            settings={settings}
-            plans={plans}
+          <PlanningWeeklyRecommendationsEnhanced
+            settings={calendarSettings}
+            plans={weeklyPlans}
+            historyPlans={plans}
             tanks={tanks}
             sources={productionTanks}
             pallets={pallets}
@@ -71,8 +93,13 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
             holidays={holidays}
             today={today}
             disabled={disabled}
-            saveWeek={data.saveWeek}
+            saveWeek={saveWeeklyPlan}
             onOpenCoolerMap={onOpenCoolerMap}
+          />
+          <PlanningShipmentStatusPortal
+            plans={plans}
+            shipments={data.actualShipments}
+            products={settings.products}
           />
         </>}
 

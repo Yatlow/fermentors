@@ -123,8 +123,14 @@ export function usePlanning(today: string, tanks: TankInput[]) {
         (snap) => {
           setActualShipments(
             snap.docs.flatMap((d) => {
-              const date = d.data().createdAt?.toDate?.();
-              return date ? [{ id: d.id, date: dateKey(date) }] : [];
+              const data = d.data();
+              const date = data.createdAt?.toDate?.();
+              return date ? [{
+                id: d.id,
+                date: dateKey(date),
+                shipmentNumber: Number(data.shipmentNumber) || undefined,
+                totals: Array.isArray(data.totals) ? data.totals : [],
+              }] : [];
             }),
           );
           ok("משלוחים", snap.metadata.fromCache);
@@ -194,7 +200,6 @@ export function usePlanning(today: string, tanks: TankInput[]) {
         updatedAt: serverTimestamp(),
         updatedBy: auth.currentUser!.uid,
       };
-      // Immutable revision and live document are committed atomically.
       const revisionRef = doc(ref, "revisions", String(next.revision));
       tx.set(ref, next);
       tx.set(revisionRef, next);

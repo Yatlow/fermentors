@@ -41,6 +41,7 @@ type ShipmentSelectionState = {
     selected: Pallet[];
     details: Array<{
         product: Product;
+        itemType: Pallet["itemType"];
         requested: number;
         available: number;
         actualSelected: number;
@@ -377,6 +378,7 @@ export default function PlanningWeeklyRecommendations({
                             selected: combined,
                             details: [...state.details, {
                                 product: line.product,
+                                itemType: option.selected[0]?.itemType ?? line.product.type,
                                 requested: line.requested,
                                 available: line.available,
                                 actualSelected: option.actualTotal,
@@ -407,14 +409,14 @@ export default function PlanningWeeklyRecommendations({
 
             const palletIds = [...new Set(best.selected.map((p) => p.id))];
             const missingNotes = best.details.filter((detail) => detail.missing > 0).map((detail) =>
-                `${displayStyle(detail.product.style)}: חסר עוד ${fmt(detail.missing)} ${detail.product.type === "crates" ? "ארגזים" : "חביות"} מבחינת מקומות משטח.`,
+                `${displayStyle(detail.product.style)} (${detail.itemType === "crates" ? "בקבוקים" : "חביות"}): חסר עוד ${fmt(detail.missing)} ${detail.itemType === "crates" ? "ארגזים" : "חביות"} מבחינת מקומות משטח.`,
             );
             const partialNotes = best.details.filter((detail) => detail.partialEquivalentGap > 0).map((detail) =>
-                `${displayStyle(detail.product.style)}: משטח חלקי נספר כמקום משטח מלא; בפועל סומנו ${fmt(detail.actualSelected)} מתוך ${fmt(detail.nominalCovered)} יחידות מתוכננות.`,
+                `${displayStyle(detail.product.style)} (${detail.itemType === "crates" ? "בקבוקים" : "חביות"}): משטח חלקי נספר כמקום משטח מלא; בפועל סומנו ${fmt(detail.actualSelected)} מתוך ${fmt(detail.nominalCovered)} ${detail.itemType === "crates" ? "ארגזים" : "חביות"} מתוכננים.`,
             );
             const smallPartialNotes = best.selected
                 .filter((p) => p.itemType === "crates" && palletQuantity(p) < PARTIAL_CRATE_HINT_THRESHOLD)
-                .map((p) => `${displayStyle(p.beerStyle)}: סומן משטח חלקי של ${fmt(palletQuantity(p))} ארגזים — ייתכן שכדאי להחליף אותו ידנית במפת המקרר.`);
+                .map((p) => `${displayStyle(p.beerStyle)} (בקבוקים): סומן משטח חלקי של ${fmt(palletQuantity(p))} ארגזים — ייתכן שכדאי להחליף אותו ידנית במפת המקרר.`);
 
             if (best.selected.length) {
                 setMarkFeedback("מסמן את המשטחים הזמינים במפת המקרר…");
