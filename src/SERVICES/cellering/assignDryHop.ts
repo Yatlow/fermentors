@@ -4,11 +4,15 @@ const GOOGLE_SCRIPT_URL =
 export async function assignDryHopToHopsTable(
     sheetUrl: string,
     grams: number,
-    hopType: string
+    hopType: string,
+    aa: number
 ) {
     if (!sheetUrl) throw new Error("Missing sheetUrl");
+    if (!Number.isFinite(grams) || grams <= 0) throw new Error("Invalid grams");
+    if (!hopType.trim()) throw new Error("Missing hopType");
+    if (!Number.isFinite(aa) || aa <= 0 || aa > 100) throw new Error("Invalid aa");
 
-    const payload = { action: "assignDryHop", sheetUrl, grams, hopType };
+    const payload = { action: "assignDryHop", sheetUrl, grams, hopType, aa };
 
     const response = await fetch(GOOGLE_SCRIPT_URL, {
         method: "POST",
