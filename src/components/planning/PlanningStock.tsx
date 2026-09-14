@@ -14,7 +14,6 @@
     styleGroups,
     } from "../../SERVICES/planning/planningPresentation";
     import { shortDate } from "../../SERVICES/planning/dailyPlanner";
-    import type { PlanningAction } from "../../SERVICES/planning/workspace";
 
     const fmt = (n: number) => n.toLocaleString("he-IL", { maximumFractionDigits: 0 });
 
@@ -42,11 +41,10 @@
     return "is-fresh";
     }
 
-    export default function PlanningStock({ settings, pallets, today, actions, plans }: {
+    export default function PlanningStock({ settings, pallets, today, plans }: {
     settings: Settings;
     pallets: Pallet[];
     today: string;
-    actions: PlanningAction[];
     plans: WeekPlan[];
     }) {
     const [expanded, setExpanded] = useState<string | null>(null);
@@ -58,14 +56,13 @@
         nextActions.push({ kind, date, group: groupKey(p.style), description: `${fmt(quantity)} ${p.type === "crates" ? "ארגזים" : "חביות"}`, status });
     };
 
+    // Stock overview intentionally shows only committed decisions.
+    // Recommendations belong in the planning tabs; mixing them here can surface
+    // stale suggestions after the real action was already completed.
     for (const w of plans) {
         w.packaging.forEach((r) => addProductAction("packaging", r.date ?? w.id, r.productId, r.quantity, "נקבע"));
         (w.deliveries ?? []).forEach((d) => addProductAction("delivery", d.dispatchDate, d.productId, d.quantity, d.id.startsWith("marked:") ? "מסומן למשלוח" : "נקבע"));
         w.brews.filter((b) => b.date >= today).forEach((b) => nextActions.push({ kind: "brew", date: b.date, group: groupKey(b.style), description: `${fmt(b.liters)} ל׳`, status: "נקבע" }));
-    }
-    for (const a of actions.filter((a) => a.date >= today)) {
-        if (a.kind === "brew") nextActions.push({ kind: "brew", date: a.date, group: groupKey(a.style), description: `${fmt(a.liters)} ל׳`, status: "המלצה" });
-        else addProductAction(a.kind, a.date, a.productId, a.quantity, "המלצה");
     }
     nextActions.sort((a, b) => a.date.localeCompare(b.date));
 
