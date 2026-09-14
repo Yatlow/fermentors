@@ -14,6 +14,10 @@
   flex-basis: 100%;
 }
 
+.bp-enhanced-weekly-planner .bp-week-sku {
+  cursor: pointer;
+}
+
 .bp-pack-modal-backdrop {
   position: fixed;
   inset: 0;
