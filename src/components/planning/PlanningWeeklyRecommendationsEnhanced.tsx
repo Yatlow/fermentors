@@ -202,6 +202,26 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         }
     }
 
+    function pendingUnits(row: PackRow) {
+        return Math.max(0, row.quantity - row.completed);
+    }
+
+    function defaultQuantityForSelection(productId: string, tankId: string, currentRows: PackRow[], excludeKey?: string, completed = 0) {
+        const p = product(productId);
+        if (!p || !tankId) return completed;
+        const base = model.tankAvailableLiters.get(tankId) ?? tanks.find((tank) => tank.id === tankId)?.liters ?? 0;
+        const usedByOthers = currentRows
+            .filter((other) => other.key !== excludeKey && other.tankId === tankId)
+            .reduce((sum, other) => {
+                const otherProduct = product(other.productId);
+                return sum + (otherProduct ? pendingUnits(other) * litersPerUnit(otherProduct) : 0);
+            }, 0);
+        const available = Math.max(0, base - usedByOthers);
+        const additional = Math.floor((available + 1e-8) / litersPerUnit(p));
+        const allowedAdditional = p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, additional) : additional;
+        return completed + allowedAdditional;
+    }
+
     function addManualRow() {
         if (!packStyle) return;
 
@@ -224,14 +244,22 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
         const products = styleProducts(packStyle);
         const styleTanks = tanksForStyle(packStyle);
-        setRows((currentRows) => [...currentRows, {
-            key: `manual:${crypto.randomUUID()}`,
-            source: "manual",
-            tankId: styleTanks[0]?.id ?? "",
-            productId: products[0]?.id ?? "",
-            quantity: 0,
-            completed: 0,
-        }]);
+        const defaultProduct = products[0];
+        const defaultTank = styleTanks[0];
+        const key = `manual:${crypto.randomUUID()}`;
+        setRows((currentRows) => {
+            const quantity = defaultProduct && defaultTank
+                ? defaultQuantityForSelection(defaultProduct.id, defaultTank.id, currentRows, key, 0)
+                : 0;
+            return [...currentRows, {
+                key,
+                source: "manual",
+                tankId: defaultTank?.id ?? "",
+                productId: defaultProduct?.id ?? "",
+                quantity,
+                completed: 0,
+            }];
+        });
     }
 
     function addRecommendation(recId: string) {
@@ -247,31 +275,17 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         }]);
     }
 
-    function pendingUnits(row: PackRow) {
-        return Math.max(0, row.quantity - row.completed);
-    }
-
     function maxQuantityForRow(row: PackRow) {
-        const p = product(row.productId);
-        if (!p || !row.tankId) return row.completed;
-        const base = model.tankAvailableLiters.get(row.tankId) ?? tanks.find((tank) => tank.id === row.tankId)?.liters ?? 0;
-        const usedByOthers = rows
-            .filter((other) => other.key !== row.key && other.tankId === row.tankId)
-            .reduce((sum, other) => {
-                const otherProduct = product(other.productId);
-                return sum + (otherProduct ? pendingUnits(other) * litersPerUnit(otherProduct) : 0);
-            }, 0);
-        const available = Math.max(0, base - usedByOthers);
-        const additional = Math.floor((available + 1e-8) / litersPerUnit(p));
-        const allowedAdditional = p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, additional) : additional;
-        return row.completed + allowedAdditional;
+        return defaultQuantityForSelection(row.productId, row.tankId, rows, row.key, row.completed);
     }
 
     function updateRow(key: string, patch: Partial<PackRow>) {
         setRows((currentRows) => currentRows.map((row) => {
             if (row.key !== key) return row;
             const next = { ...row, ...patch };
-            if (patch.tankId !== undefined || patch.productId !== undefined) next.quantity = next.completed;
+            if (patch.tankId !== undefined || patch.productId !== undefined) {
+                next.quantity = defaultQuantityForSelection(next.productId, next.tankId, currentRows, key, next.completed);
+            }
             return next;
         }));
     }
