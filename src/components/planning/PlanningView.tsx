@@ -5,6 +5,12 @@ import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/pla
 import { useHolidays, usePlanning, usePlanningToday } from "../../SERVICES/planning/usePlanning";
 import { planningWorkspace } from "../../SERVICES/planning/workspace";
 import { recommendationSettings } from "../../SERVICES/planning/planningPresentation";
+import {
+  mergeCompletedDeliveriesBack,
+  pendingPlansAfterActualShipments,
+  shipmentMatchesForPlans,
+} from "../../SERVICES/planning/shipmentActuals";
+import { brewSizeLabel } from "../../SERVICES/planning/productionCycle";
 import PlanningBoard from "./PlanningBoard";
 import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
@@ -42,9 +48,39 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
+  const weeklyPlans = useMemo(
+    () => pendingPlansAfterActualShipments(plans, data.actualShipments, settings.products),
+    [plans, data.actualShipments, settings.products],
+  );
+  const shipmentMatches = useMemo(
+    () => shipmentMatchesForPlans(plans, data.actualShipments, settings.products),
+    [plans, data.actualShipments, settings.products],
+  );
+  const thisWeekShipmentMatches = shipmentMatches.filter((match) =>
+    match.week === weekStart(today) && match.status !== "pending",
+  );
+
   async function saveSettings(next: Settings) {
     await data.saveSettings(next);
     setMessage("הנתונים נשמרו");
+  }
+
+  async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0]) {
+    const original = plans.find((week) => week.id === next.id);
+    const merged = original
+      ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products)
+      : next;
+    await data.saveWeek(merged);
+  }
+
+  function openEditorFromStyleChip(event: React.MouseEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (!target.closest(".bp-week-sku")) return;
+    const card = target.closest<HTMLElement>(".bp-week-rec-card");
+    if (!card) return;
+    const editButton = [...card.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("עריכת"));
+    if (editButton && !editButton.disabled) editButton.click();
   }
 
   return (
@@ -60,20 +96,42 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningWeeklyRecommendations
-            settings={settings}
-            plans={plans}
-            tanks={tanks}
-            sources={productionTanks}
-            pallets={pallets}
-            actuals={actuals}
-            shipments={data.actualShipments}
-            holidays={holidays}
-            today={today}
-            disabled={disabled}
-            saveWeek={data.saveWeek}
-            onOpenCoolerMap={onOpenCoolerMap}
-          />
+
+          {thisWeekShipmentMatches.length > 0 && <div className="bp-success" role="status">
+            <b>משלוחים שבוצעו בפועל השבוע: {thisWeekShipmentMatches.length}</b>
+            {thisWeekShipmentMatches.map((match) => <div key={`${match.week}:${match.planned.id}`}>
+              משלוח {match.actual?.shipmentNumber ? `#${match.actual.shipmentNumber}` : "שבוצע"} · {match.status === "matched"
+                ? match.score == null ? "זוהה לפי שבוע המשלוח" : `התאמה ${Math.round(match.score * 100)}% לתכנון`
+                : `בוצע בפועל אך שונה מהתכנון (${Math.round((match.score ?? 0) * 100)}% התאמה)`}
+            </div>)}
+            <small>המשלוחים שבוצעו הוסרו רק מרשימת המשימות הפתוחות; ההחלטה המקורית נשמרת בהיסטוריה. אם יש משלוח נוסף השבוע הוא נשאר פתוח, ואם לא — ניתן לעבור לשבוע הבא ולסמן אותו במפה.</small>
+          </div>}
+
+          <div className="bp-brew-tank-options">
+            <b>מקרא מיכלים לעריכה</b>
+            <div className="bp-brew-tank-list">
+              {tanks.map((tank) => <span className="bp-brew-tank-chip" key={`planning-key:${tank.id}`}>
+                <b>מיכל {tank.number}</b><span>{brewSizeLabel(tank.liters, tank.number)}</span>
+              </span>)}
+            </div>
+          </div>
+
+          <div onClickCapture={openEditorFromStyleChip} className="bp-style-chip-edit-surface">
+            <PlanningWeeklyRecommendations
+              settings={settings}
+              plans={weeklyPlans}
+              tanks={tanks}
+              sources={productionTanks}
+              pallets={pallets}
+              actuals={actuals}
+              shipments={data.actualShipments}
+              holidays={holidays}
+              today={today}
+              disabled={disabled}
+              saveWeek={saveWeeklyPlan}
+              onOpenCoolerMap={onOpenCoolerMap}
+            />
+          </div>
         </>}
 
         {tab === "schedule" && <>
