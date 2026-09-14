@@ -1,0 +1,84 @@
+name: AA rollout safety patch
+on:
+  push:
+    branches: [feature/shipment-aa-appsscript-deploy]
+    paths: [".github/aa-rollout-trigger"]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shipment-aa-appsscript-deploy
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Make Apps Script backward-compatible during rollout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('server/addFermentationMeasurement.js')
+          s = p.read_text(encoding='utf-8')
+          old = '''  let cleanHopType = String(hopType || "").trim();
+  let resolvedAa = Number(aa);
+
+  // Compatibility bridge for the short period between frontend and
+  // server deployment: aa may also be encoded in the third argument.
+  const transportMatch = cleanHopType.match(/^(.*)::aa=([0-9]+(?:\\.[0-9]+)?)$/);
+  if (transportMatch) {
+    cleanHopType = transportMatch[1].trim();
+    if (!Number.isFinite(resolvedAa)) resolvedAa = Number(transportMatch[2]);
+  }
+
+  if (!cleanHopType) throw new Error("Missing hopType");
+  if (!Number.isFinite(resolvedAa) || resolvedAa <= 0 || resolvedAa > 100) {
+    throw new Error("Missing or invalid aa");
+  }'''
+          new = '''  let cleanHopType = String(hopType || "").trim();
+  const hasAa = aa !== undefined && aa !== null && aa !== "";
+  let resolvedAa = hasAa ? Number(aa) : null;
+
+  // Accept the short-lived encoded transport format too, so deployment order
+  // between frontend and Apps Script cannot corrupt the hop name.
+  const transportMatch = cleanHopType.match(/^(.*)::aa=([0-9]+(?:\\.[0-9]+)?)$/);
+  if (transportMatch) {
+    cleanHopType = transportMatch[1].trim();
+    if (resolvedAa === null || !Number.isFinite(resolvedAa)) {
+      resolvedAa = Number(transportMatch[2]);
+    }
+  }
+
+  if (!cleanHopType) throw new Error("Missing hopType");
+  if (resolvedAa !== null && (!Number.isFinite(resolvedAa) || resolvedAa <= 0 || resolvedAa > 100)) {
+    throw new Error("Invalid aa");
+  }'''
+          if old not in s:
+              raise SystemExit('aa validation block not found')
+          s = s.replace(old, new, 1)
+          old2 = '''    sheet.getRange(targetRow, 1).setValue(grams);                               // כמות
+    sheet.getRange(targetRow, 2).setValue(resolvedAa).setNumberFormat('0.0"%aa"'); // אחוז אלפה
+    sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + cleanHopType);    // סוג/אצווה'''
+          new2 = '''    sheet.getRange(targetRow, 1).setValue(grams);                               // כמות
+    if (resolvedAa !== null) {
+      sheet.getRange(targetRow, 2).setValue(resolvedAa).setNumberFormat('0.0"%aa"'); // אחוז אלפה
+    }
+    sheet.getRange(targetRow, 3).setValue(entryNumber + ")" + cleanHopType);    // סוג/אצווה'''
+          if old2 not in s:
+              raise SystemExit('aa write block not found')
+          s = s.replace(old2, new2, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - run: npm ci
+      - run: npm run test:planning && npm run build
+      - run: node --check server/post.js && node --check server/addFermentationMeasurement.js
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/addFermentationMeasurement.js
+          git commit -m "Make aa rollout backward-compatible"
+          git push origin HEAD:feature/shipment-aa-appsscript-deploy
