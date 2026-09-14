@@ -385,8 +385,11 @@ export default function NoteToFermentor({
                                 const pressure = specs ? getClosingPressureForStyle(fermentor.beerStyle, specs) : null;
                                 const pressureText = pressure !== null ? pressure : "—";
                                 return (
-                                    <>
-                                        <span>הכנסת כשות 4: {grams} גרם {calc.hopType} </span>
+                                    <span className="dry-hop-inline" dir="rtl">
+                                        <span>הכנסת כשות 4:</span>
+                                        <bdi dir="ltr">{grams}</bdi>
+                                        <span>גרם</span>
+                                        <bdi dir="ltr">{calc.hopType}</bdi>
                                         <input
                                             type="number"
                                             step="0.1"
@@ -396,8 +399,10 @@ export default function NoteToFermentor({
                                             placeholder="aa"
                                             onChange={(e) => updateRow(row.id, { aa: e.target.value })}
                                         />
-                                        <span>%aa, סגירת נשם, כיוון פורק ל {pressureText}</span>
-                                    </>
+                                        <bdi dir="ltr">%aa</bdi>
+                                        <span>, סגירת נשם, כיוון פורק ל</span>
+                                        <bdi dir="ltr">{pressureText}</bdi>
+                                    </span>
                                 );
                             })()}
 

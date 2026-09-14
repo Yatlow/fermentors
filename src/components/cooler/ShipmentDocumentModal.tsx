@@ -330,7 +330,7 @@ export default function ShipmentDocumentModal({
         return claimed;
     }
 
-    async function recordOriginalRestore(reason: string) {
+    async function recordOriginalRestore() {
         const shipmentRef = doc(db, "shipments", shipmentId);
         const userEmail = auth.currentUser?.email ?? null;
 
@@ -347,7 +347,6 @@ export default function ShipmentDocumentModal({
                 originalRestoreCount: Number(data.originalRestoreCount ?? 0) + 1,
                 originalLastRestoredAt: serverTimestamp(),
                 originalLastRestoredBy: userEmail,
-                originalLastRestoreReason: reason,
             });
         });
     }
@@ -435,15 +434,6 @@ export default function ShipmentDocumentModal({
     }
 
     function restoreOriginal() {
-        const rawReason = window.prompt("סיבת שחזור המקור:", "");
-        if (rawReason === null) return;
-
-        const reason = rawReason.trim();
-        if (!reason) {
-            setMessage("יש להזין סיבה לשחזור המקור.");
-            return;
-        }
-
         const printWindow = beginPrintWindow();
         if (!printWindow) return;
 
@@ -453,7 +443,7 @@ export default function ShipmentDocumentModal({
         void (async () => {
             try {
                 // Audit is saved before the restored original is generated.
-                await recordOriginalRestore(reason);
+                await recordOriginalRestore();
                 buildPrintDocument(printWindow, ["מקור משוחזר"]);
                 await prepareShipmentPrint(printWindow);
             } catch (error) {
