@@ -535,7 +535,7 @@ export default function ShipmentDocumentModal({
                             <div>מבשלת שפירא א.ת. שורק (נחם), בית שמש</div>
                             <div>טל: 02-5612622 &nbsp;|&nbsp; ח.פ: 514378678</div>
                             <div>מספר: <strong>{shipmentId}</strong></div>
-                            <div>תאריך ושעת יציאת טובין: {date}</div>
+                            <div>{date}</div>
                         </div>
                         <img
                             src={shpiro}

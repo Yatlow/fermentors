@@ -1,8 +1,6 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
+import { type Dispatch, type SetStateAction } from "react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
-import { db } from "../../firebase";
 import TankCard from "./TankCard";
 
 export type DashboardProps = {
@@ -16,6 +14,7 @@ export type DashboardProps = {
         tankId: string,
         newDate: string
     ) => Promise<void>,
+    specs: SpecChart | null,
 }
 
 export default function Dashboard({
@@ -26,9 +25,8 @@ export default function Dashboard({
     filteredBrews,
     setSelectedStyles,
     handleUpdatePasivation,
+    specs,
 }: DashboardProps) {
-
-    const [specs, setSpecs] = useState<SpecChart | null>(null);
 
     const handleStyleToggle = (style: string): void => {
         if (style === "הכל") {
@@ -50,27 +48,6 @@ export default function Dashboard({
             return nextState.length === 0 ? ["הכל"] : nextState;
         });
     };
-
-    // Keep dashboard specs live. This matters for dry-hop aa defaults because
-    // the hops document may be added/edited while the dashboard is already open.
-    useEffect(() => {
-        const specsRef = collection(db, "specs");
-        const unsubscribe = onSnapshot(
-            specsRef,
-            (snapshot) => {
-                const nextSpecs: SpecChart = {};
-                snapshot.docs.forEach((firebaseDoc) => {
-                    nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;
-                });
-                setSpecs(nextSpecs);
-            },
-            (error) => {
-                console.error("Failed to subscribe to dashboard specs:", error);
-            }
-        );
-
-        return unsubscribe;
-    }, []);
 
     return (
         <div className="dashboard">

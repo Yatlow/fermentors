@@ -435,10 +435,10 @@ function App() {
                 </div>
             </header>
 
-            {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} />}
+            {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
             {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
             {selectedView === "רישום" && <>
-                <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} />
+                <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
                 {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
                 {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
                 {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
