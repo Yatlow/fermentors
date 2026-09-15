@@ -1,5 +1,3 @@
-import { callAppsScriptPost, type AppsScriptEnvelope } from "../getAndPost/appsScriptClient";
-
 export type PackagingEntry = {
     tankId: string | number;
     tankNumber?: string | number;
@@ -19,38 +17,22 @@ export type updatePackagingResult = {
     [key: string]: unknown;
 };
 
+/**
+ * Compatibility wrapper for SendMessurmentsHeader.
+ *
+ * Packaging sheet cells are now sent in parallel from writeReadingsToSheets(),
+ * together with the fermentation-row write. The old flow called this function
+ * only AFTER that first request completed, creating an unnecessary second
+ * sequential Apps Script wait. Keep the function so the component API does not
+ * need a risky large refactor, but do not send the same mutation twice.
+ */
 export async function updatePackagingInfo(
     entries: PackagingEntry[]
-) {
-    const results = await Promise.all(
-        entries.map(async (entry) => {
-            const payload = {
-                sheetUrl: entry.sheetUrl,
-                isEmpty: entry.isEmpty,
-                kegs: entry.kegs,
-                crates: entry.crates,
-                totalLiters: entry.totalLiters,
-                shrinkagePercent: entry.shrinkagePercent,
-                action: "updatePackagingInfo",
-            };
-
-            const parsed = await callAppsScriptPost<AppsScriptEnvelope<Record<string, unknown>>>(payload);
-
-            if (!parsed.success) {
-                throw new Error(parsed.error || parsed.message || "Packaging update failed");
-            }
-
-            const flat: updatePackagingResult = {
-                ...(parsed.result ?? {}),
-                success: parsed.success,
-                tankId: entry.tankId,
-                tankNumber: entry.tankNumber,
-            };
-
-            console.log("Tank packaging successfully updated:", entry.tankId);
-            return flat;
-        })
-    );
-
-    return results;
+): Promise<updatePackagingResult[]> {
+    return entries.map((entry) => ({
+        success: true,
+        tankId: entry.tankId,
+        tankNumber: entry.tankNumber,
+        alreadySynced: true,
+    }));
 }

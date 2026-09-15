@@ -67,8 +67,6 @@ function packagingTargetLeftOfLabel_(pos) {
 
 function discoverPackagingLayout_(sheet, spreadsheetId) {
   const lastRow = Math.max(sheet.getLastRow(), 1);
-  // Current brew templates use at most A:J for these fields. Reading only A:J
-  // avoids pulling unrelated formatted columns from large sheets.
   const width = Math.max(1, Math.min(Math.max(sheet.getLastColumn(), 1), 10));
   const range = sheet.getRange(1, 1, lastRow, width);
   const values = range.getDisplayValues();
@@ -84,6 +82,8 @@ function discoverPackagingLayout_(sheet, spreadsheetId) {
     : null;
 
   const layout = {
+    sheetId: sheet.getSheetId(),
+    sheetName: sheet.getName(),
     checkbox: checkbox ? { row: checkbox.row + 1, col: checkbox.col + 1 } : null,
     kegs: packagingTargetBelowLabel_(kegsLabel),
     crates: packagingTargetBelowLabel_(cratesLabel),
@@ -100,7 +100,7 @@ function discoverPackagingLayout_(sheet, spreadsheetId) {
   return layout;
 }
 
-function getPackagingLayout_(sheet, spreadsheetId) {
+function getPackagingLayout_(spreadsheetId) {
   const cache = CacheService.getScriptCache();
   const key = "packaging_layout:" + spreadsheetId;
   const cached = cache.get(key);
@@ -108,7 +108,11 @@ function getPackagingLayout_(sheet, spreadsheetId) {
   if (cached) {
     try {
       const parsed = JSON.parse(cached);
-      if (parsed && typeof parsed === "object") {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        Number.isFinite(Number(parsed.sheetId))
+      ) {
         Logger.log("Packaging layout cache hit");
         return parsed;
       }
@@ -117,7 +121,60 @@ function getPackagingLayout_(sheet, spreadsheetId) {
     }
   }
 
+  // Layout discovery still uses SpreadsheetApp because data-validation lookup is
+  // concise and reliable here. This happens only on a cold cache. Once the
+  // positions are known, every actual value mutation below goes through ONE
+  // Sheets API batchUpdate call instead of several SpreadsheetApp setValue calls.
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheets()[0];
+  if (!sheet) throw new Error("No sheet found");
   return discoverPackagingLayout_(sheet, spreadsheetId);
+}
+
+function packagingUserEnteredValue_(value) {
+  if (typeof value === "boolean") {
+    return { boolValue: value };
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return { numberValue: value };
+  }
+
+  const text = String(value ?? "");
+  const normalized = text.trim().replace(",", ".");
+  if (normalized !== "" && Number.isFinite(Number(normalized))) {
+    return { numberValue: Number(normalized) };
+  }
+
+  return { stringValue: text };
+}
+
+function packagingUpdateCellRequest_(sheetId, target, value, numberFormat) {
+  const cell = {
+    userEnteredValue: packagingUserEnteredValue_(value)
+  };
+  let fields = "userEnteredValue";
+
+  if (numberFormat) {
+    cell.userEnteredFormat = {
+      numberFormat: numberFormat
+    };
+    fields += ",userEnteredFormat.numberFormat";
+  }
+
+  return {
+    updateCells: {
+      range: {
+        sheetId: Number(sheetId),
+        startRowIndex: target.row - 1,
+        endRowIndex: target.row,
+        startColumnIndex: target.col - 1,
+        endColumnIndex: target.col
+      },
+      rows: [{ values: [cell] }],
+      fields: fields
+    }
+  };
 }
 
 function updatePackagingInfo(
@@ -133,15 +190,12 @@ function updatePackagingInfo(
   if (!sheetUrl) throw new Error("Missing sheetUrl");
 
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  const sheet = ss.getSheets()[0];
-  if (!sheet) throw new Error("No sheet found");
-
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
 
   try {
-    const layout = getPackagingLayout_(sheet, spreadsheetId);
+    const layout = getPackagingLayout_(spreadsheetId);
+    const requests = [];
     let updatedEmpty = false;
     let updatedKegs = false;
     let updatedCrates = false;
@@ -153,7 +207,9 @@ function updatePackagingInfo(
 
     if (isEmpty !== undefined && isEmpty !== null) {
       if (layout.checkbox) {
-        sheet.getRange(layout.checkbox.row, layout.checkbox.col).setValue(boolValue);
+        requests.push(
+          packagingUpdateCellRequest_(layout.sheetId, layout.checkbox, boolValue)
+        );
         updatedEmpty = true;
       } else {
         warnings.push('checkbox: Checkbox near "ריק?" not found');
@@ -162,9 +218,13 @@ function updatePackagingInfo(
 
     if (kegs !== undefined && kegs !== null && kegs !== "") {
       if (layout.kegs) {
-        sheet
-          .getRange(layout.kegs.row, layout.kegs.col)
-          .setValue(formatMeasurementValue(kegs));
+        requests.push(
+          packagingUpdateCellRequest_(
+            layout.sheetId,
+            layout.kegs,
+            formatMeasurementValue(kegs)
+          )
+        );
         updatedKegs = true;
       } else {
         warnings.push('kegs: Label "חביות" not found');
@@ -173,9 +233,13 @@ function updatePackagingInfo(
 
     if (crates !== undefined && crates !== null && crates !== "") {
       if (layout.crates) {
-        sheet
-          .getRange(layout.crates.row, layout.crates.col)
-          .setValue(formatMeasurementValue(crates));
+        requests.push(
+          packagingUpdateCellRequest_(
+            layout.sheetId,
+            layout.crates,
+            formatMeasurementValue(crates)
+          )
+        );
         updatedCrates = true;
       } else {
         warnings.push('crates: Label "ארגזים" not found');
@@ -184,9 +248,9 @@ function updatePackagingInfo(
 
     if (boolValue === true && totalLiters !== undefined && totalLiters !== null) {
       if (layout.total) {
-        sheet
-          .getRange(layout.total.row, layout.total.col)
-          .setValue(Number(totalLiters));
+        requests.push(
+          packagingUpdateCellRequest_(layout.sheetId, layout.total, Number(totalLiters))
+        );
         updatedTotal = true;
       } else {
         warnings.push('Label "סה"כ" not found');
@@ -194,21 +258,36 @@ function updatePackagingInfo(
 
       if (shrinkagePercent !== undefined && shrinkagePercent !== null) {
         if (layout.shrinkage) {
-          sheet
-            .getRange(layout.shrinkage.row, layout.shrinkage.col)
-            .setValue(Number(shrinkagePercent) / 100)
-            .setNumberFormat("0.00%");
+          requests.push(
+            packagingUpdateCellRequest_(
+              layout.sheetId,
+              layout.shrinkage,
+              Number(shrinkagePercent) / 100,
+              { type: "PERCENT", pattern: "0.00%" }
+            )
+          );
         } else {
           warnings.push('Label "פחת" not found');
         }
       }
     }
 
-    // No SpreadsheetApp.flush(): Apps Script commits pending changes when the
-    // execution completes. A forced flush adds a synchronous Sheets round trip.
+    if (requests.length > 0) {
+      Sheets.Spreadsheets.batchUpdate(
+        { requests: requests },
+        spreadsheetId
+      );
+    }
+
+    const totalMs = Date.now() - startedAt;
     Logger.log(
-      "UPDATE PACKAGING INFO DONE | total " +
-      (Date.now() - startedAt) + "ms | warnings=" + JSON.stringify(warnings)
+      "UPDATE PACKAGING INFO via Sheets API DONE | total " +
+      totalMs + "ms | warnings=" + JSON.stringify(warnings)
+    );
+    logToSheet(
+      "Sheets API packaging info spreadsheet=" + spreadsheetId +
+      " requests=" + requests.length +
+      " total=" + totalMs + "ms"
     );
 
     return {
@@ -219,8 +298,10 @@ function updatePackagingInfo(
       updatedTotal: updatedTotal,
       warnings: warnings,
       spreadsheetId: spreadsheetId,
-      sheetName: sheet.getName(),
-      sheetUrl: ss.getUrl()
+      sheetName: layout.sheetName || "",
+      sheetUrl: sheetUrl,
+      fastPath: "sheets-api-packaging",
+      totalMs: totalMs
     };
   } finally {
     lock.releaseLock();
@@ -244,11 +325,7 @@ function checkLegacyPackagingCell(sheetUrl, cellType) {
   if (!sheetUrl) throw new Error("Missing sheetUrl");
 
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
-  const ss = SpreadsheetApp.openById(spreadsheetId);
-  const sheet = ss.getSheets()[0];
-  if (!sheet) throw new Error("No sheet found");
-
-  const layout = getPackagingLayout_(sheet, spreadsheetId);
+  const layout = getPackagingLayout_(spreadsheetId);
   const target = cellType === "kegs" ? layout.kegs : layout.crates;
   const label = cellType === "kegs" ? "חביות" : "ארגזים";
 
@@ -256,8 +333,13 @@ function checkLegacyPackagingCell(sheetUrl, cellType) {
     return { rawValue: null, reason: 'Label "' + label + '" not found' };
   }
 
+  const response = Sheets.Spreadsheets.Values.get(
+    spreadsheetId,
+    columnToLetter_(target.col) + target.row,
+    { valueRenderOption: "FORMATTED_VALUE" }
+  );
   const rawText = String(
-    sheet.getRange(target.row, target.col).getDisplayValue() || ""
+    response.values && response.values[0] && response.values[0][0] || ""
   ).trim();
   const rawValue = Number(rawText.replace(",", "."));
 
@@ -267,4 +349,15 @@ function checkLegacyPackagingCell(sheetUrl, cellType) {
     row: target.row,
     col: target.col
   };
+}
+
+function columnToLetter_(column) {
+  let result = "";
+  let n = Number(column);
+  while (n > 0) {
+    n -= 1;
+    result = String.fromCharCode(65 + (n % 26)) + result;
+    n = Math.floor(n / 26);
+  }
+  return result;
 }

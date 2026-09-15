@@ -7,6 +7,7 @@
 
 const MASTER_PACKAGING_SPREADSHEET_ID = "13ONg8FJSy_5mHH8EbjNaVHph_nsTKdkVvoXMthJJPb8";
 const MASTER_PACKAGING_SHEET_GID = 0;
+const MASTER_PACKAGING_SHEET_CACHE_SECONDS = 21600;
 
 // A POST can finish its side effect and still lose/corrupt the HTTP response
 // on Google's redirect layer. The frontend therefore retries this specific
@@ -15,6 +16,7 @@ const PACKAGING_REQUEST_CACHE_PREFIX = "packaging_request:";
 const PACKAGING_REQUEST_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 function logPackagingToMasterSheet(payload) {
+  const startedAt = Date.now();
   const {
     productLabel,
     quantity,
@@ -50,26 +52,44 @@ function logPackagingToMasterSheet(payload) {
       }
     }
 
-    const ss = SpreadsheetApp.openById(MASTER_PACKAGING_SPREADSHEET_ID);
-    const sheet = getSheetByGid_(ss, MASTER_PACKAGING_SHEET_GID);
-    const lastRow = sheet.getLastRow();
+    const sheetTitle = getMasterPackagingSheetTitle_();
+    const quotedTitle = quoteA1SheetName_(sheetTitle);
 
-    // מוצאים את השורה הריקה הראשונה (עמודות A-E) החל משורה 2
-    let targetRow = lastRow + 1;
-    for (let r = 2; r <= lastRow + 1; r++) {
-      const rowValues = sheet.getRange(r, 1, 1, 5).getDisplayValues()[0];
-      const isRowEmpty = rowValues.every((v) => String(v).trim() === "");
-      if (isRowEmpty) {
-        targetRow = r;
+    // One Sheets API read replaces the old row-by-row SpreadsheetApp reads.
+    // We still preserve holes: the first completely empty A:E row from row 2
+    // is reused, otherwise we append after the last returned row.
+    const response = Sheets.Spreadsheets.Values.get(
+      MASTER_PACKAGING_SPREADSHEET_ID,
+      quotedTitle + "!A:E",
+      {
+        valueRenderOption: "FORMATTED_VALUE",
+        majorDimension: "ROWS"
+      }
+    );
+
+    const rows = response.values || [];
+    let targetRow = Math.max(rows.length + 1, 2);
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      let isEmpty = true;
+      for (let c = 0; c < 5; c++) {
+        if (String(row[c] || "").trim() !== "") {
+          isEmpty = false;
+          break;
+        }
+      }
+
+      if (isEmpty) {
+        targetRow = i + 1;
         break;
       }
     }
 
-    // ולידציה: תאריך הייצור החדש לא אמור להיות מוקדם מתאריך הייצור בשורה הקודמת.
-    // לא חוסם את הכתיבה - רק מחזיר אזהרה, כדי לא לתקוע דיווח בגלל שעון/סדר לא צפוי.
     const warnings = [];
     if (targetRow > 2) {
-      const prevProdDateStr = sheet.getRange(targetRow - 1, 5).getDisplayValue();
+      const previousRow = rows[targetRow - 2] || [];
+      const prevProdDateStr = String(previousRow[4] || "").trim();
       const prevDate = parseDDMMYYYYDate_(prevProdDateStr);
       const newDate = parseDDMMYYYYDate_(productionDateStr);
       if (prevDate && newDate && newDate < prevDate) {
@@ -80,18 +100,31 @@ function logPackagingToMasterSheet(payload) {
       }
     }
 
-    sheet
-      .getRange(targetRow, 1, 1, 5)
-      .setValues([[productLabel, quantity, batchNumber || "", expiryDateStr || "", productionDateStr || ""]]);
+    Sheets.Spreadsheets.Values.update(
+      {
+        majorDimension: "ROWS",
+        values: [[
+          productLabel,
+          quantity,
+          batchNumber || "",
+          expiryDateStr || "",
+          productionDateStr || ""
+        ]]
+      },
+      MASTER_PACKAGING_SPREADSHEET_ID,
+      quotedTitle + "!A" + targetRow + ":E" + targetRow,
+      { valueInputOption: "USER_ENTERED" }
+    );
 
-    SpreadsheetApp.flush();
-
+    const totalMs = Date.now() - startedAt;
     const result = {
       success: true,
       row: targetRow,
       warnings: warnings,
       requestId: normalizedRequestId || null,
-      duplicate: false
+      duplicate: false,
+      fastPath: "sheets-api-master-packaging",
+      totalMs: totalMs
     };
 
     // Save the idempotency result BEFORE returning the HTTP response. If Google
@@ -101,8 +134,12 @@ function logPackagingToMasterSheet(payload) {
     }
 
     Logger.log(
-      "Master packaging sheet updated at row " + targetRow +
-      ": " + JSON.stringify(payload)
+      "Master packaging sheet updated via Sheets API at row " + targetRow +
+      " | total " + totalMs + "ms"
+    );
+    logToSheet(
+      "Sheets API master packaging row=" + targetRow +
+      " total=" + totalMs + "ms"
     );
 
     return result;
@@ -110,6 +147,42 @@ function logPackagingToMasterSheet(payload) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function getMasterPackagingSheetTitle_() {
+  const cache = CacheService.getScriptCache();
+  const key = "master_packaging_sheet_title:" + MASTER_PACKAGING_SPREADSHEET_ID;
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const metadata = Sheets.Spreadsheets.get(
+    MASTER_PACKAGING_SPREADSHEET_ID,
+    { fields: "sheets.properties" }
+  );
+  const sheets = metadata.sheets || [];
+  let selected = null;
+
+  for (let i = 0; i < sheets.length; i++) {
+    const properties = sheets[i].properties || {};
+    if (Number(properties.sheetId) === MASTER_PACKAGING_SHEET_GID) {
+      selected = properties;
+      break;
+    }
+  }
+
+  if (!selected && sheets.length > 0) {
+    selected = sheets[0].properties || null;
+  }
+
+  const title = selected && String(selected.title || "").trim();
+  if (!title) throw new Error("Master packaging sheet tab not found");
+
+  cache.put(key, title, MASTER_PACKAGING_SHEET_CACHE_SECONDS);
+  return title;
+}
+
+function quoteA1SheetName_(name) {
+  return "'" + String(name || "").replace(/'/g, "''") + "'";
 }
 
 function getPackagingRequestResult_(requestId) {
@@ -144,6 +217,11 @@ function savePackagingRequestResult_(requestId, result) {
 }
 
 function cleanupPackagingRequestCache_() {
+  // Generic POST idempotency already handles the common case. Keep this legacy
+  // cache tidy occasionally instead of scanning every ScriptProperty on every
+  // packaging report.
+  if (Math.random() > 0.02) return;
+
   const props = PropertiesService.getScriptProperties();
   const all = props.getProperties();
   const now = Date.now();
