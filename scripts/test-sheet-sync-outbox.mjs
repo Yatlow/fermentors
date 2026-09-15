@@ -24,6 +24,10 @@ function createRuntime() {
   return context;
 }
 
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function job({ id = "job-1", requestId = "req-1", attempts = 0 } = {}) {
   return {
     name: `projects/test/databases/(default)/documents/sheetSyncJobs/${id}`,
@@ -89,7 +93,7 @@ test("completed idempotent requests are confirmed without writing to Sheets agai
 
   const stats = context.processPendingSheetSyncJobs_();
 
-  assert.deepEqual(stats, { found: 1, completed: 1, failed: 0, deferred: 0 });
+  assert.deepEqual(plain(stats), { found: 1, completed: 1, failed: 0, deferred: 0 });
   assert.deepEqual(mocks.deleted, ["job-1"]);
   assert.equal(mocks.runCalls.length, 0);
   assert.equal(mocks.marked.length, 0);
@@ -103,7 +107,7 @@ test("recent in-progress idempotency records are deferred instead of duplicated"
 
   const stats = context.processPendingSheetSyncJobs_();
 
-  assert.deepEqual(stats, { found: 1, completed: 0, failed: 0, deferred: 1 });
+  assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 0, deferred: 1 });
   assert.equal(mocks.runCalls.length, 0);
   assert.equal(mocks.deleted.length, 0);
   assert.equal(mocks.marked.length, 0);
@@ -115,7 +119,7 @@ test("pending jobs retry with the original requestId and are removed after succe
 
   const stats = context.processPendingSheetSyncJobs_();
 
-  assert.deepEqual(stats, { found: 1, completed: 1, failed: 0, deferred: 0 });
+  assert.deepEqual(plain(stats), { found: 1, completed: 1, failed: 0, deferred: 0 });
   assert.equal(mocks.runCalls.length, 1);
   assert.equal(mocks.runCalls[0].requestId, "req-1");
   assert.equal(mocks.runCalls[0].action, "addFermentationMeasurements");
@@ -130,7 +134,7 @@ test("transient failures stay pending until the retry budget is exhausted", () =
 
   const stats = context.processPendingSheetSyncJobs_();
 
-  assert.deepEqual(stats, { found: 1, completed: 0, failed: 0, deferred: 1 });
+  assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 0, deferred: 1 });
   assert.equal(mocks.marked.length, 1);
   assert.equal(mocks.marked[0].state, "pending");
   assert.equal(mocks.marked[0].attempts, 1);
@@ -145,7 +149,7 @@ test("fifth transient failure becomes failed instead of retrying forever", () =>
 
   const stats = context.processPendingSheetSyncJobs_();
 
-  assert.deepEqual(stats, { found: 1, completed: 0, failed: 1, deferred: 0 });
+  assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 1, deferred: 0 });
   assert.equal(mocks.marked[0].state, "failed");
   assert.equal(mocks.marked[0].attempts, 5);
 });
@@ -158,7 +162,7 @@ test("terminal safety failures are failed immediately", () => {
 
   const stats = context.processPendingSheetSyncJobs_();
 
-  assert.deepEqual(stats, { found: 1, completed: 0, failed: 1, deferred: 0 });
+  assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 1, deferred: 0 });
   assert.equal(mocks.marked[0].state, "failed");
   assert.equal(mocks.marked[0].attempts, 1);
 });
