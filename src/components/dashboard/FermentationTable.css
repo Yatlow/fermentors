@@ -122,7 +122,7 @@
 
 .fermentation-table {
     width: 100%;
-    min-width: 860px;
+    min-width: 900px;
     border-collapse: separate;
     border-spacing: 0;
     font-size: 0.82rem;
@@ -162,11 +162,19 @@
 }
 
 .fermentation-table .date-cell,
-.fermentation-table .time-cell {
+.fermentation-table .time-cell,
+.fermentation-table .brew-age-cell {
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
     color: #334155;
     font-weight: 650;
+}
+
+.fermentation-table .brew-age-column,
+.fermentation-table .brew-age-cell {
+    background-color: rgba(124, 58, 237, 0.06);
+    color: #5b21b6;
+    font-weight: 800;
 }
 
 .fermentation-table .metric-cell {
@@ -263,7 +271,7 @@
     }
 
     .fermentation-table {
-        min-width: 780px;
+        min-width: 820px;
         font-size: 0.76rem;
     }
 
