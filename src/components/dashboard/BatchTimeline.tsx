@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gauge } from "lucide-react";
-import type { Fermentor } from "../../App";
 import {
     parseYeastDropAmount,
     type Measurement,
@@ -14,7 +13,6 @@ import "./BatchTimeline.css";
 type Props = {
     measurements: Measurement[];
     brewDate?: string | null;
-    tank?: Fermentor;
 };
 
 function TimelineIcon({ event }: { event: TimelineEvent }) {
