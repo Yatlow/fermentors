@@ -36,7 +36,7 @@ test("hot tanks require temperature pressure plato and pH", () => {
 test("daily completeness can be satisfied across multiple rows from today", () => {
     const missing = missingDailyMeasurementFields([
         { id: "2026-09-15_0730", temp: 17.8, pressure: 0 },
-        { id: "2026-09-15_0915", plato: 6.2, pH: 4.25, notes: "פעולה" },
+        { id: "2026-09-15_0915", plato: 6.2, pH: 4.25 },
     ], true, TODAY);
 
     assert.deepEqual(missing, []);
