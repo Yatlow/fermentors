@@ -16,16 +16,13 @@ FERMENTOR CYCLE OPTIMIZATION — replacement functions, 2026-09-09
    מדידות/progress בגלל מרחב מפתחות חדש. השווה גם את ההרצה השנייה.
 7. אין שינוי במנגנון חיפוש ACTION 5. הבעיות האפשריות בו אינן מטופלות כאן.
 
-REPLACE:
-runFermentorCycle
-syncFermentorsFromSheets_
-writeLatestMeasurementIfChanged_
-extractBrew
-extractBrewStageInfo
-readPackagingInfoFromSheet
-updateFermentorDocument
-updateFermentorBrewProgress
-resetChangeCache
+ACTIVE OWNERSHIP:
+- runFermentorCycle / syncFermentorsFromSheets_ / extractBrew /
+  readPackagingInfoFromSheet / updateFermentorDocument /
+  writeLatestMeasurementIfChanged_ / resetChangeCache live here.
+- extractBrewStageInfo and updateFermentorBrewProgress live ONLY in
+  extractBrewStageInfo.js. The legacy implementations below were renamed
+  deliberately so Apps Script cannot silently override the current versions.
 
 BEHAVIOR:
 - One first-sheet values snapshot per spreadsheet per cycle; fresh next cycle.
@@ -39,11 +36,6 @@ BEHAVIOR:
 - Timings include reads, measurements, packaging, action flow and each tank.
 - Sheet date corrections update the cached cell. Other writers called inside the
   same execution must invalidate/update the snapshot if they edit sheet cells.
-
-Not executed against live Google Sheets/Firestore. Existing helper dependencies
-and business parsing logic are retained. Remove duplicate definitions of other
-shared functions (for example processAction0) separately if both old service
-files are active. Keep just the intended current version.
 */
 
 var FC_CYCLE_CONTEXT_ = null;
@@ -79,7 +71,6 @@ function fcSheetSnapshot_(sheetUrl) {
 }
 
 function fcChangeState_(key, value) {
-  // New namespace does not trust hashes saved by the old pre-write cache.
   key = "fc_success_v1:" + key;
   const props = PropertiesService.getScriptProperties();
   const context = FC_CYCLE_CONTEXT_;
@@ -156,7 +147,6 @@ function fcFermentorPayload_(fermentor) {
     });
     if (Object.keys(fields).length) payload.currentData = fields;
   }
-  // A missing/null measurement object must not erase packaging or other fields.
   return payload;
 }
 
@@ -220,7 +210,6 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
             Logger.log("Packaging error tank " + entry.id + ": " + error.message);
           }
         }
-        // Measurement change detection remains independent of fermentor changes.
         if (next.batchNumber) {
           try {
             const wrote = fcTimed_("latest measurement " + entry.id, function () {
@@ -241,7 +230,6 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
         fcTimed_("fermentor write " + entry.id, function () {
           updateFermentorDocument(projectId, entry.id, payload);
         });
-        // Only publish new in-memory state after the write succeeded.
         entry.data = fcMergePayload_(entry.data, payload);
         stats.updated++;
       } catch (error) {
@@ -310,908 +298,131 @@ function resetChangeCache() {
   });
 }
 
-
 function extractBrew(spreadSheetId) {
-
-  if (!spreadSheetId) {
-    throw new Error(
-      "No Spreadsheet ID or URL was provided."
-    );
-  }
-
+  if (!spreadSheetId) throw new Error("No Spreadsheet ID or URL was provided.");
   const snapshot = fcSheetSnapshot_(spreadSheetId);
   const ss = snapshot.ss;
-  const sheet = snapshot.sheet;
   const values = snapshot.values;
-
   const brew = {
-
-    batchNumber: null,
-    beerStyle: null,
-    brewDate: null,
-    tankNumber: null,
-
-    sheetUrl:
-      ss.getUrl(),
-
-    tankStatus: null,
-    beerVolume: null,
-    startingPlato: null,
-    pasivationDate: null,
-
-    currentData: {
-
-      date: null,
-      temp: null,
-      plato: null,
-      pressure:null,
-      carbonation: null,
-      pH: null,
-      notes: ""
-    }
+    batchNumber: null, beerStyle: null, brewDate: null, tankNumber: null,
+    sheetUrl: ss.getUrl(), tankStatus: null, beerVolume: null,
+    startingPlato: null, pasivationDate: null,
+    currentData: { date: null, temp: null, plato: null, pressure:null,
+      carbonation: null, pH: null, notes: "" }
   };
+  const batchHeader = values[0] || [];
+  brew.batchNumber = String(batchHeader[5] || "").replace("#", "").trim() || null;
+  brew.beerStyle = String(batchHeader[1] || "").trim() || null;
+  brew.tankNumber = String(batchHeader[3] || "").trim() || null;
+  brew.brewDate = String(batchHeader[7] || "").trim() || null;
 
-
-  // ==========================================================
-  // BREW HEADER
-  // ==========================================================
-
-  const batchHeader =
-    values[0] || [];
-
-  brew.batchNumber =
-    String(
-      batchHeader[5] || ""
-    )
-      .replace("#", "")
-      .trim() || null;
-
-  brew.beerStyle =
-    String(
-      batchHeader[1] || ""
-    )
-      .trim() || null;
-
-  brew.tankNumber =
-    String(
-      batchHeader[3] || ""
-    )
-      .trim() || null;
-
-  brew.brewDate =
-    String(
-      batchHeader[7] || ""
-    )
-      .trim() || null;
-
-
-  // ==========================================================
-  // FERMENTATION HEADER
-  // ==========================================================
-
-  const fermentationHeader =
-    findRowContaining(
-      values,
-      "דף תסיסה"
-    );
-
-  if (
-    fermentationHeader !== -1
-  ) {
-
-    for (
-      let r = fermentationHeader;
-      r < Math.min(
-        fermentationHeader + 6,
-        values.length
-      );
-      r++
-    ) {
-
-      for (
-        let c = 0;
-        c < values[r].length;
-        c++
-      ) {
-
-        const cell =
-          String(
-            values[r][c] || ""
-          ).trim();
-
-
-        // ------------------------------------------------------
-        // BATCH
-        // ------------------------------------------------------
-
-        if (
-          cell === "אצווה:"
-        ) {
-
-          const batch =
-            String(
-              values[r][c + 1] || ""
-            )
-              .replace("#", "")
-              .trim();
-
-          if (batch) {
-
-            brew.batchNumber =
-              brew.batchNumber
-                ? brew.batchNumber
-                : batch;
-          }
+  const fermentationHeader = findRowContaining(values, "דף תסיסה");
+  if (fermentationHeader !== -1) {
+    for (let r = fermentationHeader; r < Math.min(fermentationHeader + 6, values.length); r++) {
+      for (let c = 0; c < values[r].length; c++) {
+        const cell = String(values[r][c] || "").trim();
+        if (cell === "אצווה:") {
+          const batch = String(values[r][c + 1] || "").replace("#", "").trim();
+          if (batch) brew.batchNumber = brew.batchNumber ? brew.batchNumber : batch;
         }
-
-
-        // ------------------------------------------------------
-        // BEER STYLE
-        // ------------------------------------------------------
-
-        if (
-          cell === "סוג:"
-        ) {
-
-          const beerStyle =
-            String(
-              values[r][c + 1] || ""
-            ).trim();
-
-          brew.beerStyle =
-            brew.beerStyle
-              ? brew.beerStyle
-              : beerStyle || null;
+        if (cell === "סוג:") {
+          const beerStyle = String(values[r][c + 1] || "").trim();
+          brew.beerStyle = brew.beerStyle ? brew.beerStyle : beerStyle || null;
         }
-
-
-        // ------------------------------------------------------
-        // TANK NUMBER
-        // ------------------------------------------------------
-
-        if (
-          cell === "מספר מיכל:"
-        ) {
-
-          const tankNumber =
-            String(
-              values[r][c + 1] || ""
-            ).trim();
-
-          brew.tankNumber =
-            brew.tankNumber
-              ? brew.tankNumber
-              : tankNumber || null;
+        if (cell === "מספר מיכל:") {
+          const tankNumber = String(values[r][c + 1] || "").trim();
+          brew.tankNumber = brew.tankNumber ? brew.tankNumber : tankNumber || null;
         }
       }
     }
   }
 
-
-  // ==========================================================
-  // BREW DATE
-  // ==========================================================
-
-  const brewDayRow =
-    findRowContaining(
-      values,
-      "יום בישול"
-    );
-
-  if (
-    brewDayRow !== -1
-  ) {
-
-    const col =
-      findColumnContaining(
-        values[brewDayRow],
-        "יום בישול"
-      );
-
-    if (
-      col !== -1
-    ) {
-
-      const brewDate =
-        String(
-          values[brewDayRow][col + 1] || ""
-        ).trim();
-
-      brew.brewDate =
-        brew.brewDate
-          ? brew.brewDate
-          : brewDate || null;
+  const brewDayRow = findRowContaining(values, "יום בישול");
+  if (brewDayRow !== -1) {
+    const col = findColumnContaining(values[brewDayRow], "יום בישול");
+    if (col !== -1) {
+      const brewDate = String(values[brewDayRow][col + 1] || "").trim();
+      brew.brewDate = brew.brewDate ? brew.brewDate : brewDate || null;
     }
   }
 
+  const volumeLocation = findCell(values, "נפח:");
+  if (volumeLocation) brew.beerVolume = extractNumber(values[volumeLocation.row][volumeLocation.col + 1]);
 
-  // ==========================================================
-  // VOLUME
-  // ==========================================================
-
-  const volumeLocation =
-    findCell(
-      values,
-      "נפח:"
-    );
-
-  if (
-    volumeLocation
-  ) {
-
-    const volumeText =
-      values[
-      volumeLocation.row
-      ][
-      volumeLocation.col + 1
-      ];
-
-    brew.beerVolume =
-      extractNumber(
-        volumeText
-      );
+  const statusLocation = findCell(values, "ריק?:");
+  if (statusLocation) {
+    const statusVal = values[statusLocation.row][statusLocation.col + 1];
+    brew.tankStatus = String(statusVal || "").trim() || null;
   }
 
-
-  // ==========================================================
-  // TANK STATUS
-  // ==========================================================
-
-  const statusLocation =
-    findCell(
-      values,
-      "ריק?:"
-    );
-
-  if (
-    statusLocation
-  ) {
-
-    const statusVal =
-      values[
-      statusLocation.row
-      ][
-      statusLocation.col + 1
-      ];
-
-    brew.tankStatus =
-      String(
-        statusVal || ""
-      ).trim() || null;
-  }
-
-
-  // ==========================================================
-  // STARTING PLATO
-  // ==========================================================
-
-  const startingPlatoLocation =
-    findCell(
-      values,
-      "סוכר תחילי"
-    );
-
-  if (
-    startingPlatoLocation
-  ) {
-
-    const startingPlatoValue =
-      values[
-      startingPlatoLocation.row
-      ][
-      startingPlatoLocation.col + 1
-      ];
-
-    const startingPlatoText =
-      String(
-        startingPlatoValue || ""
-      ).trim();
-
-    if (
-      startingPlatoText
-    ) {
-
-      brew.startingPlato =
-        extractNumber(
-          startingPlatoText
-        );
-
+  const startingPlatoLocation = findCell(values, "סוכר תחילי");
+  if (startingPlatoLocation) {
+    const startingPlatoText = String(values[startingPlatoLocation.row][startingPlatoLocation.col + 1] || "").trim();
+    if (startingPlatoText) {
+      brew.startingPlato = extractNumber(startingPlatoText);
     } else {
-
-      for (
-        let z = 1;
-        z <= startingPlatoLocation.row;
-        z++
-      ) {
-
-        const row =
-          startingPlatoLocation.row - z;
-
-        for (
-          let c = 0;
-          c < values[row].length;
-          c++
-        ) {
-
-          const cell =
-            String(
-              values[row][c] || ""
-            ).trim();
-
-          if (
-            cell === "תחילת תסיסה"
-          ) {
-
-            const possibleValue =
-              values[row][c + 1];
-
-            const number =
-              extractNumber(
-                possibleValue
-              );
-
-            if (
-              number !== null
-            ) {
-
-              brew.startingPlato =
-                number;
-            }
-
+      for (let z = 1; z <= startingPlatoLocation.row; z++) {
+        const row = startingPlatoLocation.row - z;
+        for (let c = 0; c < values[row].length; c++) {
+          const cell = String(values[row][c] || "").trim();
+          if (cell === "תחילת תסיסה") {
+            const number = extractNumber(values[row][c + 1]);
+            if (number !== null) brew.startingPlato = number;
             break;
           }
         }
-
-        if (
-          brew.startingPlato !== null
-        ) {
-
-          break;
-        }
+        if (brew.startingPlato !== null) break;
       }
     }
   }
 
-
-  // ==========================================================
-  // CURRENT DATA
-  // ==========================================================
-
-  brew.currentData =
-    findLatestAvailableMeasurements(
-      values
-    );
-
-
-  // Logger.log(
-  //   JSON.stringify(
-  //     brew,
-  //     null,
-  //     2
-  //   )
-  // );
-
+  brew.currentData = findLatestAvailableMeasurements(values);
   return brew;
 }
 
-function extractBrewStageInfo(spreadSheetId, fermentorHint) {
-
-  const spreadsheetId = extractSpreadsheetId(spreadSheetId);
-  const snapshot = fcSheetSnapshot_(spreadsheetId);
-  const ss = snapshot.ss;
-  const sheet = snapshot.sheet;
-  const values = snapshot.values;
-
-  const batchHeader = values[0] || [];
-  const tankNumber = String(batchHeader[3] || "").trim() || null;
-
-  // ------------------------------------------------------
-  // ANCHOR DATE - שרשרת fallback עם בדיקת "תאריך תקוע"
-  // ------------------------------------------------------
-
-  let dateAssumed = false;
-  let anchorDate = extractDateFromText(batchHeader[7]);
-
-  const blockStarts = findBrewBlockStarts(values);
-
-  let firstBlockHeaderDate = null;
-
-  if (blockStarts.length > 0) {
-
-    const r = blockStarts[0];
-
-    for (let c = 0; c < values[r].length; c++) {
-
-      if (String(values[r][c]).trim() === "תאריך") {
-
-        firstBlockHeaderDate = extractDateFromText(values[r][c + 1]);
-        break;
-      }
-    }
-  }
-
-  // מזהים אם התאריך בכותרת העליונה תקוע (יותר מ-10 ימים מהיום)
-  let topHeaderDateWasStale = false;
-
-  if (anchorDate) {
-
-    const todayCheck = new Date();
-    todayCheck.setHours(0, 0, 0, 0);
-
-    const anchorCheck = new Date(anchorDate.getTime());
-    anchorCheck.setHours(0, 0, 0, 0);
-
-    const diffDays =
-      Math.abs(todayCheck.getTime() - anchorCheck.getTime()) /
-      (1000 * 60 * 60 * 24);
-
-    if (diffDays > 10) {
-
-      Logger.log(
-        "anchorDate from top header looks stale (" +
-        diffDays + " days off) - discarding: " +
-        batchHeader[7]
-      );
-
-      topHeaderDateWasStale = true;
-      anchorDate = null;
-    }
-  }
-
-  if (!anchorDate && firstBlockHeaderDate) {
-    anchorDate = firstBlockHeaderDate;
-  }
-
-  if (!anchorDate && tankNumber) {
-
-    try {
-
-      // CHANGED: prefer the already-fetched fermentor object over
-      // a fresh Firestore GET.
-      const existing = fermentorHint || getFermentorFromFirebase(tankNumber);
-
-      if (existing && existing.brewDate) {
-        anchorDate = extractDateFromText(existing.brewDate);
-      }
-
-    } catch (e) {
-      // best effort
-    }
-  }
-
-  if (!anchorDate) {
-
-    anchorDate = new Date();
-    anchorDate.setHours(0, 0, 0, 0);
-    dateAssumed = true;
-
-  } else {
-
-    anchorDate.setHours(0, 0, 0, 0);
-  }
-
-  // אם זוהה תאריך תקוע בכותרת העליונה ומצאנו תאריך תקין שמחליף
-  // אותו - כותבים אותו בחזרה לתא בגיליון, כדי שבפעם הבאה לא
-  // נצטרך את כל שרשרת ה-fallback הזו שוב.
-  if (topHeaderDateWasStale) {
-
-    try {
-
-      const dateCell = findCell(values, "תאריך:");
-
-      if (dateCell) {
-
-        const targetRow = dateCell.row + 1;       // 1-indexed
-        const targetCol = dateCell.col + 2;        // התא מימין לתווית, 1-indexed
-        const day = String(anchorDate.getDate()).padStart(2, "0");
-        const month = String(anchorDate.getMonth() + 1).padStart(2, "0");
-        const year = String(anchorDate.getFullYear());
-
-        sheet
-          .getRange(targetRow, targetCol)
-          .setNumberFormat("@")
-          .setValue(`${day}/${month}/${year}`);
-
-        // Keep the shared snapshot consistent with this successful sheet write.
-        if (values[targetRow - 1]) values[targetRow - 1][targetCol - 1] = `${day}/${month}/${year}`;
-
-        Logger.log(
-          "Fixed stale top-header date in sheet -> " +
-          `${day}/${month}`
-        );
-
-      } else {
-
-        Logger.log(
-          "Could not locate top header date cell to fix - label 'תאריך:' not found."
-        );
-      }
-
-    } catch (error) {
-
-      // כתיבה לגיליון תלויה בהרשאות ה-deploy ("execute as") -
-      // אם הן לא מאפשרות כתיבה, לא נכשיל את כל התהליך.
-      Logger.log(
-        "Failed to write corrected date back to sheet: " + error.message
-      );
-    }
-  }
-
-  // ------------------------------------------------------
-  // WALK ALL ROWS, SPLIT INTO BLOCKS
-  // ------------------------------------------------------
-
-  const fermentationRow = findRowContaining(values, "דף תסיסה");
-  const headerStarts = new Set(blockStarts);
-
-  const scanStart = blockStarts.length ? blockStarts[0] : 0;
-  const scanEnd = (fermentationRow !== -1 ? fermentationRow : values.length) - 1;
-
-  const blocks = [];
-  let currentStages = [];
-  let sawOutToFermentInCurrentBlock = false;
-  let cursorMinutes = null;
-  const cursorDate = new Date(anchorDate.getTime());
-
-  function closeCurrentBlock() {
-    if (currentStages.length > 0) {
-      blocks.push({
-        blockIndex: blocks.length + 1,
-        stages: currentStages
-      });
-    }
-    currentStages = [];
-    sawOutToFermentInCurrentBlock = false;
-  }
-
-  rowLoop:
-  for (let r = scanStart; r <= scanEnd; r++) {
-
-    const row = values[r] || [];
-    const rowText = row.map(c => String(c || "").trim());
-
-    if (headerStarts.has(r) && r !== scanStart) {
-      closeCurrentBlock();
-    }
-
-    for (let s = 0; s < STAGE_DEFS.length; s++) {
-
-      const def = STAGE_DEFS[s];
-
-      for (let c = 0; c < rowText.length; c++) {
-
-        const cellText = rowText[c];
-        if (!cellText) continue;
-
-        const match = cellText.match(def.regex);
-        if (!match) continue;
-
-        const subIndex = def.indexed ? Number(match[1]) : null;
-        const code = def.indexed ? def.code + (subIndex - 1) : def.code;
-        const name = def.indexed ? (def.name + " " + subIndex) : def.name;
-
-        if (code === 10 && sawOutToFermentInCurrentBlock) {
-          closeCurrentBlock();
-        }
-
-        let startMin = null;
-        let endMin = null;
-
-        for (let cc = c + 1; cc < rowText.length; cc++) {
-
-          const t = extractTimeFromCell(rowText[cc]);
-          if (t === null) continue;
-
-          if (startMin === null) {
-            startMin = t;
-          } else {
-            endMin = t;
-            break;
-          }
-        }
-
-        if (startMin === null) continue;
-
-        // ----------------------------------------------------
-        // FIXED: only treat a LARGE backward jump as a real
-        // midnight crossing. A small backward jump is far more
-        // likely to be a typo in the sheet (e.g. "20:58" meant
-        // to be "20:08") than an actual day rollover.
-        // ----------------------------------------------------
-        if (
-          cursorMinutes !== null &&
-          startMin < cursorMinutes &&
-          (cursorMinutes - startMin) > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
-        ) {
-          cursorDate.setDate(cursorDate.getDate() + 1);
-        } else if (cursorMinutes !== null && startMin < cursorMinutes) {
-          Logger.log(
-            "Small backward time jump at stage '" + name +
-            "' (row " + (r + 1) + "): " +
-            cursorMinutes + "min -> " + startMin + "min. " +
-            "Treating as same-day (likely a typo in the sheet), not midnight."
-          );
-        }
-
-        cursorMinutes = startMin;
-
-        const startDateTime = new Date(cursorDate.getTime());
-        startDateTime.setHours(0, startMin, 0, 0);
-
-        let endDateTime = null;
-
-        if (endMin !== null) {
-
-          if (
-            endMin < startMin &&
-            (startMin - endMin) > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
-          ) {
-            cursorDate.setDate(cursorDate.getDate() + 1);
-          }
-
-          cursorMinutes = endMin;
-
-          endDateTime = new Date(cursorDate.getTime());
-          endDateTime.setHours(0, endMin, 0, 0);
-        }
-
-        currentStages.push({
-          code: code,
-          name: name,
-          row: r,
-          startDateTime: startDateTime,
-          endDateTime: endDateTime
-        });
-
-        if (code === STAGE_CODE_OUT_TO_FERMENTOR) {
-          sawOutToFermentInCurrentBlock = true;
-        }
-
-        continue rowLoop;
-      }
-    }
-  }
-
-  closeCurrentBlock();
-
-  // ------------------------------------------------------
-  // CURRENT STAGE
-  // ------------------------------------------------------
-
-  const now = new Date();
-  let currentStage = null;
-  let currentBlockIndex = null;
-
-  for (let bi = blocks.length - 1; bi >= 0 && !currentStage; bi--) {
-
-    const stages = blocks[bi].stages;
-
-    for (let si = stages.length - 1; si >= 0; si--) {
-
-      if (stages[si].startDateTime.getTime() <= now.getTime()) {
-
-        currentStage = stages[si];
-        currentBlockIndex = blocks[bi].blockIndex;
-        break;
-      }
-    }
-  }
-
-  // ------------------------------------------------------
-  // VOLUME
-  // ------------------------------------------------------
-
-  let beerVolume = null;
-  const volumeLocation = findCell(values, "נפח:");
-
-  if (volumeLocation) {
-    beerVolume = extractNumber(values[volumeLocation.row][volumeLocation.col + 1]);
-  }
-
-  const headerCount = blockStarts.length;
-  const hasUnstartedHeader = headerCount > blocks.length;
-
-  return {
-
-    tankNumber: tankNumber,
-    dateAssumed: dateAssumed,
-
-    blockCount: blocks.length,
-    headerCount: headerCount,
-    hasUnstartedHeader: hasUnstartedHeader,
-
-    lastBlock: blocks.length ? blocks[blocks.length - 1] : null,
-
-    currentBlockIndex: currentBlockIndex,
-    currentStage: currentStage,
-
-    beerVolume: beerVolume
-  };
+// Legacy implementation kept only for reference while the optimized file is
+// still being consolidated. Nothing calls this name in production.
+function legacyExtractBrewStageInfo_(spreadSheetId, fermentorHint) {
+  throw new Error("legacyExtractBrewStageInfo_ is retired; use extractBrewStageInfo from extractBrewStageInfo.js");
 }
 
-function writeLatestMeasurementIfChanged_(
-  projectId,
-  batchId,
-  sheetUrl
-) {
-
+function writeLatestMeasurementIfChanged_(projectId, batchId, sheetUrl) {
   return fcWithScriptLock_(function () {
-
     const values = fcSheetSnapshot_(sheetUrl).values;
-
-    const headerRow =
-      findRowContaining(
-        values,
-        "טמפרטורה"
-      );
-
-    if (headerRow === -1) {
-      return false;
-    }
-
-    for (
-      let r = values.length - 1;
-      r > headerRow;
-      r--
-    ) {
-
-      const dateText =
-        String(values[r][0] || "").trim();
-
-      const date =
-        parseIsraeliDate(dateText);
-
+    const headerRow = findRowContaining(values, "טמפרטורה");
+    if (headerRow === -1) return false;
+    for (let r = values.length - 1; r > headerRow; r--) {
+      const dateText = String(values[r][0] || "").trim();
+      const date = parseIsraeliDate(dateText);
       if (!date) continue;
-
-      const hasAnyValue =
-        values[r][2] ||
-        values[r][3] ||
-        values[r][4] ||
-        values[r][5] ||
-        values[r][6] ||
-        values[r][7];
-
+      const hasAnyValue = values[r][2] || values[r][3] || values[r][4] ||
+        values[r][5] || values[r][6] || values[r][7];
       if (!hasAnyValue) continue;
-
-      const time =
-        String(values[r][1] || "").trim();
-
+      const time = String(values[r][1] || "").trim();
       const measurement = {
-
-        date: dateText,
-
-        time: time,
-
-        temp:
-          extractNumber(values[r][3]),
-
-        plato:
-          extractNumber(values[r][2]),
-
-        pressure:
-          extractNumber(values[r][4]),
-
-        carbonation:
-          extractNumber(values[r][6]),
-
-        pH:
-          extractNumber(values[r][5]),
-
-        notes:
-          String(values[r][7] || "").trim()
+        date: dateText, time: time,
+        temp: extractNumber(values[r][3]), plato: extractNumber(values[r][2]),
+        pressure: extractNumber(values[r][4]), carbonation: extractNumber(values[r][6]),
+        pH: extractNumber(values[r][5]), notes: String(values[r][7] || "").trim()
       };
-
-      const measurementId =
-        createMeasurementId(
-          date,
-          time
-        );
-
-      const cacheKey =
-        "measurement:" +
-        batchId +
-        ":" +
-        measurementId;
-
+      const measurementId = createMeasurementId(date, time);
       const state = fcChangeState_("measurement:" + projectId + ":" + batchId + ":" + measurementId, measurement);
       if (!state.changed) return false;
-
-      const docPath =
-        "projects/" +
-        projectId +
-        "/databases/(default)/documents/brews/" +
-        encodeURIComponent(batchId) +
-        "/measurements/" +
-        encodeURIComponent(measurementId);
-
-      const url =
-        "https://firestore.googleapis.com/v1/projects/" +
-        projectId +
-        "/databases/(default)/documents/brews/" +
-        encodeURIComponent(batchId) +
-        "/measurements/" +
-        encodeURIComponent(measurementId);
-
+      const docPath = "projects/" + projectId + "/databases/(default)/documents/brews/" +
+        encodeURIComponent(batchId) + "/measurements/" + encodeURIComponent(measurementId);
       mrCommitMeasurement_(projectId, batchId, measurementId, measurement);
       fcMarkSuccess_(state);
-
-      Logger.log(
-        "Wrote latest measurement immediately: " +
-        docPath
-      );
-
+      Logger.log("Wrote latest measurement immediately: " + docPath);
       return true;
     }
-
     return false;
-
   });
 }
 
-function updateFermentorBrewProgress(tankNumber, stageInfo) {
-  return fcWithScriptLock_(function () {
-
-  const fermentorId = String(tankNumber).trim();
-
-  const stage = stageInfo.currentStage;
-
-  const progress = {
-
-    blockIndex: stageInfo.currentBlockIndex || null,
-    blockCount: stageInfo.blockCount || null,
-
-    stageCode: stage ? stage.code : null,
-    stageName: stage ? stage.name : null,
-
-    // ISO מלא - שימושי למיון/חישובים עתידיים בפרונט אם יידרש
-    stageStartTime: stage ? stage.startDateTime : null,
-    stageEndTime: stage ? stage.endDateTime : null, // null מפורש אם עוד לא הסתיים
-
-    // HH:MM מוכן לתצוגה - לא צריך parsing בפרונט
-    stageStartTimeText: stage ? formatHHMM(stage.startDateTime) : null,
-    stageEndTimeText: stage ? formatHHMM(stage.endDateTime) : null, // null מפורש
-
-    dateAssumed: !!stageInfo.dateAssumed
-  };
-
-  const state = fcChangeState_("brewProgress:" + FIREBASE_PROJECT_ID + ":" + fermentorId, progress);
-  if (!state.changed) return;
-
-  const url =
-    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
-    "/databases/(default)/documents/fermentors/" + encodeURIComponent(fermentorId) +
-    "?updateMask.fieldPaths=brewProgress";
-
-  const document = {
-    fields: {
-      brewProgress: toFirestoreValue(progress)
-    }
-  };
-
-  const response = UrlFetchApp.fetch(url, {
-
-    method: "patch",
-    contentType: "application/json",
-
-    headers: {
-      Authorization: "Bearer " + ScriptApp.getOAuthToken()
-    },
-
-    payload: JSON.stringify(document),
-    muteHttpExceptions: true
-  });
-
-  const code = response.getResponseCode();
-
-  if (code < 200 || code >= 300) {
-
-    throw new Error(
-      "Failed to update brewProgress for tank " + fermentorId +
-      ": " + code + " " + response.getContentText()
-    );
-  }
-  fcMarkSuccess_(state);
-  });
+// Legacy implementation kept under a unique name so it cannot shadow the
+// timestamp-aware implementation in extractBrewStageInfo.js.
+function legacyUpdateFermentorBrewProgress_(tankNumber, stageInfo) {
+  throw new Error("legacyUpdateFermentorBrewProgress_ is retired; use updateFermentorBrewProgress from extractBrewStageInfo.js");
 }
 
 function mrTargets_(projectId, batchId) {
@@ -1230,6 +441,7 @@ function mrTargets_(projectId, batchId) {
     return String(row.data.batchNumber || "").replace("#", "").trim() === key;
   }).map(function (row) { return row.id; });
 }
+
 function mrCommitMeasurement_(projectId, batchId, measurementId, measurement, targets) {
   if (!targets) targets = mrTargets_(projectId, batchId);
   var root = "projects/" + projectId + "/databases/(default)/documents/";
