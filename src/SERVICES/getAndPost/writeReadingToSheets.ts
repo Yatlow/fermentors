@@ -28,6 +28,35 @@ function hasPackagingFields(reading: PackagingReading): boolean {
     );
 }
 
+function isNoteOnlyReading(reading: ReadingToSend): boolean {
+    const candidate = reading as PackagingReading & {
+        temp?: unknown;
+        pressure?: unknown;
+        plato?: unknown;
+        pH?: unknown;
+        carbonation?: unknown;
+        notes?: unknown;
+        boldNotes?: unknown;
+    };
+
+    if (hasPackagingFields(candidate) || candidate.boldNotes === true) return false;
+
+    const hasMeasurement = [
+        candidate.temp,
+        candidate.pressure,
+        candidate.plato,
+        candidate.pH,
+        candidate.carbonation,
+    ].some((value) => value !== undefined && value !== null && value !== "");
+
+    const hasNotes =
+        candidate.notes !== undefined &&
+        candidate.notes !== null &&
+        String(candidate.notes).trim() !== "";
+
+    return !hasMeasurement && hasNotes;
+}
+
 async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<void> {
     const packagingReadings = readings
         .map((reading) => reading as PackagingReading)
@@ -72,9 +101,9 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-    // Start the optimistic Firestore update and the Google writes together.
-    // Previously the Sheet request started only AFTER Firestore had completed,
-    // which added a full network round trip to the user's waiting time.
+    // Start Firestore and Sheets together. Notes/actions are intentionally
+    // optimistic: the UI should not wait several seconds for Google's Web App
+    // transport after Firestore already reflects the action.
     const optimisticFirestorePromise = pushCurrentDataToFirestore(readings).catch((error) => {
         console.warn("Optimistic Firestore currentData update failed:", error);
     });
@@ -84,10 +113,42 @@ export async function writeReadingsToSheets(
         readings,
     });
 
-    // Packaging has a second set of cells (empty/kegs/crates/total/shrinkage).
-    // Send that mutation at the same time as the fermentation-row write instead
-    // of waiting for the first Apps Script round trip to finish.
     const packagingInfoPromise = syncPackagingInfoInParallel(readings);
+    const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
+
+    if (noteOnlyBatch) {
+        // Wait only for the realtime Firestore update. The authoritative Sheet
+        // write keeps running in the background with the same idempotent request
+        // semantics. Failures are surfaced in the console but no longer hold the
+        // cellar modal open for 3-5 seconds.
+        await optimisticFirestorePromise;
+
+        void sheetPromise
+            .then((parsed) => {
+                if (!parsed.success) {
+                    console.error(
+                        "Background note Sheet sync returned failure:",
+                        parsed.error || parsed.message
+                    );
+                    return;
+                }
+
+                const results = (parsed.results as writeReadingResult[] | undefined) ?? [];
+                const failed = results.filter((result) => !result.success);
+                if (failed.length > 0) {
+                    console.error("Background note Sheet sync partially failed:", failed);
+                }
+            })
+            .catch((error) => {
+                console.error("Background note Sheet sync failed:", error);
+            });
+
+        return readings.map((reading) => ({
+            success: true,
+            tankId: reading.tankId,
+            optimistic: true,
+        }));
+    }
 
     const [parsed] = await Promise.all([
         sheetPromise,
