@@ -13,6 +13,19 @@
 const FIREBASE_AUTH_PROJECT_ID = "fermenter-dashboard-bada3";
 const FIREBASE_AUTH_WEB_API_KEY = "AIzaSyAzmFTjWuLZjNzYDVKM9kK_xNEm37jiuGY";
 
+// Auth used to require two remote HTTP calls before EVERY Apps Script action:
+// Firebase accounts:lookup + Firestore approvedUsers lookup. That added visible
+// latency to every Sheet write. Keep short-lived server-side caches instead.
+//
+// Security trade-off is intentionally small:
+// - an already verified Firebase ID token may remain accepted for up to 5 min
+//   after revocation;
+// - approvedUsers membership may remain accepted for up to 60 sec after removal.
+// New/unknown tokens and users are still verified against Firebase immediately.
+const FIREBASE_TOKEN_CACHE_SECONDS = 300;
+const APPROVED_USER_CACHE_SECONDS = 60;
+const DENIED_USER_CACHE_SECONDS = 30;
+
 function authenticateFirebaseRequest_(idToken) {
   const token = String(idToken || "").trim();
   if (!token) {
@@ -37,7 +50,35 @@ function authenticateFirebaseRequest_(idToken) {
   };
 }
 
+function authCacheHash_(value) {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(value || ""),
+    Utilities.Charset.UTF_8
+  );
+
+  return bytes.map(function (byte) {
+    const unsigned = byte < 0 ? byte + 256 : byte;
+    return ("0" + unsigned.toString(16)).slice(-2);
+  }).join("");
+}
+
 function verifyFirebaseIdToken_(idToken) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "firebase_token:" + authCacheHash_(idToken);
+  const cached = cache.get(cacheKey);
+
+  if (cached) {
+    try {
+      const parsedCached = JSON.parse(cached);
+      if (parsedCached && parsedCached.localId && parsedCached.email) {
+        return parsedCached;
+      }
+    } catch (error) {
+      // Ignore malformed/stale cache and verify remotely below.
+    }
+  }
+
   const url =
     "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=" +
     encodeURIComponent(FIREBASE_AUTH_WEB_API_KEY);
@@ -69,12 +110,32 @@ function verifyFirebaseIdToken_(idToken) {
     throw new Error("Unauthorized");
   }
 
-  return user;
+  // Store only the fields authorization actually needs. Never cache the token.
+  const cacheValue = {
+    localId: String(user.localId),
+    email: String(user.email),
+    emailVerified: user.emailVerified === true
+  };
+
+  cache.put(
+    cacheKey,
+    JSON.stringify(cacheValue),
+    FIREBASE_TOKEN_CACHE_SECONDS
+  );
+
+  return cacheValue;
 }
 
 function isApprovedFirebaseUser_(email) {
   const normalizedEmail = String(email || "").trim();
   if (!normalizedEmail) return false;
+
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "approved_user:" + authCacheHash_(normalizedEmail);
+  const cached = cache.get(cacheKey);
+
+  if (cached === "1") return true;
+  if (cached === "0") return false;
 
   const url =
     "https://firestore.googleapis.com/v1/projects/" +
@@ -92,8 +153,15 @@ function isApprovedFirebaseUser_(email) {
 
   const status = response.getResponseCode();
 
-  if (status === 404) return false;
-  if (status >= 200 && status < 300) return true;
+  if (status === 404) {
+    cache.put(cacheKey, "0", DENIED_USER_CACHE_SECONDS);
+    return false;
+  }
+
+  if (status >= 200 && status < 300) {
+    cache.put(cacheKey, "1", APPROVED_USER_CACHE_SECONDS);
+    return true;
+  }
 
   console.log("approvedUsers lookup failed. HTTP " + status);
   throw new Error("Authorization service unavailable");
