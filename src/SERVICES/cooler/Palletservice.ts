@@ -3,7 +3,6 @@ export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
     collection,
     doc,
-    addDoc,
     updateDoc,
     getDoc,
     setDoc,
