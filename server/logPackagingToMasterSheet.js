@@ -8,20 +8,50 @@
 const MASTER_PACKAGING_SPREADSHEET_ID = "13ONg8FJSy_5mHH8EbjNaVHph_nsTKdkVvoXMthJJPb8";
 const MASTER_PACKAGING_SHEET_GID = 0;
 
+// A POST can finish its side effect and still lose/corrupt the HTTP response
+// on Google's redirect layer. The frontend therefore retries this specific
+// action with the SAME requestId. ScriptProperties makes that retry idempotent.
+const PACKAGING_REQUEST_CACHE_PREFIX = "packaging_request:";
+const PACKAGING_REQUEST_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
 function logPackagingToMasterSheet(payload) {
-  const { productLabel, quantity, batchNumber, expiryDateStr, productionDateStr } = payload;
+  const {
+    productLabel,
+    quantity,
+    batchNumber,
+    expiryDateStr,
+    productionDateStr,
+    requestId
+  } = payload;
 
   if (!productLabel || quantity === undefined || quantity === null) {
     throw new Error("Missing productLabel/quantity for master sheet log");
   }
 
-  const ss = SpreadsheetApp.openById(MASTER_PACKAGING_SPREADSHEET_ID);
-  const sheet = getSheetByGid_(ss, MASTER_PACKAGING_SHEET_GID);
-
+  const normalizedRequestId = String(requestId || "").trim();
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
 
   try {
+    cleanupPackagingRequestCache_();
+
+    if (normalizedRequestId) {
+      const cached = getPackagingRequestResult_(normalizedRequestId);
+      if (cached) {
+        Logger.log(
+          "Duplicate packaging request ignored: " + normalizedRequestId +
+          " -> row " + cached.row
+        );
+
+        return Object.assign({}, cached, {
+          duplicate: true,
+          requestId: normalizedRequestId
+        });
+      }
+    }
+
+    const ss = SpreadsheetApp.openById(MASTER_PACKAGING_SPREADSHEET_ID);
+    const sheet = getSheetByGid_(ss, MASTER_PACKAGING_SHEET_GID);
     const lastRow = sheet.getLastRow();
 
     // מוצאים את השורה הריקה הראשונה (עמודות A-E) החל משורה 2
@@ -56,13 +86,81 @@ function logPackagingToMasterSheet(payload) {
 
     SpreadsheetApp.flush();
 
-    Logger.log("Master packaging sheet updated at row " + targetRow + ": " + JSON.stringify(payload));
+    const result = {
+      success: true,
+      row: targetRow,
+      warnings: warnings,
+      requestId: normalizedRequestId || null,
+      duplicate: false
+    };
 
-    return { success: true, row: targetRow, warnings: warnings };
+    // Save the idempotency result BEFORE returning the HTTP response. If Google
+    // later serves a broken HTML response, the client's retry won't append again.
+    if (normalizedRequestId) {
+      savePackagingRequestResult_(normalizedRequestId, result);
+    }
+
+    Logger.log(
+      "Master packaging sheet updated at row " + targetRow +
+      ": " + JSON.stringify(payload)
+    );
+
+    return result;
 
   } finally {
     lock.releaseLock();
   }
+}
+
+function getPackagingRequestResult_(requestId) {
+  const props = PropertiesService.getScriptProperties();
+  const raw = props.getProperty(PACKAGING_REQUEST_CACHE_PREFIX + requestId);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    const savedAt = Number(parsed.savedAt || 0);
+
+    if (!savedAt || Date.now() - savedAt > PACKAGING_REQUEST_CACHE_TTL_MS) {
+      props.deleteProperty(PACKAGING_REQUEST_CACHE_PREFIX + requestId);
+      return null;
+    }
+
+    return parsed.result || null;
+  } catch (error) {
+    props.deleteProperty(PACKAGING_REQUEST_CACHE_PREFIX + requestId);
+    return null;
+  }
+}
+
+function savePackagingRequestResult_(requestId, result) {
+  PropertiesService.getScriptProperties().setProperty(
+    PACKAGING_REQUEST_CACHE_PREFIX + requestId,
+    JSON.stringify({
+      savedAt: Date.now(),
+      result: result
+    })
+  );
+}
+
+function cleanupPackagingRequestCache_() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  const now = Date.now();
+
+  Object.keys(all).forEach(function (key) {
+    if (key.indexOf(PACKAGING_REQUEST_CACHE_PREFIX) !== 0) return;
+
+    try {
+      const parsed = JSON.parse(all[key]);
+      const savedAt = Number(parsed.savedAt || 0);
+      if (!savedAt || now - savedAt > PACKAGING_REQUEST_CACHE_TTL_MS) {
+        props.deleteProperty(key);
+      }
+    } catch (error) {
+      props.deleteProperty(key);
+    }
+  });
 }
 
 function getSheetByGid_(ss, gid) {
@@ -87,12 +185,6 @@ function parseDDMMYYYYDate_(str) {
 // ============================================================
 // חיבור ל-doPost הקיים
 // ============================================================
-// אצלך כבר יש doPost שמנתב לפי data.action (כמו ל-"updatePackagingInfo").
-// יש להוסיף שם ענף נוסף, לדוגמה:
-//
-// if (data.action === "logPackagingToMasterSheet") {
-//   const result = logPackagingToMasterSheet(data);
-//   return ContentService
-//     .createTextOutput(JSON.stringify({ success: true, result: result }))
-//     .setMimeType(ContentService.MimeType.JSON);
-// }
+// post.js routes data.action === "logPackagingToMasterSheet" here and returns
+// the result as JSON. Keep all idempotency logic in this service so doPost stays
+// a thin router.
