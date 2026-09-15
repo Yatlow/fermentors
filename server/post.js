@@ -1,5 +1,10 @@
 // ============================================================
-// GLOBAL LOGGING (buffered — נכתב פעם אחת בסוף כל בקשה)
+// GLOBAL LOGGING
+// ============================================================
+// Normal request diagnostics go to the Apps Script execution log only. Writing
+// the shared Logs sheet synchronously can add seconds before ContentService is
+// allowed to return. Persist only failures to the sheet; successful hot-path
+// requests therefore make flushLogs_ a no-op.
 // ============================================================
 
 const LOG_SHEET_ID = "1Uoenz65Dx0inv3r6ZR4hCiF4JMx0U0BHG7W5tsfG8mc";
@@ -7,7 +12,12 @@ const LOG_SHEET_ID = "1Uoenz65Dx0inv3r6ZR4hCiF4JMx0U0BHG7W5tsfG8mc";
 let _logBuffer = [];
 
 function logToSheet(message) {
-  _logBuffer.push([new Date(), String(message)]);
+  const text = String(message);
+  console.log(text);
+
+  if (/\b(ERROR|FAILED)\b/i.test(text)) {
+    _logBuffer.push([new Date(), text]);
+  }
 }
 
 function flushLogs_() {
@@ -238,9 +248,8 @@ function doPost(e) {
 
     const response = runPostActionIdempotently_(data);
 
-    // Persist an authoritative success receipt before ContentService returns.
-    // If Google's redirect layer loses/corrupts the JSON response, the browser
-    // can recover this exact response from Firestore by requestId.
+    // Kept as a no-op compatibility hook. Successful mutations are confirmed
+    // through one idempotent retry when Google's ContentService loses JSON.
     writeOperationReceipt_(data, response, authenticatedUser);
 
     return jsonResponse(response);
@@ -517,7 +526,6 @@ function checkBatchForTank(tankNumber, requestedBatch) {
     tankNumber: targetTank
   };
 }
-
 function jsonResponse(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
