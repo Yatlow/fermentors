@@ -4,6 +4,7 @@
 //
 // This file intentionally owns ONLY:
 //   - computeHash_ / hasChangedLocally_
+//   - ACTION 5 snapshot key constants
 //   - runActionFlow_
 //
 // The actual 5-minute cycle lives in fermentor-cycle-optimization.js.
@@ -11,6 +12,10 @@
 // Keeping one owner per global function is mandatory in Apps Script because
 // every .js/.gs file is loaded into the same global namespace.
 // ================================================================
+
+// Preserve the existing ScriptProperties keys used by ACTION 5.
+const BREW_CANDIDATES_SNAPSHOT_KEY = "brew_drive_snapshot_v2";
+const BREW_DRIVE_CHANGE_TOKEN_KEY = "brew_drive_change_token_v2";
 
 function computeHash_(value) {
   const json = JSON.stringify(value);
