@@ -1,4 +1,5 @@
 import type { ReadingToSend } from "../../App";
+import { callAppsScriptPost, type AppsScriptEnvelope } from "./appsScriptClient";
 
 export type writeReadingResult = {
     success: boolean;
@@ -8,43 +9,19 @@ export type writeReadingResult = {
     [key: string]: unknown;
 };
 
-const GOOGLE_SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
-
-
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-
     const payload = {
         action: "addFermentationMeasurements",
-        readings: readings,
+        readings,
     };
-    const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify(payload),
-    });
 
-    const text = await response.text();
-
-    let parsed: { success: boolean; results?: writeReadingResult[]; error?: string; message?: string };
-
-    try {
-        parsed = JSON.parse(text);
-    } catch {
-        throw new Error("Google Apps Script returned invalid JSON: " + text);
-    }
-    
+    const parsed = await callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>(payload);
 
     if (!parsed.success) {
-        throw new Error(
-            parsed.error ||
-            parsed.message ||
-            "Batch update failed"
-        );
+        throw new Error(parsed.error || parsed.message || "Batch update failed");
     }
-    return parsed.results ?? [];
+
+    return (parsed.results as writeReadingResult[] | undefined) ?? [];
 }
