@@ -8,6 +8,7 @@ function addFermentationMeasurement(
   notes,
   boldNotes
 ) {
+  const startedAt = Date.now();
 
   if (!sheetUrl) {
     throw new Error("Missing sheetUrl");
@@ -25,19 +26,31 @@ function addFermentationMeasurement(
   lock.waitLock(30000);
 
   try {
-
     Logger.log("========================================");
     Logger.log("ADD FERMENTATION MEASUREMENT");
     Logger.log("Spreadsheet: " + spreadsheetId);
     Logger.log("Sheet: " + sheet.getName());
 
-    const values = sheet.getDataRange().getDisplayValues();
+    // Read only the fermentation columns (A:H), never the whole DataRange.
+    // Cache only the header row location. The cached row is validated on every
+    // call, so a changed sheet layout automatically falls back to a full scan.
+    const lastRow = Math.max(sheet.getLastRow(), 1);
+    const headerCache = CacheService.getScriptCache();
+    const headerCacheKey = "fermentation_header:" + spreadsheetId;
+    const cachedHeaderRow = Number(headerCache.get(headerCacheKey));
 
-    // ... (איתור headerRow - זהה למקור, לא נגעתי) ...
-    let headerRow = -1;
+    let readStartRow =
+      Number.isFinite(cachedHeaderRow) &&
+      cachedHeaderRow >= 1 &&
+      cachedHeaderRow <= lastRow
+        ? cachedHeaderRow
+        : 1;
 
-    for (let r = 0; r < values.length; r++) {
-      const row = values[r];
+    let values = sheet
+      .getRange(readStartRow, 1, lastRow - readStartRow + 1, 8)
+      .getDisplayValues();
+
+    function rowLooksLikeFermentationHeader_(row) {
       let hasDate = false;
       let hasTime = false;
       let hasTemperature = false;
@@ -49,9 +62,33 @@ function addFermentationMeasurement(
         if (cell === "טמפרטורה") hasTemperature = true;
       }
 
-      if (hasDate && hasTime && hasTemperature) {
-        headerRow = r;
-        break;
+      return hasDate && hasTime && hasTemperature;
+    }
+
+    let headerRow = -1; // zero-based absolute sheet row index
+
+    if (
+      readStartRow > 1 &&
+      values.length > 0 &&
+      rowLooksLikeFermentationHeader_(values[0])
+    ) {
+      headerRow = readStartRow - 1;
+      Logger.log("Fermentation header cache hit at row: " + readStartRow);
+    } else {
+      // Cached position is absent/stale: do one bounded A:H read and find it.
+      if (readStartRow !== 1) {
+        readStartRow = 1;
+        values = sheet
+          .getRange(1, 1, lastRow, 8)
+          .getDisplayValues();
+      }
+
+      for (let r = 0; r < values.length; r++) {
+        if (rowLooksLikeFermentationHeader_(values[r])) {
+          headerRow = r;
+          headerCache.put(headerCacheKey, String(r + 1), 21600); // 6 hours
+          break;
+        }
       }
     }
 
@@ -60,6 +97,15 @@ function addFermentationMeasurement(
     }
 
     Logger.log("Fermentation header found at row: " + (headerRow + 1));
+
+    const snapshotStartZeroBased = readStartRow - 1;
+
+    function getSnapshotRow_(absoluteZeroBasedRow) {
+      const localIndex = absoluteZeroBasedRow - snapshotStartZeroBased;
+      return localIndex >= 0 && localIndex < values.length
+        ? values[localIndex]
+        : null;
+    }
 
     const now = new Date();
     const timezone = "Asia/Jerusalem";
@@ -76,16 +122,11 @@ function addFermentationMeasurement(
       "HH:mm"
     );
 
-    // Create a Date object based on Jerusalem's local calendar date.
-    // This prevents Sheets from shifting the date backward because of UTC.
     const dateParts = jerusalemDateText.split("-");
-
     const year = Number(dateParts[0]);
     const month = Number(dateParts[1]);
     const day = Number(dateParts[2]);
 
-    // Google Sheets date serial number.
-    // Using UTC here prevents any timezone conversion from changing the day.
     const sheetDate =
       Math.floor(Date.UTC(year, month - 1, day) / 86400000) + 25569;
 
@@ -94,100 +135,99 @@ function addFermentationMeasurement(
       String(month).padStart(2, "0") + "/" +
       year;
 
+    const timeText = jerusalemTimeText;
+    const todayDateTextNormalized = dateText.replace(/[^\d/]/g, "");
+
     Logger.log(
       "Jerusalem date: " + dateText +
       " | Sheet serial: " + sheetDate
     );
-
-    const timeText = jerusalemTimeText;
-
-    Logger.log("Date: " + dateText);
     Logger.log("Time: " + timeText);
 
-    let existingTodayRow = -1;
+    let existingTodayRow = -1; // 1-based
     let existingTodayTime = "";
+    let lastMeasurementRow = headerRow; // zero-based
 
-    for (let r = headerRow + 1; r < values.length; r++) {
+    // One pass finds BOTH today's row and the last measurement row.
+    for (let r = headerRow + 1; r < lastRow; r++) {
+      const snapshotRow = getSnapshotRow_(r);
+      if (!snapshotRow) continue;
 
-      const cellDateTextRaw = String(values[r][0] || "").trim();
+      const cellDateTextRaw = String(snapshotRow[0] || "").trim();
       if (!cellDateTextRaw) continue;
 
-      const cellDateTextNormalized = cellDateTextRaw.replace(/[^\d/]/g, "");
-      const todayDateTextNormalized = dateText.replace(/[^\d/]/g, "");
+      const cellDateParsed = parseIsraeliDate(cellDateTextRaw);
+      if (cellDateParsed) {
+        lastMeasurementRow = r;
+      }
+
+      const cellDateTextNormalized =
+        cellDateTextRaw.replace(/[^\d/]/g, "");
 
       const stringMatch =
         cellDateTextNormalized !== "" &&
         cellDateTextNormalized === todayDateTextNormalized;
 
-      const cellDateParsed = parseIsraeliDate(cellDateTextRaw);
-
       const dateMatch =
         cellDateParsed &&
-        cellDateParsed.getFullYear() === now.getFullYear() &&
-        cellDateParsed.getMonth() === now.getMonth() &&
-        cellDateParsed.getDate() === now.getDate();
+        cellDateParsed.getFullYear() === year &&
+        cellDateParsed.getMonth() === month - 1 &&
+        cellDateParsed.getDate() === day;
 
       if (stringMatch || dateMatch) {
         existingTodayRow = r + 1;
-        existingTodayTime = String(values[r][1] || "").trim();
+        existingTodayTime = String(snapshotRow[1] || "").trim();
       } else if (
-        cellDateTextNormalized.indexOf(todayDateTextNormalized) !== -1 ||
-        todayDateTextNormalized.indexOf(cellDateTextNormalized) !== -1
+        cellDateTextNormalized &&
+        (
+          cellDateTextNormalized.indexOf(todayDateTextNormalized) !== -1 ||
+          todayDateTextNormalized.indexOf(cellDateTextNormalized) !== -1
+        )
       ) {
         Logger.log(
           "Near-miss on row " + (r + 1) +
-          ". Raw: " + JSON.stringify(cellDateTextRaw) +
-          " | codes: " + cellDateTextRaw.split("").map(function (ch) {
-            return ch.charCodeAt(0);
-          }).join(",")
+          ". Raw: " + JSON.stringify(cellDateTextRaw)
         );
       }
     }
 
     Logger.log(
       "Today-row search: headerRow=" + (headerRow + 1) +
-      ", scanned rows " + (headerRow + 2) + " to " + values.length +
-      ", existingTodayRow=" + existingTodayRow
+      ", existingTodayRow=" + existingTodayRow +
+      ", lastMeasurementRow=" + (lastMeasurementRow + 1)
     );
 
     let targetRow;
     let isOverwrite = false;
 
     if (existingTodayRow !== -1) {
-
       targetRow = existingTodayRow;
       isOverwrite = true;
 
       Logger.log(
         "Existing row found for today's date at row: " + targetRow +
-        ". It will be overwritten (original time kept: " + existingTodayTime + ")."
+        ". It will be overwritten (original time kept: " +
+        existingTodayTime + ")."
       );
-
     } else {
-
-      let lastMeasurementRow = headerRow;
-
-      for (let r = headerRow + 1; r < values.length; r++) {
-        const dText = String(values[r][0] || "").trim();
-        const d = parseIsraeliDate(dText);
-        if (d) lastMeasurementRow = r;
-      }
-
-      Logger.log("Last measurement row: " + (lastMeasurementRow + 1));
-
       targetRow = lastMeasurementRow + 2;
 
-      while (true) {
-        const existingRow =
-          sheet.getRange(targetRow, 1, 1, 8).getDisplayValues()[0];
-
-        const rowHasData = existingRow.some(function (value) {
-          return String(value || "").trim() !== "";
-        });
+      // Reuse the A:H snapshot while looking for a safe empty row instead
+      // of issuing one Sheets call per row.
+      while (targetRow <= lastRow) {
+        const snapshotRow = getSnapshotRow_(targetRow - 1);
+        const rowHasData =
+          snapshotRow &&
+          snapshotRow.some(function (value) {
+            return String(value || "").trim() !== "";
+          });
 
         if (!rowHasData) break;
 
-        Logger.log("Row " + targetRow + " contains data. Moving to next row.");
+        Logger.log(
+          "Row " + targetRow +
+          " contains data in snapshot. Moving to next row."
+        );
         targetRow++;
       }
 
@@ -199,23 +239,32 @@ function addFermentationMeasurement(
     let existingRawValues = null;
 
     if (isOverwrite) {
-      existingRawValues = sheet.getRange(targetRow, 1, 1, 8).getValues()[0];
+      existingRawValues =
+        sheet.getRange(targetRow, 1, 1, 8).getValues()[0];
     }
 
     function mergeValue(newValue, colIndexZeroBased) {
       const hasNewValue =
-        newValue !== undefined && newValue !== null && newValue !== "";
+        newValue !== undefined &&
+        newValue !== null &&
+        newValue !== "";
 
       if (hasNewValue) return formatMeasurementValue(newValue);
 
-      return existingRawValues ? existingRawValues[colIndexZeroBased] : "";
+      return existingRawValues
+        ? existingRawValues[colIndexZeroBased]
+        : "";
     }
 
     const existingNotesText =
-      existingRawValues ? String(existingRawValues[7] || "").trim() : "";
+      existingRawValues
+        ? String(existingRawValues[7] || "").trim()
+        : "";
 
     const newNotesText =
-      (notes !== undefined && notes !== null) ? String(notes).trim() : "";
+      notes !== undefined && notes !== null
+        ? String(notes).trim()
+        : "";
 
     let notesValue;
 
@@ -238,9 +287,11 @@ function addFermentationMeasurement(
       notesValue
     ];
 
-    Logger.log("Prepared row:");
-    Logger.log(JSON.stringify(rowValues));
+    Logger.log("Prepared row: " + JSON.stringify(rowValues));
 
+    // Keep the final safety read for new rows. It protects against a manual
+    // sheet edit that happened after our snapshot while still eliminating the
+    // repeated row-by-row reads above.
     if (!isOverwrite) {
       const finalExistingRow =
         sheet.getRange(targetRow, 1, 1, 8).getDisplayValues()[0];
@@ -257,19 +308,9 @@ function addFermentationMeasurement(
       }
     }
 
-    // ========================================================
-    // CAPTURE OLD NOTES RICH TEXT — BEFORE the write happens!
-    // ========================================================
-    //
-    // Range.getRichTextValue() must be called BEFORE setValues(),
-    // otherwise it returns the NEW content, not the old one.
-    // We store the actual RichTextValue snapshot, not the Range.
-    //
-    // ========================================================
-
     let existingRichTextSnapshot = null;
 
-    if (isOverwrite) {
+    if (isOverwrite && boldNotes === true) {
       try {
         existingRichTextSnapshot =
           sheet.getRange(targetRow, 8).getRichTextValue();
@@ -278,39 +319,23 @@ function addFermentationMeasurement(
       }
     }
 
-    // ========================================================
-    // WRITE ONLY A:H
-    // ========================================================
-
+    // One value write + one formatting write instead of seven separate
+    // setNumberFormat calls.
     sheet.getRange(targetRow, 1, 1, 8).setValues([rowValues]);
 
-    sheet.getRange(targetRow, 1).setNumberFormat("dd/MM/yyyy");
-    sheet.getRange(targetRow, 2).setNumberFormat("HH:mm");
-    sheet.getRange(targetRow, 3).setNumberFormat("0.00\"°P\"");
-    sheet.getRange(targetRow, 4).setNumberFormat("0.00\"°C\"");
-    sheet.getRange(targetRow, 5).setNumberFormat("0.00\"Bar\"");
-    sheet.getRange(targetRow, 6).setNumberFormat("0.00");
-    sheet.getRange(targetRow, 7).setNumberFormat("0.00");
-
-    SpreadsheetApp.flush();
-
-    Logger.log(
-      (isOverwrite
-        ? "Measurement successfully overwritten at row: "
-        : "Measurement successfully written to row: ") + targetRow
-    );
-
-    // ========================================================
-    // APPLY BOLD RICH TEXT TO NOTES CELL (if requested)
-    // ========================================================
-    //
-    // Runs AFTER setValues (which would otherwise wipe rich text
-    // formatting), and uses the snapshot captured BEFORE the write.
-    //
-    // ========================================================
+    sheet
+      .getRange(targetRow, 1, 1, 7)
+      .setNumberFormats([[
+        "dd/MM/yyyy",
+        "HH:mm",
+        '0.00"°P"',
+        '0.00"°C"',
+        '0.00"Bar"',
+        "0.00",
+        "0.00"
+      ]]);
 
     if (boldNotes === true) {
-
       const richText = buildMergedNotesRichText(
         existingRichTextSnapshot,
         isOverwrite ? existingNotesText : "",
@@ -319,9 +344,19 @@ function addFermentationMeasurement(
       );
 
       sheet.getRange(targetRow, 8).setRichTextValue(richText);
-
       Logger.log("Applied bold rich text to notes cell.");
     }
+
+    // No explicit SpreadsheetApp.flush() here. Apps Script commits pending
+    // spreadsheet writes before the execution completes; forcing a flush on
+    // every tank only adds a synchronous round trip.
+    Logger.log(
+      (isOverwrite
+        ? "Measurement successfully overwritten at row: "
+        : "Measurement successfully written to row: ") +
+      targetRow +
+      " | total " + (Date.now() - startedAt) + "ms"
+    );
 
     return {
       success: true,
@@ -331,7 +366,6 @@ function addFermentationMeasurement(
       row: targetRow,
       date: dateText,
       time: rowTimeText,
-      // מחזירים לפרונט את השורה הסופית והמאוחדת שנשמרה בפועל.
       sugar: rowValues[2],
       temperature: rowValues[3],
       pressure: rowValues[4],
@@ -345,7 +379,6 @@ function addFermentationMeasurement(
     lock.releaseLock();
   }
 }
-
 
 
 // ============================================================
