@@ -20,7 +20,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-(window as any).__firebaseAuth = auth; // Expose auth for debugging in the console
 export const googleProvider = new GoogleAuthProvider();
 
 // Keep Firestore data in IndexedDB and share it across tabs. This avoids
