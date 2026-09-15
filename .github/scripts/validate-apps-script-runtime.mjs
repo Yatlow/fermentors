@@ -13,16 +13,6 @@ const files = fs.readdirSync(serverDir)
   .filter((name) => name.endsWith(".js"))
   .sort();
 
-// Temporary compatibility exception. These two implementations were checked
-// side-by-side and are byte-for-byte equivalent in behavior. post.js does not
-// call its local copy. Keep this exception narrow; any other duplicate fails.
-const allowedCollisions = new Map([
-  [
-    "formatMeasurementValue",
-    new Set(["addFermentationMeasurement.js", "post.js"])
-  ]
-]);
-
 function scanTopLevelDeclarations(source, fileName) {
   const declarations = [];
   let i = 0;
@@ -157,38 +147,9 @@ for (const declaration of all) {
   byName.set(declaration.name, rows);
 }
 
-function isAllowedCollision(name, rows) {
-  const allowedFiles = allowedCollisions.get(name);
-  if (!allowedFiles) return false;
-
-  const actualFiles = new Set(rows.map((row) => row.file));
-  if (actualFiles.size !== allowedFiles.size) return false;
-
-  for (const file of actualFiles) {
-    if (!allowedFiles.has(file)) return false;
-  }
-
-  return true;
-}
-
-const allCollisions = [...byName.entries()]
+const collisions = [...byName.entries()]
   .filter(([, rows]) => rows.length > 1)
   .sort(([a], [b]) => a.localeCompare(b));
-
-const collisions = allCollisions.filter(
-  ([name, rows]) => !isAllowedCollision(name, rows)
-);
-
-const allowedPresent = allCollisions.filter(
-  ([name, rows]) => isAllowedCollision(name, rows)
-);
-
-for (const [name, rows] of allowedPresent) {
-  console.warn(
-    `Allowed compatibility duplicate: ${name} -> ` +
-    rows.map((row) => `${row.file}:${row.line}`).join(", ")
-  );
-}
 
 if (collisions.length) {
   console.error("\nApps Script global namespace collisions detected:\n");
@@ -204,5 +165,5 @@ if (collisions.length) {
 
 console.log(
   `Apps Script runtime validation passed: ${files.length} JS files, ` +
-  `${all.length} top-level declarations, no unsafe collisions.`
+  `${all.length} top-level declarations, zero collisions.`
 );
