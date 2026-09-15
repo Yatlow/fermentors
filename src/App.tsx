@@ -135,7 +135,6 @@ function useAuth() {
     const [loading, setLoading] = useState(true);
     const [isApproved, setIsApproved] = useState<boolean | null>(null);
     const [admin, setAdmin] = useState(false);
-    const [testUser, setTestUser] = useState(false);
     const [plannerUser, setPlannerUser] = useState(false);
 
     useEffect(() => {
@@ -147,7 +146,6 @@ function useAuth() {
             if (!nextUser) {
                 setIsApproved(false);
                 setAdmin(false);
-                setTestUser(false);
                 setPlannerUser(false);
                 setLoading(false);
                 return;
@@ -158,13 +156,11 @@ function useAuth() {
                 const approved = userData !== null;
                 setIsApproved(approved);
                 setAdmin(approved && userData?.isAdmin === true);
-                setTestUser(approved && userData?.isTestUser === true);
                 setPlannerUser(approved && userData?.isPlannerUser === true);
             } catch (error) {
                 console.error("Error updating last logged in:", error);
                 setIsApproved(false);
                 setAdmin(false);
-                setTestUser(false);
                 setPlannerUser(false);
             } finally {
                 setLoading(false);
@@ -173,7 +169,7 @@ function useAuth() {
         return () => unsubscribe();
     }, []);
 
-    return { user, loading, isApproved, admin, testUser, plannerUser };
+    return { user, loading, isApproved, admin, plannerUser };
 }
 
 function App() {
@@ -256,14 +252,16 @@ function App() {
         signOut(auth)
     }
 
-    const idsNeedingStage = brews.filter(t => t.stage === undefined).map(t => t.id).join(",");
+    const tanksNeedingStage = useMemo(
+        () => brews.filter((tank) => tank.stage === undefined),
+        [brews]
+    );
+
     useEffect(() => {
-        if (!user || brews.length === 0) return;
+        if (!user || tanksNeedingStage.length === 0) return;
         if (user.email === "itzik@shapirobeer.co.il" && plannerUser) {
             setSelectedView("תכנון")
         }
-        const tanksNeedingStage = brews.filter((tank) => tank.stage === undefined);
-        if (tanksNeedingStage.length === 0) return;
         let cancelled = false;
         (async () => {
             const stageById = new Map<string, TankStageInfo | undefined>();
@@ -283,7 +281,7 @@ function App() {
             );
         })();
         return () => { cancelled = true; };
-    }, [idsNeedingStage, user, plannerUser]);
+    }, [tanksNeedingStage, user, plannerUser]);
 
     useEffect(() => {
         if (!user || !isApproved) {
