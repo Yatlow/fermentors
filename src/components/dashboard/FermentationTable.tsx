@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type TouchEvent } from "react";
 import type { Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import "./FermentationTable.css";
 
@@ -6,7 +6,7 @@ type Props = {
     measurements: Measurement[];
 };
 
-const MIN_ZOOM = 45;
+const MIN_ZOOM = 30;
 const MAX_ZOOM = 120;
 const ZOOM_STEP = 10;
 
@@ -44,6 +44,12 @@ function rowEventClass(notes: string): string {
     return "";
 }
 
+function touchDistance(event: TouchEvent<HTMLDivElement>): number {
+    if (event.touches.length < 2) return 0;
+    const [a, b] = [event.touches[0], event.touches[1]];
+    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+}
+
 export default function FermentationTable({ measurements }: Props) {
     const rows = [...measurements].sort((a, b) =>
         String(b.id ?? "").localeCompare(String(a.id ?? ""))
@@ -51,22 +57,65 @@ export default function FermentationTable({ measurements }: Props) {
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const tableRef = useRef<HTMLTableElement | null>(null);
+    const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
     const [zoom, setZoom] = useState(100);
+    const [isFitted, setIsFitted] = useState(false);
+
+    function clampZoom(value: number): number {
+        return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
+    }
 
     function fitToWidth() {
         const viewport = scrollRef.current;
         const table = tableRef.current;
         if (!viewport || !table) return;
 
-        // scrollWidth is measured at the current zoom. Convert it back to the
-        // table's approximate 100% width, then calculate the scale needed to fit.
+        // getBoundingClientRect() includes CSS zoom. Divide by the current
+        // scale to recover the table's actual 100% width. scrollWidth does not
+        // behave consistently with CSS zoom on iOS Safari and was causing the
+        // old fit calculation to hit the minimum zoom too early.
         const currentScale = zoom / 100;
-        const naturalWidth = table.scrollWidth / Math.max(currentScale, 0.01);
+        const renderedWidth = table.getBoundingClientRect().width;
+        const naturalWidth = renderedWidth / Math.max(currentScale, 0.01);
         if (!naturalWidth) return;
 
-        const nextZoom = Math.floor((viewport.clientWidth / naturalWidth) * 100);
-        setZoom(Math.max(MIN_ZOOM, Math.min(100, nextZoom)));
+        // Keep a tiny safety margin so the last column/border is never clipped.
+        const availableWidth = Math.max(0, viewport.clientWidth - 4);
+        const nextZoom = Math.floor((availableWidth / naturalWidth) * 100 * 0.99);
+        setZoom(clampZoom(Math.min(100, nextZoom)));
+        setIsFitted(true);
         viewport.scrollLeft = 0;
+    }
+
+    function changeZoom(nextZoom: number) {
+        setZoom(clampZoom(nextZoom));
+        setIsFitted(false);
+    }
+
+    function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
+        if (event.touches.length !== 2) return;
+        pinchRef.current = {
+            distance: touchDistance(event),
+            zoom,
+        };
+        setIsFitted(false);
+    }
+
+    function handleTouchMove(event: TouchEvent<HTMLDivElement>) {
+        if (event.touches.length !== 2 || !pinchRef.current) return;
+        const distance = touchDistance(event);
+        if (!distance || !pinchRef.current.distance) return;
+
+        event.preventDefault();
+        const ratio = distance / pinchRef.current.distance;
+        const nextZoom = Math.round(pinchRef.current.zoom * ratio);
+        setZoom(clampZoom(nextZoom));
+    }
+
+    function handleTouchEnd(event: TouchEvent<HTMLDivElement>) {
+        if (event.touches.length < 2) {
+            pinchRef.current = null;
+        }
     }
 
     useEffect(() => {
@@ -74,14 +123,15 @@ export default function FermentationTable({ measurements }: Props) {
         if (!viewport || typeof ResizeObserver === "undefined") return;
 
         const observer = new ResizeObserver(() => {
-            // Keep a fitted table fitted when the modal/orientation changes,
-            // without overriding a user's manually selected zoom level.
-            if (zoom < 100) fitToWidth();
+            // Only recompute automatically when the user explicitly chose
+            // "fit to screen". Manual zoom and pinch remain untouched.
+            if (isFitted) fitToWidth();
         });
         observer.observe(viewport);
         return () => observer.disconnect();
+        // fitToWidth intentionally reads the latest rendered width/zoom.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [zoom]);
+    }, [isFitted, zoom]);
 
     if (rows.length === 0) {
         return <div className="batch-chart-status">אין עדיין מדידות לאצווה זו</div>;
@@ -104,7 +154,7 @@ export default function FermentationTable({ measurements }: Props) {
                         <button
                             type="button"
                             className="fermentation-zoom-button"
-                            onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))}
+                            onClick={() => changeZoom(zoom - ZOOM_STEP)}
                             disabled={zoom <= MIN_ZOOM}
                             aria-label="הקטן טבלה"
                         >
@@ -113,7 +163,7 @@ export default function FermentationTable({ measurements }: Props) {
                         <button
                             type="button"
                             className="fermentation-zoom-value"
-                            onClick={() => setZoom(100)}
+                            onClick={() => changeZoom(100)}
                             title="חזרה ל-100%"
                         >
                             {zoom}%
@@ -121,7 +171,7 @@ export default function FermentationTable({ measurements }: Props) {
                         <button
                             type="button"
                             className="fermentation-zoom-button"
-                            onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))}
+                            onClick={() => changeZoom(zoom + ZOOM_STEP)}
                             disabled={zoom >= MAX_ZOOM}
                             aria-label="הגדל טבלה"
                         >
@@ -129,7 +179,7 @@ export default function FermentationTable({ measurements }: Props) {
                         </button>
                         <button
                             type="button"
-                            className="fermentation-fit-button"
+                            className={`fermentation-fit-button ${isFitted ? "active" : ""}`}
                             onClick={fitToWidth}
                         >
                             התאם למסך
@@ -139,7 +189,14 @@ export default function FermentationTable({ measurements }: Props) {
                 </div>
             </div>
 
-            <div className="fermentation-table-scroll" ref={scrollRef}>
+            <div
+                className="fermentation-table-scroll"
+                ref={scrollRef}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchEnd}
+            >
                 <table className="fermentation-table" ref={tableRef} style={tableStyle}>
                     <thead>
                         <tr>
