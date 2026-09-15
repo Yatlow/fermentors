@@ -1,5 +1,4 @@
-const GOOGLE_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
+import { callAppsScriptGet, type AppsScriptEnvelope } from "../getAndPost/appsScriptClient";
 
 export type TransitionWarning = {
   level: "info" | "warning";
@@ -21,23 +20,12 @@ export type StatusTransitionCheckResult = {
 };
 
 async function callGasGet(params: Record<string, string>) {
-  const url = new URL(GOOGLE_SCRIPT_URL);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-
-  const response = await fetch(url.toString());
-  const text = await response.text();
-
-  let parsed: { success: boolean; result?: unknown; error?: string };
-
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("Google Apps Script returned invalid JSON: " + text);
-  }
+  const parsed = await callAppsScriptGet<AppsScriptEnvelope>(params);
 
   if (!parsed.success) {
-    throw new Error(parsed.error || "Request failed");
+    throw new Error(parsed.error || parsed.message || "Request failed");
   }
+
   return parsed.result;
 }
 
