@@ -4,11 +4,56 @@ import "./FermentationTable.css";
 
 type Props = {
     measurements: Measurement[];
+    brewDate?: string | null;
 };
 
 const MIN_ZOOM = 30;
 const MAX_ZOOM = 120;
 const ZOOM_STEP = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseBrewDate(value?: string | null): Date | null {
+    if (!value) return null;
+    const match = String(value).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (!match) return null;
+
+    let year = Number(match[3]);
+    if (year < 100) year += 2000;
+
+    const date = new Date(year, Number(match[2]) - 1, Number(match[1]));
+    date.setHours(0, 0, 0, 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseMeasurementDay(measurement: Measurement): Date | null {
+    const idMatch = String(measurement.id ?? "").match(/^(\d{4})-(\d{2})-(\d{2})_/);
+    if (idMatch) {
+        const date = new Date(Number(idMatch[1]), Number(idMatch[2]) - 1, Number(idMatch[3]));
+        date.setHours(0, 0, 0, 0);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    const rawDate = (measurement as Measurement & { date?: unknown }).date;
+    if (!rawDate) return null;
+
+    const displayMatch = String(rawDate).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (!displayMatch) return null;
+
+    let year = Number(displayMatch[3]);
+    if (year < 100) year += 2000;
+    const date = new Date(year, Number(displayMatch[2]) - 1, Number(displayMatch[1]));
+    date.setHours(0, 0, 0, 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatBrewAge(measurement: Measurement, brewDate?: string | null): string {
+    const brew = parseBrewDate(brewDate);
+    const measurementDay = parseMeasurementDay(measurement);
+    if (!brew || !measurementDay) return "—";
+
+    const day = Math.round((measurementDay.getTime() - brew.getTime()) / DAY_MS);
+    return day >= 0 ? `יום ${day}` : "—";
+}
 
 function formatDate(measurement: Measurement): string {
     const rawDate = (measurement as Measurement & { date?: unknown }).date;
@@ -50,9 +95,9 @@ function touchDistance(event: TouchEvent<HTMLDivElement>): number {
     return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
 }
 
-export default function FermentationTable({ measurements }: Props) {
+export default function FermentationTable({ measurements, brewDate }: Props) {
     const rows = [...measurements].sort((a, b) =>
-        String(b.id ?? "").localeCompare(String(a.id ?? ""))
+        String(a.id ?? "").localeCompare(String(b.id ?? ""))
     );
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -70,16 +115,11 @@ export default function FermentationTable({ measurements }: Props) {
         const table = tableRef.current;
         if (!viewport || !table) return;
 
-        // getBoundingClientRect() includes CSS zoom. Divide by the current
-        // scale to recover the table's actual 100% width. scrollWidth does not
-        // behave consistently with CSS zoom on iOS Safari and was causing the
-        // old fit calculation to hit the minimum zoom too early.
         const currentScale = zoom / 100;
         const renderedWidth = table.getBoundingClientRect().width;
         const naturalWidth = renderedWidth / Math.max(currentScale, 0.01);
         if (!naturalWidth) return;
 
-        // Keep a tiny safety margin so the last column/border is never clipped.
         const availableWidth = Math.max(0, viewport.clientWidth - 4);
         const nextZoom = Math.floor((availableWidth / naturalWidth) * 100 * 0.99);
         setZoom(clampZoom(Math.min(100, nextZoom)));
@@ -123,8 +163,6 @@ export default function FermentationTable({ measurements }: Props) {
         if (!viewport || typeof ResizeObserver === "undefined") return;
 
         const observer = new ResizeObserver(() => {
-            // Only recompute automatically when the user explicitly chose
-            // "fit to screen". Manual zoom and pinch remain untouched.
             if (isFitted) fitToWidth();
         });
         observer.observe(viewport);
@@ -202,6 +240,7 @@ export default function FermentationTable({ measurements }: Props) {
                         <tr>
                             <th>תאריך</th>
                             <th>שעה</th>
+                            <th className="brew-age-column">גיל בישול</th>
                             <th className="metric-plato">סוכר</th>
                             <th className="metric-temp">טמפ׳</th>
                             <th className="metric-pressure">לחץ</th>
@@ -222,6 +261,7 @@ export default function FermentationTable({ measurements }: Props) {
                                 >
                                     <td className="date-cell">{formatDate(measurement)}</td>
                                     <td className="time-cell">{formatTime(measurement)}</td>
+                                    <td className="brew-age-cell">{formatBrewAge(measurement, brewDate)}</td>
                                     <td className="metric-cell metric-plato">{displayValue(measurement.plato, "°P")}</td>
                                     <td className="metric-cell metric-temp">{displayValue(measurement.temp, "°C")}</td>
                                     <td className="metric-cell metric-pressure">{displayValue(measurement.pressure, " bar")}</td>
