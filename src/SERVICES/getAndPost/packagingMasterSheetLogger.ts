@@ -6,9 +6,11 @@ import {
     type CustomPalletSplitEntry,
 } from "../cooler/Palletservice";
 import type { PalletItemType } from "../cooler/Pallettypes ";
-
-const GOOGLE_SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
+import {
+    callAppsScriptPost,
+    createAppsScriptRequestId,
+    type AppsScriptEnvelope,
+} from "./appsScriptClient";
 
 export type PackagingType = "kegs" | "bottles";
 
@@ -127,6 +129,13 @@ export type SubmitPackagingRecordResult = {
     palletPlan: PackagingPalletPlan | null;
 };
 
+type MasterSheetServerResult = {
+    row?: number;
+    warnings?: string[];
+    requestId?: string | null;
+    duplicate?: boolean;
+};
+
 /**
  * כותבת אירוע אריזה בפועל לפיירסטור, לקולקציית packagingLog.
  * מבנה הדוקומנט תואם בכוונה למבנה של calendar_events (title/itemType/quantity/unit/timestamp)
@@ -171,7 +180,7 @@ async function logPackagingToFirestore(params: {
     try {
         await updateDoc(docRef, {
             tankStatus: tankStatus,
-            action: tankStatus? 3: 1,
+            action: tankStatus ? 3 : 1,
         });
     } catch (err) {
         console.error("Failed to update tankStatus in Firestore:", err);
@@ -218,8 +227,13 @@ export async function submitPackagingRecord(
             ? `חביות ${beerStyle ?? ""}`.trim()
             : `ארגזי ${beerStyle ?? ""}`.trim();
 
+    // SAME id is reused for all HTTP attempts of this logical write. The server
+    // stores the completed result before replying, so a broken Google redirect
+    // can be retried without appending the packaging row twice.
+    const requestId = createAppsScriptRequestId("packaging");
     const payload = {
         action: "logPackagingToMasterSheet",
+        requestId,
         productLabel,
         quantity,
         batchNumber: batchNumber ?? "",
@@ -229,11 +243,10 @@ export async function submitPackagingRecord(
 
     // כותבים לגיליון ולפיירסטור במקביל. כשל באחד לא ימנע את השני.
     const [sheetResult, firestoreResult] = await Promise.allSettled([
-        fetch(GOOGLE_SCRIPT_URL, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify(payload),
-        }),
+        callAppsScriptPost<AppsScriptEnvelope<MasterSheetServerResult>>(
+            payload,
+            { retries: 2, retryDelayMs: 600 }
+        ),
         logPackagingToFirestore({
             packagingType,
             beerStyle,
@@ -276,29 +289,27 @@ export async function submitPackagingRecord(
         };
     }
 
-    try {
-        const text = await sheetResult.value.text();
-        let parsed: { success: boolean; error?: string; message?: string; warnings?: string[] };
+    const parsed = sheetResult.value;
 
-        try {
-            parsed = JSON.parse(text);
-        } catch {
-            throw new Error("Google Apps Script returned invalid JSON: " + text);
-        }
-
-        if (!parsed.success) {
-            throw new Error(parsed.error || parsed.message || "Master sheet log failed");
-        }
-
-        if (parsed.warnings && parsed.warnings.length > 0) {
-            warnings.push(...parsed.warnings);
-        }
-
-        return { success: true, warnings: warnings.length > 0 ? warnings : undefined, palletPlan };
-    } catch (err: any) {
-        console.error("Failed to log packaging to master sheet:", err);
-        return { success: false, error: err?.message ?? "שגיאה בכתיבה לטבלת המאסטר", warnings, palletPlan };
+    if (!parsed.success) {
+        return {
+            success: false,
+            error: parsed.error || parsed.message || "Master sheet log failed",
+            warnings,
+            palletPlan,
+        };
     }
+
+    const serverWarnings = parsed.result?.warnings;
+    if (serverWarnings && serverWarnings.length > 0) {
+        warnings.push(...serverWarnings);
+    }
+
+    return {
+        success: true,
+        warnings: warnings.length > 0 ? warnings : undefined,
+        palletPlan,
+    };
 }
 
 /**
