@@ -85,6 +85,11 @@
     color: #245f9e;
 }
 
+.fermentation-fit-button.active {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
 .fermentation-zoom-button:hover:not(:disabled),
 .fermentation-zoom-value:hover,
 .fermentation-fit-button:hover {
@@ -111,6 +116,8 @@
     max-height: 58vh;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-x pan-y;
 }
 
 .fermentation-table {
