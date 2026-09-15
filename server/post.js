@@ -291,16 +291,36 @@ function executePostAction_(data) {
     const results = [];
     data.readings.forEach(function (reading) {
       try {
-        const result = addFermentationMeasurement(
-          reading.sheetUrl,
-          reading.temp,
-          reading.pressure,
-          reading.plato,
-          reading.pH,
-          reading.carbonation,
-          reading.notes,
-          reading.boldNotes
-        );
+        let result = null;
+
+        if (isNoteOnlyFermentationReading_(reading)) {
+          try {
+            result = addFermentationNoteViaSheetsApi_(
+              reading.sheetUrl,
+              reading.notes
+            );
+          } catch (apiError) {
+            logToSheet(
+              "Sheets API note fast-path failed for tank " +
+              reading.tankNumber + ": " + apiError.message +
+              " — falling back to SpreadsheetApp"
+            );
+          }
+        }
+
+        if (!result) {
+          result = addFermentationMeasurement(
+            reading.sheetUrl,
+            reading.temp,
+            reading.pressure,
+            reading.plato,
+            reading.pH,
+            reading.carbonation,
+            reading.notes,
+            reading.boldNotes
+          );
+        }
+
         results.push({ success: true, tankId: reading.tankId, tankNumber: reading.tankNumber, result: result });
       } catch (error) {
         logToSheet("addFermentationMeasurements FAILED for tank " + reading.tankNumber + ": " + error.message);
@@ -364,16 +384,42 @@ function executePostAction_(data) {
   }
 
   if (data.action === "addFermentationMeasurement") {
-    const result = addFermentationMeasurement(
-      data.sheetUrl,
-      data.temp,
-      data.pressure,
-      data.plato,
-      data.pH,
-      data.carbonation,
-      data.notes,
-      data.boldNotes
-    );
+    let result = null;
+    const singleReading = {
+      sheetUrl: data.sheetUrl,
+      temp: data.temp,
+      pressure: data.pressure,
+      plato: data.plato,
+      pH: data.pH,
+      carbonation: data.carbonation,
+      notes: data.notes,
+      boldNotes: data.boldNotes
+    };
+
+    if (isNoteOnlyFermentationReading_(singleReading)) {
+      try {
+        result = addFermentationNoteViaSheetsApi_(data.sheetUrl, data.notes);
+      } catch (apiError) {
+        logToSheet(
+          "Sheets API single-note fast-path failed: " + apiError.message +
+          " — falling back to SpreadsheetApp"
+        );
+      }
+    }
+
+    if (!result) {
+      result = addFermentationMeasurement(
+        data.sheetUrl,
+        data.temp,
+        data.pressure,
+        data.plato,
+        data.pH,
+        data.carbonation,
+        data.notes,
+        data.boldNotes
+      );
+    }
+
     return { success: true, action: "addFermentationMeasurement", result: result };
   }
 
