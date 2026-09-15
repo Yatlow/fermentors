@@ -1,5 +1,11 @@
+import { deleteDoc, doc } from "firebase/firestore";
 import type { ReadingToSend } from "../../App";
-import { callAppsScriptPost, type AppsScriptEnvelope } from "./appsScriptClient";
+import { db } from "../../firebase";
+import {
+    callAppsScriptPost,
+    createAppsScriptRequestId,
+    type AppsScriptEnvelope,
+} from "./appsScriptClient";
 import { pushCurrentDataToFirestore } from "./pushCurrentDataToFirestore";
 
 export type writeReadingResult = {
@@ -115,6 +121,17 @@ function showBackgroundSheetWarning(
     document.body.appendChild(overlay);
 }
 
+async function clearSheetSyncJob(requestId: string): Promise<void> {
+    try {
+        await deleteDoc(doc(db, "sheetSyncJobs", requestId));
+    } catch (error) {
+        // The server-side maintenance worker will see the same idempotency record
+        // and clean the job later. A cleanup failure must not turn a confirmed
+        // successful Sheet write into a user-facing error.
+        console.warn("Could not clear completed Sheet sync job", { requestId, error });
+    }
+}
+
 async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<void> {
     const packagingReadings = readings
         .map((reading) => reading as PackagingReading)
@@ -159,23 +176,27 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-    // Start Firestore and Sheets together. The Firestore write is the immediate
-    // application state and MUST succeed before an optimistic note/action may be
-    // reported as saved. Sheets can finish in the background for note-only work.
-    const optimisticFirestorePromise = pushCurrentDataToFirestore(readings);
+    const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
+    const requestId = createAppsScriptRequestId("addFermentationMeasurements");
+
+    // For note-only work the same Firestore commit that updates currentData also
+    // persists an outbox job. The UI therefore stays fast, but closing Safari or
+    // losing connectivity cannot silently abandon the Google Sheet write.
+    const optimisticFirestorePromise = pushCurrentDataToFirestore(readings, {
+        sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
+    });
 
     const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
         action: "addFermentationMeasurements",
+        requestId,
         readings,
     });
 
     const packagingInfoPromise = syncPackagingInfoInParallel(readings);
-    const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
 
     if (noteOnlyBatch) {
-        // Wait only for the realtime Firestore update. If THAT write fails we
-        // propagate the error and keep the normal submit flow honest. The Sheet
-        // write keeps running in the background with idempotent request semantics.
+        // Wait only for the realtime Firestore + outbox transaction. If THAT
+        // write fails we propagate the error; the action was not durably saved.
         await optimisticFirestorePromise;
 
         void sheetPromise
@@ -194,17 +215,23 @@ export async function writeReadingsToSheets(
                 if (failed.length > 0) {
                     console.error("Background note Sheet sync partially failed:", failed);
                     showBackgroundSheetWarning(readings, failed);
+                    return;
                 }
+
+                void clearSheetSyncJob(requestId);
             })
             .catch((error) => {
                 console.error("Background note Sheet sync failed:", error);
                 showBackgroundSheetWarning(readings);
+                // Keep the outbox entry pending; Apps Script maintenance will
+                // retry/confirm it later with this exact same requestId.
             });
 
         return readings.map((reading) => ({
             success: true,
             tankId: reading.tankId,
             optimistic: true,
+            requestId,
         }));
     }
 
