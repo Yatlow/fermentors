@@ -3,6 +3,7 @@ import test from "node:test";
 import {
     calculateCellarHealthScore,
     healthBand,
+    isActionableHealthRecommendation,
     missingDailyMeasurementFields,
 } from "../src/SERVICES/dashboard/healthModel";
 
@@ -48,6 +49,12 @@ test("yesterday values do not satisfy today's round", () => {
     ], true, TODAY);
 
     assert.deepEqual(missing, ["temp", "pressure", "plato", "pH"]);
+});
+
+test("future recommendation hints do not count as today's health work", () => {
+    assert.equal(isActionableHealthRecommendation({ req: true, display: false }), false);
+    assert.equal(isActionableHealthRecommendation({ req: true, display: true }), true);
+    assert.equal(isActionableHealthRecommendation({ req: false, display: true }), false);
 });
 
 test("health score weights live recommendations more heavily than routine measurement gaps", () => {
