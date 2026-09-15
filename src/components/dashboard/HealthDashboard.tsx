@@ -38,7 +38,7 @@ type SheetSyncJob = {
 };
 
 type Recommendation = {
-    req?: boolean;
+    req?: boolean | "" | 0 | null;
     display?: boolean;
     reason?: string;
     importance?: number;
@@ -97,6 +97,8 @@ function isHotTank(tank: Fermentor): boolean {
 }
 
 function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRecomendations>>): Recommendation[] {
+    if (!result) return [];
+
     // lastMessurmentUpToDate is deliberately omitted here. The health dashboard
     // performs a stricter field-by-field daily-round check below, so showing both
     // would duplicate the same operational problem.
