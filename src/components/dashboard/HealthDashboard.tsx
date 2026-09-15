@@ -435,10 +435,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
             {expanded && (
                 <div className="health-dashboard-details">
-                    <div className="health-score-explanation">
-                        הציון מבוסס רק על המלצות סלרינג שמוצגות לביצוע היום ועל השלמת המדידות של היום. המלצה עתידית לא מוצגת כאן ולא מורידה ציון; פעולה שטופלה ונעלמה מהמלצות הסלרינג מפסיקה להוריד את הציון.
-                    </div>
-
                     {analysis.alerts.length === 0 && !analyzing ? (
                         <div className="health-empty-state">
                             אין כרגע פעולות סלרינג לביצוע וכל המדידות הנדרשות להיום קיימות.
