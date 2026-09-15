@@ -1,0 +1,35 @@
+name: Validate Apps Script PR
+
+on:
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/scripts/validate-apps-script-runtime.mjs"
+      - ".github/workflows/apps-script-validate-pr.yml"
+
+concurrency:
+  group: apps-script-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate Apps Script syntax and globals
+        run: |
+          test -f server/.clasp.json
+          test -f server/appsscript.json
+          for file in server/*.js; do
+            echo "Syntax check: $file"
+            node --check "$file"
+          done
+          node .github/scripts/validate-apps-script-runtime.mjs
