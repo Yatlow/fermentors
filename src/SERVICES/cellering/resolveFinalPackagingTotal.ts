@@ -10,6 +10,10 @@ const GOOGLE_SCRIPT_URL =
 
 const LITERS_REGEX = /סה["״']?כ\s*([\d.]+)\s*ליטר/;
 
+function round2(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 function sumPackagedLitersFromMeasurements(measurements: Measurement[]) {
     let total = 0;
     let entriesFound = 0;
@@ -27,7 +31,7 @@ function sumPackagedLitersFromMeasurements(measurements: Measurement[]) {
         }
     }
 
-    return { total, entriesFound };
+    return { total: round2(total), entriesFound };
 }
 
 async function fetchLegacyCellLiters(
@@ -58,7 +62,7 @@ async function fetchLegacyCellLiters(
     const rawValue = Number(parsed.result.rawValue);
     if (!Number.isFinite(rawValue)) return null;
 
-    return rawValue;
+    return round2(rawValue);
     // return cellType === "kegs" ? rawValue * KEG_LITERS : rawValue * BOTTLE_LITERS;
 }
 
@@ -72,19 +76,19 @@ export async function resolveFinalPackagingTotal(
     const { total: historicalTotal, entriesFound } =
         sumPackagedLitersFromMeasurements(measurements);
 
-    let totalLiters = historicalTotal + reportLiters;
+    let totalLiters = round2(historicalTotal + reportLiters);
 
     const beerVolume = Number(tank.beerVolume);
     let shrinkagePercent =
         Number.isFinite(beerVolume) && beerVolume > 0
-            ? ((totalLiters - beerVolume) / beerVolume) * 100
+            ? round2(((totalLiters - beerVolume) / beerVolume) * 100)
             : null;
 
     // Fallback לשרת - רק אם אין תוצאה ב-Firebase והפחת חריג
     if (
         entriesFound === 0 &&
         shrinkagePercent !== null &&
-        shrinkagePercent <10 &&
+        shrinkagePercent < 10 &&
         tank.sheetUrl
     ) {
         const oppositeType: "kegs" | "crates" =
@@ -93,10 +97,10 @@ export async function resolveFinalPackagingTotal(
         const legacyLiters = await fetchLegacyCellLiters(tank.sheetUrl, oppositeType);
 
         if (legacyLiters !== null && legacyLiters > 0) {
-            totalLiters += legacyLiters;
+            totalLiters = round2(totalLiters + legacyLiters);
             shrinkagePercent =
                 Number.isFinite(beerVolume) && beerVolume > 0
-                    ? ((totalLiters - beerVolume) / beerVolume) * 100
+                    ? round2(((totalLiters - beerVolume) / beerVolume) * 100)
                     : null;
         }
     }
