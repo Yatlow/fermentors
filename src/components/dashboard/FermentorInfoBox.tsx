@@ -1,21 +1,22 @@
 import BeerLoader from "../general/Loading";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
-import { calcCelleringRecomendations } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import {
+    calcCelleringRecomendations,
+    type Measurement,
+} from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { getBrewAge } from "./TankCard";
-import type { Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 
 type FermentorInfoBoxProps = {
     tank: Fermentor;
     onClose: () => void;
-
     position: {
         top: number;
         left: number;
     } | null;
-    specs: SpecChart
+    specs: SpecChart;
 };
 
 type Recomendations = Awaited<ReturnType<typeof calcCelleringRecomendations>>;
@@ -30,73 +31,46 @@ export default function FermentorInfoBox({
     tank,
     onClose,
     position,
-    specs
+    specs,
 }: FermentorInfoBoxProps) {
-
-    const [measurements, setMeasurements] =
-        useState<Measurement[]>([]);
-
-    const [recomendations, setRecomendations] =
-        useState<Recomendations | null>(null);
-
-    const [loading, setLoading] =
-        useState(true);
-
-    const [error, setError] =
-        useState<string | null>(null);
+    const [measurements, setMeasurements] = useState<Measurement[]>([]);
+    const [recomendations, setRecomendations] = useState<Recomendations | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     const brewAge = getBrewAge(tank.brewDate);
-
     const infoBoxRef = useRef<HTMLDivElement | null>(null);
-   
-    const getSafePosition = () => {
 
+    const getSafePosition = () => {
         const margin = 12;
 
         if (!position) {
             return {
                 top: margin,
-                left: margin
+                left: margin,
             };
         }
 
-        const boxWidth = Math.min(
-            330,
-            window.innerWidth - margin * 2
-        );
-
-        const maxLeft =
-            window.innerWidth - boxWidth - margin;
+        const boxWidth = Math.min(330, window.innerWidth - margin * 2);
+        const maxLeft = window.innerWidth - boxWidth - margin;
 
         return {
             top: Math.max(
                 margin,
-                Math.min(
-                    position.top,
-                    window.innerHeight - margin
-                )
+                Math.min(position.top, window.innerHeight - margin)
             ),
-
             left: Math.max(
                 margin,
-                Math.min(
-                    position.left,
-                    maxLeft
-                )
-            )
+                Math.min(position.left, maxLeft)
+            ),
         };
     };
 
     const safePosition = getSafePosition();
-    const isNewBatch =
-        brewAge !== null &&
-        brewAge < 2;
+    const isNewBatch = brewAge !== null && brewAge < 2;
 
-
-        useEffect(() => {
-
+    useEffect(() => {
         function handleOutsideClick(event: MouseEvent) {
-
             const target = event.target as Node;
 
             if (
@@ -107,117 +81,77 @@ export default function FermentorInfoBox({
             }
         }
 
-        document.addEventListener(
-            "mousedown",
-            handleOutsideClick
-        );
+        document.addEventListener("mousedown", handleOutsideClick);
 
         return () => {
-            document.removeEventListener(
-                "mousedown",
-                handleOutsideClick
-            );
+            document.removeEventListener("mousedown", handleOutsideClick);
         };
-
     }, [onClose]);
+
     useEffect(() => {
-
         async function loadMeasurements() {
-
             if (!tank.batchNumber || !tank.brewDate) {
-
                 setMeasurements([]);
                 setRecomendations(null);
                 setLoading(false);
-
                 return;
             }
 
             try {
-
                 setLoading(true);
                 setError(null);
 
-                // -------------------------------------------------
-                // GET MEASUREMENTS
-                // -------------------------------------------------
                 if (!tank.stage) {
                     setRecomendations(null);
                     setError("לא ניתן לחשב המלצות: שלב המיכל אינו מוגדר");
                     setLoading(false);
                     return;
                 }
-                const data =
-                    await getMeasurementsByBatch(
-                        tank.batchNumber,
-                        // tank.beerStyle,
-                        // tank.brewDate
-                    );
+
+                const data = await getMeasurementsByBatch(tank.batchNumber);
                 setMeasurements(data);
-                // -------------------------------------------------
-                // CALCULATE RECOMMENDATIONS
-                // -------------------------------------------------
 
-                const calculatedRecommendations =
-                    calcCelleringRecomendations(
-                        data,
-                        tank.beerStyle,
-                        // tank.batchNumber,
-                        tank.brewDate, specs,
-                        tank.stage,
-                        Number(tank.tankNumber),
-                        true,
-                        []
-                    );
-
-                setRecomendations(
-                    await calculatedRecommendations
+                const calculatedRecommendations = calcCelleringRecomendations(
+                    data,
+                    tank.beerStyle,
+                    tank.brewDate,
+                    specs,
+                    tank.stage,
+                    Number(tank.tankNumber),
+                    true,
+                    []
                 );
+
+                setRecomendations(await calculatedRecommendations);
             } catch (err) {
                 if (brewAge !== null && brewAge >= 2) {
-                    console.error(
-                        "Failed to load measurements:",
-                        err
-                    );
-
-                    setError(
-                        "לא ניתן לטעון את נתוני התסיסה"
-                    );
+                    console.error("Failed to load measurements:", err);
+                    setError("לא ניתן לטעון את נתוני התסיסה");
                 } else {
-                    console.error(
-                        "young batch:",
-                    );
-
-                    setError(
-                        "אצווה חדשה- עדיין אין המלצות"
-                    );
-
+                    console.error("young batch:");
+                    setError("אצווה חדשה- עדיין אין המלצות");
                 }
+
                 setMeasurements([]);
                 setRecomendations(null);
-
             } finally {
-
                 setLoading(false);
-
             }
         }
 
         loadMeasurements();
-
     }, [
         tank.batchNumber,
         tank.beerStyle,
         tank.brewDate,
         tank.stage,
-        specs
+        tank.tankNumber,
+        specs,
+        brewAge,
     ]);
 
-
-    const recommendationList: Recommendation[] =
-    recomendations
+    const recommendationList: Recommendation[] = recomendations
         ? [
-            // recomendations.requiresDailyActions,
             recomendations.lastMessurmentUpToDate,
             recomendations.requiresDryHop,
             recomendations.requiresPresureClose,
@@ -241,22 +175,11 @@ export default function FermentorInfoBox({
             }))
         : [];
 
-
-    const activeRecommendations =
-        recommendationList
-            .filter(rec => rec?.req)
-            .sort(
-                (a, b) =>
-                    b?.importance - a?.importance
-            );
-
-
-
-
-
+    const activeRecommendations = recommendationList
+        .filter((rec) => rec.req)
+        .sort((a, b) => b.importance - a.importance);
 
     return (
-
         <div
             className="fermentorInfoOverlay"
             onClick={(event) => {
@@ -264,7 +187,6 @@ export default function FermentorInfoBox({
                 onClose();
             }}
         >
-
             <div
                 ref={infoBoxRef}
                 className="fermentorInfoBox"
@@ -276,7 +198,6 @@ export default function FermentorInfoBox({
                     event.stopPropagation();
                 }}
             >
-
                 <button
                     type="button"
                     className="fermentorInfoClose"
@@ -289,112 +210,61 @@ export default function FermentorInfoBox({
                     ×
                 </button>
 
-
-                {/* ================================================= */}
-                {/* TITLE */}
-                {/* ================================================= */}
-
-                <h3>
-                    המלצות סלרינג למיכל {tank.tankNumber}
-                </h3>
-
-
-                {/* ================================================= */}
-                {/* LOADING */}
-                {/* ================================================= */}
+                <h3>המלצות סלרינג למיכל {tank.tankNumber}</h3>
 
                 {loading && (
-
                     <div className="measurementLoading">
                         <BeerLoader message="טוען נתוני תסיסה..." size="small" />
                     </div>
-
                 )}
 
-
-                {/* ================================================= */}
-                {/* ERROR */}
-                {/* ================================================= */}
-
                 {!loading && error && (
-
                     <div className="measurementError">
                         {error}
                     </div>
-
                 )}
 
-
-                {/* ================================================= */}
-                {/* NO MEASUREMENTS */}
-                {/* ================================================= */}
-                {!loading &&
-                    isNewBatch && measurements.length < 1 && (
-
-                        <div className="newBatchMessage">
-
-                            <div className="recommendation level-0">
-                                אצווה חדשה
-                                אין המלצות סלרינג עדיין
-                            </div>
-
+                {!loading && isNewBatch && measurements.length < 1 && (
+                    <div className="newBatchMessage">
+                        <div className="recommendation level-0">
+                            אצווה חדשה
+                            אין המלצות סלרינג עדיין
                         </div>
-
-                    )}
+                    </div>
+                )}
 
                 {!loading &&
                     !error &&
-                    brewAge !== null && brewAge >= 2 &&
+                    brewAge !== null &&
+                    brewAge >= 2 &&
                     measurements.length === 0 && (
-
-                        <div className="recommendation level-0` ">
+                        <div className="recommendation level-0">
                             אין נתוני מדידות עבור אצווה זו
                         </div>
-
-                    )
-                }
-
-
-                {/* ================================================= */}
-                {/* RECOMMENDATIONS */}
-                {/* ================================================= */}
+                    )}
 
                 {!loading &&
                     !error &&
                     measurements.length > 0 &&
                     recomendations && (
-
                         <div className="recomendationsContainer">
-
                             {activeRecommendations.length === 0 ? (
-
                                 <div className="noRecommendations">
                                     אין המלצות כרגע
                                 </div>
-
                             ) : (
-
-                                activeRecommendations.map(
-                                    (rec, index) => (
-
-                                        <div
-                                            key={index}
-                                            className={`recommendation level-${rec.importance}`}
-                                        >
-                                            {rec.reason}
-                                        </div>
-
-                                    )
-                                )
-
+                                activeRecommendations.map((rec, index) => (
+                                    <div
+                                        key={index}
+                                        className={`recommendation level-${rec.importance}`}
+                                    >
+                                        {rec.reason}
+                                    </div>
+                                ))
                             )}
-
                         </div>
-                    )
-                }
+                    )}
             </div>
         </div>
-
-
     );
 }
