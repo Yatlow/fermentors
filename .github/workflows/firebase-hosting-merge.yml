@@ -21,7 +21,7 @@ jobs:
         run: printf '{"version":"%s"}\n' "$GITHUB_SHA" > public/app-version.json
 
       - name: Verify and build
-        run: npm ci && npm run test:planning && npm run build
+        run: npm ci && npm test && npm run build
         env:
           VITE_APP_VERSION: ${{ github.sha }}
 
