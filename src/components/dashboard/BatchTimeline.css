@@ -1,9 +1,10 @@
 .batch-timeline {
+    --timeline-bg: #f8fafc;
     margin: 14px 0 12px;
     padding: 12px;
     border: 1px solid #e2e8f0;
     border-radius: 14px;
-    background: #f8fafc;
+    background: var(--timeline-bg);
 }
 
 .batch-timeline-heading {
@@ -23,10 +24,16 @@
     font-size: 0.75rem;
 }
 
+.batch-timeline-scroll-shell {
+    position: relative;
+    min-width: 0;
+}
+
 .batch-timeline-scroll {
     overflow-x: auto;
     padding: 2px 2px 8px;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
 }
 
 .batch-timeline-track {
@@ -49,11 +56,18 @@
     background: #cbd5e1;
 }
 
+.batch-timeline-sentinel {
+    width: 1px;
+    height: 1px;
+    flex: 0 0 1px;
+    align-self: flex-start;
+}
+
 .batch-timeline-event {
     position: relative;
     z-index: 1;
-    width: 112px;
-    flex: 0 0 112px;
+    width: 132px;
+    flex: 0 0 132px;
     text-align: center;
 }
 
@@ -114,6 +128,16 @@
     line-height: 1.25;
 }
 
+.batch-timeline-detail {
+    min-height: 18px;
+    margin-top: 2px;
+    color: #475569;
+    font-size: 0.69rem;
+    font-weight: 650;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
 .batch-timeline-meta {
     display: flex;
     flex-direction: column;
@@ -127,6 +151,48 @@
 .batch-timeline-meta strong {
     color: #334155;
     font-size: 0.72rem;
+}
+
+.batch-timeline-scroll-hint {
+    position: absolute;
+    z-index: 4;
+    top: 0;
+    bottom: 8px;
+    width: 54px;
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+}
+
+.batch-timeline-scroll-hint.visible {
+    opacity: 1;
+}
+
+.batch-timeline-scroll-hint span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 27px;
+    height: 42px;
+    color: #334155;
+    font-size: 2rem;
+    font-weight: 500;
+    line-height: 1;
+    text-shadow: 0 1px 4px rgba(255, 255, 255, 0.9);
+}
+
+.batch-timeline-scroll-hint-right {
+    right: 0;
+    justify-content: flex-end;
+    background: linear-gradient(to left, var(--timeline-bg) 18%, rgba(248, 250, 252, 0));
+}
+
+.batch-timeline-scroll-hint-left {
+    left: 0;
+    justify-content: flex-start;
+    background: linear-gradient(to right, var(--timeline-bg) 18%, rgba(248, 250, 252, 0));
 }
 
 @media (max-width: 600px) {
@@ -149,8 +215,8 @@
     }
 
     .batch-timeline-event {
-        width: 94px;
-        flex-basis: 94px;
+        width: 112px;
+        flex-basis: 112px;
     }
 
     .batch-timeline-marker {
@@ -171,7 +237,20 @@
         font-size: 0.73rem;
     }
 
+    .batch-timeline-detail {
+        font-size: 0.64rem;
+    }
+
     .batch-timeline-meta {
         font-size: 0.64rem;
+    }
+
+    .batch-timeline-scroll-hint {
+        width: 42px;
+    }
+
+    .batch-timeline-scroll-hint span {
+        width: 23px;
+        font-size: 1.75rem;
     }
 }
