@@ -13,6 +13,11 @@ export type ScoredRecommendation = {
     importance?: number | null;
 };
 
+export type HealthRecommendationState = {
+    req?: unknown;
+    display?: unknown;
+};
+
 export type MeasurementIssue = {
     missingFields: DailyMeasurementField[];
 };
@@ -39,6 +44,18 @@ export const DAILY_FIELD_LABELS: Record<DailyMeasurementField, string> = {
 
 export function hasMeasurementValue(value: unknown): boolean {
     return value !== undefined && value !== null && value !== "";
+}
+
+/**
+ * The health dashboard is an "act now" surface, not the full cellar advice log.
+ * Some recommendation objects intentionally keep req=true while display=false so
+ * the detailed tank view can explain what will be needed tomorrow. Those future
+ * hints must not become health alerts or reduce today's score.
+ */
+export function isActionableHealthRecommendation(
+    recommendation: HealthRecommendationState | null | undefined
+): boolean {
+    return recommendation?.req === true && recommendation?.display === true;
 }
 
 function validCalendarDate(year: number, month: number, day: number): boolean {
