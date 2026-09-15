@@ -19,6 +19,7 @@ import type { TooltipContentProps } from "recharts";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { extractYeastDrops, type Measurement, type YeastDrop } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import type { Fermentor } from "../../App";
+import FermentationTable from "./FermentationTable";
 import {
     getStyleAverages,
     type StyleAverages,
@@ -57,7 +58,7 @@ type ChartPoint = {
     DycitylNote: string | null;
 };
 
-type ViewMode = "tabs" | "combined";
+type ViewMode = "table" | "tabs" | "combined";
 
 const METRICS: {
     key: MetricKey;
@@ -583,7 +584,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
     const totalBuckets = totalWarmBuckets + totalColdBuckets;
 
     const [activeMetric, setActiveMetric] = useState<MetricKey | "yeast">("plato");
-    const [viewMode, setViewMode] = useState<ViewMode>("combined");
+    const [viewMode, setViewMode] = useState<ViewMode>("table");
 
     useEffect(() => {
         let cancelled = false;
@@ -752,8 +753,12 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
         setViewMode("tabs");
     }
 
+    function showTable() {
+        setViewMode("table");
+    }
+
     function toggleCombined() {
-        setViewMode((v) => (v === "combined" ? "tabs" : "combined"));
+        setViewMode("combined");
     }
 
     const combinedXBounds = getXAxisBounds(combinedData.map((p) => p.day));
@@ -787,7 +792,35 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                 {!loading && !error && chartData.length > 0 && (
                     <>
                         <div className="chart-metric-tabs">
-                            {METRICS.map((metric) => (
+                            <button
+                                type="button"
+                                className={`chart-metric-tab ${viewMode === "table" ? "active" : ""}`}
+                                onClick={showTable}
+                            >
+                                טבלת תסיסה
+                            </button>
+                            <button
+                                type="button"
+                                className={`chart-metric-tab ${viewMode === "combined" ? "active" : ""}`}
+                                onClick={toggleCombined}
+                            >
+                                הכל ביחד
+                            </button>
+                            <button
+                                type="button"
+                                className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "plato" ? "active" : ""}`}
+                                onClick={() => selectMetric("plato")}
+                            >
+                                סוכר
+                            </button>
+                            <button
+                                type="button"
+                                className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""}`}
+                                onClick={() => selectMetric("yeast")}
+                            >
+                                שמרים
+                            </button>
+                            {METRICS.filter((metric) => metric.key !== "plato").map((metric) => (
                                 <button
                                     key={metric.key}
                                     type="button"
@@ -798,25 +831,14 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                     {metric.label}
                                 </button>
                             ))}
-                            <button
-                                type="button"
-                                className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""
-                                    }`}
-                                onClick={() => selectMetric("yeast")}
-                            >
-                                שמרים
-                            </button>
-                            <button
-                                type="button"
-                                className={`chart-metric-tab ${viewMode === "combined" ? "active" : ""}`}
-                                onClick={toggleCombined}
-                            >
-                                הכל ביחד
-                            </button>
+                        </div>
+
+                        <div className={`metric-chart-block ${viewMode === "table" ? "active" : ""}`}>
+                            <FermentationTable measurements={measurements} />
                         </div>
 
                         {/* סיכום שמרים קבוע - מוצג תמיד, לא תלוי באיזה טאב פתוח */}
-                        {totalBuckets > 0 && (
+                        {viewMode !== "table" && totalBuckets > 0 && (
                             <div className="chart-yeast-summary">
                                 🟡 סה״כ שמרים: {formatYeastTotal(totalBuckets)} דליים
                                 {" "}(חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
