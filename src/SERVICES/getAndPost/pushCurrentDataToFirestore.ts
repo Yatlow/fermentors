@@ -18,6 +18,8 @@ const CURRENT_DATA_FIELDS = [
     "shrinkagePercent",
 ] as const;
 
+const TWO_DECIMAL_FIELDS = new Set(["kegs", "crates", "totalLiters", "shrinkagePercent"]);
+
 type SheetResult = {
     date?: unknown;
     time?: unknown;
@@ -38,6 +40,17 @@ type ReadingLike = {
 
 function hasValue(value: unknown): boolean {
     return value !== undefined && value !== null && value !== "";
+}
+
+function round2(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function normalizeCurrentDataValue(field: string, value: unknown): unknown {
+    if (!TWO_DECIMAL_FIELDS.has(field)) return value;
+
+    const numeric = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(numeric) ? round2(numeric) : value;
 }
 
 function toNumberOrNull(value: unknown): number | null {
@@ -100,7 +113,7 @@ export async function pushCurrentDataToFirestore(readings: ReadingLike[]) {
 
         CURRENT_DATA_FIELDS.forEach((field) => {
             if (reading[field] !== undefined) {
-                currentData[field] = reading[field];
+                currentData[field] = normalizeCurrentDataValue(field, reading[field]);
             }
         });
 
