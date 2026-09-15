@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Gauge } from "lucide-react";
+import type { Fermentor } from "../../App";
 import {
     parseYeastDropAmount,
     type Measurement,
@@ -13,6 +14,7 @@ import "./BatchTimeline.css";
 type Props = {
     measurements: Measurement[];
     brewDate?: string | null;
+    tank?: Fermentor;
 };
 
 function TimelineIcon({ event }: { event: TimelineEvent }) {
@@ -124,13 +126,13 @@ export default function BatchTimeline({ measurements, brewDate }: Props) {
                     className={`batch-timeline-scroll-hint batch-timeline-scroll-hint-right ${canScrollRight ? "visible" : ""}`}
                     aria-hidden="true"
                 >
-                    <span>›</span>
+                    <span>‹</span>
                 </div>
                 <div
                     className={`batch-timeline-scroll-hint batch-timeline-scroll-hint-left ${canScrollLeft ? "visible" : ""}`}
                     aria-hidden="true"
                 >
-                    <span>‹</span>
+                    <span>›</span>
                 </div>
             </div>
         </section>
