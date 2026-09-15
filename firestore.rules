@@ -21,16 +21,12 @@ service cloud.firestore {
     }
 
     match /approvedUsers/{email} {
-      // משתמש יכול לקרוא את המסמך של עצמו
       allow get: if isLoggedIn() &&
         request.auth.token.email == email;
-      // כל משתמש מחובר יכול לעשות list
       allow list: if isLoggedIn();
-      // רק אדמין יכול create/delete/write כללי
       allow write: if isAdmin();
       allow create: if isAdmin();
       allow delete: if isAdmin();
-      // משתמש יכול לעדכן רק את lastLoggedIn של עצמו
       allow update: if isLoggedIn() &&
         request.auth.token.email == email &&
         request.resource.data.diff(resource.data).affectedKeys()
@@ -89,6 +85,15 @@ service cloud.firestore {
     match /shipments/{document} {
       allow read: if isApprovedUser();
       allow write: if isApprovedUser();
+    }
+
+    // Apps Script writes these receipts through IAM after a Sheet mutation.
+    // Clients may only fetch their own exact requestId; listing and client-side
+    // writes are intentionally forbidden.
+    match /operationReceipts/{requestId} {
+      allow get: if isApprovedUser() &&
+        resource.data.userEmail == request.auth.token.email;
+      allow list, create, update, delete: if false;
     }
 
     function isBreweryPlanner() {
