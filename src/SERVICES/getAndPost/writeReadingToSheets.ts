@@ -186,18 +186,17 @@ export async function writeReadingsToSheets(
         sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
     });
 
-    const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
-        action: "addFermentationMeasurements",
-        requestId,
-        readings,
-    });
-
-    const packagingInfoPromise = syncPackagingInfoInParallel(readings);
-
     if (noteOnlyBatch) {
-        // Wait only for the realtime Firestore + outbox transaction. If THAT
-        // write fails we propagate the error; the action was not durably saved.
+        // Make Firestore + outbox durable BEFORE the side effect starts. This
+        // avoids the inverse partial state where Sheets succeeds but Firestore
+        // failed to record either the action or its recovery job.
         await optimisticFirestorePromise;
+
+        const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
+            action: "addFermentationMeasurements",
+            requestId,
+            readings,
+        });
 
         void sheetPromise
             .then((parsed) => {
@@ -234,6 +233,15 @@ export async function writeReadingsToSheets(
             requestId,
         }));
     }
+
+    // Measurements and packaging still need their authoritative Sheet response,
+    // so run Firestore, Sheets and packaging-cell sync in parallel.
+    const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
+        action: "addFermentationMeasurements",
+        requestId,
+        readings,
+    });
+    const packagingInfoPromise = syncPackagingInfoInParallel(readings);
 
     const [parsed] = await Promise.all([
         sheetPromise,
