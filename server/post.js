@@ -227,9 +227,6 @@ function doPost(e) {
 
     const data = JSON.parse(e.postData.contents);
 
-    // Authenticate BEFORE idempotency lookup and BEFORE any action executes.
-    // This prevents a caller who somehow knows a requestId from reading a
-    // cached response without also presenting a valid Firebase ID token.
     const authenticatedUser = authenticateFirebaseRequest_(data.idToken);
     delete data.idToken;
 
@@ -240,6 +237,12 @@ function doPost(e) {
     );
 
     const response = runPostActionIdempotently_(data);
+
+    // Persist an authoritative success receipt before ContentService returns.
+    // If Google's redirect layer loses/corrupts the JSON response, the browser
+    // can recover this exact response from Firestore by requestId.
+    writeOperationReceipt_(data, response, authenticatedUser);
+
     return jsonResponse(response);
   } catch (error) {
     const message =
@@ -514,8 +517,6 @@ function checkBatchForTank(tankNumber, requestedBatch) {
     tankNumber: targetTank
   };
 }
-
-// formatMeasurementValue() is owned by addFermentationMeasurement.js.
 
 function jsonResponse(data) {
   return ContentService
