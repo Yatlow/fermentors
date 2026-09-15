@@ -1,0 +1,177 @@
+.batch-timeline {
+    margin: 14px 0 12px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #f8fafc;
+}
+
+.batch-timeline-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.batch-timeline-heading strong {
+    font-size: 0.92rem;
+}
+
+.batch-timeline-heading span {
+    color: #64748b;
+    font-size: 0.75rem;
+}
+
+.batch-timeline-scroll {
+    overflow-x: auto;
+    padding: 2px 2px 8px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.batch-timeline-track {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    width: max-content;
+    min-width: 100%;
+    padding: 4px 2px 2px;
+}
+
+.batch-timeline-track::before {
+    content: "";
+    position: absolute;
+    top: 22px;
+    right: 24px;
+    left: 24px;
+    height: 2px;
+    background: #cbd5e1;
+}
+
+.batch-timeline-event {
+    position: relative;
+    z-index: 1;
+    width: 112px;
+    flex: 0 0 112px;
+    text-align: center;
+}
+
+.batch-timeline-marker {
+    width: 42px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 7px;
+    border: 2px solid #cbd5e1;
+    border-radius: 50%;
+    background: #ffffff;
+    font-size: 1.18rem;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.batch-timeline-brew .batch-timeline-marker {
+    border-color: #c4b5fd;
+}
+
+.batch-timeline-dryhop .batch-timeline-marker {
+    border-color: #86efac;
+}
+
+.batch-timeline-yeast .batch-timeline-marker {
+    border-color: #fde047;
+}
+
+.batch-timeline-diacetyl .batch-timeline-marker {
+    border-color: #fdba74;
+}
+
+.batch-timeline-pressure .batch-timeline-marker {
+    border-color: #93c5fd;
+}
+
+.batch-timeline-cooling .batch-timeline-marker {
+    border-color: #7dd3fc;
+}
+
+.batch-timeline-carbonation .batch-timeline-marker {
+    border-color: #67e8f9;
+}
+
+.batch-timeline-packaging .batch-timeline-marker {
+    border-color: #d8b4fe;
+}
+
+.batch-timeline-label {
+    min-height: 34px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    color: #1e293b;
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.batch-timeline-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-top: 3px;
+    color: #64748b;
+    font-size: 0.68rem;
+    line-height: 1.3;
+}
+
+.batch-timeline-meta strong {
+    color: #334155;
+    font-size: 0.72rem;
+}
+
+@media (max-width: 600px) {
+    .batch-timeline {
+        margin: 10px 0;
+        padding: 9px;
+        border-radius: 12px;
+    }
+
+    .batch-timeline-heading {
+        margin-bottom: 7px;
+    }
+
+    .batch-timeline-heading span {
+        display: none;
+    }
+
+    .batch-timeline-track {
+        gap: 9px;
+    }
+
+    .batch-timeline-event {
+        width: 94px;
+        flex-basis: 94px;
+    }
+
+    .batch-timeline-marker {
+        width: 38px;
+        height: 38px;
+        margin-bottom: 6px;
+        font-size: 1.05rem;
+    }
+
+    .batch-timeline-track::before {
+        top: 20px;
+        right: 21px;
+        left: 21px;
+    }
+
+    .batch-timeline-label {
+        min-height: 31px;
+        font-size: 0.73rem;
+    }
+
+    .batch-timeline-meta {
+        font-size: 0.64rem;
+    }
+}
