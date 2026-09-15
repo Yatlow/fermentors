@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "server/**"
+      - ".github/scripts/validate-apps-script-runtime.mjs"
       - ".github/workflows/apps-script-deploy.yml"
   workflow_dispatch:
 
@@ -51,8 +52,12 @@ jobs:
         run: |
           test -f .clasp.json
           test -f appsscript.json
-          node --check post.js
-          node --check addFermentationMeasurement.js
+          for file in *.js; do
+            echo "Syntax check: $file"
+            node --check "$file"
+          done
+          cd ..
+          node .github/scripts/validate-apps-script-runtime.mjs
 
       - name: Push Apps Script sources
         run: clasp push --force
