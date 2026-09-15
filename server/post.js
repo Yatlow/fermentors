@@ -1,37 +1,99 @@
 // ============================================================
 // GLOBAL LOGGING
 // ============================================================
-// Normal request diagnostics go to the Apps Script execution log only. Writing
-// the shared Logs sheet synchronously can add seconds before ContentService is
-// allowed to return. Persist only failures to the sheet; successful hot-path
-// requests therefore make flushLogs_ a no-op.
+// Request diagnostics are buffered during the Web App call and persisted only
+// to ScriptProperties before returning. A scheduled cellar cycle later flushes
+// the queued rows to the shared Logs sheet. This preserves the operational log
+// without putting SpreadsheetApp.openById() on the user's response path.
 // ============================================================
 
 const LOG_SHEET_ID = "1Uoenz65Dx0inv3r6ZR4hCiF4JMx0U0BHG7W5tsfG8mc";
+const ASYNC_LOG_PREFIX = "async_log_v1:";
+const ASYNC_LOG_MAX_KEYS_PER_FLUSH = 100;
 
 let _logBuffer = [];
 
 function logToSheet(message) {
   const text = String(message);
   console.log(text);
-
-  if (/\b(ERROR|FAILED)\b/i.test(text)) {
-    _logBuffer.push([new Date(), text]);
-  }
+  _logBuffer.push([new Date(), text]);
 }
 
-function flushLogs_() {
+function enqueueLogs_() {
   if (_logBuffer.length === 0) return;
+
+  const rows = _logBuffer.map(function (row) {
+    const date = row[0] instanceof Date ? row[0] : new Date(row[0]);
+    return [date.toISOString(), String(row[1] || "")];
+  });
+
+  const key = ASYNC_LOG_PREFIX + Date.now() + ":" + Utilities.getUuid();
+
   try {
-    const ss = SpreadsheetApp.openById(LOG_SHEET_ID);
-    const sheet = ss.getSheetByName("Logs") || ss.insertSheet("Logs");
-    const startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, _logBuffer.length, 2).setValues(_logBuffer);
-  } catch (err) {
-    console.log("flushLogs_ FAILED: " + err.message);
+    PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(rows));
+  } catch (error) {
+    console.log("enqueueLogs_ FAILED: " + error.message);
   } finally {
     _logBuffer = [];
   }
+}
+
+function flushQueuedLogs_() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  const keys = Object.keys(all)
+    .filter(function (key) { return key.indexOf(ASYNC_LOG_PREFIX) === 0; })
+    .sort()
+    .slice(0, ASYNC_LOG_MAX_KEYS_PER_FLUSH);
+
+  if (keys.length === 0) return { flushedRows: 0, flushedKeys: 0 };
+
+  const rows = [];
+  const validKeys = [];
+
+  keys.forEach(function (key) {
+    try {
+      const parsed = JSON.parse(all[key]);
+      if (!Array.isArray(parsed)) {
+        props.deleteProperty(key);
+        return;
+      }
+
+      parsed.forEach(function (row) {
+        if (!Array.isArray(row) || row.length < 2) return;
+        rows.push([new Date(row[0]), String(row[1] || "")]);
+      });
+      validKeys.push(key);
+    } catch (error) {
+      console.log("Invalid queued log payload " + key + ": " + error.message);
+      props.deleteProperty(key);
+    }
+  });
+
+  if (rows.length === 0) {
+    validKeys.forEach(function (key) { props.deleteProperty(key); });
+    return { flushedRows: 0, flushedKeys: validKeys.length };
+  }
+
+  const ss = SpreadsheetApp.openById(LOG_SHEET_ID);
+  const sheet = ss.getSheetByName("Logs") || ss.insertSheet("Logs");
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, rows.length, 2).setValues(rows);
+
+  validKeys.forEach(function (key) { props.deleteProperty(key); });
+
+  console.log(
+    "flushQueuedLogs_: rows=" + rows.length +
+    " keys=" + validKeys.length
+  );
+
+  return { flushedRows: rows.length, flushedKeys: validKeys.length };
+}
+
+// Compatibility wrapper for old/manual callers. It now queues instead of
+// touching the Logs spreadsheet synchronously.
+function flushLogs_() {
+  enqueueLogs_();
 }
 
 // ============================================================
@@ -263,7 +325,7 @@ function doPost(e) {
     return jsonResponse({ success: false, error: message });
   } finally {
     logToSheet("Total doPost time: " + (Date.now() - startTime) + "ms");
-    flushLogs_();
+    enqueueLogs_();
   }
 }
 
