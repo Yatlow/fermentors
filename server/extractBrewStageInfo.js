@@ -2,42 +2,25 @@
 // BREW STAGE SERVICE
 // ============================================================
 //
-// שירות נפרד לחילוץ "באיזה בישול ובאיזה שלב" נמצא מיכל
-// שעדיין ב-ACTION 0 (בישול פעיל, טרם תסיסה).
+// ACTION-0 runtime stage extraction.
 //
-// לא נוגע ב-extractBrew() הקיים - זהו חילוץ משלים.
+// Date strategy:
+//   1. A persisted brewProgress.blockStarts timestamp is the
+//      primary source of truth for each brew block (A/B/C...).
+//   2. An explicit date in that block header is the next source.
+//   3. Other known block dates / fermentor brewDate / top header
+//      are used only to seed or backfill legacy in-progress brews.
+//   4. If absolutely nothing is known, today is used temporarily.
 //
+// When a new block is first observed as started, its startedAt is
+// persisted through updateFermentorBrewProgress(). Once stored it
+// is never changed.
+//
+// Immediately before ACTION 0 is expected to become ACTION 1
+// (volume exists, or final "out to fermentor" is >2h old), missing
+// Sheet dates are filled from those block timestamps. Existing
+// dates are never overwritten.
 // ============================================================
-//
-// CHANGES IN THIS VERSION:
-//
-// 1) BUG FIX - "midnight rollover" false positive:
-//    The cursor-date logic used to treat ANY backward jump in
-//    clock time (e.g. stage B starts earlier than stage A) as
-//    "we must have crossed midnight" and pushed the whole rest
-//    of the block a day forward. A small backward jump caused
-//    by a typo in the sheet (e.g. "20:58" instead of "20:08")
-//    was enough to trigger this and misdate every later stage
-//    in that block by a full day - which made "current stage"
-//    get stuck on a stale stage until real midnight passed and
-//    "fixed" it by accident.
-//    Now only a backward jump larger than
-//    MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES counts as a real
-//    midnight crossing; small backward jumps are treated as
-//    same-day (and logged as a probable sheet typo).
-//
-// 2) extractBrewStageInfo() now accepts an optional second
-//    argument, `fermentorHint` - the fermentor object already
-//    fetched in bulk by brewActionService(). When provided, the
-//    anchor-date fallback chain uses it instead of doing its
-//    own getFermentorFromFirebase() Firestore GET.
-//
-// ============================================================
-
-
-// ----------------------------------------------------------
-// STAGE DEFINITIONS
-// ----------------------------------------------------------
 
 const STAGE_DEFS = [
   { code: 10, name: "הכנסת לתת", regex: /הכנסת\s*לתת/ },
@@ -55,95 +38,165 @@ const STAGE_DEFS = [
 ];
 
 const STAGE_CODE_OUT_TO_FERMENTOR = 120;
-
-// NEW: minimum backward gap (in minutes) required before we treat
-// a backward time jump as a real midnight crossing rather than a
-// typo in the sheet. A real crossing (e.g. 23:19 -> 0:15) jumps
-// back by hours; a typo (e.g. 20:58 -> 20:31) jumps back by minutes.
-const MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES = 6 * 60; // 6 hours
+const MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES = 6 * 60;
+const ACTION_0_GRACE_MS = 2 * 60 * 60 * 1000;
+const LIVE_BLOCK_DETECTION_WINDOW_MS = 30 * 60 * 1000;
 
 
-function formatHHMM(date) {
+// ----------------------------------------------------------
+// BASIC HELPERS
+// ----------------------------------------------------------
 
+function brewStageFormatHHMM_(date) {
   if (!date) return null;
-
   const h = String(date.getHours()).padStart(2, "0");
   const m = String(date.getMinutes()).padStart(2, "0");
-
   return h + ":" + m;
 }
 
+function brewStageExtractTime_(text) {
+  if (text === null || text === undefined || text === "") return null;
 
-// ----------------------------------------------------------
-// TIME / DATE HELPERS
-// ----------------------------------------------------------
-
-function extractTimeFromCell(text) {
-
-  if (!text) return null;
-
-  const m = String(text).match(/(\d{1,2}):(\d{2})/);
+  const m = String(text).match(/(?:^|\s)(\d{1,2}):(\d{2})(?:\s|$)/);
   if (!m) return null;
 
   const h = Number(m[1]);
   const mi = Number(m[2]);
 
   if (h > 23 || mi > 59) return null;
-
   return h * 60 + mi;
 }
 
-function extractDateFromText(text) {
+function brewStageExtractDate_(value) {
+  if (!value) return null;
 
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return new Date(value.getTime());
+  }
+
+  if (typeof value === "object") {
+    if (typeof value.toDate === "function") {
+      try {
+        const d = value.toDate();
+        if (d && !isNaN(d.getTime())) return d;
+      } catch (e) {}
+    }
+
+    if (value.seconds !== undefined) {
+      const seconds = Number(value.seconds);
+      if (Number.isFinite(seconds)) return new Date(seconds * 1000);
+    }
+
+    if (value._seconds !== undefined) {
+      const seconds = Number(value._seconds);
+      if (Number.isFinite(seconds)) return new Date(seconds * 1000);
+    }
+  }
+
+  const text = String(value).trim();
   if (!text) return null;
 
-  const m = String(text).match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  const israeli = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (israeli) {
+    const day = Number(israeli[1]);
+    const month = Number(israeli[2]) - 1;
+    let year = Number(israeli[3]);
+    if (year < 100) year += 2000;
+
+    const d = new Date(year, month, day);
+    if (
+      d.getFullYear() === year &&
+      d.getMonth() === month &&
+      d.getDate() === day
+    ) {
+      return d;
+    }
+  }
+
+  const parsed = new Date(text);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function brewStageStartOfDay_(date) {
+  if (!date) return null;
+  const d = new Date(date.getTime());
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function brewStageAddDays_(date, days) {
+  const d = new Date(date.getTime());
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function brewStageDateWithMinutes_(date, minutes) {
+  const d = brewStageStartOfDay_(date);
+  d.setMinutes(minutes);
+  return d;
+}
+
+function brewStageFormatDate_(date) {
+  if (!date) return "";
+  return (
+    String(date.getDate()).padStart(2, "0") +
+    "/" +
+    String(date.getMonth() + 1).padStart(2, "0") +
+    "/" +
+    String(date.getFullYear())
+  );
+}
+
+function brewStageExtractNumber_(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  const m = String(value).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
   if (!m) return null;
 
-  const day = Number(m[1]);
-  const month = Number(m[2]) - 1;
-  let year = Number(m[3]);
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
 
-  if (year < 100) year += 2000;
+function brewStageFindRowContaining_(values, needle) {
+  for (let r = 0; r < values.length; r++) {
+    for (let c = 0; c < (values[r] || []).length; c++) {
+      if (String(values[r][c] || "").trim().includes(needle)) return r;
+    }
+  }
+  return -1;
+}
 
-  const d = new Date(year, month, day);
-  if (isNaN(d.getTime())) return null;
-
-  return d;
+function brewStageFindExactCell_(values, needle) {
+  for (let r = 0; r < values.length; r++) {
+    for (let c = 0; c < (values[r] || []).length; c++) {
+      if (String(values[r][c] || "").trim() === needle) {
+        return { row: r, col: c };
+      }
+    }
+  }
+  return null;
 }
 
 
 // ----------------------------------------------------------
-// BLOCK DETECTION (header-based anchor)
-// ----------------------------------------------------------
-//
-// כותרת בלוק אמיתית מכילה שלושה תאים: "סוג:", "אצווה:",
-// ותא בשם "תאריך" (בלי נקודתיים!).
-//
-// שים לב שזה שונה מ:
-// - השורה העליונה בגיליון: יש בה "תאריך:" (עם נקודתיים)
-// - שורת "דף תסיסה" (סיכום אריזה): אין בה תא "תאריך" בכלל,
-//   יש "מספר מיכל:" במקום.
+// BLOCK HEADERS
 // ----------------------------------------------------------
 
 function findBrewBlockStarts(values) {
-
   const starts = [];
 
-  for (let r = 1; r < values.length; r++) { // מתחילים מ-1, לא מ-0
-
-    const row = values[r];
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r] || [];
     let hasType = false;
     let hasBatch = false;
     let hasDateLabel = false;
 
     for (let c = 0; c < row.length; c++) {
-
       const cell = String(row[c] || "").trim();
-
       if (cell === "סוג:") hasType = true;
       if (cell === "אצווה:") hasBatch = true;
-      if (cell === "תאריך") hasDateLabel = true; // בלי נקודתיים!
+      if (cell === "תאריך") hasDateLabel = true;
     }
 
     if (hasType && hasBatch && hasDateLabel) starts.push(r);
@@ -152,452 +205,727 @@ function findBrewBlockStarts(values) {
   return starts;
 }
 
+function brewStageReadHeaderDate_(values, rowIndex) {
+  const row = values[rowIndex] || [];
+
+  for (let c = 0; c < row.length; c++) {
+    if (String(row[c] || "").trim() === "תאריך") {
+      return {
+        labelCol: c,
+        valueCol: c + 1,
+        date: brewStageExtractDate_(row[c + 1])
+      };
+    }
+  }
+
+  return { labelCol: null, valueCol: null, date: null };
+}
+
+function brewStageReadTopHeaderDate_(values) {
+  const searchRows = Math.min(values.length, 3);
+
+  for (let r = 0; r < searchRows; r++) {
+    const row = values[r] || [];
+
+    for (let c = 0; c < row.length; c++) {
+      if (String(row[c] || "").trim() === "תאריך:") {
+        return {
+          row: r,
+          labelCol: c,
+          valueCol: c + 1,
+          date: brewStageExtractDate_(row[c + 1])
+        };
+      }
+    }
+  }
+
+  return { row: null, labelCol: null, valueCol: null, date: null };
+}
+
 
 // ----------------------------------------------------------
-// MAIN: EXTRACT CURRENT BREW STAGE
-// ----------------------------------------------------------
-//
-// מחזיר רק את מה שצריך בפועל להחלטת ACTION:
-// - lastBlock (כדי לבדוק "הוצאה לתסיסה" בבלוק האחרון)
-// - currentStage (השלב הנוכחי, לתצוגה ב-GUI)
-// - beerVolume
-//
-// `fermentorHint` (NEW, optional): the fermentor object already
-// fetched in bulk by brewActionService(). If provided and it has
-// a brewDate, it's used in the anchor-date fallback chain instead
-// of an extra getFermentorFromFirebase() Firestore GET.
+// SAVED BLOCK STARTS
 // ----------------------------------------------------------
 
-// function extractBrewStageInfo(spreadSheetId, fermentorHint) {
-
-//   const spreadsheetId = extractSpreadsheetId(spreadSheetId);
-//   const ss = SpreadsheetApp.openById(spreadsheetId);
-//   const sheet = ss.getSheets()[0];
-//   const values = sheet.getDataRange().getDisplayValues();
-
-//   const batchHeader = values[0] || [];
-//   const tankNumber = String(batchHeader[3] || "").trim() || null;
-
-//   // ------------------------------------------------------
-//   // ANCHOR DATE - שרשרת fallback עם בדיקת "תאריך תקוע"
-//   // ------------------------------------------------------
-
-//   let dateAssumed = false;
-//   let anchorDate = extractDateFromText(batchHeader[7]);
-
-//   const blockStarts = findBrewBlockStarts(values);
-
-//   let firstBlockHeaderDate = null;
-
-//   if (blockStarts.length > 0) {
-
-//     const r = blockStarts[0];
-
-//     for (let c = 0; c < values[r].length; c++) {
-
-//       if (String(values[r][c]).trim() === "תאריך") {
-
-//         firstBlockHeaderDate = extractDateFromText(values[r][c + 1]);
-//         break;
-//       }
-//     }
-//   }
-
-//   // מזהים אם התאריך בכותרת העליונה תקוע (יותר מ-10 ימים מהיום)
-//   let topHeaderDateWasStale = false;
-
-//   if (anchorDate) {
-
-//     const todayCheck = new Date();
-//     todayCheck.setHours(0, 0, 0, 0);
-
-//     const anchorCheck = new Date(anchorDate.getTime());
-//     anchorCheck.setHours(0, 0, 0, 0);
-
-//     const diffDays =
-//       Math.abs(todayCheck.getTime() - anchorCheck.getTime()) /
-//       (1000 * 60 * 60 * 24);
-
-//     if (diffDays > 10) {
-
-//       Logger.log(
-//         "anchorDate from top header looks stale (" +
-//         diffDays + " days off) - discarding: " +
-//         batchHeader[7]
-//       );
-
-//       topHeaderDateWasStale = true;
-//       anchorDate = null;
-//     }
-//   }
-
-//   if (!anchorDate && firstBlockHeaderDate) {
-//     anchorDate = firstBlockHeaderDate;
-//   }
-
-//   if (!anchorDate && tankNumber) {
-
-//     try {
-
-//       // CHANGED: prefer the already-fetched fermentor object over
-//       // a fresh Firestore GET.
-//       const existing = fermentorHint || getFermentorFromFirebase(tankNumber);
-
-//       if (existing && existing.brewDate) {
-//         anchorDate = extractDateFromText(existing.brewDate);
-//       }
-
-//     } catch (e) {
-//       // best effort
-//     }
-//   }
-
-//   if (!anchorDate) {
-
-//     anchorDate = new Date();
-//     anchorDate.setHours(0, 0, 0, 0);
-//     dateAssumed = true;
-
-//   } else {
-
-//     anchorDate.setHours(0, 0, 0, 0);
-//   }
-
-//   // אם זוהה תאריך תקוע בכותרת העליונה ומצאנו תאריך תקין שמחליף
-//   // אותו - כותבים אותו בחזרה לתא בגיליון, כדי שבפעם הבאה לא
-//   // נצטרך את כל שרשרת ה-fallback הזו שוב.
-//   if (topHeaderDateWasStale) {
-
-//     try {
-
-//       const dateCell = findCell(values, "תאריך:");
-
-//       if (dateCell) {
-
-//         const targetRow = dateCell.row + 1;       // 1-indexed
-//         const targetCol = dateCell.col + 2;        // התא מימין לתווית, 1-indexed
-//         const day = String(anchorDate.getDate()).padStart(2, "0");
-//         const month = String(anchorDate.getMonth() + 1).padStart(2, "0");
-//         const year = String(anchorDate.getFullYear());
-
-//         sheet
-//           .getRange(targetRow, targetCol)
-//           .setNumberFormat("@")
-//           .setValue(`${day}/${month}/${year}`);
-
-//         Logger.log(
-//           "Fixed stale top-header date in sheet -> " +
-//           `${day}/${month}`
-//         );
-
-//       } else {
-
-//         Logger.log(
-//           "Could not locate top header date cell to fix - label 'תאריך:' not found."
-//         );
-//       }
-
-//     } catch (error) {
-
-//       // כתיבה לגיליון תלויה בהרשאות ה-deploy ("execute as") -
-//       // אם הן לא מאפשרות כתיבה, לא נכשיל את כל התהליך.
-//       Logger.log(
-//         "Failed to write corrected date back to sheet: " + error.message
-//       );
-//     }
-//   }
-
-//   // ------------------------------------------------------
-//   // WALK ALL ROWS, SPLIT INTO BLOCKS
-//   // ------------------------------------------------------
-
-//   const fermentationRow = findRowContaining(values, "דף תסיסה");
-//   const headerStarts = new Set(blockStarts);
-
-//   const scanStart = blockStarts.length ? blockStarts[0] : 0;
-//   const scanEnd = (fermentationRow !== -1 ? fermentationRow : values.length) - 1;
-
-//   const blocks = [];
-//   let currentStages = [];
-//   let sawOutToFermentInCurrentBlock = false;
-//   let cursorMinutes = null;
-//   const cursorDate = new Date(anchorDate.getTime());
-
-//   function closeCurrentBlock() {
-//     if (currentStages.length > 0) {
-//       blocks.push({
-//         blockIndex: blocks.length + 1,
-//         stages: currentStages
-//       });
-//     }
-//     currentStages = [];
-//     sawOutToFermentInCurrentBlock = false;
-//   }
-
-//   rowLoop:
-//   for (let r = scanStart; r <= scanEnd; r++) {
-
-//     const row = values[r] || [];
-//     const rowText = row.map(c => String(c || "").trim());
-
-//     if (headerStarts.has(r) && r !== scanStart) {
-//       closeCurrentBlock();
-//     }
-
-//     for (let s = 0; s < STAGE_DEFS.length; s++) {
-
-//       const def = STAGE_DEFS[s];
-
-//       for (let c = 0; c < rowText.length; c++) {
-
-//         const cellText = rowText[c];
-//         if (!cellText) continue;
-
-//         const match = cellText.match(def.regex);
-//         if (!match) continue;
-
-//         const subIndex = def.indexed ? Number(match[1]) : null;
-//         const code = def.indexed ? def.code + (subIndex - 1) : def.code;
-//         const name = def.indexed ? (def.name + " " + subIndex) : def.name;
-
-//         if (code === 10 && sawOutToFermentInCurrentBlock) {
-//           closeCurrentBlock();
-//         }
-
-//         let startMin = null;
-//         let endMin = null;
-
-//         for (let cc = c + 1; cc < rowText.length; cc++) {
-
-//           const t = extractTimeFromCell(rowText[cc]);
-//           if (t === null) continue;
-
-//           if (startMin === null) {
-//             startMin = t;
-//           } else {
-//             endMin = t;
-//             break;
-//           }
-//         }
-
-//         if (startMin === null) continue;
-
-//         // ----------------------------------------------------
-//         // FIXED: only treat a LARGE backward jump as a real
-//         // midnight crossing. A small backward jump is far more
-//         // likely to be a typo in the sheet (e.g. "20:58" meant
-//         // to be "20:08") than an actual day rollover.
-//         // ----------------------------------------------------
-//         if (
-//           cursorMinutes !== null &&
-//           startMin < cursorMinutes &&
-//           (cursorMinutes - startMin) > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
-//         ) {
-//           cursorDate.setDate(cursorDate.getDate() + 1);
-//         } else if (cursorMinutes !== null && startMin < cursorMinutes) {
-//           Logger.log(
-//             "Small backward time jump at stage '" + name +
-//             "' (row " + (r + 1) + "): " +
-//             cursorMinutes + "min -> " + startMin + "min. " +
-//             "Treating as same-day (likely a typo in the sheet), not midnight."
-//           );
-//         }
-
-//         cursorMinutes = startMin;
-
-//         const startDateTime = new Date(cursorDate.getTime());
-//         startDateTime.setHours(0, startMin, 0, 0);
-
-//         let endDateTime = null;
-
-//         if (endMin !== null) {
-
-//           if (
-//             endMin < startMin &&
-//             (startMin - endMin) > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
-//           ) {
-//             cursorDate.setDate(cursorDate.getDate() + 1);
-//           }
-
-//           cursorMinutes = endMin;
-
-//           endDateTime = new Date(cursorDate.getTime());
-//           endDateTime.setHours(0, endMin, 0, 0);
-//         }
-
-//         currentStages.push({
-//           code: code,
-//           name: name,
-//           row: r,
-//           startDateTime: startDateTime,
-//           endDateTime: endDateTime
-//         });
-
-//         if (code === STAGE_CODE_OUT_TO_FERMENTOR) {
-//           sawOutToFermentInCurrentBlock = true;
-//         }
-
-//         continue rowLoop;
-//       }
-//     }
-//   }
-
-//   closeCurrentBlock();
-
-//   // ------------------------------------------------------
-//   // CURRENT STAGE
-//   // ------------------------------------------------------
-
-//   const now = new Date();
-//   let currentStage = null;
-//   let currentBlockIndex = null;
-
-//   for (let bi = blocks.length - 1; bi >= 0 && !currentStage; bi--) {
-
-//     const stages = blocks[bi].stages;
-
-//     for (let si = stages.length - 1; si >= 0; si--) {
-
-//       if (stages[si].startDateTime.getTime() <= now.getTime()) {
-
-//         currentStage = stages[si];
-//         currentBlockIndex = blocks[bi].blockIndex;
-//         break;
-//       }
-//     }
-//   }
-
-//   // ------------------------------------------------------
-//   // VOLUME
-//   // ------------------------------------------------------
-
-//   let beerVolume = null;
-//   const volumeLocation = findCell(values, "נפח:");
-
-//   if (volumeLocation) {
-//     beerVolume = extractNumber(values[volumeLocation.row][volumeLocation.col + 1]);
-//   }
-
-//   const headerCount = blockStarts.length;
-//   const hasUnstartedHeader = headerCount > blocks.length;
-
-//   return {
-
-//     tankNumber: tankNumber,
-//     dateAssumed: dateAssumed,
-
-//     blockCount: blocks.length,
-//     headerCount: headerCount,
-//     hasUnstartedHeader: hasUnstartedHeader,
-
-//     lastBlock: blocks.length ? blocks[blocks.length - 1] : null,
-
-//     currentBlockIndex: currentBlockIndex,
-//     currentStage: currentStage,
-
-//     beerVolume: beerVolume
-//   };
-// }
+function brewStageNormalizeSavedStarts_(fermentorHint) {
+  const result = {};
+  if (!fermentorHint) return result;
+
+  const progress = fermentorHint.brewProgress || {};
+  const raw = progress.blockStarts || fermentorHint.brewBlockStarts;
+
+  if (!raw) return result;
+
+  if (Array.isArray(raw)) {
+    raw.forEach(function (entry, index) {
+      if (!entry) return;
+      const blockIndex = Number(entry.blockIndex || index + 1);
+      const date = brewStageExtractDate_(entry.startedAt || entry.timestamp || entry.date);
+      if (Number.isFinite(blockIndex) && date) result[blockIndex] = date;
+    });
+    return result;
+  }
+
+  if (typeof raw === "object") {
+    Object.keys(raw).forEach(function (key) {
+      const entry = raw[key];
+      const blockIndex = Number(key);
+      const date = brewStageExtractDate_(
+        entry && typeof entry === "object"
+          ? (entry.startedAt || entry.timestamp || entry.date || entry)
+          : entry
+      );
+      if (Number.isFinite(blockIndex) && date) result[blockIndex] = date;
+    });
+  }
+
+  return result;
+}
 
 
 // ----------------------------------------------------------
-// PERSIST CURRENT STAGE TO FIREBASE
+// RAW STAGE EXTRACTION PER BLOCK
 // ----------------------------------------------------------
 
-// ----------------------------------------------------------
-// PERSIST CURRENT STAGE TO FIREBASE
-// ----------------------------------------------------------
+function brewStageExtractRawStages_(values, startRow, endRow) {
+  const stages = [];
 
-// function updateFermentorBrewProgress(tankNumber, stageInfo) {
+  rowLoop:
+  for (let r = startRow; r <= endRow; r++) {
+    const row = values[r] || [];
 
-//   const fermentorId = String(tankNumber).trim();
+    for (let s = 0; s < STAGE_DEFS.length; s++) {
+      const def = STAGE_DEFS[s];
 
-//   const stage = stageInfo.currentStage;
+      for (let c = 0; c < row.length; c++) {
+        const label = String(row[c] || "").trim();
+        const match = label.match(def.regex);
+        if (!match) continue;
 
-//   const progress = {
+        let startMinutes = null;
+        let endMinutes = null;
 
-//     blockIndex: stageInfo.currentBlockIndex || null,
-//     blockCount: stageInfo.blockCount || null,
+        // Template normally keeps start/end immediately to the
+        // right of the operation label. Look a few cells right so
+        // minor merged-cell layout changes do not break extraction.
+        for (let offset = 1; offset <= 3; offset++) {
+          const minutes = brewStageExtractTime_(row[c + offset]);
+          if (minutes === null) continue;
 
-//     stageCode: stage ? stage.code : null,
-//     stageName: stage ? stage.name : null,
+          if (startMinutes === null) startMinutes = minutes;
+          else if (endMinutes === null) {
+            endMinutes = minutes;
+            break;
+          }
+        }
 
-//     // ISO מלא - שימושי למיון/חישובים עתידיים בפרונט אם יידרש
-//     stageStartTime: stage ? stage.startDateTime : null,
-//     stageEndTime: stage ? stage.endDateTime : null, // null מפורש אם עוד לא הסתיים
+        if (startMinutes === null) continue;
 
-//     // HH:MM מוכן לתצוגה - לא צריך parsing בפרונט
-//     stageStartTimeText: stage ? formatHHMM(stage.startDateTime) : null,
-//     stageEndTimeText: stage ? formatHHMM(stage.endDateTime) : null, // null מפורש
+        const indexedSuffix = def.indexed && match[1] ? " " + match[1] : "";
 
-//     dateAssumed: !!stageInfo.dateAssumed
-//   };
+        stages.push({
+          code: def.code,
+          name: def.name + indexedSuffix,
+          row: r,
+          startMinutes: startMinutes,
+          endMinutes: endMinutes
+        });
 
-//   // ----------------------------------------------------------
-//   // NEW: local change-detection, אותו דפוס בדיוק כמו packaging/
-//   // fermentor sync ב-runFermentorCycle. אם ה-progress לא השתנה
-//   // מהמחזור הקודם - מדלגים על ה-PATCH ל-Firestore לגמרי.
-//   // שימו לב: זה לא חוסך את קריאת ה-Sheet עצמה (extractBrewStageInfo
-//   // עדיין רץ בכל מחזור) - רק את הכתיבה המיותרת.
-//   // ----------------------------------------------------------
+        continue rowLoop;
+      }
+    }
+  }
 
-//   const progressCacheKey = "brewProgress:" + fermentorId;
+  return stages;
+}
 
-//   if (!hasChangedLocally_(progressCacheKey, progress)) {
-
-//     Logger.log(
-//       "Brew progress unchanged for tank " +
-//       fermentorId +
-//       " - skipping Firestore write."
-//     );
-
-//     return;
-//   }
-
-//   const url =
-//     "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
-//     "/databases/(default)/documents/fermentors/" + encodeURIComponent(fermentorId) +
-//     "?updateMask.fieldPaths=brewProgress";
-
-//   const document = {
-//     fields: {
-//       brewProgress: toFirestoreValue(progress)
-//     }
-//   };
-
-//   const response = UrlFetchApp.fetch(url, {
-
-//     method: "patch",
-//     contentType: "application/json",
-
-//     headers: {
-//       Authorization: "Bearer " + ScriptApp.getOAuthToken()
-//     },
-
-//     payload: JSON.stringify(document),
-//     muteHttpExceptions: true
-//   });
-
-//   const code = response.getResponseCode();
-
-//   if (code < 200 || code >= 300) {
-
-//     throw new Error(
-//       "Failed to update brewProgress for tank " + fermentorId +
-//       ": " + code + " " + response.getContentText()
-//     );
-//   }
-// }
+function brewStageFirstStartMinutes_(rawStages) {
+  if (!rawStages || !rawStages.length) return null;
+  return rawStages[0].startMinutes;
+}
 
 
 // ----------------------------------------------------------
-// TEST
+// RESOLVE ONE DATE PER BLOCK
+// ----------------------------------------------------------
+
+function brewStageResolveBlockDates_(blocks, savedStarts, fallbackDate) {
+  const resolved = new Array(blocks.length).fill(null);
+  const source = new Array(blocks.length).fill(null);
+
+  // Primary: persisted timestamp. Secondary: explicit block date.
+  for (let i = 0; i < blocks.length; i++) {
+    const blockIndex = i + 1;
+
+    if (savedStarts[blockIndex]) {
+      resolved[i] = brewStageStartOfDay_(savedStarts[blockIndex]);
+      source[i] = "runtime";
+      continue;
+    }
+
+    if (blocks[i].explicitDate) {
+      resolved[i] = brewStageStartOfDay_(blocks[i].explicitDate);
+      source[i] = "sheet";
+    }
+  }
+
+  let knownIndex = -1;
+  for (let i = 0; i < resolved.length; i++) {
+    if (resolved[i]) {
+      knownIndex = i;
+      break;
+    }
+  }
+
+  if (knownIndex === -1 && fallbackDate) {
+    resolved[0] = brewStageStartOfDay_(fallbackDate);
+    source[0] = "fallback";
+    knownIndex = 0;
+  }
+
+  if (knownIndex === -1) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    resolved[0] = today;
+    source[0] = "assumed";
+    knownIndex = 0;
+  }
+
+  // Propagate forward. A large backwards clock jump between the
+  // first stage of adjacent blocks means the next block is next day.
+  for (let i = knownIndex + 1; i < blocks.length; i++) {
+    if (resolved[i]) continue;
+
+    let previous = i - 1;
+    while (previous >= 0 && !resolved[previous]) previous--;
+    if (previous < 0) continue;
+
+    let date = brewStageStartOfDay_(resolved[previous]);
+    const prevMinutes = brewStageFirstStartMinutes_(blocks[previous].rawStages);
+    const thisMinutes = brewStageFirstStartMinutes_(blocks[i].rawStages);
+
+    if (
+      prevMinutes !== null &&
+      thisMinutes !== null &&
+      prevMinutes - thisMinutes > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
+    ) {
+      date = brewStageAddDays_(date, 1);
+    }
+
+    resolved[i] = date;
+    source[i] = "inferred";
+  }
+
+  // Propagate backwards from the first known date. Useful for a
+  // legacy sheet such as A(no date), B(14/9), C(no date).
+  for (let i = knownIndex - 1; i >= 0; i--) {
+    if (resolved[i]) continue;
+
+    let next = i + 1;
+    while (next < blocks.length && !resolved[next]) next++;
+    if (next >= blocks.length) continue;
+
+    let date = brewStageStartOfDay_(resolved[next]);
+    const thisMinutes = brewStageFirstStartMinutes_(blocks[i].rawStages);
+    const nextMinutes = brewStageFirstStartMinutes_(blocks[next].rawStages);
+
+    if (
+      thisMinutes !== null &&
+      nextMinutes !== null &&
+      thisMinutes - nextMinutes > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
+    ) {
+      date = brewStageAddDays_(date, -1);
+    }
+
+    resolved[i] = date;
+    source[i] = "inferred";
+  }
+
+  // If there were several explicit/runtime anchors, fill any holes
+  // left between them from the previous resolved block.
+  for (let i = 1; i < blocks.length; i++) {
+    if (resolved[i]) continue;
+
+    let date = brewStageStartOfDay_(resolved[i - 1]);
+    const prevMinutes = brewStageFirstStartMinutes_(blocks[i - 1].rawStages);
+    const thisMinutes = brewStageFirstStartMinutes_(blocks[i].rawStages);
+
+    if (
+      prevMinutes !== null &&
+      thisMinutes !== null &&
+      prevMinutes - thisMinutes > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
+    ) {
+      date = brewStageAddDays_(date, 1);
+    }
+
+    resolved[i] = date;
+    source[i] = "inferred";
+  }
+
+  return { dates: resolved, sources: source };
+}
+
+
+// ----------------------------------------------------------
+// BUILD DATED STAGES WITH MIDNIGHT ROLLOVER
+// ----------------------------------------------------------
+
+function brewStageBuildDatedStages_(rawStages, blockDate) {
+  const stages = [];
+  if (!rawStages || !rawStages.length || !blockDate) return stages;
+
+  let cursorDate = brewStageStartOfDay_(blockDate);
+  let cursorMinutes = null;
+
+  rawStages.forEach(function (raw) {
+    let startDateTime;
+
+    if (
+      cursorMinutes !== null &&
+      cursorMinutes - raw.startMinutes > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
+    ) {
+      cursorDate = brewStageAddDays_(cursorDate, 1);
+    }
+
+    startDateTime = brewStageDateWithMinutes_(cursorDate, raw.startMinutes);
+    cursorMinutes = raw.startMinutes;
+
+    let endDateTime = null;
+
+    if (raw.endMinutes !== null) {
+      let endDate = brewStageStartOfDay_(cursorDate);
+
+      if (
+        raw.startMinutes - raw.endMinutes > MIDNIGHT_ROLLOVER_MIN_GAP_MINUTES
+      ) {
+        endDate = brewStageAddDays_(endDate, 1);
+      }
+
+      endDateTime = brewStageDateWithMinutes_(endDate, raw.endMinutes);
+      cursorDate = brewStageStartOfDay_(endDateTime);
+      cursorMinutes = raw.endMinutes;
+    }
+
+    stages.push({
+      code: raw.code,
+      name: raw.name,
+      row: raw.row,
+      startDateTime: startDateTime,
+      endDateTime: endDateTime
+    });
+  });
+
+  return stages;
+}
+
+
+// ----------------------------------------------------------
+// REGISTER NEW BLOCK STARTS
+// ----------------------------------------------------------
+
+function brewStageRegisterBlockStarts_(blocks, resolvedDates, sources, savedStarts) {
+  const now = new Date();
+  const result = {};
+
+  Object.keys(savedStarts).forEach(function (key) {
+    result[Number(key)] = new Date(savedStarts[key].getTime());
+  });
+
+  blocks.forEach(function (block, index) {
+    const blockIndex = index + 1;
+    if (result[blockIndex]) return;
+    if (!block.rawStages || !block.rawStages.length) return;
+
+    const firstMinutes = brewStageFirstStartMinutes_(block.rawStages);
+    const blockDate = resolvedDates[index];
+    if (firstMinutes === null || !blockDate) return;
+
+    const reconstructedStart = brewStageDateWithMinutes_(blockDate, firstMinutes);
+
+    // For a block that just started, keep the actual detection
+    // timestamp. For a legacy block already in progress when this
+    // version is deployed, seed from the reconstructed start so we
+    // do not incorrectly stamp yesterday's brew as "today".
+    if (
+      Math.abs(now.getTime() - reconstructedStart.getTime()) <=
+      LIVE_BLOCK_DETECTION_WINDOW_MS
+    ) {
+      result[blockIndex] = new Date(now.getTime());
+    } else {
+      result[blockIndex] = reconstructedStart;
+    }
+
+    Logger.log(
+      "Registered brew block " +
+      blockIndex +
+      " startedAt=" +
+      result[blockIndex].toISOString() +
+      " source=" +
+      sources[index]
+    );
+  });
+
+  return result;
+}
+
+function brewStageBlockStartsArray_(blockStarts) {
+  return Object.keys(blockStarts)
+    .map(Number)
+    .filter(function (n) { return Number.isFinite(n); })
+    .sort(function (a, b) { return a - b; })
+    .map(function (blockIndex) {
+      return {
+        blockIndex: blockIndex,
+        startedAt: blockStarts[blockIndex]
+      };
+    });
+}
+
+
+// ----------------------------------------------------------
+// VOLUME
+// ----------------------------------------------------------
+
+function brewStageFindBeerVolume_(values) {
+  const location = brewStageFindExactCell_(values, "נפח:");
+  if (!location) return null;
+
+  const row = values[location.row] || [];
+
+  // Prefer the next cell, but tolerate merged/template variations.
+  for (let c = location.col + 1; c < Math.min(row.length, location.col + 4); c++) {
+    const n = brewStageExtractNumber_(row[c]);
+    if (n !== null) return n;
+  }
+
+  return null;
+}
+
+
+// ----------------------------------------------------------
+// SHEET DATE RECONCILIATION
+// ----------------------------------------------------------
+
+function brewStageFillMissingDates_(sheet, values, blocks, blockStarts, topHeaderInfo) {
+  let writes = 0;
+
+  blocks.forEach(function (block, index) {
+    const blockIndex = index + 1;
+    if (block.explicitDate) return;
+    if (block.headerDateValueCol === null) return;
+
+    const startedAt = blockStarts[blockIndex];
+    if (!startedAt) return;
+
+    sheet
+      .getRange(block.headerRow + 1, block.headerDateValueCol + 1)
+      .setNumberFormat("@")
+      .setValue(brewStageFormatDate_(startedAt));
+
+    writes++;
+  });
+
+  // The top batch date represents the beginning of block A.
+  if (
+    topHeaderInfo &&
+    !topHeaderInfo.date &&
+    topHeaderInfo.row !== null &&
+    topHeaderInfo.valueCol !== null &&
+    blockStarts[1]
+  ) {
+    sheet
+      .getRange(topHeaderInfo.row + 1, topHeaderInfo.valueCol + 1)
+      .setNumberFormat("@")
+      .setValue(brewStageFormatDate_(blockStarts[1]));
+
+    writes++;
+  }
+
+  if (writes > 0) {
+    Logger.log("Filled " + writes + " missing brew date cell(s) before ACTION 1.");
+  }
+
+  return writes;
+}
+
+
+// ----------------------------------------------------------
+// MAIN EXTRACTOR
+// ----------------------------------------------------------
+
+function extractBrewStageInfo(spreadSheetId, fermentorHint) {
+  const spreadsheetId = extractSpreadsheetId(spreadSheetId);
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheets()[0];
+  const values = sheet.getDataRange().getDisplayValues();
+
+  const topHeaderInfo = brewStageReadTopHeaderDate_(values);
+  const blockStartsRows = findBrewBlockStarts(values);
+  const fermentationRow = brewStageFindRowContaining_(values, "דף תסיסה");
+  const scanEnd = (fermentationRow !== -1 ? fermentationRow : values.length) - 1;
+
+  const blocks = blockStartsRows.map(function (headerRow, index) {
+    const nextHeader =
+      index + 1 < blockStartsRows.length
+        ? blockStartsRows[index + 1] - 1
+        : scanEnd;
+
+    const headerInfo = brewStageReadHeaderDate_(values, headerRow);
+    const rawStages = brewStageExtractRawStages_(values, headerRow + 1, nextHeader);
+
+    return {
+      blockIndex: index + 1,
+      headerRow: headerRow,
+      headerDateValueCol: headerInfo.valueCol,
+      explicitDate: headerInfo.date,
+      rawStages: rawStages,
+      stages: []
+    };
+  });
+
+  const savedStarts = brewStageNormalizeSavedStarts_(fermentorHint);
+
+  const fermentorDate =
+    fermentorHint && fermentorHint.brewDate
+      ? brewStageExtractDate_(fermentorHint.brewDate)
+      : null;
+
+  // If the top header is stale it must not override a more useful
+  // fermentor/explicit block date. Explicit block dates are resolved
+  // inside brewStageResolveBlockDates_ and therefore win naturally.
+  let fallbackDate = fermentorDate || topHeaderInfo.date || null;
+
+  const resolution = brewStageResolveBlockDates_(
+    blocks,
+    savedStarts,
+    fallbackDate
+  );
+
+  const blockStarts = brewStageRegisterBlockStarts_(
+    blocks,
+    resolution.dates,
+    resolution.sources,
+    savedStarts
+  );
+
+  // Re-resolve using newly registered runtime timestamps so the
+  // exact same run already treats them as primary truth.
+  const runtimeResolution = brewStageResolveBlockDates_(
+    blocks,
+    blockStarts,
+    fallbackDate
+  );
+
+  blocks.forEach(function (block, index) {
+    block.stages = brewStageBuildDatedStages_(
+      block.rawStages,
+      runtimeResolution.dates[index]
+    );
+  });
+
+  const startedBlocks = blocks.filter(function (block) {
+    return block.stages && block.stages.length > 0;
+  });
+
+  const now = new Date();
+  let currentStage = null;
+  let currentBlockIndex = null;
+
+  for (let bi = startedBlocks.length - 1; bi >= 0 && !currentStage; bi--) {
+    const stages = startedBlocks[bi].stages;
+
+    for (let si = stages.length - 1; si >= 0; si--) {
+      if (stages[si].startDateTime.getTime() <= now.getTime()) {
+        currentStage = stages[si];
+        currentBlockIndex = startedBlocks[bi].blockIndex;
+        break;
+      }
+    }
+  }
+
+  const headerCount = blocks.length;
+  const blockCount = startedBlocks.length;
+  const hasUnstartedHeader = headerCount > blockCount;
+  const lastBlock = blockCount ? startedBlocks[startedBlocks.length - 1] : null;
+  const beerVolume = brewStageFindBeerVolume_(values);
+
+  const outStage =
+    lastBlock
+      ? lastBlock.stages.find(function (stage) {
+          return stage.code === STAGE_CODE_OUT_TO_FERMENTOR;
+        })
+      : null;
+
+  const finalOutPastGrace =
+    !!(
+      !hasUnstartedHeader &&
+      outStage &&
+      outStage.startDateTime &&
+      now.getTime() - outStage.startDateTime.getTime() >= ACTION_0_GRACE_MS
+    );
+
+  const readyForAction1 =
+    beerVolume !== null && beerVolume !== undefined
+      ? true
+      : finalOutPastGrace;
+
+  // Reconcile dates immediately before processAction0 is expected
+  // to set ACTION=1. Existing dates are left untouched.
+  if (readyForAction1) {
+    try {
+      brewStageFillMissingDates_(
+        sheet,
+        values,
+        blocks,
+        blockStarts,
+        topHeaderInfo
+      );
+    } catch (error) {
+      Logger.log("Failed filling missing brew dates: " + error.message);
+    }
+  }
+
+  const dateAssumed = runtimeResolution.sources.some(function (source) {
+    return source === "assumed";
+  });
+
+  return {
+    tankNumber:
+      fermentorHint && fermentorHint.tankNumber
+        ? String(fermentorHint.tankNumber).trim()
+        : null,
+
+    dateAssumed: dateAssumed,
+    blockCount: blockCount,
+    headerCount: headerCount,
+    hasUnstartedHeader: hasUnstartedHeader,
+    lastBlock: lastBlock,
+    currentBlockIndex: currentBlockIndex,
+    currentStage: currentStage,
+    beerVolume: beerVolume,
+    blockStarts: brewStageBlockStartsArray_(blockStarts)
+  };
+}
+
+
+// ----------------------------------------------------------
+// FIRESTORE PROGRESS PERSISTENCE
+// ----------------------------------------------------------
+
+function brewStageToFirestoreValue_(value) {
+  if (value === null || value === undefined) return { nullValue: null };
+
+  if (value instanceof Date) {
+    return { timestampValue: value.toISOString() };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      arrayValue: {
+        values: value.map(brewStageToFirestoreValue_)
+      }
+    };
+  }
+
+  if (typeof value === "object") {
+    const fields = {};
+    Object.keys(value).forEach(function (key) {
+      fields[key] = brewStageToFirestoreValue_(value[key]);
+    });
+    return { mapValue: { fields: fields } };
+  }
+
+  if (typeof value === "boolean") return { booleanValue: value };
+
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? { integerValue: String(value) }
+      : { doubleValue: value };
+  }
+
+  return { stringValue: String(value) };
+}
+
+function updateFermentorBrewProgress(tankNumber, stageInfo) {
+  const fermentorId = String(tankNumber).trim();
+  const stage = stageInfo.currentStage;
+
+  const progress = {
+    blockIndex: stageInfo.currentBlockIndex || null,
+    blockCount: stageInfo.blockCount || null,
+    headerCount: stageInfo.headerCount || null,
+
+    stageCode: stage ? stage.code : null,
+    stageName: stage ? stage.name : null,
+    stageStartTime: stage ? stage.startDateTime : null,
+    stageEndTime: stage ? stage.endDateTime : null,
+    stageStartTimeText: stage ? brewStageFormatHHMM_(stage.startDateTime) : null,
+    stageEndTimeText: stage ? brewStageFormatHHMM_(stage.endDateTime) : null,
+
+    dateAssumed: !!stageInfo.dateAssumed,
+    blockStarts: stageInfo.blockStarts || []
+  };
+
+  const progressCacheKey = "brewProgress:" + fermentorId;
+
+  if (
+    typeof hasChangedLocally_ === "function" &&
+    !hasChangedLocally_(progressCacheKey, progress)
+  ) {
+    Logger.log(
+      "Brew progress unchanged for tank " +
+      fermentorId +
+      " - skipping Firestore write."
+    );
+    return;
+  }
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId) +
+    "?updateMask.fieldPaths=brewProgress";
+
+  const document = {
+    fields: {
+      brewProgress: brewStageToFirestoreValue_(progress)
+    }
+  };
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: {
+      Authorization: "Bearer " + ScriptApp.getOAuthToken()
+    },
+    payload: JSON.stringify(document),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+
+  if (code < 200 || code >= 300) {
+    throw new Error(
+      "Failed to update brewProgress for tank " +
+      fermentorId +
+      ": " +
+      code +
+      " " +
+      response.getContentText()
+    );
+  }
+}
+
+
+// ----------------------------------------------------------
+// MANUAL TEST
 // ----------------------------------------------------------
 
 function testExtractStageInfo() {
+  const url =
+    "https://docs.google.com/spreadsheets/d/1eT7aP7zbhqSk6gDzhqN-Tp2Wvt3Y4dqGsRyqyNftrB8/edit";
 
-  const url = "https://docs.google.com/spreadsheets/d/1eT7aP7zbhqSk6gDzhqN-Tp2Wvt3Y4dqGsRyqyNftrB8/edit";
   const info = extractBrewStageInfo(url);
-
   Logger.log(JSON.stringify(info, null, 2));
 }
