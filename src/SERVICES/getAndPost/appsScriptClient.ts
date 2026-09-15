@@ -1,5 +1,4 @@
-import { doc, getDocFromServer } from "firebase/firestore";
-import { auth, db } from "../../firebase";
+import { auth } from "../../firebase";
 
 export const GOOGLE_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
@@ -21,13 +20,6 @@ type RetryOptions = {
     retryDelayMs?: number;
 };
 
-type OperationReceipt = {
-    action?: string;
-    requestId?: string;
-    success?: boolean;
-    responseJson?: string;
-};
-
 export class AppsScriptInvalidResponseError extends Error {
     readonly status: number;
     readonly responsePreview: string;
@@ -38,7 +30,7 @@ export class AppsScriptInvalidResponseError extends Error {
     constructor(response: Response, preview: string) {
         super(
             preview.startsWith("HTML")
-                ? "Google Apps Script החזיר עמוד HTML במקום JSON. בודק אם הפעולה כבר הושלמה..."
+                ? "Google Apps Script החזיר עמוד HTML במקום JSON. מאמת את הפעולה שוב..."
                 : "Google Apps Script החזיר תשובה לא תקינה במקום JSON."
         );
         this.name = "AppsScriptInvalidResponseError";
@@ -99,57 +91,6 @@ async function getAppsScriptIdToken(): Promise<string> {
     return user.getIdToken();
 }
 
-async function readOperationReceipt<T>(
-    requestId: string,
-    action: string
-): Promise<T | null> {
-    // The receipt is written by Apps Script before ContentService returns. In
-    // the normal lost-response case it is already visible immediately; the
-    // short extra polls cover Firestore propagation without making the user sit
-    // through multiple Apps Script retries.
-    const delays = [0, 100, 250];
-
-    for (const delay of delays) {
-        if (delay > 0) await sleep(delay);
-
-        try {
-            const snapshot = await getDocFromServer(
-                doc(db, "operationReceipts", requestId)
-            );
-
-            if (!snapshot.exists()) continue;
-
-            const receipt = snapshot.data() as OperationReceipt;
-            if (
-                receipt.success !== true ||
-                receipt.action !== action ||
-                receipt.requestId !== requestId ||
-                !receipt.responseJson
-            ) {
-                continue;
-            }
-
-            const parsed = JSON.parse(receipt.responseJson) as T;
-            console.info("Apps Script response recovered from Firestore receipt", {
-                action,
-                requestId,
-            });
-            return parsed;
-        } catch (error) {
-            // This can happen temporarily if the receipt rule has not been
-            // deployed yet. Keep the old idempotent retry path as fallback.
-            console.warn("Could not read Apps Script operation receipt", {
-                action,
-                requestId,
-                error,
-            });
-            return null;
-        }
-    }
-
-    return null;
-}
-
 export function createAppsScriptRequestId(prefix = "request"): string {
     const randomUuid = globalThis.crypto?.randomUUID?.();
     if (randomUuid) return `${prefix}-${randomUuid}`;
@@ -161,8 +102,12 @@ export async function callAppsScriptPost<T>(
     payload: Record<string, unknown>,
     options: RetryOptions = {}
 ): Promise<T> {
-    const retries = Math.max(0, options.retries ?? 2);
-    const retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
+    // One retry is enough because the exact same requestId is reused. If the
+    // first mutation completed but Google's ContentService response was lost,
+    // the retry is served by the server-side idempotency cache and cannot write
+    // the mutation twice.
+    const retries = Math.max(0, options.retries ?? 1);
+    const retryDelayMs = Math.max(0, options.retryDelayMs ?? 150);
 
     const action = String(payload.action || "request");
     const requestId =
@@ -192,7 +137,7 @@ export async function callAppsScriptPost<T>(
             const parsed = await parseAppsScriptResponse<T>(response);
 
             if (attempt > 0) {
-                console.info("Apps Script request confirmed after retry", {
+                console.info("Apps Script request confirmed by idempotent retry", {
                     action,
                     requestId,
                     attempts: attempt + 1,
@@ -217,24 +162,17 @@ export async function callAppsScriptPost<T>(
                     preview: error.responsePreview,
                     elapsedMs: Math.round(performance.now() - startedAt),
                 });
-
-                const receiptResponse = await readOperationReceipt<T>(requestId, action);
-                if (receiptResponse) {
-                    console.info("Apps Script request confirmed without retry", {
-                        action,
-                        requestId,
-                        totalMs: Math.round(performance.now() - startedAt),
-                    });
-                    return receiptResponse;
-                }
             }
 
             if (attempt >= retries) break;
 
+            // A broken HTML/redirect response usually means the mutation already
+            // completed, so confirm immediately with the same requestId. Network
+            // errors get a tiny backoff but still only one retry by default.
             if (error instanceof AppsScriptInvalidResponseError) {
-                await sleep(25);
+                await sleep(10);
             } else {
-                await sleep(retryDelayMs * (attempt + 1));
+                await sleep(retryDelayMs);
             }
         }
     }
@@ -257,7 +195,7 @@ export async function callAppsScriptGet<T>(
 ): Promise<T> {
     return callAppsScriptPost<T>(params, {
         retries: options.retries ?? 1,
-        retryDelayMs: options.retryDelayMs ?? 200,
+        retryDelayMs: options.retryDelayMs ?? 150,
     });
 }
 
