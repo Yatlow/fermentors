@@ -1,3 +1,5 @@
+import { auth } from "../../firebase";
+
 export const GOOGLE_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
 
@@ -80,6 +82,17 @@ async function parseAppsScriptResponse<T>(response: Response): Promise<T> {
     return parsed;
 }
 
+async function getAppsScriptIdToken(): Promise<string> {
+    const user = auth.currentUser;
+    if (!user) {
+        throw new Error("אין משתמש מחובר. יש להתחבר מחדש.");
+    }
+
+    // Firebase refreshes the token automatically when needed. We do not force a
+    // refresh on every request because that would add unnecessary network calls.
+    return user.getIdToken();
+}
+
 export function createAppsScriptRequestId(prefix = "request"): string {
     const randomUuid = globalThis.crypto?.randomUUID?.();
     if (randomUuid) return `${prefix}-${randomUuid}`;
@@ -91,8 +104,6 @@ export async function callAppsScriptPost<T>(
     payload: Record<string, unknown>,
     options: RetryOptions = {}
 ): Promise<T> {
-    // Server-side doPost now protects all mutation actions with requestId.
-    // Read-only POST actions are naturally safe to repeat as well.
     const retries = Math.max(0, options.retries ?? 2);
     const retryDelayMs = Math.max(0, options.retryDelayMs ?? 500);
 
@@ -102,10 +113,13 @@ export async function callAppsScriptPost<T>(
             ? payload.requestId.trim()
             : createAppsScriptRequestId(action);
 
-    // Important: every retry sends exactly the same payload/requestId.
-    const idempotentPayload = {
+    // Acquire the Firebase JWT once. Every retry must use the exact same
+    // requestId and token/body, so server-side idempotency remains deterministic.
+    const idToken = await getAppsScriptIdToken();
+    const authenticatedPayload = {
         ...payload,
         requestId,
+        idToken,
     };
 
     let lastError: unknown;
@@ -115,7 +129,7 @@ export async function callAppsScriptPost<T>(
             const response = await fetch(GOOGLE_SCRIPT_URL, {
                 method: "POST",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify(idempotentPayload),
+                body: JSON.stringify(authenticatedPayload),
             });
 
             return await parseAppsScriptResponse<T>(response);
@@ -149,28 +163,12 @@ export async function callAppsScriptGet<T>(
     params: Record<string, string>,
     options: RetryOptions = { retries: 1 }
 ): Promise<T> {
-    const retries = Math.max(0, options.retries ?? 1);
-    const retryDelayMs = Math.max(0, options.retryDelayMs ?? 400);
-
-    const url = new URL(GOOGLE_SCRIPT_URL);
-    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            const response = await fetch(url.toString());
-            return await parseAppsScriptResponse<T>(response);
-        } catch (error) {
-            lastError = error;
-            if (attempt >= retries) break;
-            await sleep(retryDelayMs * (attempt + 1));
-        }
-    }
-
-    throw lastError instanceof Error
-        ? lastError
-        : new Error("Google Apps Script request failed");
+    // Authenticated reads also travel over POST. This deliberately keeps the
+    // Firebase ID token out of query strings, browser history and URL logs.
+    return callAppsScriptPost<T>(params, {
+        retries: options.retries ?? 1,
+        retryDelayMs: options.retryDelayMs ?? 400,
+    });
 }
 
 export function unwrapAppsScriptResult<T>(
