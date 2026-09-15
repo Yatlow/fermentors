@@ -8,15 +8,12 @@ export type AppsScriptEnvelope<T = unknown> = {
     error?: string;
     message?: string;
     warnings?: string[];
+    requestId?: string;
+    duplicate?: boolean;
     [key: string]: unknown;
 };
 
 type RetryOptions = {
-    /**
-     * Retry only when the caller is known to be safe/idempotent.
-     * Do NOT enable this for arbitrary writes: a request may have succeeded
-     * even when Google returns a broken HTML/redirect response afterwards.
-     */
     retries?: number;
     retryDelayMs?: number;
 };
@@ -24,16 +21,22 @@ type RetryOptions = {
 export class AppsScriptInvalidResponseError extends Error {
     readonly status: number;
     readonly responsePreview: string;
+    readonly responseUrl: string;
+    readonly redirected: boolean;
+    readonly contentType: string;
 
-    constructor(status: number, responsePreview: string) {
+    constructor(response: Response, preview: string) {
         super(
-            responsePreview.startsWith("HTML")
-                ? "Google Apps Script החזיר עמוד HTML במקום תשובת JSON. ייתכן שהפעולה עצמה כבר הושלמה."
+            preview.startsWith("HTML")
+                ? "Google Apps Script החזיר עמוד HTML במקום JSON. הבקשה תישלח שוב בבטחה עם אותו requestId."
                 : "Google Apps Script החזיר תשובה לא תקינה במקום JSON."
         );
         this.name = "AppsScriptInvalidResponseError";
-        this.status = status;
-        this.responsePreview = responsePreview;
+        this.status = response.status;
+        this.responsePreview = preview;
+        this.responseUrl = response.url;
+        this.redirected = response.redirected;
+        this.contentType = response.headers.get("content-type") || "";
     }
 }
 
@@ -62,7 +65,7 @@ async function parseAppsScriptResponse<T>(response: Response): Promise<T> {
     try {
         parsed = JSON.parse(text) as T;
     } catch {
-        throw new AppsScriptInvalidResponseError(response.status, responsePreview(text));
+        throw new AppsScriptInvalidResponseError(response, responsePreview(text));
     }
 
     if (!response.ok) {
@@ -88,8 +91,22 @@ export async function callAppsScriptPost<T>(
     payload: Record<string, unknown>,
     options: RetryOptions = {}
 ): Promise<T> {
-    const retries = Math.max(0, options.retries ?? 0);
+    // Server-side doPost now protects all mutation actions with requestId.
+    // Read-only POST actions are naturally safe to repeat as well.
+    const retries = Math.max(0, options.retries ?? 2);
     const retryDelayMs = Math.max(0, options.retryDelayMs ?? 500);
+
+    const action = String(payload.action || "request");
+    const requestId =
+        typeof payload.requestId === "string" && payload.requestId.trim()
+            ? payload.requestId.trim()
+            : createAppsScriptRequestId(action);
+
+    // Important: every retry sends exactly the same payload/requestId.
+    const idempotentPayload = {
+        ...payload,
+        requestId,
+    };
 
     let lastError: unknown;
 
@@ -98,17 +115,27 @@ export async function callAppsScriptPost<T>(
             const response = await fetch(GOOGLE_SCRIPT_URL, {
                 method: "POST",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify(payload),
+                body: JSON.stringify(idempotentPayload),
             });
 
             return await parseAppsScriptResponse<T>(response);
         } catch (error) {
             lastError = error;
 
-            if (attempt >= retries) break;
+            if (error instanceof AppsScriptInvalidResponseError) {
+                console.warn("Apps Script invalid response", {
+                    action,
+                    requestId,
+                    attempt: attempt + 1,
+                    status: error.status,
+                    responseUrl: error.responseUrl,
+                    redirected: error.redirected,
+                    contentType: error.contentType,
+                    preview: error.responsePreview,
+                });
+            }
 
-            // Retrying writes is only allowed when the caller explicitly opted in.
-            // Such callers must use a server-side requestId/idempotency guard.
+            if (attempt >= retries) break;
             await sleep(retryDelayMs * (attempt + 1));
         }
     }
