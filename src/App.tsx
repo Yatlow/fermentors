@@ -1,5 +1,5 @@
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import {
     collection,
     onSnapshot,
@@ -24,20 +24,22 @@ import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
 import NoteToFermentor from "./components/dashboard/NoteToFermentor";
 import PackagingForm from "./components/cellering/PackagingForm";
 import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
-import BatchReportsView from "./components/reports/BatchReportsView";
-import PackagingReportsView from "./components/reports/PackagingReportsView";
-import EditSpecs from "./components/tools/EditSpecs";
-import BrewCalc from "./components/tools/BrewerCalc";
-import ManualBatchAssignment from "./components/tools/ManualBatchAssignment";
-import ManualStatusAssignment from "./components/tools/Manualstatusassignment ";
-import EditApprovedUsers from "./components/tools/EditApprovedUsers";
-import CoolerMap from "./components/cooler/Coolermap";
 import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
 import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
 import BeerLoader from "./components/general/Loading";
-import ShipmentReportsView from "./components/reports/ShipmentReportsView";
-import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
-import PlanningView, { PLANNING_TABS, type PlanningTab } from "./components/planning/PlanningView";
+import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningTabs";
+
+const BatchReportsView = lazy(() => import("./components/reports/BatchReportsView"));
+const PackagingReportsView = lazy(() => import("./components/reports/PackagingReportsView"));
+const EditSpecs = lazy(() => import("./components/tools/EditSpecs"));
+const BrewCalc = lazy(() => import("./components/tools/BrewerCalc"));
+const ManualBatchAssignment = lazy(() => import("./components/tools/ManualBatchAssignment"));
+const ManualStatusAssignment = lazy(() => import("./components/tools/Manualstatusassignment "));
+const EditApprovedUsers = lazy(() => import("./components/tools/EditApprovedUsers"));
+const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));
+const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentReportsView"));
+const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
+const PlanningView = lazy(() => import("./components/planning/PlanningView"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -57,6 +59,7 @@ export type Fermentor = {
     beerVolume?: string | number | null;
     sheetUrl?: string | null;
     currentData?: {
+        date?: string | null;
         temp?: string | number | null;
         plato?: string | number | null;
         pH?: string | number | null;
@@ -417,26 +420,28 @@ function App() {
                 </div>
             </header>
 
-            {selectedView === "דאשבורד" && <Dashboard healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
-            {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
-            {selectedView === "רישום" && <>
-                <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
-                {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
-                {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
-                {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
-                {selectedWrites === "אריזה" && <PackagingForm brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} />}
-            </>}
+            <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
+                {selectedView === "דאשבורד" && <Dashboard healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
+                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
+                {selectedView === "רישום" && <>
+                    <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
+                    {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
+                    {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
+                    {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
+                    {selectedWrites === "אריזה" && <PackagingForm brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} />}
+                </>}
 
-            {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
-            {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
-            {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
-            {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
-            {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
-            {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
-            {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
-            {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
-            {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-            {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+                {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
+                {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
+                {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
+                {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
+                {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
+                {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
+                {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+            </Suspense>
         </div>
     );
 }
