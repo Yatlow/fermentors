@@ -1,0 +1,28 @@
+name: Deploy Firestore Rules
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - firestore.rules
+      - firebase.json
+      - .github/workflows/firestore-rules-deploy.yml
+
+jobs:
+  deploy_rules:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+
+      - name: Deploy Firestore rules
+        run: npx --yes firebase-tools deploy --only firestore:rules --project fermenter-dashboard-bada3
