@@ -172,9 +172,7 @@
 
 .fermentation-table .brew-age-column,
 .fermentation-table .brew-age-cell {
-    background-color: rgba(124, 58, 237, 0.06);
-    color: #5b21b6;
-    font-weight: 800;
+    white-space: nowrap;
 }
 
 .fermentation-table .metric-cell {
