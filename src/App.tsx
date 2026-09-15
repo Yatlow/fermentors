@@ -32,8 +32,8 @@ import ManualBatchAssignment from "./components/tools/ManualBatchAssignment";
 import ManualStatusAssignment from "./components/tools/Manualstatusassignment ";
 import EditApprovedUsers from "./components/tools/EditApprovedUsers";
 import CoolerMap from "./components/cooler/Coolermap";
-import { subscribeToZone, type ZoneCounts } from "./SERVICES/cooler/Palletservice";
-import type { PalletZone } from "./SERVICES/cooler/Pallettypes ";
+import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
+import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
 import BeerLoader from "./components/general/Loading";
 import ShipmentReportsView from "./components/reports/ShipmentReportsView";
 import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
@@ -199,15 +199,7 @@ function App() {
             setZoneCounts(null);
             return;
         }
-        const zoneNames: PalletZone[] = ["cooler", "pending", "bottleRoom", "loadingDock"];
-        const counts: ZoneCounts = { cooler: 0, pending: 0, bottleRoom: 0, loadingDock: 0, shipped: 0 };
-        const unsubs = zoneNames.map((zone) =>
-            subscribeToZone(zone, (data) => {
-                counts[zone] = data.length;
-                setZoneCounts({ ...counts });
-            })
-        );
-        return () => unsubs.forEach((u) => u());
+        return subscribeToZoneCounts(setZoneCounts);
     }, [user, isApproved]);
 
     useEffect(() => {
