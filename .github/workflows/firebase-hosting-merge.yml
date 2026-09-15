@@ -11,7 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: npm ci && npm run build
+
+      - name: Create deployed version marker
+        run: printf '{"version":"%s"}\n' "$GITHUB_SHA" > public/app-version.json
+
+      - name: Build
+        run: npm ci && npm run build
+        env:
+          VITE_APP_VERSION: ${{ github.sha }}
+
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
