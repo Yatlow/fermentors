@@ -1,5 +1,11 @@
+import { deleteDoc, doc } from "firebase/firestore";
 import type { ReadingToSend } from "../../App";
-import { callAppsScriptPost, type AppsScriptEnvelope } from "./appsScriptClient";
+import { db } from "../../firebase";
+import {
+    callAppsScriptPost,
+    createAppsScriptRequestId,
+    type AppsScriptEnvelope,
+} from "./appsScriptClient";
 import { pushCurrentDataToFirestore } from "./pushCurrentDataToFirestore";
 
 export type writeReadingResult = {
@@ -55,6 +61,17 @@ function isNoteOnlyReading(reading: ReadingToSend): boolean {
         String(candidate.notes).trim() !== "";
 
     return !hasMeasurement && hasNotes;
+}
+
+function isPullRequestPreview(): boolean {
+    return typeof window !== "undefined" && window.location.hostname.includes("--pr");
+}
+
+function isFirestorePermissionDenied(error: unknown): boolean {
+    return typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        String((error as { code?: unknown }).code) === "permission-denied";
 }
 
 function showBackgroundSheetWarning(
@@ -115,6 +132,43 @@ function showBackgroundSheetWarning(
     document.body.appendChild(overlay);
 }
 
+async function clearSheetSyncJob(requestId: string): Promise<void> {
+    try {
+        await deleteDoc(doc(db, "sheetSyncJobs", requestId));
+    } catch (error) {
+        // The server-side maintenance worker will see the same idempotency record
+        // and clean the job later. A cleanup failure must not turn a confirmed
+        // successful Sheet write into a user-facing error.
+        console.warn("Could not clear completed Sheet sync job", { requestId, error });
+    }
+}
+
+async function persistFirestoreState(
+    readings: ReadingToSend[],
+    noteOnlyBatch: boolean,
+    requestId: string
+): Promise<void> {
+    try {
+        await pushCurrentDataToFirestore(readings, {
+            sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
+        });
+    } catch (error) {
+        // Firebase Hosting PR channels still use the live project's currently
+        // deployed Firestore rules. Until this PR is merged, those production
+        // rules do not know sheetSyncJobs yet. Keep preview testing functional
+        // without weakening production durability; live builds never use this
+        // fallback.
+        if (noteOnlyBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
+            console.warn(
+                "PR preview cannot create sheetSyncJobs until the new Firestore rules are deployed; using preview-only fallback."
+            );
+            await pushCurrentDataToFirestore(readings);
+            return;
+        }
+        throw error;
+    }
+}
+
 async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<void> {
     const packagingReadings = readings
         .map((reading) => reading as PackagingReading)
@@ -159,27 +213,29 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-    // Start Firestore and Sheets together. Notes/actions are intentionally
-    // optimistic: the UI should not wait several seconds for Google's Web App
-    // transport after Firestore already reflects the action.
-    const optimisticFirestorePromise = pushCurrentDataToFirestore(readings).catch((error) => {
-        console.warn("Optimistic Firestore currentData update failed:", error);
-    });
-
-    const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
-        action: "addFermentationMeasurements",
-        readings,
-    });
-
-    const packagingInfoPromise = syncPackagingInfoInParallel(readings);
     const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
+    const requestId = createAppsScriptRequestId("addFermentationMeasurements");
+
+    // For note-only work the same Firestore commit that updates currentData also
+    // persists an outbox job. The UI therefore stays fast, but closing Safari or
+    // losing connectivity cannot silently abandon the Google Sheet write.
+    const optimisticFirestorePromise = persistFirestoreState(
+        readings,
+        noteOnlyBatch,
+        requestId
+    );
 
     if (noteOnlyBatch) {
-        // Wait only for the realtime Firestore update. The authoritative Sheet
-        // write keeps running in the background with the same idempotent request
-        // semantics. If confirmation never arrives, show a warning modal; do not
-        // suggest retrying because the Sheet side effect may still have succeeded.
+        // Make Firestore + outbox durable BEFORE the side effect starts. This
+        // avoids the inverse partial state where Sheets succeeds but Firestore
+        // failed to record either the action or its recovery job.
         await optimisticFirestorePromise;
+
+        const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
+            action: "addFermentationMeasurements",
+            requestId,
+            readings,
+        });
 
         void sheetPromise
             .then((parsed) => {
@@ -197,19 +253,34 @@ export async function writeReadingsToSheets(
                 if (failed.length > 0) {
                     console.error("Background note Sheet sync partially failed:", failed);
                     showBackgroundSheetWarning(readings, failed);
+                    return;
                 }
+
+                void clearSheetSyncJob(requestId);
             })
             .catch((error) => {
                 console.error("Background note Sheet sync failed:", error);
                 showBackgroundSheetWarning(readings);
+                // Keep the outbox entry pending; Apps Script maintenance will
+                // retry/confirm it later with this exact same requestId.
             });
 
         return readings.map((reading) => ({
             success: true,
             tankId: reading.tankId,
             optimistic: true,
+            requestId,
         }));
     }
+
+    // Measurements and packaging still need their authoritative Sheet response,
+    // so run Firestore, Sheets and packaging-cell sync in parallel.
+    const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
+        action: "addFermentationMeasurements",
+        requestId,
+        readings,
+    });
+    const packagingInfoPromise = syncPackagingInfoInParallel(readings);
 
     const [parsed] = await Promise.all([
         sheetPromise,

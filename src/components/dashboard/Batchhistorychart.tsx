@@ -20,6 +20,7 @@ import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByB
 import { extractYeastDrops, type Measurement, type YeastDrop } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import type { Fermentor } from "../../App";
 import FermentationTable from "./FermentationTable";
+import BatchTimeline from "./BatchTimeline";
 import {
     getStyleAverages,
     type StyleAverages,
@@ -660,6 +661,8 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
 
                 {!loading && !error && chartData.length > 0 && (
                     <>
+                        <BatchTimeline measurements={measurements} brewDate={tank.brewDate} />
+
                         <div className="chart-metric-tabs">
                             <button type="button" className={`chart-metric-tab ${viewMode === "table" ? "active" : ""}`} onClick={showTable}>
                                 טבלת תסיסה

@@ -59,8 +59,22 @@ type Tank = {
   tankStatus?: unknown;
   currentData?: {
     temp?: unknown | null;
+    notes?: unknown | null;
   };
 };
+
+// Cooling is monotonic inside one batch: once a batch entered the cold phase,
+// keep that result for this browser session. This prevents every subsequent
+// Firestore update from re-downloading the complete measurement history.
+const cooledBatchCache = new Map<string, boolean>();
+
+function batchKey(value: unknown): string {
+  return String(value ?? "").replace("#", "").trim();
+}
+
+function currentNoteShowsCooling(tank: Tank): boolean {
+  return String(tank.currentData?.notes ?? "").includes("קירור");
+}
 
 export async function getTankStage(tank: Tank): Promise<TankStageInfo> {
   if (!tank.batchNumber) {
@@ -83,24 +97,39 @@ export async function getTankStage(tank: Tank): Promise<TankStageInfo> {
     return STAGE_INFO[3];
   }
 
+  const batch = batchKey(tank.batchNumber);
   const temperature = Number(tank.currentData?.temp);
+  const hasNumericTemperature =
+    tank.currentData?.temp != null && !Number.isNaN(temperature);
 
-  if (tank.currentData?.temp != null && !Number.isNaN(temperature) && temperature < 9) {
+  if (hasNumericTemperature && temperature < 9) {
+    if (batch) cooledBatchCache.set(batch, true);
     return STAGE_INFO[2];
   }
-  if (tank.batchNumber) {
-    const measurements = await getMeasurementsByBatch(Number(tank.batchNumber))
 
-    const cooled = measurements.some(
-      measurement =>
-        String(measurement.notes || "").includes("קירור")
-    );
-    if (cooled) {
-      return STAGE_INFO[2];
-    }
+  if (currentNoteShowsCooling(tank)) {
+    if (batch) cooledBatchCache.set(batch, true);
+    return STAGE_INFO[2];
   }
 
-  if (tank.currentData?.temp === null || (!Number.isNaN(temperature) && temperature > 8)) {
+  const cachedCoolingState = batch ? cooledBatchCache.get(batch) : undefined;
+  if (cachedCoolingState === true) {
+    return STAGE_INFO[2];
+  }
+
+  // One history lookup per batch/browser session supports batches that were
+  // already cooled before this client loaded. A future cooling report appears
+  // in currentData immediately and flips a cached negative result above.
+  if (batch && cachedCoolingState === undefined) {
+    const measurements = await getMeasurementsByBatch(Number(batch));
+    const cooled = measurements.some(
+      (measurement) => String(measurement.notes || "").includes("קירור")
+    );
+    cooledBatchCache.set(batch, cooled);
+    if (cooled) return STAGE_INFO[2];
+  }
+
+  if (tank.currentData?.temp === null || (hasNumericTemperature && temperature > 8)) {
     return STAGE_INFO[1];
   }
 

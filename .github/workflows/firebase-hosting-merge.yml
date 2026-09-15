@@ -14,16 +14,30 @@ concurrency:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Create deployed version marker
         run: printf '{"version":"%s"}\n' "$GITHUB_SHA" > public/app-version.json
 
-      - name: Build
-        run: npm ci && npm run build
+      - name: Verify and build
+        run: npm ci && npm test && npm run build
         env:
           VITE_APP_VERSION: ${{ github.sha }}
+
+      # Keep rules and frontend deployment ordered. This matters for features
+      # such as sheetSyncJobs: the new client must never go live before the rules
+      # that permit its Firestore reads/writes are active.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+
+      - name: Deploy Firestore rules before Hosting
+        run: npx --yes firebase-tools deploy --only firestore:rules --project fermenter-dashboard-bada3
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:

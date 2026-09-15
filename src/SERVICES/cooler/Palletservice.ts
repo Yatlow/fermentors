@@ -3,10 +3,7 @@ export { calcTruckSlots, MAX_TRUCK_SLOTS, MAX_TRUCK_HEIGHT_CM };
 import {
     collection,
     doc,
-    addDoc,
     updateDoc,
-    getDoc,
-    setDoc,
     onSnapshot,
     query,
     where,
@@ -53,7 +50,7 @@ function maxPerPalletFor(itemType: PalletItemType): number {
     return itemType === "kegs" ? MAX_KEGS_PER_PALLET : MAX_CRATES_PER_PALLET;
 }
 
-async function createPalletDocument(input: {
+function palletCreateData(input: {
     itemType: PalletItemType;
     beerStyle: string;
     subLabel?: string | null;
@@ -61,8 +58,8 @@ async function createPalletDocument(input: {
     expiryDateStr?: string | null;
     batchNumber?: string | null;
     sourceTankNumber?: string | number | null;
-}): Promise<string> {
-    const ref = await addDoc(collection(db, PALLETS_COLLECTION), {
+}) {
+    return {
         itemType: input.itemType,
         beerStyle: input.beerStyle,
         subLabel: input.subLabel ?? null,
@@ -78,8 +75,7 @@ async function createPalletDocument(input: {
         orderInCell: null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-    });
-    return ref.id;
+    };
 }
 
 export async function createPalletsFromPackaging(params: CreatePalletsParams): Promise<string[]> {
@@ -87,10 +83,24 @@ export async function createPalletsFromPackaging(params: CreatePalletsParams): P
     if (!totalQuantity || totalQuantity <= 0) return [];
 
     const maxPerPallet = maxPerPalletFor(itemType);
+    const quantities = splitQuantity(totalQuantity, maxPerPallet);
+    const batch = writeBatch(db);
     const ids: string[] = [];
-    for (const quantity of splitQuantity(totalQuantity, maxPerPallet)) {
-        ids.push(await createPalletDocument({ itemType, beerStyle, quantity, batchNumber: batchNumber == null ? null : String(batchNumber), expiryDateStr, sourceTankNumber }));
-    }
+
+    quantities.forEach((quantity) => {
+        const ref = doc(collection(db, PALLETS_COLLECTION));
+        ids.push(ref.id);
+        batch.set(ref, palletCreateData({
+            itemType,
+            beerStyle,
+            quantity,
+            batchNumber: batchNumber == null ? null : String(batchNumber),
+            expiryDateStr,
+            sourceTankNumber,
+        }));
+    });
+
+    await batch.commit();
     return ids;
 }
 
@@ -192,23 +202,15 @@ export async function createPalletsFromCustomSplit(
     sanitized.forEach((entry) => {
         const palletRef = doc(collection(db, PALLETS_COLLECTION));
         ids.push(palletRef.id);
-        palletBatch.set(palletRef, {
+        palletBatch.set(palletRef, palletCreateData({
             itemType,
             beerStyle,
             subLabel: entry.subLabel ?? null,
             quantity: entry.quantity,
-            heightCm: calcHeightCm(itemType, entry.quantity),
             expiryDateStr: expiryDateStr || null,
             batchNumber: batchNumber == null ? null : String(batchNumber),
             sourceTankNumber: sourceTankNumber ?? null,
-            markedForShipment: false,
-            zone: "pending" as PalletZone,
-            cell: null,
-            slotIndex: null,
-            orderInCell: null,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-        });
+        }));
     });
 
     await palletBatch.commit();
@@ -252,16 +254,25 @@ export async function updatePallet(palletId: string, input: {
 }
 
 export async function updatePalletQuantity(palletId: string, quantity: number) {
-    const snap = await getDoc(doc(db, PALLETS_COLLECTION, palletId));
-    if (!snap.exists()) throw new Error("המשטח לא נמצא");
-    const pallet = snap.data() as Pallet;
-    await updatePallet(palletId, {
-        itemType: pallet.itemType,
-        beerStyle: pallet.beerStyle,
-        subLabel: pallet.subLabel,
-        quantity,
-        expiryDateStr: pallet.expiryDateStr,
-        batchNumber: pallet.batchNumber,
+    const nextQuantity = Math.round(quantity);
+    if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) {
+        throw new Error("כמות חייבת להיות גדולה מ-0");
+    }
+
+    const ref = doc(db, PALLETS_COLLECTION, palletId);
+    await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error("המשטח לא נמצא");
+        const pallet = snap.data() as Pallet;
+        const max = maxPerPalletFor(pallet.itemType);
+        if (nextQuantity > max) {
+            throw new Error(`משטח בודד יכול להכיל עד ${max} ${pallet.itemType === "kegs" ? "חביות" : "ארגזים"}`);
+        }
+        tx.update(ref, {
+            quantity: nextQuantity,
+            heightCm: calcHeightCm(pallet.itemType, nextQuantity),
+            updatedAt: serverTimestamp(),
+        });
     });
 }
 
@@ -276,37 +287,34 @@ export async function deletePallet(palletId: string): Promise<void> {
 
 export async function splitPallet(palletId: string, splitQty: number, splitLabel: string | null) {
     const ref = doc(db, PALLETS_COLLECTION, palletId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) throw new Error("המשטח לא נמצא");
-    const pallet = { id: snap.id, ...(snap.data() as any) } as Pallet;
-    if (splitQty <= 0 || splitQty >= pallet.quantity) throw new Error("כמות הפיצול חייבת להיות בין 1 לכמות פחות 1");
-
-    const remainingQty = pallet.quantity - splitQty;
-    const batch = writeBatch(db);
-    batch.update(ref, {
-        quantity: remainingQty,
-        heightCm: calcHeightCm(pallet.itemType, remainingQty),
-        updatedAt: serverTimestamp(),
-    });
     const newRef = doc(collection(db, PALLETS_COLLECTION));
-    batch.set(newRef, {
-        itemType: pallet.itemType,
-        beerStyle: pallet.beerStyle,
-        subLabel: splitLabel ?? pallet.subLabel ?? null,
-        quantity: splitQty,
-        heightCm: calcHeightCm(pallet.itemType, splitQty),
-        expiryDateStr: pallet.expiryDateStr ?? null,
-        markedForShipment: false,
-        zone: "pending",
-        cell: null,
-        slotIndex: null,
-        orderInCell: null,
-        batchNumber: pallet.batchNumber ?? null,
-        sourceTankNumber: pallet.sourceTankNumber ?? null,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+    const quantityToSplit = Math.round(splitQty);
+
+    await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error("המשטח לא נמצא");
+
+        const pallet = { id: snap.id, ...(snap.data() as any) } as Pallet;
+        if (quantityToSplit <= 0 || quantityToSplit >= pallet.quantity) {
+            throw new Error("כמות הפיצול חייבת להיות בין 1 לכמות פחות 1");
+        }
+
+        const remainingQty = pallet.quantity - quantityToSplit;
+        tx.update(ref, {
+            quantity: remainingQty,
+            heightCm: calcHeightCm(pallet.itemType, remainingQty),
+            updatedAt: serverTimestamp(),
+        });
+        tx.set(newRef, palletCreateData({
+            itemType: pallet.itemType,
+            beerStyle: pallet.beerStyle,
+            subLabel: splitLabel ?? pallet.subLabel ?? null,
+            quantity: quantityToSplit,
+            expiryDateStr: pallet.expiryDateStr ?? null,
+            batchNumber: pallet.batchNumber ?? null,
+            sourceTankNumber: pallet.sourceTankNumber ?? null,
+        }));
     });
-    await batch.commit();
 }
 
 export async function reorderPalletsInCell(orderedPalletIds: string[]) {
@@ -316,7 +324,6 @@ export async function reorderPalletsInCell(orderedPalletIds: string[]) {
     });
     await batch.commit();
 }
-
 
 export async function createPallet(input: {
     itemType: PalletItemType;
@@ -350,63 +357,80 @@ export async function createPallets(input: {
 
     if (chunks.some((q) => q > max)) throw new Error(`משטח בודד יכול להכיל עד ${max} ${input.itemType === "kegs" ? "חביות" : "ארגזים"}`);
 
+    const batch = writeBatch(db);
     const ids: string[] = [];
-    for (const quantity of chunks) {
-        ids.push(await createPalletDocument({ ...input, quantity }));
-    }
-    return ids;
-}
-async function getNextShipmentNumber(): Promise<number> {
-    const counterRef = doc(db, "counters", "shipmentNumber");
-    return runTransaction(db, async (tx) => {
-        const snap = await tx.get(counterRef);
-        const current = snap.exists() ? (snap.data().value as number) : 2389; // כך שהראשון יהיה 2390
-        const next = current + 1;
-        tx.set(counterRef, { value: next }, { merge: true });
-        return next;
+    chunks.forEach((quantity) => {
+        const ref = doc(collection(db, PALLETS_COLLECTION));
+        ids.push(ref.id);
+        batch.set(ref, palletCreateData({ ...input, quantity }));
     });
+    await batch.commit();
+    return ids;
 }
 
 export async function createShipment(
     palletIds: string[],
     customerName?: string | null
 ): Promise<string> {
-    if (palletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
+    const uniquePalletIds = [...new Set(palletIds.filter(Boolean))];
+    if (uniquePalletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
+    if (uniquePalletIds.length !== palletIds.length) throw new Error("רשימת המשטחים מכילה כפילויות");
 
-    const snaps = await Promise.all(
-        palletIds.map((id) => getDoc(doc(db, PALLETS_COLLECTION, id)))
-    );
+    const counterRef = doc(db, "counters", "shipmentNumber");
 
-    const pallets = snaps
-        .filter((snap) => snap.exists())
-        .map((snap) => ({ id: snap.id, ...snap.data() } as Pallet));
+    const shipmentNumber = await runTransaction(db, async (tx) => {
+        // All reads happen before writes so Firestore can safely retry the whole
+        // operation if another user changes a pallet or the counter concurrently.
+        const counterSnap = await tx.get(counterRef);
+        const palletRefs = uniquePalletIds.map((id) => doc(db, PALLETS_COLLECTION, id));
+        const palletSnaps = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
 
-    const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
-    pallets.forEach((p) => {
-        const key = `${p.itemType}__${p.beerStyle}`;
-        const cur = totalsMap.get(key);
-        if (cur) cur.totalQuantity += p.quantity;
-        else totalsMap.set(key, { itemType: p.itemType, beerStyle: p.beerStyle, totalQuantity: p.quantity });
+        const pallets = palletSnaps.map((snap, index) => {
+            if (!snap.exists()) {
+                throw new Error(`המשטח ${uniquePalletIds[index]} כבר לא קיים`);
+            }
+            const pallet = { id: snap.id, ...snap.data() } as Pallet;
+            if (pallet.zone === "shipped") {
+                throw new Error(`המשטח ${pallet.id} כבר נשלח`);
+            }
+            return pallet;
+        });
+
+        const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
+        pallets.forEach((pallet) => {
+            const key = `${pallet.itemType}__${pallet.beerStyle}`;
+            const current = totalsMap.get(key);
+            if (current) current.totalQuantity += pallet.quantity;
+            else totalsMap.set(key, {
+                itemType: pallet.itemType,
+                beerStyle: pallet.beerStyle,
+                totalQuantity: pallet.quantity,
+            });
+        });
+
+        const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
+        if (!Number.isFinite(currentNumber)) throw new Error("מונה תעודות המשלוח אינו תקין");
+        const nextNumber = currentNumber + 1;
+        const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
+
+        tx.set(counterRef, { value: nextNumber }, { merge: true });
+        tx.set(shipmentRef, {
+            shipmentNumber: nextNumber,
+            palletIds: uniquePalletIds,
+            totals: Array.from(totalsMap.values()),
+            customerName: customerName?.trim() || null,
+            createdAt: serverTimestamp(),
+        });
+
+        palletRefs.forEach((ref) => tx.update(ref, {
+            zone: "shipped",
+            markedForShipment: false,
+            shippedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        }));
+
+        return nextNumber;
     });
-
-    const shipmentNumber = await getNextShipmentNumber();
-
-    await setDoc(doc(db, SHIPMENTS_COLLECTION, String(shipmentNumber)), {
-        shipmentNumber,
-        palletIds,
-        totals: Array.from(totalsMap.values()),
-        customerName: customerName?.trim() || null, // חדש
-        createdAt: serverTimestamp(),
-    });
-
-    const batch = writeBatch(db);
-    palletIds.forEach((id) => batch.update(doc(db, PALLETS_COLLECTION, id), {
-        zone: "shipped",
-        markedForShipment: false,
-        shippedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-    }));
-    await batch.commit();
 
     return String(shipmentNumber);
 }
@@ -465,6 +489,7 @@ export async function movePalletsToZone(palletIds: string[], zone: PalletZone): 
 export async function setMarkedForShipment(palletId: string, marked: boolean): Promise<void> {
     await updateDoc(doc(db, PALLETS_COLLECTION, palletId), { markedForShipment: marked, updatedAt: serverTimestamp() });
 }
+
 export async function reorderPalletsInZone(
     orderedPalletIds: string[]
 ): Promise<void> {

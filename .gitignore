@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Firebase local build/cache artifacts
+.firebase/
+
+# One-off local backup folders
+measurement-revision-backup-*/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

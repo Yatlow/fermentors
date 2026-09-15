@@ -1,5 +1,5 @@
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import {
     collection,
     onSnapshot,
@@ -9,7 +9,7 @@ import {
     serverTimestamp,
     type DocumentData,
 } from "firebase/firestore";
-import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
@@ -24,20 +24,22 @@ import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
 import NoteToFermentor from "./components/dashboard/NoteToFermentor";
 import PackagingForm from "./components/cellering/PackagingForm";
 import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
-import BatchReportsView from "./components/reports/BatchReportsView";
-import PackagingReportsView from "./components/reports/PackagingReportsView";
-import EditSpecs from "./components/tools/EditSpecs";
-import BrewCalc from "./components/tools/BrewerCalc";
-import ManualBatchAssignment from "./components/tools/ManualBatchAssignment";
-import ManualStatusAssignment from "./components/tools/Manualstatusassignment ";
-import EditApprovedUsers from "./components/tools/EditApprovedUsers";
-import CoolerMap from "./components/cooler/Coolermap";
-import { subscribeToZone, type ZoneCounts } from "./SERVICES/cooler/Palletservice";
-import type { PalletZone } from "./SERVICES/cooler/Pallettypes ";
+import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
+import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
 import BeerLoader from "./components/general/Loading";
-import ShipmentReportsView from "./components/reports/ShipmentReportsView";
-import CoolerInventoryReportView from "./components/reports/CoolerReportsView ";
-import PlanningView, { PLANNING_TABS, type PlanningTab } from "./components/planning/PlanningView";
+import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningTabs";
+
+const BatchReportsView = lazy(() => import("./components/reports/BatchReportsView"));
+const PackagingReportsView = lazy(() => import("./components/reports/PackagingReportsView"));
+const EditSpecs = lazy(() => import("./components/tools/EditSpecs"));
+const BrewCalc = lazy(() => import("./components/tools/BrewerCalc"));
+const ManualBatchAssignment = lazy(() => import("./components/tools/ManualBatchAssignment"));
+const ManualStatusAssignment = lazy(() => import("./components/tools/Manualstatusassignment "));
+const EditApprovedUsers = lazy(() => import("./components/tools/EditApprovedUsers"));
+const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));
+const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentReportsView"));
+const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
+const PlanningView = lazy(() => import("./components/planning/PlanningView"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -57,6 +59,7 @@ export type Fermentor = {
     beerVolume?: string | number | null;
     sheetUrl?: string | null;
     currentData?: {
+        date?: string | null;
         temp?: string | number | null;
         plato?: string | number | null;
         pH?: string | number | null;
@@ -112,19 +115,8 @@ export type ReadingToSend = NewReading & {
 };
 type StatusCounts = Record<string, number>;
 
-async function checkAproovedUser(user: any): Promise<boolean> {
-    try {
-        const docRef = doc(db, "approvedUsers", user.email);
-        const docSnap = await getDoc(docRef);
-        return docSnap.exists();
-    } catch (error) {
-        console.error("Error checking approved user:", error);
-        return false;
-    }
-}
-
-async function updateLastLoggedInAndGetAdminStatus(user: any): Promise<DocumentData | null> {
-    if (!user?.email) return null;
+async function updateLastLoggedInAndGetAdminStatus(user: User): Promise<DocumentData | null> {
+    if (!user.email) return null;
     try {
         const userRef = doc(db, "approvedUsers", user.email);
         const userDoc = await getDoc(userRef);
@@ -137,52 +129,55 @@ async function updateLastLoggedInAndGetAdminStatus(user: any): Promise<DocumentD
         return data;
     } catch (error) {
         console.error("Error updating last logged in:", error);
+        return null;
     }
-    return null
 }
 
 function useAuth() {
-    const [user, setUser] = useState<any>(null);
+    const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isApproved, setIsApproved] = useState<boolean | null>(null);
     const [admin, setAdmin] = useState(false);
-    const [testUser, setTestUser] = useState(false);
     const [plannerUser, setPlannerUser] = useState(false);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            setUser(user);
-            setLoading(false);
-            if (!user) {
+        const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
+            setUser(nextUser);
+            setLoading(true);
+            setIsApproved(null);
+
+            if (!nextUser) {
+                setIsApproved(false);
                 setAdmin(false);
+                setPlannerUser(false);
                 setLoading(false);
                 return;
             }
+
             try {
-                const userData = await updateLastLoggedInAndGetAdminStatus(user);
-                setAdmin(userData?.isAdmin ?? false);
-                setTestUser(userData?.isTestUser ?? false);
-                setPlannerUser(userData?.isPlannerUser ?? false);
+                const userData = await updateLastLoggedInAndGetAdminStatus(nextUser);
+                const approved = userData !== null;
+                setIsApproved(approved);
+                setAdmin(approved && userData?.isAdmin === true);
+                setPlannerUser(approved && userData?.isPlannerUser === true);
             } catch (error) {
                 console.error("Error updating last logged in:", error);
+                setIsApproved(false);
                 setAdmin(false);
-                setTestUser(false)
                 setPlannerUser(false);
             } finally {
                 setLoading(false);
             }
-        })
+        });
         return () => unsubscribe();
     }, []);
-    return { user, loading, admin, testUser, plannerUser };
+
+    return { user, loading, isApproved, admin, plannerUser };
 }
 
 function App() {
     const [planningTab, setPlanningTab] = useState<PlanningTab>("stock");
-    const { user, loading: authLoading, admin, testUser, plannerUser } = useAuth();
-    const [isApproved, setIsApproved] = useState<boolean | null>(null);
-    const FCKHMS = testUser
-    if (FCKHMS !== testUser) console.log("delete this line hahaha")
-    const [loggingIn, setLoggingIn] = useState<boolean>(true);
+    const { user, loading: authLoading, isApproved, admin, plannerUser } = useAuth();
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
@@ -199,32 +194,21 @@ function App() {
     const [sortByAge, setSortByAge] = useState<"tank" | "oldest">("tank");
 
     useEffect(() => {
-        if (user) {
-            checkAproovedUser(user)
-                .then((approved) => setIsApproved(approved))
-                .catch((e) => {
-                    console.error("Error checking approved user:", e);
-                    setIsApproved(false);
-                });
-            setLoggingIn(false);
+        if (!user || !isApproved) {
+            setZoneCounts(null);
+            return;
         }
-    }, [user]);
-
-    useEffect(() => {
-        if (!user || !isApproved) return;
-        const zoneNames: PalletZone[] = ["cooler", "pending", "bottleRoom", "loadingDock"];
-        const counts: ZoneCounts = { cooler: 0, pending: 0, bottleRoom: 0, loadingDock: 0, shipped: 0 };
-        const unsubs = zoneNames.map((zone) =>
-            subscribeToZone(zone, (data) => {
-                counts[zone] = data.length;
-                setZoneCounts({ ...counts });
-            })
-        );
-        return () => unsubs.forEach((u) => u());
+        return subscribeToZoneCounts(setZoneCounts);
     }, [user, isApproved]);
 
     useEffect(() => {
-        if (!user || !isApproved) return;
+        if (!user || !isApproved) {
+            setBrews([]);
+            setLoading(false);
+            stopMeasurementRevisionTracking();
+            return;
+        }
+        setLoading(true);
         const fermentorsRef = collection(db, "fermentors");
         const unsubscribe = onSnapshot(
             fermentorsRef,
@@ -271,14 +255,16 @@ function App() {
         signOut(auth)
     }
 
-    const idsNeedingStage = brews.filter(t => t.stage === undefined).map(t => t.id).join(",");
+    const tanksNeedingStage = useMemo(
+        () => brews.filter((tank) => tank.stage === undefined),
+        [brews]
+    );
+
     useEffect(() => {
-        if (brews.length === 0) return;
+        if (!user || tanksNeedingStage.length === 0) return;
         if (user.email === "itzik@shapirobeer.co.il" && plannerUser) {
             setSelectedView("תכנון")
         }
-        const tanksNeedingStage = brews.filter((tank) => tank.stage === undefined);
-        if (tanksNeedingStage.length === 0) return;
         let cancelled = false;
         (async () => {
             const stageById = new Map<string, TankStageInfo | undefined>();
@@ -298,9 +284,13 @@ function App() {
             );
         })();
         return () => { cancelled = true; };
-    }, [idsNeedingStage]);
+    }, [tanksNeedingStage, user, plannerUser]);
 
     useEffect(() => {
+        if (!user || !isApproved) {
+            setSpecs(null);
+            return;
+        }
         const specsRef = collection(db, "specs");
         const unsubscribe = onSnapshot(
             specsRef,
@@ -316,7 +306,7 @@ function App() {
             }
         );
         return unsubscribe;
-    }, []);
+    }, [user, isApproved]);
 
     const statusCounts = useMemo<StatusCounts>(() => {
         const counts: StatusCounts = {};
@@ -366,7 +356,7 @@ function App() {
         const style = String(tank.beerStyle ?? "").trim();
         const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
         return matchesStatus && matchesStyle;
-    }), [brews, selectedStatuses, selectedStyles, sortByAge]);
+    }), [brews, selectedStatuses, selectedStyles]);
 
     const totalTanks = brews.filter((tank) => Number(tank.tankNumber) !== 1).length;
     const filteredTankCount = filteredBrews.filter((tank) => Number(tank.tankNumber) !== 1).length;
@@ -379,21 +369,16 @@ function App() {
     }
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
-        const filtered = brews.filter((tank) => {
-            if (Number(tank.tankNumber) === 1) return selectedStatuses.includes("הכל") && selectedStyles.includes("הכל");
-            const matchesStatus = selectedStatuses.includes("הכל") || (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
-            const style = String(tank.beerStyle ?? "").trim();
-            const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
-            return matchesStatus && matchesStyle;
-        });
-        if (sortByAge === "oldest") return [...filtered].sort((a, b) => getBrewDateValue(a.brewDate) - getBrewDateValue(b.brewDate));
-        return filtered;
-    }, [brews, selectedStatuses, selectedStyles, sortByAge]);
+        if (sortByAge === "oldest") {
+            return [...filteredBrews].sort((a, b) => getBrewDateValue(a.brewDate) - getBrewDateValue(b.brewDate));
+        }
+        return filteredBrews;
+    }, [filteredBrews, sortByAge]);
 
     if (authLoading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען משתמש..."} overlay={false} size={"large"} /></div>;
     if (!user) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>כניסה למערכת</h1><button onClick={login} className="status-filter-button active">התחבר באמצעות Google</button></div>;
     if (isApproved === false) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>אין לך הרשאות גישה למערכת זו.</h1><button onClick={logout} className="status-filter-button">התנתק</button><img src={shpiro} alt="Shpiro" className="login-logo" /></div>;
-    if (loggingIn || isApproved === null) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"מבצע כניסה..."} overlay={false} size={"large"} /></div>;
+    if (isApproved === null) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"מבצע כניסה..."} overlay={false} size={"large"} /></div>;
     if (loading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען נתונים..."} overlay={false} size={"large"} /></div>;
 
     return (
@@ -435,26 +420,28 @@ function App() {
                 </div>
             </header>
 
-            {selectedView === "דאשבורד" && <Dashboard filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
-            {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
-            {selectedView === "רישום" && <>
-                <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
-                {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
-                {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
-                {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
-                {selectedWrites === "אריזה" && <PackagingForm brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} />}
-            </>}
+            <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
+                {selectedView === "דאשבורד" && <Dashboard healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
+                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
+                {selectedView === "רישום" && <>
+                    <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
+                    {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
+                    {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
+                    {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
+                    {selectedWrites === "אריזה" && <PackagingForm brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} />}
+                </>}
 
-            {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
-            {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
-            {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
-            {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
-            {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
-            {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
-            {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
-            {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
-            {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-            {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+                {selectedView === "דוחות" && selectedReports === "אריזה" && <PackagingReportsView />}
+                {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
+                {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
+                {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
+                {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
+                {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
+                {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+            </Suspense>
         </div>
     );
 }

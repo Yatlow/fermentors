@@ -8,15 +8,14 @@ import {
   where,
   runTransaction,
   serverTimestamp,
+  Timestamp,
 } from "firebase/firestore";
 import type { ShipmentEvent } from "./dailyPlanner";
-import { Timestamp } from "firebase/firestore";
 import type { PlanningSnapshot } from "./planningReports";
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
   addDays,
-  dateKey,
   defaultSettings,
   weekStart,
   parseDate,
@@ -26,6 +25,67 @@ import {
   type Settings,
   type WeekPlan,
 } from "./planningEngine";
+
+const PLANNING_TIME_ZONE = "Asia/Jerusalem";
+const JERUSALEM_PARTS = new Intl.DateTimeFormat("en-US-u-nu-latn", {
+  timeZone: PLANNING_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function zonedParts(date: Date): Record<string, string> {
+  return Object.fromEntries(
+    JERUSALEM_PARTS.formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+}
+
+function jerusalemOffsetMs(date: Date): number {
+  const parts = zonedParts(date);
+  const representedAsUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return representedAsUtc - date.getTime();
+}
+
+/** Returns the UTC instant corresponding to 00:00 in Asia/Jerusalem. */
+export function startOfJerusalemDay(value: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new Error(`Invalid planning date: ${value}`);
+
+  const wallClockUtc = Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+  );
+
+  // Iterate because the first UTC guess may fall on the other side of a DST
+  // transition. Israel changes offset during the night, while local midnight
+  // itself is valid; two passes normally converge, three keeps this defensive.
+  let instantMs = wallClockUtc;
+  for (let i = 0; i < 3; i += 1) {
+    const next = wallClockUtc - jerusalemOffsetMs(new Date(instantMs));
+    if (next === instantMs) break;
+    instantMs = next;
+  }
+  return new Date(instantMs);
+}
+
+export function jerusalemDateKey(date: Date): string {
+  const parts = zonedParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
 
 export function usePlanning(today: string, tanks: TankInput[]) {
   const [actualShipments, setActualShipments] = useState<ShipmentEvent[]>([]);
@@ -49,6 +109,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
       .map((t) => parseDate(t.brewDate))
       .filter((d): d is string => !!d && d < today),
   ].sort()[0];
+
   useEffect(() => {
     setReady({});
     setErrors({});
@@ -59,6 +120,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
     };
     const fail = (key: string) => (e: Error) =>
       setErrors((x) => ({ ...x, [key]: `${key}: ${e.message}` }));
+
     const unsub = [
       onSnapshot(
         query(
@@ -116,7 +178,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
           where(
             "createdAt",
             ">=",
-            Timestamp.fromDate(new Date(`${start}T00:00:00+03:00`)),
+            Timestamp.fromDate(startOfJerusalemDay(start)),
           ),
         ),
         { includeMetadataChanges: true },
@@ -127,7 +189,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
               const date = data.createdAt?.toDate?.();
               return date ? [{
                 id: d.id,
-                date: dateKey(date),
+                date: jerusalemDateKey(date),
                 shipmentNumber: Number(data.shipmentNumber) || undefined,
                 totals: Array.isArray(data.totals) ? data.totals : [],
               }] : [];
@@ -159,8 +221,8 @@ export function usePlanning(today: string, tanks: TankInput[]) {
       onSnapshot(
         query(
           collection(db, "packagingLog"),
-          where("timestamp", ">=", Date.parse(`${logStart}T00:00:00+03:00`)),
-          where("timestamp", "<", Date.parse(`${end}T00:00:00+02:00`)),
+          where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()),
+          where("timestamp", "<", startOfJerusalemDay(end).getTime()),
         ),
         { includeMetadataChanges: true },
         (snap) => {
@@ -174,6 +236,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
     ];
     return () => unsub.forEach((fn) => fn());
   }, [start, end, logStart]);
+
   async function save(
     collectionName: string,
     id: string,
@@ -205,6 +268,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
       tx.set(revisionRef, next);
     });
   }
+
   return {
     settings,
     plans,
@@ -222,9 +286,9 @@ export function usePlanning(today: string, tanks: TankInput[]) {
 }
 
 export function usePlanningToday() {
-  const [today, setToday] = useState(() => dateKey(new Date()));
+  const [today, setToday] = useState(() => jerusalemDateKey(new Date()));
   useEffect(() => {
-    const id = setInterval(() => setToday(dateKey(new Date())), 60000);
+    const id = setInterval(() => setToday(jerusalemDateKey(new Date())), 60000);
     return () => clearInterval(id);
   }, []);
   return today;

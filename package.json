@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:planning": "node scripts/test-planning.mjs"
+    "test:planning": "node scripts/test-planning.mjs",
+    "test:dashboard": "node scripts/test-dashboard.mjs",
+    "test": "npm run test:planning && npm run test:dashboard"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
