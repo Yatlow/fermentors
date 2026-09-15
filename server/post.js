@@ -118,9 +118,7 @@ function postWaitForIdempotencyResult_(key) {
       return existing.response;
     }
 
-    if (!existing || existing.state !== "in_progress") {
-      return null;
-    }
+    if (!existing || existing.state !== "in_progress") return null;
   }
 
   return null;
@@ -163,9 +161,7 @@ function postCleanupIdempotencyCache_() {
     try {
       const parsed = JSON.parse(all[key]);
       const savedAt = Number(parsed.savedAt || parsed.startedAt || 0);
-      if (!savedAt || now - savedAt > POST_IDEMPOTENCY_TTL_MS) {
-        props.deleteProperty(key);
-      }
+      if (!savedAt || now - savedAt > POST_IDEMPOTENCY_TTL_MS) props.deleteProperty(key);
     } catch (error) {
       props.deleteProperty(key);
     }
@@ -184,10 +180,7 @@ function runPostActionIdempotently_(data) {
 
   if (claim.state === "done") {
     logToSheet("IDEMPOTENCY HIT: " + action + " requestId=" + requestId);
-    return Object.assign({}, claim.response, {
-      duplicate: true,
-      requestId: requestId
-    });
+    return Object.assign({}, claim.response, { duplicate: true, requestId: requestId });
   }
 
   if (claim.state === "in_progress") {
@@ -195,10 +188,7 @@ function runPostActionIdempotently_(data) {
     const waitedResponse = postWaitForIdempotencyResult_(claim.key);
 
     if (waitedResponse) {
-      return Object.assign({}, waitedResponse, {
-        duplicate: true,
-        requestId: requestId
-      });
+      return Object.assign({}, waitedResponse, { duplicate: true, requestId: requestId });
     }
 
     throw new Error("Request is already being processed. Please retry shortly.");
@@ -206,10 +196,7 @@ function runPostActionIdempotently_(data) {
 
   try {
     const response = executePostAction_(data);
-    const persistedResponse = Object.assign({}, response, {
-      requestId: requestId
-    });
-
+    const persistedResponse = Object.assign({}, response, { requestId: requestId });
     postSaveIdempotencyResult_(claim.key, action, requestId, persistedResponse);
     postCleanupIdempotencyCache_();
     return persistedResponse;
@@ -220,46 +207,13 @@ function runPostActionIdempotently_(data) {
 }
 
 
-function doGet(e) {
-  try {
-    logToSheet("GET event: " + JSON.stringify(e));
-
-    if (!e || !e.parameter) {
-      throw new Error("No GET parameters received");
-    }
-
-    const action = e.parameter.action;
-
-    if (action === "CheckBatchAssignment") {
-      const tankID = String(e.parameter.tankID || "").trim();
-      const requestedBatch = Number(e.parameter.requestedBatch);
-      if (!tankID) throw new Error("Missing tankID");
-      if (!Number.isFinite(requestedBatch)) throw new Error("Invalid requestedBatch");
-      return jsonResponse({ success: true, result: checkBatchForTank(tankID, requestedBatch) });
-    }
-
-    if (action === "FindNextBatchForTank") {
-      const tankID = String(e.parameter.tankID || "").trim();
-      const currentBatch = Number(e.parameter.currentBatch);
-      if (!tankID) throw new Error("Missing tankID");
-      if (!Number.isFinite(currentBatch)) throw new Error("Invalid currentBatch");
-      return jsonResponse({ success: true, result: findNextBrewForTankRecursive(tankID, currentBatch) });
-    }
-
-    if (action === "CheckStatusTransition") {
-      const tankID = String(e.parameter.tankID || "").trim();
-      const toAction = Number(e.parameter.toAction);
-      if (!tankID) throw new Error("Missing tankID");
-      return jsonResponse({ success: true, result: checkStatusTransition(tankID, toAction) });
-    }
-
-    throw new Error("Unknown action: " + action);
-  } catch (error) {
-    logToSheet("doGet ERROR: " + error.stack);
-    return jsonResponse({ success: false, error: error.message });
-  } finally {
-    flushLogs_();
-  }
+// Direct GET calls are intentionally closed. Authenticated reads use POST so
+// Firebase ID tokens never appear in URLs/query strings.
+function doGet() {
+  return jsonResponse({
+    success: false,
+    error: "Unauthorized"
+  });
 }
 
 
@@ -272,13 +226,29 @@ function doPost(e) {
     }
 
     const data = JSON.parse(e.postData.contents);
-    logToSheet("Action requested: " + data.action + " requestId=" + String(data.requestId || "none"));
+
+    // Authenticate BEFORE idempotency lookup and BEFORE any action executes.
+    // This prevents a caller who somehow knows a requestId from reading a
+    // cached response without also presenting a valid Firebase ID token.
+    const authenticatedUser = authenticateFirebaseRequest_(data.idToken);
+    delete data.idToken;
+
+    logToSheet(
+      "Authenticated action: " + data.action +
+      " user=" + authenticatedUser.email +
+      " requestId=" + String(data.requestId || "none")
+    );
 
     const response = runPostActionIdempotently_(data);
     return jsonResponse(response);
   } catch (error) {
-    logToSheet("doPost ERROR: " + error.stack);
-    return jsonResponse({ success: false, error: error.message });
+    const message =
+      error && (error.message === "Unauthorized" || error.message === "Forbidden")
+        ? error.message
+        : (error && error.message ? error.message : "Request failed");
+
+    logToSheet("doPost ERROR: " + message);
+    return jsonResponse({ success: false, error: message });
   } finally {
     logToSheet("Total doPost time: " + (Date.now() - startTime) + "ms");
     flushLogs_();
@@ -287,8 +257,6 @@ function doPost(e) {
 
 
 function executePostAction_(data) {
-  // Read-only actions also support POST so authenticated clients never need to
-  // put an ID token in a query string.
   if (data.action === "CheckBatchAssignment") {
     const tankID = String(data.tankID || "").trim();
     const requestedBatch = Number(data.requestedBatch);
@@ -313,14 +281,11 @@ function executePostAction_(data) {
   }
 
   if (data.action === "logPackagingToMasterSheet") {
-    logToSheet("updating PackagingMasterSheet");
     const result = logPackagingToMasterSheet(data);
-    logToSheet("succesfuly updated PackagingMasterSheet");
     return { success: true, result: result };
   }
 
   if (data.action === "addFermentationMeasurements") {
-    logToSheet("Executing addFermentationMeasurements. Count: " + (data.readings ? data.readings.length : 0));
     if (!data.readings || !Array.isArray(data.readings)) throw new Error("Missing or invalid readings array");
 
     const results = [];
@@ -338,7 +303,7 @@ function executePostAction_(data) {
         );
         results.push({ success: true, tankId: reading.tankId, tankNumber: reading.tankNumber, result: result });
       } catch (error) {
-        logToSheet("addFermentationMeasurements FAILED for tank " + reading.tankNumber + ": " + error.stack);
+        logToSheet("addFermentationMeasurements FAILED for tank " + reading.tankNumber + ": " + error.message);
         results.push({ success: false, tankId: reading.tankId, tankNumber: reading.tankNumber, error: error.message });
       }
     });
@@ -428,16 +393,13 @@ function checkBatchForTank(tankNumber, requestedBatch) {
   if (!targetTank) throw new Error("Invalid tank number");
   if (!Number.isFinite(targetBatch)) throw new Error("Invalid batch number");
 
-  logToSheet("Checking batch " + targetBatch + " for tank " + targetTank);
-
   const rootFolder = DriveApp.getFolderById(BREW_FOLDER_ID);
   const files = [];
   collectGoogleSheetsRecursive(rootFolder, files);
 
   const candidates = [];
   files.forEach(function (file) {
-    const fileName = file.getName();
-    const batchFromFilename = extractBatchFromFilename(fileName);
+    const batchFromFilename = extractBatchFromFilename(file.getName());
     if (batchFromFilename !== null && batchFromFilename === targetBatch) candidates.push(file);
   });
 
@@ -541,13 +503,11 @@ function updateTankStatus(fermentorID, action, date, pasivationDate) {
     fields.pasivationDate = { nullValue: null };
   }
 
-  const firestoreDocument = { fields: fields };
-
   const response = UrlFetchApp.fetch(url, {
     method: "patch",
     contentType: "application/json",
     headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-    payload: JSON.stringify(firestoreDocument),
+    payload: JSON.stringify({ fields: fields }),
     muteHttpExceptions: true
   });
 
