@@ -1,0 +1,191 @@
+.fermentation-table-card {
+    margin-top: 10px;
+    border: 1px solid #dbe4ee;
+    border-radius: 14px;
+    background: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.fermentation-table-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    background: linear-gradient(135deg, #f8fafc, #eef5fb);
+    border-bottom: 1px solid #dbe4ee;
+}
+
+.fermentation-table-heading > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.fermentation-table-heading strong {
+    font-size: 0.98rem;
+    color: #0f172a;
+}
+
+.fermentation-table-heading span {
+    font-size: 0.74rem;
+    color: #64748b;
+}
+
+.fermentation-row-count {
+    white-space: nowrap;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    padding: 4px 8px;
+    background: #fff;
+    color: #475569 !important;
+    font-weight: 700;
+}
+
+.fermentation-table-scroll {
+    width: 100%;
+    max-height: 58vh;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.fermentation-table {
+    width: 100%;
+    min-width: 860px;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.82rem;
+    text-align: center;
+}
+
+.fermentation-table th,
+.fermentation-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid #e7edf4;
+    border-inline-start: 1px solid #edf2f7;
+    vertical-align: middle;
+}
+
+.fermentation-table th:first-child,
+.fermentation-table td:first-child {
+    border-inline-start: 0;
+}
+
+.fermentation-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f8fafc;
+    color: #334155;
+    font-weight: 800;
+    box-shadow: 0 1px 0 #dbe4ee;
+}
+
+.fermentation-table tbody tr:nth-child(even) {
+    background: #fbfdff;
+}
+
+.fermentation-table tbody tr:hover {
+    background: #f1f7fc;
+}
+
+.fermentation-table .date-cell,
+.fermentation-table .time-cell {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: #334155;
+    font-weight: 650;
+}
+
+.fermentation-table .metric-cell {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.fermentation-table .metric-plato {
+    background-color: rgba(217, 147, 35, 0.08);
+}
+
+.fermentation-table .metric-temp {
+    background-color: rgba(224, 86, 63, 0.07);
+}
+
+.fermentation-table .metric-pressure {
+    background-color: rgba(63, 167, 150, 0.08);
+}
+
+.fermentation-table .metric-ph {
+    background-color: rgba(91, 141, 239, 0.08);
+}
+
+.fermentation-table .metric-carb {
+    background-color: rgba(8, 145, 178, 0.08);
+}
+
+.fermentation-table .notes-column,
+.fermentation-table .notes-cell {
+    min-width: 300px;
+    text-align: right;
+}
+
+.fermentation-table .notes-cell {
+    line-height: 1.45;
+    color: #334155;
+    white-space: normal;
+}
+
+.fermentation-table tbody tr.fermentation-row-yeast td:first-child {
+    box-shadow: inset -4px 0 #eab308;
+}
+
+.fermentation-table tbody tr.fermentation-row-dryhop td:first-child {
+    box-shadow: inset -4px 0 #16a34a;
+}
+
+.fermentation-table tbody tr.fermentation-row-diacetyl td:first-child {
+    box-shadow: inset -4px 0 #dc2626;
+}
+
+.fermentation-table tbody tr.fermentation-row-pressure td:first-child {
+    box-shadow: inset -4px 0 #2563eb;
+}
+
+.fermentation-table tbody tr.fermentation-row-cooling td:first-child {
+    box-shadow: inset -4px 0 #38bdf8;
+}
+
+@media (max-width: 700px) {
+    .fermentation-table-card {
+        margin-inline: -4px;
+        border-radius: 10px;
+    }
+
+    .fermentation-table-heading {
+        padding: 9px 10px;
+    }
+
+    .fermentation-table-heading span {
+        font-size: 0.68rem;
+    }
+
+    .fermentation-table-scroll {
+        max-height: 62vh;
+    }
+
+    .fermentation-table {
+        min-width: 780px;
+        font-size: 0.76rem;
+    }
+
+    .fermentation-table th,
+    .fermentation-table td {
+        padding: 8px 8px;
+    }
+
+    .fermentation-table .notes-column,
+    .fermentation-table .notes-cell {
+        min-width: 250px;
+    }
+}
