@@ -1,9 +1,14 @@
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import "./FermentationTable.css";
 
 type Props = {
     measurements: Measurement[];
 };
+
+const MIN_ZOOM = 45;
+const MAX_ZOOM = 120;
+const ZOOM_STEP = 10;
 
 function formatDate(measurement: Measurement): string {
     const rawDate = (measurement as Measurement & { date?: unknown }).date;
@@ -44,9 +49,47 @@ export default function FermentationTable({ measurements }: Props) {
         String(b.id ?? "").localeCompare(String(a.id ?? ""))
     );
 
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const tableRef = useRef<HTMLTableElement | null>(null);
+    const [zoom, setZoom] = useState(100);
+
+    function fitToWidth() {
+        const viewport = scrollRef.current;
+        const table = tableRef.current;
+        if (!viewport || !table) return;
+
+        // scrollWidth is measured at the current zoom. Convert it back to the
+        // table's approximate 100% width, then calculate the scale needed to fit.
+        const currentScale = zoom / 100;
+        const naturalWidth = table.scrollWidth / Math.max(currentScale, 0.01);
+        if (!naturalWidth) return;
+
+        const nextZoom = Math.floor((viewport.clientWidth / naturalWidth) * 100);
+        setZoom(Math.max(MIN_ZOOM, Math.min(100, nextZoom)));
+        viewport.scrollLeft = 0;
+    }
+
+    useEffect(() => {
+        const viewport = scrollRef.current;
+        if (!viewport || typeof ResizeObserver === "undefined") return;
+
+        const observer = new ResizeObserver(() => {
+            // Keep a fitted table fitted when the modal/orientation changes,
+            // without overriding a user's manually selected zoom level.
+            if (zoom < 100) fitToWidth();
+        });
+        observer.observe(viewport);
+        return () => observer.disconnect();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [zoom]);
+
     if (rows.length === 0) {
         return <div className="batch-chart-status">אין עדיין מדידות לאצווה זו</div>;
     }
+
+    const tableStyle = {
+        zoom: `${zoom}%`,
+    } as CSSProperties & { zoom: string };
 
     return (
         <div className="fermentation-table-card" dir="rtl">
@@ -55,11 +98,49 @@ export default function FermentationTable({ measurements }: Props) {
                     <strong>טבלת תסיסה</strong>
                     <span>המדידות והפעולות כפי שנשמרו במהלך האצווה</span>
                 </div>
-                <span className="fermentation-row-count">{rows.length} רשומות</span>
+
+                <div className="fermentation-table-heading-actions">
+                    <div className="fermentation-zoom-controls" aria-label="זום טבלת תסיסה">
+                        <button
+                            type="button"
+                            className="fermentation-zoom-button"
+                            onClick={() => setZoom((value) => Math.max(MIN_ZOOM, value - ZOOM_STEP))}
+                            disabled={zoom <= MIN_ZOOM}
+                            aria-label="הקטן טבלה"
+                        >
+                            −
+                        </button>
+                        <button
+                            type="button"
+                            className="fermentation-zoom-value"
+                            onClick={() => setZoom(100)}
+                            title="חזרה ל-100%"
+                        >
+                            {zoom}%
+                        </button>
+                        <button
+                            type="button"
+                            className="fermentation-zoom-button"
+                            onClick={() => setZoom((value) => Math.min(MAX_ZOOM, value + ZOOM_STEP))}
+                            disabled={zoom >= MAX_ZOOM}
+                            aria-label="הגדל טבלה"
+                        >
+                            +
+                        </button>
+                        <button
+                            type="button"
+                            className="fermentation-fit-button"
+                            onClick={fitToWidth}
+                        >
+                            התאם למסך
+                        </button>
+                    </div>
+                    <span className="fermentation-row-count">{rows.length} רשומות</span>
+                </div>
             </div>
 
-            <div className="fermentation-table-scroll">
-                <table className="fermentation-table">
+            <div className="fermentation-table-scroll" ref={scrollRef}>
+                <table className="fermentation-table" ref={tableRef} style={tableStyle}>
                     <thead>
                         <tr>
                             <th>תאריך</th>
