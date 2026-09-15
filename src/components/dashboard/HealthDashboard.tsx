@@ -86,6 +86,16 @@ function wholeDaysSince(value: unknown): number | null {
     return Math.floor((today.getTime() - start.getTime()) / DAY_MS);
 }
 
+function isWorkdayToday(): boolean {
+    const day = new Date().getDay();
+    return day >= 0 && day <= 4;
+}
+
+function latestMeasurementDate(tank: Fermentor): Date | null {
+    const currentData = tank.currentData as (Fermentor["currentData"] & { date?: unknown }) | null | undefined;
+    return dateFromUnknown(currentData?.date);
+}
+
 function normalizeStyle(value: unknown): string {
     return String(value ?? "").trim().toLowerCase();
 }
@@ -169,6 +179,23 @@ function buildTankAlerts(tank: Fermentor, specs: SpecChart): HealthAlert[] {
     const stageName = tank.stage?.name;
     const pressure = tank.currentData?.pressure;
     const carbonation = tank.currentData?.carbonation;
+
+    if (isWorkdayToday() && (stageName === "בתסיסה" || stageName === "קר")) {
+        const measurementDate = latestMeasurementDate(tank);
+        const measurementAge = measurementDate ? wholeDaysSince(measurementDate) : null;
+
+        if (measurementAge === null || measurementAge > 0) {
+            alerts.push({
+                id: `measurement-freshness-${tank.id}`,
+                severity: measurementAge !== null && measurementAge >= 2 ? "critical" : "warning",
+                title: `מיכל ${number}: אין מדידה מהיום`,
+                detail: measurementDate
+                    ? `המדידה האחרונה היא מ-${measurementDate.toLocaleDateString("he-IL")}.`
+                    : "לא נמצא תאריך למדידה האחרונה.",
+                tankNumber: number,
+            });
+        }
+    }
 
     if (stageName === "בתסיסה" && pressure !== null && pressure !== undefined && pressure !== "") {
         const pressureStatus = isPressureOutOfRange(pressure, style, specs);
