@@ -69,6 +69,20 @@ test("carbonation-driven pressure adjustment includes result before-pressure and
     assert.ok(carbonIndex >= 0 && pressureIndex > carbonIndex);
 });
 
+test("pressure change after cooling can use a prior separate carbonation test", () => {
+    const events = buildBatchTimeline([
+        { id: "2026-09-12_0800", notes: "קירור מיכל ל0.3°", pressure: 1.5 },
+        { id: "2026-09-13_0800", carbonation: 2.68, pressure: 1.5 },
+        { id: "2026-09-13_1000", notes: "הורדת לחץ ל: 1.3 bar", pressure: 1.5 },
+    ], "09/09/2026");
+
+    const pressure = events.find((event) => event.type === "pressure");
+    assert.equal(pressure?.label, "שינוי לחץ בעקבות גיזוז");
+    assert.match(pressure?.detail ?? "", /גיזוז 2.68 vol/);
+    assert.match(pressure?.detail ?? "", /לחץ לפני 1.5 bar/);
+    assert.match(pressure?.detail ?? "", /לחץ חדש 1.3 bar/);
+});
+
 test("ordinary pressure and relief-valve adjustment is distinct from closure", () => {
     const events = buildBatchTimeline([
         {
