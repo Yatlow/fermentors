@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildBatchTimeline } from "../src/SERVICES/dashboard/batchTimelineModel";
 
-test("every recorded carbonation test appears on the timeline including zero", () => {
+test("every standalone recorded carbonation test appears on the timeline including zero", () => {
     const events = buildBatchTimeline([
         { id: "2026-09-10_0800", carbonation: 2.1 },
         { id: "2026-09-11_0800", carbonation: 2.3 },
@@ -47,7 +47,7 @@ test("yeast drop shows parsed bucket quantity", () => {
     assert.match(yeast?.detail ?? "", /לחץ אחרי 1.1 bar/);
 });
 
-test("carbonation-driven pressure adjustment includes result before-pressure and new target", () => {
+test("carbonation-driven pressure adjustment includes the test once and separates pressure details by lines", () => {
     const events = buildBatchTimeline([
         {
             id: "2026-09-13_0900",
@@ -59,17 +59,16 @@ test("carbonation-driven pressure adjustment includes result before-pressure and
 
     const pressure = events.find((event) => event.type === "pressure");
     assert.equal(pressure?.label, "שינוי לחץ בעקבות גיזוז");
-    assert.match(pressure?.detail ?? "", /גיזוז 2.62 vol/);
-    assert.match(pressure?.detail ?? "", /לחץ לפני 1.6 bar/);
-    assert.match(pressure?.detail ?? "", /לחץ חדש 1.4 bar/);
-    assert.match(pressure?.detail ?? "", /פורק ל־1.45 bar/);
-
-    const carbonIndex = events.findIndex((event) => event.type === "carbonation");
-    const pressureIndex = events.findIndex((event) => event.type === "pressure");
-    assert.ok(carbonIndex >= 0 && pressureIndex > carbonIndex);
+    assert.equal(pressure?.detail, [
+        "גיזוז: 2.62 vol",
+        "לחץ לפני: 1.6 bar",
+        "לחץ חדש: 1.4 bar",
+        "פורק: 1.45 bar",
+    ].join("\n"));
+    assert.equal(events.filter((event) => event.type === "carbonation").length, 0);
 });
 
-test("pressure change after cooling can use a prior separate carbonation test", () => {
+test("pressure change after cooling consumes the prior separate carbonation test", () => {
     const events = buildBatchTimeline([
         { id: "2026-09-12_0800", notes: "קירור מיכל ל0.3°", pressure: 1.5 },
         { id: "2026-09-13_0800", carbonation: 2.68, pressure: 1.5 },
@@ -78,9 +77,23 @@ test("pressure change after cooling can use a prior separate carbonation test", 
 
     const pressure = events.find((event) => event.type === "pressure");
     assert.equal(pressure?.label, "שינוי לחץ בעקבות גיזוז");
-    assert.match(pressure?.detail ?? "", /גיזוז 2.68 vol/);
-    assert.match(pressure?.detail ?? "", /לחץ לפני 1.5 bar/);
-    assert.match(pressure?.detail ?? "", /לחץ חדש 1.3 bar/);
+    assert.match(pressure?.detail ?? "", /גיזוז: 2.68 vol/);
+    assert.match(pressure?.detail ?? "", /לחץ לפני: 1.5 bar/);
+    assert.match(pressure?.detail ?? "", /לחץ חדש: 1.3 bar/);
+    assert.equal(events.filter((event) => event.type === "carbonation").length, 0);
+});
+
+test("a different standalone carbonation test remains visible after one test is consumed by a correction", () => {
+    const events = buildBatchTimeline([
+        { id: "2026-09-12_0800", notes: "קירור מיכל ל0.3°", pressure: 1.5 },
+        { id: "2026-09-13_0700", carbonation: 2.52, pressure: 1.5 },
+        { id: "2026-09-13_0800", carbonation: 2.68, pressure: 1.5 },
+        { id: "2026-09-13_1000", notes: "הורדת לחץ ל: 1.3 bar", pressure: 1.5 },
+    ], "09/09/2026");
+
+    const carbonation = events.filter((event) => event.type === "carbonation");
+    assert.equal(carbonation.length, 1);
+    assert.equal(carbonation[0]?.detail, "תוצאה 2.52 vol");
 });
 
 test("ordinary pressure and relief-valve adjustment is distinct from closure", () => {
