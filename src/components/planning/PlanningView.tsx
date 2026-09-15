@@ -15,19 +15,9 @@ import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
+import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
 import "./planningEnhancements.css";
-
-export const PLANNING_TABS = [
-  ["stock", "מלאי"],
-  ["data", "הזנת נתונים"],
-  ["calendar", "המלצות שבועיות"],
-  ["schedule", "לוח עבודה יומי"],
-  ["settings", "הגדרות"],
-  ["tanks", "מיכלים ותזמון"],
-  ["review", "תכנון מול ביצוע"],
-] as const;
-export type PlanningTab = (typeof PLANNING_TABS)[number][0];
 
 export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
