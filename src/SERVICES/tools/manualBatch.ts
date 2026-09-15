@@ -1,5 +1,8 @@
-const GOOGLE_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
+import {
+  callAppsScriptGet,
+  callAppsScriptPost,
+  type AppsScriptEnvelope,
+} from "../getAndPost/appsScriptClient";
 
 export type BatchCheckResult = {
   valid: boolean;
@@ -35,23 +38,12 @@ export type NextBatchResult =
   | null;
 
 async function callGasGet(params: Record<string, string>) {
-  const url = new URL(GOOGLE_SCRIPT_URL);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-
-  const response = await fetch(url.toString());
-  const text = await response.text();
-
-  let parsed: { success: boolean; result?: unknown; error?: string };
-
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("Google Apps Script returned invalid JSON: " + text);
-  }
+  const parsed = await callAppsScriptGet<AppsScriptEnvelope>(params);
 
   if (!parsed.success) {
-    throw new Error(parsed.error || "Request failed");
+    throw new Error(parsed.error || parsed.message || "Request failed");
   }
+
   return parsed.result;
 }
 
@@ -70,7 +62,6 @@ export async function findNextBatchForTank(
   tankID: string,
   currentBatch: number
 ): Promise<NextBatchResult> {
-
   return callGasGet({
     action: "FindNextBatchForTank",
     tankID,
@@ -112,29 +103,16 @@ export async function assignAndRefreshTank(
   brewDate?: string;
   sheetUrl: string;
 }> {
-  const response = await fetch(GOOGLE_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({
-      action: "AssignAndRefreshTank", // routes doPost to the new handler
-      fermentorID,
-      sheetUrl,
-      desiredAction,       // <- separate name, avoids clashing with "action" above
-      desiredTankStatus,
-    }),
+  const parsed = await callAppsScriptPost<AppsScriptEnvelope>({
+    action: "AssignAndRefreshTank",
+    fermentorID,
+    sheetUrl,
+    desiredAction,
+    desiredTankStatus,
   });
 
-  const text = await response.text();
-  let parsed: { success: boolean; result?: unknown; error?: string };
-
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error("Google Apps Script returned invalid JSON: " + text);
-  }
-
   if (!parsed.success) {
-    throw new Error(parsed.error || "assignAndRefreshTank failed");
+    throw new Error(parsed.error || parsed.message || "assignAndRefreshTank failed");
   }
 
   return parsed.result as {
