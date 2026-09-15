@@ -23,6 +23,10 @@ type PackagingRow = {
 const KEG_LITERS = 20;
 const BOTTLE_LITERS = 0.330;
 
+function roundLiters(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 let rowIdCounter = 0;
 function makeEmptyRow(): PackagingRow {
     return {
@@ -50,8 +54,8 @@ export default function PackagingForm({
 
     function calcReportLiters(row: PackagingRow): number {
         const amountNum = Number(row.amount) || 0;
-        if (row.packagingType === "kegs") return amountNum * KEG_LITERS;
-        if (row.packagingType === "bottles") return amountNum * BOTTLE_LITERS;
+        if (row.packagingType === "kegs") return roundLiters(amountNum * KEG_LITERS);
+        if (row.packagingType === "bottles") return roundLiters(amountNum * BOTTLE_LITERS);
         return 0;
     }
 
