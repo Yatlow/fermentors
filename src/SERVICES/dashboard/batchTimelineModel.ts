@@ -160,12 +160,33 @@ function previousPressure(rows: TimelineMeasurement[], currentIndex: number): nu
     return null;
 }
 
-function previousCarbonation(rows: TimelineMeasurement[], currentIndex: number): number | null {
+type CarbonationReading = {
+    value: number;
+    index: number;
+    measurementId: string;
+};
+
+function previousCarbonationReading(
+    rows: TimelineMeasurement[],
+    currentIndex: number
+): CarbonationReading | null {
     for (let index = currentIndex - 1; index >= 0; index -= 1) {
         const carbonation = numericValue(rows[index]?.carbonation);
-        if (carbonation !== null) return carbonation;
+        if (carbonation !== null) {
+            return {
+                value: carbonation,
+                index,
+                measurementId: String(rows[index]?.id ?? index),
+            };
+        }
     }
     return null;
+}
+
+function removeStandaloneCarbonationEvent(events: TimelineEvent[], measurementId: string): void {
+    const eventId = `carbonation-${measurementId}`;
+    const eventIndex = events.findIndex((event) => event.id === eventId);
+    if (eventIndex >= 0) events.splice(eventIndex, 1);
 }
 
 function eventBase(
@@ -217,9 +238,10 @@ export function buildBatchTimeline(
         const note = String(measurement.notes ?? "").trim();
         const carbonation = numericValue(measurement.carbonation);
 
-        // Every recorded carbonation test is useful process history. Add it
-        // before a pressure correction from the same row so the causal order is
-        // visually clear: test -> adjustment.
+        // Start by recording every carbonation test. If a pressure correction
+        // later consumes that result, its standalone bubble is removed and the
+        // result is shown inside the pressure event instead. This avoids showing
+        // one physical test twice on the timeline.
         if (carbonation !== null) {
             events.push(eventBase(
                 `carbonation-${measurementId}`,
@@ -330,20 +352,26 @@ export function buildBatchTimeline(
             ));
         } else if (hasExplicitPressureChange || (!hasClosure && targetRelief !== null)) {
             const before = previousPressure(rows, index);
-            const latestCarbonation = carbonation ?? previousCarbonation(rows, index);
+            const previousCarbonation = previousCarbonationReading(rows, index);
+            const carbonationSource: CarbonationReading | null = carbonation !== null
+                ? { value: carbonation, index, measurementId }
+                : previousCarbonation;
             const isCarbonationCorrection = hasExplicitPressureChange &&
-                latestCarbonation !== null &&
+                carbonationSource !== null &&
                 (carbonation !== null || coolingWasRecorded);
             const details: string[] = [];
 
-            if (isCarbonationCorrection) {
-                details.push(`גיזוז ${prettyNumber(latestCarbonation)} vol`);
-                if (before !== null) details.push(`לחץ לפני ${prettyNumber(before)} bar`);
-                if (targetPressure !== null) details.push(`לחץ חדש ${prettyNumber(targetPressure)} bar`);
-                if (targetRelief !== null) details.push(`פורק ל־${prettyNumber(targetRelief)} bar`);
+            if (isCarbonationCorrection && carbonationSource) {
+                // The pressure event already carries the test result, so hide the
+                // separate carbonation bubble that would otherwise duplicate it.
+                removeStandaloneCarbonationEvent(events, carbonationSource.measurementId);
+                details.push(`גיזוז: ${prettyNumber(carbonationSource.value)} vol`);
+                if (before !== null) details.push(`לחץ לפני: ${prettyNumber(before)} bar`);
+                if (targetPressure !== null) details.push(`לחץ חדש: ${prettyNumber(targetPressure)} bar`);
+                if (targetRelief !== null) details.push(`פורק: ${prettyNumber(targetRelief)} bar`);
             } else {
-                if (targetPressure !== null) details.push(`לחץ ל־${prettyNumber(targetPressure)} bar`);
-                if (targetRelief !== null) details.push(`פורק ל־${prettyNumber(targetRelief)} bar`);
+                if (targetPressure !== null) details.push(`לחץ: ${prettyNumber(targetPressure)} bar`);
+                if (targetRelief !== null) details.push(`פורק: ${prettyNumber(targetRelief)} bar`);
             }
 
             const label = isCarbonationCorrection
@@ -362,7 +390,7 @@ export function buildBatchTimeline(
                 date,
                 brewDate,
                 note,
-                details.length ? details.join(" · ") : undefined
+                details.length ? details.join("\n") : undefined
             ));
         }
 
