@@ -27,10 +27,6 @@ function flushLogs_() {
 // ============================================================
 // GENERIC POST IDEMPOTENCY
 // ============================================================
-// Every frontend POST now carries a requestId. Mutation actions are persisted
-// here BEFORE doPost returns, so a retry after a lost/broken Google response
-// returns the original result without executing the side effect again.
-// ============================================================
 
 const POST_IDEMPOTENCY_PREFIX = "post_idempotency:";
 const POST_IDEMPOTENCY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -155,7 +151,6 @@ function postReleaseFailedIdempotencyClaim_(key) {
 }
 
 function postCleanupIdempotencyCache_() {
-  // Avoid scanning ScriptProperties on every request.
   if (Math.random() > 0.02) return;
 
   const props = PropertiesService.getScriptProperties();
@@ -181,7 +176,6 @@ function runPostActionIdempotently_(data) {
   const action = String(data.action || "");
   const requestId = String(data.requestId || "").trim();
 
-  // Backwards compatibility for an old frontend during deployment propagation.
   if (!POST_MUTATION_ACTIONS[action] || !requestId) {
     return executePostAction_(data);
   }
@@ -190,11 +184,10 @@ function runPostActionIdempotently_(data) {
 
   if (claim.state === "done") {
     logToSheet("IDEMPOTENCY HIT: " + action + " requestId=" + requestId);
-    const cachedResponse = Object.assign({}, claim.response, {
+    return Object.assign({}, claim.response, {
       duplicate: true,
       requestId: requestId
     });
-    return cachedResponse;
   }
 
   if (claim.state === "in_progress") {
@@ -217,7 +210,6 @@ function runPostActionIdempotently_(data) {
       requestId: requestId
     });
 
-    // Critical ordering: persist before returning the HTTP response.
     postSaveIdempotencyResult_(claim.key, action, requestId, persistedResponse);
     postCleanupIdempotencyCache_();
     return persistedResponse;
@@ -229,9 +221,7 @@ function runPostActionIdempotently_(data) {
 
 
 function doGet(e) {
-
   try {
-
     logToSheet("GET event: " + JSON.stringify(e));
 
     if (!e || !e.parameter) {
@@ -241,53 +231,32 @@ function doGet(e) {
     const action = e.parameter.action;
 
     if (action === "CheckBatchAssignment") {
-
-      logToSheet("MANUAL BATCH CHECK");
       const tankID = String(e.parameter.tankID || "").trim();
       const requestedBatch = Number(e.parameter.requestedBatch);
-
       if (!tankID) throw new Error("Missing tankID");
       if (!Number.isFinite(requestedBatch)) throw new Error("Invalid requestedBatch");
-
-      logToSheet("Tank: " + tankID);
-      logToSheet("Requested batch: " + requestedBatch);
-
-      const result = checkBatchForTank(tankID, requestedBatch);
-      return jsonResponse({ success: true, result: result });
+      return jsonResponse({ success: true, result: checkBatchForTank(tankID, requestedBatch) });
     }
 
     if (action === "FindNextBatchForTank") {
-
       const tankID = String(e.parameter.tankID || "").trim();
       const currentBatch = Number(e.parameter.currentBatch);
-
       if (!tankID) throw new Error("Missing tankID");
       if (!Number.isFinite(currentBatch)) throw new Error("Invalid currentBatch");
-
-      logToSheet("FindNextBatchForTank - Tank: " + tankID + ", currentBatch: " + currentBatch);
-
-      const nextBrew = findNextBrewForTankRecursive(tankID, currentBatch);
-      logToSheet("FindNextBatchForTank result: " + JSON.stringify(nextBrew));
-      return jsonResponse({ success: true, result: nextBrew });
+      return jsonResponse({ success: true, result: findNextBrewForTankRecursive(tankID, currentBatch) });
     }
 
     if (action === "CheckStatusTransition") {
       const tankID = String(e.parameter.tankID || "").trim();
       const toAction = Number(e.parameter.toAction);
-
       if (!tankID) throw new Error("Missing tankID");
-
-      logToSheet("CheckStatusTransition - Tank: " + tankID + ", toAction: " + toAction);
-      const result = checkStatusTransition(tankID, toAction);
-      return jsonResponse({ success: true, result: result });
+      return jsonResponse({ success: true, result: checkStatusTransition(tankID, toAction) });
     }
 
     throw new Error("Unknown action: " + action);
-
   } catch (error) {
     logToSheet("doGet ERROR: " + error.stack);
     return jsonResponse({ success: false, error: error.message });
-
   } finally {
     flushLogs_();
   }
@@ -298,8 +267,6 @@ function doPost(e) {
   const startTime = Date.now();
 
   try {
-    logToSheet("RAW postData: " + JSON.stringify(e && e.postData ? e.postData.contents : null));
-
     if (!e || !e.postData || !e.postData.contents) {
       throw new Error("No POST data received");
     }
@@ -309,11 +276,9 @@ function doPost(e) {
 
     const response = runPostActionIdempotently_(data);
     return jsonResponse(response);
-
   } catch (error) {
     logToSheet("doPost ERROR: " + error.stack);
     return jsonResponse({ success: false, error: error.message });
-
   } finally {
     logToSheet("Total doPost time: " + (Date.now() - startTime) + "ms");
     flushLogs_();
@@ -322,6 +287,31 @@ function doPost(e) {
 
 
 function executePostAction_(data) {
+  // Read-only actions also support POST so authenticated clients never need to
+  // put an ID token in a query string.
+  if (data.action === "CheckBatchAssignment") {
+    const tankID = String(data.tankID || "").trim();
+    const requestedBatch = Number(data.requestedBatch);
+    if (!tankID) throw new Error("Missing tankID");
+    if (!Number.isFinite(requestedBatch)) throw new Error("Invalid requestedBatch");
+    return { success: true, action: "CheckBatchAssignment", result: checkBatchForTank(tankID, requestedBatch) };
+  }
+
+  if (data.action === "FindNextBatchForTank") {
+    const tankID = String(data.tankID || "").trim();
+    const currentBatch = Number(data.currentBatch);
+    if (!tankID) throw new Error("Missing tankID");
+    if (!Number.isFinite(currentBatch)) throw new Error("Invalid currentBatch");
+    return { success: true, action: "FindNextBatchForTank", result: findNextBrewForTankRecursive(tankID, currentBatch) };
+  }
+
+  if (data.action === "CheckStatusTransition") {
+    const tankID = String(data.tankID || "").trim();
+    const toAction = Number(data.toAction);
+    if (!tankID) throw new Error("Missing tankID");
+    return { success: true, action: "CheckStatusTransition", result: checkStatusTransition(tankID, toAction) };
+  }
+
   if (data.action === "logPackagingToMasterSheet") {
     logToSheet("updating PackagingMasterSheet");
     const result = logPackagingToMasterSheet(data);
@@ -331,13 +321,9 @@ function executePostAction_(data) {
 
   if (data.action === "addFermentationMeasurements") {
     logToSheet("Executing addFermentationMeasurements. Count: " + (data.readings ? data.readings.length : 0));
-
-    if (!data.readings || !Array.isArray(data.readings)) {
-      throw new Error("Missing or invalid readings array");
-    }
+    if (!data.readings || !Array.isArray(data.readings)) throw new Error("Missing or invalid readings array");
 
     const results = [];
-
     data.readings.forEach(function (reading) {
       try {
         const result = addFermentationMeasurement(
@@ -350,59 +336,26 @@ function executePostAction_(data) {
           reading.notes,
           reading.boldNotes
         );
-
-        results.push({
-          success: true,
-          tankId: reading.tankId,
-          tankNumber: reading.tankNumber,
-          result: result
-        });
+        results.push({ success: true, tankId: reading.tankId, tankNumber: reading.tankNumber, result: result });
       } catch (error) {
         logToSheet("addFermentationMeasurements FAILED for tank " + reading.tankNumber + ": " + error.stack);
-        results.push({
-          success: false,
-          tankId: reading.tankId,
-          tankNumber: reading.tankNumber,
-          error: error.message
-        });
+        results.push({ success: false, tankId: reading.tankId, tankNumber: reading.tankNumber, error: error.message });
       }
     });
 
     logToSheet("addFermentationMeasurements completed. Success: " +
       results.filter(function (r) { return r.success; }).length + "/" + results.length);
 
-    return {
-      success: true,
-      action: "addFermentationMeasurements",
-      results: results
-    };
+    return { success: true, action: "addFermentationMeasurements", results: results };
   }
 
   if (data.action === "AssignAndRefreshTank") {
-    logToSheet("Executing AssignAndRefreshTank for Fermentor: " + data.fermentorID);
-
-    const result = assignAndRefreshTank(
-      data.fermentorID,
-      data.sheetUrl,
-      data.desiredAction,
-      data.desiredTankStatus
-    );
-
-    logToSheet("AssignAndRefreshTank completed: " + JSON.stringify(result));
+    const result = assignAndRefreshTank(data.fermentorID, data.sheetUrl, data.desiredAction, data.desiredTankStatus);
     return { success: true, action: "AssignAndRefreshTank", result: result };
   }
 
   if (data.action === "updateTankStatus") {
-    logToSheet("Executing updateTankStatus for fermentor: " + data.fermentorID);
-
-    updateTankStatus(
-      data.fermentorID,
-      data.tankAction,
-      data.date,
-      data.pasivationDate
-    );
-
-    logToSheet("updateTankStatus completed successfully");
+    updateTankStatus(data.fermentorID, data.tankAction, data.date, data.pasivationDate);
     return {
       success: true,
       action: "updateTankStatus",
@@ -414,21 +367,11 @@ function executePostAction_(data) {
   }
 
   if (data.action === "assignDryHop") {
-    logToSheet("Executing assignDryHop. Type: " + data.hopType + ", Grams: " + data.grams + ", aa: " + data.aa);
-
-    const result = assignDryHopToHopsTable(
-      data.sheetUrl,
-      data.grams,
-      data.hopType,
-      data.aa
-    );
-
+    const result = assignDryHopToHopsTable(data.sheetUrl, data.grams, data.hopType, data.aa);
     return { success: true, action: "assignDryHop", result: result };
   }
 
   if (data.action === "updatePackagingInfo") {
-    logToSheet("Executing updatePackagingInfo for sheet: " + data.sheetUrl);
-
     const result = updatePackagingInfo(
       data.sheetUrl,
       data.isEmpty,
@@ -437,35 +380,25 @@ function executePostAction_(data) {
       data.totalLiters,
       data.shrinkagePercent
     );
-
-    logToSheet("updatePackagingInfo completed successfully");
     return { success: true, action: "updatePackagingInfo", result: result };
   }
 
   if (data.action === "checkLegacyPackagingCell") {
-    logToSheet("Executing checkLegacyPackagingCell. Type: " + data.cellType);
     const result = checkLegacyPackagingCell(data.sheetUrl, data.cellType);
-    logToSheet("checkLegacyPackagingCell result: " + JSON.stringify(result));
     return { success: true, action: "checkLegacyPackagingCell", result: result };
   }
 
   if (data.action === "AssignBatch") {
-    logToSheet("Executing AssignBatch for Tank: " + data.tankID + ", Batch: " + data.requestedBatch);
     const result = assignManualBatch(data.tankID, data.requestedBatch);
-    logToSheet("AssignBatch completed with result: " + JSON.stringify(result));
     return { success: true, action: "AssignBatch", result: result };
   }
 
   if (data.action === "refreshSingleTank") {
-    logToSheet("Executing refreshSingleTank for Fermentor: " + data.fermentorID);
     const result = refreshSingleTank(data.fermentorID, data.sheetUrl);
-    logToSheet("refreshSingleTank completed successfully");
     return { success: true, action: "refreshSingleTank", result: result };
   }
 
   if (data.action === "addFermentationMeasurement") {
-    logToSheet("Executing addFermentationMeasurement for sheet: " + data.sheetUrl);
-
     const result = addFermentationMeasurement(
       data.sheetUrl,
       data.temp,
@@ -476,15 +409,11 @@ function executePostAction_(data) {
       data.notes,
       data.boldNotes
     );
-
-    logToSheet("addFermentationMeasurement completed successfully");
     return { success: true, action: "addFermentationMeasurement", result: result };
   }
 
   if (data.action === "triggerTankUpdate") {
-    logToSheet("Executing triggerTankUpdate (runFermentorCycle)");
     const result = runFermentorCycle();
-    logToSheet("triggerTankUpdate completed successfully");
     return { success: true, action: "triggerTankUpdate", result: result };
   }
 
@@ -493,46 +422,26 @@ function executePostAction_(data) {
 
 
 function checkBatchForTank(tankNumber, requestedBatch) {
-
   const targetTank = normalizeTankNumber(tankNumber);
   const targetBatch = Number(requestedBatch);
 
-  if (!targetTank) {
-    throw new Error("Invalid tank number");
-  }
-
-  if (!Number.isFinite(targetBatch)) {
-    throw new Error("Invalid batch number");
-  }
+  if (!targetTank) throw new Error("Invalid tank number");
+  if (!Number.isFinite(targetBatch)) throw new Error("Invalid batch number");
 
   logToSheet("Checking batch " + targetBatch + " for tank " + targetTank);
 
   const rootFolder = DriveApp.getFolderById(BREW_FOLDER_ID);
   const files = [];
-
   collectGoogleSheetsRecursive(rootFolder, files);
 
-  logToSheet("Google Sheets found: " + files.length);
-
   const candidates = [];
-
   files.forEach(function (file) {
     const fileName = file.getName();
     const batchFromFilename = extractBatchFromFilename(fileName);
-
-    if (batchFromFilename === null) {
-      return;
-    }
-
-    if (batchFromFilename === targetBatch) {
-      candidates.push(file);
-    }
+    if (batchFromFilename !== null && batchFromFilename === targetBatch) candidates.push(file);
   });
 
   if (candidates.length === 0) {
-
-    logToSheet("Batch " + targetBatch + " not found.");
-
     return {
       valid: false,
       warning: true,
@@ -543,12 +452,8 @@ function checkBatchForTank(tankNumber, requestedBatch) {
   }
 
   for (let i = 0; i < candidates.length; i++) {
-
     const file = candidates[i];
     const fileName = file.getName();
-
-    logToSheet("Checking batch file: " + fileName);
-
     let brew;
 
     try {
@@ -558,19 +463,11 @@ function checkBatchForTank(tankNumber, requestedBatch) {
       continue;
     }
 
-    if (!brew) {
-      continue;
-    }
+    if (!brew) continue;
 
     const actualTank = normalizeTankNumber(brew.tankNumber);
 
-    logToSheet("Requested tank: " + targetTank);
-    logToSheet("Actual tank in sheet: " + actualTank);
-
     if (tankNumbersEqual(actualTank, targetTank)) {
-
-      logToSheet("BATCH IS VALID FOR TANK");
-
       return {
         valid: true,
         warning: false,
@@ -585,8 +482,6 @@ function checkBatchForTank(tankNumber, requestedBatch) {
         fileName: fileName
       };
     }
-
-    logToSheet("BATCH DOES NOT MATCH TANK");
 
     return {
       valid: false,
@@ -622,18 +517,9 @@ function jsonResponse(data) {
 
 
 function updateTankStatus(fermentorID, action, date, pasivationDate) {
-
-  if (!fermentorID) {
-    throw new Error("Missing fermentorID");
-  }
-
-  if (action === undefined || action === null) {
-    throw new Error("Missing tank action");
-  }
-
-  if (!date) {
-    throw new Error("Missing date");
-  }
+  if (!fermentorID) throw new Error("Missing fermentorID");
+  if (action === undefined || action === null) throw new Error("Missing tank action");
+  if (!date) throw new Error("Missing date");
 
   const url =
     "https://firestore.googleapis.com/v1/projects/" +
@@ -650,16 +536,12 @@ function updateTankStatus(fermentorID, action, date, pasivationDate) {
   };
 
   if (pasivationDate) {
-    fields.pasivationDate = {
-      timestampValue: new Date(pasivationDate + "T00:00:00").toISOString()
-    };
+    fields.pasivationDate = { timestampValue: new Date(pasivationDate + "T00:00:00").toISOString() };
   } else {
     fields.pasivationDate = { nullValue: null };
   }
 
   const firestoreDocument = { fields: fields };
-
-  logToSheet("Sending to Firebase: " + JSON.stringify(firestoreDocument));
 
   const response = UrlFetchApp.fetch(url, {
     method: "patch",
@@ -672,12 +554,7 @@ function updateTankStatus(fermentorID, action, date, pasivationDate) {
   const code = response.getResponseCode();
   const body = response.getContentText();
 
-  logToSheet("Firebase HTTP status: " + code);
-  logToSheet("Firebase response: " + body);
-
   if (code < 200 || code >= 300) {
     throw new Error("Firebase update failed: " + code + " " + body);
   }
-
-  logToSheet("Updated fermentor: " + fermentorID);
 }
