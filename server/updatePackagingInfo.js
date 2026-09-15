@@ -2,6 +2,124 @@
 // UPDATE PACKAGING INFO (ריק? / ארגזים / חביות)
 // ============================================================
 
+const PACKAGING_LAYOUT_CACHE_SECONDS = 21600; // 6 hours
+
+function normalizeLabel(text) {
+  return String(text || "")
+    .replace(/[:?？׃\-–—"'״׳]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function findLabelCell(values, patterns) {
+  const normalizedPatterns = patterns.map(normalizeLabel);
+
+  for (let r = 0; r < values.length; r++) {
+    for (let c = 0; c < values[r].length; c++) {
+      const cellNorm = normalizeLabel(values[r][c]);
+      if (!cellNorm) continue;
+      if (normalizedPatterns.indexOf(cellNorm) !== -1) {
+        return { row: r, col: c };
+      }
+    }
+  }
+
+  return null;
+}
+
+function findNearestCheckbox(validations, row, col) {
+  let best = null;
+  let bestDist = Infinity;
+  const radius = 3;
+  const rStart = Math.max(0, row - radius);
+  const rEnd = Math.min(validations.length, row + radius + 1);
+
+  for (let r = rStart; r < rEnd; r++) {
+    const cStart = Math.max(0, col - radius);
+    const cEnd = Math.min(validations[r].length, col + radius + 1);
+
+    for (let c = cStart; c < cEnd; c++) {
+      const rule = validations[r][c];
+      if (!rule) continue;
+
+      if (rule.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX) {
+        const dist = Math.abs(r - row) + Math.abs(c - col);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = { row: r, col: c };
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+function packagingTargetBelowLabel_(pos) {
+  return pos ? { row: pos.row + 2, col: pos.col + 1 } : null;
+}
+
+function packagingTargetLeftOfLabel_(pos) {
+  // Existing sheet convention: value is one displayed cell to the left in RTL,
+  // which is the same 1-based column number as the label's zero-based col.
+  return pos ? { row: pos.row + 1, col: pos.col } : null;
+}
+
+function discoverPackagingLayout_(sheet, spreadsheetId) {
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  // Current brew templates use at most A:J for these fields. Reading only A:J
+  // avoids pulling unrelated formatted columns from large sheets.
+  const width = Math.max(1, Math.min(Math.max(sheet.getLastColumn(), 1), 10));
+  const range = sheet.getRange(1, 1, lastRow, width);
+  const values = range.getDisplayValues();
+  const validations = range.getDataValidations();
+
+  const emptyLabel = findLabelCell(values, ["ריק"]);
+  const kegsLabel = findLabelCell(values, ["חביות"]);
+  const cratesLabel = findLabelCell(values, ["ארגזים"]);
+  const totalLabel = findLabelCell(values, ['סה"כ', "סהכ"]);
+  const shrinkageLabel = findLabelCell(values, ["פחת"]);
+  const checkbox = emptyLabel
+    ? findNearestCheckbox(validations, emptyLabel.row, emptyLabel.col)
+    : null;
+
+  const layout = {
+    checkbox: checkbox ? { row: checkbox.row + 1, col: checkbox.col + 1 } : null,
+    kegs: packagingTargetBelowLabel_(kegsLabel),
+    crates: packagingTargetBelowLabel_(cratesLabel),
+    total: packagingTargetLeftOfLabel_(totalLabel),
+    shrinkage: packagingTargetLeftOfLabel_(shrinkageLabel)
+  };
+
+  CacheService.getScriptCache().put(
+    "packaging_layout:" + spreadsheetId,
+    JSON.stringify(layout),
+    PACKAGING_LAYOUT_CACHE_SECONDS
+  );
+
+  return layout;
+}
+
+function getPackagingLayout_(sheet, spreadsheetId) {
+  const cache = CacheService.getScriptCache();
+  const key = "packaging_layout:" + spreadsheetId;
+  const cached = cache.get(key);
+
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === "object") {
+        Logger.log("Packaging layout cache hit");
+        return parsed;
+      }
+    } catch (error) {
+      // fall through to discovery
+    }
+  }
+
+  return discoverPackagingLayout_(sheet, spreadsheetId);
+}
+
 function updatePackagingInfo(
   sheetUrl,
   isEmpty,
@@ -10,28 +128,20 @@ function updatePackagingInfo(
   totalLiters,
   shrinkagePercent
 ) {
+  const startedAt = Date.now();
 
   if (!sheetUrl) throw new Error("Missing sheetUrl");
 
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const sheet = ss.getSheets()[0];
-
   if (!sheet) throw new Error("No sheet found");
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
 
   try {
-
-    Logger.log("========================================");
-    Logger.log("UPDATE PACKAGING INFO");
-    Logger.log("Spreadsheet: " + spreadsheetId);
-
-    const range = sheet.getDataRange();
-    const values = range.getDisplayValues();
-    const validations = range.getDataValidations();
-
+    const layout = getPackagingLayout_(sheet, spreadsheetId);
     let updatedEmpty = false;
     let updatedKegs = false;
     let updatedCrates = false;
@@ -39,110 +149,67 @@ function updatePackagingInfo(
     const warnings = [];
 
     const boolValue =
-      (isEmpty === true || String(isEmpty).trim().toUpperCase() === "TRUE");
-
-    // ----------------------------------------------------------
-    // 1. ריק? -> checkbox (לא מפיל את שאר הפונקציה אם נכשל)
-    // ----------------------------------------------------------
+      isEmpty === true || String(isEmpty).trim().toUpperCase() === "TRUE";
 
     if (isEmpty !== undefined && isEmpty !== null) {
-
-      try {
-
-        const emptyLabelPos = findLabelCell(values, ["ריק"]);
-
-        if (!emptyLabelPos) {
-          throw new Error('Label "ריק?" not found');
-        }
-
-        const checkboxPos = findNearestCheckbox(
-          validations,
-          emptyLabelPos.row,
-          emptyLabelPos.col
-        );
-
-        if (!checkboxPos) {
-          throw new Error('Checkbox near "ריק?" not found');
-        }
-
-        sheet
-          .getRange(checkboxPos.row + 1, checkboxPos.col + 1)
-          .setValue(boolValue);
-
+      if (layout.checkbox) {
+        sheet.getRange(layout.checkbox.row, layout.checkbox.col).setValue(boolValue);
         updatedEmpty = true;
-
-        Logger.log("ריק? -> " + boolValue);
-
-      } catch (error) {
-
-        Logger.log("WARNING: failed to update checkbox: " + error.message);
-        warnings.push("checkbox: " + error.message);
+      } else {
+        warnings.push('checkbox: Checkbox near "ריק?" not found');
       }
     }
 
-    // ----------------------------------------------------------
-    // 2. חביות / ארגזים
-    // ----------------------------------------------------------
-
     if (kegs !== undefined && kegs !== null && kegs !== "") {
-      try {
-        updatedKegs = writeValueBelowLabel(sheet, values, ["חביות"], kegs);
-      } catch (error) {
-        Logger.log("WARNING: failed to update kegs: " + error.message);
-        warnings.push("kegs: " + error.message);
+      if (layout.kegs) {
+        sheet
+          .getRange(layout.kegs.row, layout.kegs.col)
+          .setValue(formatMeasurementValue(kegs));
+        updatedKegs = true;
+      } else {
+        warnings.push('kegs: Label "חביות" not found');
       }
     }
 
     if (crates !== undefined && crates !== null && crates !== "") {
-      try {
-        updatedCrates = writeValueBelowLabel(sheet, values, ["ארגזים"], crates);
-      } catch (error) {
-        Logger.log("WARNING: failed to update crates: " + error.message);
-        warnings.push("crates: " + error.message);
+      if (layout.crates) {
+        sheet
+          .getRange(layout.crates.row, layout.crates.col)
+          .setValue(formatMeasurementValue(crates));
+        updatedCrates = true;
+      } else {
+        warnings.push('crates: Label "ארגזים" not found');
       }
     }
-
-    // ----------------------------------------------------------
-    // 3. סה"כ / פחת
-    // ----------------------------------------------------------
 
     if (boolValue === true && totalLiters !== undefined && totalLiters !== null) {
+      if (layout.total) {
+        sheet
+          .getRange(layout.total.row, layout.total.col)
+          .setValue(Number(totalLiters));
+        updatedTotal = true;
+      } else {
+        warnings.push('Label "סה"כ" not found');
+      }
 
-      try {
-
-        const totalLabelPos = findLabelCell(values, ['סה"כ', "סהכ"]);
-
-        if (totalLabelPos) {
+      if (shrinkagePercent !== undefined && shrinkagePercent !== null) {
+        if (layout.shrinkage) {
           sheet
-            .getRange(totalLabelPos.row + 1, totalLabelPos.col)
-            .setValue(Number(totalLiters));
-          updatedTotal = true;
+            .getRange(layout.shrinkage.row, layout.shrinkage.col)
+            .setValue(Number(shrinkagePercent) / 100)
+            .setNumberFormat("0.00%");
         } else {
-          warnings.push('Label "סה"כ" not found');
+          warnings.push('Label "פחת" not found');
         }
-
-        if (shrinkagePercent !== undefined && shrinkagePercent !== null) {
-
-          const shrinkageLabelPos = findLabelCell(values, ["פחת"]);
-
-          if (shrinkageLabelPos) {
-            const cell = sheet.getRange(shrinkageLabelPos.row + 1, shrinkageLabelPos.col);
-            cell.setValue(Number(shrinkagePercent) / 100);
-            cell.setNumberFormat("0.00%");
-          } else {
-            warnings.push('Label "פחת" not found');
-          }
-        }
-
-      } catch (error) {
-        Logger.log("WARNING: failed to update total/shrinkage: " + error.message);
-        warnings.push("total/shrinkage: " + error.message);
       }
     }
 
-    SpreadsheetApp.flush();
-
-    Logger.log("UPDATE PACKAGING INFO DONE. Warnings: " + JSON.stringify(warnings));
+    // No SpreadsheetApp.flush(): Apps Script commits pending changes when the
+    // execution completes. A forced flush adds a synchronous Sheets round trip.
+    Logger.log(
+      "UPDATE PACKAGING INFO DONE | total " +
+      (Date.now() - startedAt) + "ms | warnings=" + JSON.stringify(warnings)
+    );
 
     return {
       success: true,
@@ -155,165 +222,49 @@ function updatePackagingInfo(
       sheetName: sheet.getName(),
       sheetUrl: ss.getUrl()
     };
-
   } finally {
     lock.releaseLock();
   }
 }
 
-/** יוצר או מעדכן דוקומנט לפי docId קבוע (upsert - לא יוצר כפילויות בהרצות חוזרות) */
-
-// ============================================================
-// NORMALIZE LABEL TEXT
-// ============================================================
-// מסיר ":" "?" ורווחים כדי שההשוואה תעבוד גם אם הסימנים
-// מסודרים אחרת (":ריק?" מול "ריק:?" וכו')
-// ============================================================
-
-function normalizeLabel(text) {
-  return String(text || "")
-    .replace(/[:?？׃\-–—"'״׳]/g, "")   // הוספנו מקפים, מירכאות/גרשיים
-    .replace(/\s+/g, "")
-    .trim();
-}
-
-
-// ============================================================
-// FIND LABEL CELL ANYWHERE IN SHEET
-// ============================================================
-
-function findLabelCell(values, patterns) {
-
-  const normalizedPatterns = patterns.map(normalizeLabel);
-
-  for (let r = 0; r < values.length; r++) {
-    for (let c = 0; c < values[r].length; c++) {
-
-      const cellNorm = normalizeLabel(values[r][c]);
-
-      if (!cellNorm) continue;
-
-      if (normalizedPatterns.indexOf(cellNorm) !== -1) {
-        return { row: r, col: c };
-      }
-    }
-  }
-
-  return null;
-}
-
-
-// ============================================================
-// FIND NEAREST CHECKBOX TO A GIVEN CELL
-// ============================================================
-// בודק data validation מסוג CHECKBOX בטווח סביב הכותרת,
-// ובוחר את הקרוב ביותר (מרחק מנהטן).
-// ============================================================
-
-function findNearestCheckbox(validations, row, col) {
-
-  let best = null;
-  let bestDist = Infinity;
-  const radius = 3;
-
-  const rStart = Math.max(0, row - radius);
-  const rEnd = Math.min(validations.length, row + radius + 1);
-
-  for (let r = rStart; r < rEnd; r++) {
-
-    const cStart = Math.max(0, col - radius);
-    const cEnd = Math.min(validations[r].length, col + radius + 1);
-
-    for (let c = cStart; c < cEnd; c++) {
-
-      const rule = validations[r][c];
-
-      if (!rule) continue;
-
-      if (rule.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX) {
-
-        const dist = Math.abs(r - row) + Math.abs(c - col);
-
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = { row: r, col: c };
-        }
-      }
-    }
-  }
-
-  return best;
-}
-
-
-// ============================================================
-// WRITE VALUE ONE ROW BELOW A LABEL CELL
-// ============================================================
-
+// Kept for legacy callers.
 function writeValueBelowLabel(sheet, values, patterns, value) {
-
   const pos = findLabelCell(values, patterns);
-
   if (!pos) {
     throw new Error('Label "' + patterns[0] + '" not found');
   }
 
-  const targetRow = pos.row + 2; // מרחב 0-אינדקס -> שורה מתחת -> 1-אינדקס
+  const targetRow = pos.row + 2;
   const targetCol = pos.col + 1;
-
-  sheet
-    .getRange(targetRow, targetCol)
-    .setValue(formatMeasurementValue(value));
-
-  Logger.log(
-    patterns[0] + " -> " + value +
-    " (row " + targetRow + ", col " + targetCol + ")"
-  );
-
+  sheet.getRange(targetRow, targetCol).setValue(formatMeasurementValue(value));
   return true;
 }
 
-// ============================================================
-// CHECK LEGACY PACKAGING CELL (fallback - raw value only)
-// ============================================================
-
 function checkLegacyPackagingCell(sheetUrl, cellType) {
-
   if (!sheetUrl) throw new Error("Missing sheetUrl");
 
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
   const ss = SpreadsheetApp.openById(spreadsheetId);
   const sheet = ss.getSheets()[0];
-
   if (!sheet) throw new Error("No sheet found");
 
-  const values = sheet.getDataRange().getDisplayValues();
-
+  const layout = getPackagingLayout_(sheet, spreadsheetId);
+  const target = cellType === "kegs" ? layout.kegs : layout.crates;
   const label = cellType === "kegs" ? "חביות" : "ארגזים";
-  const pos = findLabelCell(values, [label]);
 
-  if (!pos) {
+  if (!target) {
     return { rawValue: null, reason: 'Label "' + label + '" not found' };
   }
 
-  const targetRow = pos.row + 2;
-  const targetCol = pos.col + 1;
-
   const rawText = String(
-    sheet.getRange(targetRow, targetCol).getDisplayValue() || ""
+    sheet.getRange(target.row, target.col).getDisplayValue() || ""
   ).trim();
-
   const rawValue = Number(rawText.replace(",", "."));
-
-  Logger.log(
-    "checkLegacyPackagingCell: " + label +
-    " (row " + targetRow + ", col " + targetCol + ") = " + rawText
-  );
 
   return {
     rawValue: Number.isFinite(rawValue) ? rawValue : null,
     cellType: cellType,
-    row: targetRow,
-    col: targetCol
+    row: target.row,
+    col: target.col
   };
 }
