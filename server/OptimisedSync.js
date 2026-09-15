@@ -119,6 +119,12 @@ function runActionFlow_(fermentors) {
     }
   });
 
+  try {
+    ensureAsyncLogTrigger_();
+  } catch (error) {
+    Logger.log("ASYNC LOG TRIGGER ERROR: " + error.message);
+  }
+
   return {
     a0: a0,
     a1: a1,
