@@ -159,12 +159,10 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-    // Start Firestore and Sheets together. Notes/actions are intentionally
-    // optimistic: the UI should not wait several seconds for Google's Web App
-    // transport after Firestore already reflects the action.
-    const optimisticFirestorePromise = pushCurrentDataToFirestore(readings).catch((error) => {
-        console.warn("Optimistic Firestore currentData update failed:", error);
-    });
+    // Start Firestore and Sheets together. The Firestore write is the immediate
+    // application state and MUST succeed before an optimistic note/action may be
+    // reported as saved. Sheets can finish in the background for note-only work.
+    const optimisticFirestorePromise = pushCurrentDataToFirestore(readings);
 
     const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
         action: "addFermentationMeasurements",
@@ -175,10 +173,9 @@ export async function writeReadingsToSheets(
     const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
 
     if (noteOnlyBatch) {
-        // Wait only for the realtime Firestore update. The authoritative Sheet
-        // write keeps running in the background with the same idempotent request
-        // semantics. If confirmation never arrives, show a warning modal; do not
-        // suggest retrying because the Sheet side effect may still have succeeded.
+        // Wait only for the realtime Firestore update. If THAT write fails we
+        // propagate the error and keep the normal submit flow honest. The Sheet
+        // write keeps running in the background with idempotent request semantics.
         await optimisticFirestorePromise;
 
         void sheetPromise
