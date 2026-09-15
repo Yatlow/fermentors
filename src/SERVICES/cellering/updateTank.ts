@@ -1,5 +1,4 @@
-const GOOGLE_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
+import { callAppsScriptPost, type AppsScriptEnvelope } from "../getAndPost/appsScriptClient";
 
 type UpdateTankStatusResult = {
   success: boolean;
@@ -27,59 +26,21 @@ export async function updateTankStatus(
   }
 
   const payload = {
-    // API command
     action: "updateTankStatus",
-
-    // Actual tank status
     tankAction: Number(action),
-
     fermentorID: String(fermentorID),
-
     date: new Date(date).toISOString(),
-
     pasivationDate: pasivationDate || null,
   };
 
   console.log("Updating tank:", payload);
 
-  const response = await fetch(GOOGLE_SCRIPT_URL, {
-    method: "POST",
-
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-
-    body: JSON.stringify(payload),
-  });
-
-  const text = await response.text();
-
-  console.log("Google Apps Script response:", text);
-
-  let result: UpdateTankStatusResult;
-
-  try {
-    result = JSON.parse(text) as UpdateTankStatusResult;
-  } catch {
-    throw new Error(
-      "Google Apps Script returned invalid JSON: " + text
-    );
-  }
+  const result = await callAppsScriptPost<AppsScriptEnvelope>(payload) as UpdateTankStatusResult;
 
   if (!result.success) {
-    throw new Error(
-      result.error ||
-        result.message ||
-        "Tank update failed"
-    );
+    throw new Error(result.error || result.message || "Tank update failed");
   }
 
-  console.log(
-    "Tank successfully updated:",
-    fermentorID,
-    "status:",
-    action
-  );
-
+  console.log("Tank successfully updated:", fermentorID, "status:", action);
   return result;
 }
