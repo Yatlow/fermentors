@@ -33,7 +33,7 @@ export type TimelineEvent = {
     detail?: string;
 };
 
-export type YeastAmountParser = (notes: unknown) => number | null;
+export type YeastAmountParser = (notes: string | number | null | undefined) => number | null;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -134,7 +134,7 @@ function yeastPressureAfter(notes: string): number | null {
     return match ? numericValue(match[1]) : null;
 }
 
-function fallbackYeastAmount(notes: unknown): number | null {
+function fallbackYeastAmount(notes: string | number | null | undefined): number | null {
     const match = String(notes ?? "").match(/(?:הורדת|הוצאת)\s+(\d+(?:[.,]\d+)?)\s+דל/i);
     return match ? numericValue(match[1]) : null;
 }
