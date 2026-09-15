@@ -105,7 +105,7 @@ export async function callAppsScriptPost<T>(
     options: RetryOptions = {}
 ): Promise<T> {
     const retries = Math.max(0, options.retries ?? 2);
-    const retryDelayMs = Math.max(0, options.retryDelayMs ?? 500);
+    const retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
 
     const action = String(payload.action || "request");
     const requestId =
@@ -123,16 +123,30 @@ export async function callAppsScriptPost<T>(
     };
 
     let lastError: unknown;
+    const startedAt = performance.now();
 
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
+            const attemptStartedAt = performance.now();
             const response = await fetch(GOOGLE_SCRIPT_URL, {
                 method: "POST",
                 headers: { "Content-Type": "text/plain;charset=utf-8" },
                 body: JSON.stringify(authenticatedPayload),
             });
 
-            return await parseAppsScriptResponse<T>(response);
+            const parsed = await parseAppsScriptResponse<T>(response);
+
+            if (attempt > 0) {
+                console.info("Apps Script request confirmed after retry", {
+                    action,
+                    requestId,
+                    attempts: attempt + 1,
+                    attemptMs: Math.round(performance.now() - attemptStartedAt),
+                    totalMs: Math.round(performance.now() - startedAt),
+                });
+            }
+
+            return parsed;
         } catch (error) {
             lastError = error;
 
@@ -146,13 +160,32 @@ export async function callAppsScriptPost<T>(
                     redirected: error.redirected,
                     contentType: error.contentType,
                     preview: error.responsePreview,
+                    elapsedMs: Math.round(performance.now() - startedAt),
                 });
             }
 
             if (attempt >= retries) break;
-            await sleep(retryDelayMs * (attempt + 1));
+
+            // An invalid HTML/redirect response commonly means Apps Script already
+            // executed the mutation and only the ContentService response was lost.
+            // The next request uses the SAME requestId, so the server will return
+            // the idempotency result instead of executing the write again. There is
+            // no value in sleeping 500-1000ms before that confirmation retry.
+            if (error instanceof AppsScriptInvalidResponseError) {
+                await sleep(25);
+            } else {
+                // Keep a modest backoff for real network failures.
+                await sleep(retryDelayMs * (attempt + 1));
+            }
         }
     }
+
+    console.error("Apps Script request exhausted retries", {
+        action,
+        requestId,
+        attempts: retries + 1,
+        totalMs: Math.round(performance.now() - startedAt),
+    });
 
     throw lastError instanceof Error
         ? lastError
@@ -167,7 +200,7 @@ export async function callAppsScriptGet<T>(
     // Firebase ID token out of query strings, browser history and URL logs.
     return callAppsScriptPost<T>(params, {
         retries: options.retries ?? 1,
-        retryDelayMs: options.retryDelayMs ?? 400,
+        retryDelayMs: options.retryDelayMs ?? 200,
     });
 }
 
