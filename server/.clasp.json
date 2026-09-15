@@ -11,9 +11,6 @@
   "jsonExtensions": [
     ".json"
   ],
-  "filePushOrder": [
-    "fermentor-cycle-optimization.js",
-    "extractBrewStageInfo.js"
-  ],
+  "filePushOrder": [],
   "skipSubdirectories": false
 }
