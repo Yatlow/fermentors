@@ -63,6 +63,17 @@ function isNoteOnlyReading(reading: ReadingToSend): boolean {
     return !hasMeasurement && hasNotes;
 }
 
+function isPullRequestPreview(): boolean {
+    return typeof window !== "undefined" && window.location.hostname.includes("--pr");
+}
+
+function isFirestorePermissionDenied(error: unknown): boolean {
+    return typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        String((error as { code?: unknown }).code) === "permission-denied";
+}
+
 function showBackgroundSheetWarning(
     readings: ReadingToSend[],
     failedResults?: writeReadingResult[]
@@ -132,6 +143,32 @@ async function clearSheetSyncJob(requestId: string): Promise<void> {
     }
 }
 
+async function persistFirestoreState(
+    readings: ReadingToSend[],
+    noteOnlyBatch: boolean,
+    requestId: string
+): Promise<void> {
+    try {
+        await pushCurrentDataToFirestore(readings, {
+            sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
+        });
+    } catch (error) {
+        // Firebase Hosting PR channels still use the live project's currently
+        // deployed Firestore rules. Until this PR is merged, those production
+        // rules do not know sheetSyncJobs yet. Keep preview testing functional
+        // without weakening production durability; live builds never use this
+        // fallback.
+        if (noteOnlyBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
+            console.warn(
+                "PR preview cannot create sheetSyncJobs until the new Firestore rules are deployed; using preview-only fallback."
+            );
+            await pushCurrentDataToFirestore(readings);
+            return;
+        }
+        throw error;
+    }
+}
+
 async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<void> {
     const packagingReadings = readings
         .map((reading) => reading as PackagingReading)
@@ -182,9 +219,11 @@ export async function writeReadingsToSheets(
     // For note-only work the same Firestore commit that updates currentData also
     // persists an outbox job. The UI therefore stays fast, but closing Safari or
     // losing connectivity cannot silently abandon the Google Sheet write.
-    const optimisticFirestorePromise = pushCurrentDataToFirestore(readings, {
-        sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
-    });
+    const optimisticFirestorePromise = persistFirestoreState(
+        readings,
+        noteOnlyBatch,
+        requestId
+    );
 
     if (noteOnlyBatch) {
         // Make Firestore + outbox durable BEFORE the side effect starts. This
