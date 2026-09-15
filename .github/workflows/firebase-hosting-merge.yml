@@ -20,8 +20,8 @@ jobs:
       - name: Create deployed version marker
         run: printf '{"version":"%s"}\n' "$GITHUB_SHA" > public/app-version.json
 
-      - name: Build
-        run: npm ci && npm run build
+      - name: Verify and build
+        run: npm ci && npm run test:planning && npm run build
         env:
           VITE_APP_VERSION: ${{ github.sha }}
 
