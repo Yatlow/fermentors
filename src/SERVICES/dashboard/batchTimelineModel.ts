@@ -160,6 +160,14 @@ function previousPressure(rows: TimelineMeasurement[], currentIndex: number): nu
     return null;
 }
 
+function previousCarbonation(rows: TimelineMeasurement[], currentIndex: number): number | null {
+    for (let index = currentIndex - 1; index >= 0; index -= 1) {
+        const carbonation = numericValue(rows[index]?.carbonation);
+        if (carbonation !== null) return carbonation;
+    }
+    return null;
+}
+
 function eventBase(
     id: string,
     type: TimelineEventType,
@@ -199,6 +207,7 @@ export function buildBatchTimeline(
     const rows = [...measurements].sort((a, b) =>
         String(a.id ?? "").localeCompare(String(b.id ?? ""))
     );
+    let coolingWasRecorded = false;
 
     rows.forEach((measurement, index) => {
         const date = measurementDateTime(measurement);
@@ -321,11 +330,14 @@ export function buildBatchTimeline(
             ));
         } else if (hasExplicitPressureChange || (!hasClosure && targetRelief !== null)) {
             const before = previousPressure(rows, index);
-            const isCarbonationCorrection = carbonation !== null && hasExplicitPressureChange;
+            const latestCarbonation = carbonation ?? previousCarbonation(rows, index);
+            const isCarbonationCorrection = hasExplicitPressureChange &&
+                latestCarbonation !== null &&
+                (carbonation !== null || coolingWasRecorded);
             const details: string[] = [];
 
             if (isCarbonationCorrection) {
-                details.push(`גיזוז ${prettyNumber(carbonation)} vol`);
+                details.push(`גיזוז ${prettyNumber(latestCarbonation)} vol`);
                 if (before !== null) details.push(`לחץ לפני ${prettyNumber(before)} bar`);
                 if (targetPressure !== null) details.push(`לחץ חדש ${prettyNumber(targetPressure)} bar`);
                 if (targetRelief !== null) details.push(`פורק ל־${prettyNumber(targetRelief)} bar`);
@@ -353,6 +365,8 @@ export function buildBatchTimeline(
                 details.length ? details.join(" · ") : undefined
             ));
         }
+
+        if (hasCooling) coolingWasRecorded = true;
     });
 
     const unique = new Map<string, TimelineEvent>();
