@@ -4,8 +4,6 @@ import {
     collection,
     doc,
     updateDoc,
-    getDoc,
-    setDoc,
     onSnapshot,
     query,
     where,
@@ -370,57 +368,69 @@ export async function createPallets(input: {
     return ids;
 }
 
-async function getNextShipmentNumber(): Promise<number> {
-    const counterRef = doc(db, "counters", "shipmentNumber");
-    return runTransaction(db, async (tx) => {
-        const snap = await tx.get(counterRef);
-        const current = snap.exists() ? (snap.data().value as number) : 2389; // כך שהראשון יהיה 2390
-        const next = current + 1;
-        tx.set(counterRef, { value: next }, { merge: true });
-        return next;
-    });
-}
-
 export async function createShipment(
     palletIds: string[],
     customerName?: string | null
 ): Promise<string> {
-    if (palletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
+    const uniquePalletIds = [...new Set(palletIds.filter(Boolean))];
+    if (uniquePalletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
+    if (uniquePalletIds.length !== palletIds.length) throw new Error("רשימת המשטחים מכילה כפילויות");
 
-    const snaps = await Promise.all(
-        palletIds.map((id) => getDoc(doc(db, PALLETS_COLLECTION, id)))
-    );
+    const counterRef = doc(db, "counters", "shipmentNumber");
 
-    const pallets = snaps
-        .filter((snap) => snap.exists())
-        .map((snap) => ({ id: snap.id, ...snap.data() } as Pallet));
+    const shipmentNumber = await runTransaction(db, async (tx) => {
+        // All reads happen before writes so Firestore can safely retry the whole
+        // operation if another user changes a pallet or the counter concurrently.
+        const counterSnap = await tx.get(counterRef);
+        const palletRefs = uniquePalletIds.map((id) => doc(db, PALLETS_COLLECTION, id));
+        const palletSnaps = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
 
-    const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
-    pallets.forEach((p) => {
-        const key = `${p.itemType}__${p.beerStyle}`;
-        const cur = totalsMap.get(key);
-        if (cur) cur.totalQuantity += p.quantity;
-        else totalsMap.set(key, { itemType: p.itemType, beerStyle: p.beerStyle, totalQuantity: p.quantity });
+        const pallets = palletSnaps.map((snap, index) => {
+            if (!snap.exists()) {
+                throw new Error(`המשטח ${uniquePalletIds[index]} כבר לא קיים`);
+            }
+            const pallet = { id: snap.id, ...snap.data() } as Pallet;
+            if (pallet.zone === "shipped") {
+                throw new Error(`המשטח ${pallet.id} כבר נשלח`);
+            }
+            return pallet;
+        });
+
+        const totalsMap = new Map<string, { itemType: string; beerStyle: string; totalQuantity: number }>();
+        pallets.forEach((pallet) => {
+            const key = `${pallet.itemType}__${pallet.beerStyle}`;
+            const current = totalsMap.get(key);
+            if (current) current.totalQuantity += pallet.quantity;
+            else totalsMap.set(key, {
+                itemType: pallet.itemType,
+                beerStyle: pallet.beerStyle,
+                totalQuantity: pallet.quantity,
+            });
+        });
+
+        const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
+        if (!Number.isFinite(currentNumber)) throw new Error("מונה תעודות המשלוח אינו תקין");
+        const nextNumber = currentNumber + 1;
+        const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
+
+        tx.set(counterRef, { value: nextNumber }, { merge: true });
+        tx.set(shipmentRef, {
+            shipmentNumber: nextNumber,
+            palletIds: uniquePalletIds,
+            totals: Array.from(totalsMap.values()),
+            customerName: customerName?.trim() || null,
+            createdAt: serverTimestamp(),
+        });
+
+        palletRefs.forEach((ref) => tx.update(ref, {
+            zone: "shipped",
+            markedForShipment: false,
+            shippedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        }));
+
+        return nextNumber;
     });
-
-    const shipmentNumber = await getNextShipmentNumber();
-
-    await setDoc(doc(db, SHIPMENTS_COLLECTION, String(shipmentNumber)), {
-        shipmentNumber,
-        palletIds,
-        totals: Array.from(totalsMap.values()),
-        customerName: customerName?.trim() || null, // חדש
-        createdAt: serverTimestamp(),
-    });
-
-    const batch = writeBatch(db);
-    palletIds.forEach((id) => batch.update(doc(db, PALLETS_COLLECTION, id), {
-        zone: "shipped",
-        markedForShipment: false,
-        shippedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-    }));
-    await batch.commit();
 
     return String(shipmentNumber);
 }
