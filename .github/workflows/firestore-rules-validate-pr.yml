@@ -1,0 +1,33 @@
+name: Validate Firestore Rules PR
+
+on:
+  pull_request:
+    paths:
+      - "firestore.rules"
+      - "firebase.json"
+      - ".github/workflows/firestore-rules-validate-pr.yml"
+
+concurrency:
+  group: firestore-rules-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate_rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Compile Firestore rules in emulator
+        run: >-
+          npx --yes firebase-tools emulators:exec
+          --only firestore
+          --project demo-fermentors
+          "echo Firestore rules validated"
