@@ -6,6 +6,8 @@
 // Sheet-writing actions below we persist the exact successful response in
 // Firestore before returning it. The frontend can then confirm the mutation
 // directly from Firestore using the same requestId.
+// Receipt writer is invoked from doPost only after an idempotent mutation has
+// completed successfully, so it is an acknowledgement rather than a guess.
 // ============================================================
 
 const OPERATION_RECEIPT_ACTIONS = {
