@@ -45,7 +45,6 @@ type ChartPoint = {
     pressure: number | null;
     carbonation: number | null;
 
-    // ממוצע הסגנון
     averagePlato?: number | null;
     averagePH?: number | null;
     averageTemp?: number | null;
@@ -73,7 +72,6 @@ const METRICS: {
         { key: "carbonation", label: "גיזוז", unit: "vol", color: "#0891b2" },
     ];
 
-// מיפוי בין מדד למפתח הממוצע המתאים ב-ChartPoint
 const AVERAGE_KEY_BY_METRIC: Record<MetricKey, keyof ChartPoint> = {
     plato: "averagePlato",
     pH: "averagePH",
@@ -82,18 +80,11 @@ const AVERAGE_KEY_BY_METRIC: Record<MetricKey, keyof ChartPoint> = {
     carbonation: "averageCarbonation",
 };
 
-// המילה שמחפשים בהערות כדי להציג אותן כציון-דרך על הגרף
 const YEAST_KEYWORD = "שמרים";
 const DRYHOP_KEYWORD = "הכנסת כשות";
 const DRYHOP_KEYWORD_B = "דרייהופ";
 const TANK_CLOSE_KEYWORD = "סגירת";
 const DYACITYL_KEYWORD = "מנוחת";
-
-// ============================================================
-// DATE PARSING
-// המדידות לא מכילות שדה date - התאריך חבוי בתוך ה-id
-// בפורמט "YYYY-MM-DD_HHMM"
-// ============================================================
 
 function parseBrewDate(brewDate: string | null | undefined): Date | null {
     if (!brewDate) return null;
@@ -134,11 +125,6 @@ function toNumberOrNull(value: unknown): number | null {
     return Number.isNaN(n) ? null : n;
 }
 
-/**
- * עוגן משותף ליום 0, כדי ש-buildChartData ו-buildYeastChartData
- * ימנו את הימים בדיוק אותו הדבר (במקום שכל פונקציה תחשב עוגן בנפרד
- * ואולי תתפצל ליומיים שונים).
- */
 function computeAnchor(
     tank: Fermentor,
     parsedRows: { date: Date }[]
@@ -149,18 +135,10 @@ function computeAnchor(
     return null;
 }
 
-// ============================================================
-// AXIS HELPERS
-// ============================================================
-
-// טווח X הדוק לנתונים בפועל, עם עד 5 טיקים מפוזרים (לא רק מינימום/מקסימום)
 function getXAxisBounds(
     days: number[]
 ): { domain: [number, number]; ticks: number[] } {
-
-    const validDays = days.filter(
-        (d): d is number => Number.isFinite(d)
-    );
+    const validDays = days.filter((d): d is number => Number.isFinite(d));
 
     if (validDays.length === 0) {
         return { domain: [0, 1], ticks: [0, 1] };
@@ -187,13 +165,11 @@ function getXAxisBounds(
     return { domain: [min, max], ticks };
 }
 
-// טווח Y הדוק לנתונים בפועל של מדד ספציפי (כל מדד יכול לנוע בסקאלה שונה לגמרי)
 function getYAxisDomain(
     data: ChartPoint[],
     key: MetricKey,
     averageKey: keyof ChartPoint
 ): [number, number] {
-
     const values = data
         .flatMap((point) => [point[key], point[averageKey]])
         .filter(
@@ -219,16 +195,11 @@ function getYAxisDomain(
     return [min - padding, max + padding];
 }
 
-// ============================================================
-// BUILD CHART DATA
-// ============================================================
-
 function buildChartData(
     tank: Fermentor,
     measurements: Measurement[],
     anchor: Date | null
 ): ChartPoint[] {
-
     const parsedRows = measurements
         .map((m) => ({ m, date: parseMeasurementDate(m.id) }))
         .filter((r): r is { m: Measurement; date: Date } => r.date !== null);
@@ -237,9 +208,7 @@ function buildChartData(
 
     const points: ChartPoint[] = parsedRows.map((row) => {
         const day = anchor ? diffDays(row.date, anchor) : 0;
-        const notes =
-            row.m.notes !== null && row.m.notes !== undefined ? String(row.m.notes) : "";
-
+        const notes = row.m.notes !== null && row.m.notes !== undefined ? String(row.m.notes) : "";
         const rawCarbonation = (row.m as unknown as Record<string, unknown>).carbonation;
 
         return {
@@ -253,12 +222,10 @@ function buildChartData(
             yeastNote: notes.includes(YEAST_KEYWORD) ? notes : null,
             DHNote: notes.includes(DRYHOP_KEYWORD) || notes.includes(DRYHOP_KEYWORD_B) ? notes : null,
             TankCloseNote: notes.includes(TANK_CLOSE_KEYWORD) ? notes : null,
-            DycitylNote: notes.includes(DYACITYL_KEYWORD) ||
-                notes.includes("חימום") ? notes : null,
+            DycitylNote: notes.includes(DYACITYL_KEYWORD) || notes.includes("חימום") ? notes : null,
         };
     });
 
-    // Starting Plato -> יום 0.
     const startingPlato = toNumberOrNull(tank.startingPlato);
     if (startingPlato !== null) {
         const dayZero = points.find((p) => p.day === 0);
@@ -283,12 +250,6 @@ function buildChartData(
 
     return points.sort((a, b) => a.day - b.day);
 }
-
-// ============================================================
-// COMBINED (NORMALIZED) CHART DATA
-// כל מדד מנורמל ל-0..1 כדי שכל הקווים יחיו על אותו ציר Y.
-// הערכים האמיתיים נשלפים בטולטיפ מתוך chartData לפי היום.
-// ============================================================
 
 type CombinedPoint = { day: number } & Partial<Record<MetricKey, number | null>>;
 
@@ -317,17 +278,12 @@ function buildCombinedData(chartData: ChartPoint[]): CombinedPoint[] {
                 return;
             }
 
-            combined[metric.key] =
-                range.max === range.min ? 0.5 : (raw - range.min) / (range.max - range.min);
+            combined[metric.key] = range.max === range.min ? 0.5 : (raw - range.min) / (range.max - range.min);
         });
 
         return combined;
     });
 }
-
-// ============================================================
-// TOOLTIPS
-// ============================================================
 
 function makeYeastNoteLine(
     day: number,
@@ -338,40 +294,23 @@ function makeYeastNoteLine(
     return `🟡 ${formatYeastTotal(drop.amount)} דליים (${drop.type === "cold" ? "קר" : "חם"})`;
 }
 
-
-function makeDHNoteLine(
-    day: number,
-    chartData: ChartPoint[]
-): string | null {
+function makeDHNoteLine(day: number, chartData: ChartPoint[]): string | null {
     const point = chartData.find((p) => p.day === day);
-
     if (!point?.DHNote) return null;
-
     return `🟢 הכנסת דרייהופ`;
 }
 
-function makeTCNoteLine(
-    day: number,
-    chartData: ChartPoint[]
-): string | null {
+function makeTCNoteLine(day: number, chartData: ChartPoint[]): string | null {
     const point = chartData.find((p) => p.day === day);
-
     if (!point?.TankCloseNote) return null;
-
     return `🔵 סגירת לחץ`;
 }
 
-function makeDyctlNoteLine(
-    day: number,
-    chartData: ChartPoint[]
-): string | null {
+function makeDyctlNoteLine(day: number, chartData: ChartPoint[]): string | null {
     const point = chartData.find((p) => p.day === day);
-
     if (!point?.DycitylNote) return null;
-
     return `🔴 מנוחת דיאציטיל`;
 }
-
 
 function makeTooltipRenderer(
     metric: (typeof METRICS)[number],
@@ -402,12 +341,11 @@ function makeTooltipRenderer(
                 {payload.map((entry) => {
                     const isAverage = entry.dataKey === AVERAGE_KEY_BY_METRIC[metric.key];
                     const raw = entry.value;
-                    const text =
-                        raw === null || raw === undefined || raw === ""
-                            ? "—"
-                            : isAverage
-                                ? `${raw}`
-                                : `${raw}${metric.unit}`;
+                    const text = raw === null || raw === undefined || raw === ""
+                        ? "—"
+                        : isAverage
+                            ? `${raw}`
+                            : `${raw}${metric.unit}`;
 
                     return (
                         <div
@@ -423,26 +361,10 @@ function makeTooltipRenderer(
                     );
                 })}
 
-                {yeastLine && (
-                    <div className="chart-tooltip-value" style={{ color: "#f6de07" }}>
-                        {yeastLine}
-                    </div>
-                )}
-                {DHLine && (
-                    <div className="chart-tooltip-value" style={{ color: "#016e03" }}>
-                        {DHLine}
-                    </div>
-                )}
-                {tcLine && !DHLine &&(
-                    <div className="chart-tooltip-value" style={{ color: "#0b1571" }}>
-                        {tcLine}
-                    </div>
-                )}
-                {DyctlLine && (
-                    <div className="chart-tooltip-value" style={{ color: "#ee0a0a" }}>
-                        {DyctlLine}
-                    </div>
-                )}
+                {yeastLine && <div className="chart-tooltip-value" style={{ color: "#f6de07" }}>{yeastLine}</div>}
+                {DHLine && <div className="chart-tooltip-value" style={{ color: "#016e03" }}>{DHLine}</div>}
+                {tcLine && !DHLine && <div className="chart-tooltip-value" style={{ color: "#0b1571" }}>{tcLine}</div>}
+                {DyctlLine && <div className="chart-tooltip-value" style={{ color: "#ee0a0a" }}>{DyctlLine}</div>}
             </div>
         );
     };
@@ -463,7 +385,6 @@ function makeCombinedTooltipRenderer(
         const DyctlLine = makeDyctlNoteLine(dayNumber, chartData);
         const tcLine = makeTCNoteLine(dayNumber, chartData);
 
-
         return (
             <div className="chart-tooltip">
                 <div className="chart-tooltip-day">
@@ -481,32 +402,15 @@ function makeCombinedTooltipRenderer(
                             className="chart-tooltip-value"
                             style={{ color: metric.color }}
                         >
-                            {metric.label}: {raw}
-                            {metric.unit}
+                            {metric.label}: {raw}{metric.unit}
                         </div>
                     );
                 })}
 
-                {yeastLine && (
-                    <div className="chart-tooltip-value" style={{ color: "#f6de07" }}>
-                        {yeastLine}
-                    </div>
-                )}
-                {DHLine && (
-                    <div className="chart-tooltip-value" style={{ color: "#016e03" }}>
-                        {DHLine}
-                    </div>
-                )}
-                {tcLine && !DHLine && (
-                    <div className="chart-tooltip-value" style={{ color: "#0b1571" }}>
-                        {tcLine}
-                    </div>
-                )}
-                {DyctlLine && (
-                    <div className="chart-tooltip-value" style={{ color: "#ee0a0a" }}>
-                        {DyctlLine}
-                    </div>
-                )}
+                {yeastLine && <div className="chart-tooltip-value" style={{ color: "#f6de07" }}>{yeastLine}</div>}
+                {DHLine && <div className="chart-tooltip-value" style={{ color: "#016e03" }}>{DHLine}</div>}
+                {tcLine && !DHLine && <div className="chart-tooltip-value" style={{ color: "#0b1571" }}>{tcLine}</div>}
+                {DyctlLine && <div className="chart-tooltip-value" style={{ color: "#ee0a0a" }}>{DyctlLine}</div>}
             </div>
         );
     };
@@ -560,16 +464,11 @@ function formatYeastTotal(amount: number): string {
     return String(Number(amount.toFixed(2)));
 }
 
-// ============================================================
-// COMPONENT
-// ============================================================
-
 function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
     const [measurements, setMeasurements] = useState<Measurement[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [styleAverages, setStyleAverages] =
-        useState<StyleAverages | null>(null);
+    const [styleAverages, setStyleAverages] = useState<StyleAverages | null>(null);
 
     const yeastDrops = useMemo(() => extractYeastDrops(measurements), [measurements]);
 
@@ -615,9 +514,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
     }, [tank.batchNumber]);
 
     useEffect(() => {
-        const style = tank.beerStyle
-            ? String(tank.beerStyle).trim()
-            : "";
+        const style = tank.beerStyle ? String(tank.beerStyle).trim() : "";
 
         if (!style) {
             setStyleAverages(null);
@@ -628,19 +525,11 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
 
         getStyleAverages(style)
             .then((result) => {
-                if (!cancelled) {
-                    setStyleAverages(result);
-                }
+                if (!cancelled) setStyleAverages(result);
             })
             .catch((error) => {
-                console.error(
-                    "Failed loading style averages:",
-                    error
-                );
-
-                if (!cancelled) {
-                    setStyleAverages(null);
-                }
+                console.error("Failed loading style averages:", error);
+                if (!cancelled) setStyleAverages(null);
             });
 
         return () => {
@@ -648,7 +537,6 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
         };
     }, [tank.beerStyle]);
 
-    // עוגן משותף לכל חישובי הימים (גרפי מדדים + גרף שמרים + הטולטיפים)
     const anchor = useMemo(() => {
         const parsedRows = measurements
             .map((m) => parseMeasurementDate(m.id))
@@ -682,66 +570,47 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
     const combinedData = useMemo(() => buildCombinedData(chartData), [chartData]);
 
     const chartDataWithAverage = useMemo(() => {
-        if (!styleAverages) {
-            return chartData;
-        }
+        if (!styleAverages) return chartData;
 
-        const maxCurrentDay =
-            chartData.length > 0
-                ? Math.max(...chartData.map((p) => p.day))
-                : null;
+        const maxCurrentDay = chartData.length > 0 ? Math.max(...chartData.map((p) => p.day)) : null;
+        const result = chartData.map((point) => ({ ...point }));
 
-        const result = chartData.map((point) => ({
-            ...point,
-        }));
+        Object.entries(styleAverages.days ?? {}).forEach(([dayString, values]) => {
+            const day = Number(dayString);
 
-        Object.entries(styleAverages.days ?? {}).forEach(
-            ([dayString, values]) => {
-                const day = Number(dayString);
+            if (maxCurrentDay !== null && day > maxCurrentDay) return;
 
-                if (
-                    maxCurrentDay !== null &&
-                    day > maxCurrentDay
-                ) {
-                    return;
-                }
+            const existing = result.find((p) => p.day === day);
 
-                const existing = result.find(
-                    (p) => p.day === day
-                );
-
-                if (existing) {
-                    existing.averagePlato = values.plato ?? null;
-                    existing.averagePH = values.pH ?? null;
-                    existing.averageTemp = values.temp ?? null;
-                    existing.averagePressure = values.pressure ?? null;
-                    existing.averageCarbonation = values.carbonation ?? null;
-                } else {
-                    result.push({
-                        day,
-                        dateLabel: "",
-                        plato: null,
-                        pH: null,
-                        temp: null,
-                        pressure: null,
-                        carbonation: null,
-                        averagePlato: values.plato ?? null,
-                        averagePH: values.pH ?? null,
-                        averageTemp: values.temp ?? null,
-                        averagePressure: values.pressure ?? null,
-                        averageCarbonation: values.carbonation ?? null,
-                        yeastNote: null,
-                        DHNote: null,
-                        TankCloseNote: null,
-                        DycitylNote: null,
-                    });
-                }
+            if (existing) {
+                existing.averagePlato = values.plato ?? null;
+                existing.averagePH = values.pH ?? null;
+                existing.averageTemp = values.temp ?? null;
+                existing.averagePressure = values.pressure ?? null;
+                existing.averageCarbonation = values.carbonation ?? null;
+            } else {
+                result.push({
+                    day,
+                    dateLabel: "",
+                    plato: null,
+                    pH: null,
+                    temp: null,
+                    pressure: null,
+                    carbonation: null,
+                    averagePlato: values.plato ?? null,
+                    averagePH: values.pH ?? null,
+                    averageTemp: values.temp ?? null,
+                    averagePressure: values.pressure ?? null,
+                    averageCarbonation: values.carbonation ?? null,
+                    yeastNote: null,
+                    DHNote: null,
+                    TankCloseNote: null,
+                    DycitylNote: null,
+                });
             }
-        );
+        });
 
-        return result.sort(
-            (a, b) => a.day - b.day
-        );
+        return result.sort((a, b) => a.day - b.day);
     }, [chartData, styleAverages]);
 
     function handlePrint() {
@@ -792,40 +661,23 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                 {!loading && !error && chartData.length > 0 && (
                     <>
                         <div className="chart-metric-tabs">
-                            <button
-                                type="button"
-                                className={`chart-metric-tab ${viewMode === "table" ? "active" : ""}`}
-                                onClick={showTable}
-                            >
+                            <button type="button" className={`chart-metric-tab ${viewMode === "table" ? "active" : ""}`} onClick={showTable}>
                                 טבלת תסיסה
                             </button>
-                            <button
-                                type="button"
-                                className={`chart-metric-tab ${viewMode === "combined" ? "active" : ""}`}
-                                onClick={toggleCombined}
-                            >
+                            <button type="button" className={`chart-metric-tab ${viewMode === "combined" ? "active" : ""}`} onClick={toggleCombined}>
                                 הכל ביחד
                             </button>
-                            <button
-                                type="button"
-                                className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "plato" ? "active" : ""}`}
-                                onClick={() => selectMetric("plato")}
-                            >
+                            <button type="button" className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "plato" ? "active" : ""}`} onClick={() => selectMetric("plato")}>
                                 סוכר
                             </button>
-                            <button
-                                type="button"
-                                className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""}`}
-                                onClick={() => selectMetric("yeast")}
-                            >
+                            <button type="button" className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""}`} onClick={() => selectMetric("yeast")}>
                                 שמרים
                             </button>
                             {METRICS.filter((metric) => metric.key !== "plato").map((metric) => (
                                 <button
                                     key={metric.key}
                                     type="button"
-                                    className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === metric.key ? "active" : ""
-                                        }`}
+                                    className={`chart-metric-tab ${viewMode === "tabs" && activeMetric === metric.key ? "active" : ""}`}
                                     onClick={() => selectMetric(metric.key)}
                                 >
                                     {metric.label}
@@ -834,25 +686,20 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                         </div>
 
                         <div className={`metric-chart-block ${viewMode === "table" ? "active" : ""}`}>
-                            <FermentationTable measurements={measurements} />
+                            <FermentationTable measurements={measurements} brewDate={tank.brewDate} />
                         </div>
 
-                        {/* סיכום שמרים קבוע - מוצג תמיד, לא תלוי באיזה טאב פתוח */}
                         {viewMode !== "table" && totalBuckets > 0 && (
                             <div className="chart-yeast-summary">
-                                🟡 סה״כ שמרים: {formatYeastTotal(totalBuckets)} דליים
-                                {" "}(חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
+                                🟡 סה״כ שמרים: {formatYeastTotal(totalBuckets)} דליים{" "}
+                                (חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
                             </div>
                         )}
 
-                        {/* גרף השמרים - מצטבר + רשימת אירועים, במקום עמודות בודדות על ציר ריק */}
-                        <div
-                            className={`metric-chart-block ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""
-                                }`}
-                        >
+                        <div className={`metric-chart-block ${viewMode === "tabs" && activeMetric === "yeast" ? "active" : ""}`}>
                             <div className="metric-chart-print-title">
-                                שמרים — סה״כ {formatYeastTotal(totalBuckets)} דליים
-                                {" "}(חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
+                                שמרים — סה״כ {formatYeastTotal(totalBuckets)} דליים{" "}
+                                (חם: {formatYeastTotal(totalWarmBuckets)} · קר: {formatYeastTotal(totalColdBuckets)})
                             </div>
 
                             {yeastChartData.length === 0 ? (
@@ -861,10 +708,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                 <>
                                     <div className="batch-chart-graph" dir="ltr">
                                         <ResponsiveContainer width="100%" height={160}>
-                                            <AreaChart
-                                                data={yeastCumulativeData}
-                                                margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
-                                            >
+                                            <AreaChart data={yeastCumulativeData} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
                                                 <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                                                 <XAxis
                                                     dataKey="day"
@@ -923,7 +767,6 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                             )}
                         </div>
 
-                        {/* גרף "הכל ביחד" - כל המדדים מנורמלים 0..1 על אותו ציר, ערכים אמיתיים בטולטיפ */}
                         <div className={`metric-chart-block ${viewMode === "combined" ? "active" : ""}`}>
                             <div className="metric-chart-print-title">הכל ביחד (מנורמל)</div>
                             <div className="batch-chart-graph" dir="ltr">
@@ -944,11 +787,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                             tickFormatter={(v) => (v === 0 ? "נמוך" : v === 1 ? "גבוה" : "")}
                                         />
                                         <Tooltip content={makeCombinedTooltipRenderer(chartData, yeastDropsByDay)} />
-                                        <Legend
-                                            verticalAlign="bottom"
-                                            align="center"
-                                            wrapperStyle={{ paddingTop: 10, direction: "rtl" }}
-                                        />
+                                        <Legend verticalAlign="bottom" align="center" wrapperStyle={{ paddingTop: 10, direction: "rtl" }} />
 
                                         {METRICS.map((metric) => (
                                             <Line
@@ -979,7 +818,6 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                         </div>
 
                         {METRICS.map((metric) => {
-
                             const metricDays = chartData
                                 .filter((p) => p[metric.key] !== null && p[metric.key] !== undefined)
                                 .map((p) => p.day);
@@ -989,28 +827,19 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                             return (
                                 <div
                                     key={metric.key}
-                                    className={`metric-chart-block ${viewMode === "tabs" && activeMetric === metric.key ? "active" : ""
-                                        }`}
+                                    className={`metric-chart-block ${viewMode === "tabs" && activeMetric === metric.key ? "active" : ""}`}
                                 >
                                     <div className="metric-chart-print-title">{metric.label}</div>
                                     <div className="batch-chart-graph" dir="ltr">
                                         <ResponsiveContainer width="100%" height={260}>
-                                            <LineChart
-                                                data={chartDataWithAverage}
-                                                margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
-                                            >
+                                            <LineChart data={chartDataWithAverage} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
                                                 <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                                                 <XAxis
                                                     dataKey="day"
                                                     type="number"
                                                     domain={xDomain}
                                                     ticks={xTicks}
-                                                    label={{
-                                                        value: "ימים מהבישול",
-                                                        position: "insideBottom",
-                                                        offset: -4,
-                                                        fontSize: 12,
-                                                    }}
+                                                    label={{ value: "ימים מהבישול", position: "insideBottom", offset: -4, fontSize: 12 }}
                                                 />
                                                 <YAxis
                                                     width={40}
@@ -1019,17 +848,8 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                                     tickCount={5}
                                                     tickFormatter={(v) => Number(v).toFixed(1)}
                                                 />
-                                                <Tooltip
-                                                    content={makeTooltipRenderer(metric, chartData, styleAverages, yeastDropsByDay)}
-                                                />
-                                                <Legend
-                                                    verticalAlign="bottom"
-                                                    align="center"
-                                                    wrapperStyle={{
-                                                        paddingTop: 10,
-                                                        direction: "rtl",
-                                                    }}
-                                                />
+                                                <Tooltip content={makeTooltipRenderer(metric, chartData, styleAverages, yeastDropsByDay)} />
+                                                <Legend verticalAlign="bottom" align="center" wrapperStyle={{ paddingTop: 10, direction: "rtl" }} />
                                                 <Line
                                                     type="monotone"
                                                     dataKey={metric.key}
@@ -1044,11 +864,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                                 <Line
                                                     type="monotone"
                                                     dataKey={AVERAGE_KEY_BY_METRIC[metric.key]}
-                                                    name={
-                                                        tank.beerStyle
-                                                            ? `ממוצע ${tank.beerStyle}`
-                                                            : "ממוצע הסגנון"
-                                                    }
+                                                    name={tank.beerStyle ? `ממוצע ${tank.beerStyle}` : "ממוצע הסגנון"}
                                                     stroke="#7c3aed"
                                                     strokeWidth={2}
                                                     strokeDasharray="6 4"
@@ -1074,7 +890,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                                     .filter((p) => p.DHNote && p[metric.key] !== null)
                                                     .map((p) => (
                                                         <ReferenceDot
-                                                            key={`yeast-${metric.key}-${p.day}`}
+                                                            key={`dryhop-${metric.key}-${p.day}`}
                                                             x={p.day}
                                                             y={p[metric.key] as number}
                                                             r={10}
@@ -1088,7 +904,7 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                                     .map((p) => {
                                                         if (p.DHNote === null) return (
                                                             <ReferenceDot
-                                                                key={`yeast-${metric.key}-${p.day}`}
+                                                                key={`close-${metric.key}-${p.day}`}
                                                                 x={p.day}
                                                                 y={p[metric.key] as number}
                                                                 r={10}
@@ -1096,14 +912,14 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                                                 stroke="white"
                                                                 strokeWidth={2}
                                                             />
-                                                        )
-                                                    }
-                                                    )}
+                                                        );
+                                                        return null;
+                                                    })}
                                                 {chartData
                                                     .filter((p) => p.DycitylNote && p[metric.key] !== null)
                                                     .map((p) => (
                                                         <ReferenceDot
-                                                            key={`yeast-${metric.key}-${p.day}`}
+                                                            key={`diacetyl-${metric.key}-${p.day}`}
                                                             x={p.day}
                                                             y={p[metric.key] as number}
                                                             r={10}
@@ -1112,7 +928,6 @@ function BatchHistoryChart({ tank, onClose }: BatchHistoryChartProps) {
                                                             strokeWidth={2}
                                                         />
                                                     ))}
-
                                             </LineChart>
                                         </ResponsiveContainer>
                                     </div>
