@@ -559,45 +559,7 @@ function checkBatchForTank(tankNumber, requestedBatch) {
   };
 }
 
-// ============================================================
-// FORMAT OPTIONAL MEASUREMENT VALUE
-// ============================================================
-
-function formatMeasurementValue(value) {
-
-  if (value === undefined || value === null || value === "") {
-    return "";
-  }
-
-  if (typeof value === "number") {
-    if (Number.isFinite(value)) {
-      return value;
-    }
-    return "";
-  }
-
-  const text = String(value).trim();
-
-  if (!text) {
-    return "";
-  }
-
-  const normalized = text.replace(",", ".");
-  const number = Number(normalized);
-
-  if (Number.isFinite(number)) {
-    return number;
-  }
-
-  const extracted = extractNumber(text);
-
-  if (extracted !== null) {
-    return extracted;
-  }
-
-  return text;
-}
-
+// formatMeasurementValue() is owned by addFermentationMeasurement.js.
 
 function jsonResponse(data) {
   return ContentService
