@@ -46,6 +46,7 @@ function addFermentationNoteViaSheetsApi_(sheetUrl, notes) {
 
   let targetRow = -1;
   let rowValues = null;
+  let createdTodayRow = false;
 
   // Best case: a measurement earlier today already populated this cache. Read
   // only that one row, validate the date, then update H in one API write.
@@ -67,8 +68,8 @@ function addFermentationNoteViaSheetsApi_(sheetUrl, notes) {
   }
 
   // Cache miss/stale cache: one API read of A:H. Find the fermentation header,
-  // then search only rows below it. This preserves the same semantics as the
-  // SpreadsheetApp implementation and avoids matching unrelated dates above it.
+  // then search rows below it. If today's row does not exist yet, create it via
+  // Sheets API as well instead of falling back to SpreadsheetApp.openById().
   if (targetRow === -1) {
     const response = Sheets.Spreadsheets.Values.get(
       spreadsheetId,
@@ -100,19 +101,91 @@ function addFermentationNoteViaSheetsApi_(sheetUrl, notes) {
       return null;
     }
 
+    let lastMeasurementRow = headerIndex + 1;
+
     for (let i = headerIndex + 1; i < rows.length; i++) {
       const row = rows[i] || [];
-      if (fermentationDateMatchesToday_(row[0], clock)) {
+      const rawDate = String(row[0] || "").trim();
+
+      if (rawDate && parseIsraeliDate(rawDate)) {
+        lastMeasurementRow = i + 1;
+      }
+
+      if (fermentationDateMatchesToday_(rawDate, clock)) {
         targetRow = i + 1; // API arrays are zero-based; Sheets rows are 1-based.
         rowValues = row;
       }
     }
 
-    // Creating today's row still has more safety/merge rules in the existing
-    // implementation. Keep that case on SpreadsheetApp for now.
     if (targetRow === -1) {
-      Logger.log("Sheets API note: no row for today; falling back");
-      return null;
+      targetRow = lastMeasurementRow + 1;
+      const existingTarget = rows[targetRow - 1] || [];
+      const occupied = existingTarget.some(function (value) {
+        return String(value || "").trim() !== "";
+      });
+
+      if (occupied) {
+        throw new Error(
+          "SAFETY STOP: Sheets API note target row " + targetRow +
+          " is not empty. Nothing was written."
+        );
+      }
+
+      const newNotes = String(notes || "").trim();
+      const newRow = [
+        clock.dateText,
+        clock.timeText,
+        "",
+        "",
+        "",
+        "",
+        "",
+        newNotes
+      ];
+
+      // USER_ENTERED preserves the spreadsheet's normal date/time semantics and
+      // existing column formatting while still avoiding SpreadsheetApp entirely.
+      Sheets.Spreadsheets.Values.update(
+        {
+          majorDimension: "ROWS",
+          values: [newRow]
+        },
+        spreadsheetId,
+        "A" + targetRow + ":H" + targetRow,
+        { valueInputOption: "USER_ENTERED" }
+      );
+
+      rowValues = newRow;
+      createdTodayRow = true;
+      cache.put(todayKey, String(targetRow), 21600);
+
+      const createTotalMs = Date.now() - startedAt;
+      Logger.log(
+        "Sheets API note: created row " + targetRow +
+        " | total " + createTotalMs + "ms"
+      );
+      logToSheet(
+        "Sheets API fermentation note row=" + targetRow +
+        " created=true total=" + createTotalMs + "ms"
+      );
+
+      return {
+        success: true,
+        overwritten: false,
+        spreadsheetId: spreadsheetId,
+        row: targetRow,
+        date: clock.dateText,
+        time: clock.timeText,
+        sugar: "",
+        temperature: "",
+        pressure: "",
+        pH: "",
+        carbonation: "",
+        notes: newNotes,
+        sheetUrl: sheetUrl,
+        fastPath: "sheets-api-note-create",
+        totalMs: createTotalMs
+      };
     }
   }
 
@@ -124,15 +197,17 @@ function addFermentationNoteViaSheetsApi_(sheetUrl, notes) {
     ? oldNotes + " | " + newNotes
     : (newNotes || oldNotes);
 
-  Sheets.Spreadsheets.Values.update(
-    {
-      majorDimension: "ROWS",
-      values: [[mergedNotes]]
-    },
-    spreadsheetId,
-    "H" + targetRow,
-    { valueInputOption: "RAW" }
-  );
+  if (!createdTodayRow) {
+    Sheets.Spreadsheets.Values.update(
+      {
+        majorDimension: "ROWS",
+        values: [[mergedNotes]]
+      },
+      spreadsheetId,
+      "H" + targetRow,
+      { valueInputOption: "RAW" }
+    );
+  }
 
   cache.put(todayKey, String(targetRow), 21600);
 
