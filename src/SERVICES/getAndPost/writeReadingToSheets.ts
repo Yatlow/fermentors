@@ -57,6 +57,64 @@ function isNoteOnlyReading(reading: ReadingToSend): boolean {
     return !hasMeasurement && hasNotes;
 }
 
+function showBackgroundSheetWarning(
+    readings: ReadingToSend[],
+    failedResults?: writeReadingResult[]
+): void {
+    if (typeof document === "undefined") return;
+
+    const failedIds = new Set(
+        (failedResults ?? [])
+            .map((result) => String(result.tankId ?? ""))
+            .filter(Boolean)
+    );
+
+    const affected = readings.filter((reading) => {
+        if (failedIds.size === 0) return true;
+        return failedIds.has(String(reading.tankId ?? ""));
+    });
+
+    const tanks = affected
+        .map((reading) => {
+            const candidate = reading as ReadingToSend & { tankNumber?: string | number };
+            return candidate.tankNumber ?? reading.tankId;
+        })
+        .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
+        .map(String);
+
+    const uniqueTanks = [...new Set(tanks)];
+    const existing = document.getElementById("sheet-sync-warning-modal");
+    existing?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "sheet-sync-warning-modal";
+    overlay.className = "modal-overlay";
+    overlay.setAttribute("dir", "rtl");
+
+    const box = document.createElement("div");
+    box.className = "modal-box";
+
+    const title = document.createElement("h3");
+    title.textContent = "אזהרה לגבי הכתיבה לגיליון";
+
+    const text = document.createElement("p");
+    const tankText = uniqueTanks.length > 0
+        ? ` עבור מיכל${uniqueTanks.length > 1 ? "ים" : ""} ${uniqueTanks.join(", ")}`
+        : "";
+    text.textContent =
+        `הפעולה נשמרה במערכת, אבל לא התקבל אישור שהכתיבה לגיליון הושלמה${tankText}. מומלץ לבדוק את הגיליון.`;
+
+    const button = document.createElement("button");
+    button.className = "btn-primary";
+    button.type = "button";
+    button.textContent = "הבנתי";
+    button.addEventListener("click", () => overlay.remove());
+
+    box.append(title, text, button);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+}
+
 async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<void> {
     const packagingReadings = readings
         .map((reading) => reading as PackagingReading)
@@ -119,8 +177,8 @@ export async function writeReadingsToSheets(
     if (noteOnlyBatch) {
         // Wait only for the realtime Firestore update. The authoritative Sheet
         // write keeps running in the background with the same idempotent request
-        // semantics. Failures are surfaced in the console but no longer hold the
-        // cellar modal open for 3-5 seconds.
+        // semantics. If confirmation never arrives, show a warning modal; do not
+        // suggest retrying because the Sheet side effect may still have succeeded.
         await optimisticFirestorePromise;
 
         void sheetPromise
@@ -130,6 +188,7 @@ export async function writeReadingsToSheets(
                         "Background note Sheet sync returned failure:",
                         parsed.error || parsed.message
                     );
+                    showBackgroundSheetWarning(readings);
                     return;
                 }
 
@@ -137,10 +196,12 @@ export async function writeReadingsToSheets(
                 const failed = results.filter((result) => !result.success);
                 if (failed.length > 0) {
                     console.error("Background note Sheet sync partially failed:", failed);
+                    showBackgroundSheetWarning(readings, failed);
                 }
             })
             .catch((error) => {
                 console.error("Background note Sheet sync failed:", error);
+                showBackgroundSheetWarning(readings);
             });
 
         return readings.map((reading) => ({
