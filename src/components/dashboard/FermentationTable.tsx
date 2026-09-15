@@ -7,7 +7,7 @@ type Props = {
     brewDate?: string | null;
 };
 
-const MIN_ZOOM = 30;
+const MIN_ZOOM = 15;
 const MAX_ZOOM = 120;
 const ZOOM_STEP = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -120,8 +120,8 @@ export default function FermentationTable({ measurements, brewDate }: Props) {
         const naturalWidth = renderedWidth / Math.max(currentScale, 0.01);
         if (!naturalWidth) return;
 
-        const availableWidth = Math.max(0, viewport.clientWidth - 4);
-        const nextZoom = Math.floor((availableWidth / naturalWidth) * 100 * 0.99);
+        const availableWidth = Math.max(0, viewport.clientWidth - 6);
+        const nextZoom = Math.floor((availableWidth / naturalWidth) * 100 * 0.985);
         setZoom(clampZoom(Math.min(100, nextZoom)));
         setIsFitted(true);
         viewport.scrollLeft = 0;
@@ -238,9 +238,9 @@ export default function FermentationTable({ measurements, brewDate }: Props) {
                 <table className="fermentation-table" ref={tableRef} style={tableStyle}>
                     <thead>
                         <tr>
+                            <th className="brew-age-column">גיל בישול</th>
                             <th>תאריך</th>
                             <th>שעה</th>
-                            <th className="brew-age-column">גיל בישול</th>
                             <th className="metric-plato">סוכר</th>
                             <th className="metric-temp">טמפ׳</th>
                             <th className="metric-pressure">לחץ</th>
@@ -259,9 +259,9 @@ export default function FermentationTable({ measurements, brewDate }: Props) {
                                     key={String(measurement.id ?? index)}
                                     className={rowEventClass(notes)}
                                 >
+                                    <td className="brew-age-cell">{formatBrewAge(measurement, brewDate)}</td>
                                     <td className="date-cell">{formatDate(measurement)}</td>
                                     <td className="time-cell">{formatTime(measurement)}</td>
-                                    <td className="brew-age-cell">{formatBrewAge(measurement, brewDate)}</td>
                                     <td className="metric-cell metric-plato">{displayValue(measurement.plato, "°P")}</td>
                                     <td className="metric-cell metric-temp">{displayValue(measurement.temp, "°C")}</td>
                                     <td className="metric-cell metric-pressure">{displayValue(measurement.pressure, " bar")}</td>
