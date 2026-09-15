@@ -23,7 +23,9 @@ service cloud.firestore {
     match /approvedUsers/{email} {
       allow get: if isLoggedIn() &&
         request.auth.token.email == email;
-      allow list: if isLoggedIn();
+      // Do not expose the approved e-mail directory to arbitrary authenticated
+      // Google accounts. Approved users still need list access for the admin UI.
+      allow list: if isApprovedUser();
       allow write: if isAdmin();
       allow create: if isAdmin();
       allow delete: if isAdmin();
