@@ -12,6 +12,7 @@ import {
     DAILY_FIELD_LABELS,
     calculateCellarHealthScore,
     healthBand,
+    isActionableHealthRecommendation,
     missingDailyMeasurementFields,
     type MeasurementIssue,
     type ScoredRecommendation,
@@ -99,10 +100,10 @@ function isHotTank(tank: Fermentor): boolean {
 function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRecomendations>>): Recommendation[] {
     if (!result) return [];
 
-    // Keep this list aligned with FermentorInfoBox: that UI treats req=true as
-    // the source of truth for an active recommendation. The separate display
-    // flag is not used there, so it must not make the health score disagree
-    // with the recommendation card the cellar team actually sees.
+    // Health is deliberately an "act today" surface. The recommendation engine
+    // may keep req=true with display=false for useful future guidance (for
+    // example "repeat carbonation tomorrow"). Those hints stay in the detailed
+    // cellar recommendation view but must not become a health alert or penalty.
     const candidates: Array<Recommendation | undefined | null> = [
         result.requiresDryHop,
         result.requiresPresureClose,
@@ -120,7 +121,7 @@ function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRe
 
     return candidates
         .filter((recommendation): recommendation is Recommendation => Boolean(recommendation))
-        .filter((recommendation) => recommendation.req === true)
+        .filter(isActionableHealthRecommendation)
         .sort((a, b) => Number(b.importance ?? 1) - Number(a.importance ?? 1));
 }
 
@@ -370,6 +371,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
     );
     const pendingSyncCount = syncJobs.filter((job) => job.state === "pending").length;
     const failedSyncCount = syncJobs.filter((job) => job.state === "failed").length;
+    const isPreviewHost = typeof window !== "undefined" && window.location.hostname.includes("--pr");
 
     const scoreStyle = {
         "--health-score": `${healthScore}%`,
@@ -398,8 +400,8 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         {analyzing
                             ? "מחשב המלצות ומדידות…"
                             : attentionCount === 0
-                                ? "אין כרגע המלצות פעילות וסבב המדידות הושלם"
-                                : `${attentionCount} דברים דורשים תשומת לב`}
+                                ? "אין כרגע פעולות סלרינג לביצוע וסבב המדידות הושלם"
+                                : `${attentionCount} דברים דורשים תשומת לב היום`}
                     </span>
                     {!analyzing && analysis.checkedTanks > 0 && (
                         <span className="health-measurement-progress">
@@ -410,13 +412,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
                 <span className="health-summary-counts">
                     {syncReadError ? (
-                        <span className="health-sync-pill health-sync-warning">? לא ניתן לבדוק סנכרון</span>
+                        <span className="health-sync-pill health-sync-warning">? מצב סנכרון לא זמין</span>
                     ) : failedSyncCount > 0 ? (
                         <span className="health-sync-pill health-sync-failed">! {failedSyncCount} סנכרונים נכשלו</span>
                     ) : pendingSyncCount > 0 ? (
                         <span className="health-sync-pill health-sync-pending">↻ {pendingSyncCount} בסנכרון</span>
                     ) : (
-                        <span className="health-sync-pill health-sync-ok">✓ סנכרון גיליונות תקין</span>
+                        <span className="health-sync-pill health-sync-ok">✓ הכל מסונכרן</span>
                     )}
 
                     {counts.critical > 0 && (
@@ -434,12 +436,12 @@ export default function HealthDashboard({ brews, specs }: Props) {
             {expanded && (
                 <div className="health-dashboard-details">
                     <div className="health-score-explanation">
-                        הציון מבוסס על המלצות הסלרינג הפעילות ועל השלמת המדידות של היום. פעולה שטופלה ונעלמה מהמלצות הסלרינג מפסיקה להוריד את הציון.
+                        הציון מבוסס רק על המלצות סלרינג שמוצגות לביצוע היום ועל השלמת המדידות של היום. המלצה עתידית לא מוצגת כאן ולא מורידה ציון; פעולה שטופלה ונעלמה מהמלצות הסלרינג מפסיקה להוריד את הציון.
                     </div>
 
                     {analysis.alerts.length === 0 && !analyzing ? (
                         <div className="health-empty-state">
-                            אין כרגע המלצות סלרינג פעילות וכל המדידות הנדרשות להיום קיימות.
+                            אין כרגע פעולות סלרינג לביצוע וכל המדידות הנדרשות להיום קיימות.
                         </div>
                     ) : (
                         analysis.alerts.map((alert) => (
@@ -461,9 +463,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     <div className="health-sync-section">
                         <strong>סנכרון לגיליונות</strong>
                         {syncReadError ? (
-                            <span>לא ניתן כרגע לקרוא את מצב תור הסנכרון.</span>
+                            <span>
+                                {isPreviewHost
+                                    ? "גרסת ה-PR משתמשת כרגע בכללי Firestore של הפרודקשן, שעדיין לא כוללים את תור הסנכרון החדש. אחרי פריסת הכללים מצב הסנכרון יהיה זמין כאן."
+                                    : "לא ניתן כרגע לקרוא את מצב תור הסנכרון."}
+                            </span>
                         ) : syncAlerts.length === 0 ? (
-                            <span className="health-sync-ok-text">✓ אין סנכרוני גיליון ממתינים או כושלים.</span>
+                            <span className="health-sync-ok-text">✓ הכל מסונכרן — אין סנכרוני גיליון ממתינים או כושלים.</span>
                         ) : (
                             syncAlerts.map((alert) => (
                                 <article
