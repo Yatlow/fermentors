@@ -4,6 +4,12 @@
 
 const PACKAGING_LAYOUT_CACHE_SECONDS = 21600; // 6 hours
 
+function roundPackagingValue_(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  return Math.round((numeric + Number.EPSILON) * 100) / 100;
+}
+
 function normalizeLabel(text) {
   return String(text || "")
     .replace(/[:?？׃\-–—"'״׳]/g, "")
@@ -222,7 +228,7 @@ function updatePackagingInfo(
           packagingUpdateCellRequest_(
             layout.sheetId,
             layout.kegs,
-            formatMeasurementValue(kegs)
+            roundPackagingValue_(formatMeasurementValue(kegs))
           )
         );
         updatedKegs = true;
@@ -237,7 +243,7 @@ function updatePackagingInfo(
           packagingUpdateCellRequest_(
             layout.sheetId,
             layout.crates,
-            formatMeasurementValue(crates)
+            roundPackagingValue_(formatMeasurementValue(crates))
           )
         );
         updatedCrates = true;
@@ -249,7 +255,12 @@ function updatePackagingInfo(
     if (boolValue === true && totalLiters !== undefined && totalLiters !== null) {
       if (layout.total) {
         requests.push(
-          packagingUpdateCellRequest_(layout.sheetId, layout.total, Number(totalLiters))
+          packagingUpdateCellRequest_(
+            layout.sheetId,
+            layout.total,
+            roundPackagingValue_(totalLiters),
+            { type: "NUMBER", pattern: "0.00" }
+          )
         );
         updatedTotal = true;
       } else {
@@ -258,11 +269,12 @@ function updatePackagingInfo(
 
       if (shrinkagePercent !== undefined && shrinkagePercent !== null) {
         if (layout.shrinkage) {
+          const roundedShrinkagePercent = roundPackagingValue_(shrinkagePercent);
           requests.push(
             packagingUpdateCellRequest_(
               layout.sheetId,
               layout.shrinkage,
-              Number(shrinkagePercent) / 100,
+              Number(roundedShrinkagePercent) / 100,
               { type: "PERCENT", pattern: "0.00%" }
             )
           );
@@ -317,7 +329,7 @@ function writeValueBelowLabel(sheet, values, patterns, value) {
 
   const targetRow = pos.row + 2;
   const targetCol = pos.col + 1;
-  sheet.getRange(targetRow, targetCol).setValue(formatMeasurementValue(value));
+  sheet.getRange(targetRow, targetCol).setValue(roundPackagingValue_(formatMeasurementValue(value)));
   return true;
 }
 
@@ -344,7 +356,7 @@ function checkLegacyPackagingCell(sheetUrl, cellType) {
   const rawValue = Number(rawText.replace(",", "."));
 
   return {
-    rawValue: Number.isFinite(rawValue) ? rawValue : null,
+    rawValue: Number.isFinite(rawValue) ? roundPackagingValue_(rawValue) : null,
     cellType: cellType,
     row: target.row,
     col: target.col
