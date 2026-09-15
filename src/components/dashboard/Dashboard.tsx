@@ -1,21 +1,23 @@
 import { type Dispatch, type SetStateAction } from "react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
+import HealthDashboard from "./HealthDashboard";
 import TankCard from "./TankCard";
 
 export type DashboardProps = {
-    selectedStatuses: string[],
-    filteredTankCount: number,
-    totalVolumes: Record<string, number>,
-    selectedStyles: string[],
-    filteredBrews: Fermentor[],
-    setSelectedStyles: Dispatch<SetStateAction<string[]>>,
+    selectedStatuses: string[];
+    filteredTankCount: number;
+    totalVolumes: Record<string, number>;
+    selectedStyles: string[];
+    filteredBrews: Fermentor[];
+    healthBrews?: Fermentor[];
+    setSelectedStyles: Dispatch<SetStateAction<string[]>>;
     handleUpdatePasivation: (
         tankId: string,
         newDate: string
-    ) => Promise<void>,
-    specs: SpecChart | null,
-}
+    ) => Promise<void>;
+    specs: SpecChart | null;
+};
 
 export default function Dashboard({
     selectedStatuses,
@@ -23,11 +25,11 @@ export default function Dashboard({
     totalVolumes,
     selectedStyles,
     filteredBrews,
+    healthBrews,
     setSelectedStyles,
     handleUpdatePasivation,
     specs,
 }: DashboardProps) {
-
     const handleStyleToggle = (style: string): void => {
         if (style === "הכל") {
             setSelectedStyles(["הכל"]);
@@ -51,6 +53,8 @@ export default function Dashboard({
 
     return (
         <div className="dashboard">
+            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} />
+
             <div className="dashboard-filter-info">
                 <span>מציג מסננים:</span>
                 <strong>
