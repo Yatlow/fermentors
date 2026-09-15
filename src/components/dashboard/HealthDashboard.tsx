@@ -99,9 +99,10 @@ function isHotTank(tank: Fermentor): boolean {
 function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRecomendations>>): Recommendation[] {
     if (!result) return [];
 
-    // lastMessurmentUpToDate is deliberately omitted here. The health dashboard
-    // performs a stricter field-by-field daily-round check below, so showing both
-    // would duplicate the same operational problem.
+    // Keep this list aligned with FermentorInfoBox: that UI treats req=true as
+    // the source of truth for an active recommendation. The separate display
+    // flag is not used there, so it must not make the health score disagree
+    // with the recommendation card the cellar team actually sees.
     const candidates: Array<Recommendation | undefined | null> = [
         result.requiresDryHop,
         result.requiresPresureClose,
@@ -119,7 +120,7 @@ function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRe
 
     return candidates
         .filter((recommendation): recommendation is Recommendation => Boolean(recommendation))
-        .filter((recommendation) => recommendation.req === true && recommendation.display === true)
+        .filter((recommendation) => recommendation.req === true)
         .sort((a, b) => Number(b.importance ?? 1) - Number(a.importance ?? 1));
 }
 
