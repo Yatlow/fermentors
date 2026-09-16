@@ -27,7 +27,7 @@
 }
 
 .sheet-sync-status-header span,
-.sheet-sync-direction-row span {
+.sheet-sync-direction-card > span {
     color: #64748b;
     font-size: 0.76rem;
     line-height: 1.45;
@@ -37,6 +37,7 @@
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     min-height: 26px;
     padding: 3px 9px;
     border-radius: 999px;
@@ -67,25 +68,34 @@
 
 .sheet-sync-direction-grid {
     display: grid;
-    gap: 7px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
     margin-top: 10px;
     padding-top: 9px;
     border-top: 1px solid #eef2f7;
 }
 
-.sheet-sync-direction-row {
+.sheet-sync-direction-card {
+    min-width: 0;
     display: grid;
-    gap: 2px;
+    gap: 6px;
+    padding: 9px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 11px;
+    background: #f8fafc;
 }
 
-.sheet-sync-direction-row strong {
-    font-size: 0.78rem;
+.sheet-sync-direction-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.sheet-sync-direction-header strong {
+    min-width: 0;
+    font-size: 0.79rem;
     color: #334155;
-}
-
-.sheet-sync-pull-info {
-    padding-top: 7px;
-    border-top: 1px dashed #e2e8f0;
 }
 
 /* The sync feature used to be rendered inside the cellar-health card. Keep the
@@ -102,16 +112,20 @@
         padding: 10px;
     }
 
-    .sheet-sync-status-header {
-        gap: 8px;
-    }
-
     .sheet-sync-status-header strong {
         font-size: 0.86rem;
     }
 
     .sheet-sync-status-header span,
-    .sheet-sync-direction-row span {
+    .sheet-sync-direction-card > span {
         font-size: 0.72rem;
+    }
+
+    .sheet-sync-direction-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .sheet-sync-direction-card {
+        padding: 8px 9px;
     }
 }
