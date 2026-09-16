@@ -17,9 +17,6 @@ type SheetPullStatus = {
     startedAt?: Timestamp | Date | string | null;
     sheetsRead?: number;
     configuredSheets?: number;
-    syncErrors?: number;
-    measurementErrors?: number;
-    packagingErrors?: number;
     errorCount?: number;
 };
 
@@ -45,11 +42,21 @@ function ageMinutes(value: unknown, now: number): number | null {
     return Math.max(0, Math.floor((now - date.getTime()) / 60_000));
 }
 
-function relativeMinutes(minutes: number | null): string {
-    if (minutes === null) return "זמן לא ידוע";
-    if (minutes <= 0) return "לפני פחות מדקה";
-    if (minutes === 1) return "לפני דקה";
-    return `לפני ${minutes} דקות`;
+function compactAge(minutes: number | null): string {
+    if (minutes === null) return "ממתין";
+    if (minutes <= 0) return "נקרא עכשיו";
+    if (minutes === 1) return "נקרא לפני דקה";
+    return `נקרא לפני ${minutes} דק׳`;
+}
+
+function DirectionTitle({ from, to }: { from: string; to: string }) {
+    return (
+        <strong className="sheet-sync-direction-title" aria-label={`${from} אל ${to}`}>
+            <span dir={from === "Sheets" ? "ltr" : undefined}>{from}</span>
+            <span className="sheet-sync-direction-arrow" aria-hidden="true">←</span>
+            <span dir={to === "Sheets" ? "ltr" : undefined}>{to}</span>
+        </strong>
+    );
 }
 
 export default function SheetSyncStatus() {
@@ -104,7 +111,7 @@ export default function SheetSyncStatus() {
         else if (oldestPendingMinutes >= 10) severity = "warning";
         else if (pending.length > 0) severity = "pending";
 
-        return { failed, pending, oldestPendingMinutes, severity };
+        return { failed, pending, severity };
     }, [jobs, now]);
 
     const pull = useMemo(() => {
@@ -117,69 +124,40 @@ export default function SheetSyncStatus() {
         else if (age >= 20) severity = "failed";
         else if (age >= 10 || partial) severity = "warning";
 
-        return { age, errors, partial, severity };
+        return { age, partial, severity };
     }, [pullStatus, now]);
 
     const writePill = readError
-        ? "מצב לא זמין"
+        ? "לא זמין"
         : writeStatus.failed.length > 0
             ? `${writeStatus.failed.length} נכשלו`
             : writeStatus.pending.length > 0
                 ? `${writeStatus.pending.length} ממתינות`
                 : "מסונכרן";
 
-    const writeText = readError
-        ? "לא ניתן כרגע לקרוא את תור הכתיבות לגיליונות."
-        : writeStatus.failed.length > 0
-            ? "יש כתיבות מהאפליקציה ל-Sheets שלא הושלמו ודורשות בדיקה."
-            : writeStatus.pending.length > 0
-                ? `יש כתיבות שממתינות לאישור${writeStatus.oldestPendingMinutes > 0 ? ` עד ${writeStatus.oldestPendingMinutes} דק׳` : ""}.`
-                : "כל הכתיבות מהאפליקציה ל-Sheets מסונכרנות.";
-
     const pullPill = readError
-        ? "מצב לא זמין"
-        : !pullStatus || pull.age === null
-            ? "ממתין לקריאה"
-            : pull.partial
-                ? "קריאה חלקית"
-                : relativeMinutes(pull.age);
-
-    const pullText = readError
-        ? "לא ניתן כרגע לקרוא את מצב מחזור הסנכרון מהגיליונות."
-        : !pullStatus || pull.age === null
-            ? "עדיין לא התקבל heartbeat ממחזור הקריאה של Apps Script."
-            : pull.partial
-                ? `מחזור הקריאה האחרון מהגיליונות הסתיים חלקית ${relativeMinutes(pull.age)}${pull.errors > 0 ? ` (${pull.errors} שגיאות)` : ""}.`
-                : `קראתי את כל הנתונים מהגיליונות ${relativeMinutes(pull.age)}.`;
+        ? "לא זמין"
+        : pull.partial
+            ? "קריאה חלקית"
+            : compactAge(pull.age);
 
     return (
         <section className="sheet-sync-status" dir="rtl">
-            <div className="sheet-sync-status-header">
-                <div>
-                    <strong>סנכרון נתונים</strong>
-                    <span>כל כיוון נבדק בנפרד כדי לא לבלבל בין כתיבה ל-Sheets לבין קריאה מהם.</span>
-                </div>
-            </div>
+            <strong className="sheet-sync-status-title">סנכרון נתונים</strong>
 
             <div className="sheet-sync-direction-grid">
                 <div className="sheet-sync-direction-card">
-                    <div className="sheet-sync-direction-header">
-                        <strong>אפליקציה → Sheets</strong>
-                        <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : writeStatus.severity}`}>
-                            {writePill}
-                        </span>
-                    </div>
-                    <span>{writeText}</span>
+                    <DirectionTitle from="אפליקציה" to="Sheets" />
+                    <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : writeStatus.severity}`}>
+                        {writePill}
+                    </span>
                 </div>
 
                 <div className="sheet-sync-direction-card">
-                    <div className="sheet-sync-direction-header">
-                        <strong>Sheets → מערכת</strong>
-                        <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : pull.severity}`}>
-                            {pullPill}
-                        </span>
-                    </div>
-                    <span>{pullText}</span>
+                    <DirectionTitle from="Sheets" to="מערכת" />
+                    <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : pull.severity}`}>
+                        {pullPill}
+                    </span>
                 </div>
             </div>
         </section>
