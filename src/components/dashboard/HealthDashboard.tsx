@@ -68,22 +68,51 @@ function isHotTank(tank: Fermentor): boolean {
     return tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
 }
 
+function timestampToMillis(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
+
+    if (value instanceof Date) {
+        const ms = value.getTime();
+        return Number.isFinite(ms) ? ms : null;
+    }
+
+    if (typeof value === "object") {
+        const timestamp = value as {
+            toDate?: () => Date;
+            seconds?: unknown;
+            _seconds?: unknown;
+        };
+
+        if (typeof timestamp.toDate === "function") {
+            try {
+                const ms = timestamp.toDate().getTime();
+                if (Number.isFinite(ms)) return ms;
+            } catch {
+                // Fall through to raw seconds/string parsing.
+            }
+        }
+
+        const seconds = Number(timestamp.seconds ?? timestamp._seconds);
+        if (Number.isFinite(seconds)) return seconds * 1000;
+    }
+
+    const ms = new Date(String(value)).getTime();
+    return Number.isFinite(ms) ? ms : null;
+}
+
 /**
  * A tank does not participate in the cellar health index during the first
- * 24 hours after the actual "out to fermentor" stage began. stageStartTime is
- * persisted as a Firestore timestamp and reaches the client as an ISO string.
- * If legacy data has no usable timestamp we keep the previous behaviour rather
- * than silently excluding the tank indefinitely.
+ * 24 hours after the actual "out to fermentor" stage began. Firestore may
+ * expose stageStartTime as a Timestamp object (toDate/seconds), while legacy
+ * or serialized data may contain an ISO string. If no usable timestamp exists
+ * we keep the previous behaviour rather than silently excluding the tank.
  */
 function isInFermentationMeasurementGracePeriod(
     tank: Fermentor,
     nowMs: number = Date.now()
 ): boolean {
-    const rawStartedAt = tank.brewProgress?.stageStartTime;
-    if (!rawStartedAt) return false;
-
-    const startedAtMs = new Date(rawStartedAt).getTime();
-    if (!Number.isFinite(startedAtMs)) return false;
+    const startedAtMs = timestampToMillis(tank.brewProgress?.stageStartTime);
+    if (startedAtMs === null) return false;
 
     const elapsedMs = nowMs - startedAtMs;
     return elapsedMs >= 0 && elapsedMs < FERMENTATION_MEASUREMENT_GRACE_MS;
