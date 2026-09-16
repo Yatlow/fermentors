@@ -243,6 +243,62 @@ function buildPackagingRecommendation(
 
   const selected: WeeklyPackagingRecommendation[] = [];
 
+  const makeRun = (
+    tank: Tank,
+    originalLiters: number,
+    p: Product,
+    quantity: number,
+    id: string,
+  ): WeeklyPackagingRecommendation => {
+    const fifo = fifoMeta.get(tank.id) ?? { rank: 1, total: 1 };
+    return {
+      id,
+      productId: p.id,
+      quantity,
+      tankId: tank.id,
+      tankNumber: String(tank.number),
+      liters: originalLiters,
+      dayCost: p.type === "crates" ? 1 : quantity / 150,
+      sizeLabel: brewSizeLabel(originalLiters, tank.number),
+      fifoRank: fifo.rank,
+      fifoTotal: fifo.total,
+    };
+  };
+
+  const drainingBundle = (
+    tank: Tank,
+    originalLiters: number,
+    first: WeeklyPackagingRecommendation,
+  ) => {
+    const firstProduct = products.find((p) => p.id === first.productId)!;
+    let residual = Math.max(0, (remainingByTank.get(tank.id) ?? 0) - first.quantity * litersPerUnit(firstProduct));
+    const bundle: WeeklyPackagingRecommendation[] = [first];
+    let part = 1;
+
+    while (residual >= 20 && part <= 4) {
+      const alternatives = products
+        .filter((p) => sameStyle(p.style, tank.style))
+        .sort((a, b) => Number(a.type === firstProduct.type) - Number(b.type === firstProduct.type));
+      const drainProduct = alternatives[0];
+      if (!drainProduct) break;
+      const fullUnits = Math.floor((residual + 1e-8) / litersPerUnit(drainProduct));
+      if (fullUnits <= 0) break;
+      const quantity = drainProduct.type === "crates" ? Math.min(252, fullUnits) : fullUnits;
+      if (quantity <= 0) break;
+      bundle.push(makeRun(
+        tank,
+        originalLiters,
+        drainProduct,
+        quantity,
+        `${first.id}:drain:${part}`,
+      ));
+      residual = Math.max(0, residual - quantity * litersPerUnit(drainProduct));
+      part += 1;
+    }
+
+    return { bundle, residual };
+  };
+
   while (true) {
     const candidates: Array<WeeklyPackagingRecommendation & { cover: number; brewed: string }> = [];
 
@@ -256,26 +312,25 @@ function buildPackagingRecommendation(
         const demand = weeklyDemand(p);
         if (!Number.isFinite(cover) || demand <= 0 || cover >= targets.totalTargetWeeks) continue;
 
-        const maxByCoverage = Math.floor(Math.max(0, (targets.maxTotalWeeks - cover) * demand) + 1e-8);
         const fullByTank = Math.floor((remainingLiters + 1e-8) / litersPerUnit(p));
-        if (maxByCoverage <= 0 || fullByTank <= 0) continue;
+        if (fullByTank <= 0) continue;
 
-        let quantity = Math.min(fullByTank, maxByCoverage);
-        if (p.type === "crates") quantity = Math.min(252, quantity);
+        let quantity: number;
+        if (p.type === "crates") {
+          // Coverage decides WHETHER to package. Once the machine is started,
+          // operational batch size wins even when it crosses maxTotalWeeks.
+          const size = brewSizeLabel(originalLiters, tank.number);
+          quantity = size === "בודד"
+            ? Math.min(252, fullByTank)
+            : Math.min(168, fullByTank);
+        } else {
+          const maxByCoverage = Math.floor(Math.max(0, (targets.maxTotalWeeks - cover) * demand) + 1e-8);
+          quantity = Math.min(fullByTank, maxByCoverage);
+        }
         if (quantity <= 0) continue;
 
-        const fifo = fifoMeta.get(tank.id) ?? { rank: 1, total: 1 };
         candidates.push({
-          id: `weekly-pack:${week}:${tank.id}:${p.id}`,
-          productId: p.id,
-          quantity,
-          tankId: tank.id,
-          tankNumber: String(tank.number),
-          liters: originalLiters,
-          dayCost: p.type === "crates" ? 1 : quantity / 150,
-          sizeLabel: brewSizeLabel(originalLiters, tank.number),
-          fifoRank: fifo.rank,
-          fifoTotal: fifo.total,
+          ...makeRun(tank, originalLiters, p, quantity, `weekly-pack:${week}:${tank.id}:${p.id}`),
           cover,
           brewed: tank.brewed,
         });
@@ -289,14 +344,28 @@ function buildPackagingRecommendation(
       a.tankNumber.localeCompare(b.tankNumber),
     );
 
-    const next = candidates.find((candidate) => daysNeeded([...selected, candidate]) <= capacity);
-    if (!next) break;
+    let picked: { bundle: WeeklyPackagingRecommendation[]; residual: number } | null = null;
+    for (const candidate of candidates) {
+      const tank = eligibleTanks.find((entry) => entry.tank.id === candidate.tankId)?.tank;
+      const originalLiters = eligibleTanks.find((entry) => entry.tank.id === candidate.tankId)?.liters;
+      if (!tank || originalLiters === undefined) continue;
+      const attempt = drainingBundle(tank, originalLiters, candidate);
+      if (attempt.residual >= 20) continue;
+      if (daysNeeded([...selected, ...attempt.bundle]) <= capacity) {
+        picked = attempt;
+        break;
+      }
+    }
+    if (!picked) break;
 
-    selected.push(next);
-    const p = products.find((x) => x.id === next.productId)!;
-    const usedLiters = next.quantity * litersPerUnit(p);
-    remainingByTank.set(next.tankId, Math.max(0, (remainingByTank.get(next.tankId) ?? 0) - usedLiters));
-    virtualCover.set(p.id, (virtualCover.get(p.id) ?? 0) + next.quantity / weeklyDemand(p));
+    selected.push(...picked.bundle);
+    const tankId = picked.bundle[0].tankId;
+    remainingByTank.set(tankId, picked.residual);
+    for (const run of picked.bundle) {
+      const p = products.find((x) => x.id === run.productId)!;
+      const demand = weeklyDemand(p);
+      if (demand > 0) virtualCover.set(p.id, (virtualCover.get(p.id) ?? 0) + run.quantity / demand);
+    }
   }
 
   return { recommendation: selected, days: daysNeeded(selected), capacity };
