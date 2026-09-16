@@ -1,10 +1,67 @@
 export type MeasurementHistoryLike = {
   id?: string | number | null;
+  notes?: string | number | null;
+  [key: string]: unknown;
 };
 
 export function measurementDayKeyFromId(id: unknown): string | null {
   const match = String(id ?? "").trim().match(/^(\d{4}-\d{2}-\d{2})(?:_\d{4})?$/);
   return match ? match[1] : null;
+}
+
+function hasPatchValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "";
+}
+
+function mergeNotes(existing: unknown, incoming: unknown): unknown {
+  if (!hasPatchValue(incoming)) return existing;
+
+  const oldText = String(existing ?? "").trim();
+  const newText = String(incoming ?? "").trim();
+  if (!newText) return existing;
+  if (!oldText) return newText;
+  if (oldText === newText || oldText.split(" | ").includes(newText)) return oldText;
+  return `${oldText} | ${newText}`;
+}
+
+/**
+ * Merge an app-originated reading into the currently visible history without
+ * inventing a second row for the same day. If that day already exists we keep
+ * its canonical id/time and only overlay the fields the app just reported.
+ *
+ * This mirrors the Sheet behavior: one row per day, numeric fields are merged,
+ * and action notes are appended to today's notes.
+ */
+export function mergeOptimisticMeasurementIntoHistory<T extends MeasurementHistoryLike>(
+  rows: T[],
+  patch: T
+): T[] {
+  const day = measurementDayKeyFromId(patch.id);
+  if (!day) return collapseMeasurementsToLatestPerDay([...rows, patch]);
+
+  const collapsed = collapseMeasurementsToLatestPerDay(rows);
+  const index = collapsed.findIndex((row) => measurementDayKeyFromId(row.id) === day);
+
+  if (index === -1) {
+    return collapseMeasurementsToLatestPerDay([...collapsed, patch]);
+  }
+
+  const current = collapsed[index];
+  const merged = { ...current } as T;
+
+  Object.entries(patch).forEach(([key, value]) => {
+    if (key === "id") return;
+    if (key === "notes") {
+      (merged as MeasurementHistoryLike).notes = mergeNotes(current.notes, value) as string | number | null | undefined;
+      return;
+    }
+    if (hasPatchValue(value)) {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  });
+
+  collapsed[index] = merged;
+  return collapsed.sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
 }
 
 /**

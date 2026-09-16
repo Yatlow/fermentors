@@ -1,11 +1,16 @@
 import { collection, getDocsFromServer, orderBy, query, type QuerySnapshot, type DocumentData } from "firebase/firestore";
 import { db } from "../../firebase";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
-import { collapseMeasurementsToLatestPerDay } from "./measurementHistoryModel";
+import {
+  collapseMeasurementsToLatestPerDay,
+  measurementDayKeyFromId,
+  mergeOptimisticMeasurementIntoHistory,
+} from "./measurementHistoryModel";
 
 type Entry = { data?: Measurement[]; loadedAt: number; pending?: Promise<Measurement[]> };
 const cache = new Map<string, Entry>();
 const revisions = new Map<string, string>();
+const optimisticByBatch = new Map<string, Map<string, Measurement>>();
 let watching = false;
 let session = 0;
 const FALLBACK_MS = 5 * 60 * 1000;
@@ -19,6 +24,51 @@ export function notifyMeasurementsUpdated(batchNumber: string | number): void {
   window.dispatchEvent(new CustomEvent(MEASUREMENTS_UPDATED_EVENT, {
     detail: { batchNumber: keyOf(batchNumber) },
   }));
+}
+
+function patchesFor(batchId: string): Measurement[] {
+  return [...(optimisticByBatch.get(batchId)?.values() ?? [])];
+}
+
+function applyOptimisticPatches(rows: Measurement[], batchId: string): Measurement[] {
+  return patchesFor(batchId).reduce(
+    (current, patch) => mergeOptimisticMeasurementIntoHistory(current, patch),
+    collapseMeasurementsToLatestPerDay(rows)
+  );
+}
+
+/**
+ * App-originated cellar actions should affect the index immediately, before the
+ * next Apps Script polling cycle. Keep the optimistic overlay in memory only:
+ * Firestore/Sheets remain authoritative and we do not create a second document
+ * id when today's Sheet row already has an earlier time.
+ */
+export function applyOptimisticMeasurementUpdate(
+  batchNumber: string | number,
+  measurement: Measurement
+): void {
+  const batchId = keyOf(batchNumber);
+  const day = measurementDayKeyFromId(measurement.id);
+  if (!batchId || !day) return;
+
+  let byDay = optimisticByBatch.get(batchId);
+  if (!byDay) {
+    byDay = new Map<string, Measurement>();
+    optimisticByBatch.set(batchId, byDay);
+  }
+
+  const previous = byDay.get(day);
+  const mergedPatch = previous
+    ? mergeOptimisticMeasurementIntoHistory([previous], measurement)[0]
+    : measurement;
+  byDay.set(day, mergedPatch);
+
+  const cached = cache.get(batchId);
+  if (cached?.data) {
+    cached.data = mergeOptimisticMeasurementIntoHistory(cached.data, measurement);
+  }
+
+  notifyMeasurementsUpdated(batchId);
 }
 
 /** Call outside React state updaters, from the EXISTING fermentors listener. */
@@ -42,7 +92,12 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
   });
   const fresh = new Map([...next].map(([id, values]) => [id, values.sort().join("|")]));
   new Set([...revisions.keys(), ...fresh.keys()]).forEach(id => {
-    if (revisions.get(id) !== fresh.get(id)) cache.delete(id);
+    if (revisions.get(id) !== fresh.get(id)) {
+      cache.delete(id);
+      // A new server revision means the authoritative measurement write/sync
+      // caught up with any optimistic app overlay for this batch.
+      optimisticByBatch.delete(id);
+    }
   });
   revisions.clear();
   fresh.forEach((value, id) => revisions.set(id, value));
@@ -53,6 +108,7 @@ export function stopMeasurementRevisionTracking(): void {
   watching = false;
   revisions.clear();
   cache.clear();
+  optimisticByBatch.clear();
   session++;
 }
 
@@ -61,10 +117,19 @@ export function invalidateMeasurementsCache(batchNumber?: string | number): void
   else cache.delete(keyOf(batchNumber));
 }
 
-// Compatibility with the previous writer. Invalidate the WHOLE history rather
-// than marking a partial local update as the latest version of all history.
-export function upsertMeasurementInCache(batchNumber: string | number, _measurement: Measurement): void {
-  invalidateMeasurementsCache(batchNumber);
+// The authoritative Sheet result now exists in Firestore. Remove the matching
+// optimistic day overlay, invalidate history, and wake every score/recommendation
+// consumer immediately.
+export function upsertMeasurementInCache(batchNumber: string | number, measurement: Measurement): void {
+  const batchId = keyOf(batchNumber);
+  const day = measurementDayKeyFromId(measurement.id);
+  if (day) {
+    const byDay = optimisticByBatch.get(batchId);
+    byDay?.delete(day);
+    if (byDay?.size === 0) optimisticByBatch.delete(batchId);
+  }
+  invalidateMeasurementsCache(batchId);
+  notifyMeasurementsUpdated(batchId);
 }
 
 export type GetMeasurementsOptions = { forceRefresh?: boolean };
@@ -88,7 +153,7 @@ export async function getMeasurementsByBatch(
       // An invalidation or newer request won the race. Never return old results.
       if (cache.get(id) !== entry) return getMeasurementsByBatch(id);
       const rawRows = snapshot.docs.map(document => ({ ...document.data(), id: document.id })) as Measurement[];
-      const rows = collapseMeasurementsToLatestPerDay(rawRows);
+      const rows = applyOptimisticPatches(rawRows, id);
       entry.data = rows;
       entry.loadedAt = Date.now();
       entry.pending = undefined;

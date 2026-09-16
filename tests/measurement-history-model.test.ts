@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   collapseMeasurementsToLatestPerDay,
   measurementDayKeyFromId,
+  mergeOptimisticMeasurementIntoHistory,
 } from "../src/SERVICES/getAndPost/measurementHistoryModel";
 
 test("measurement day key ignores the time suffix", () => {
@@ -36,4 +37,38 @@ test("unknown legacy ids are preserved instead of silently deleted", () => {
   assert.equal(rows.some((row) => row.id === "legacy-row"), true);
   assert.equal(rows.some((row) => row.id === "2026-09-16_0715"), false);
   assert.equal(rows.some((row) => row.id === "2026-09-16_1042"), true);
+});
+
+test("app carbonation updates today's visible measurement without inventing a second row", () => {
+  const rows = mergeOptimisticMeasurementIntoHistory([
+    { id: "2026-09-15_0900", carbonation: 2.31 },
+    { id: "2026-09-16_0715", temp: 1.2, pressure: 1.1, carbonation: 2.36 },
+  ], {
+    id: "2026-09-16_1127",
+    carbonation: 2.48,
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1].id, "2026-09-16_0715");
+  assert.equal(rows[1].carbonation, 2.48);
+  assert.equal(rows[1].pressure, 1.1);
+});
+
+test("app cellar action appends today's note immediately", () => {
+  const rows = mergeOptimisticMeasurementIntoHistory([
+    {
+      id: "2026-09-16_0715",
+      temp: 1.2,
+      pressure: 1.1,
+      notes: "בדיקת גיזוז 2.30",
+    },
+  ], {
+    id: "2026-09-16_1130",
+    notes: "כיוון פורק ל: 1.3 bar",
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "2026-09-16_0715");
+  assert.equal(rows[0].notes, "בדיקת גיזוז 2.30 | כיוון פורק ל: 1.3 bar");
+  assert.equal(rows[0].pressure, 1.1);
 });

@@ -1,6 +1,9 @@
 import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { auth, db } from "../../firebase";
-import { notifyMeasurementsUpdated, upsertMeasurementInCache } from "./gettAllDataByBatch";
+import {
+    applyOptimisticMeasurementUpdate,
+    upsertMeasurementInCache,
+} from "./gettAllDataByBatch";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
 
 const CURRENT_DATA_FIELDS = [
@@ -19,6 +22,7 @@ const CURRENT_DATA_FIELDS = [
 ] as const;
 
 const TWO_DECIMAL_FIELDS = new Set(["kegs", "crates", "totalLiters", "shrinkagePercent"]);
+const MEASUREMENT_FIELDS = ["temp", "plato", "pH", "pressure", "carbonation", "notes"] as const;
 
 type SheetResult = {
     date?: unknown;
@@ -109,6 +113,33 @@ function noteOutboxPayload(readings: ReadingLike[]): string {
     );
 }
 
+function optimisticMeasurementFromReading(reading: ReadingLike): Measurement | null {
+    if (!hasValue(reading.id)) return null;
+
+    const measurement: Measurement = {
+        id: String(reading.id),
+    };
+    let hasMeasurementValue = false;
+
+    MEASUREMENT_FIELDS.forEach((field) => {
+        const value = reading[field];
+        if (!hasValue(value)) return;
+
+        hasMeasurementValue = true;
+        if (field === "notes") {
+            measurement.notes = String(value).trim();
+            return;
+        }
+
+        const numeric = toNumberOrNull(value);
+        if (numeric !== null) {
+            measurement[field] = numeric;
+        }
+    });
+
+    return hasMeasurementValue ? measurement : null;
+}
+
 export async function pushCurrentDataToFirestore(
     readings: ReadingLike[],
     options: PushCurrentDataOptions = {}
@@ -119,6 +150,10 @@ export async function pushCurrentDataToFirestore(
     let writeCount = 0;
     let hasAuthoritativeSheetResult = false;
     const cacheUpdates: Array<{
+        batchId: string;
+        measurement: Measurement;
+    }> = [];
+    const optimisticCacheUpdates: Array<{
         batchId: string;
         measurement: Measurement;
     }> = [];
@@ -162,12 +197,25 @@ export async function pushCurrentDataToFirestore(
             writeCount += 1;
         }
 
-        if (!sheetResult || !hasValue(reading.batchNumber)) return;
+        if (!hasValue(reading.batchNumber)) return;
+        const batchId = normalizeBatchId(reading.batchNumber as string | number);
+        if (!batchId) return;
+
+        // Before Apps Script answers, immediately overlay the app-originated
+        // reading on today's visible history. This makes carbonation, pressure,
+        // PRV/yeast/cooling notes and every other cellar action affect the score
+        // and recommendations as soon as the Firestore optimistic write succeeds.
+        if (!sheetResult) {
+            const optimisticMeasurement = optimisticMeasurementFromReading(reading);
+            if (optimisticMeasurement) {
+                optimisticCacheUpdates.push({ batchId, measurement: optimisticMeasurement });
+            }
+            return;
+        }
 
         const measurementId = buildMeasurementId(sheetResult.date, sheetResult.time);
-        const batchId = normalizeBatchId(reading.batchNumber as string | number);
 
-        if (!measurementId || !batchId) {
+        if (!measurementId) {
             console.warn("Skipping realtime measurement write: invalid date/time/batch", {
                 tankId: reading.tankId,
                 batchNumber: reading.batchNumber,
@@ -231,16 +279,14 @@ export async function pushCurrentDataToFirestore(
 
     const commitAndRefreshCache = async () => {
         await firestoreBatch.commit();
-        const changedBatches = new Set<string>();
+
+        optimisticCacheUpdates.forEach(({ batchId, measurement }) => {
+            applyOptimisticMeasurementUpdate(batchId, measurement);
+        });
+
         cacheUpdates.forEach(({ batchId, measurement }) => {
             upsertMeasurementInCache(batchId, measurement);
-            changedBatches.add(batchId);
         });
-        // The health index reads measurement history independently from the
-        // currentData cards. Wake it immediately after the authoritative Sheet
-        // row has been reconciled into Firestore instead of waiting for another
-        // unrelated fermentor render.
-        changedBatches.forEach((batchId) => notifyMeasurementsUpdated(batchId));
     };
 
     // Before the Sheet request, callers use this function for the optimistic
