@@ -9,7 +9,6 @@ import {
     query,
     runTransaction,
     serverTimestamp,
-    setDoc,
     type DocumentData,
     type Timestamp,
 } from "firebase/firestore";
@@ -48,6 +47,7 @@ let initialSnapshotSeen = false;
 let previousLocations = new Map<string, PalletLocationSnapshot>();
 
 function nullableNumber(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
 }
@@ -192,8 +192,6 @@ async function trimHistory(): Promise<void> {
 async function persistLocationChange(changes: LocationChange[]): Promise<void> {
     if (!changes.length) return;
     if (changes.some((change) => change.before.zone === "shipped" || change.after.zone === "shipped")) {
-        // A completed shipment is a business document, not just a map movement;
-        // undoing it would also require reverting the shipment record itself.
         return;
     }
 
@@ -205,32 +203,28 @@ async function persistLocationChange(changes: LocationChange[]): Promise<void> {
     const signature = `${createdAtMs}|${stableSnapshotText(before)}|${stableSnapshotText(after)}`;
     const historyRef = doc(db, HISTORY_COLLECTION, `move-${hashText(signature)}`);
 
-    await setDoc(historyRef, {
-        label: inferLabel(changes),
-        before,
-        after,
-        createdAtMs,
-        createdAt: serverTimestamp(),
-        createdByUid: auth.currentUser?.uid ?? null,
-    }, { merge: false });
+    await runTransaction(db, async (tx) => {
+        const existing = await tx.get(historyRef);
+        if (existing.exists()) return;
+
+        tx.set(historyRef, {
+            label: inferLabel(changes),
+            before,
+            after,
+            createdAtMs,
+            createdAt: serverTimestamp(),
+            createdByUid: auth.currentUser?.uid ?? null,
+        });
+    });
 
     await trimHistory();
 }
 
-/**
- * Watches physical pallet location changes and records them as undoable actions.
- * Identical Firestore batch changes observed by several open clients collapse to
- * the same deterministic history document, so multiple dashboards do not create
- * duplicate undo steps.
- */
 export function startCoolerUndoRecorder(): void {
     if (recorderStarted) return;
     recorderStarted = true;
 
     onSnapshot(collection(db, "pallets"), (snapshot) => {
-        // Wait for the server-confirmed snapshot. If we consume the local
-        // pending-write view, serverTimestamp is not stable across clients and
-        // the operation cannot be deduplicated reliably.
         if (snapshot.metadata.hasPendingWrites) return;
 
         const nextLocations = new Map<string, PalletLocationSnapshot>();
