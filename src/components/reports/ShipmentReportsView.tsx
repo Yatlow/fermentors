@@ -17,7 +17,6 @@ import { db } from "../../firebase";
 
 import ShipmentDocumentModal from "../cooler/ShipmentDocumentModal";
 import ManualShipmentCreator from "./ManualShipmentCreator";
-import ManualShipmentDocument from "./ManualShipmentDocument";
 
 function formatDate(timestamp?: Timestamp | null): string {
     if (!timestamp) return "";
@@ -162,8 +161,6 @@ export default function ShipmentReportsView() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [shipments, selectedShipmentId]);
 
-    const isManualSelected = selectedShipment?.sourceType === "manual" || (selectedShipment?.manualLines?.length ?? 0) > 0;
-
     // ========================================================
     // RENDER
     // ========================================================
@@ -241,11 +238,7 @@ export default function ShipmentReportsView() {
 
             {/* SHIPMENT DOCUMENT */}
 
-            {selectedShipmentId && !loadingPallets && isManualSelected && selectedShipment && (
-                <ManualShipmentDocument shipment={selectedShipment} />
-            )}
-
-            {selectedShipmentId && !loadingPallets && !isManualSelected && (
+            {selectedShipmentId && !loadingPallets && (
                 <ShipmentDocumentModal
                     onClose={handleCloseModal}
                     shipmentId={selectedShipmentId}
