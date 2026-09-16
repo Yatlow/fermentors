@@ -43,11 +43,24 @@ export const DAILY_FIELD_LABELS: Record<DailyMeasurementField, string> = {
     pH: "pH",
 };
 
+/**
+ * Daily health fields are measurements, so a value must actually contain a
+ * finite number. This deliberately rejects visual placeholders such as "-",
+ * "—" or whitespace that can arrive from old/imported Sheet rows. Zero is a
+ * perfectly valid number (most importantly pressure=0).
+ */
 export function hasMeasurementValue(value: unknown): boolean {
     if (value === undefined || value === null) return false;
     if (typeof value === "number") return Number.isFinite(value);
-    if (typeof value === "string") return value.trim() !== "";
-    return true;
+    if (typeof value !== "string") return false;
+
+    const text = value.trim();
+    if (!text) return false;
+
+    const numericMatch = text.match(/[-+]?\d+(?:[.,]\d+)?/);
+    if (!numericMatch) return false;
+
+    return Number.isFinite(Number(numericMatch[0].replace(",", ".")));
 }
 
 /**
