@@ -2,34 +2,26 @@ import BeerLoader from "../general/Loading";
 import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
-import { addDays, emptyWeek, weekStart, weekNumber, type Actual, type BrewPlan, type Holiday, type Settings, type Tank, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { addDays, emptyWeek, sameStyle, weekStart, weekNumber, type Actual, type BrewPlan, type Holiday, type Settings, type Tank, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { futureTanks, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { tankReleases, validateProduction, validateBrewReleases } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import PlanningWeekEditor from "./PlanningWeekEditor";
+import PlanningBrewAssignmentEditor from "./PlanningBrewAssignmentEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
-import PlanningDaySelect from "./PlanningDaySelect";
 
 type BrewWithAssignment = BrewPlan & {
   tankAssignmentStatus?: "tentative" | "confirmed";
+  batchNumber?: string;
 };
 
 function assignmentStatus(brew: BrewPlan) {
   return (brew as BrewWithAssignment).tankAssignmentStatus;
 }
 
-function activeWorkWeek(today: string) {
-  const current = weekStart(today);
-  return weekIsClosed(current, today) ? addDays(current, 7) : current;
-}
-
-function nextBrewDate(week: string, today: string) {
-  for (let offset = 1; offset <= 4; offset++) {
-    const date = addDays(week, offset);
-    if (date >= today) return date;
-  }
-  return undefined;
+function plannedBatch(brew: BrewPlan) {
+  return (brew as BrewWithAssignment).batchNumber;
 }
 
 function forecastDateUndatedPackaging(plans: WeekPlan[]) {
@@ -53,8 +45,9 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
   shipments: ShipmentEvent[]; today: string; holidays: Holiday[]; disabled: boolean;
   saveWeek: (week: WeekPlan) => Promise<void>;
 }) {
-  const startWeek = activeWorkWeek(today);
-  const [week, setWeek] = useState(startWeek);
+  const pickerStart = weekStart(today);
+  const defaultPlanningWeek = addDays(pickerStart, 7);
+  const [week, setWeek] = useState(defaultPlanningWeek);
   const [draft, setDraft] = useState<WeekPlan | null>(null);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [editingScope, setEditingScope] = useState<"day" | "brews">("day");
@@ -87,11 +80,21 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
   const shipmentSummary = (current.deliveries ?? []).map((d) => `${productLabel(d.productId)} · ${Math.round(d.quantity)}`);
   const brewSummary = current.brews.map((b) => {
     if (!b.tankId) return `${displayStyle(b.style)} · ${Math.round(b.liters)} ל׳ · טרם שובץ למיכל`;
-    const tankNumber = brews.find((t) => t.id === b.tankId)?.tankNumber ?? b.tankId;
+    const source = brews.find((t) => t.id === b.tankId);
+    const tankNumber = source?.tankNumber ?? b.tankId;
+    const batch = plannedBatch(b);
+    const started = Number(source?.action) === 1 && (
+      (batch && String(source?.batchNumber) === batch) ||
+      (!batch && b.date <= today && sameStyle(source?.beerStyle ?? "", b.style))
+    );
+    if (started) {
+      return `${displayStyle(b.style)} · מיכל ${tankNumber} · בוצע${source?.batchNumber ? ` · אצווה ${source.batchNumber}` : ""}`;
+    }
     const status = assignmentStatus(b) === "tentative" ? "מוצע" : "מאושר";
-    return `${displayStyle(b.style)} · ${Math.round(b.liters)} ל׳ · מיכל ${tankNumber} (${status})`;
+    return `${displayStyle(b.style)} · ${Math.round(b.liters)} ל׳ · מיכל ${tankNumber} (${status})${batch ? ` · אצווה ${batch}` : ""}`;
   });
   const packagingSummary = current.packaging.map((p) => `${productLabel(p.productId)} · ${Math.round(p.quantity)} · מיכל ${tanks.find((t) => t.id === p.tankId)?.number ?? p.tankNumber ?? "?"}${p.date ? ` · ${shortDate(p.date)}` : " · טרם שובץ ליום"}`);
+  const pendingPackaging = current.packaging.filter((p) => p.quantity > 0 && !p.date);
 
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
@@ -110,30 +113,19 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
 
     await saveWeek(effectiveNext);
     setDraft(null); setEditingDay(null); setSelectedPackaging(null);
-    setMessage(confirmBrews ? "שיבוצי הבישול אושרו ולוח העבודה נשמר" : "לוח העבודה נשמר");
+    setMessage(confirmBrews ? "סדר הבישולים ושיבוצי המיכלים אושרו" : "לוח העבודה נשמר");
   }
 
   function openDay(date: string) {
     if (readOnly) return;
     setEditingScope("day"); setEditingDay(date); setDraft(structuredClone(current));
   }
+
   function openBrews() {
     if (readOnly) return;
-    const fallback = nextBrewDate(week, today) ?? addDays(week, 1);
-    const next = structuredClone(current);
-    next.brews = next.brews.map((brew) => !brew.tankId && brew.date < today ? { ...brew, date: fallback } : brew);
-    setEditingScope("brews"); setEditingDay(fallback); setDraft(next);
-  }
-
-  async function saveShipmentDay(date: string) {
-    if (readOnly || busy || !(current.deliveries ?? []).length) return;
-    const next = structuredClone(current);
-    next.deliveries = (next.deliveries ?? []).map((d) => ({ ...d, dispatchDate: date, arrivalDate: date }));
-    next.deliveryDates = date ? [date] : [];
-    setBusy(true); setMessage("");
-    try { await persist(next); setMessage(`יום המשלוח נקבע ל־${shortDate(date)}.`); }
-    catch (e) { setMessage(e instanceof Error ? e.message : "שמירת יום המשלוח נכשלה"); }
-    finally { setBusy(false); }
+    setEditingScope("brews");
+    setEditingDay(addDays(week, 1));
+    setDraft(structuredClone(current));
   }
 
   async function selectPackaging(id: string) {
@@ -153,9 +145,9 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
 
   return <section>
     {busy && !draft && <BeerLoader overlay message="שומר את התכנון…" />}
-    <div className="bp-section-heading"><div><h2>לוח עבודה</h2><p className="bp-muted">החלטות המשלוח והבישול הן שבועיות. רק האריזות משובצות בטבלה היומית.</p></div></div>
-    <div className="bp-week-picker">{Array.from({ length: 8 }, (_, i) => addDays(startWeek, i * 7)).map((w) => <button key={w} aria-pressed={week === w} disabled={!!draft} onClick={() => { setWeek(w); setSelectedPackaging(null); }}>שבוע {weekNumber(w)}<small>{shortDate(w)}</small></button>)}</div>
-    <div className="bp-week-sticky"><b>שבוע {weekNumber(week)} · {shortDate(week)}–{shortDate(addDays(week, 6))}</b><small>לוח עבודה</small></div>
+    <div className="bp-section-heading"><div><h2>לוח עבודה</h2><p className="bp-muted">החלטות המשלוח והבישול הן שבועיות. האריזות משובצות ליום ביצוע.</p></div></div>
+    <div className="bp-week-picker">{Array.from({ length: 8 }, (_, i) => addDays(pickerStart, i * 7)).map((w) => <button key={w} aria-pressed={week === w} disabled={!!draft} onClick={() => { setWeek(w); setSelectedPackaging(null); }}>שבוע {weekNumber(w)}<small>{shortDate(w)}</small></button>)}</div>
+    <div className="bp-week-sticky" role="status"><b>עובדים על שבוע {weekNumber(week)}</b><span>{shortDate(week)}–{shortDate(addDays(week, 6))}</span><small>{week === defaultPlanningWeek ? "שבוע התכנון הבא" : "לוח עבודה"}</small></div>
     {closed && <p role="status">השבוע הסתיים לתכנון בתחילת יום שישי · צפייה בלבד.</p>}
     {message && <p role="status">{message}</p>}
 
@@ -163,14 +155,14 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
       <article className="bp-daily-set is-delivery">
         <h3>משלוח לטמפו · שבועי</h3>
         <div><b>החלטה ליישום</b>{shipmentSummary.length ? shipmentSummary.map((x, i) => <span key={i}>{x}</span>) : <small>לא נקבע משלוח</small>}</div>
-        {(current.deliveries ?? []).length > 0 && <PlanningDaySelect week={week} value={shipmentDay} onChange={saveShipmentDay} label="יום האיסוף היחיד השבוע"/>}
+        {shipmentDay && <small>יום המשלוח: {shortDate(shipmentDay)} · שינוי יום המשלוח נעשה בתכנון השבועי.</small>}
       </article>
 
       <article className="bp-daily-set is-brew">
         <h3>בישולים · שבועי</h3>
         <div><b>החלטות ליישום</b>{brewSummary.length ? brewSummary.map((x, i) => <span key={i}>{x}</span>) : <small>לא נקבעו בישולים</small>}</div>
-        <small>שיבוץ שהגיע מהמתכנן הוא מוצע בלבד. מנהל העבודה יכול להשאיר אותו או לבחור מיכל/יום אחר; שמירת מסך הבישולים מאשרת את השיבוצים.</small>
-        <button type="button" disabled={readOnly} onClick={openBrews}>בדיקה ואישור שיבוצי בישול</button>
+        <small>מנהל העבודה קובע רק את סדר הבישולים ואת המיכל. מספרי האצווה מתעדכנים אוטומטית לפי הסדר.</small>
+        <button type="button" disabled={readOnly || current.brews.length === 0} onClick={openBrews}>סדר ושיבוץ בישולים</button>
       </article>
 
       <article className="bp-daily-set is-packaging">
@@ -179,10 +171,38 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
       </article>
     </div>
 
+    {pendingPackaging.length > 0 && <div className="bp-pending-packaging" role="status">
+      <div><strong>אריזות שממתינות לשיבוץ יום</strong><span className="bp-count-badge">{pendingPackaging.length}</span></div>
+      <small>ההחלטה כבר קיימת; נשאר למנהל העבודה לבחור יום ביצוע.</small>
+      <button type="button" disabled={readOnly} onClick={() => openDay(addDays(week, 1))}>שבץ אריזות לימים</button>
+    </div>}
+
     <PlanningWeekGantt settings={settings} plans={plans} tanks={tanks} week={week} onSelectDate={openDay} selectedPackagingId={selectedPackaging} onSelectPackaging={selectPackaging}/>
 
-    {editingDay && draft && <div className="bp-modal-backdrop" role="presentation"><div className="bp-modal" role="dialog" aria-modal="true" aria-label={editingScope === "brews" ? "שיבוץ בישולים למיכלים" : `עריכת ${shortDate(editingDay)}`}>
-      <PlanningWeekEditor key={`${editingScope}:${editingDay}`} day={editingDay} scope={editingScope} defaultBrewDate={nextBrewDate(week, today)} initial={draft} settings={settings} tanks={tanks} releases={releases} brews={brews} pallets={pallets} disabled={readOnly || busy} onSave={async (next) => { setBusy(true); try { await persist(next, editingScope === "brews"); } finally { setBusy(false); } }} onCancel={() => { setDraft(null); setEditingDay(null); }}/>
+    {editingDay && draft && <div className="bp-modal-backdrop" role="presentation"><div className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true" aria-label={editingScope === "brews" ? "שיבוץ בישולים למיכלים" : `עריכת ${shortDate(editingDay)}`}>
+      {editingScope === "brews" ?
+        <PlanningBrewAssignmentEditor
+          initial={draft}
+          brews={brews}
+          releases={releases}
+          disabled={readOnly || busy}
+          onSave={async (next) => { setBusy(true); try { await persist(next, true); } finally { setBusy(false); } }}
+          onCancel={() => { setDraft(null); setEditingDay(null); }}
+        /> :
+        <PlanningWeekEditor
+          key={`day:${editingDay}`}
+          day={editingDay}
+          scope="day"
+          initial={draft}
+          settings={settings}
+          tanks={tanks}
+          releases={releases}
+          brews={brews}
+          pallets={pallets}
+          disabled={readOnly || busy}
+          onSave={async (next) => { setBusy(true); try { await persist(next); } finally { setBusy(false); } }}
+          onCancel={() => { setDraft(null); setEditingDay(null); }}
+        />}
     </div></div>}
   </section>;
 }
