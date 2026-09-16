@@ -220,6 +220,13 @@
 }
 
 @media (max-width: 600px) {
+    .batch-chart-modal.batch-chart-modal {
+        max-height: 84vh;
+        max-height: 84dvh;
+        padding-top: 12px;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    }
+
     .batch-timeline {
         margin: 8px 0;
         padding: 8px;
