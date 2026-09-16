@@ -24,7 +24,6 @@ type BrewWithAssignment = BrewPlan & {
 export default function PlanningWeeklyReservations(props: Props) {
   const backfillInFlight = useRef(false);
   const backfillAttempted = useRef(new Set<string>());
-  const plannerRootRef = useRef<HTMLDivElement>(null);
   const defaultWeekApplied = useRef(false);
 
   const planningPallets = useMemo(
@@ -97,8 +96,8 @@ export default function PlanningWeeklyReservations(props: Props) {
 
     const nextWeek = addDays(weekStart(props.today), 7);
     const targetLabel = shortDate(nextWeek);
-    const buttons = plannerRootRef.current?.querySelectorAll<HTMLButtonElement>(".bp-week-picker button");
-    const target = [...(buttons ?? [])].find(
+    const buttons = document.querySelectorAll<HTMLButtonElement>(".brew-planning .bp-week-picker button");
+    const target = Array.from(buttons).find(
       (button) => button.querySelector("small")?.textContent?.trim() === targetLabel,
     );
     target?.click();
@@ -149,12 +148,10 @@ export default function PlanningWeeklyReservations(props: Props) {
   ]);
 
   return (
-    <div ref={plannerRootRef}>
-      <PlanningWeeklyRecommendationsEnhanced
-        {...props}
-        pallets={planningPallets}
-        saveWeek={saveWithTentativeTankAssignments}
-      />
-    </div>
+    <PlanningWeeklyRecommendationsEnhanced
+      {...props}
+      pallets={planningPallets}
+      saveWeek={saveWithTentativeTankAssignments}
+    />
   );
 }
