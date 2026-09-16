@@ -13,7 +13,7 @@ import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
 import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
-import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
+import PlanningWeeklyReservations from "./PlanningWeeklyReservations";
 import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
 import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
@@ -71,7 +71,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningWeeklyRecommendationsEnhanced
+          <PlanningWeeklyReservations
             settings={calendarSettings}
             plans={weeklyPlans}
             historyPlans={plans}
