@@ -21,6 +21,7 @@ export type HealthRecommendationState = {
 
 export type MeasurementIssue = {
     missingFields: DailyMeasurementField[];
+    requiredFieldCount?: number;
 };
 
 const RECOMMENDATION_PENALTY: Record<number, number> = {
@@ -29,12 +30,11 @@ const RECOMMENDATION_PENALTY: Record<number, number> = {
     3: 14,
 };
 
-const MEASUREMENT_FIELD_PENALTY: Record<DailyMeasurementField, number> = {
-    temp: 3,
-    pressure: 3,
-    plato: 2,
-    pH: 2,
-};
+// A completely missing daily round costs eight points per tank. Partial rounds
+// get proportional credit: e.g. one completed field out of four means only
+// 3/4 of this penalty is applied. Completion status itself remains binary and
+// is handled separately by the dashboard.
+const MEASUREMENT_TANK_PENALTY = 8;
 
 export const DAILY_FIELD_LABELS: Record<DailyMeasurementField, string> = {
     temp: "טמפ׳",
@@ -142,17 +142,16 @@ export function calculateCellarHealthScore(
     }, 0);
 
     const measurementPenalty = measurementIssues.reduce((sum, issue) => {
-        // Missing the daily round is one operational issue per tank. The first
-        // missing required field costs 4 points; additional missing fields add
-        // only their small field weight so one tank cannot dominate the score.
         if (issue.missingFields.length === 0) return sum;
-        const extra = issue.missingFields
-            .slice(1)
-            .reduce((fieldSum, field) => fieldSum + MEASUREMENT_FIELD_PENALTY[field], 0);
-        return sum + 4 + extra;
+
+        const requestedCount = Math.round(Number(issue.requiredFieldCount) || issue.missingFields.length);
+        const requiredFieldCount = Math.max(issue.missingFields.length, requestedCount, 1);
+        const missingFraction = issue.missingFields.length / requiredFieldCount;
+
+        return sum + MEASUREMENT_TANK_PENALTY * missingFraction;
     }, 0);
 
-    return Math.max(0, Math.min(100, 100 - recommendationPenalty - measurementPenalty));
+    return Math.max(0, Math.min(100, Math.round(100 - recommendationPenalty - measurementPenalty)));
 }
 
 export function healthBand(score: number): "healthy" | "warning" | "critical" {
