@@ -5,6 +5,7 @@ export type HealthMeasurement = {
     pressure?: unknown;
     plato?: unknown;
     pH?: unknown;
+    notes?: unknown;
 };
 
 export type DailyMeasurementField = "temp" | "pressure" | "plato" | "pH";
@@ -43,7 +44,10 @@ export const DAILY_FIELD_LABELS: Record<DailyMeasurementField, string> = {
 };
 
 export function hasMeasurementValue(value: unknown): boolean {
-    return value !== undefined && value !== null && value !== "";
+    if (value === undefined || value === null) return false;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value === "string") return value.trim() !== "";
+    return true;
 }
 
 /**
@@ -94,7 +98,9 @@ export function localDateKey(date: Date): string {
 /**
  * Checks today's complete cellar round across all rows from today. This is
  * deliberate: a later action/note row must not make an earlier valid pressure
- * or temperature reading look missing. Zero is a valid measurement value.
+ * or temperature reading look missing. Conversely, a note-only row is not a
+ * measurement and cannot make the daily round complete. Zero remains a valid
+ * measurement value (including pressure=0).
  */
 export function missingDailyMeasurementFields(
     measurements: HealthMeasurement[],
