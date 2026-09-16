@@ -173,12 +173,40 @@ export default function PlanningBoard({
       return;
     }
 
+    // If the selected run is still in the waiting lane and the user clicks a
+    // run already placed on a day, that means "put mine on this day too".
+    // Do not evict or swap the existing run: several packaging runs may share
+    // the same work day.
+    if (!first.date && second.date) {
+      first.date = second.date;
+      setBusy(true);
+      try {
+        await persist(next);
+        setMessage(`האריזה נוספה ל־${shortDate(second.date)} לצד האריזות שכבר שובצו ליום.`);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "שיבוץ האריזה נכשל");
+      } finally {
+        setBusy(false);
+        setSelectedPackaging(null);
+      }
+      return;
+    }
+
+    // Two waiting runs: simply select the second one.
+    if (!first.date && !second.date) {
+      setSelectedPackaging(id);
+      setMessage("האריזה נבחרה. לחץ על יום כדי לשבץ אותה.");
+      return;
+    }
+
     if (first.date === second.date) {
       setSelectedPackaging(id);
       setMessage("האריזה נבחרה. לחץ על יום כדי לשבץ אותה.");
       return;
     }
 
+    // When a dated run is selected first, choosing another run keeps the
+    // explicit swap behavior requested for moving work between days/waiting.
     const firstDate = first.date;
     const secondDate = second.date;
     first.date = secondDate;
