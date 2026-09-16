@@ -1,6 +1,7 @@
 import { collection, getDocsFromServer, orderBy, query, type QuerySnapshot, type DocumentData } from "firebase/firestore";
 import { db } from "../../firebase";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
+import { collapseMeasurementsToLatestPerDay } from "./measurementHistoryModel";
 
 type Entry = { data?: Measurement[]; loadedAt: number; pending?: Promise<Measurement[]> };
 const cache = new Map<string, Entry>();
@@ -10,6 +11,15 @@ let session = 0;
 const FALLBACK_MS = 5 * 60 * 1000;
 const keyOf = (value: string | number) => String(value).replace("#", "").trim();
 const copy = (rows: Measurement[]) => rows.map(row => ({ ...row }));
+
+export const MEASUREMENTS_UPDATED_EVENT = "fermentors:measurements-updated";
+
+export function notifyMeasurementsUpdated(batchNumber: string | number): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(MEASUREMENTS_UPDATED_EVENT, {
+    detail: { batchNumber: keyOf(batchNumber) },
+  }));
+}
 
 /** Call outside React state updaters, from the EXISTING fermentors listener. */
 export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData>): void {
@@ -77,8 +87,8 @@ export async function getMeasurementsByBatch(
       if (startedSession !== session) throw new Error("Measurement session changed; please retry");
       // An invalidation or newer request won the race. Never return old results.
       if (cache.get(id) !== entry) return getMeasurementsByBatch(id);
-      const rows = snapshot.docs.map(document => ({ ...document.data(), id: document.id })) as Measurement[];
-      rows.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const rawRows = snapshot.docs.map(document => ({ ...document.data(), id: document.id })) as Measurement[];
+      const rows = collapseMeasurementsToLatestPerDay(rawRows);
       entry.data = rows;
       entry.loadedAt = Date.now();
       entry.pending = undefined;
