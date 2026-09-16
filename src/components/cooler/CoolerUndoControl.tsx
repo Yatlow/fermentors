@@ -53,6 +53,12 @@ export default function CoolerUndoControl() {
         };
     }, [visible]);
 
+    useEffect(() => {
+        if (!message) return;
+        const timeout = window.setTimeout(() => setMessage(""), 3000);
+        return () => window.clearTimeout(timeout);
+    }, [message]);
+
     const performUndo = useCallback(async () => {
         if (busy || undoCount <= 0) return;
         setBusy(true);
