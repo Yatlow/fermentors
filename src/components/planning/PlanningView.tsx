@@ -39,6 +39,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
+  const markedOutsideCooler = useMemo(
+    () => pallets.filter((pallet) => pallet.markedForShipment && pallet.zone !== "cooler").length,
+    [pallets],
+  );
+
   const executionPlans = useMemo(
     () => plansAfterActualPackagingCompletion(plans, settings.products, actuals, productionTanks),
     [plans, settings.products, actuals, productionTanks],
@@ -83,6 +88,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
+      {markedOutsideCooler > 0 && <div className="bp-outside-shipment-warning" role="alert">
+        <strong>⚠️ יש {markedOutsideCooler} {markedOutsideCooler === 1 ? "משטח שמסומן" : "משטחים שמסומנים"} למשלוח מחוץ למקרר.</strong>
+        <span>יש לאתר ולהעביר {markedOutsideCooler === 1 ? "אותו" : "אותם"} לפני ההעמסה.</span>
+        {onOpenCoolerMap && <button type="button" onClick={onOpenCoolerMap}>פתח מפת מקרר</button>}
+      </div>}
 
       {!data.loading && !data.error && <>
         {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={plans}/>}
@@ -115,7 +125,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
           <PlanningBoard
             settings={settings}
-            plans={plans}
+            plans={executionPlans}
             tanks={tanks}
             brews={productionTanks}
             pallets={pallets}
@@ -124,7 +134,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
             today={today}
             holidays={holidays}
             disabled={disabled}
-            saveWeek={data.saveWeek}
+            saveWeek={saveWeeklyPlan}
           />
         </>}
 
