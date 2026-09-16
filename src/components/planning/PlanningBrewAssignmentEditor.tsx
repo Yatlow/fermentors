@@ -4,7 +4,6 @@ import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import type { BrewPlan, WeekPlan } from "../../SERVICES/planning/planningEngine";
 import type { Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
-import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import BeerLoader from "../general/Loading";
 
 type BrewPlanWithMeta = BrewPlan & {
@@ -40,11 +39,7 @@ function styleRank(style: string, promoteSmallSpecials: boolean) {
   return 8;
 }
 
-function normalizeOrder(
-  brews: BrewPlanWithMeta[],
-  sources: Fermentor[],
-  releases: Release[],
-) {
+function normalizeOrder(brews: BrewPlanWithMeta[], sources: Fermentor[], releases: Release[]) {
   const hasLager = brews.some((brew) => brew.style.includes("לאגר"));
   const hasSingleOpportunity = releases.some((release) => {
     const source = sources.find((item) => item.id === release.tankId);
@@ -84,6 +79,7 @@ export default function PlanningBrewAssignmentEditor({
     copy.brews = normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
     return copy;
   });
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [batchBase, setBatchBase] = useState(() => maxBatch(brews.map((brew) => brew.batchNumber)));
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -99,9 +95,7 @@ export default function PlanningBrewAssignmentEditor({
           maxBatch(brews.map((brew) => brew.batchNumber)),
         ));
       })
-      .catch(() => {
-        // Fermentor batch numbers are already a valid fallback.
-      })
+      .catch(() => undefined)
       .finally(() => {
         if (!cancelled) setLoadingBatches(false);
       });
@@ -116,6 +110,8 @@ export default function PlanningBrewAssignmentEditor({
     [draft.brews, batchBase],
   );
 
+  const selectedBrew = orderedBrews[selectedIndex] ?? null;
+
   function move(index: number, direction: -1 | 1) {
     setDraft((current) => {
       const next = [...(current.brews as BrewPlanWithMeta[])];
@@ -126,6 +122,7 @@ export default function PlanningBrewAssignmentEditor({
       next.forEach((brew, i) => { brew.date = dates[i] ?? brew.date; });
       return { ...current, brews: next };
     });
+    setSelectedIndex((current) => Math.max(0, Math.min(orderedBrews.length - 1, current + direction)));
   }
 
   function tankOptions(brew: BrewPlanWithMeta, index: number) {
@@ -157,7 +154,7 @@ export default function PlanningBrewAssignmentEditor({
 
   async function save() {
     if (orderedBrews.some((brew) => !brew.tankId)) {
-      setError("יש לבחור מיכל לכל בישול לפני השמירה.");
+      setError("יש לשבץ מיכל לכל בישול לפני השמירה.");
       return;
     }
     setBusy(true);
@@ -178,50 +175,72 @@ export default function PlanningBrewAssignmentEditor({
     }
   }
 
+  const availableTanks = selectedBrew ? tankOptions(selectedBrew, selectedIndex) : [];
+  const availableIds = new Set(availableTanks.map((tank) => tank.id));
+
   return (
     <section className="bp-editor bp-brew-assignment-editor">
       <div className="bp-editor-header">
         <div>
           <h3>סדר ושיבוץ בישולים</h3>
-          <small>המתכנן כבר קבע מה מבשלים. כאן קובעים רק סדר ומיכל; מספרי האצווה נגזרים אוטומטית מהסדר.</small>
+          <small>בחר בישול, סדר אותו קדימה או אחורה, ואז לחץ על המיכל שאליו הוא נכנס.</small>
         </div>
         <button type="button" onClick={onCancel}>סגירה</button>
       </div>
 
       {(busy || loadingBatches) && <BeerLoader overlay message={busy ? "שומר שיבוצי בישול…" : "טוען מספר אצווה אחרון…"} />}
 
-      <fieldset disabled={disabled || busy || loadingBatches} className="bp-fieldset bp-editor-body">
+      <fieldset disabled={disabled || busy || loadingBatches} className="bp-fieldset bp-editor-body bp-brew-visual-editor">
         {orderedBrews.length === 0 && <p className="bp-muted">לא נקבעו בישולים לשבוע הזה.</p>}
-        <div className="bp-brew-order-list">
+
+        <div className="bp-brew-queue" aria-label="סדר הבישולים">
           {orderedBrews.map((brew, index) => {
             const source = brews.find((item) => item.id === brew.tankId);
-            const options = tankOptions(brew, index);
-            return (
-              <article className="bp-edit-card bp-brew-order-row" key={brew.id}>
-                <div className="bp-brew-order-number">{index + 1}</div>
-                <div className="bp-brew-order-main">
-                  <strong>{displayStyle(brew.style)}</strong>
-                  <small>אצווה {brew.batchNumber} · {shortDate(brew.date)} · {Math.round(brew.liters)} ל׳</small>
-                </div>
-                <label>
-                  מיכל
-                  <select value={brew.tankId ?? ""} onChange={(event) => setTank(index, event.target.value)}>
-                    <option value="">בחירת מיכל</option>
-                    {options.map((option) => {
-                      const release = releases.find((item) => item.tankId === option.id);
-                      return <option key={option.id} value={option.id}>מיכל {option.tankNumber} · {tankKind(option.tankNumber)}{release?.date ? ` · זמין ${shortDate(release.date)}` : ""}</option>;
-                    })}
-                  </select>
-                  {source && <small>משובץ כרגע למיכל {source.tankNumber}</small>}
-                </label>
-                <div className="bp-brew-order-actions">
-                  <button type="button" disabled={index === 0} onClick={() => move(index, -1)}>העבר קודם</button>
-                  <button type="button" disabled={index === orderedBrews.length - 1} onClick={() => move(index, 1)}>העבר אחר כך</button>
-                </div>
-              </article>
-            );
+            return <article
+              key={brew.id}
+              className={`bp-brew-queue-card ${index === selectedIndex ? "is-selected" : ""}`}
+              onClick={() => setSelectedIndex(index)}
+            >
+              <div className="bp-brew-order-number">{index + 1}</div>
+              <button type="button" className="bp-brew-queue-main" onClick={() => setSelectedIndex(index)}>
+                <strong>{displayStyle(brew.style)}</strong>
+                <small>אצווה {brew.batchNumber}</small>
+                <span>{source ? `מיכל ${source.tankNumber}` : "טרם שובץ"}</span>
+              </button>
+              <div className="bp-brew-order-actions">
+                <button type="button" disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(index, -1); }}>קודם</button>
+                <button type="button" disabled={index === orderedBrews.length - 1} onClick={(event) => { event.stopPropagation(); move(index, 1); }}>אחר כך</button>
+              </div>
+            </article>;
           })}
         </div>
+
+        {selectedBrew && <div className="bp-brew-tank-placement">
+          <div className="bp-brew-placement-title">
+            <b>שיבוץ {displayStyle(selectedBrew.style)} · אצווה {selectedBrew.batchNumber}</b>
+            <small>לחץ על מיכל פנוי כדי לשבץ. לחיצה על מיכל אחר תעביר אליו את הבישול.</small>
+          </div>
+          <div className="bp-brew-tank-yard">
+            {brews
+              .filter((tank) => Number(tank.tankNumber) !== 1)
+              .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber))
+              .map((tank) => {
+                const isAssigned = selectedBrew.tankId === tank.id;
+                const isAvailable = availableIds.has(tank.id) || isAssigned;
+                return <button
+                  type="button"
+                  key={tank.id}
+                  className={`bp-brew-tank-visual ${isAssigned ? "is-assigned" : ""}`}
+                  disabled={!isAvailable}
+                  onClick={() => setTank(selectedIndex, tank.id)}
+                  title={isAvailable ? `שבץ למיכל ${tank.tankNumber}` : `מיכל ${tank.tankNumber} אינו פנוי לבישול הזה`}
+                >
+                  <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b></span>
+                  <span className="bp-brew-tank-cone" />
+                </button>;
+              })}
+          </div>
+        </div>}
 
         {error && <p role="alert" className="bp-alert">{error}</p>}
         <div className="bp-actions">
