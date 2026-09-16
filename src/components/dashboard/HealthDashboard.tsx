@@ -58,12 +58,35 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     completeMeasurementTankNumbers: [],
 };
 
+const FERMENTATION_MEASUREMENT_GRACE_MS = 24 * 60 * 60 * 1000;
+
 function tankLabel(tank: Fermentor): string {
     return String(tank.tankNumber ?? tank.uid ?? tank.id);
 }
 
 function isHotTank(tank: Fermentor): boolean {
     return tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
+}
+
+/**
+ * A tank does not participate in the cellar health index during the first
+ * 24 hours after the actual "out to fermentor" stage began. stageStartTime is
+ * persisted as a Firestore timestamp and reaches the client as an ISO string.
+ * If legacy data has no usable timestamp we keep the previous behaviour rather
+ * than silently excluding the tank indefinitely.
+ */
+function isInFermentationMeasurementGracePeriod(
+    tank: Fermentor,
+    nowMs: number = Date.now()
+): boolean {
+    const rawStartedAt = tank.brewProgress?.stageStartTime;
+    if (!rawStartedAt) return false;
+
+    const startedAtMs = new Date(rawStartedAt).getTime();
+    if (!Number.isFinite(startedAtMs)) return false;
+
+    const elapsedMs = nowMs - startedAtMs;
+    return elapsedMs >= 0 && elapsedMs < FERMENTATION_MEASUREMENT_GRACE_MS;
 }
 
 function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRecomendations>>): Recommendation[] {
@@ -131,11 +154,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
             const fullTanks = brews.filter(
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
+            const scoreEligibleTanks = fullTanks.filter(
+                (tank) => !isInFermentationMeasurementGracePeriod(tank)
+            );
 
             setAnalyzing(true);
 
             const results = await Promise.all(
-                fullTanks.map(async (tank) => {
+                scoreEligibleTanks.map(async (tank) => {
                     const number = tankLabel(tank);
                     const tankAlerts: HealthAlert[] = [];
                     const scoreRecommendations: ScoredRecommendation[] = [];
@@ -247,7 +273,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
                 scoreRecommendations: results.flatMap((result) => result.scoreRecommendations),
                 measurementProgress: results.map((result) => result.measurementProgress),
-                checkedTanks: fullTanks.length,
+                checkedTanks: scoreEligibleTanks.length,
                 completeMeasurementTankNumbers: results
                     .filter((result) => result.completeMeasurements)
                     .map((result) => result.tankNumber),
