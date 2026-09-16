@@ -48,6 +48,31 @@ test("blank and non-finite values do not count as measurements", () => {
     assert.deepEqual(missing, ["temp", "pressure"]);
 });
 
+test("Sheet placeholder dashes do not count as measurements", () => {
+    const missing = missingDailyMeasurementFields([
+        {
+            id: "2026-09-15_0815",
+            temp: "—",
+            pressure: "-",
+            notes: "הערה בלבד",
+        },
+    ], false, TODAY);
+
+    assert.deepEqual(missing, ["temp", "pressure"]);
+});
+
+test("numeric Sheet strings still count and pressure zero remains valid", () => {
+    const missing = missingDailyMeasurementFields([
+        {
+            id: "2026-09-15_0815",
+            temp: "18.4°C",
+            pressure: "0 bar",
+        },
+    ], false, TODAY);
+
+    assert.deepEqual(missing, []);
+});
+
 test("hot tanks require temperature pressure plato and pH", () => {
     const missing = missingDailyMeasurementFields([
         {
