@@ -1,16 +1,13 @@
 import type { Fermentor } from "../../App";
-import {
-  sameStyle,
-  weekStart,
-  type Actual,
-  type Plan,
-  type Product,
-  type WeekPlan,
-} from "./planningEngine";
-import { actualDate, actualUnits, matchesActual } from "./dailyPlanner";
+import type { Actual, Plan, Product, WeekPlan } from "./planningEngine";
+import { openRuns } from "./dailyPlanner";
 
-function planKey(run: Plan, index: number) {
+function persistedPlanKey(run: Plan, index: number) {
   return run.id ?? `${run.productId}:${run.tankId ?? ""}:${run.tankNumber ?? ""}:${run.batchNumber ?? ""}:${index}`;
+}
+
+function openRunKey(week: WeekPlan, run: Plan, index: number) {
+  return run.id ?? `${week.id}:${run.productId}:${index}`;
 }
 
 function sourceForRun(run: Plan, sources: Fermentor[]) {
@@ -37,35 +34,24 @@ function sourceShowsTankClosed(run: Plan, source: Fermentor | undefined) {
   );
 }
 
-function actualForRun(
+function completionMap(
   week: WeekPlan,
-  run: Plan,
-  product: Product,
+  products: Product[],
   actuals: Actual[],
 ) {
-  return actuals
-    .filter((actual) => {
-      const date = actualDate(actual);
-      if (!date || weekStart(date) !== week.id || !matchesActual(product, actual)) return false;
-      if (run.tankNumber && String(actual.tankNumber) !== String(run.tankNumber)) return false;
-      if (run.batchNumber && String(actual.batchNumber) !== String(run.batchNumber)) return false;
-      return true;
-    })
-    .reduce((sum, actual) => sum + actualUnits(product, actual), 0);
+  return new Map(
+    openRuns([week], products, actuals).map((run) => [run.key, run] as const),
+  );
 }
 
-function isOperationallyCompleted(
+function actualCompletedForRun(
   week: WeekPlan,
   run: Plan,
-  product: Product | undefined,
-  actuals: Actual[],
-  sources: Fermentor[],
+  index: number,
+  completed: ReturnType<typeof completionMap>,
 ) {
-  if (!product) return false;
-  const source = sourceForRun(run, sources);
-  if (!sourceShowsTankClosed(run, source)) return false;
-
-  return actualForRun(week, run, product, actuals) > 0;
+  const open = completed.get(openRunKey(week, run, index));
+  return open ? Math.max(0, run.quantity - open.remaining) : 0;
 }
 
 /**
@@ -81,18 +67,22 @@ export function plansAfterActualPackagingCompletion(
   actuals: Actual[],
   sources: Fermentor[],
 ): WeekPlan[] {
-  return plans.map((week) => ({
-    ...week,
-    packaging: week.packaging.map((run) => {
-      const product = products.find((candidate) => candidate.id === run.productId);
-      if (!isOperationallyCompleted(week, run, product, actuals, sources) || !product) return run;
-      return {
-        ...run,
-        quantity: actualForRun(week, run, product, actuals),
-        emptyTank: true,
-      };
-    }),
-  }));
+  return plans.map((week) => {
+    const completed = completionMap(week, products, actuals);
+    return {
+      ...week,
+      packaging: week.packaging.map((run, index) => {
+        const source = sourceForRun(run, sources);
+        const actualQuantity = actualCompletedForRun(week, run, index, completed);
+        if (!sourceShowsTankClosed(run, source) || actualQuantity <= 0) return run;
+        return {
+          ...run,
+          quantity: actualQuantity,
+          emptyTank: true,
+        };
+      }),
+    };
+  });
 }
 
 /**
@@ -107,16 +97,20 @@ export function mergeCompletedPackagingBack(
   actuals: Actual[],
   sources: Fermentor[],
 ): WeekPlan {
+  const open = completionMap(original, products, actuals);
   const completed = new Map<string, Plan>();
 
   original.packaging.forEach((run, index) => {
-    const product = products.find((candidate) => candidate.id === run.productId);
-    if (isOperationallyCompleted(original, run, product, actuals, sources)) {
-      completed.set(planKey(run, index), run);
+    const source = sourceForRun(run, sources);
+    const actualQuantity = actualCompletedForRun(original, run, index, open);
+    if (sourceShowsTankClosed(run, source) && actualQuantity > 0) {
+      completed.set(persistedPlanKey(run, index), run);
     }
   });
 
-  const pendingEdited = edited.packaging.filter((run, index) => !completed.has(planKey(run, index)));
+  const pendingEdited = edited.packaging.filter((run, index) =>
+    !completed.has(persistedPlanKey(run, index)),
+  );
 
   return {
     ...edited,
