@@ -116,25 +116,22 @@ export default function PlanningData({ mode, settings, today, disabled, save }: 
                             <label>כמה ימי אריזה בשבוע רצוי?<select value={draft.preferredRuns} onChange={(e) => setDraft({ ...draft, preferredRuns: Number(e.target.value) })}>{[3, 4, 5].map((n) => <option key={n} value={n}>{n} ימים</option>)}</select></label>
                         </div>
 
-                        <h3>יעדי כיסוי לפי סגנון</h3>
-                        <p>לכל סגנון אפשר לקבוע יעד בטמפו, יעד כולל, ותקרת כיסוי שאותה המתכנן לא יעבור באריזה אוטומטית.</p>
+                        <h3>הגדרות לפי סגנון</h3>
+                        <p>לכל סגנון אפשר לקבוע יעד בטמפו, יעד כולל, תקרת כיסוי וימי הבשלה מהבישול.</p>
                         <div className="bp-data-grid bp-data-grid-open">
                             {CORE_STYLES.map((style) => {
                                 const targets = planningTargetsForStyle(draft, style);
+                                const leadDays = draft.products.find((p) => sameStyle(p.style, style))?.leadDays ?? 21;
                                 return <article className="bp-card bp-data-card is-open" key={`targets:${style}`}>
                                     <h3 className={`bp-data-style ${beerStyleClass(style).className}`}>{displayStyle(style)}</h3>
                                     <div className="bp-fields">
                                         <label>יעד בטמפו · שבועות<input type="number" min=".5" max="12" step=".5" value={targets.targetWeeks} onChange={(e) => setDraft((s) => withStylePlanningTarget(s, style, { targetWeeks: Number(e.target.value) }))} /></label>
                                         <label>יעד כולל · שבועות<input type="number" min=".5" max="26" step=".5" value={targets.totalTargetWeeks} onChange={(e) => setDraft((s) => withStylePlanningTarget(s, style, { totalTargetWeeks: Number(e.target.value) }))} /></label>
                                         <label>מקסימום כיסוי · שבועות<input type="number" min=".5" max="30" step=".5" value={targets.maxTotalWeeks} onChange={(e) => setDraft((s) => withStylePlanningTarget(s, style, { maxTotalWeeks: Number(e.target.value) }))} /></label>
+                                        <label>ימי הבשלה מהבישול<input type="number" min="1" value={leadDays} onChange={(e) => setDraft((s) => ({ ...s, products: s.products.map((p) => sameStyle(p.style, style) ? { ...p, leadDays: Number(e.target.value) } : p) }))} /></label>
                                     </div>
                                 </article>;
                             })}
-                        </div>
-
-                        <h3>ימי הבשלה לפי סגנון</h3>
-                        <div className="bp-fields">
-                            {CORE_STYLES.map((style) => <label key={style}>{displayStyle(style)} · ימים מהבישול<input type="number" min="1" value={draft.products.find((p) => sameStyle(p.style, style))?.leadDays ?? 21} onChange={(e) => setDraft((s) => ({ ...s, products: s.products.map((p) => sameStyle(p.style, style) ? { ...p, leadDays: Number(e.target.value) } : p) }))} /></label>)}
                         </div>
                     </div>
                 )}

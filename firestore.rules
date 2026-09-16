@@ -23,8 +23,6 @@ service cloud.firestore {
     match /approvedUsers/{email} {
       allow get: if isLoggedIn() &&
         request.auth.token.email == email;
-      // Do not expose the approved e-mail directory to arbitrary authenticated
-      // Google accounts. Approved users still need list access for the admin UI.
       allow list: if isApprovedUser();
       allow write: if isAdmin();
       allow create: if isAdmin();
@@ -94,9 +92,6 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
-    // Fast cellar notes/actions close as soon as Firestore is durable. This
-    // small outbox guarantees the Sheet write can be retried server-side if the
-    // browser closes or loses connectivity before Apps Script confirms it.
     match /sheetSyncJobs/{requestId} {
       allow read: if isApprovedUser();
       allow create: if isApprovedUser()
@@ -118,8 +113,6 @@ service cloud.firestore {
       allow update: if false;
     }
 
-    // Legacy receipt collection is read-only for clients. The current hot path
-    // uses requestId idempotency + sheetSyncJobs instead of creating receipts.
     match /operationReceipts/{requestId} {
       allow get: if isApprovedUser() &&
         resource.data.userEmail == request.auth.token.email;
@@ -152,7 +145,7 @@ service cloud.firestore {
     }
 
     function validPlanningSettings() {
-      return request.resource.data.keys().hasOnly(['products','targetWeeks','totalTargetWeeks','preferredRuns','lossPercent','maxWeeklyDeliveries','deliveryTransitDays','preferredDeliveryDay','revision','updatedAt','updatedBy','createdAt'])
+      return request.resource.data.keys().hasOnly(['products','targetWeeks','totalTargetWeeks','preferredRuns','lossPercent','maxWeeklyDeliveries','deliveryTransitDays','preferredDeliveryDay','stylePlanning','revision','updatedAt','updatedBy','createdAt'])
         && request.resource.data.products is list
         && request.resource.data.products.size() <= 60
         && request.resource.data.targetWeeks is number
@@ -166,7 +159,8 @@ service cloud.firestore {
         && request.resource.data.get('preferredDeliveryDay', 0) in [0,1]
         && request.resource.data.get('maxWeeklyDeliveries', 2) in [1,2]
         && request.resource.data.get('deliveryTransitDays', 0) is int
-        && request.resource.data.get('deliveryTransitDays', 0) == 0;
+        && request.resource.data.get('deliveryTransitDays', 0) == 0
+        && request.resource.data.get('stylePlanning', {}) is map;
     }
 
     match /planningWeeks/{weekId} {

@@ -70,9 +70,6 @@ export function startOfJerusalemDay(value: string): Date {
     Number(match[3]),
   );
 
-  // Iterate because the first UTC guess may fall on the other side of a DST
-  // transition. Israel changes offset during the night, while local midnight
-  // itself is valid; two passes normally converge, three keeps this defensive.
   let instantMs = wallClockUtc;
   for (let i = 0; i < 3; i += 1) {
     const next = wallClockUtc - jerusalemOffsetMs(new Date(instantMs));
@@ -85,6 +82,14 @@ export function startOfJerusalemDay(value: string): Date {
 export function jerusalemDateKey(date: Date): string {
   const parts = zonedParts(date);
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function isTempoCustomer(customerId: unknown, customerName: unknown) {
+  if (typeof customerId === "string" && customerId.trim()) {
+    return customerId.trim().toLowerCase() === "tempo";
+  }
+  const customer = String(customerName ?? "").trim();
+  return /טמפו|tempo/i.test(customer);
 }
 
 export function usePlanning(today: string, tanks: TankInput[]) {
@@ -186,6 +191,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
           setActualShipments(
             snap.docs.flatMap((d) => {
               const data = d.data();
+              if (!isTempoCustomer(data.customerId, data.customerName)) return [];
               const date = data.createdAt?.toDate?.();
               return date ? [{
                 id: d.id,

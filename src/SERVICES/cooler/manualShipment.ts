@@ -11,7 +11,13 @@ const SHIPMENTS_COLLECTION = "shipments";
 export async function createManualShipment(
     lines: ManualShipmentLine[],
     customerName?: string | null,
+    customerId?: string | null,
 ): Promise<string> {
+    const cleanCustomerName = customerName?.trim() || "";
+    if (!cleanCustomerName) {
+        throw new Error("יש להזין שם לקוח");
+    }
+
     const cleanLines = lines
         .map((line) => ({
             ...line,
@@ -29,9 +35,7 @@ export async function createManualShipment(
 
     const shipmentNumber = await runTransaction(db, async (tx) => {
         const counterSnap = await tx.get(counterRef);
-        const currentNumber = counterSnap.exists()
-            ? Number(counterSnap.data().value)
-            : 2389;
+        const currentNumber = counterSnap.exists() ? Number(counterSnap.data().value) : 2389;
 
         if (!Number.isFinite(currentNumber)) {
             throw new Error("מונה תעודות המשלוח אינו תקין");
@@ -47,7 +51,8 @@ export async function createManualShipment(
             totals: [],
             manualLines: cleanLines,
             sourceType: "manual",
-            customerName: customerName?.trim() || null,
+            customerName: cleanCustomerName,
+            customerId: customerId?.trim() || null,
             createdAt: serverTimestamp(),
         });
 

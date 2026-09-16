@@ -30,7 +30,6 @@ import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanning
 import {
     brewLitersForSize,
     brewSizeLabel,
-    weekday,
     type BrewSizeLabel,
 } from "../../SERVICES/planning/productionCycle";
 
@@ -56,7 +55,7 @@ type ShipmentSelectionState = {
 
 const fmt = (n: number) => Math.round(n).toLocaleString("he-IL");
 const palletSize = (p: Product) => (p.type === "crates" ? 84 : 20);
-const defaultWeek = (today: string) => weekday(today) >= 5 ? addDays(weekStart(today), 7) : weekStart(today);
+const defaultWeek = (today: string) => addDays(weekStart(today), 7);
 const coverLabel = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)} שב׳`;
 const PARTIAL_CRATE_HINT_THRESHOLD = 60;
 const MAX_MANUAL_CRATES = 252;
@@ -192,6 +191,14 @@ export default function PlanningWeeklyRecommendations({
         return units > 0 ? Math.ceil(units / palletSize(p)) * palletSize(p) : 0;
     }
 
+    function hasPackagingSource(p: Product) {
+        return tanks.some((tank) =>
+            tank.ready <= model.weekEnd &&
+            sameStyle(tank.style, p.style) &&
+            (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20,
+        );
+    }
+
     function packagingDependencyQty(p: Product, qty: number) {
         const fromExpectedBrewery = safeShipmentQty(p);
         return Math.max(0, Math.min(qty - fromExpectedBrewery, sameWeekPackagingQty(p)));
@@ -272,7 +279,7 @@ export default function PlanningWeeklyRecommendations({
         setShipDraft((prev) => {
             const proposed = Math.max(0, (prev[p.id] ?? 0) + delta * palletSize(p));
             if (delta > 0 && proposed > maxShipmentQty(p)) {
-                setShipmentError({ productId: p.id, text: `אין עוד משטח צפוי או אריזה מתוכננת שיכולים לייצג מקום נוסף עבור ${displayStyle(p.style)}.` });
+                setShipmentError({ productId: p.id, text: `אין מלאי או תכנון שמתאימים לביצוע משלוח פריט זה השבוע.` });
                 return prev;
             }
             const next = { ...prev, [p.id]: proposed };
@@ -296,7 +303,7 @@ export default function PlanningWeeklyRecommendations({
         setBusy(true);
         setMessage("");
         try {
-            const date = current.deliveries?.[0]?.dispatchDate ?? addDays(week, 1);
+            const date = addDays(week, 1);
             const deliveries: DeliveryPlan[] = products.flatMap((p) => {
                 const quantity = Math.max(0, shipDraft[p.id] ?? 0);
                 return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate: date, truckId: `truck:${week}`, pallets: [] }] : [];
@@ -312,7 +319,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     async function acceptShipmentRecommendation() {
-        const date = current.deliveries?.[0]?.dispatchDate ?? addDays(week, 1);
+        const date = addDays(week, 1);
         const deliveries: DeliveryPlan[] = products.flatMap((p) => {
             const quantity = shipmentRec.get(p.id)?.quantity ?? 0;
             return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate: date, truckId: `truck:${week}`, pallets: [] }] : [];
@@ -765,7 +772,7 @@ export default function PlanningWeeklyRecommendations({
                     {" · "}נותרו {Number.isFinite(usedShipSlots) ? Math.max(0, MAX_TRUCK_SLOTS - Number(usedShipSlots)) : 0}
                 </div>
                 {packagingDependentLines.length > 0 && <div className="bp-same-week-warning" role="alert">
-                    <b>⚠️ משלוח תלוי באריזה של אותו שבוע</b><span>יש לארוז לפני או ביום המשלוח.</span>
+                    <b>⚠️ משלוח תלוי באריזה של אותו שבוע</b><span>יש לארוז לפני יום שני.</span>
                     {packagingDependentLines.map(({ p, dependency }) =>
                         <small key={p.id}>{palletLabel(dependency, p)} {displayStyle(p.style)} עדיין תלויים באריזה השבוע.</small>)}
                 </div>}
@@ -804,20 +811,22 @@ export default function PlanningWeeklyRecommendations({
                         const decidedSlots = shipmentSlots({ [p.id]: draftQty });
                         const decidedSlotsLabel = Number.isFinite(decidedSlots) ? `${decidedSlots} מקומות` : "חורג ממגבלת הגובה";
                         const partial = draftQty > 0 ? partialCrateHint(p) : null;
-                        return <div className={`bp-shipment-plan-row ${coverageClass(expectedCover, settings.targetWeeks)}`} key={p.id}>
+                        const unavailable = maxShipmentQty(p) <= 0 && decided <= 0;
+                        return <div className={`bp-shipment-plan-row ${coverageClass(expectedCover, settings.targetWeeks)} ${unavailable ? "is-unavailable" : ""}`} key={p.id}>
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(expectedCover)}</span>
                             <span>
                                 {rec ? formatPalletCount(rec.pallets) : "—"}
                                 {rec && <small>{rec.slots} מקומות</small>}
                                 {rec && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
+                                {unavailable && <small className="bp-risk-text">אין מלאי או תכנון שמתאימים לביצוע משלוח פריט זה השבוע.</small>}
                             </span>
                             <span>{editing === "delivery" ?
                                 <div className="bp-stepper">
                                     <button onClick={() => stepShipment(p, -1)}>−</button>
                                     <b>{Math.round((shipDraft[p.id] ?? 0) / palletSize(p))}</b>
-                                    <button onClick={() => stepShipment(p, 1)}>+</button>
-                                    <small>{decidedSlotsLabel}</small>
+                                    <button disabled={unavailable} onClick={() => stepShipment(p, 1)}>+</button>
+                                    {!unavailable && <small>{decidedSlotsLabel}</small>}
                                     {(shipDraft[p.id] ?? 0) > 0 && <small>יגדיל כיסוי ל־{coverLabel(shownAfter)}</small>}
                                     {shipmentError?.productId === p.id && <small role="alert" className="bp-risk-text">{shipmentError.text}</small>}
                                     {dependency > 0 && <small className="bp-risk-text">⚠️ {palletLabel(dependency, p)} מאריזה השבוע</small>}
@@ -935,13 +944,15 @@ export default function PlanningWeeklyRecommendations({
                         const decisionTank = decisionTankLabel(p.id);
                         const recAfter = packagingRecommendationCover(p);
                         const tone = coverageClass(before?.totalCover, settings.totalTargetWeeks ?? settings.targetWeeks);
-                        return <div className={`bp-shipment-plan-row ${tone} ${remaining > 0 ? "is-decided" : ""}`} key={p.id}>
+                        const unavailable = rec <= 0 && remaining <= 0 && !hasPackagingSource(p);
+                        return <div className={`bp-shipment-plan-row ${tone} ${remaining > 0 ? "is-decided" : ""} ${unavailable ? "is-unavailable" : ""}`} key={p.id}>
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(before?.totalCover ?? null)}</span>
                             <span>
                                 {rec > 0 ? `${fmt(rec)} ${p.type === "crates" ? "ארגזים" : "חביות"}` : "—"}
                                 {recTank && <small>{recTank}</small>}
                                 {rec > 0 && <small>יגדיל כיסוי ל־{coverLabel(recAfter)}</small>}
+                                {unavailable && <small className="bp-risk-text">אין מיכל עם {displayStyle(p.style)} שמתאים לאריזה השבוע.</small>}
                             </span>
                             <span>
                                 {remaining > 0 ? <>{fmt(remaining)} {p.type === "crates" ? "ארגזים" : "חביות"}</> : "—"}

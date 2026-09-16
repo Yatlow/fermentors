@@ -16,7 +16,11 @@ export function validatePlanningWeek(
   if (!Number.isInteger(w.maxRuns) || w.maxRuns < 0 || w.maxRuns > 5)
     return "מכסת האריזה חייבת להיות בין 0 ל־5";
 
-  const days = new Map<string, string>();
+  // `maxRuns` is the weekly number of PACKAGING DAYS, not the number of
+  // individual packaging operations. Several tanks/products may therefore be
+  // packaged on the same day. Undated work is still in the waiting lane and
+  // must not consume a day until the work manager actually assigns it.
+  const packagingDays = new Set<string>();
   const ids = new Set<string>();
   for (const r of w.packaging) {
     const p = settings.products.find((p) => p.id === r.productId);
@@ -29,16 +33,10 @@ export function validatePlanningWeek(
       return "תאריך האריזה חייב להיות בתוך השבוע";
     if (!w.allowExceptions && r.date && weekday(r.date) > 4)
       return "אין אריזה רגילה בשישי או שבת";
-    if (r.date) {
-      const oldProduct = days.get(r.date);
-      if (!w.allowExceptions && oldProduct && oldProduct !== p.id)
-        return "לא ניתן לארוז שני פריטים שונים באותו יום";
-      days.set(r.date, p.id);
-    }
+    if (r.date) packagingDays.add(r.date);
   }
 
-  const undated = w.packaging.filter((r) => !r.date && r.quantity > 0).length;
-  if (!w.allowExceptions && days.size + undated > w.maxRuns)
+  if (!w.allowExceptions && packagingDays.size > w.maxRuns)
     return "חריגה ממכסת ימי האריזה השבועית";
 
   for (const d of w.deliveries ?? []) {

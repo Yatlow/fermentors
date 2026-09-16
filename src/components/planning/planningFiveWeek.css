@@ -1,0 +1,173 @@
+.status-filter-button[data-planning-badge] {
+  position: relative;
+  padding-inline-end: 34px;
+}
+
+.status-filter-button[data-planning-badge]::after {
+  content: attr(data-planning-badge);
+  position: absolute;
+  top: 5px;
+  inset-inline-end: 7px;
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: .68rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.bp-five-week-overview {
+  display: grid;
+  gap: 12px;
+}
+
+.bp-five-week-scroll {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding-bottom: 6px;
+}
+
+.bp-five-week-grid {
+  display: grid;
+  grid-template-columns: 105px repeat(5, minmax(210px, 1fr));
+  min-width: 1180px;
+  border: 1px solid #dbe3ec;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.bp-five-week-corner,
+.bp-five-week-head,
+.bp-five-week-row-label,
+.bp-five-week-cell {
+  border-inline-end: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.bp-five-week-head {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  min-height: 74px;
+  padding: 9px;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.bp-five-week-head b { font-size: .9rem; }
+.bp-five-week-head span { font-size: .7rem; opacity: .72; }
+.bp-five-week-head small { font-size: .65rem; font-weight: 800; }
+.bp-five-week-head.is-current { background: #f1f5f9; box-shadow: inset 0 4px 0 #64748b; }
+.bp-five-week-head.is-next { background: #eff6ff; box-shadow: inset 0 4px 0 #2563eb; color: #172554; }
+
+.bp-five-week-row-label {
+  display: grid;
+  place-items: center;
+  min-height: 124px;
+  padding: 10px 6px;
+  font-size: .78rem;
+  font-weight: 900;
+  background: #f8fafc;
+  writing-mode: horizontal-tb;
+}
+
+.bp-five-week-row-label.is-deliveries { color: #166534; }
+.bp-five-week-row-label.is-packaging { color: #1d4ed8; }
+.bp-five-week-row-label.is-brews { color: #7c3aed; }
+
+.bp-five-week-cell {
+  display: flex;
+  align-content: flex-start;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 124px;
+  padding: 8px;
+  background: #fff;
+}
+
+.bp-five-week-cell.is-deliveries { background: #fbfffc; }
+.bp-five-week-cell.is-packaging { background: #fbfdff; }
+.bp-five-week-cell.is-brews { background: #fdfbff; }
+
+.bp-five-week-item {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 145px;
+  min-width: 125px;
+  max-width: 100%;
+  padding: 7px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+}
+
+.bp-five-week-item b {
+  font-size: .72rem;
+  line-height: 1.25;
+}
+
+.bp-five-week-item small {
+  font-size: .62rem;
+  line-height: 1.35;
+  opacity: .72;
+}
+
+.bp-five-week-item > span {
+  margin-top: 2px;
+  color: #b45309;
+  font-size: .6rem;
+  font-weight: 800;
+}
+
+.bp-five-week-item.is-pending {
+  border-style: dashed;
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.bp-five-week-empty {
+  margin: auto;
+  opacity: .3;
+  font-size: 1.1rem;
+}
+
+@media (max-width: 700px) {
+  .status-filter-button[data-planning-badge] {
+    padding-inline-end: 30px;
+  }
+
+  .bp-five-week-grid {
+    grid-template-columns: 78px repeat(5, minmax(180px, 1fr));
+    min-width: 980px;
+  }
+
+  .bp-five-week-head {
+    min-height: 64px;
+    padding: 7px 5px;
+  }
+
+  .bp-five-week-row-label,
+  .bp-five-week-cell {
+    min-height: 108px;
+  }
+
+  .bp-five-week-row-label {
+    font-size: .7rem;
+  }
+
+  .bp-five-week-item {
+    flex-basis: 130px;
+    min-width: 118px;
+    padding: 6px;
+  }
+}
