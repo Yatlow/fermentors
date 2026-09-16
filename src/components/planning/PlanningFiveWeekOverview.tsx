@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import {
   addDays,
   weekNumber,
@@ -106,8 +107,8 @@ export default function PlanningFiveWeekOverview({
           ))}
 
           {ROWS.map((row) => (
-            <>
-              <div className={`bp-five-week-row-label is-${row.id}`} key={`label:${row.id}`}>{row.label}</div>
+            <Fragment key={row.id}>
+              <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
                 const items = itemsFor(row.id, weekId);
                 return (
@@ -123,7 +124,7 @@ export default function PlanningFiveWeekOverview({
                   </div>
                 );
               })}
-            </>
+            </Fragment>
           ))}
         </div>
       </div>
