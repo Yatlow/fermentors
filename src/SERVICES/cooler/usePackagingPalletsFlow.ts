@@ -165,7 +165,7 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, quantity } : r)));
     }
     function updateRowSubLabel(id: string, subLabel: string) {
-        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, subLabel: subLabel || null } : r)));
+        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, subLabel: subLabel || null } : r));
     }
     function removeRow(id: string) {
         setRows((prev) => prev.filter((r) => r.id !== id));
@@ -270,7 +270,7 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
                 console.error("Failed syncing planned shipment reservation", reservationError);
                 setSubmitWarnings((current) => [
                     ...current,
-                    "המשטחים נוצרו, אך הסימון האוטומטי למשלוח המתוכנן לא הושלם. ניתן לסמן ידנית ממסך התכנון.",
+                    "המשטחים נוצרו, אך הסימון האוטומטי למשלוח המתוכנן לא הושלם. ניתן להשלים את הסימון ידנית במפת המקרר או באזורי המשטחים.",
                 ]);
             }
         } catch (err: any) {
