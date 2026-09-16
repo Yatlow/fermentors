@@ -21,6 +21,33 @@ test("pressure zero is a valid daily pressure measurement", () => {
     assert.deepEqual(missing, []);
 });
 
+test("note-only rows do not complete the daily measurement round", () => {
+    const missing = missingDailyMeasurementFields([
+        {
+            id: "2026-09-15_0815",
+            temp: null,
+            pressure: null,
+            plato: null,
+            pH: null,
+            notes: "בדיקת smoke כללית",
+        },
+    ], true, TODAY);
+
+    assert.deepEqual(missing, ["temp", "pressure", "plato", "pH"]);
+});
+
+test("blank and non-finite values do not count as measurements", () => {
+    const missing = missingDailyMeasurementFields([
+        {
+            id: "2026-09-15_0815",
+            temp: "   ",
+            pressure: Number.NaN,
+        },
+    ], false, TODAY);
+
+    assert.deepEqual(missing, ["temp", "pressure"]);
+});
+
 test("hot tanks require temperature pressure plato and pH", () => {
     const missing = missingDailyMeasurementFields([
         {
