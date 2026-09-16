@@ -117,6 +117,130 @@
     font-weight: 700;
 }
 
+.brew-planning .bp-week-sticky {
+    position: sticky;
+    top: 6px;
+    z-index: 35;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin: 8px 0 12px;
+    padding: 10px 14px;
+    border: 2px solid #1d4ed8;
+    border-radius: 12px;
+    background: #eff6ff;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .16);
+    color: #172554;
+}
+
+.brew-planning .bp-week-sticky b {
+    font-size: 1rem;
+}
+
+.brew-planning .bp-week-sticky span {
+    font-weight: 700;
+}
+
+.brew-planning .bp-week-sticky small {
+    opacity: .78;
+}
+
+.brew-planning .bp-outside-shipment-warning {
+    position: sticky;
+    top: 6px;
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin: 8px 0;
+    padding: 10px 12px;
+    border: 2px solid #f59e0b;
+    border-radius: 10px;
+    background: #fffbeb;
+    color: #78350f;
+    box-shadow: 0 5px 14px rgba(120, 53, 15, .15);
+}
+
+.brew-planning .bp-outside-shipment-warning button {
+    margin-inline-start: auto;
+}
+
+.brew-planning .bp-pending-packaging {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin: 12px 0 8px;
+    padding: 10px 12px;
+    border: 1px solid #93c5fd;
+    border-radius: 10px;
+    background: #f8fbff;
+}
+
+.brew-planning .bp-pending-packaging > div {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.brew-planning .bp-count-badge {
+    display: inline-grid;
+    place-items: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #1d4ed8;
+    color: #fff;
+    font-weight: 800;
+}
+
+.brew-planning .bp-pending-packaging button {
+    margin-inline-start: auto;
+}
+
+.brew-planning .bp-planning-scroll-modal {
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.brew-planning .bp-brew-order-list {
+    display: grid;
+    gap: 8px;
+}
+
+.brew-planning .bp-brew-order-row {
+    display: grid;
+    grid-template-columns: auto minmax(130px, 1fr) minmax(170px, 1.2fr) auto;
+    align-items: center;
+    gap: 10px;
+}
+
+.brew-planning .bp-brew-order-number {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    font-weight: 800;
+}
+
+.brew-planning .bp-brew-order-main {
+    display: grid;
+    gap: 2px;
+}
+
+.brew-planning .bp-brew-order-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 @media (max-width: 600px) {
     .brew-planning .bp-stock-style {
         flex-direction: column;
@@ -161,5 +285,34 @@
 
     .brew-planning .bp-manual-pack-actions button {
         flex: 1 1 0;
+    }
+
+    .brew-planning .bp-week-sticky,
+    .brew-planning .bp-outside-shipment-warning,
+    .brew-planning .bp-pending-packaging {
+        align-items: stretch;
+    }
+
+    .brew-planning .bp-outside-shipment-warning button,
+    .brew-planning .bp-pending-packaging button {
+        width: 100%;
+        margin-inline-start: 0;
+    }
+
+    .brew-planning .bp-brew-order-row {
+        grid-template-columns: auto 1fr;
+    }
+
+    .brew-planning .bp-brew-order-row label,
+    .brew-planning .bp-brew-order-actions {
+        grid-column: 1 / -1;
+    }
+
+    .brew-planning .bp-brew-order-actions {
+        flex-direction: row;
+    }
+
+    .brew-planning .bp-brew-order-actions button {
+        flex: 1;
     }
 }
