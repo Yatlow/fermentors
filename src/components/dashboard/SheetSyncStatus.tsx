@@ -64,6 +64,7 @@ export default function SheetSyncStatus() {
     const [pullStatus, setPullStatus] = useState<SheetPullStatus | null>(null);
     const [readError, setReadError] = useState(false);
     const [now, setNow] = useState(() => Date.now());
+    const isPreviewHost = typeof window !== "undefined" && window.location.hostname.includes("--pr");
 
     useEffect(() => {
         const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -137,9 +138,11 @@ export default function SheetSyncStatus() {
 
     const pullPill = readError
         ? "לא זמין"
-        : pull.partial
-            ? "קריאה חלקית"
-            : compactAge(pull.age);
+        : !pullStatus && isPreviewHost
+            ? "זמין אחרי merge"
+            : pull.partial
+                ? "קריאה חלקית"
+                : compactAge(pull.age);
 
     return (
         <section className="sheet-sync-status" dir="rtl">
