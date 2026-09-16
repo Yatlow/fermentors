@@ -204,7 +204,14 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
             {allWeekTanks.map((tank) => {
               const isAssigned = selectedBrew.tankId === tank.id;
               const assignedTo = orderedBrews.findIndex((brew) => brew.tankId === tank.id);
-              return <button type="button" key={tank.id} className={`bp-brew-tank-visual bp-brew-tank-visual-compact ${isAssigned ? "is-assigned" : ""}`} onClick={() => setTank(selectedIndex, tank.id)} title={assignedTo >= 0 && assignedTo !== selectedIndex ? `החלף עם אצווה ${orderedBrews[assignedTo]?.batchNumber}` : `שבץ למיכל ${tank.tankNumber}`}>
+              return <button
+                type="button"
+                key={tank.id}
+                className="bp-brew-tank-visual bp-brew-tank-visual-compact"
+                style={isAssigned ? { outline: "3px solid #2563eb", outlineOffset: "-1px", borderRadius: 10 } : undefined}
+                onClick={() => setTank(selectedIndex, tank.id)}
+                title={assignedTo >= 0 && assignedTo !== selectedIndex ? `החלף עם אצווה ${orderedBrews[assignedTo]?.batchNumber}` : `שבץ למיכל ${tank.tankNumber}`}
+              >
                 <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b><small>{tankKind(tank.tankNumber)}</small></span>
                 <span className="bp-brew-tank-cone" />
                 {assignedTo >= 0 && assignedTo !== selectedIndex && <small className="bp-brew-tank-assigned-hint">אצווה {orderedBrews[assignedTo]?.batchNumber}</small>}
