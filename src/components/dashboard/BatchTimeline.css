@@ -1,7 +1,7 @@
 .batch-timeline {
     --timeline-bg: #f8fafc;
-    margin: 14px 0 12px;
-    padding: 12px;
+    margin: 10px 0 8px;
+    padding: 10px;
     border: 1px solid #e2e8f0;
     border-radius: 14px;
     background: var(--timeline-bg);
@@ -12,16 +12,16 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
 }
 
 .batch-timeline-heading strong {
-    font-size: 0.92rem;
+    font-size: 0.9rem;
 }
 
 .batch-timeline-heading span {
     color: #64748b;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
 }
 
 .batch-timeline-scroll-shell {
@@ -31,7 +31,7 @@
 
 .batch-timeline-scroll {
     overflow-x: auto;
-    padding: 2px 2px 8px;
+    padding: 1px 2px 6px;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
 }
@@ -40,18 +40,18 @@
     position: relative;
     display: flex;
     align-items: flex-start;
-    gap: 14px;
+    gap: 12px;
     width: max-content;
     min-width: 100%;
-    padding: 4px 2px 2px;
+    padding: 2px 2px 1px;
 }
 
 .batch-timeline-track::before {
     content: "";
     position: absolute;
-    top: 22px;
-    right: 24px;
-    left: 24px;
+    top: 19px;
+    right: 21px;
+    left: 21px;
     height: 2px;
     background: #cbd5e1;
 }
@@ -66,22 +66,22 @@
 .batch-timeline-event {
     position: relative;
     z-index: 1;
-    width: 132px;
-    flex: 0 0 132px;
+    width: 124px;
+    flex: 0 0 124px;
     text-align: center;
 }
 
 .batch-timeline-marker {
-    width: 42px;
-    height: 42px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 7px;
+    margin: 0 auto 4px;
     border: 2px solid #cbd5e1;
     border-radius: 50%;
     background: #ffffff;
-    font-size: 1.18rem;
+    font-size: 1.05rem;
     box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
 }
 
@@ -118,23 +118,23 @@
 }
 
 .batch-timeline-label {
-    min-height: 34px;
+    min-height: 28px;
     display: flex;
     align-items: flex-start;
     justify-content: center;
     color: #1e293b;
-    font-size: 0.78rem;
+    font-size: 0.74rem;
     font-weight: 700;
-    line-height: 1.25;
+    line-height: 1.18;
 }
 
 .batch-timeline-detail {
-    min-height: 18px;
-    margin-top: 2px;
+    min-height: 16px;
+    margin-top: 1px;
     color: #475569;
-    font-size: 0.69rem;
+    font-size: 0.66rem;
     font-weight: 650;
-    line-height: 1.45;
+    line-height: 1.28;
     overflow-wrap: anywhere;
     white-space: pre-line;
 }
@@ -142,23 +142,23 @@
 .batch-timeline-meta {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    margin-top: 3px;
+    gap: 0;
+    margin-top: 2px;
     color: #64748b;
-    font-size: 0.68rem;
-    line-height: 1.3;
+    font-size: 0.64rem;
+    line-height: 1.2;
 }
 
 .batch-timeline-meta strong {
     color: #334155;
-    font-size: 0.72rem;
+    font-size: 0.69rem;
 }
 
 .batch-timeline-scroll-hint {
     position: absolute;
     z-index: 4;
     top: 0;
-    bottom: 8px;
+    bottom: 6px;
     width: 54px;
     display: flex;
     align-items: center;
@@ -176,9 +176,9 @@
     align-items: center;
     justify-content: center;
     width: 27px;
-    height: 42px;
+    height: 38px;
     color: #334155;
-    font-size: 2rem;
+    font-size: 1.9rem;
     font-weight: 500;
     line-height: 1;
     text-shadow: 0 1px 4px rgba(255, 255, 255, 0.9);
@@ -196,15 +196,38 @@
     background: linear-gradient(to right, var(--timeline-bg) 18%, rgba(248, 250, 252, 0));
 }
 
+/* The history modal has its own vertical scroll while the timeline and metric
+   tabs scroll horizontally. A little extra side padding keeps those scroll
+   surfaces visually separated from the modal edge. Mobile keeps the existing
+   width; tablets/desktops get more room for the graph and table. */
+.batch-chart-modal.batch-chart-modal {
+    padding-inline: 18px;
+}
+
+@media (min-width: 720px) {
+    .batch-chart-modal.batch-chart-modal {
+        width: calc(100vw - 48px);
+        max-width: 960px;
+        padding: 20px 24px 24px;
+    }
+}
+
+@media (min-width: 1100px) {
+    .batch-chart-modal.batch-chart-modal {
+        width: min(1120px, calc(100vw - 80px));
+        max-width: 1120px;
+    }
+}
+
 @media (max-width: 600px) {
     .batch-timeline {
-        margin: 10px 0;
-        padding: 9px;
+        margin: 8px 0;
+        padding: 8px;
         border-radius: 12px;
     }
 
     .batch-timeline-heading {
-        margin-bottom: 7px;
+        margin-bottom: 5px;
     }
 
     .batch-timeline-heading span {
@@ -212,38 +235,38 @@
     }
 
     .batch-timeline-track {
-        gap: 9px;
+        gap: 8px;
     }
 
     .batch-timeline-event {
-        width: 112px;
-        flex-basis: 112px;
+        width: 108px;
+        flex-basis: 108px;
     }
 
     .batch-timeline-marker {
-        width: 38px;
-        height: 38px;
-        margin-bottom: 6px;
-        font-size: 1.05rem;
+        width: 34px;
+        height: 34px;
+        margin-bottom: 4px;
+        font-size: 0.98rem;
     }
 
     .batch-timeline-track::before {
-        top: 20px;
-        right: 21px;
-        left: 21px;
+        top: 18px;
+        right: 19px;
+        left: 19px;
     }
 
     .batch-timeline-label {
-        min-height: 31px;
-        font-size: 0.73rem;
+        min-height: 28px;
+        font-size: 0.7rem;
     }
 
     .batch-timeline-detail {
-        font-size: 0.64rem;
+        font-size: 0.61rem;
     }
 
     .batch-timeline-meta {
-        font-size: 0.64rem;
+        font-size: 0.61rem;
     }
 
     .batch-timeline-scroll-hint {
@@ -252,6 +275,7 @@
 
     .batch-timeline-scroll-hint span {
         width: 23px;
-        font-size: 1.75rem;
+        height: 36px;
+        font-size: 1.7rem;
     }
 }
