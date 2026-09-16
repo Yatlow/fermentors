@@ -4,14 +4,8 @@ import { parseDate } from "./planningEngine";
 
 export const expiryIso = parseDate;
 export const palletQuantity = (p: Pallet) => Math.max(0, Number(p.quantity) || 0);
-/**
- * Existing marks in storage are a partial reservation, not a blocker: the
- * planner is allowed to fill the remainder. Once a marked pallet has reached
- * loadingDock the shipment is already being executed, so starting/altering the
- * planning pick is blocked.
- */
 export const hasMarkedPallets = (pallets: Pallet[]) =>
-  pallets.some((p) => p.zone === "loadingDock" && p.markedForShipment);
+  pallets.some((p) => p.zone !== "shipped" && p.markedForShipment);
 
 function stackOrder(p: Pallet) {
   return p.orderInCell ?? p.slotIndex ?? p.cellOrder ?? null;
