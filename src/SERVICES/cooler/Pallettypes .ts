@@ -62,6 +62,7 @@ export type Shipment = {
     totals: ShipmentTotal[];
     createdAt?: Timestamp | null;
     customerName?: string | null;
+    customerId?: string | null;
     manualLines?: ManualShipmentLine[];
     sourceType?: "pallets" | "manual";
 
