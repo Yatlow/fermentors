@@ -9,9 +9,9 @@ import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import {
     DAILY_FIELD_LABELS,
     calculateCellarHealthScore,
+    dailyMeasurementProgress,
     healthBand,
     isActionableHealthRecommendation,
-    missingDailyMeasurementFields,
     type MeasurementIssue,
     type ScoredRecommendation,
 } from "../../SERVICES/dashboard/healthModel";
@@ -37,9 +37,9 @@ type Recommendation = {
 type CellarAnalysis = {
     alerts: HealthAlert[];
     scoreRecommendations: ScoredRecommendation[];
-    measurementIssues: MeasurementIssue[];
+    measurementProgress: MeasurementIssue[];
     checkedTanks: number;
-    completeMeasurementTanks: number;
+    completeMeasurementTankNumbers: string[];
 };
 
 type Props = {
@@ -50,9 +50,9 @@ type Props = {
 const EMPTY_ANALYSIS: CellarAnalysis = {
     alerts: [],
     scoreRecommendations: [],
-    measurementIssues: [],
+    measurementProgress: [],
     checkedTanks: 0,
-    completeMeasurementTanks: 0,
+    completeMeasurementTankNumbers: [],
 };
 
 function tankLabel(tank: Fermentor): string {
@@ -129,34 +129,25 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     const number = tankLabel(tank);
                     const tankAlerts: HealthAlert[] = [];
                     const scoreRecommendations: ScoredRecommendation[] = [];
-                    const measurementIssues: MeasurementIssue[] = [];
+                    const hotTank = isHotTank(tank);
 
                     try {
                         const measurements: Measurement[] = tank.batchNumber
                             ? await getMeasurementsByBatch(tank.batchNumber)
                             : [];
 
-                        const hotTank = isHotTank(tank);
-                        const requiredFieldCount = hotTank ? 4 : 2;
-                        const missingFields = missingDailyMeasurementFields(
+                        const progress = dailyMeasurementProgress(
                             measurements,
                             hotTank
                         );
-                        const completeMeasurements = missingFields.length === 0;
+                        const completeMeasurements = progress.missingFields.length === 0;
 
                         if (!completeMeasurements) {
-                            // Completion is binary: a tank is counted as completed only
-                            // when every required field exists. The score can still give
-                            // proportional credit for fields that were already measured.
-                            measurementIssues.push({
-                                missingFields,
-                                requiredFieldCount,
-                            });
                             tankAlerts.push({
                                 id: `measurements-${tank.id}`,
                                 severity: "warning",
                                 title: `מיכל ${number}: סבב המדידות של היום לא הושלם`,
-                                detail: `חסר: ${missingFields.map((field) => DAILY_FIELD_LABELS[field]).join(", ")}.`,
+                                detail: `חסר: ${progress.missingFields.map((field) => DAILY_FIELD_LABELS[field]).join(", ")}.`,
                                 tankNumber: number,
                             });
                         }
@@ -172,8 +163,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             return {
                                 alerts: tankAlerts,
                                 scoreRecommendations,
-                                measurementIssues,
+                                measurementProgress: progress,
                                 completeMeasurements,
+                                tankNumber: number,
                             };
                         }
 
@@ -203,8 +195,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         return {
                             alerts: tankAlerts,
                             scoreRecommendations,
-                            measurementIssues,
+                            measurementProgress: progress,
                             completeMeasurements,
+                            tankNumber: number,
                         };
                     } catch (error) {
                         console.error("Failed calculating health for tank", tank.id, error);
@@ -215,11 +208,22 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             detail: "לא ניתן היה לטעון או לחשב את המלצות הסלרינג למיכל.",
                             tankNumber: number,
                         });
+
+                        const requiredFieldCount = hotTank ? 4 : 2;
+                        const missingFields = hotTank
+                            ? (["temp", "pressure", "plato", "pH"] as const)
+                            : (["temp", "pressure"] as const);
+
                         return {
                             alerts: tankAlerts,
                             scoreRecommendations,
-                            measurementIssues,
+                            measurementProgress: {
+                                missingFields: [...missingFields],
+                                requiredFieldCount,
+                                completedFieldCount: 0,
+                            },
                             completeMeasurements: false,
+                            tankNumber: number,
                         };
                     }
                 })
@@ -232,9 +236,11 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     .flatMap((result) => result.alerts)
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
                 scoreRecommendations: results.flatMap((result) => result.scoreRecommendations),
-                measurementIssues: results.flatMap((result) => result.measurementIssues),
+                measurementProgress: results.map((result) => result.measurementProgress),
                 checkedTanks: fullTanks.length,
-                completeMeasurementTanks: results.filter((result) => result.completeMeasurements).length,
+                completeMeasurementTankNumbers: results
+                    .filter((result) => result.completeMeasurements)
+                    .map((result) => result.tankNumber),
             });
             setAnalyzing(false);
         }
@@ -248,9 +254,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const healthScore = useMemo(
         () => calculateCellarHealthScore(
             analysis.scoreRecommendations,
-            analysis.measurementIssues
+            analysis.measurementProgress
         ),
-        [analysis.scoreRecommendations, analysis.measurementIssues]
+        [analysis.scoreRecommendations, analysis.measurementProgress]
     );
     const overallClass = healthBand(healthScore);
 
@@ -265,6 +271,10 @@ export default function HealthDashboard({ brews, specs }: Props) {
     } as CSSProperties;
 
     const attentionCount = counts.critical + counts.warning + counts.info;
+    const completedTankCount = analysis.completeMeasurementTankNumbers.length;
+    const completedTankSuffix = completedTankCount > 0
+        ? ` · מיכלים: ${analysis.completeMeasurementTankNumbers.join(", ")}`
+        : "";
 
     return (
         <section className={`health-dashboard health-${overallClass}`} dir="rtl">
@@ -292,7 +302,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     </span>
                     {!analyzing && analysis.checkedTanks > 0 && (
                         <span className="health-measurement-progress">
-                            סבב מלא: {analysis.completeMeasurementTanks}/{analysis.checkedTanks} מיכלים
+                            סבב מלא: {completedTankCount}/{analysis.checkedTanks}{completedTankSuffix}
                         </span>
                     )}
                 </span>
