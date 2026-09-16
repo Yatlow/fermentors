@@ -56,7 +56,7 @@ type ShipmentTotalRow = {
     key: string;
     sku: string;
     displayText: string;
-    itemType: Pallet["itemType"];
+    itemType?: Pallet["itemType"];
     quantity: number;
 };
 
@@ -201,9 +201,19 @@ export default function ShipmentDocumentModal({
         }).format(source);
     }, [shipmentState?.createdAt]);
 
-    // Aggregate by the catalog identity (SKU), not by the raw style string.
-    // This makes aliases/casing such as ipa + IPA one shipment line.
+    // Manual shipments use the exact same document UI / email / print flow.
+    // Only the source of the rows is different.
     const totals = useMemo<ShipmentTotalRow[]>(() => {
+        const manualLines = shipmentState?.manualLines ?? [];
+        if (manualLines.length > 0) {
+            return manualLines.map((line) => ({
+                key: `manual__${line.id}`,
+                sku: line.sku || "—",
+                displayText: line.description,
+                quantity: line.quantity,
+            }));
+        }
+
         const map = new Map<string, ShipmentTotalRow>();
 
         pallets.forEach((p) => {
@@ -229,7 +239,7 @@ export default function ShipmentDocumentModal({
         });
 
         return Array.from(map.values());
-    }, [pallets]);
+    }, [pallets, shipmentState?.manualLines]);
 
     const totalsTableHtml = useMemo(() => {
         const rows = totals
