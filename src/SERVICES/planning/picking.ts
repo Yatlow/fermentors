@@ -2,6 +2,8 @@ import { collection, getDocsFromServer, query, where, doc, runTransaction, serve
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import { dateKey, parseDate } from "./planningEngine";
+import { isPlanningShipmentPickZone } from "./planningShipmentReservations";
+
 /** Explicit action only: no zone movement, shipment creation or stock deduction. */
 export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
   if (!auth.currentUser) throw new Error("נדרשת התחברות");
@@ -21,11 +23,8 @@ export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
       if (
         !snapshot.exists() ||
         !now ||
-        !["cooler", "pending", "bottleRoom", "loadingDock"].includes(
-          now.zone,
-        ) ||
+        !isPlanningShipmentPickZone(now.zone) ||
         now.markedForShipment ||
-        now.zone !== expected.zone ||
         now.cell?.row !== expected.cell?.row ||
         now.cell?.col !== expected.cell?.col ||
         now.cell?.side !== expected.cell?.side ||
