@@ -46,7 +46,7 @@ export type ShipmentReservationSyncResult = {
     selectedIds: string[];
     missingAfter: number;
     candidateCount: number;
-    preferredCandidateCount: number;
+    newCandidateCount: number;
   }>;
 };
 
@@ -102,9 +102,11 @@ function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
 /**
  * Reserve stock for the nearest planned shipment.
  *
- * When new pallet ids are supplied (packaging or manual pallet creation), those
- * pallets get first chance to fill an existing shortage for their SKU. Any
- * remainder is then filled with the normal FEFO/accessibility picker.
+ * A new-pallet event (packaging or manual pallet creation) triggers the
+ * re-evaluation, but it does NOT give the new pallet priority. Selection always
+ * runs across the complete eligible stock pool using the normal FEFO/access
+ * picker, so an older-expiry pallet is never displaced just because a newer
+ * pallet was created now.
  *
  * Shipment decisions are pallet-slot decisions. A partial physical pallet
  * therefore covers one nominal pallet slot, matching shipmentDecisionPickOptions.
@@ -122,7 +124,7 @@ export async function reserveNewPalletsForNearestShipment(
   const pallets = palletSnapshot.docs.map(
     (snapshot) => ({ id: snapshot.id, ...snapshot.data() }) as Pallet,
   );
-  const preferredIds = new Set(newPalletIds);
+  const newIds = new Set(newPalletIds);
   const idsToMark = new Set<string>();
 
   for (const line of planned) {
@@ -150,26 +152,15 @@ export async function reserveNewPalletsForNearestShipment(
       !!expiryIso(pallet.expiryDateStr) &&
       expiryIso(pallet.expiryDateStr)! >= today,
     );
-    const preferredCandidates = candidates.filter((pallet) => preferredIds.has(pallet.id));
 
-    const selected: Pallet[] = [];
-    let missing = missingBefore;
-
-    if (missing > 0 && preferredCandidates.length > 0) {
-      const preferred = pickForMissing(preferredCandidates, missing);
-      selected.push(...preferred);
-      missing = Math.max(0, missing - preferred.length * palletSize(preferredCandidates[0].itemType));
-    }
-
-    if (missing > 0) {
-      const selectedIds = new Set(selected.map((pallet) => pallet.id));
-      const fallbackCandidates = candidates.filter((pallet) => !selectedIds.has(pallet.id));
-      const fallback = pickForMissing(fallbackCandidates, missing);
-      selected.push(...fallback);
-      if (fallback.length > 0) {
-        missing = Math.max(0, missing - fallback.length * palletSize(fallback[0].itemType));
-      }
-    }
+    // Important: new pallets only trigger this pass; they do not jump the queue.
+    // The normal picker keeps FEFO first and only uses access/proximity as a
+    // secondary tie-breaker inside the same expiry priority.
+    const selected = pickForMissing(candidates, missingBefore);
+    const selectedNominal = selected.length > 0
+      ? selected.length * palletSize(selected[0].itemType)
+      : 0;
+    const missingAfter = Math.max(0, missingBefore - selectedNominal);
 
     selected.forEach((pallet) => idsToMark.add(pallet.id));
     diagnostics.push({
@@ -179,9 +170,9 @@ export async function reserveNewPalletsForNearestShipment(
       markedNominalQuantity,
       missingBefore,
       selectedIds: selected.map((pallet) => pallet.id),
-      missingAfter: missing,
+      missingAfter,
       candidateCount: candidates.length,
-      preferredCandidateCount: preferredCandidates.length,
+      newCandidateCount: candidates.filter((pallet) => newIds.has(pallet.id)).length,
     });
   }
 
