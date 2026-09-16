@@ -69,30 +69,41 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   }, [executionPlans, today]);
 
   useEffect(() => {
-    const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
-    const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-      .find((item) => item.textContent?.includes("לוח עבודה יומי"));
-    if (!button) return;
+    let applying = false;
 
-    if (pendingDailyWork.total > 0) {
-      button.dataset.planningBadge = String(pendingDailyWork.total);
-      button.title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`;
-      button.setAttribute(
-        "aria-label",
-        `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`,
-      );
-    } else {
-      delete button.dataset.planningBadge;
-      button.removeAttribute("title");
-      button.setAttribute("aria-label", "לוח עבודה יומי");
-    }
+    const applyBadge = () => {
+      if (applying) return;
+      applying = true;
+      try {
+        const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
+        const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+          .find((item) => item.textContent?.includes("לוח עבודה יומי"));
+        if (!button) return;
 
-    return () => {
-      delete button.dataset.planningBadge;
-      button.removeAttribute("title");
-      button.removeAttribute("aria-label");
+        if (pendingDailyWork.total > 0) {
+          const badge = String(pendingDailyWork.total);
+          const title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`;
+          const aria = `לוח עבודה יומי, ${title}`;
+          if (button.dataset.planningBadge !== badge) button.dataset.planningBadge = badge;
+          if (button.title !== title) button.title = title;
+          if (button.getAttribute("aria-label") !== aria) button.setAttribute("aria-label", aria);
+        } else {
+          if (button.dataset.planningBadge) delete button.dataset.planningBadge;
+          if (button.title) button.removeAttribute("title");
+          if (button.getAttribute("aria-label") !== "לוח עבודה יומי") button.setAttribute("aria-label", "לוח עבודה יומי");
+        }
+      } finally {
+        applying = false;
+      }
     };
-  }, [pendingDailyWork]);
+
+    applyBadge();
+    const header = document.querySelector(".dashboard-header");
+    const observer = new MutationObserver(() => queueMicrotask(applyBadge));
+    if (header) observer.observe(header, { childList: true, subtree: true });
+
+    return () => observer.disconnect();
+  }, [pendingDailyWork.brews, pendingDailyWork.packaging, pendingDailyWork.total]);
 
   async function saveSettings(next: Settings) {
     await data.saveSettings(next);
