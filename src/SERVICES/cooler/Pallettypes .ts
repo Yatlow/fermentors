@@ -47,6 +47,14 @@ export type ShipmentTotal = {
     totalQuantity: number;
 };
 
+export type ManualShipmentLine = {
+    id: string;
+    sku: string;
+    description: string;
+    quantity: number;
+    source: "catalog" | "manual";
+};
+
 export type Shipment = {
     id: string;
     shipmentNumber: number;
@@ -54,6 +62,8 @@ export type Shipment = {
     totals: ShipmentTotal[];
     createdAt?: Timestamp | null;
     customerName?: string | null;
+    manualLines?: ManualShipmentLine[];
+    sourceType?: "pallets" | "manual";
 
     // Source/copy audit. The first successful issuance reserves the one and
     // only ordinary original. Reprints are copies; exceptional restorations
