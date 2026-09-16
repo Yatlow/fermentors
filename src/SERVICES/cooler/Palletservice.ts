@@ -11,6 +11,7 @@ import {
     writeBatch,
     serverTimestamp,
     getCountFromServer,
+    getDocsFromServer,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
@@ -25,6 +26,42 @@ import {
 
 const PALLETS_COLLECTION = "pallets";
 const SHIPMENTS_COLLECTION = "shipments";
+
+export type ShipmentCustomerOption = {
+    name: string;
+    customerId: string | null;
+};
+
+function customerKey(value: string): string {
+    return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("he-IL");
+}
+
+export async function getShipmentCustomerSuggestions(): Promise<ShipmentCustomerOption[]> {
+    const snapshot = await getDocsFromServer(collection(db, SHIPMENTS_COLLECTION));
+    const options = new Map<string, ShipmentCustomerOption>();
+    options.set(customerKey("טמפו"), { name: "טמפו", customerId: "tempo" });
+
+    snapshot.docs.forEach((shipment) => {
+        const data = shipment.data();
+        const name = String(data.customerName ?? "").trim().replace(/\s+/g, " ");
+        if (!name) return;
+        const id = typeof data.customerId === "string" && data.customerId.trim()
+            ? data.customerId.trim()
+            : null;
+        const canonicalName = id === "tempo" ? "טמפו" : name;
+        const key = customerKey(canonicalName);
+        const existing = options.get(key);
+        if (!existing || (!existing.customerId && id)) {
+            options.set(key, { name: canonicalName, customerId: id });
+        }
+    });
+
+    return [...options.values()].sort((a, b) => {
+        if (a.customerId === "tempo") return -1;
+        if (b.customerId === "tempo") return 1;
+        return a.name.localeCompare(b.name, "he");
+    });
+}
 
 export type CreatePalletsParams = {
     itemType: PalletItemType;
@@ -185,17 +222,15 @@ export async function createPalletsFromCustomSplit(
         );
     }
 
-    const maxPerPallet = maxPerPalletFor(itemType);
+    const maxPerPallet = maxPerPalletFor(input.itemType);
     const overLimit = sanitized.find((s) => s.quantity > maxPerPallet);
     if (overLimit) {
-        const unit = itemType === "kegs" ? "חביות" : "ארגזים";
+        const unit = input.itemType === "kegs" ? "חביות" : "ארגזים";
         throw new Error(
             `משטח בודד יכול להכיל עד ${maxPerPallet} ${unit} (נמצא משטח עם ${overLimit.quantity})`
         );
     }
 
-    // יצירה אטומית: או שכל המשטחים של הדיווח נוצרים, או שאף אחד מהם
-    // לא נוצר. כך ניסיון חוזר לא משכפל משטחים אחרי כשל חלקי באמצע.
     const palletBatch = writeBatch(db);
     const ids: string[] = [];
 
@@ -216,8 +251,6 @@ export async function createPalletsFromCustomSplit(
     await palletBatch.commit();
     return ids;
 }
-
-// ============================================================================
 
 export function subscribeToZone(zone: PalletZone, cb: (pallets: Pallet[]) => void) {
     const q = query(collection(db, PALLETS_COLLECTION), where("zone", "==", zone));
@@ -370,7 +403,8 @@ export async function createPallets(input: {
 
 export async function createShipment(
     palletIds: string[],
-    customerName?: string | null
+    customerName?: string | null,
+    customerId?: string | null,
 ): Promise<string> {
     const uniquePalletIds = [...new Set(palletIds.filter(Boolean))];
     if (uniquePalletIds.length === 0) throw new Error("לא נבחרו משטחים למשלוח");
@@ -379,8 +413,6 @@ export async function createShipment(
     const counterRef = doc(db, "counters", "shipmentNumber");
 
     const shipmentNumber = await runTransaction(db, async (tx) => {
-        // All reads happen before writes so Firestore can safely retry the whole
-        // operation if another user changes a pallet or the counter concurrently.
         const counterSnap = await tx.get(counterRef);
         const palletRefs = uniquePalletIds.map((id) => doc(db, PALLETS_COLLECTION, id));
         const palletSnaps = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
@@ -419,6 +451,7 @@ export async function createShipment(
             palletIds: uniquePalletIds,
             totals: Array.from(totalsMap.values()),
             customerName: customerName?.trim() || null,
+            customerId: customerId?.trim() || null,
             createdAt: serverTimestamp(),
         });
 
@@ -442,8 +475,6 @@ export function subscribeToCooler(callback: (pallets: Pallet[]) => void): () => 
 export type ZoneCounts = Record<PalletZone, number>;
 
 export async function getZoneCounts(): Promise<ZoneCounts> {
-    // נשמר לתאימות עם קוד קיים. ה-UI החדש משתמש ב-subscribeToZone ולכן
-    // המספרים עצמם מתעדכנים ב-realtime.
     const zones: PalletZone[] = ["pending", "bottleRoom", "loadingDock", "cooler"];
     const values = await Promise.all(zones.map(async (zone) => {
         const q = query(collection(db, PALLETS_COLLECTION), where("zone", "==", zone));
