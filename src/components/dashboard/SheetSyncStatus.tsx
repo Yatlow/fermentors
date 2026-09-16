@@ -11,6 +11,18 @@ type SheetSyncJob = {
     lastError?: string;
 };
 
+type SheetPullStatus = {
+    state?: "ok" | "partial" | string;
+    completedAt?: Timestamp | Date | string | null;
+    startedAt?: Timestamp | Date | string | null;
+    sheetsRead?: number;
+    configuredSheets?: number;
+    syncErrors?: number;
+    measurementErrors?: number;
+    packagingErrors?: number;
+    errorCount?: number;
+};
+
 type Severity = "ok" | "pending" | "warning" | "failed";
 
 function dateFromUnknown(value: unknown): Date | null {
@@ -27,8 +39,22 @@ function dateFromUnknown(value: unknown): Date | null {
     return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function ageMinutes(value: unknown, now: number): number | null {
+    const date = dateFromUnknown(value);
+    if (!date) return null;
+    return Math.max(0, Math.floor((now - date.getTime()) / 60_000));
+}
+
+function relativeMinutes(minutes: number | null): string {
+    if (minutes === null) return "זמן לא ידוע";
+    if (minutes <= 0) return "לפני פחות מדקה";
+    if (minutes === 1) return "לפני דקה";
+    return `לפני ${minutes} דקות`;
+}
+
 export default function SheetSyncStatus() {
     const [jobs, setJobs] = useState<SheetSyncJob[]>([]);
+    const [pullStatus, setPullStatus] = useState<SheetPullStatus | null>(null);
     const [readError, setReadError] = useState(false);
     const [now, setNow] = useState(() => Date.now());
 
@@ -42,13 +68,17 @@ export default function SheetSyncStatus() {
             collection(db, "sheetSyncJobs"),
             (snapshot) => {
                 setReadError(false);
+
+                const heartbeat = snapshot.docs.find((doc) => doc.id === "_sheetPullStatus");
+                setPullStatus(heartbeat ? heartbeat.data() as SheetPullStatus : null);
+
                 setJobs(
                     snapshot.docs
+                        .filter((jobDoc) => jobDoc.id !== "_sheetPullStatus")
                         .map((jobDoc) => ({
                             id: jobDoc.id,
                             ...(jobDoc.data() as Omit<SheetSyncJob, "id">),
                         }))
-                        .filter((job) => job.id !== "_sheetPullStatus")
                 );
             },
             (error) => {
@@ -59,7 +89,7 @@ export default function SheetSyncStatus() {
         return unsubscribe;
     }, []);
 
-    const status = useMemo(() => {
+    const writeStatus = useMemo(() => {
         const failed = jobs.filter((job) => job.state === "failed");
         const pending = jobs.filter((job) => job.state === "pending");
         const oldestPendingMinutes = pending.reduce((oldest, job) => {
@@ -77,43 +107,79 @@ export default function SheetSyncStatus() {
         return { failed, pending, oldestPendingMinutes, severity };
     }, [jobs, now]);
 
+    const pull = useMemo(() => {
+        const age = ageMinutes(pullStatus?.completedAt, now);
+        const errors = Number(pullStatus?.errorCount ?? 0);
+        const partial = pullStatus?.state === "partial" || errors > 0;
+
+        let severity: Severity = "ok";
+        if (!pullStatus || age === null) severity = "warning";
+        else if (age >= 20) severity = "failed";
+        else if (age >= 10 || partial) severity = "warning";
+
+        return { age, errors, partial, severity };
+    }, [pullStatus, now]);
+
+    const writePill = readError
+        ? "מצב לא זמין"
+        : writeStatus.failed.length > 0
+            ? `${writeStatus.failed.length} נכשלו`
+            : writeStatus.pending.length > 0
+                ? `${writeStatus.pending.length} ממתינות`
+                : "מסונכרן";
+
+    const writeText = readError
+        ? "לא ניתן כרגע לקרוא את תור הכתיבות לגיליונות."
+        : writeStatus.failed.length > 0
+            ? "יש כתיבות מהאפליקציה ל-Sheets שלא הושלמו ודורשות בדיקה."
+            : writeStatus.pending.length > 0
+                ? `יש כתיבות שממתינות לאישור${writeStatus.oldestPendingMinutes > 0 ? ` עד ${writeStatus.oldestPendingMinutes} דק׳` : ""}.`
+                : "כל הכתיבות מהאפליקציה ל-Sheets מסונכרנות.";
+
+    const pullPill = readError
+        ? "מצב לא זמין"
+        : !pullStatus || pull.age === null
+            ? "ממתין לקריאה"
+            : pull.partial
+                ? "קריאה חלקית"
+                : relativeMinutes(pull.age);
+
+    const pullText = readError
+        ? "לא ניתן כרגע לקרוא את מצב מחזור הסנכרון מהגיליונות."
+        : !pullStatus || pull.age === null
+            ? "עדיין לא התקבל heartbeat ממחזור הקריאה של Apps Script."
+            : pull.partial
+                ? `מחזור הקריאה האחרון מהגיליונות הסתיים חלקית ${relativeMinutes(pull.age)}${pull.errors > 0 ? ` (${pull.errors} שגיאות)` : ""}.`
+                : `קראתי את כל הנתונים מהגיליונות ${relativeMinutes(pull.age)}.`;
+
     return (
         <section className="sheet-sync-status" dir="rtl">
             <div className="sheet-sync-status-header">
                 <div>
                     <strong>סנכרון נתונים</strong>
-                    <span>מצב העברת הנתונים בין האפליקציה לגיליונות</span>
+                    <span>כל כיוון נבדק בנפרד כדי לא לבלבל בין כתיבה ל-Sheets לבין קריאה מהם.</span>
                 </div>
-                <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : status.severity}`}>
-                    {readError
-                        ? "מצב לא זמין"
-                        : status.failed.length > 0
-                            ? `${status.failed.length} נכשלו`
-                            : status.pending.length > 0
-                                ? `${status.pending.length} ממתינים`
-                                : "הכל מסונכרן"}
-                </span>
             </div>
 
             <div className="sheet-sync-direction-grid">
-                <div className="sheet-sync-direction-row">
-                    <strong>אפליקציה ←→ Sheets</strong>
-                    <span>
-                        {readError
-                            ? "לא ניתן כרגע לקרוא את תור הכתיבות לגיליונות."
-                            : status.failed.length > 0
-                                ? "יש כתיבות שלא הושלמו ודורשות בדיקה."
-                                : status.pending.length > 0
-                                    ? `יש כתיבות שממתינות לאישור${status.oldestPendingMinutes > 0 ? ` עד ${status.oldestPendingMinutes} דק׳` : ""}.`
-                                    : "כל הכתיבות מהאפליקציה לגיליונות אושרו."}
-                    </span>
+                <div className="sheet-sync-direction-card">
+                    <div className="sheet-sync-direction-header">
+                        <strong>אפליקציה → Sheets</strong>
+                        <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : writeStatus.severity}`}>
+                            {writePill}
+                        </span>
+                    </div>
+                    <span>{writeText}</span>
                 </div>
 
-                <div className="sheet-sync-direction-row sheet-sync-pull-info">
-                    <strong>Sheets → מערכת</strong>
-                    <span>
-                        הסנכרון מהגיליונות אינו realtime; המחזור האוטומטי קורא את הגיליונות בערך כל 5 דקות, ולכן שינוי ידני עשוי להופיע באפליקציה בעיכוב של עד מחזור אחד.
-                    </span>
+                <div className="sheet-sync-direction-card">
+                    <div className="sheet-sync-direction-header">
+                        <strong>Sheets → מערכת</strong>
+                        <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : pull.severity}`}>
+                            {pullPill}
+                        </span>
+                    </div>
+                    <span>{pullText}</span>
                 </div>
             </div>
         </section>
