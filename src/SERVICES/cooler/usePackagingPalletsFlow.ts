@@ -12,6 +12,7 @@ import {
     type CustomPalletSplitEntry,
 } from "./Palletservice";
 import type { PalletItemType } from "./Pallettypes ";
+import { syncNearestPlannedShipmentReservations } from "../planning/planningShipmentReservations";
 
 export type PackagingJobInput = {
     /** מזהה קבוע לדיווח; אותו מזהה משמש גם בניסיון חוזר */
@@ -64,7 +65,7 @@ function buildInitialRows(jobs: PackagingJobInput[]): PendingPalletRow[] {
     jobs.forEach((job, jobIndex) => {
         const itemType = itemTypeFor(job.packagingType);
         const quantity = computePalletQuantity(job.packagingType, job.amount);
-        if (quantity <= 0) return; // פחות מארגז/יחידה שלמה - אין מה לחלק
+        if (quantity <= 0) return;
         getDefaultPalletSplit(itemType, quantity).forEach((entry) => {
             rows.push({
                 id: nextRowId(),
@@ -79,7 +80,6 @@ function buildInitialRows(jobs: PackagingJobInput[]): PendingPalletRow[] {
 }
 
 export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
-    // נלכדים פעם אחת - גם אם ההורה מעביר מערך חדש בכל רינדור
     const jobsRef = useRef(jobs);
 
     const [runtimes, setRuntimes] = useState<JobRuntime[]>(() =>
@@ -91,12 +91,8 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
             palletPlan: null,
         }))
     );
-    // מקור אמת סינכרוני לקריאה בתוך confirm() בלי לחכות לרינדור מחדש
     const runtimesRef = useRef<JobRuntime[]>(runtimes);
     function setRuntimesSynced(updater: (prev: JobRuntime[]) => JobRuntime[]) {
-        // חשוב לעדכן את ה-ref לפני שה-Promise של sendJob מסתיים.
-        // setState יכול להידחות על ידי React; במקרה כזה confirm() היה רואה
-        // palletPlan=null, מדלג על היצירה ובכל זאת מציג הצלחה.
         const next = updater(runtimesRef.current);
         runtimesRef.current = next;
         setRuntimes(next);
@@ -115,8 +111,6 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
     function sendJob(jobIndex: number): Promise<void> {
         const job = jobsRef.current[jobIndex];
         const promise = submitPackagingRecord({
-            // submissionId: job.submissionId,
-            // tankId: job.tankId,
             beerStyle: job.beerStyle,
             packagingType: job.packagingType,
             amount: job.amount,
@@ -151,7 +145,6 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         return promise;
     }
 
-    // שלב 1 מהאפיון: מתחילים לשלוח ברקע מיד עם הטעינה, בלי לחכות לזה בתצוגה.
     useMemo(() => {
         if (sendStartedRef.current) return;
         sendStartedRef.current = true;
@@ -213,9 +206,6 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
 
     const isValid = validation.every((v) => v.ok);
 
-    // "שלב 1" בסטפר - כתיבת הנתונים למאסטר-שיט. רץ ברקע כל עוד המשתמש בשלב review.
-    // pending כל עוד יש עבודה רלוונטית (reportedQuantity > 0) שעדיין לא נשלחה,
-    // error אם משהו נכשל, done כשהכל נשלח בהצלחה (או שאין בכלל מה לשלוח).
     const sendPhase: SendPhase = useMemo(() => {
         const relevant = runtimes.filter((r) => r.reportedQuantity > 0);
         if (relevant.length === 0) return "done";
@@ -268,13 +258,31 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
                     return createPalletsForPlan(runtime.palletPlan, splits).then(() => undefined);
                 })
             );
+
+            // The weekly delivery decision is also the reservation. Once the
+            // physical pallets exist, fill any still-missing part of the nearest
+            // planned shipment automatically using FEFO across cooler/pending/
+            // bottleRoom. Failure here must not roll back a successful packaging
+            // report or pallet creation, so surface it as a warning only.
+            try {
+                await syncNearestPlannedShipmentReservations();
+            } catch (reservationError) {
+                console.error("Failed syncing planned shipment reservation", reservationError);
+                setSubmitWarnings((current) => [
+                    ...current,
+                    "המשטחים נוצרו, אך הסימון האוטומטי למשלוח המתוכנן לא הושלם. ניתן לסמן ידנית ממסך התכנון.",
+                ]);
+            }
         } catch (err: any) {
             setStep("error");
             setSubmitError(err?.message ?? "שגיאה ביצירת המשטחים במפת המקרר");
             return;
         }
 
-        setSubmitWarnings(finalRuntimes.flatMap((r) => r.sendWarnings ?? []));
+        setSubmitWarnings((current) => [
+            ...current,
+            ...finalRuntimes.flatMap((r) => r.sendWarnings ?? []),
+        ]);
         setStep("done");
     }
 
