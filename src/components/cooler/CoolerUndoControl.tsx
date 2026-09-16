@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+    startCoolerUndoRecorder,
     subscribeToCoolerUndoCount,
     undoLastCoolerMove,
 } from "../../SERVICES/cooler/coolerUndo";
@@ -30,7 +31,17 @@ export default function CoolerUndoControl() {
         return () => observer.disconnect();
     }, []);
 
-    useEffect(() => subscribeToCoolerUndoCount(setUndoCount), []);
+    useEffect(() => {
+        if (!visible) {
+            setUndoCount(0);
+            return;
+        }
+
+        // The cooler is only rendered after authentication, so starting the
+        // recorder here avoids a permission-denied subscription during login.
+        startCoolerUndoRecorder();
+        return subscribeToCoolerUndoCount(setUndoCount);
+    }, [visible]);
 
     const performUndo = useCallback(async () => {
         if (busy || undoCount <= 0) return;
