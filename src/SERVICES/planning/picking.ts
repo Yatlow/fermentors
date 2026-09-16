@@ -11,9 +11,14 @@ export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
     throw new Error("ניתן לסמן רק משטחים קיימים בפועל");
   if (new Set(selected.map((p) => p.id)).size !== selected.length)
     throw new Error("משטח כפול");
+
+  // Marks that are still in storage are a partial reservation and may be
+  // completed by another planning pass. Loading-dock marks mean execution has
+  // already started, so changing the planned pick at that point is unsafe.
   const marked = await getDocsFromServer(query(collection(db, "pallets"), where("markedForShipment", "==", true)));
-  if (marked.docs.some((snapshot) => snapshot.data().zone !== "shipped"))
-    throw new Error("כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.");
+  if (marked.docs.some((snapshot) => snapshot.data().zone === "loadingDock"))
+    throw new Error("המשלוח כבר נמצא בתהליך העמסה. יש להשלים אותו או להחזיר את המשטחים מהעמסה לפני שינוי הסימון.");
+
   await runTransaction(db, async (tx) => {
     const refs = selected.map((p) => doc(db, "pallets", p.id));
     const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
