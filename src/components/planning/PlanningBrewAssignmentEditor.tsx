@@ -109,7 +109,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
     setSelectedIndex((current) => Math.max(0, Math.min(orderedBrews.length - 1, current + direction)));
   }
 
-  function tankOptions(brew: BrewPlanWithMeta, index: number) {
+  function tankOptions(index: number) {
     const occupied = new Set(orderedBrews.filter((_, otherIndex) => otherIndex !== index).map((other) => other.tankId).filter(Boolean));
     return releases
       .filter((release) => !!release.date && release.date <= weekEnd && !occupied.has(release.tankId))
@@ -148,7 +148,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
     }
   }
 
-  const availableTanks = selectedBrew ? tankOptions(selectedBrew, selectedIndex) : [];
+  const availableTanks = selectedBrew ? tankOptions(selectedIndex) : [];
 
   return (
     <section className="bp-editor bp-brew-assignment-editor">
