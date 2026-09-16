@@ -23,6 +23,7 @@ import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
 import "./planningEnhancements.css";
+import "./planningFiveWeek.css";
 
 export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
