@@ -5,6 +5,11 @@ export type CatalogEntry = {
     displayText: string;
 };
 
+export type ShipmentCatalogOption = CatalogEntry & {
+    beerStyle: string;
+    itemType: Pallet["itemType"];
+};
+
 type NormalizedStyleKey =
     | "אגסים"
     | "חיטה"
@@ -73,6 +78,20 @@ const PALLET_CATALOG: Record<string, CatalogEntry> = {
     "דאבל ipa__crates": { sku: "7009681", displayText: `דאבל IPA ח"פ בקבוק 330 24 יח'` },
 };
 
+const STYLE_DISPLAY: Record<NormalizedStyleKey, string> = {
+    "אגסים": "אגסים",
+    "חיטה": "חיטה",
+    "לאגר": "לאגר",
+    "מהדורת חורף": "מהדורת חורף",
+    "הופי לאגר": "הופי לאגר",
+    "סאוור": "סאוור",
+    "סטאוט": "סטאוט",
+    "סשן ipa": "סשן IPA",
+    "פייל אייל": "פייל",
+    "ipa": "IPA",
+    "דאבל ipa": "דאבל IPA",
+};
+
 export function getCatalogEntry(
     beerStyle: string | undefined | null,
     itemType: Pallet["itemType"]
@@ -80,4 +99,17 @@ export function getCatalogEntry(
     const key = normalizeBeerStyleKey(beerStyle);
     if (!key) return null;
     return PALLET_CATALOG[`${key}__${itemType}`] ?? null;
+}
+
+export function getShipmentCatalogOptions(): ShipmentCatalogOption[] {
+    return Object.entries(PALLET_CATALOG)
+        .map(([key, entry]) => {
+            const [styleKey, itemType] = key.split("__") as [NormalizedStyleKey, Pallet["itemType"]];
+            return {
+                ...entry,
+                beerStyle: STYLE_DISPLAY[styleKey] ?? styleKey,
+                itemType,
+            };
+        })
+        .sort((a, b) => a.displayText.localeCompare(b.displayText, "he"));
 }
