@@ -101,11 +101,15 @@ function timestampToMillis(value: unknown): number | null {
 }
 
 /**
- * A tank does not participate in the cellar health index during the first
- * 24 hours after the actual "out to fermentor" stage began. Firestore may
- * expose stageStartTime as a Timestamp object (toDate/seconds), while legacy
- * or serialized data may contain an ISO string. If no usable timestamp exists
- * we keep the previous behaviour rather than silently excluding the tank.
+ * During the first 24 hours after the actual "out to fermentor" stage began,
+ * measurements are optional. If the operator does measure the tank, it joins
+ * the health index voluntarily and only temp + pressure are required; Plato/pH
+ * are deliberately not required during this grace window.
+ *
+ * Firestore may expose stageStartTime as a Timestamp object (toDate/seconds),
+ * while legacy or serialized data may contain an ISO string. If no usable
+ * timestamp exists we keep the normal behaviour rather than silently excluding
+ * the tank indefinitely.
  */
 function isInFermentationMeasurementGracePeriod(
     tank: Fermentor,
@@ -183,28 +187,47 @@ export default function HealthDashboard({ brews, specs }: Props) {
             const fullTanks = brews.filter(
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
-            const scoreEligibleTanks = fullTanks.filter(
-                (tank) => !isInFermentationMeasurementGracePeriod(tank)
-            );
 
             setAnalyzing(true);
 
             const results = await Promise.all(
-                scoreEligibleTanks.map(async (tank) => {
+                fullTanks.map(async (tank) => {
                     const number = tankLabel(tank);
                     const tankAlerts: HealthAlert[] = [];
                     const scoreRecommendations: ScoredRecommendation[] = [];
                     const hotTank = isHotTank(tank);
+                    const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
 
                     try {
                         const measurements: Measurement[] = tank.batchNumber
                             ? await getMeasurementsByBatch(tank.batchNumber)
                             : [];
 
-                        const progress = dailyMeasurementProgress(
+                        // During grace, a tank is optional until someone actually
+                        // starts today's temp/pressure round. Once they do, it joins
+                        // the index and only those two fields are required.
+                        const graceProgress = dailyMeasurementProgress(
                             measurements,
-                            hotTank
+                            false
                         );
+
+                        if (inGracePeriod && graceProgress.completedFieldCount === 0) {
+                            return {
+                                included: false,
+                                alerts: [] as HealthAlert[],
+                                scoreRecommendations: [] as ScoredRecommendation[],
+                                measurementProgress: graceProgress,
+                                completeMeasurements: false,
+                                tankNumber: number,
+                            };
+                        }
+
+                        const progress = inGracePeriod
+                            ? graceProgress
+                            : dailyMeasurementProgress(
+                                measurements,
+                                hotTank
+                            );
                         const completeMeasurements = progress.missingFields.length === 0;
 
                         if (!completeMeasurements) {
@@ -226,6 +249,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 tankNumber: number,
                             });
                             return {
+                                included: true,
                                 alerts: tankAlerts,
                                 scoreRecommendations,
                                 measurementProgress: progress,
@@ -258,6 +282,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         });
 
                         return {
+                            included: true,
                             alerts: tankAlerts,
                             scoreRecommendations,
                             measurementProgress: progress,
@@ -266,6 +291,25 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         };
                     } catch (error) {
                         console.error("Failed calculating health for tank", tank.id, error);
+
+                        // A load/calculation failure must never turn an optional
+                        // first-24h tank into a penalty when we cannot verify that
+                        // today's round was actually started.
+                        if (inGracePeriod) {
+                            return {
+                                included: false,
+                                alerts: [] as HealthAlert[],
+                                scoreRecommendations: [] as ScoredRecommendation[],
+                                measurementProgress: {
+                                    missingFields: ["temp", "pressure"] as const,
+                                    requiredFieldCount: 2,
+                                    completedFieldCount: 0,
+                                },
+                                completeMeasurements: false,
+                                tankNumber: number,
+                            };
+                        }
+
                         tankAlerts.push({
                             id: `analysis-error-${tank.id}`,
                             severity: "warning",
@@ -280,6 +324,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             : (["temp", "pressure"] as const);
 
                         return {
+                            included: true,
                             alerts: tankAlerts,
                             scoreRecommendations,
                             measurementProgress: {
@@ -296,14 +341,19 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
             if (cancelled) return;
 
+            const eligibleResults = results.filter((result) => result.included);
+
             setAnalysis({
-                alerts: results
+                alerts: eligibleResults
                     .flatMap((result) => result.alerts)
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
-                scoreRecommendations: results.flatMap((result) => result.scoreRecommendations),
-                measurementProgress: results.map((result) => result.measurementProgress),
-                checkedTanks: scoreEligibleTanks.length,
-                completeMeasurementTankNumbers: results
+                scoreRecommendations: eligibleResults.flatMap((result) => result.scoreRecommendations),
+                measurementProgress: eligibleResults.map((result) => ({
+                    ...result.measurementProgress,
+                    missingFields: [...result.measurementProgress.missingFields],
+                })),
+                checkedTanks: eligibleResults.length,
+                completeMeasurementTankNumbers: eligibleResults
                     .filter((result) => result.completeMeasurements)
                     .map((result) => result.tankNumber),
             });
