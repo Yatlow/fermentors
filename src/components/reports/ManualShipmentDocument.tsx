@@ -1,5 +1,6 @@
 import type { Shipment } from "../../SERVICES/cooler/Pallettypes ";
 import shpiro from "../../assets/shpiro.jpeg";
+import "./manualShipmentPrint.css";
 
 export default function ManualShipmentDocument({ shipment }: { shipment: Shipment }) {
     const lines = shipment.manualLines ?? [];
