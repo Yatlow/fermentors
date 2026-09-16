@@ -78,7 +78,7 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
 
   const shipmentSummary = (current.deliveries ?? []).map((d) => `${productLabel(d.productId)} · ${Math.round(d.quantity)}`);
   const brewSummary = current.brews.map((b) => {
-    if (!b.tankId) return `${displayStyle(b.style)} · ${Math.round(b.liters)} ל׳ · טרם שובץ למיכל`;
+    if (!b.tankId) return `${displayStyle(b.style)} · טרם שובץ למיכל`;
     const source = brews.find((t) => t.id === b.tankId);
     const tankNumber = source?.tankNumber ?? b.tankId;
     const batch = plannedBatch(b);
@@ -90,10 +90,9 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
       return `${displayStyle(b.style)} · מיכל ${tankNumber} · בוצע${source?.batchNumber ? ` · אצווה ${source.batchNumber}` : ""}`;
     }
     const status = assignmentStatus(b) === "tentative" ? "מוצע" : "מאושר";
-    return `${displayStyle(b.style)} · ${Math.round(b.liters)} ל׳ · מיכל ${tankNumber} (${status})${batch ? ` · אצווה ${batch}` : ""}`;
+    return `${displayStyle(b.style)} · מיכל ${tankNumber} (${status})${batch ? ` · אצווה ${batch}` : ""}`;
   });
   const packagingSummary = current.packaging.map((p) => `${productLabel(p.productId)} · ${Math.round(p.quantity)} · מיכל ${tanks.find((t) => t.id === p.tankId)?.number ?? p.tankNumber ?? "?"}${p.date ? ` · ${shortDate(p.date)}` : " · טרם שובץ ליום"}`);
-  const pendingPackaging = current.packaging.filter((p) => p.quantity > 0 && !p.date);
 
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
@@ -129,17 +128,70 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
 
   async function selectPackaging(id: string) {
     if (readOnly || busy) return;
-    if (!selectedPackaging) { setSelectedPackaging(id); setMessage("בחר עכשיו אריזה שנייה כדי להחליף ביניהן את הימים."); return; }
-    if (selectedPackaging === id) { setSelectedPackaging(null); setMessage(""); return; }
+    if (!selectedPackaging) {
+      setSelectedPackaging(id);
+      setMessage("האריזה נבחרה. לחץ על יום כדי לשבץ, או בחר אריזה אחרת כדי להחליף ביניהן.");
+      return;
+    }
+    if (selectedPackaging === id) {
+      setSelectedPackaging(null);
+      setMessage("");
+      return;
+    }
+
     const next = structuredClone(current);
     const first = next.packaging.find((p) => p.id === selectedPackaging);
     const second = next.packaging.find((p) => p.id === id);
-    if (!first || !second || !first.date || !second.date) { setSelectedPackaging(null); return; }
-    const date = first.date; first.date = second.date; second.date = date;
+    if (!first || !second) {
+      setSelectedPackaging(id);
+      return;
+    }
+
+    if (first.date === second.date) {
+      setSelectedPackaging(id);
+      setMessage("האריזה נבחרה. לחץ על יום כדי לשבץ אותה.");
+      return;
+    }
+
+    const firstDate = first.date;
+    first.date = second.date;
+    second.date = firstDate;
     setBusy(true);
-    try { await persist(next); setMessage("ימי האריזה הוחלפו."); }
-    catch (e) { setMessage(e instanceof Error ? e.message : "ההחלפה נכשלה"); }
-    finally { setBusy(false); setSelectedPackaging(null); }
+    try {
+      await persist(next);
+      setMessage(firstDate && second.date ? "ימי האריזות הוחלפו." : "האריזות הוחלפו בין היום לאזור ההמתנה.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "ההחלפה נכשלה");
+    } finally {
+      setBusy(false);
+      setSelectedPackaging(null);
+    }
+  }
+
+  async function assignSelectedPackagingToDate(date: string) {
+    if (!selectedPackaging || readOnly || busy) return;
+    const next = structuredClone(current);
+    const run = next.packaging.find((p) => p.id === selectedPackaging);
+    if (!run) {
+      setSelectedPackaging(null);
+      return;
+    }
+    if (run.date === date) {
+      setSelectedPackaging(null);
+      setMessage("האריזה כבר משובצת ליום הזה.");
+      return;
+    }
+    run.date = date;
+    setBusy(true);
+    try {
+      await persist(next);
+      setMessage(`האריזה שובצה ל־${shortDate(date)}.`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "שיבוץ האריזה נכשל");
+    } finally {
+      setBusy(false);
+      setSelectedPackaging(null);
+    }
   }
 
   return <section>
@@ -159,7 +211,7 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
       <article className="bp-daily-set is-brew">
         <h3>בישולים · שבועי</h3>
         <div><b>החלטות ליישום</b>{brewSummary.length ? brewSummary.map((x, i) => <span key={i}>{x}</span>) : <small>לא נקבעו בישולים</small>}</div>
-        <small>מנהל העבודה קובע רק את סדר הבישולים ואת המיכל. מספרי האצווה מתעדכנים אוטומטית לפי הסדר.</small>
+        <small>מנהל העבודה קובע את סדר הבישולים ואת המיכל. מספרי האצווה מתעדכנים אוטומטית לפי הסדר.</small>
         <button type="button" disabled={readOnly || current.brews.length === 0} onClick={openBrews}>סדר ושיבוץ בישולים</button>
       </article>
 
@@ -169,13 +221,16 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
       </article>
     </div>
 
-    {pendingPackaging.length > 0 && <div className="bp-pending-packaging" role="status">
-      <div><strong>אריזות שממתינות לשיבוץ יום</strong><span className="bp-count-badge">{pendingPackaging.length}</span></div>
-      <small>ההחלטה כבר קיימת; נשאר למנהל העבודה לבחור יום ביצוע.</small>
-      <button type="button" disabled={readOnly} onClick={() => openDay(addDays(week, 1))}>שבץ אריזות לימים</button>
-    </div>}
-
-    <PlanningWeekGantt settings={settings} plans={plans} tanks={tanks} week={week} onSelectDate={openDay} selectedPackagingId={selectedPackaging} onSelectPackaging={selectPackaging}/>
+    <PlanningWeekGantt
+      settings={settings}
+      plans={plans}
+      tanks={tanks}
+      week={week}
+      onSelectDate={openDay}
+      onAssignPackagingToDate={assignSelectedPackagingToDate}
+      selectedPackagingId={selectedPackaging}
+      onSelectPackaging={selectPackaging}
+    />
 
     {editingDay && draft && <div className="bp-modal-backdrop" role="presentation"><div className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true" aria-label={editingScope === "brews" ? "שיבוץ בישולים למיכלים" : `עריכת ${shortDate(editingDay)}`}>
       {editingScope === "brews" ?
