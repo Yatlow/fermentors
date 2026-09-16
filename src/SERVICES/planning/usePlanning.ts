@@ -84,8 +84,11 @@ export function jerusalemDateKey(date: Date): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function isTempoCustomer(value: unknown) {
-  const customer = String(value ?? "").trim();
+function isTempoCustomer(customerId: unknown, customerName: unknown) {
+  if (typeof customerId === "string" && customerId.trim()) {
+    return customerId.trim().toLowerCase() === "tempo";
+  }
+  const customer = String(customerName ?? "").trim();
   return /טמפו|tempo/i.test(customer);
 }
 
@@ -188,7 +191,7 @@ export function usePlanning(today: string, tanks: TankInput[]) {
           setActualShipments(
             snap.docs.flatMap((d) => {
               const data = d.data();
-              if (!isTempoCustomer(data.customerName)) return [];
+              if (!isTempoCustomer(data.customerId, data.customerName)) return [];
               const date = data.createdAt?.toDate?.();
               return date ? [{
                 id: d.id,
