@@ -8,6 +8,10 @@ import {
   pendingPlansAfterActualShipments,
   settingsAfterActualShipments,
 } from "../../SERVICES/planning/shipmentActuals";
+import {
+  mergeCompletedPackagingBack,
+  plansAfterActualPackagingCompletion,
+} from "../../SERVICES/planning/packagingActuals";
 import PlanningBoard from "./PlanningBoard";
 import PlanningData from "./PlanningData";
 import PlanningStock from "./PlanningStock";
@@ -35,9 +39,14 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
+  const executionPlans = useMemo(
+    () => plansAfterActualPackagingCompletion(plans, settings.products, actuals, productionTanks),
+    [plans, settings.products, actuals, productionTanks],
+  );
+
   const weeklyPlans = useMemo(
-    () => pendingPlansAfterActualShipments(plans, data.actualShipments, settings.products),
-    [plans, data.actualShipments, settings.products],
+    () => pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products),
+    [executionPlans, data.actualShipments, settings.products],
   );
 
   const calendarSettings = useMemo(
@@ -52,9 +61,18 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0]) {
     const original = plans.find((week) => week.id === next.id);
-    const merged = original
+    let merged = original
       ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products)
       : next;
+    if (original) {
+      merged = mergeCompletedPackagingBack(
+        original,
+        merged,
+        settings.products,
+        actuals,
+        productionTanks,
+      );
+    }
     await data.saveWeek(merged);
   }
 
