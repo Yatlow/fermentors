@@ -109,13 +109,32 @@ test("future recommendation hints do not count as today's health work", () => {
     assert.equal(isActionableHealthRecommendation({ req: false, display: true }), false);
 });
 
+test("partial daily round gets proportional score credit but is still incomplete", () => {
+    const fullyMissing = calculateCellarHealthScore([], [
+        {
+            missingFields: ["temp", "pressure", "plato", "pH"],
+            requiredFieldCount: 4,
+        },
+    ]);
+    const onlyPhCompleted = calculateCellarHealthScore([], [
+        {
+            missingFields: ["temp", "pressure", "plato"],
+            requiredFieldCount: 4,
+        },
+    ]);
+
+    assert.equal(fullyMissing, 92);
+    assert.equal(onlyPhCompleted, 94);
+    assert.equal(onlyPhCompleted - fullyMissing, 2); // 1/4 of the tank's 8-point measurement value.
+});
+
 test("health score weights live recommendations more heavily than routine measurement gaps", () => {
     const score = calculateCellarHealthScore(
         [{ importance: 3 }, { importance: 1 }],
-        [{ missingFields: ["temp", "pressure"] }]
+        [{ missingFields: ["temp", "pressure"], requiredFieldCount: 2 }]
     );
 
-    assert.equal(score, 75);
+    assert.equal(score, 74);
     assert.equal(healthBand(score), "warning");
     assert.equal(healthBand(95), "healthy");
     assert.equal(healthBand(40), "critical");
