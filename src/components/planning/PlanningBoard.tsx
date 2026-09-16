@@ -76,7 +76,6 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
     return p ? `${displayStyle(p.style)} · ${p.type === "crates" ? "ארגזים" : "חביות"}` : id;
   };
 
-  const shipmentDay = (current.deliveries ?? []).map((d) => d.dispatchDate).sort()[0] ?? "";
   const shipmentSummary = (current.deliveries ?? []).map((d) => `${productLabel(d.productId)} · ${Math.round(d.quantity)}`);
   const brewSummary = current.brews.map((b) => {
     if (!b.tankId) return `${displayStyle(b.style)} · ${Math.round(b.liters)} ל׳ · טרם שובץ למיכל`;
@@ -155,7 +154,6 @@ export default function PlanningBoard({ settings, plans, tanks, brews, pallets, 
       <article className="bp-daily-set is-delivery">
         <h3>משלוח לטמפו · שבועי</h3>
         <div><b>החלטה ליישום</b>{shipmentSummary.length ? shipmentSummary.map((x, i) => <span key={i}>{x}</span>) : <small>לא נקבע משלוח</small>}</div>
-        {shipmentDay && <small>יום המשלוח: {shortDate(shipmentDay)} · שינוי יום המשלוח נעשה בתכנון השבועי.</small>}
       </article>
 
       <article className="bp-daily-set is-brew">
