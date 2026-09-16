@@ -4,7 +4,10 @@ import {
     calcCelleringRecomendations,
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
-import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
+import {
+    getMeasurementsByBatch,
+    MEASUREMENTS_UPDATED_EVENT,
+} from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import {
     DAILY_FIELD_LABELS,
@@ -105,6 +108,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
+    const [measurementRefresh, setMeasurementRefresh] = useState(0);
+
+    useEffect(() => {
+        const refresh = () => setMeasurementRefresh((current) => current + 1);
+        window.addEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
+        return () => window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -249,7 +259,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
         return () => {
             cancelled = true;
         };
-    }, [brews, specs]);
+    }, [brews, specs, measurementRefresh]);
 
     const healthScore = useMemo(
         () => calculateCellarHealthScore(
