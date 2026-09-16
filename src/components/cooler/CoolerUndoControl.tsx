@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Undo2 } from "lucide-react";
 import {
     startCoolerUndoRecorder,
     subscribeToCoolerUndoCount,
@@ -123,9 +124,13 @@ export default function CoolerUndoControl() {
                     fontWeight: 700,
                     boxShadow: "0 4px 16px rgba(0,0,0,.14)",
                     cursor: undoCount > 0 && !busy ? "pointer" : "default",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 7,
                 }}
             >
-                {busy ? "מבטל…" : `↶ בטל פעולה${undoCount > 0 ? ` (${undoCount})` : ""}`}
+                <Undo2 size={17} strokeWidth={2.2} aria-hidden="true" />
+                <span>{busy ? "מבטל…" : `בטל פעולה${undoCount > 0 ? ` (${undoCount})` : ""}`}</span>
             </button>
         </div>
     );
