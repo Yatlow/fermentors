@@ -21,20 +21,15 @@ export type HealthRecommendationState = {
 
 export type MeasurementIssue = {
     missingFields: DailyMeasurementField[];
-    requiredFieldCount?: number;
+    requiredFieldCount: number;
+    completedFieldCount: number;
 };
 
-const RECOMMENDATION_PENALTY: Record<number, number> = {
-    1: 4,
-    2: 8,
-    3: 14,
+const RECOMMENDATION_WEIGHT: Record<number, number> = {
+    1: 2,
+    2: 4,
+    3: 7,
 };
-
-// A completely missing daily round costs eight points per tank. Partial rounds
-// get proportional credit: e.g. one completed field out of four means only
-// 3/4 of this penalty is applied. Completion status itself remains binary and
-// is handled separately by the dashboard.
-const MEASUREMENT_TANK_PENALTY = 8;
 
 export const DAILY_FIELD_LABELS: Record<DailyMeasurementField, string> = {
     temp: "טמפ׳",
@@ -64,10 +59,9 @@ export function hasMeasurementValue(value: unknown): boolean {
 }
 
 /**
- * The health dashboard is an "act now" surface, not the full cellar advice log.
- * Some recommendation objects intentionally keep req=true while display=false so
- * the detailed tank view can explain what will be needed tomorrow. Those future
- * hints must not become health alerts or reduce today's score.
+ * The index is an "act now" surface, not the full cellar advice log. Future
+ * recommendation hints remain available in the tank view but do not reduce
+ * today's score.
  */
 export function isActionableHealthRecommendation(
     recommendation: HealthRecommendationState | null | undefined
@@ -109,17 +103,15 @@ export function localDateKey(date: Date): string {
 }
 
 /**
- * Checks today's complete cellar round across all rows from today. This is
- * deliberate: a later action/note row must not make an earlier valid pressure
- * or temperature reading look missing. Conversely, a note-only row is not a
- * measurement and cannot make the daily round complete. Zero remains a valid
- * measurement value (including pressure=0).
+ * Returns one authoritative progress object for today's round. Both the score
+ * and the "full round" counter use this same result, so partial data can earn
+ * credit without ever being counted as a completed round.
  */
-export function missingDailyMeasurementFields(
+export function dailyMeasurementProgress(
     measurements: HealthMeasurement[],
     isHotTank: boolean,
     today: Date = new Date()
-): DailyMeasurementField[] {
+): MeasurementIssue {
     const required: DailyMeasurementField[] = isHotTank
         ? ["temp", "pressure", "plato", "pH"]
         : ["temp", "pressure"];
@@ -127,31 +119,68 @@ export function missingDailyMeasurementFields(
     const todayKey = localDateKey(today);
     const todayRows = measurements.filter((measurement) => measurementDateKey(measurement) === todayKey);
 
-    return required.filter((field) =>
-        !todayRows.some((measurement) => hasMeasurementValue(measurement[field]))
+    const completed = required.filter((field) =>
+        todayRows.some((measurement) => hasMeasurementValue(measurement[field]))
     );
+
+    const completedSet = new Set(completed);
+    const missingFields = required.filter((field) => !completedSet.has(field));
+
+    return {
+        missingFields,
+        requiredFieldCount: required.length,
+        completedFieldCount: completed.length,
+    };
 }
 
+export function missingDailyMeasurementFields(
+    measurements: HealthMeasurement[],
+    isHotTank: boolean,
+    today: Date = new Date()
+): DailyMeasurementField[] {
+    return dailyMeasurementProgress(measurements, isHotTank, today).missingFields;
+}
+
+/**
+ * Score model:
+ * - every required measurement field is one earnable unit;
+ * - partial rounds earn partial credit immediately (1/4 hot-round fields =
+ *   exactly 1/4 of that tank's measurement contribution);
+ * - actionable cellar recommendations add unresolved weighted units to the
+ *   denominator. When the recommendation is handled and disappears, those
+ *   unresolved units disappear too and the score rises.
+ *
+ * This additive model avoids the old "100 minus penalties" floor where a real
+ * partial measurement could still display 0/100 simply because other tanks had
+ * already exhausted the penalty budget.
+ */
 export function calculateCellarHealthScore(
     recommendations: ScoredRecommendation[],
-    measurementIssues: MeasurementIssue[]
+    measurementProgress: MeasurementIssue[]
 ): number {
-    const recommendationPenalty = recommendations.reduce((sum, recommendation) => {
+    const measurementPossible = measurementProgress.reduce(
+        (sum, progress) => sum + Math.max(0, Number(progress.requiredFieldCount) || 0),
+        0
+    );
+
+    const measurementEarned = measurementProgress.reduce((sum, progress) => {
+        const required = Math.max(0, Number(progress.requiredFieldCount) || 0);
+        const completed = Math.max(
+            0,
+            Math.min(required, Number(progress.completedFieldCount) || 0)
+        );
+        return sum + completed;
+    }, 0);
+
+    const unresolvedRecommendationWeight = recommendations.reduce((sum, recommendation) => {
         const importance = Math.max(1, Math.min(3, Math.round(Number(recommendation.importance) || 1)));
-        return sum + RECOMMENDATION_PENALTY[importance];
+        return sum + RECOMMENDATION_WEIGHT[importance];
     }, 0);
 
-    const measurementPenalty = measurementIssues.reduce((sum, issue) => {
-        if (issue.missingFields.length === 0) return sum;
+    const possible = measurementPossible + unresolvedRecommendationWeight;
+    if (possible <= 0) return 100;
 
-        const requestedCount = Math.round(Number(issue.requiredFieldCount) || issue.missingFields.length);
-        const requiredFieldCount = Math.max(issue.missingFields.length, requestedCount, 1);
-        const missingFraction = issue.missingFields.length / requiredFieldCount;
-
-        return sum + MEASUREMENT_TANK_PENALTY * missingFraction;
-    }, 0);
-
-    return Math.max(0, Math.min(100, Math.round(100 - recommendationPenalty - measurementPenalty)));
+    return Math.max(0, Math.min(100, Math.round((measurementEarned / possible) * 100)));
 }
 
 export function healthBand(score: number): "healthy" | "warning" | "critical" {
