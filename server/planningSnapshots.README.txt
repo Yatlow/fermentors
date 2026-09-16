@@ -1,0 +1,15 @@
+Planning snapshot scheduling (free tier)
+========================================
+
+Firebase scheduled Functions were removed because deployment requires a Blaze
+billing plan. Planning checkpoints now run inside the existing Apps Script
+five-minute maintenance trigger.
+
+Schedule (Asia/Jerusalem):
+- Friday from 12:00: captures lead1..lead4 using an exact Friday 12:00 cutoff.
+- Sunday from 00:00: captures the opening checkpoint using an exact 00:00 cutoff.
+
+The worker is idempotent: snapshot IDs are immutable and ScriptProperties stop
+repeated work after a successful checkpoint. Historical revisions are selected
+as-of the scheduled cutoff, so a five-minute polling delay does not change the
+snapshot semantics.
