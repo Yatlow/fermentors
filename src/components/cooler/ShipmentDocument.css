@@ -172,6 +172,25 @@
     flex: 1;
 }
 
+/* Manual shipment creator uses the same overlay, but it still needs its own
+   opaque card. Without this rule the report underneath shows through. */
+.customer-name-modal {
+    background: #fff;
+    color: #111827;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(15, 23, 42, .24);
+    box-sizing: border-box;
+}
+
+@media (max-width: 699px) {
+    .customer-name-modal {
+        padding: 16px;
+        border-radius: 16px;
+    }
+}
+
 @media print {
     .shipment-document-overlay {
         position: static !important;
