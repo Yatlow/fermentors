@@ -1,0 +1,59 @@
+/* Shared beer-style colors.
+   These classes are used by planning, cooler and other views, so they must be
+   loaded globally rather than through the lazy-loaded cooler chunk. */
+
+/* IPA = blue */
+.pallet-style-ipa {
+    background: #b5d3fb;
+    color: #385196;
+    border-color: #28578d;
+}
+
+/* Pale = green */
+.pallet-style-pale {
+    background: #a4f1bf;
+    color: #166534;
+    border-color: #208b47;
+}
+
+/* Stout = red */
+.pallet-style-stout {
+    background: #f29696;
+    color: #92260e;
+    border-color: #971010;
+}
+
+/* Hoppy lager = orange */
+.pallet-style-hoppyLager {
+    background: #eab365;
+    color: #4d2f02;
+    border-color: #59420f;
+}
+
+/* Lager = gray */
+.pallet-style-lager {
+    background: #a3a3a3;
+    color: #060605;
+    border-color: #474949;
+}
+
+/* Wheat = yellow */
+.pallet-style-wheat {
+    background: #fef9c3;
+    color: #433b00;
+    border-color: #766b1c;
+}
+
+/* Sour = pink */
+.pallet-style-sour {
+    background: #fbcfe8;
+    color: #9d174d;
+    border-color: #f472b6;
+}
+
+/* Fallback / other = purple */
+.pallet-style-other {
+    background: #c49cef;
+    color: #361352;
+    border-color: #430b7f;
+}
