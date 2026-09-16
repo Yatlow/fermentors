@@ -1,6 +1,6 @@
 import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { auth, db } from "../../firebase";
-import { upsertMeasurementInCache } from "./gettAllDataByBatch";
+import { notifyMeasurementsUpdated, upsertMeasurementInCache } from "./gettAllDataByBatch";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
 
 const CURRENT_DATA_FIELDS = [
@@ -231,9 +231,16 @@ export async function pushCurrentDataToFirestore(
 
     const commitAndRefreshCache = async () => {
         await firestoreBatch.commit();
+        const changedBatches = new Set<string>();
         cacheUpdates.forEach(({ batchId, measurement }) => {
             upsertMeasurementInCache(batchId, measurement);
+            changedBatches.add(batchId);
         });
+        // The health index reads measurement history independently from the
+        // currentData cards. Wake it immediately after the authoritative Sheet
+        // row has been reconciled into Firestore instead of waiting for another
+        // unrelated fermentor render.
+        changedBatches.forEach((batchId) => notifyMeasurementsUpdated(batchId));
     };
 
     // Before the Sheet request, callers use this function for the optimistic

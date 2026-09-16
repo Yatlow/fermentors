@@ -25,6 +25,7 @@ try {
       "tests/health-dashboard-model.test.ts",
       "tests/batch-timeline-model.test.ts",
       "tests/sync-status-model.test.ts",
+      "tests/measurement-history-model.test.ts",
     ],
     { stdio: "inherit" },
   );
@@ -39,6 +40,7 @@ try {
         join(output, "tests/health-dashboard-model.test.js"),
         join(output, "tests/batch-timeline-model.test.js"),
         join(output, "tests/sync-status-model.test.js"),
+        join(output, "tests/measurement-history-model.test.js"),
       ],
       { stdio: "inherit" },
     );

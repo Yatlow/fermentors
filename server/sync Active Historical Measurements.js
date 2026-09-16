@@ -3,17 +3,144 @@
 // ============================================================
 //
 // Only brews that are currently inside a fermentor.
-//
-// We determine this from:
-//
-//   fermentors/*
-//        ↓
-//   batchNumber
-//
-// If a fermentor has a batchNumber,
-// that brew is considered active.
-//
+// Historical reconciliation also removes stale same-day Firestore documents
+// when a Sheet row was deleted/recreated and therefore received a new time.
 // ============================================================
+
+function historicalMeasurementDayFromId_(id) {
+  const match = String(id || "").match(/^(\d{4}-\d{2}-\d{2})(?:_\d{4})?$/);
+  return match ? match[1] : null;
+}
+
+function historicalCanonicalIdsFromSheet_(sheetUrl) {
+  const spreadsheetId = extractSpreadsheetId(sheetUrl);
+  const sheet = SpreadsheetApp.openById(spreadsheetId).getSheets()[0];
+  const values = sheet.getDataRange().getDisplayValues();
+  const headerRow = findRowContaining(values, "טמפרטורה");
+  const canonicalByDay = {};
+
+  if (headerRow === -1) return canonicalByDay;
+
+  for (let r = headerRow + 1; r < values.length; r++) {
+    const dateText = String(values[r][0] || "").trim();
+    const date = parseIsraeliDate(dateText);
+    if (!date) continue;
+
+    const hasAnyValue = values[r][2] || values[r][3] || values[r][4] ||
+      values[r][5] || values[r][6] || values[r][7];
+    if (!hasAnyValue) continue;
+
+    const time = String(values[r][1] || "").trim();
+    const measurementId = createMeasurementId(date, time);
+    const day = historicalMeasurementDayFromId_(measurementId);
+    if (!day) continue;
+
+    // If the Sheet ever contains more than one row for a day, the last row is
+    // authoritative. Normal operation has exactly one row per day.
+    canonicalByDay[day] = measurementId;
+  }
+
+  return canonicalByDay;
+}
+
+function listHistoricalMeasurementIds_(projectId, batchNumber) {
+  const ids = [];
+  let pageToken = null;
+
+  do {
+    let url = "https://firestore.googleapis.com/v1/projects/" +
+      projectId +
+      "/databases/(default)/documents/brews/" +
+      encodeURIComponent(batchNumber) +
+      "/measurements?pageSize=300";
+
+    if (pageToken) {
+      url += "&pageToken=" + encodeURIComponent(pageToken);
+    }
+
+    const response = UrlFetchApp.fetch(url, {
+      method: "get",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    const code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      throw new Error("List historical measurements failed: " + code + " " + response.getContentText());
+    }
+
+    const payload = JSON.parse(response.getContentText());
+    (payload.documents || []).forEach(function (document) {
+      const name = String(document.name || "");
+      const match = name.match(/\/measurements\/([^/]+)$/);
+      if (match) ids.push(decodeURIComponent(match[1]));
+    });
+    pageToken = payload.nextPageToken || null;
+  } while (pageToken);
+
+  return ids;
+}
+
+function deleteHistoricalMeasurement_(projectId, batchNumber, measurementId) {
+  const url = "https://firestore.googleapis.com/v1/projects/" +
+    projectId +
+    "/databases/(default)/documents/brews/" +
+    encodeURIComponent(batchNumber) +
+    "/measurements/" +
+    encodeURIComponent(measurementId);
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "delete",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code !== 404 && (code < 200 || code >= 300)) {
+    throw new Error("Delete duplicate historical measurement failed: " + code + " " + response.getContentText());
+  }
+}
+
+function dedupeHistoricalMeasurementsForBatch_(projectId, batchNumber, sheetUrl) {
+  const canonicalByDay = historicalCanonicalIdsFromSheet_(sheetUrl);
+  const ids = listHistoricalMeasurementIds_(projectId, batchNumber);
+  let deleted = 0;
+
+  ids.forEach(function (measurementId) {
+    const day = historicalMeasurementDayFromId_(measurementId);
+    if (!day) return;
+    const canonicalId = canonicalByDay[day];
+    if (!canonicalId || canonicalId === measurementId) return;
+
+    deleteHistoricalMeasurement_(projectId, batchNumber, measurementId);
+    deleted++;
+    Logger.log("DELETED duplicate same-day measurement: " + measurementId + " -> keep " + canonicalId);
+  });
+
+  return deleted;
+}
+
+function touchHistoricalMeasurementRevision_(projectId, fermentorId) {
+  const url = "https://firestore.googleapis.com/v1/projects/" +
+    projectId +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId) +
+    "?updateMask.fieldPaths=measurementsRevision";
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({
+      fields: {
+        measurementsRevision: { stringValue: Utilities.getUuid() }
+      }
+    }),
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error("Historical measurement revision update failed: " + code + " " + response.getContentText());
+  }
+}
 
 function syncActiveHistoricalMeasurements() {
 
@@ -44,6 +171,7 @@ function syncActiveHistoricalMeasurements() {
   let processed = 0;
   let skipped = 0;
   let failed = 0;
+  let duplicateDeletes = 0;
 
 
   // ==========================================================
@@ -113,7 +241,7 @@ function syncActiveHistoricalMeasurements() {
 
 
         // ------------------------------------------------------
-        // UPLOAD HISTORICAL MEASUREMENTS
+        // UPLOAD + RECONCILE HISTORICAL MEASUREMENTS
         // ------------------------------------------------------
 
         Logger.log(
@@ -128,6 +256,20 @@ function syncActiveHistoricalMeasurements() {
           projectId,
           batchNumber,
           sheetUrl
+        );
+
+        duplicateDeletes += dedupeHistoricalMeasurementsForBatch_(
+          projectId,
+          batchNumber,
+          sheetUrl
+        );
+
+        // Even if the document id stayed the same, historical values may have
+        // changed manually in Sheets. Bump the fermentor revision so open
+        // clients invalidate their measurement cache and recalculate health.
+        touchHistoricalMeasurementRevision_(
+          projectId,
+          fermentorId
         );
 
 
@@ -182,6 +324,11 @@ function syncActiveHistoricalMeasurements() {
   Logger.log(
     "Failed: " +
     failed
+  );
+
+  Logger.log(
+    "Duplicate same-day documents deleted: " +
+    duplicateDeletes
   );
 
   Logger.log(
