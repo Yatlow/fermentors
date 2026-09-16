@@ -1,5 +1,5 @@
 import BeerLoader from "../general/Loading";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { useHolidays, usePlanning, usePlanningToday } from "../../SERVICES/planning/usePlanning";
@@ -19,6 +19,7 @@ import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyReservations from "./PlanningWeeklyReservations";
 import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
+import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
 import "./planningEnhancements.css";
@@ -53,6 +54,44 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     () => settingsAfterActualShipments(settings, data.actualShipments, today),
     [settings, data.actualShipments, today],
   );
+
+  const pendingDailyWork = useMemo(() => {
+    const nextWeekId = addDays(weekStart(today), 7);
+    const nextWeek = executionPlans.find((plan) => plan.id === nextWeekId);
+    const brewsToAssign = nextWeek?.brews.filter((brew) => !brew.tankId).length ?? 0;
+    const packagingToAssign = nextWeek?.packaging.filter((run) => run.quantity > 0 && !run.date).length ?? 0;
+    return {
+      brews: brewsToAssign,
+      packaging: packagingToAssign,
+      total: brewsToAssign + packagingToAssign,
+    };
+  }, [executionPlans, today]);
+
+  useEffect(() => {
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
+    const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((item) => item.textContent?.includes("לוח עבודה יומי"));
+    if (!button) return;
+
+    if (pendingDailyWork.total > 0) {
+      button.dataset.planningBadge = String(pendingDailyWork.total);
+      button.title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`;
+      button.setAttribute(
+        "aria-label",
+        `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`,
+      );
+    } else {
+      delete button.dataset.planningBadge;
+      button.removeAttribute("title");
+      button.setAttribute("aria-label", "לוח עבודה יומי");
+    }
+
+    return () => {
+      delete button.dataset.planningBadge;
+      button.removeAttribute("title");
+      button.removeAttribute("aria-label");
+    };
+  }, [pendingDailyWork]);
 
   async function saveSettings(next: Settings) {
     await data.saveSettings(next);
@@ -110,6 +149,13 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
             products={settings.products}
           />
         </>}
+
+        {tab === "fiveWeeks" && <PlanningFiveWeekOverview
+          settings={calendarSettings}
+          plans={weeklyPlans}
+          tanks={tanks}
+          today={today}
+        />}
 
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
