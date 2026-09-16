@@ -34,6 +34,22 @@ type PlannedLine = {
   dispatchDate: string;
 };
 
+export type ShipmentReservationSyncResult = {
+  dispatchDate: string | null;
+  markedIds: string[];
+  diagnostics: Array<{
+    productId: string;
+    plannedQuantity: number;
+    markedPhysicalQuantity: number;
+    markedNominalQuantity: number;
+    missingBefore: number;
+    selectedIds: string[];
+    missingAfter: number;
+    candidateCount: number;
+    newCandidateCount: number;
+  }>;
+};
+
 /**
  * The saved weekly delivery decision is the reservation source of truth.
  * We deliberately do not create a second reservation collection: future
@@ -70,22 +86,45 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   return [...totals.values()];
 }
 
+function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
+  if (!candidates.length || missing <= 0) return [];
+  const itemType = candidates[0].itemType;
+  const options = shipmentDecisionPickOptions(candidates, missing, palletSize(itemType));
+  const best = options.sort((a, b) =>
+    a.missingNominal - b.missingNominal ||
+    a.fefoScore - b.fefoScore ||
+    a.slots - b.slots ||
+    a.overage - b.overage,
+  )[0];
+  return best?.selected ?? [];
+}
+
 /**
- * Re-evaluates the nearest planned shipment after packaging created pallets.
- * Existing marked pallets stay marked; missing quantities are filled from
- * cooler + pending + bottle room using the same FEFO picker as the planner.
- * Loading-dock pallets are intentionally not newly selected here.
+ * Reserve stock for the nearest planned shipment.
+ *
+ * A new-pallet event (packaging or manual pallet creation) triggers the
+ * re-evaluation, but it does NOT give the new pallet priority. Selection always
+ * runs across the complete eligible stock pool using the normal FEFO/access
+ * picker, so an older-expiry pallet is never displaced just because a newer
+ * pallet was created now.
+ *
+ * Shipment decisions are pallet-slot decisions. A partial physical pallet
+ * therefore covers one nominal pallet slot, matching shipmentDecisionPickOptions.
  */
-export async function syncNearestPlannedShipmentReservations(): Promise<void> {
+export async function reserveNewPalletsForNearestShipment(
+  newPalletIds: string[] = [],
+): Promise<ShipmentReservationSyncResult> {
   const today = dateKey(new Date());
   const planned = await nearestPlannedDelivery(today);
-  if (!planned.length) return;
+  const dispatchDate = planned[0]?.dispatchDate ?? null;
+  const diagnostics: ShipmentReservationSyncResult["diagnostics"] = [];
+  if (!planned.length) return { dispatchDate, markedIds: [], diagnostics };
 
   const palletSnapshot = await getDocsFromServer(collection(db, "pallets"));
   const pallets = palletSnapshot.docs.map(
     (snapshot) => ({ id: snapshot.id, ...snapshot.data() }) as Pallet,
   );
-
+  const newIds = new Set(newPalletIds);
   const idsToMark = new Set<string>();
 
   for (const line of planned) {
@@ -96,12 +135,16 @@ export async function syncNearestPlannedShipmentReservations(): Promise<void> {
     );
 
     const alreadyMarked = matching.filter((pallet) => pallet.markedForShipment);
-    const markedQuantity = alreadyMarked.reduce(
+    const itemType = matching[0]?.itemType;
+    const unitPerPallet = itemType ? palletSize(itemType) : 0;
+    const markedPhysicalQuantity = alreadyMarked.reduce(
       (sum, pallet) => sum + palletQuantity(pallet),
       0,
     );
-    const missing = Math.max(0, line.quantity - markedQuantity);
-    if (missing <= 0) continue;
+    const markedNominalQuantity = unitPerPallet > 0
+      ? Math.min(line.quantity, alreadyMarked.length * unitPerPallet)
+      : markedPhysicalQuantity;
+    const missingBefore = Math.max(0, line.quantity - markedNominalQuantity);
 
     const candidates = matching.filter((pallet) =>
       !pallet.markedForShipment &&
@@ -109,42 +152,65 @@ export async function syncNearestPlannedShipmentReservations(): Promise<void> {
       !!expiryIso(pallet.expiryDateStr) &&
       expiryIso(pallet.expiryDateStr)! >= today,
     );
-    if (!candidates.length) continue;
 
-    const itemType = candidates[0].itemType;
-    const options = shipmentDecisionPickOptions(candidates, missing, palletSize(itemType));
-    const best = options.sort((a, b) =>
-      a.missingNominal - b.missingNominal ||
-      a.fefoScore - b.fefoScore ||
-      a.slots - b.slots ||
-      a.overage - b.overage,
-    )[0];
+    // Important: new pallets only trigger this pass; they do not jump the queue.
+    // The normal picker keeps FEFO first and only uses access/proximity as a
+    // secondary tie-breaker inside the same expiry priority.
+    const selected = pickForMissing(candidates, missingBefore);
+    const selectedNominal = selected.length > 0
+      ? selected.length * palletSize(selected[0].itemType)
+      : 0;
+    const missingAfter = Math.max(0, missingBefore - selectedNominal);
 
-    best?.selected.forEach((pallet) => idsToMark.add(pallet.id));
+    selected.forEach((pallet) => idsToMark.add(pallet.id));
+    diagnostics.push({
+      productId: line.productId,
+      plannedQuantity: line.quantity,
+      markedPhysicalQuantity,
+      markedNominalQuantity,
+      missingBefore,
+      selectedIds: selected.map((pallet) => pallet.id),
+      missingAfter,
+      candidateCount: candidates.length,
+      newCandidateCount: candidates.filter((pallet) => newIds.has(pallet.id)).length,
+    });
   }
 
-  if (!idsToMark.size) return;
+  if (idsToMark.size > 0) {
+    await runTransaction(db, async (tx) => {
+      const refs = [...idsToMark].map((id) => doc(db, "pallets", id));
+      const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
 
-  await runTransaction(db, async (tx) => {
-    const refs = [...idsToMark].map((id) => doc(db, "pallets", id));
-    const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
+      snapshots.forEach((snapshot, index) => {
+        if (!snapshot.exists()) return;
+        const pallet = { id: snapshot.id, ...snapshot.data() } as Pallet;
+        if (
+          pallet.markedForShipment ||
+          !isPlanningShipmentPickZone(pallet.zone) ||
+          !expiryIso(pallet.expiryDateStr) ||
+          expiryIso(pallet.expiryDateStr)! < today
+        ) return;
 
-    snapshots.forEach((snapshot, index) => {
-      if (!snapshot.exists()) return;
-      const pallet = { id: snapshot.id, ...snapshot.data() } as Pallet;
-      if (
-        pallet.markedForShipment ||
-        !isPlanningShipmentPickZone(pallet.zone) ||
-        !expiryIso(pallet.expiryDateStr) ||
-        expiryIso(pallet.expiryDateStr)! < today
-      ) return;
-
-      tx.update(refs[index], {
-        markedForShipment: true,
-        updatedAt: serverTimestamp(),
+        tx.update(refs[index], {
+          markedForShipment: true,
+          updatedAt: serverTimestamp(),
+        });
       });
     });
-  });
+  }
+
+  const result = {
+    dispatchDate,
+    markedIds: [...idsToMark],
+    diagnostics,
+  };
+  console.info("Shipment reservation sync", result);
+  return result;
+}
+
+/** Backwards-compatible full re-evaluation used by existing callers. */
+export async function syncNearestPlannedShipmentReservations(): Promise<void> {
+  await reserveNewPalletsForNearestShipment();
 }
 
 /**

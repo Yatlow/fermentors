@@ -12,7 +12,7 @@ import {
     type CustomPalletSplitEntry,
 } from "./Palletservice";
 import type { PalletItemType } from "./Pallettypes ";
-import { syncNearestPlannedShipmentReservations } from "../planning/planningShipmentReservations";
+import { reserveNewPalletsForNearestShipment } from "../planning/planningShipmentReservations";
 
 export type PackagingJobInput = {
     /** מזהה קבוע לדיווח; אותו מזהה משמש גם בניסיון חוזר */
@@ -249,23 +249,22 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         setSubmittingPhase("creatingPallets");
 
         try {
-            await Promise.all(
+            const createdIdsNested = await Promise.all(
                 finalRuntimes.map((runtime, jobIndex) => {
-                    if (runtime.reportedQuantity <= 0 || !runtime.palletPlan) return Promise.resolve();
+                    if (runtime.reportedQuantity <= 0 || !runtime.palletPlan) return Promise.resolve([] as string[]);
                     const splits: CustomPalletSplitEntry[] = rows
                         .filter((r) => r.jobIndex === jobIndex)
                         .map((r) => ({ quantity: r.quantity, subLabel: r.subLabel }));
-                    return createPalletsForPlan(runtime.palletPlan, splits).then(() => undefined);
+                    return createPalletsForPlan(runtime.palletPlan, splits);
                 })
             );
+            const createdPalletIds = createdIdsNested.flat();
 
-            // The weekly delivery decision is also the reservation. Once the
-            // physical pallets exist, fill any still-missing part of the nearest
-            // planned shipment automatically using FEFO across cooler/pending/
-            // bottleRoom. Failure here must not roll back a successful packaging
-            // report or pallet creation, so surface it as a warning only.
+            // The weekly delivery decision is also the reservation. Newly created
+            // pallets are explicitly supplied so a just-packaged pallet gets the
+            // first chance to close an existing gap for the same SKU.
             try {
-                await syncNearestPlannedShipmentReservations();
+                await reserveNewPalletsForNearestShipment(createdPalletIds);
             } catch (reservationError) {
                 console.error("Failed syncing planned shipment reservation", reservationError);
                 setSubmitWarnings((current) => [
