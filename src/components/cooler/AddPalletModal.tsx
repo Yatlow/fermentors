@@ -3,6 +3,7 @@ import BeerLoader from "../general/Loading";
 import { createPallets } from "../../SERVICES/cooler/Palletservice";
 import { MAX_CRATES_PER_PALLET, MAX_KEGS_PER_PALLET, } from "../../SERVICES/cooler/Pallettypes ";
 import { getDefaultExpiryDateStr } from "../../SERVICES/getAndPost/packagingMasterSheetLogger";
+import { reserveNewPalletsForNearestShipment } from "../../SERVICES/planning/planningShipmentReservations";
 import type { Fermentor } from "../../App";
 import { ArrowLeft } from "lucide-react";
 
@@ -57,7 +58,12 @@ export default function AddPalletModal({ brews, onClose, onDone }: { brews?: Fer
 
         setBusy(true); setError(null);
         try {
-            await createPallets({ itemType, beerStyle: beerStyle.trim(), subLabel: subLabel.trim() || null, quantity, palletCount: createMode === "same" ? Math.floor(palletCount) : undefined, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber.trim() || null });
+            const createdIds = await createPallets({ itemType, beerStyle: beerStyle.trim(), subLabel: subLabel.trim() || null, quantity, palletCount: createMode === "same" ? Math.floor(palletCount) : undefined, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber.trim() || null });
+            try {
+                await reserveNewPalletsForNearestShipment(createdIds);
+            } catch (reservationError) {
+                console.error("Failed reserving manually created pallets for shipment", reservationError);
+            }
             onDone();
         } catch (e: any) { setError(e?.message ?? "שגיאה בהוספת המשטחים"); }
         finally { setBusy(false); }
