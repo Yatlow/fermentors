@@ -18,7 +18,6 @@ export default function PlanningWeekGantt({
   plans,
   tanks,
   week,
-  onSelectDate,
   onAssignPackagingToDate,
   selectedPackagingId,
   onSelectPackaging,
@@ -27,7 +26,6 @@ export default function PlanningWeekGantt({
   plans: WeekPlan[];
   tanks: Tank[];
   week: string;
-  onSelectDate: (date: string) => void;
   onAssignPackagingToDate?: (date: string) => void;
   selectedPackagingId?: string | null;
   onSelectPackaging?: (id: string) => void;
@@ -58,11 +56,8 @@ export default function PlanningWeekGantt({
   }));
 
   function clickDay(date: string) {
-    if (selectedPackagingId && onAssignPackagingToDate) {
-      onAssignPackagingToDate(date);
-      return;
-    }
-    onSelectDate(date);
+    if (!selectedPackagingId || !onAssignPackagingToDate) return;
+    onAssignPackagingToDate(date);
   }
 
   const card = (item: GanttItem, compact = false) => item.id ? (
@@ -94,7 +89,7 @@ export default function PlanningWeekGantt({
     <section className="bp-gantt-section">
       <div className="bp-section-heading"><div>
         <h3>שיבוץ אריזות לימים</h3>
-        <p className="bp-muted">בחר אריזה מאזור ההמתנה ואז לחץ על יום. אפשר לבחור שתי אריזות שכבר שובצו כדי להחליף ביניהן ימים.</p>
+        <p className="bp-muted">בחר אריזה מאזור ההמתנה ואז לחץ על יום. אפשר לשבץ כמה אריזות לאותו יום, ולבחור שתי אריזות שכבר שובצו כדי להחליף ביניהן ימים.</p>
       </div></div>
 
       <div className="bp-packaging-waiting-lane">
