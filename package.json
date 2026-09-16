@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:planning": "node scripts/test-planning.mjs",
     "test:dashboard": "node scripts/test-dashboard.mjs",
-    "test": "npm run test:planning && npm run test:dashboard"
+    "test:planning-snapshots": "node scripts/test-planning-snapshots.mjs",
+    "test": "npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",

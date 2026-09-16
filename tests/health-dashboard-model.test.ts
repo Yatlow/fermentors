@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
     calculateCellarHealthScore,
+    dailyMeasurementProgress,
     healthBand,
     isActionableHealthRecommendation,
     missingDailyMeasurementFields,
@@ -15,6 +16,60 @@ test("pressure zero is a valid daily pressure measurement", () => {
             id: "2026-09-15_0800",
             temp: 18.2,
             pressure: 0,
+        },
+    ], false, TODAY);
+
+    assert.deepEqual(missing, []);
+});
+
+test("note-only rows do not complete the daily measurement round", () => {
+    const progress = dailyMeasurementProgress([
+        {
+            id: "2026-09-15_0815",
+            temp: null,
+            pressure: null,
+            plato: null,
+            pH: null,
+            notes: "בדיקת smoke כללית",
+        },
+    ], true, TODAY);
+
+    assert.deepEqual(progress.missingFields, ["temp", "pressure", "plato", "pH"]);
+    assert.equal(progress.completedFieldCount, 0);
+    assert.equal(progress.requiredFieldCount, 4);
+});
+
+test("blank and non-finite values do not count as measurements", () => {
+    const missing = missingDailyMeasurementFields([
+        {
+            id: "2026-09-15_0815",
+            temp: "   ",
+            pressure: Number.NaN,
+        },
+    ], false, TODAY);
+
+    assert.deepEqual(missing, ["temp", "pressure"]);
+});
+
+test("Sheet placeholder dashes do not count as measurements", () => {
+    const missing = missingDailyMeasurementFields([
+        {
+            id: "2026-09-15_0815",
+            temp: "—",
+            pressure: "-",
+            notes: "הערה בלבד",
+        },
+    ], false, TODAY);
+
+    assert.deepEqual(missing, ["temp", "pressure"]);
+});
+
+test("numeric Sheet strings still count and pressure zero remains valid", () => {
+    const missing = missingDailyMeasurementFields([
+        {
+            id: "2026-09-15_0815",
+            temp: "18.4°C",
+            pressure: "0 bar",
         },
     ], false, TODAY);
 
@@ -35,12 +90,13 @@ test("hot tanks require temperature pressure plato and pH", () => {
 });
 
 test("daily completeness can be satisfied across multiple rows from today", () => {
-    const missing = missingDailyMeasurementFields([
+    const progress = dailyMeasurementProgress([
         { id: "2026-09-15_0730", temp: 17.8, pressure: 0 },
         { id: "2026-09-15_0915", plato: 6.2, pH: 4.25 },
     ], true, TODAY);
 
-    assert.deepEqual(missing, []);
+    assert.deepEqual(progress.missingFields, []);
+    assert.equal(progress.completedFieldCount, 4);
 });
 
 test("yesterday values do not satisfy today's round", () => {
@@ -57,22 +113,46 @@ test("future recommendation hints do not count as today's health work", () => {
     assert.equal(isActionableHealthRecommendation({ req: false, display: true }), false);
 });
 
-test("health score weights live recommendations more heavily than routine measurement gaps", () => {
-    const score = calculateCellarHealthScore(
-        [{ importance: 3 }, { importance: 1 }],
-        [{ missingFields: ["temp", "pressure"] }]
-    );
+test("pH-only hot round earns exactly one quarter measurement credit and remains incomplete", () => {
+    const progress = dailyMeasurementProgress([
+        { id: "2026-09-15_0815", pH: 4.31 },
+    ], true, TODAY);
 
-    assert.equal(score, 75);
-    assert.equal(healthBand(score), "warning");
-    assert.equal(healthBand(95), "healthy");
-    assert.equal(healthBand(40), "critical");
+    assert.deepEqual(progress.missingFields, ["temp", "pressure", "plato"]);
+    assert.equal(progress.completedFieldCount, 1);
+    assert.equal(progress.requiredFieldCount, 4);
+    assert.equal(calculateCellarHealthScore([], [progress]), 25);
 });
 
-test("health score is clamped at zero", () => {
+test("complete measurement rounds score 100 when there are no actionable recommendations", () => {
+    const score = calculateCellarHealthScore([], [
+        { missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 },
+        { missingFields: [], requiredFieldCount: 4, completedFieldCount: 4 },
+    ]);
+
+    assert.equal(score, 100);
+});
+
+test("actionable recommendations reduce the index until they disappear", () => {
+    const score = calculateCellarHealthScore(
+        [{ importance: 3 }, { importance: 1 }],
+        [{ missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 }]
+    );
+
+    assert.equal(score, 18);
+    assert.equal(healthBand(score), "critical");
+    assert.equal(healthBand(95), "healthy");
+    assert.equal(healthBand(75), "warning");
+});
+
+test("zero completed work stays at zero even with many recommendations", () => {
     const score = calculateCellarHealthScore(
         Array.from({ length: 20 }, () => ({ importance: 3 })),
-        []
+        [{
+            missingFields: ["temp", "pressure"],
+            requiredFieldCount: 2,
+            completedFieldCount: 0,
+        }]
     );
 
     assert.equal(score, 0);

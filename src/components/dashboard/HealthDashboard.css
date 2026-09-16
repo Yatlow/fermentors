@@ -158,10 +158,12 @@
 }
 
 .health-expand-indicator {
-    width: 22px;
+    width: 28px;
     text-align: center;
     color: #64748b;
-    font-size: 0.9rem;
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1;
 }
 
 .health-dashboard-details {
