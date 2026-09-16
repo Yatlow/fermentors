@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { collection, onSnapshot, type Timestamp } from "firebase/firestore";
-import type { Fermentor, FirestoreTimestamp } from "../../App";
-import { db } from "../../firebase";
+import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
     type Measurement,
@@ -27,15 +25,6 @@ type HealthAlert = {
     title: string;
     detail: string;
     tankNumber?: string;
-};
-
-type SheetSyncJob = {
-    id: string;
-    state?: string;
-    attempts?: number;
-    readingsJson?: string;
-    createdAt?: Timestamp | FirestoreTimestamp | Date | string | null;
-    lastError?: string;
 };
 
 type Recommendation = {
@@ -66,29 +55,6 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     completeMeasurementTanks: 0,
 };
 
-function dateFromUnknown(value: unknown): Date | null {
-    if (!value) return null;
-    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-
-    if (typeof value === "object" && value !== null) {
-        const timestamp = value as FirestoreTimestamp;
-        if (typeof timestamp.toDate === "function") {
-            const date = timestamp.toDate();
-            return Number.isNaN(date.getTime()) ? null : date;
-        }
-        if (timestamp.seconds !== undefined) {
-            const date = new Date(
-                Number(timestamp.seconds) * 1000 +
-                Math.floor(Number(timestamp.nanoseconds ?? 0) / 1_000_000)
-            );
-            return Number.isNaN(date.getTime()) ? null : date;
-        }
-    }
-
-    const date = new Date(String(value));
-    return Number.isNaN(date.getTime()) ? null : date;
-}
-
 function tankLabel(tank: Fermentor): string {
     return String(tank.tankNumber ?? tank.uid ?? tank.id);
 }
@@ -100,10 +66,8 @@ function isHotTank(tank: Fermentor): boolean {
 function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRecomendations>>): Recommendation[] {
     if (!result) return [];
 
-    // Health is deliberately an "act today" surface. The recommendation engine
-    // may keep req=true with display=false for useful future guidance (for
-    // example "repeat carbonation tomorrow"). Those hints stay in the detailed
-    // cellar recommendation view but must not become a health alert or penalty.
+    // The index is deliberately an "act today" surface. Future hints stay in
+    // the detailed cellar recommendation view and do not reduce today's score.
     const candidates: Array<Recommendation | undefined | null> = [
         result.requiresDryHop,
         result.requiresPresureClose,
@@ -131,61 +95,6 @@ function recommendationSeverity(importance: number): Severity {
     return "info";
 }
 
-function extractJobTanks(job: SheetSyncJob): string[] {
-    if (!job.readingsJson) return [];
-    try {
-        const readings = JSON.parse(job.readingsJson) as Array<{
-            tankNumber?: unknown;
-            tankId?: unknown;
-        }>;
-        if (!Array.isArray(readings)) return [];
-        return [...new Set(
-            readings
-                .map((reading) => String(reading.tankNumber ?? reading.tankId ?? "").trim())
-                .filter(Boolean)
-        )];
-    } catch {
-        return [];
-    }
-}
-
-function buildSyncAlerts(jobs: SheetSyncJob[]): HealthAlert[] {
-    const now = Date.now();
-
-    return jobs.flatMap((job) => {
-        const tanks = extractJobTanks(job);
-        const tanksText = tanks.length > 0
-            ? `מיכל${tanks.length > 1 ? "ים" : ""} ${tanks.join(", ")}`
-            : "דיווח סלרינג";
-
-        if (job.state === "failed") {
-            return [{
-                id: `sync-failed-${job.id}`,
-                severity: "critical" as const,
-                title: `${tanksText}: סנכרון לגיליון נכשל`,
-                detail: job.lastError
-                    ? `לאחר ${job.attempts ?? 0} ניסיונות: ${job.lastError}`
-                    : `לאחר ${job.attempts ?? 0} ניסיונות.`,
-            }];
-        }
-
-        if (job.state !== "pending") return [];
-        const created = dateFromUnknown(job.createdAt);
-        const ageMinutes = created
-            ? Math.max(0, Math.floor((now - created.getTime()) / 60_000))
-            : 0;
-
-        return [{
-            id: `sync-pending-${job.id}`,
-            severity: ageMinutes >= 30 ? "critical" as const : ageMinutes >= 10 ? "warning" as const : "info" as const,
-            title: `${tanksText}: סנכרון לגיליון ממתין`,
-            detail: ageMinutes > 0
-                ? `ממתין ${ageMinutes} דקות. מנגנון ההתאוששות ימשיך לנסות אוטומטית.`
-                : "נשמר במערכת וממתין לאישור הסנכרון לגיליון.",
-        }];
-    });
-}
-
 const severityOrder: Record<Severity, number> = {
     critical: 3,
     warning: 2,
@@ -194,31 +103,8 @@ const severityOrder: Record<Severity, number> = {
 
 export default function HealthDashboard({ brews, specs }: Props) {
     const [expanded, setExpanded] = useState(false);
-    const [syncJobs, setSyncJobs] = useState<SheetSyncJob[]>([]);
-    const [syncReadError, setSyncReadError] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
-
-    useEffect(() => {
-        const unsubscribe = onSnapshot(
-            collection(db, "sheetSyncJobs"),
-            (snapshot) => {
-                setSyncReadError(false);
-                setSyncJobs(
-                    snapshot.docs.map((jobDoc) => ({
-                        id: jobDoc.id,
-                        ...(jobDoc.data() as Omit<SheetSyncJob, "id">),
-                    }))
-                );
-            },
-            (error) => {
-                console.error("Failed to subscribe to Sheet sync health:", error);
-                setSyncReadError(true);
-            }
-        );
-
-        return unsubscribe;
-    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -250,13 +136,22 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             ? await getMeasurementsByBatch(tank.batchNumber)
                             : [];
 
+                        const hotTank = isHotTank(tank);
+                        const requiredFieldCount = hotTank ? 4 : 2;
                         const missingFields = missingDailyMeasurementFields(
                             measurements,
-                            isHotTank(tank)
+                            hotTank
                         );
+                        const completeMeasurements = missingFields.length === 0;
 
-                        if (missingFields.length > 0) {
-                            measurementIssues.push({ missingFields });
+                        if (!completeMeasurements) {
+                            // Completion is binary: a tank is counted as completed only
+                            // when every required field exists. The score can still give
+                            // proportional credit for fields that were already measured.
+                            measurementIssues.push({
+                                missingFields,
+                                requiredFieldCount,
+                            });
                             tankAlerts.push({
                                 id: `measurements-${tank.id}`,
                                 severity: "warning",
@@ -278,7 +173,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 alerts: tankAlerts,
                                 scoreRecommendations,
                                 measurementIssues,
-                                completeMeasurements: missingFields.length === 0,
+                                completeMeasurements,
                             };
                         }
 
@@ -309,14 +204,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             alerts: tankAlerts,
                             scoreRecommendations,
                             measurementIssues,
-                            completeMeasurements: missingFields.length === 0,
+                            completeMeasurements,
                         };
                     } catch (error) {
                         console.error("Failed calculating health for tank", tank.id, error);
                         tankAlerts.push({
                             id: `analysis-error-${tank.id}`,
                             severity: "warning",
-                            title: `מיכל ${number}: בדיקת הבריאות לא הושלמה`,
+                            title: `מיכל ${number}: בדיקת המדד לא הושלמה`,
                             detail: "לא ניתן היה לטעון או לחשב את המלצות הסלרינג למיכל.",
                             tankNumber: number,
                         });
@@ -365,14 +260,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
         info: analysis.alerts.filter((alert) => alert.severity === "info").length,
     }), [analysis.alerts]);
 
-    const syncAlerts = useMemo(
-        () => buildSyncAlerts(syncJobs).sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
-        [syncJobs]
-    );
-    const pendingSyncCount = syncJobs.filter((job) => job.state === "pending").length;
-    const failedSyncCount = syncJobs.filter((job) => job.state === "failed").length;
-    const isPreviewHost = typeof window !== "undefined" && window.location.hostname.includes("--pr");
-
     const scoreStyle = {
         "--health-score": `${healthScore}%`,
     } as CSSProperties;
@@ -387,7 +274,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                 onClick={() => setExpanded((current) => !current)}
                 aria-expanded={expanded}
             >
-                <span className="health-score-ring" style={scoreStyle} aria-label={`ציון בריאות ${healthScore} מתוך 100`}>
+                <span className="health-score-ring" style={scoreStyle} aria-label={`מדד סלרינג ${healthScore} מתוך 100`}>
                     <span>
                         <strong>{analyzing ? "…" : healthScore}</strong>
                         <small>/100</small>
@@ -395,7 +282,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                 </span>
 
                 <span className="health-summary-copy">
-                    <strong>בריאות סלרינג</strong>
+                    <strong>מדד סלרינג</strong>
                     <span>
                         {analyzing
                             ? "מחשב המלצות ומדידות…"
@@ -405,22 +292,12 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     </span>
                     {!analyzing && analysis.checkedTanks > 0 && (
                         <span className="health-measurement-progress">
-                            סבב מדידות: {analysis.completeMeasurementTanks}/{analysis.checkedTanks} מיכלים מלאים הושלמו
+                            סבב מלא: {analysis.completeMeasurementTanks}/{analysis.checkedTanks} מיכלים
                         </span>
                     )}
                 </span>
 
                 <span className="health-summary-counts">
-                    {syncReadError ? (
-                        <span className="health-sync-pill health-sync-warning">? מצב סנכרון לא זמין</span>
-                    ) : failedSyncCount > 0 ? (
-                        <span className="health-sync-pill health-sync-failed">! {failedSyncCount} סנכרונים נכשלו</span>
-                    ) : pendingSyncCount > 0 ? (
-                        <span className="health-sync-pill health-sync-pending">↻ {pendingSyncCount} בסנכרון</span>
-                    ) : (
-                        <span className="health-sync-pill health-sync-ok">✓ הכל מסונכרן</span>
-                    )}
-
                     {counts.critical > 0 && (
                         <span className="health-count health-count-critical">{counts.critical} דחוף</span>
                     )}
@@ -455,34 +332,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             </article>
                         ))
                     )}
-
-                    <div className="health-sync-section">
-                        <strong>סנכרון לגיליונות</strong>
-                        {syncReadError ? (
-                            <span>
-                                {isPreviewHost
-                                    ? "גרסת ה-PR משתמשת כרגע בכללי Firestore של הפרודקשן, שעדיין לא כוללים את תור הסנכרון החדש. אחרי פריסת הכללים מצב הסנכרון יהיה זמין כאן."
-                                    : "לא ניתן כרגע לקרוא את מצב תור הסנכרון."}
-                            </span>
-                        ) : syncAlerts.length === 0 ? (
-                            <span className="health-sync-ok-text">✓ הכל מסונכרן — אין סנכרוני גיליון ממתינים או כושלים.</span>
-                        ) : (
-                            syncAlerts.map((alert) => (
-                                <article
-                                    key={alert.id}
-                                    className={`health-alert health-alert-${alert.severity}`}
-                                >
-                                    <span className="health-alert-icon" aria-hidden="true">
-                                        {alert.severity === "critical" ? "!" : "↻"}
-                                    </span>
-                                    <span className="health-alert-copy">
-                                        <strong>{alert.title}</strong>
-                                        <span>{alert.detail}</span>
-                                    </span>
-                                </article>
-                            ))
-                        )}
-                    </div>
                 </div>
             )}
         </section>
