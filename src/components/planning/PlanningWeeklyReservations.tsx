@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, type ComponentProps } from "re
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { brewSizeLabel } from "../../SERVICES/planning/productionCycle";
-import { weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { addDays, weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { palletsForPlanningShipmentPicking } from "../../SERVICES/planning/planningShipmentReservations";
 
 type Props = ComponentProps<typeof PlanningWeeklyRecommendationsEnhanced>;
@@ -15,6 +16,7 @@ type BrewWithAssignment = BrewPlan & {
  * - cooler + pending + bottleRoom are one FEFO candidate pool;
  * - future unassigned brews receive a tentative tank before persistence;
  * - existing future plans are backfilled one week at a time after deployment.
+ * - weekly planning opens one week ahead by default because the planner always works forward.
  *
  * Manual shipment marking deliberately lives in the physical pallet views,
  * not in the weekly planning screen.
@@ -22,6 +24,8 @@ type BrewWithAssignment = BrewPlan & {
 export default function PlanningWeeklyReservations(props: Props) {
   const backfillInFlight = useRef(false);
   const backfillAttempted = useRef(new Set<string>());
+  const plannerRootRef = useRef<HTMLDivElement>(null);
+  const defaultWeekApplied = useRef(false);
 
   const planningPallets = useMemo(
     () => palletsForPlanningShipmentPicking(props.pallets),
@@ -88,6 +92,19 @@ export default function PlanningWeeklyReservations(props: Props) {
   }
 
   useEffect(() => {
+    if (defaultWeekApplied.current) return;
+    defaultWeekApplied.current = true;
+
+    const nextWeek = addDays(weekStart(props.today), 7);
+    const targetLabel = shortDate(nextWeek);
+    const buttons = plannerRootRef.current?.querySelectorAll<HTMLButtonElement>(".bp-week-picker button");
+    const target = [...(buttons ?? [])].find(
+      (button) => button.querySelector("small")?.textContent?.trim() === targetLabel,
+    );
+    target?.click();
+  }, [props.today]);
+
+  useEffect(() => {
     if (props.disabled || backfillInFlight.current) return;
 
     const currentWeek = weekStart(props.today);
@@ -132,10 +149,12 @@ export default function PlanningWeeklyReservations(props: Props) {
   ]);
 
   return (
-    <PlanningWeeklyRecommendationsEnhanced
-      {...props}
-      pallets={planningPallets}
-      saveWeek={saveWithTentativeTankAssignments}
-    />
+    <div ref={plannerRootRef}>
+      <PlanningWeeklyRecommendationsEnhanced
+        {...props}
+        pallets={planningPallets}
+        saveWeek={saveWithTentativeTankAssignments}
+      />
+    </div>
   );
 }
