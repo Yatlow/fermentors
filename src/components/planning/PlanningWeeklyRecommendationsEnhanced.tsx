@@ -222,12 +222,19 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         return completed + allowedAdditional;
     }
 
+    function recommendationRemaining(rec: (typeof model.packagingRecommendation)[number], currentRows: PackRow[] = rows) {
+        const alreadyPlanned = currentRows
+            .filter((row) => row.productId === rec.productId && row.tankId === rec.tankId)
+            .reduce((sum, row) => sum + row.quantity, 0);
+        return Math.max(0, rec.quantity - alreadyPlanned);
+    }
+
     function addManualRow() {
         if (!packStyle) return;
 
         const recommended = model.packagingRecommendation.find((rec) => {
             const p = product(rec.productId);
-            return p && sameStyle(p.style, packStyle) && !rows.some((row) => row.key === `rec:${rec.id}`);
+            return p && sameStyle(p.style, packStyle) && recommendationRemaining(rec) > 0;
         });
 
         if (recommended) {
@@ -236,7 +243,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 source: "recommendation",
                 tankId: recommended.tankId,
                 productId: recommended.productId,
-                quantity: recommended.quantity,
+                quantity: recommendationRemaining(recommended, currentRows),
                 completed: 0,
             }]);
             return;
@@ -264,15 +271,19 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
     function addRecommendation(recId: string) {
         const rec = model.packagingRecommendation.find((item) => item.id === recId);
-        if (!rec || rows.some((row) => row.key === `rec:${rec.id}`)) return;
-        setRows((currentRows) => [...currentRows, {
-            key: `rec:${rec.id}`,
-            source: "recommendation",
-            tankId: rec.tankId,
-            productId: rec.productId,
-            quantity: rec.quantity,
-            completed: 0,
-        }]);
+        if (!rec) return;
+        setRows((currentRows) => {
+            const remaining = recommendationRemaining(rec, currentRows);
+            if (remaining <= 0) return currentRows;
+            return [...currentRows, {
+                key: `rec:${rec.id}`,
+                source: "recommendation",
+                tankId: rec.tankId,
+                productId: rec.productId,
+                quantity: remaining,
+                completed: 0,
+            }];
+        });
     }
 
     function maxQuantityForRow(row: PackRow) {
@@ -295,9 +306,11 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     }
 
     const modalRecommendations = packStyle
-        ? model.packagingRecommendation.filter((rec) => {
+        ? model.packagingRecommendation.flatMap((rec) => {
             const p = product(rec.productId);
-            return p && sameStyle(p.style, packStyle) && !rows.some((row) => row.key === `rec:${rec.id}`);
+            if (!p || !sameStyle(p.style, packStyle)) return [];
+            const remainingQuantity = recommendationRemaining(rec);
+            return remainingQuantity > 0 ? [{ ...rec, remainingQuantity }] : [];
         })
         : [];
 
@@ -446,7 +459,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                             const p = product(rec.productId)!;
                             const tank = tanks.find((item) => item.id === rec.tankId);
                             return <button type="button" key={rec.id} onClick={() => addRecommendation(rec.id)}>
-                                הוסף {fmt(rec.quantity)} {p.type === "crates" ? "ארגזים" : "חביות"}
+                                הוסף {fmt(rec.remainingQuantity)} {p.type === "crates" ? "ארגזים" : "חביות"}
                                 {tank ? ` · מיכל ${tank.number} · ${tankSize(tank)} · FIFO ${rec.fifoRank}/${rec.fifoTotal}${rec.fifoRank === 1 && rec.fifoTotal > 1 ? " · הוותיק ביותר" : ""}` : ""}
                             </button>;
                         })}
