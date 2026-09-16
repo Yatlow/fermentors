@@ -1,0 +1,21 @@
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .shipment-document,
+  .shipment-document * {
+    visibility: visible !important;
+  }
+
+  .shipment-document {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    box-shadow: none !important;
+  }
+
+  .shipment-document button {
+    display: none !important;
+  }
+}

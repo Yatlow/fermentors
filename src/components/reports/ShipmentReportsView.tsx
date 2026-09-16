@@ -1,6 +1,7 @@
 import BeerLoader from "../general/Loading";
 
 import { useEffect, useState } from "react";
+import { Plus } from "lucide-react";
 
 import type { Pallet, Shipment } from "../../SERVICES/cooler/Pallettypes ";
 
@@ -15,6 +16,8 @@ import {
 import { db } from "../../firebase";
 
 import ShipmentDocumentModal from "../cooler/ShipmentDocumentModal";
+import ManualShipmentCreator from "./ManualShipmentCreator";
+import ManualShipmentDocument from "./ManualShipmentDocument";
 
 function formatDate(timestamp?: Timestamp | null): string {
     if (!timestamp) return "";
@@ -35,14 +38,9 @@ export default function ShipmentReportsView() {
     const [loadingShipments, setLoadingShipments] = useState(true);
     const [loadingPallets, setLoadingPallets] = useState(false);
 
-    const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
-    const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(
-        null
-    );
-
-    // ========================================================
-    // LOAD SHIPMENTS
-    // ========================================================
+    const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
+    const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(null);
+    const [showManualCreator, setShowManualCreator] = useState(false);
 
     useEffect(() => {
         const shipmentsRef = collection(db, "shipments");
@@ -58,6 +56,7 @@ export default function ShipmentReportsView() {
                     } as Shipment)
                 );
 
+                data.sort((a, b) => Number(b.shipmentNumber) - Number(a.shipmentNumber));
                 setShipments(data);
                 setLoadingShipments(false);
             },
@@ -70,14 +69,10 @@ export default function ShipmentReportsView() {
         return () => unsubscribe();
     }, []);
 
-    // ========================================================
-    // LOAD PALLETS OF SELECTED SHIPMENT
-    // ========================================================
-
     async function handleShipmentChange(shipmentId: string) {
         if (!shipmentId) {
             setSelectedShipmentId(null);
-            setSelectedShipment(null)
+            setSelectedShipment(null);
             setPallets([]);
             return;
         }
@@ -89,8 +84,17 @@ export default function ShipmentReportsView() {
         if (!shipmentL) {
             console.error("Shipment not found:", shipmentId);
             setSelectedShipmentId(null);
-            setSelectedShipment(null)
+            setSelectedShipment(null);
             setPallets([]);
+            return;
+        }
+
+        setSelectedShipmentId(shipmentId);
+        setSelectedShipment(shipmentL);
+
+        if (shipmentL.sourceType === "manual" || (shipmentL.manualLines?.length ?? 0) > 0) {
+            setPallets([]);
+            setLoadingPallets(false);
             return;
         }
 
@@ -113,43 +117,60 @@ export default function ShipmentReportsView() {
                 );
 
             setPallets(shipmentPallets);
-            setSelectedShipmentId(shipmentId);
-            setSelectedShipment(shipmentL)
-
-
         } catch (error) {
             console.error("Error loading shipment pallets:", error);
             setPallets([]);
             setSelectedShipmentId(null);
-            setSelectedShipment(null)
-
+            setSelectedShipment(null);
         } finally {
             setLoadingPallets(false);
         }
     }
 
-    // ========================================================
-    // CLOSE MODAL
-    // ========================================================
-
     function handleCloseModal() {
         setSelectedShipmentId(null);
-        setSelectedShipment(null)
+        setSelectedShipment(null);
         setPallets([]);
     }
 
-    // ========================================================
-    // RENDER
-    // ========================================================
+    function handleManualCreated(shipmentId: string) {
+        setShowManualCreator(false);
+        window.setTimeout(() => {
+            const created = shipments.find((shipment) => shipment.id === shipmentId);
+            if (created) {
+                void handleShipmentChange(shipmentId);
+                return;
+            }
+            setSelectedShipmentId(shipmentId);
+        }, 100);
+    }
+
+    useEffect(() => {
+        if (!selectedShipmentId || selectedShipment) return;
+        const created = shipments.find((shipment) => shipment.id === selectedShipmentId);
+        if (created) void handleShipmentChange(created.id);
+        // selectedShipment is intentionally omitted: this effect only resolves a just-created id.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shipments, selectedShipmentId]);
+
+    const isManualSelected = selectedShipment?.sourceType === "manual" || (selectedShipment?.manualLines?.length ?? 0) > 0;
 
     return (
         <div className="write-messurmant">
-            {/* SHIPMENT PICKER */}
-
             <div
                 className="status-filter"
-                style={{ marginBottom: 10 }}
+                style={{ marginBottom: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}
             >
+                <button
+                    type="button"
+                    className="status-filter-button"
+                    onClick={() => setShowManualCreator(true)}
+                    style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+                >
+                    <Plus size={18} />
+                    <span>תעודת משלוח חדשה</span>
+                </button>
+
                 {loadingShipments && (
                     <BeerLoader
                         message="טוען תעודות משלוח..."
@@ -160,9 +181,7 @@ export default function ShipmentReportsView() {
                 {!loadingShipments && (
                     <select
                         value={selectedShipmentId ?? ""}
-                        onChange={(e) =>
-                            handleShipmentChange(e.target.value)
-                        }
+                        onChange={(e) => void handleShipmentChange(e.target.value)}
                         style={{
                             minWidth: 220,
                             padding: "8px 12px",
@@ -178,8 +197,8 @@ export default function ShipmentReportsView() {
 
                         {shipments.map((s) => (
                             <option key={s.id} value={s.id}>
-                                {s.shipmentNumber} -{" "}
-                                {formatDate(s.createdAt)}
+                                {s.shipmentNumber} - {formatDate(s.createdAt)}
+                                {(s.sourceType === "manual" || (s.manualLines?.length ?? 0) > 0) ? " · ידנית" : ""}
                             </option>
                         ))}
                     </select>
@@ -192,8 +211,6 @@ export default function ShipmentReportsView() {
                 )}
             </div>
 
-            {/* LOADING PALLETS */}
-
             {loadingPallets && (
                 <div className="measurementLoading">
                     <BeerLoader
@@ -203,16 +220,25 @@ export default function ShipmentReportsView() {
                 </div>
             )}
 
-            {/* SHIPMENT DOCUMENT */}
+            {selectedShipmentId && selectedShipment && !loadingPallets && isManualSelected && (
+                <ManualShipmentDocument shipment={selectedShipment} />
+            )}
 
-            {selectedShipmentId && !loadingPallets && (
+            {selectedShipmentId && selectedShipment && !loadingPallets && !isManualSelected && (
                 <ShipmentDocumentModal
                     onClose={handleCloseModal}
                     shipmentId={selectedShipmentId}
                     pallets={pallets}
                     inline
-                    customerName={selectedShipment?.customerName ?? ""}
+                    customerName={selectedShipment.customerName ?? ""}
                     shipment={selectedShipment}
+                />
+            )}
+
+            {showManualCreator && (
+                <ManualShipmentCreator
+                    onClose={() => setShowManualCreator(false)}
+                    onCreated={handleManualCreated}
                 />
             )}
         </div>
