@@ -40,7 +40,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
   const markedOutsideCooler = useMemo(
-    () => pallets.filter((pallet) => pallet.markedForShipment && pallet.zone !== "cooler").length,
+    () => pallets.filter((pallet) =>
+      pallet.markedForShipment &&
+      pallet.zone !== "cooler" &&
+      pallet.zone !== "loadingDock"
+    ).length,
     [pallets],
   );
 
@@ -89,8 +93,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {markedOutsideCooler > 0 && <div className="bp-outside-shipment-warning" role="alert">
-        <strong>⚠️ יש {markedOutsideCooler} {markedOutsideCooler === 1 ? "משטח מסומן" : "משטחים מסומנים"} למשלוח שאינם במקרר.</strong>
-        <span>הם כבר נכללים בהחלטת המשלוח, אבל צריך להעביר אותם למקרר או לאזור ההעמסה לפני היציאה.</span>
+        <strong>⚠️ יש {markedOutsideCooler} {markedOutsideCooler === 1 ? "משטח מסומן" : "משטחים מסומנים"} למשלוח שעדיין מחוץ למקרר.</strong>
+        <span>הם כבר נכללים בהחלטת המשלוח, אבל עדיין נמצאים בחדר הבקבוקים או בממתינים לשיבוץ.</span>
         {onOpenCoolerMap && <button type="button" onClick={onOpenCoolerMap}>פתח מפת מקרר</button>}
       </div>}
 
