@@ -1,39 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ComponentProps } from "react";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { brewSizeLabel } from "../../SERVICES/planning/productionCycle";
 import { weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
-import {
-  isPlanningShipmentPickZone,
-  palletsForPlanningShipmentPicking,
-} from "../../SERVICES/planning/planningShipmentReservations";
-import { expiryIso } from "../../SERVICES/planning/shipmentPicking";
-import { setMarkedForShipment } from "../../SERVICES/cooler/Palletservice";
+import { palletsForPlanningShipmentPicking } from "../../SERVICES/planning/planningShipmentReservations";
 
 type Props = ComponentProps<typeof PlanningWeeklyRecommendationsEnhanced>;
 type BrewWithAssignment = BrewPlan & {
   tankAssignmentStatus?: "tentative" | "confirmed";
 };
 
-const ZONE_LABELS = {
-  cooler: "מקרר",
-  pending: "ממתינים לשיבוץ",
-  bottleRoom: "חדר בקבוקים",
-} as const;
-
 /**
  * Planner adapter:
- * 1. cooler + pending + bottleRoom are one FEFO candidate pool;
- * 2. every future unassigned brew decision gets a tentative tank before persistence;
- * 3. existing future plans are backfilled one week at a time after deployment;
- * 4. the planner can also mark/unmark any eligible physical pallet manually,
- *    while seeing its expiry date and current physical zone.
+ * - cooler + pending + bottleRoom are one FEFO candidate pool;
+ * - future unassigned brews receive a tentative tank before persistence;
+ * - existing future plans are backfilled one week at a time after deployment.
  *
- * The work board can later keep or change the tentative tank and confirm it.
+ * Manual shipment marking deliberately lives in the physical pallet views,
+ * not in the weekly planning screen.
  */
 export default function PlanningWeeklyReservations(props: Props) {
-  const [markingId, setMarkingId] = useState<string | null>(null);
-  const [markingMessage, setMarkingMessage] = useState("");
   const backfillInFlight = useRef(false);
   const backfillAttempted = useRef(new Set<string>());
 
@@ -41,32 +27,6 @@ export default function PlanningWeeklyReservations(props: Props) {
     () => palletsForPlanningShipmentPicking(props.pallets),
     [props.pallets],
   );
-
-  const shipmentPallets = useMemo(
-    () => props.pallets
-      .filter((pallet) => isPlanningShipmentPickZone(pallet.zone))
-      .sort((a, b) => {
-        const expiryA = expiryIso(a.expiryDateStr) ?? "9999-12-31";
-        const expiryB = expiryIso(b.expiryDateStr) ?? "9999-12-31";
-        return expiryA.localeCompare(expiryB) ||
-          a.beerStyle.localeCompare(b.beerStyle, "he") ||
-          a.quantity - b.quantity;
-      }),
-    [props.pallets],
-  );
-
-  async function toggleManualShipmentMark(palletId: string, currentlyMarked: boolean) {
-    if (props.disabled || markingId) return;
-    setMarkingId(palletId);
-    setMarkingMessage("");
-    try {
-      await setMarkedForShipment(palletId, !currentlyMarked);
-    } catch (error) {
-      setMarkingMessage(error instanceof Error ? error.message : "עדכון סימון המשטח נכשל");
-    } finally {
-      setMarkingId(null);
-    }
-  }
 
   const assignTentativeTankAssignments = useCallback((next: WeekPlan): WeekPlan => {
     const model = buildWeeklyPlanningModel({
@@ -127,9 +87,6 @@ export default function PlanningWeeklyReservations(props: Props) {
     await props.saveWeek(assignTentativeTankAssignments(next));
   }
 
-  // Migration/backfill for planningWeeks that already existed before this PR.
-  // We intentionally process one future week at a time so the next render sees
-  // the newly-reserved tank before allocating a tank to a later week.
   useEffect(() => {
     if (props.disabled || backfillInFlight.current) return;
 
@@ -175,54 +132,10 @@ export default function PlanningWeeklyReservations(props: Props) {
   ]);
 
   return (
-    <>
-      <PlanningWeeklyRecommendationsEnhanced
-        {...props}
-        pallets={planningPallets}
-        saveWeek={saveWithTentativeTankAssignments}
-      />
-
-      <details className="bp-shipment-pallets">
-        <summary>משטחים זמינים לסימון משלוח · מקרר / ממתינים / חדר בקבוקים</summary>
-        <p className="bp-muted">
-          תאריך התפוגה מוצג כאן כדי לאפשר בדיקת FEFO גם בסימון ידני. הבחירה האוטומטית משתמשת באותם שלושת האזורים.
-        </p>
-        {markingMessage && <p role="alert" className="bp-alert">{markingMessage}</p>}
-        {shipmentPallets.length === 0 ? (
-          <p className="bp-muted">אין כרגע משטחים באזורים האלה.</p>
-        ) : (
-          <div className="bp-shipment-pallet-list">
-            {shipmentPallets.map((pallet) => {
-              const expiry = expiryIso(pallet.expiryDateStr);
-              const validForShipment = !!expiry && expiry >= props.today;
-              const zoneLabel = ZONE_LABELS[pallet.zone as keyof typeof ZONE_LABELS] ?? pallet.zone;
-              return (
-                <div className="bp-rec-line" key={pallet.id}>
-                  <span>
-                    <b>{pallet.beerStyle}</b>
-                    {` · ${pallet.quantity} ${pallet.itemType === "crates" ? "ארגזים" : "חביות"}`}
-                    {pallet.batchNumber ? ` · אצווה ${pallet.batchNumber}` : ""}
-                    {` · ${zoneLabel}`}
-                    {` · תוקף ${pallet.expiryDateStr || "לא הוגדר"}`}
-                    {!validForShipment && <small> · לא כשיר כרגע למשלוח</small>}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={props.disabled || markingId !== null || (!pallet.markedForShipment && !validForShipment)}
-                    onClick={() => void toggleManualShipmentMark(pallet.id, !!pallet.markedForShipment)}
-                  >
-                    {markingId === pallet.id
-                      ? "מעדכן…"
-                      : pallet.markedForShipment
-                        ? "בטל סימון"
-                        : "סמן למשלוח"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </details>
-    </>
+    <PlanningWeeklyRecommendationsEnhanced
+      {...props}
+      pallets={planningPallets}
+      saveWeek={saveWithTentativeTankAssignments}
+    />
   );
 }
