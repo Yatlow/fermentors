@@ -1,5 +1,5 @@
-import { doc, writeBatch } from "firebase/firestore";
-import { db } from "../../firebase";
+import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { auth, db } from "../../firebase";
 import { upsertMeasurementInCache } from "./gettAllDataByBatch";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
 
@@ -33,9 +33,15 @@ type SheetResult = {
 
 type ReadingLike = {
     tankId: string;
+    tankNumber?: string | number | null;
     batchNumber?: string | number | null;
+    notes?: unknown;
     sheetResult?: unknown;
     [key: string]: unknown;
+};
+
+export type PushCurrentDataOptions = {
+    sheetSyncRequestId?: string;
 };
 
 function hasValue(value: unknown): boolean {
@@ -92,7 +98,21 @@ function asSheetResult(value: unknown): SheetResult | null {
     return value as SheetResult;
 }
 
-export async function pushCurrentDataToFirestore(readings: ReadingLike[]) {
+function noteOutboxPayload(readings: ReadingLike[]): string {
+    return JSON.stringify(
+        readings.map((reading) => ({
+            tankId: String(reading.tankId),
+            tankNumber: reading.tankNumber == null ? null : String(reading.tankNumber),
+            batchNumber: reading.batchNumber == null ? null : String(reading.batchNumber),
+            notes: String(reading.notes ?? "").trim(),
+        }))
+    );
+}
+
+export async function pushCurrentDataToFirestore(
+    readings: ReadingLike[],
+    options: PushCurrentDataOptions = {}
+) {
     if (readings.length === 0) return;
 
     const firestoreBatch = writeBatch(db);
@@ -186,6 +206,26 @@ export async function pushCurrentDataToFirestore(readings: ReadingLike[]) {
             },
         });
     });
+
+    if (options.sheetSyncRequestId) {
+        const user = auth.currentUser;
+        if (!user?.email) throw new Error("אין משתמש מחובר. יש להתחבר מחדש.");
+
+        const requestId = options.sheetSyncRequestId.trim();
+        if (!requestId) throw new Error("Missing Sheet sync requestId");
+
+        firestoreBatch.set(doc(db, "sheetSyncJobs", requestId), {
+            requestId,
+            action: "addFermentationMeasurements",
+            ownerUid: user.uid,
+            ownerEmail: user.email,
+            state: "pending",
+            attempts: 0,
+            readingsJson: noteOutboxPayload(readings),
+            createdAt: serverTimestamp(),
+        });
+        writeCount += 1;
+    }
 
     if (writeCount === 0) return;
 

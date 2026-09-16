@@ -5,8 +5,8 @@ export type PackagingEntry = {
     isEmpty?: boolean;
     kegs?: string | number;
     crates?: string | number; // בפועל: כמות בקבוקים
-    totalLiters?: Number;
-    shrinkagePercent?: Number;
+    totalLiters?: number;
+    shrinkagePercent?: number;
 };
 
 export type updatePackagingResult = {

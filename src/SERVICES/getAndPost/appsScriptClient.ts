@@ -18,6 +18,7 @@ export type AppsScriptEnvelope<T = unknown> = {
 type RetryOptions = {
     retries?: number;
     retryDelayMs?: number;
+    timeoutMs?: number;
 };
 
 export class AppsScriptInvalidResponseError extends Error {
@@ -42,6 +43,16 @@ export class AppsScriptInvalidResponseError extends Error {
     }
 }
 
+export class AppsScriptTimeoutError extends Error {
+    readonly timeoutMs: number;
+
+    constructor(timeoutMs: number) {
+        super(`Google Apps Script לא החזיר תשובה תוך ${Math.round(timeoutMs / 1000)} שניות.`);
+        this.name = "AppsScriptTimeoutError";
+        this.timeoutMs = timeoutMs;
+    }
+}
+
 function responsePreview(text: string): string {
     const trimmed = text.trim();
     const looksLikeHtml = /^<!doctype html/i.test(trimmed) || /^<html/i.test(trimmed);
@@ -58,6 +69,26 @@ function responsePreview(text: string): string {
 
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number
+): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        return await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            throw new AppsScriptTimeoutError(timeoutMs);
+        }
+        throw error;
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
 }
 
 async function parseAppsScriptResponse<T>(response: Response): Promise<T> {
@@ -108,6 +139,7 @@ export async function callAppsScriptPost<T>(
     // the mutation twice.
     const retries = Math.max(0, options.retries ?? 1);
     const retryDelayMs = Math.max(0, options.retryDelayMs ?? 150);
+    const timeoutMs = Math.max(1000, options.timeoutMs ?? 15000);
 
     const action = String(payload.action || "request");
     const requestId =
@@ -128,11 +160,15 @@ export async function callAppsScriptPost<T>(
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
             const attemptStartedAt = performance.now();
-            const response = await fetch(GOOGLE_SCRIPT_URL, {
-                method: "POST",
-                headers: { "Content-Type": "text/plain;charset=utf-8" },
-                body: JSON.stringify(authenticatedPayload),
-            });
+            const response = await fetchWithTimeout(
+                GOOGLE_SCRIPT_URL,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify(authenticatedPayload),
+                },
+                timeoutMs
+            );
 
             const parsed = await parseAppsScriptResponse<T>(response);
 
@@ -162,14 +198,22 @@ export async function callAppsScriptPost<T>(
                     preview: error.responsePreview,
                     elapsedMs: Math.round(performance.now() - startedAt),
                 });
+            } else if (error instanceof AppsScriptTimeoutError) {
+                console.warn("Apps Script request timed out", {
+                    action,
+                    requestId,
+                    attempt: attempt + 1,
+                    timeoutMs: error.timeoutMs,
+                    elapsedMs: Math.round(performance.now() - startedAt),
+                });
             }
 
             if (attempt >= retries) break;
 
-            // A broken HTML/redirect response usually means the mutation already
-            // completed, so confirm immediately with the same requestId. Network
-            // errors get a tiny backoff but still only one retry by default.
-            if (error instanceof AppsScriptInvalidResponseError) {
+            // A broken HTML/redirect response or a timeout may mean the mutation
+            // already completed. Retry with the SAME requestId so the server-side
+            // idempotency guard turns this into a safe confirmation request.
+            if (error instanceof AppsScriptInvalidResponseError || error instanceof AppsScriptTimeoutError) {
                 await sleep(10);
             } else {
                 await sleep(retryDelayMs);
@@ -196,6 +240,7 @@ export async function callAppsScriptGet<T>(
     return callAppsScriptPost<T>(params, {
         retries: options.retries ?? 1,
         retryDelayMs: options.retryDelayMs ?? 150,
+        timeoutMs: options.timeoutMs ?? 15000,
     });
 }
 

@@ -23,7 +23,9 @@ service cloud.firestore {
     match /approvedUsers/{email} {
       allow get: if isLoggedIn() &&
         request.auth.token.email == email;
-      allow list: if isLoggedIn();
+      // Do not expose the approved e-mail directory to arbitrary authenticated
+      // Google accounts. Approved users still need list access for the admin UI.
+      allow list: if isApprovedUser();
       allow write: if isAdmin();
       allow create: if isAdmin();
       allow delete: if isAdmin();
@@ -87,9 +89,32 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
-    // Apps Script writes these receipts through IAM after a Sheet mutation.
-    // Clients may only fetch their own exact requestId; listing and client-side
-    // writes are intentionally forbidden.
+    // Fast cellar notes/actions close as soon as Firestore is durable. This
+    // small outbox guarantees the Sheet write can be retried server-side if the
+    // browser closes or loses connectivity before Apps Script confirms it.
+    match /sheetSyncJobs/{requestId} {
+      allow read: if isApprovedUser();
+      allow create: if isApprovedUser()
+        && request.resource.data.keys().hasOnly([
+          'requestId', 'action', 'ownerUid', 'ownerEmail', 'state',
+          'attempts', 'readingsJson', 'createdAt'
+        ])
+        && request.resource.data.requestId == requestId
+        && request.resource.data.action == 'addFermentationMeasurements'
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerEmail == request.auth.token.email
+        && request.resource.data.state == 'pending'
+        && request.resource.data.attempts == 0
+        && request.resource.data.readingsJson is string
+        && request.resource.data.readingsJson.size() <= 50000
+        && request.resource.data.createdAt == request.time;
+      allow delete: if isApprovedUser()
+        && resource.data.ownerUid == request.auth.uid;
+      allow update: if false;
+    }
+
+    // Legacy receipt collection is read-only for clients. The current hot path
+    // uses requestId idempotency + sheetSyncJobs instead of creating receipts.
     match /operationReceipts/{requestId} {
       allow get: if isApprovedUser() &&
         resource.data.userEmail == request.auth.token.email;
@@ -135,7 +160,7 @@ service cloud.firestore {
         && request.resource.data.lossPercent == 10
         && request.resource.data.get('preferredDeliveryDay', 0) in [0,1]
         && request.resource.data.get('maxWeeklyDeliveries', 2) in [1,2]
-        && request.resource.data.get('deliveryTransitDays', 1) is int
+        && request.resource.data.get('deliveryTransitDays', 0) is int
         && request.resource.data.get('deliveryTransitDays', 0) == 0;
     }
 
