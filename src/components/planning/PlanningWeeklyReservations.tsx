@@ -1,8 +1,8 @@
-import { useMemo, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { brewSizeLabel } from "../../SERVICES/planning/productionCycle";
-import type { BrewPlan, WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import {
   isPlanningShipmentPickZone,
   palletsForPlanningShipmentPicking,
@@ -24,8 +24,9 @@ const ZONE_LABELS = {
 /**
  * Planner adapter:
  * 1. cooler + pending + bottleRoom are one FEFO candidate pool;
- * 2. every unassigned brew decision gets a tentative tank before persistence;
- * 3. the planner can also mark/unmark any eligible physical pallet manually,
+ * 2. every future unassigned brew decision gets a tentative tank before persistence;
+ * 3. existing future plans are backfilled one week at a time after deployment;
+ * 4. the planner can also mark/unmark any eligible physical pallet manually,
  *    while seeing its expiry date and current physical zone.
  *
  * The work board can later keep or change the tentative tank and confirm it.
@@ -33,6 +34,8 @@ const ZONE_LABELS = {
 export default function PlanningWeeklyReservations(props: Props) {
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [markingMessage, setMarkingMessage] = useState("");
+  const backfillInFlight = useRef(false);
+  const backfillAttempted = useRef(new Set<string>());
 
   const planningPallets = useMemo(
     () => palletsForPlanningShipmentPicking(props.pallets),
@@ -65,7 +68,7 @@ export default function PlanningWeeklyReservations(props: Props) {
     }
   }
 
-  async function saveWithTentativeTankAssignments(next: WeekPlan) {
+  const assignTentativeTankAssignments = useCallback((next: WeekPlan): WeekPlan => {
     const model = buildWeeklyPlanningModel({
       settings: props.settings,
       pallets: planningPallets,
@@ -85,7 +88,7 @@ export default function PlanningWeeklyReservations(props: Props) {
 
     const brews: BrewWithAssignment[] = next.brews.map((brew) => {
       const existing = brew as BrewWithAssignment;
-      if (brew.tankId) return existing;
+      if (brew.tankId || brew.date < props.today) return existing;
 
       const size = brewSizeLabel(brew.liters);
       const option = model.brewTankOptions.find((candidate) =>
@@ -103,13 +106,73 @@ export default function PlanningWeeklyReservations(props: Props) {
       return {
         ...brew,
         tankId: option.tankId,
-        liters: option.workLiters,
         tankAssignmentStatus: "tentative",
       };
     });
 
-    await props.saveWeek({ ...next, brews });
+    return { ...next, brews };
+  }, [
+    planningPallets,
+    props.actuals,
+    props.holidays,
+    props.plans,
+    props.settings,
+    props.shipments,
+    props.sources,
+    props.tanks,
+    props.today,
+  ]);
+
+  async function saveWithTentativeTankAssignments(next: WeekPlan) {
+    await props.saveWeek(assignTentativeTankAssignments(next));
   }
+
+  // Migration/backfill for planningWeeks that already existed before this PR.
+  // We intentionally process one future week at a time so the next render sees
+  // the newly-reserved tank before allocating a tank to a later week.
+  useEffect(() => {
+    if (props.disabled || backfillInFlight.current) return;
+
+    const currentWeek = weekStart(props.today);
+    const candidate = [...props.plans]
+      .filter((plan) =>
+        plan.id >= currentWeek &&
+        plan.brews.some((brew) => !brew.tankId && brew.date >= props.today),
+      )
+      .sort((a, b) => a.id.localeCompare(b.id))[0];
+
+    if (!candidate) return;
+
+    const attemptKey = `${candidate.id}:${candidate.brews
+      .filter((brew) => !brew.tankId && brew.date >= props.today)
+      .map((brew) => brew.id)
+      .sort()
+      .join(",")}`;
+    if (backfillAttempted.current.has(attemptKey)) return;
+    backfillAttempted.current.add(attemptKey);
+
+    const enriched = assignTentativeTankAssignments(candidate);
+    const assignedSomething = enriched.brews.some((brew, index) =>
+      !candidate.brews[index]?.tankId && !!brew.tankId,
+    );
+    if (!assignedSomething) return;
+
+    backfillInFlight.current = true;
+    void props.saveWeek(enriched)
+      .catch((error) => {
+        console.error("Failed backfilling tentative brew tanks", error);
+        backfillAttempted.current.delete(attemptKey);
+      })
+      .finally(() => {
+        backfillInFlight.current = false;
+      });
+  }, [
+    assignTentativeTankAssignments,
+    props.disabled,
+    props.plans,
+    props.saveWeek,
+    props.today,
+  ]);
 
   return (
     <>
