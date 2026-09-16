@@ -16,6 +16,7 @@ import {
 import { db } from "../../firebase";
 
 import ShipmentDocumentModal from "../cooler/ShipmentDocumentModal";
+import "../cooler/ShipmentDocument.css";
 import ManualShipmentCreator from "./ManualShipmentCreator";
 
 function formatDate(timestamp?: Timestamp | null): string {
