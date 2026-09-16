@@ -133,6 +133,41 @@ test("complete measurement rounds score 100 when there are no actionable recomme
     assert.equal(score, 100);
 });
 
+test("grace measurements add earned credit without adding any requirement", () => {
+    const withoutGraceBonus = calculateCellarHealthScore(
+        [{ importance: 3 }],
+        [{ missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 }],
+    );
+    const withGraceBonus = calculateCellarHealthScore(
+        [{ importance: 3 }],
+        [
+            { missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 },
+            {
+                missingFields: [],
+                requiredFieldCount: 0,
+                completedFieldCount: 0,
+                bonusCompletedFieldCount: 1,
+            },
+        ],
+    );
+
+    assert.equal(withoutGraceBonus, 22);
+    assert.equal(withGraceBonus, 33);
+});
+
+test("grace measurements alone cannot push the score above 100", () => {
+    const score = calculateCellarHealthScore([], [
+        {
+            missingFields: [],
+            requiredFieldCount: 0,
+            completedFieldCount: 0,
+            bonusCompletedFieldCount: 4,
+        },
+    ]);
+
+    assert.equal(score, 100);
+});
+
 test("actionable recommendations reduce the index until they disappear", () => {
     const score = calculateCellarHealthScore(
         [{ importance: 3 }, { importance: 1 }],

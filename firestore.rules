@@ -79,6 +79,11 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
+    match /coolerUndoHistory/{document} {
+      allow read: if isApprovedUser();
+      allow write: if isApprovedUser();
+    }
+
     match /counters/{document} {
       allow read: if isApprovedUser();
       allow write: if isApprovedUser();

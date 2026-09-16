@@ -101,11 +101,11 @@ function timestampToMillis(value: unknown): number | null {
 }
 
 /**
- * A tank does not participate in the cellar health index during the first
- * 24 hours after the actual "out to fermentor" stage began. Firestore may
- * expose stageStartTime as a Timestamp object (toDate/seconds), while legacy
- * or serialized data may contain an ISO string. If no usable timestamp exists
- * we keep the previous behaviour rather than silently excluding the tank.
+ * During the first 24 hours after the actual "out to fermentor" stage begins,
+ * the health index has no requirements at all for this tank. If the operator
+ * voluntarily records one or more numeric measurements today, the tank joins
+ * the completed-round count and each measured field contributes positive score
+ * only. Missing fields and cellar recommendations cannot penalize a grace tank.
  */
 function isInFermentationMeasurementGracePeriod(
     tank: Fermentor,
@@ -183,23 +183,59 @@ export default function HealthDashboard({ brews, specs }: Props) {
             const fullTanks = brews.filter(
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
-            const scoreEligibleTanks = fullTanks.filter(
-                (tank) => !isInFermentationMeasurementGracePeriod(tank)
-            );
 
             setAnalyzing(true);
 
             const results = await Promise.all(
-                scoreEligibleTanks.map(async (tank) => {
+                fullTanks.map(async (tank) => {
                     const number = tankLabel(tank);
                     const tankAlerts: HealthAlert[] = [];
                     const scoreRecommendations: ScoredRecommendation[] = [];
                     const hotTank = isHotTank(tank);
+                    const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
 
                     try {
                         const measurements: Measurement[] = tank.batchNumber
                             ? await getMeasurementsByBatch(tank.batchNumber)
                             : [];
+
+                        if (inGracePeriod) {
+                            // Hot-mode progress covers all four numeric daily fields
+                            // (temp/pressure/Plato/pH). We use it only to observe what
+                            // was voluntarily measured; none of those fields is required.
+                            const observed = dailyMeasurementProgress(measurements, true);
+
+                            if (observed.completedFieldCount === 0) {
+                                return {
+                                    included: false,
+                                    alerts: [] as HealthAlert[],
+                                    scoreRecommendations: [] as ScoredRecommendation[],
+                                    measurementProgress: {
+                                        missingFields: [],
+                                        requiredFieldCount: 0,
+                                        completedFieldCount: 0,
+                                    } as MeasurementIssue,
+                                    completeMeasurements: false,
+                                    tankNumber: number,
+                                };
+                            }
+
+                            return {
+                                included: true,
+                                alerts: [] as HealthAlert[],
+                                scoreRecommendations: [] as ScoredRecommendation[],
+                                measurementProgress: {
+                                    missingFields: [],
+                                    requiredFieldCount: 0,
+                                    completedFieldCount: 0,
+                                    bonusCompletedFieldCount: observed.completedFieldCount,
+                                } as MeasurementIssue,
+                                // Any voluntary numeric measurement counts as a
+                                // completed round while the tank is in grace.
+                                completeMeasurements: true,
+                                tankNumber: number,
+                            };
+                        }
 
                         const progress = dailyMeasurementProgress(
                             measurements,
@@ -226,6 +262,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 tankNumber: number,
                             });
                             return {
+                                included: true,
                                 alerts: tankAlerts,
                                 scoreRecommendations,
                                 measurementProgress: progress,
@@ -258,6 +295,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         });
 
                         return {
+                            included: true,
                             alerts: tankAlerts,
                             scoreRecommendations,
                             measurementProgress: progress,
@@ -266,6 +304,24 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         };
                     } catch (error) {
                         console.error("Failed calculating health for tank", tank.id, error);
+
+                        // A grace tank cannot become a penalty just because we
+                        // failed to load its optional measurements.
+                        if (inGracePeriod) {
+                            return {
+                                included: false,
+                                alerts: [] as HealthAlert[],
+                                scoreRecommendations: [] as ScoredRecommendation[],
+                                measurementProgress: {
+                                    missingFields: [],
+                                    requiredFieldCount: 0,
+                                    completedFieldCount: 0,
+                                } as MeasurementIssue,
+                                completeMeasurements: false,
+                                tankNumber: number,
+                            };
+                        }
+
                         tankAlerts.push({
                             id: `analysis-error-${tank.id}`,
                             severity: "warning",
@@ -280,6 +336,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             : (["temp", "pressure"] as const);
 
                         return {
+                            included: true,
                             alerts: tankAlerts,
                             scoreRecommendations,
                             measurementProgress: {
@@ -296,14 +353,16 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
             if (cancelled) return;
 
+            const eligibleResults = results.filter((result) => result.included);
+
             setAnalysis({
-                alerts: results
+                alerts: eligibleResults
                     .flatMap((result) => result.alerts)
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
-                scoreRecommendations: results.flatMap((result) => result.scoreRecommendations),
-                measurementProgress: results.map((result) => result.measurementProgress),
-                checkedTanks: scoreEligibleTanks.length,
-                completeMeasurementTankNumbers: results
+                scoreRecommendations: eligibleResults.flatMap((result) => result.scoreRecommendations),
+                measurementProgress: eligibleResults.map((result) => result.measurementProgress),
+                checkedTanks: eligibleResults.length,
+                completeMeasurementTankNumbers: eligibleResults
                     .filter((result) => result.completeMeasurements)
                     .map((result) => result.tankNumber),
             });

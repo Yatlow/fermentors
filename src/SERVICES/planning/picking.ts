@@ -2,6 +2,8 @@ import { collection, getDocsFromServer, query, where, doc, runTransaction, serve
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import { dateKey, parseDate } from "./planningEngine";
+import { isPlanningShipmentPickZone } from "./planningShipmentReservations";
+
 /** Explicit action only: no zone movement, shipment creation or stock deduction. */
 export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
   if (!auth.currentUser) throw new Error("נדרשת התחברות");
@@ -11,7 +13,7 @@ export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
     throw new Error("משטח כפול");
   const marked = await getDocsFromServer(query(collection(db, "pallets"), where("markedForShipment", "==", true)));
   if (marked.docs.some((snapshot) => snapshot.data().zone !== "shipped"))
-    throw new Error("כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.");
+    throw new Error("כבר יש משטחים מסומנים. הסימון הקיים נשמר כהזמנה החלקית; השלמה עתידית נעשית אוטומטית לאחר אריזה או ידנית מרשימת המשטחים.");
   await runTransaction(db, async (tx) => {
     const refs = selected.map((p) => doc(db, "pallets", p.id));
     const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
@@ -21,11 +23,8 @@ export async function markPlanningPallets(selected: Pallet[]): Promise<void> {
       if (
         !snapshot.exists() ||
         !now ||
-        !["cooler", "pending", "bottleRoom", "loadingDock"].includes(
-          now.zone,
-        ) ||
+        !isPlanningShipmentPickZone(now.zone) ||
         now.markedForShipment ||
-        now.zone !== expected.zone ||
         now.cell?.row !== expected.cell?.row ||
         now.cell?.col !== expected.cell?.col ||
         now.cell?.side !== expected.cell?.side ||
