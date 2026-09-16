@@ -272,9 +272,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
     const attentionCount = counts.critical + counts.warning + counts.info;
     const completedTankCount = analysis.completeMeasurementTankNumbers.length;
-    const completedTankSuffix = completedTankCount > 0
-        ? ` · מיכלים: ${analysis.completeMeasurementTankNumbers.join(", ")}`
-        : "";
 
     return (
         <section className={`health-dashboard health-${overallClass}`} dir="rtl">
@@ -302,7 +299,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     </span>
                     {!analyzing && analysis.checkedTanks > 0 && (
                         <span className="health-measurement-progress">
-                            סבב מלא: {completedTankCount}/{analysis.checkedTanks}{completedTankSuffix}
+                            סבב מלא: {completedTankCount}/{analysis.checkedTanks} מיכלים
                         </span>
                     )}
                 </span>
