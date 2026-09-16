@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
-import type { BrewPlan, WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import type { Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
 import BeerLoader from "../general/Loading";
@@ -27,7 +27,6 @@ function styleRank(style: string, promoteSmallSpecials: boolean) {
   const stout = value.includes("סטאוט");
   const ipa = /ipa/i.test(value);
   const pale = value.includes("פייל");
-
   if (lager) return 0;
   if (hoppyLager) return 1;
   if (promoteSmallSpecials && wheat) return 2;
@@ -59,14 +58,7 @@ function maxBatch(values: unknown[]): number {
   }, 0);
 }
 
-export default function PlanningBrewAssignmentEditor({
-  initial,
-  brews,
-  releases,
-  disabled,
-  onSave,
-  onCancel,
-}: {
+export default function PlanningBrewAssignmentEditor({ initial, brews, releases, disabled, onSave, onCancel }: {
   initial: WeekPlan;
   brews: Fermentor[];
   releases: Release[];
@@ -84,32 +76,24 @@ export default function PlanningBrewAssignmentEditor({
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const weekEnd = addDays(initial.id, 6);
 
   useEffect(() => {
     let cancelled = false;
     getAllBrewsSummary()
       .then((history) => {
         if (cancelled) return;
-        setBatchBase(Math.max(
-          maxBatch(history.map((brew) => brew.batchNumber)),
-          maxBatch(brews.map((brew) => brew.batchNumber)),
-        ));
+        setBatchBase(Math.max(maxBatch(history.map((brew) => brew.batchNumber)), maxBatch(brews.map((brew) => brew.batchNumber))));
       })
       .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setLoadingBatches(false);
-      });
+      .finally(() => { if (!cancelled) setLoadingBatches(false); });
     return () => { cancelled = true; };
   }, [brews]);
 
   const orderedBrews = useMemo(
-    () => (draft.brews as BrewPlanWithMeta[]).map((brew, index) => ({
-      ...brew,
-      batchNumber: String(batchBase + index + 1),
-    })),
+    () => (draft.brews as BrewPlanWithMeta[]).map((brew, index) => ({ ...brew, batchNumber: String(batchBase + index + 1) })),
     [draft.brews, batchBase],
   );
-
   const selectedBrew = orderedBrews[selectedIndex] ?? null;
 
   function move(index: number, direction: -1 | 1) {
@@ -126,29 +110,25 @@ export default function PlanningBrewAssignmentEditor({
   }
 
   function tankOptions(brew: BrewPlanWithMeta, index: number) {
-    const occupied = new Set(
-      orderedBrews
-        .filter((_, otherIndex) => otherIndex !== index)
-        .map((other) => other.tankId)
-        .filter(Boolean),
-    );
-    return brews
-      .filter((source) => {
-        if (Number(source.tankNumber) === 1) return false;
-        if (source.id === brew.tankId) return true;
-        if (occupied.has(source.id)) return false;
-        const release = releases.find((item) => item.tankId === source.id);
-        return !!release?.date && release.date <= brew.date;
-      })
+    const occupied = new Set(orderedBrews.filter((_, otherIndex) => otherIndex !== index).map((other) => other.tankId).filter(Boolean));
+    return releases
+      .filter((release) => !!release.date && release.date <= weekEnd && !occupied.has(release.tankId))
+      .map((release) => brews.find((source) => source.id === release.tankId))
+      .filter((source): source is Fermentor => !!source && Number(source.tankNumber) !== 1)
+      .filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index)
       .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber));
   }
 
   function setTank(index: number, tankId: string) {
+    const release = releases.find((item) => item.tankId === tankId);
     setDraft((current) => ({
       ...current,
-      brews: current.brews.map((brew, i) =>
-        i === index ? { ...brew, tankId, tankAssignmentStatus: "confirmed" as const } : brew,
-      ),
+      brews: current.brews.map((brew, i) => i === index ? {
+        ...brew,
+        tankId,
+        date: release?.date && release.date > brew.date ? release.date : brew.date,
+        tankAssignmentStatus: "confirmed" as const,
+      } : brew),
     }));
   }
 
@@ -160,14 +140,7 @@ export default function PlanningBrewAssignmentEditor({
     setBusy(true);
     setError("");
     try {
-      await onSave({
-        ...draft,
-        brews: orderedBrews.map((brew) => ({
-          ...brew,
-          tankAssignmentStatus: "confirmed" as const,
-        })) as BrewPlan[],
-        changeReason: "אישור סדר ושיבוץ בישולים",
-      });
+      await onSave({ ...draft, brews: orderedBrews.map((brew) => ({ ...brew, tankAssignmentStatus: "confirmed" as const })) as BrewPlan[], changeReason: "אישור סדר ושיבוץ בישולים" });
     } catch (e) {
       setError(e instanceof Error ? e.message : "שמירת שיבוצי הבישול נכשלה");
     } finally {
@@ -176,77 +149,46 @@ export default function PlanningBrewAssignmentEditor({
   }
 
   const availableTanks = selectedBrew ? tankOptions(selectedBrew, selectedIndex) : [];
-  const availableIds = new Set(availableTanks.map((tank) => tank.id));
 
   return (
     <section className="bp-editor bp-brew-assignment-editor">
       <div className="bp-editor-header">
-        <div>
-          <h3>סדר ושיבוץ בישולים</h3>
-          <small>בחר בישול, סדר אותו קדימה או אחורה, ואז לחץ על המיכל שאליו הוא נכנס.</small>
-        </div>
+        <div><h3>סדר ושיבוץ בישולים</h3><small>בחר בישול, שנה את הסדר בחיצים, ואז לחץ על מיכל פנוי באותו שבוע.</small></div>
         <button type="button" onClick={onCancel}>סגירה</button>
       </div>
-
       {(busy || loadingBatches) && <BeerLoader overlay message={busy ? "שומר שיבוצי בישול…" : "טוען מספר אצווה אחרון…"} />}
 
       <fieldset disabled={disabled || busy || loadingBatches} className="bp-fieldset bp-editor-body bp-brew-visual-editor">
         {orderedBrews.length === 0 && <p className="bp-muted">לא נקבעו בישולים לשבוע הזה.</p>}
-
         <div className="bp-brew-queue" aria-label="סדר הבישולים">
           {orderedBrews.map((brew, index) => {
             const source = brews.find((item) => item.id === brew.tankId);
-            return <article
-              key={brew.id}
-              className={`bp-brew-queue-card ${index === selectedIndex ? "is-selected" : ""}`}
-              onClick={() => setSelectedIndex(index)}
-            >
+            return <article key={brew.id} className={`bp-brew-queue-card ${index === selectedIndex ? "is-selected" : ""}`} onClick={() => setSelectedIndex(index)}>
               <div className="bp-brew-order-number">{index + 1}</div>
-              <button type="button" className="bp-brew-queue-main" onClick={() => setSelectedIndex(index)}>
-                <strong>{displayStyle(brew.style)}</strong>
-                <small>אצווה {brew.batchNumber}</small>
-                <span>{source ? `מיכל ${source.tankNumber}` : "טרם שובץ"}</span>
-              </button>
+              <button type="button" className="bp-brew-queue-main" onClick={() => setSelectedIndex(index)}><strong>{displayStyle(brew.style)}</strong><small>אצווה {brew.batchNumber}</small><span>{source ? `מיכל ${source.tankNumber}` : "טרם שובץ"}</span></button>
               <div className="bp-brew-order-actions">
-                <button type="button" disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(index, -1); }}>קודם</button>
-                <button type="button" disabled={index === orderedBrews.length - 1} onClick={(event) => { event.stopPropagation(); move(index, 1); }}>אחר כך</button>
+                <button type="button" aria-label="העבר בישול קודם" title="העבר קודם" disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(index, -1); }}>↑</button>
+                <button type="button" aria-label="העבר בישול אחר כך" title="העבר אחר כך" disabled={index === orderedBrews.length - 1} onClick={(event) => { event.stopPropagation(); move(index, 1); }}>↓</button>
               </div>
             </article>;
           })}
         </div>
 
         {selectedBrew && <div className="bp-brew-tank-placement">
-          <div className="bp-brew-placement-title">
-            <b>שיבוץ {displayStyle(selectedBrew.style)} · אצווה {selectedBrew.batchNumber}</b>
-            <small>לחץ על מיכל פנוי כדי לשבץ. לחיצה על מיכל אחר תעביר אליו את הבישול.</small>
-          </div>
+          <div className="bp-brew-placement-title"><b>שיבוץ {displayStyle(selectedBrew.style)} · אצווה {selectedBrew.batchNumber}</b><small>מוצגים רק מיכלים שצפויים להיות פנויים במהלך השבוע.</small></div>
           <div className="bp-brew-tank-yard">
-            {brews
-              .filter((tank) => Number(tank.tankNumber) !== 1)
-              .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber))
-              .map((tank) => {
-                const isAssigned = selectedBrew.tankId === tank.id;
-                const isAvailable = availableIds.has(tank.id) || isAssigned;
-                return <button
-                  type="button"
-                  key={tank.id}
-                  className={`bp-brew-tank-visual ${isAssigned ? "is-assigned" : ""}`}
-                  disabled={!isAvailable}
-                  onClick={() => setTank(selectedIndex, tank.id)}
-                  title={isAvailable ? `שבץ למיכל ${tank.tankNumber}` : `מיכל ${tank.tankNumber} אינו פנוי לבישול הזה`}
-                >
-                  <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b></span>
-                  <span className="bp-brew-tank-cone" />
-                </button>;
-              })}
+            {availableTanks.map((tank) => {
+              const isAssigned = selectedBrew.tankId === tank.id;
+              return <button type="button" key={tank.id} className={`bp-brew-tank-visual ${isAssigned ? "is-assigned" : ""}`} onClick={() => setTank(selectedIndex, tank.id)} title={`שבץ למיכל ${tank.tankNumber}`}>
+                <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b><small>{tankKind(tank.tankNumber)}</small></span><span className="bp-brew-tank-cone" />
+              </button>;
+            })}
+            {!availableTanks.length && <p className="bp-muted">אין מיכל פנוי מתאים בשבוע הזה.</p>}
           </div>
         </div>}
 
         {error && <p role="alert" className="bp-alert">{error}</p>}
-        <div className="bp-actions">
-          <button type="button" onClick={save} disabled={orderedBrews.length === 0}>אישור סדר ושיבוץ</button>
-          <button type="button" onClick={onCancel}>ביטול</button>
-        </div>
+        <div className="bp-actions"><button type="button" onClick={save} disabled={orderedBrews.length === 0}>אישור סדר ושיבוץ</button><button type="button" onClick={onCancel}>ביטול</button></div>
       </fieldset>
     </section>
   );
