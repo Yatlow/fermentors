@@ -1,0 +1,117 @@
+.sheet-sync-status {
+    margin: 0 0 14px;
+    padding: 11px 13px;
+    border: 1px solid #d8dee8;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+}
+
+.sheet-sync-status-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sheet-sync-status-header > div {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sheet-sync-status-header strong {
+    font-size: 0.92rem;
+    color: #0f172a;
+}
+
+.sheet-sync-status-header span,
+.sheet-sync-direction-row span {
+    color: #64748b;
+    font-size: 0.76rem;
+    line-height: 1.45;
+}
+
+.sheet-sync-status-pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.72rem !important;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.sheet-sync-status-ok {
+    color: #166534 !important;
+    background: #dcfce7;
+}
+
+.sheet-sync-status-pending {
+    color: #075985 !important;
+    background: #e0f2fe;
+}
+
+.sheet-sync-status-warning {
+    color: #92400e !important;
+    background: #fef3c7;
+}
+
+.sheet-sync-status-failed {
+    color: #991b1b !important;
+    background: #fee2e2;
+}
+
+.sheet-sync-direction-grid {
+    display: grid;
+    gap: 7px;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid #eef2f7;
+}
+
+.sheet-sync-direction-row {
+    display: grid;
+    gap: 2px;
+}
+
+.sheet-sync-direction-row strong {
+    font-size: 0.78rem;
+    color: #334155;
+}
+
+.sheet-sync-pull-info {
+    padding-top: 7px;
+    border-top: 1px dashed #e2e8f0;
+}
+
+/* The sync feature used to be rendered inside the cellar-health card. Keep the
+   old implementation hidden while the standalone card above owns the UI. */
+.health-dashboard .health-sync-pill,
+.health-dashboard .health-sync-section {
+    display: none;
+}
+
+@media (max-width: 600px) {
+    .sheet-sync-status {
+        margin-bottom: 10px;
+        border-radius: 12px;
+        padding: 10px;
+    }
+
+    .sheet-sync-status-header {
+        gap: 8px;
+    }
+
+    .sheet-sync-status-header strong {
+        font-size: 0.86rem;
+    }
+
+    .sheet-sync-status-header span,
+    .sheet-sync-direction-row span {
+        font-size: 0.72rem;
+    }
+}
