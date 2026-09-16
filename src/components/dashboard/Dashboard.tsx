@@ -2,6 +2,7 @@ import { type Dispatch, type SetStateAction } from "react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import HealthDashboard from "./HealthDashboard";
+import SheetSyncStatus from "./SheetSyncStatus";
 import TankCard from "./TankCard";
 
 export type DashboardProps = {
@@ -54,6 +55,7 @@ export default function Dashboard({
     return (
         <div className="dashboard">
             <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} />
+            <SheetSyncStatus />
 
             <div className="dashboard-filter-info">
                 <span>מציג מסננים:</span>
