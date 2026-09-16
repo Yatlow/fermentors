@@ -1,0 +1,4 @@
+Manual shipment smoke-test checklist:
+- Create from catalog entry and verify saved shipment appears in reports.
+- Create manual SKU/description line and verify printing preserves text/quantity.
+- Existing pallet-based shipment reports still open with ShipmentDocumentModal.
