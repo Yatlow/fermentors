@@ -13,6 +13,7 @@ export type writeReadingResult = {
     tankId: string | number;
     message?: string;
     error?: string;
+    result?: unknown;
     [key: string]: unknown;
 };
 
@@ -169,6 +170,26 @@ async function persistFirestoreState(
     }
 }
 
+async function reconcileConfirmedSheetResults(
+    readings: ReadingToSend[],
+    results: writeReadingResult[]
+): Promise<void> {
+    const confirmed = results
+        .filter((result) => result.success && result.result)
+        .map((result) => {
+            const reading = readings.find(
+                (candidate) => String(candidate.tankId) === String(result.tankId)
+            );
+            return reading
+                ? { ...reading, sheetResult: result.result }
+                : null;
+        })
+        .filter((reading): reading is ReadingToSend & { sheetResult: unknown } => Boolean(reading));
+
+    if (confirmed.length === 0) return;
+    await pushCurrentDataToFirestore(confirmed);
+}
+
 async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<void> {
     const packagingReadings = readings
         .map((reading) => reading as PackagingReading)
@@ -238,7 +259,7 @@ export async function writeReadingsToSheets(
         });
 
         void sheetPromise
-            .then((parsed) => {
+            .then(async (parsed) => {
                 if (!parsed.success) {
                     console.error(
                         "Background note Sheet sync returned failure:",
@@ -256,7 +277,11 @@ export async function writeReadingsToSheets(
                     return;
                 }
 
-                void clearSheetSyncJob(requestId);
+                // Replace the optimistic overlay with the exact merged Sheet row
+                // as soon as Apps Script confirms it, rather than waiting for the
+                // next five-minute Sheet -> Firestore polling cycle.
+                await reconcileConfirmedSheetResults(readings, results);
+                await clearSheetSyncJob(requestId);
             })
             .catch((error) => {
                 console.error("Background note Sheet sync failed:", error);
