@@ -57,8 +57,8 @@ function normalizeOrder(
     .map((brew, index) => ({ ...brew, date: dates[index] ?? brew.date }));
 }
 
-function maxBatch(values: unknown[]) {
-  return values.reduce((max, value) => {
+function maxBatch(values: unknown[]): number {
+  return values.reduce<number>((max, value) => {
     const n = Number(value);
     return Number.isFinite(n) ? Math.max(max, n) : max;
   }, 0);
