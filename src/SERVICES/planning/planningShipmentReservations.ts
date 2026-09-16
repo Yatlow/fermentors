@@ -10,7 +10,7 @@ import {
 import { db } from "../../firebase";
 import { getCatalogEntry } from "../cooler/PalletCatalog";
 import type { Pallet, PalletZone } from "../cooler/Pallettypes ";
-import { dateKey, sameStyle, type WeekPlan } from "./planningEngine";
+import { dateKey, sameStyle, weekStart, type WeekPlan } from "./planningEngine";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
 
@@ -41,7 +41,7 @@ type PlannedLine = {
  */
 async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   const snapshot = await getDocsFromServer(
-    query(collection(db, "planningWeeks"), where("id", ">=", today.slice(0, 10)))
+    query(collection(db, "planningWeeks"), where("id", ">=", weekStart(today)))
   );
 
   const lines = snapshot.docs.flatMap((snapshot) => {
