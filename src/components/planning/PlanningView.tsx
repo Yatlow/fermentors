@@ -89,8 +89,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {markedOutsideCooler > 0 && <div className="bp-outside-shipment-warning" role="alert">
-        <strong>⚠️ יש {markedOutsideCooler} {markedOutsideCooler === 1 ? "משטח שמסומן" : "משטחים שמסומנים"} למשלוח מחוץ למקרר.</strong>
-        <span>יש לאתר ולהעביר {markedOutsideCooler === 1 ? "אותו" : "אותם"} לפני ההעמסה.</span>
+        <strong>⚠️ יש {markedOutsideCooler} {markedOutsideCooler === 1 ? "משטח מסומן" : "משטחים מסומנים"} למשלוח שאינם במקרר.</strong>
+        <span>הם כבר נכללים בהחלטת המשלוח, אבל צריך להעביר אותם למקרר או לאזור ההעמסה לפני היציאה.</span>
         {onOpenCoolerMap && <button type="button" onClick={onOpenCoolerMap}>פתח מפת מקרר</button>}
       </div>}
 
