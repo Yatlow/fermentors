@@ -150,7 +150,7 @@ export default function SheetSyncStatus() {
 
             <div className="sheet-sync-direction-grid">
                 <div className="sheet-sync-direction-card">
-                    <DirectionTitle from="אפליקציה" to="Sheets" />
+                    <DirectionTitle from="מערכת" to="Sheets" />
                     <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : writeStatus.severity}`}>
                         {writePill}
                     </span>
