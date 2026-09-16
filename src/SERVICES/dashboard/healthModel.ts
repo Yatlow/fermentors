@@ -23,6 +23,12 @@ export type MeasurementIssue = {
     missingFields: DailyMeasurementField[];
     requiredFieldCount: number;
     completedFieldCount: number;
+    /**
+     * Optional extra earned units that do not add any requirement to the
+     * denominator. Used by first-24h fermentation grace tanks: measurements are
+     * never required there, but taking them should still improve the score.
+     */
+    bonusCompletedFieldCount?: number;
 };
 
 const RECOMMENDATION_WEIGHT: Record<number, number> = {
@@ -146,6 +152,7 @@ export function missingDailyMeasurementFields(
  * - every required measurement field is one earnable unit;
  * - partial rounds earn partial credit immediately (1/4 hot-round fields =
  *   exactly 1/4 of that tank's measurement contribution);
+ * - grace-period bonus fields add earned units without adding required units;
  * - actionable cellar recommendations add unresolved weighted units to the
  *   denominator. When the recommendation is handled and disappears, those
  *   unresolved units disappear too and the score rises.
@@ -169,7 +176,8 @@ export function calculateCellarHealthScore(
             0,
             Math.min(required, Number(progress.completedFieldCount) || 0)
         );
-        return sum + completed;
+        const bonus = Math.max(0, Number(progress.bonusCompletedFieldCount) || 0);
+        return sum + completed + bonus;
     }, 0);
 
     const unresolvedRecommendationWeight = recommendations.reduce((sum, recommendation) => {
