@@ -2,7 +2,7 @@ import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
-import { withTentativePackagingTankNumbers } from "../../SERVICES/planning/tentativePackaging";
+import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday } from "../../SERVICES/planning/usePlanning";
 import {
   mergeCompletedDeliveriesBack,
@@ -59,7 +59,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   );
 
   const fiveWeekPlans = useMemo(
-    () => withTentativePackagingTankNumbers(plans, tanks, calendarSettings),
+    () => withTentativeFiveWeekTanks(plans, tanks, calendarSettings),
     [plans, tanks, calendarSettings],
   );
 
