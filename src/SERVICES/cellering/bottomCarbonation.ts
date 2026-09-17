@@ -148,11 +148,20 @@ export function expandCompoundCellarMeasurements<T extends BottomCarbonationMeas
                 cursor += 1;
             }
 
-            return {
+            const split = {
                 ...measurement,
                 id: base ? `${base.date}_${minutesToClock(cursor)}` : measurement.id,
                 notes: segment,
             } as T;
+
+            // Numeric measurements belong to the physical reading, not to every
+            // action that happened to be concatenated into its note field.
+            if (index > 0) {
+                for (const key of ["temp", "plato", "pH", "pressure", "carbonation", "volume"] as const) {
+                    if (key in split) (split as Record<string, unknown>)[key] = undefined;
+                }
+            }
+            return split;
         });
     });
 }
