@@ -26,7 +26,8 @@ ACTIVE OWNERSHIP:
 
 BEHAVIOR:
 - One first-sheet values snapshot per spreadsheet per cycle; fresh next cycle.
-- Shared script lock for the whole cycle, no nested measurement lock.
+- A short lease prevents overlapping cycles WITHOUT holding ScriptLock for the
+  complete 15–60 second run. User-initiated Sheet writes can therefore proceed.
 - Standalone measurement/progress/reset calls still acquire the script lock.
 - Fermentor comparison uses the already-fetched Firestore snapshot, not hashes.
 - Field-level currentData masks preserve omitted fields without an extra GET.
@@ -39,6 +40,8 @@ BEHAVIOR:
 */
 
 var FC_CYCLE_CONTEXT_ = null;
+const FC_CYCLE_LEASE_KEY_ = "fc_cycle_lease_v2";
+const FC_CYCLE_LEASE_TTL_MS_ = 9 * 60 * 1000;
 
 function fcTimed_(label, callback) {
   const started = Date.now();
@@ -51,6 +54,53 @@ function fcWithScriptLock_(callback) {
   const lock = LockService.getScriptLock();
   fcTimed_("lock wait", function () { lock.waitLock(30000); });
   try { return callback(); } finally { lock.releaseLock(); }
+}
+
+function fcAcquireCycleLease_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return null;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const raw = props.getProperty(FC_CYCLE_LEASE_KEY_);
+    if (raw) {
+      try {
+        const current = JSON.parse(raw);
+        const age = Date.now() - Number(current.startedAt || 0);
+        if (current.token && age >= 0 && age < FC_CYCLE_LEASE_TTL_MS_) {
+          return null;
+        }
+      } catch (error) {
+        Logger.log("Ignoring invalid cycle lease: " + error.message);
+      }
+    }
+    const token = Utilities.getUuid();
+    props.setProperty(FC_CYCLE_LEASE_KEY_, JSON.stringify({ token: token, startedAt: Date.now() }));
+    return token;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function fcReleaseCycleLease_(token) {
+  if (!token) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    Logger.log("Cycle lease cleanup deferred; stale lease will expire automatically.");
+    return;
+  }
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const raw = props.getProperty(FC_CYCLE_LEASE_KEY_);
+    if (!raw) return;
+    try {
+      const current = JSON.parse(raw);
+      if (current.token === token) props.deleteProperty(FC_CYCLE_LEASE_KEY_);
+    } catch (error) {
+      props.deleteProperty(FC_CYCLE_LEASE_KEY_);
+    }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function fcSheetSnapshot_(sheetUrl) {
@@ -95,12 +145,12 @@ function fcMarkSuccess_(state) {
 function runFermentorCycle() {
   Logger.log("START FERMENTOR CYCLE");
   const started = Date.now();
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) {
-    Logger.log("CYCLE SKIPPED: another execution holds the script lock.");
-    return { skipped: true, reason: "script_lock_busy" };
+  const leaseToken = fcAcquireCycleLease_();
+  if (!leaseToken) {
+    Logger.log("CYCLE SKIPPED: another fermentor cycle is already running.");
+    return { skipped: true, reason: "cycle_lease_busy" };
   }
-  FC_CYCLE_CONTEXT_ = { sheets: new Map(), sheetReads: 0, properties: null, lockHeld: true };
+  FC_CYCLE_CONTEXT_ = { sheets: new Map(), sheetReads: 0, properties: null, lockHeld: false };
   try {
     const projectId = FIREBASE_PROJECT_ID;
     const fermentors = fcTimed_("fetch fermentors", function () {
@@ -122,7 +172,7 @@ function runFermentorCycle() {
       sheetReads: FC_CYCLE_CONTEXT_.sheetReads, sync: syncStats, action: actionStats };
   } finally {
     FC_CYCLE_CONTEXT_ = null;
-    lock.releaseLock();
+    fcReleaseCycleLease_(leaseToken);
   }
 }
 
