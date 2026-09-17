@@ -10,22 +10,16 @@ import {
     runTransaction,
     serverTimestamp,
     setDoc,
-    where,
     type DocumentData,
     type Timestamp,
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import type { CoolerCell, PalletZone } from "./Pallettypes ";
+import { subscribeToActivePallets } from "./Palletservice";
 
 const HISTORY_COLLECTION = "coolerUndoHistory";
 const HISTORY_LIMIT = 10;
 const HISTORY_TRIM_EVERY = 20;
-const ACTIVE_PALLET_ZONES: PalletZone[] = [
-    "cooler",
-    "pending",
-    "bottleRoom",
-    "loadingDock",
-];
 
 type PalletLocationSnapshot = {
     id: string;
@@ -233,10 +227,9 @@ function resetRecorderState(): void {
 
 /**
  * Start recording cooler moves while a cooler UI consumer is mounted.
- * Returns a release function. The old recorder lived for the complete browser
- * session after the map was opened once, so later planning work kept a second
- * full pallets listener alive. Reference counting keeps it alive only while a
- * cooler consumer actually needs undo history.
+ * Returns a release function. Pallet data now comes from Palletservice's shared
+ * active-pallet subscription, so the map and Undo recorder do not each attach a
+ * second full Firestore listener to the same operational pallets.
  */
 export function startCoolerUndoRecorder(): () => void {
     recorderUsers += 1;
@@ -244,19 +237,17 @@ export function startCoolerUndoRecorder(): () => void {
     if (!recorderUnsubscribe) {
         resetRecorderState();
 
-        // Ignore historical shipped pallets. The recorder is interested only in
-        // operational zones where a pallet can still be moved by the cooler UI.
-        const activePalletsQuery = query(
-            collection(db, "pallets"),
-            where("zone", "in", ACTIVE_PALLET_ZONES),
-        );
-
-        recorderUnsubscribe = onSnapshot(activePalletsQuery, (snapshot) => {
-            if (snapshot.metadata.hasPendingWrites) return;
+        recorderUnsubscribe = subscribeToActivePallets((pallets, meta) => {
+            if (meta.hasPendingWrites) return;
 
             const nextLocations = new Map<string, PalletLocationSnapshot>();
-            snapshot.docs.forEach((item) => {
-                nextLocations.set(item.id, locationFromData(item.id, item.data()));
+            const palletsById = new Map(pallets.map((pallet) => [pallet.id, pallet]));
+
+            pallets.forEach((pallet) => {
+                nextLocations.set(
+                    pallet.id,
+                    locationFromData(pallet.id, pallet as unknown as DocumentData),
+                );
             });
 
             if (!initialSnapshotSeen) {
@@ -266,17 +257,16 @@ export function startCoolerUndoRecorder(): () => void {
             }
 
             const changes: LocationChange[] = [];
-            snapshot.docChanges().forEach((change) => {
-                // Entering/leaving the active-zone query is not a move we want to
-                // reconstruct here. Shipped transitions were intentionally excluded
-                // from undo history in the previous implementation as well.
-                if (change.type !== "modified") return;
-                const before = previousLocations.get(change.doc.id);
-                const after = nextLocations.get(change.doc.id);
-                if (!before || !after || sameLocation(before, after)) return;
+            nextLocations.forEach((after, id) => {
+                // A pallet entering/leaving the active set has no matching before
+                // and after state here. Those transitions (notably shipped) are not
+                // cooler-location Undo actions, matching the previous behavior.
+                const before = previousLocations.get(id);
+                if (!before || sameLocation(before, after)) return;
                 if (isSuppressedReplay(after)) return;
 
-                const updatedAtMs = timestampMillis(change.doc.data().updatedAt) ?? Date.now();
+                const pallet = palletsById.get(id);
+                const updatedAtMs = timestampMillis(pallet?.updatedAt) ?? Date.now();
                 changes.push({ before, after, updatedAtMs });
             });
 
@@ -286,8 +276,6 @@ export function startCoolerUndoRecorder(): () => void {
             void persistLocationChange(changes).catch((error) => {
                 console.error("Failed recording cooler undo history", error);
             });
-        }, (error) => {
-            console.error("Cooler undo recorder subscription failed", error);
         });
     }
 
