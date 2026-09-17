@@ -11,6 +11,12 @@ import {
     isValidHopAa,
     buildDryHopNoteText,
 } from "../../SERVICES/cellering/dryHopLogic";
+import {
+    DEFAULT_BOTTOM_CARBONATION_PRESSURE,
+    buildBottomCarbonationCloseNote,
+    buildBottomCarbonationStartNote,
+    formatClockTime,
+} from "../../SERVICES/cellering/bottomCarbonation";
 import { rememberDryHopAa } from "../../SERVICES/cellering/assignDryHop";
 
 export type NoteToFermentorProps = {
@@ -33,6 +39,8 @@ type NoteRow = {
 const NOTE_TYPES = [
     { value: "סגירת מיכל", label: "סגירת מיכל", stage: "warm" },
     { value: "גיזוז", label: "בדיקת גיזוז", stage: "cold" },
+    { value: "גיזוז מלמטה התחלה", label: "תחילת גיזוז מלמטה", stage: "cold" },
+    { value: "גיזוז מלמטה סגירה", label: "סגירת גיזוז מלמטה", stage: "cold" },
     { value: "שמרים", label: "הורדת שמרים", stage: "both" },
     { value: "לחץ", label: "שינוי לחץ", stage: "both" },
     { value: "פורק", label: "כיוון פורק", stage: "warm" },
@@ -49,7 +57,6 @@ function makeEmptyRow(): NoteRow {
 
 const EMPTY_VALUES = { value: "", value2: "", aa: "", direction: "" };
 
-
 export default function NoteToFermentor({
     brews,
     updateReading,
@@ -57,7 +64,7 @@ export default function NoteToFermentor({
     specs
 }: NoteToFermentorProps) {
 
-    const REFRESH_TRIGGER_TYPES = new Set(["גיזוז", "קירור", "דיאציטיל"]);
+    const REFRESH_TRIGGER_TYPES = new Set(["גיזוז", "קירור", "דיאציטיל", "גיזוז מלמטה התחלה", "גיזוז מלמטה סגירה"]);
     const [rows, setRows] = useState<NoteRow[]>([makeEmptyRow()]);
 
     const availableTanks = brews.filter(
@@ -92,6 +99,12 @@ export default function NoteToFermentor({
             case "גיזוז":
                 if (row.value === "") return null;
                 return `בדיקת גיזוז: ${row.value}`;
+            case "גיזוז מלמטה התחלה":
+                if (row.value === "" || row.value2 === "") return null;
+                return buildBottomCarbonationStartNote(row.value, row.value2);
+            case "גיזוז מלמטה סגירה":
+                if (row.value === "" || row.value2 === "") return null;
+                return buildBottomCarbonationCloseNote(row.value, row.value2);
             case "שמרים":
                 if (row.value === "" || row.value2 === "") return null;
                 return `הורדת ${row.value} דליי שמרים, לחץ אחרי ${row.value2} bar`;
@@ -126,8 +139,6 @@ export default function NoteToFermentor({
                 const pressure = getClosingPressureForStyle(fermentor.beerStyle, specs);
                 if (pressure === null) return null;
 
-                // aa is intentionally not written into the fermentation note.
-                // It is sent separately to the hops table in the brew sheet.
                 return buildDryHopNoteText(grams, hopType, pressure);
             }
             default:
@@ -135,7 +146,6 @@ export default function NoteToFermentor({
         }
     }
 
-    // שורה נחשבת "חלקית"/חוסמת שליחה רק אם כבר נבחר לה מיכל אך אין לה עדיין טקסט תקין
     function isRowIncomplete(row: NoteRow, fermentor: Fermentor | undefined): boolean {
         if (!row.tankNumber) return false;
         return buildNoteText(row, fermentor) === null;
@@ -144,6 +154,7 @@ export default function NoteToFermentor({
     useEffect(() => {
         const notesByTank = new Map<number, string[]>();
         const carbonationByTank = new Map<number, string>();
+        const pressureByTank = new Map<number, string>();
         const refreshTanks = new Set<number>();
         const dryHopByTank = new Map<number, { grams: number; hopType: string; aa: number }>();
 
@@ -161,6 +172,10 @@ export default function NoteToFermentor({
             } else {
                 if (!notesByTank.has(tankNum)) notesByTank.set(tankNum, []);
                 notesByTank.get(tankNum)!.push(noteText);
+            }
+
+            if (row.noteType === "גיזוז מלמטה התחלה" || row.noteType === "גיזוז מלמטה סגירה") {
+                pressureByTank.set(tankNum, row.value);
             }
 
             if (REFRESH_TRIGGER_TYPES.has(row.noteType)) {
@@ -194,6 +209,13 @@ export default function NoteToFermentor({
                 fv.id,
                 "carbonation",
                 carbonationValue !== undefined ? carbonationValue : undefined
+            );
+
+            const pressureValue = pressureByTank.get(tankNum);
+            updateReading(
+                fv.id,
+                "pressure",
+                pressureValue !== undefined ? pressureValue : undefined
             );
 
             updateReading(fv.id, "refreshTank", refreshTanks.has(tankNum) ? true : undefined);
@@ -231,7 +253,26 @@ export default function NoteToFermentor({
                 aa: "",
                 direction: "",
             });
+            return;
+        }
 
+        if (newType === "גיזוז מלמטה התחלה") {
+            updateRow(row.id, {
+                noteType: newType,
+                ...EMPTY_VALUES,
+                value: String(DEFAULT_BOTTOM_CARBONATION_PRESSURE),
+                value2: formatClockTime(),
+            });
+            return;
+        }
+
+        if (newType === "גיזוז מלמטה סגירה") {
+            updateRow(row.id, {
+                noteType: newType,
+                ...EMPTY_VALUES,
+                value: fermentor?.currentData?.pressure != null ? String(fermentor.currentData.pressure) : "",
+                value2: formatClockTime(),
+            });
             return;
         }
 
@@ -332,19 +373,33 @@ export default function NoteToFermentor({
                             {row.noteType === "סגירת מיכל" && (
                                 <>
                                     <span>סגירת נשם, כיוון פורק ל: </span>
-
                                     <input
                                         type="number"
                                         step="0.1"
                                         value={row.value}
                                         placeholder="לחץ"
-                                        onChange={(e) =>
-                                            updateRow(row.id, { value: e.target.value })
-                                        }
+                                        onChange={(e) => updateRow(row.id, { value: e.target.value })}
                                     />
+                                    <span> bar</span>
+                                </>
+                            )}
 
-                                    <span>{" "}</span>
-                                    <span>bar</span>
+                            {(row.noteType === "גיזוז מלמטה התחלה" || row.noteType === "גיזוז מלמטה סגירה") && (
+                                <>
+                                    <span>{row.noteType === "גיזוז מלמטה התחלה" ? "לחץ להתחלה" : "לחץ בסגירה"}: </span>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        min={0}
+                                        value={row.value}
+                                        onChange={(e) => updateRow(row.id, { value: e.target.value })}
+                                    />
+                                    <span> bar, שעה </span>
+                                    <input
+                                        type="time"
+                                        value={row.value2}
+                                        onChange={(e) => updateRow(row.id, { value2: e.target.value })}
+                                    />
                                 </>
                             )}
 
