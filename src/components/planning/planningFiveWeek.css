@@ -193,13 +193,15 @@
 .bp-calendar-zoom-bar button { min-width: 32px; padding: 4px 7px; }
 
 .bp-month-zoom-layer {
+  width: 1050px;
+  zoom: var(--calendar-zoom, 1);
   transform-origin: top right;
 }
 
 .bp-month-calendar {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  width: 100%;
+  grid-template-columns: repeat(7, 150px);
+  width: 1050px;
   border: 1px solid #dbe3ec;
   border-radius: 12px;
   overflow: hidden;
@@ -279,14 +281,15 @@
 
 .bp-month-event > small { font-size: .44rem; opacity: .76; }
 .bp-month-event:disabled { cursor: default; opacity: 1; }
+.bp-month-event.is-packaging:not([class*="pallet-style-"]) { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
+.bp-month-event.is-brews:not([class*="pallet-style-"]) { background: #f3e8ff; color: #7e22ce; border-color: #d8b4fe; }
 .bp-month-event.is-holiday { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
 .bp-month-event.is-vacation { background: #cffafe; color: #155e75; border-color: #67e8f9; }
 .bp-month-event.is-general { background: #e2e8f0; color: #334155; border-color: #cbd5e1; }
 .bp-month-event.is-pending { outline: 1px dashed #d97706; outline-offset: -2px; }
 .bp-month-event.is-selected { box-shadow: inset 0 0 0 2px #2563eb, 0 0 0 1px #fff; }
 
-/* Beer-style colors intentionally come from src/beerStyles.css.
-   The calendar and weekly summary must use the exact same palette as the rest of the app. */
+/* Beer-style colors come only from src/beerStyles.css.  No alternate palette here. */
 
 .bp-calendar-editor {
   display: grid;
@@ -316,16 +319,32 @@
 
 .bp-calendar-editor textarea { min-height: 76px; resize: vertical; }
 .bp-calendar-note-field { grid-column: span 2; }
-.bp-calendar-editor-actions { grid-column: 1 / -1; display: flex; justify-content: flex-start; flex-wrap: wrap; gap: 7px; }
+.bp-calendar-editor-actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 7px; }
+.bp-calendar-editor-actions button.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
 .bp-calendar-event-dates { grid-column: 1 / -1; font-size: .68rem; color: #64748b; }
-.bp-calendar-event-lock { grid-column: 1 / -1; padding: 6px 8px; border-radius: 7px; background: #f8fafc; font-size: .64rem; color: #475569; }
+
+.bp-brew-edit-move {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 7px;
+}
+
+.bp-calendar-editor-backdrop {
+  position: fixed;
+  z-index: 220;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(15, 23, 42, .38);
+}
 
 .bp-calendar-floating-editor {
-  position: fixed;
-  z-index: 140;
-  inset-inline: max(12px, calc((100vw - 680px) / 2));
-  top: 18vh;
-  max-height: 70vh;
+  position: relative;
+  width: min(680px, calc(100vw - 24px));
+  max-height: 80vh;
   overflow-y: auto;
 }
 
@@ -366,6 +385,9 @@
   .bp-calendar-editor-actions,
   .bp-calendar-editor h3,
   .bp-calendar-event-dates,
-  .bp-calendar-event-lock { grid-column: 1; }
-  .bp-calendar-floating-editor { inset-inline: 8px; top: 9vh; max-height: 78vh; }
+  .bp-brew-edit-move { grid-column: 1; }
+  .bp-brew-edit-move { grid-template-columns: 1fr 1fr; }
+  .bp-brew-edit-move label { grid-column: 1 / -1; order: -1; }
+  .bp-calendar-floating-editor { width: calc(100vw - 16px); max-height: 84vh; }
+  .bp-calendar-editor-backdrop { padding: 8px; }
 }
