@@ -173,7 +173,7 @@ service cloud.firestore {
     }
 
     function validPlanningWeek(weekId) {
-      return request.resource.data.keys().hasOnly(['id','packaging','brews','note','maxRuns','deliveries','deliveryDates','dismissedRecommendations','allowExceptions','changeReason','revision','updatedAt','updatedBy','createdAt'])
+      return request.resource.data.keys().hasOnly(['id','packaging','brews','note','maxRuns','deliveries','deliveryDates','dismissedRecommendations','allowExceptions','changeReason','calendarEvents','calendarNotes','revision','updatedAt','updatedBy','createdAt'])
         && request.resource.data.id == weekId
         && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && request.resource.data.packaging is list && request.resource.data.packaging.size() <= 60
@@ -188,7 +188,10 @@ service cloud.firestore {
         && request.resource.data.get('dismissedRecommendations', []).size() <= 300
         && request.resource.data.get('allowExceptions', false) is bool
         && request.resource.data.get('changeReason', '') is string
-        && request.resource.data.get('changeReason', '').size() <= 200;
+        && request.resource.data.get('changeReason', '').size() <= 200
+        && request.resource.data.get('calendarEvents', []) is list
+        && request.resource.data.get('calendarEvents', []).size() <= 100
+        && request.resource.data.get('calendarNotes', {}) is map;
     }
 
     function atomicPlanningRevision(collectionName, documentId) {
