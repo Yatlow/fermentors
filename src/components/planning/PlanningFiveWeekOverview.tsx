@@ -382,9 +382,9 @@ export default function PlanningFiveWeekOverview({
     const parts = plan.brews.map((brew) => {
       const tankId = tankMap.get(brew.id);
       const number = tankId ? tankNumber(tankId) : "לא נמצא";
-      return `${displayStyle(brew.style)} · מיכל ${number}${brew.tankId ? "" : " מוצע"}`;
+      return `${displayStyle(brew.style)} מיכל ${number}`;
     });
-    return `בישולים · ${parts.join(" · ")}`;
+    return `בישולים- ${parts.join(" · ")}`;
   }
 
   function brewGroupRange(plan: ExtendedPlan) {
