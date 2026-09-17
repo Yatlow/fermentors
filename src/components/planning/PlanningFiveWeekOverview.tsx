@@ -87,7 +87,7 @@ function dateInRange(date: string, start: string, end: string) {
 }
 
 function rangeIncludes(date: string, start: string, end: string) {
-  return date >= start && date <= end;
+  return dateInRange(date, start, end);
 }
 
 function sizeMultiplier(label: ReturnType<typeof brewSizeLabel>) {
@@ -130,8 +130,8 @@ export default function PlanningFiveWeekOverview({
   const rangeStart = weekIds[0];
   const rangeEnd = addDays(rangeStart, 34);
   const calendarDays = useMemo(
-    () => Array.from({ length: 35 }, (_, index) => addDays(rangeStart, index)),
-    [rangeStart],
+    () => Array.from({ length: 35 }, (_, index) => addDays(rangeStart, index)).filter((date) => dateInRange(date, rangeStart, rangeEnd)),
+    [rangeStart, rangeEnd],
   );
 
   const [eventDraft, setEventDraft] = useState<EventDraft>(() => ({
@@ -192,23 +192,13 @@ export default function PlanningFiveWeekOverview({
     const details = Array.from(grouped.values())
       .map((item) => `${item.label} ${Math.round(item.quantity)}`)
       .join(" · ");
-    return [{
-      key: `shipment:${weekId}`,
-      title: "משלוח טמפו",
-      meta: details,
-    }];
+    return [{ key: `shipment:${weekId}`, title: "משלוח טמפו", meta: details }];
   }
 
   function packagingSummary(weekId: string): CompactItem[] {
     const plan = planFor(weekId);
     if (!plan) return [];
-    const grouped = new Map<string, {
-      style: string;
-      type: "crates" | "kegs";
-      quantity: number;
-      pending: number;
-      tankNumbers: Set<string>;
-    }>();
+    const grouped = new Map<string, { style: string; type: "crates" | "kegs"; quantity: number; pending: number; tankNumbers: Set<string> }>();
     for (const run of plan.packaging.filter((item) => item.quantity > 0)) {
       const product = productFor(run.productId);
       if (!product) continue;
@@ -267,18 +257,11 @@ export default function PlanningFiveWeekOverview({
 
   function calendarEvents(date: string): CalendarEvent[] {
     const events: CalendarEvent[] = [];
-
     for (const holiday of holidays.filter((item) => item.date === date)) {
-      events.push({
-        key: `holiday:${holiday.date}:${holiday.title}`,
-        label: holiday.title,
-        type: "holiday",
-      });
+      events.push({ key: `holiday:${holiday.date}:${holiday.title}`, label: holiday.title, type: "holiday" });
     }
-
     for (const source of plans) {
       const plan = asExtended(source);
-
       plan.packaging.forEach((run, runIndex) => {
         if (run.quantity <= 0 || run.date !== date) return;
         const product = productFor(run.productId);
@@ -296,27 +279,24 @@ export default function PlanningFiveWeekOverview({
           selection: { kind: "packaging", weekId: plan.id, runIndex },
         });
       });
-
       for (const brew of plan.brews) {
         const endDate = brewEndDate(brew);
         if (!rangeIncludes(date, brew.date, endDate)) continue;
         const tankId = resolvedBrewTank(plan, brew);
         const number = tankId ? tankNumber(tankId) : "?";
         const tentative = !brew.tankId;
-        const note = brew.note ?? "";
         events.push({
           key: `${plan.id}:brew:${brew.id}`,
           label: `בישול ${displayStyle(brew.style)} · מיכל ${number}${tentative ? " מוצע" : ""}`,
           type: "brews",
           styleClass: beerStyleClass(brew.style).className,
           pending: tentative,
-          note,
+          note: brew.note ?? "",
           startsBefore: date > brew.date,
           continuesAfter: date < endDate,
           selection: { kind: "brew", weekId: plan.id, brewId: brew.id },
         });
       }
-
       for (const custom of plan.calendarEvents ?? []) {
         if (!rangeIncludes(date, custom.startDate, custom.endDate)) continue;
         events.push({
@@ -330,7 +310,6 @@ export default function PlanningFiveWeekOverview({
         });
       }
     }
-
     return events;
   }
 
@@ -355,17 +334,14 @@ export default function PlanningFiveWeekOverview({
     const weekId = weekStart(eventDraft.startDate);
     await updatePlan(weekId, (plan) => ({
       ...plan,
-      calendarEvents: [
-        ...(plan.calendarEvents ?? []),
-        {
-          id: crypto.randomUUID(),
-          type: eventDraft.type,
-          title: eventDraft.title.trim(),
-          startDate: eventDraft.startDate,
-          endDate: eventDraft.endDate,
-          note: eventDraft.note.trim(),
-        },
-      ],
+      calendarEvents: [...(plan.calendarEvents ?? []), {
+        id: crypto.randomUUID(),
+        type: eventDraft.type,
+        title: eventDraft.title.trim(),
+        startDate: eventDraft.startDate,
+        endDate: eventDraft.endDate,
+        note: eventDraft.note.trim(),
+      }],
       changeReason: "עדכון אירועים בלוח 5 שבועות",
     }));
     setShowEventForm(false);
@@ -511,10 +487,7 @@ export default function PlanningFiveWeekOverview({
           <div className="bp-five-week-grid" role="table" aria-label="תכנון לחמישה שבועות">
             <div className="bp-five-week-corner" />
             {weekIds.map((weekId) => (
-              <div
-                key={`head:${weekId}`}
-                className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}
-              >
+              <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
                 <b>שבוע {weekNumber(weekId)}</b>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {weekId === currentWeek && <small>השבוע</small>}
@@ -554,22 +527,13 @@ export default function PlanningFiveWeekOverview({
             <small>אפשר גם pinch בשתי אצבעות</small>
           </div>
           <div className="bp-month-scroll" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-            <div
-              className="bp-month-calendar"
-              role="grid"
-              aria-label="לוח תכנון לחמישה שבועות"
-              style={{ minWidth: `${1050 * zoom}px` }}
-            >
+            <div className="bp-month-calendar" role="grid" aria-label="לוח תכנון לחמישה שבועות" style={{ minWidth: `${1050 * zoom}px` }}>
               {DAY_NAMES.map((name) => <div className="bp-month-day-name" key={name}>{name}</div>)}
               {calendarDays.map((date) => {
                 const events = calendarEvents(date);
                 const weekId = weekStart(date);
                 return (
-                  <div
-                    className={`bp-month-day ${date === today ? "is-today" : ""} ${weekId === currentWeek ? "is-current-week" : ""} ${weekId === nextPlanningWeek ? "is-next-week" : ""}`}
-                    key={date}
-                    style={{ minHeight: `${126 * zoom}px` }}
-                  >
+                  <div className={`bp-month-day ${date === today ? "is-today" : ""} ${weekId === currentWeek ? "is-current-week" : ""} ${weekId === nextPlanningWeek ? "is-next-week" : ""}`} key={date} style={{ minHeight: `${126 * zoom}px` }}>
                     <div className="bp-month-date"><b>{Number(date.slice(8, 10))}</b><small>{shortDate(date)}</small></div>
                     <div className="bp-month-events">
                       {events.map((event) => (
@@ -595,46 +559,21 @@ export default function PlanningFiveWeekOverview({
       )}
 
       {selected?.kind === "brew" && activeBrew && activePlan && (
-        <BrewEditor
-          brew={activeBrew}
-          tankNumber={String(tankNumber(resolvedBrewTank(activePlan, activeBrew)))}
-          defaultEnd={brewEndDate(activeBrew)}
-          busy={busy}
-          onCancel={() => setSelected(null)}
-          onSave={saveBrewEdit}
-        />
+        <BrewEditor brew={activeBrew} tankNumber={String(tankNumber(resolvedBrewTank(activePlan, activeBrew)))} defaultEnd={brewEndDate(activeBrew)} busy={busy} onCancel={() => setSelected(null)} onSave={saveBrewEdit} />
       )}
 
       {selected?.kind === "packaging" && activePack && (
-        <NoteEditor
-          title="הערה לאירוע אריזה"
-          initialValue={activePackNote}
-          busy={busy}
-          onCancel={() => setSelected(null)}
-          onSave={savePackagingNote}
-        />
+        <NoteEditor title="הערה לאירוע אריזה" initialValue={activePackNote} busy={busy} onCancel={() => setSelected(null)} onSave={savePackagingNote} />
       )}
 
       {selected?.kind === "custom" && activeCustom && (
-        <CustomEventEditor
-          event={activeCustom}
-          busy={busy}
-          onCancel={() => setSelected(null)}
-          onDelete={deleteCustomEvent}
-          onSave={saveCustomEdit}
-        />
+        <CustomEventEditor event={activeCustom} busy={busy} onCancel={() => setSelected(null)} onDelete={deleteCustomEvent} onSave={saveCustomEdit} />
       )}
     </section>
   );
 }
 
-function NoteEditor({
-  title,
-  initialValue,
-  busy,
-  onCancel,
-  onSave,
-}: {
+function NoteEditor({ title, initialValue, busy, onCancel, onSave }: {
   title: string;
   initialValue: string;
   busy: boolean;
@@ -654,14 +593,7 @@ function NoteEditor({
   );
 }
 
-function BrewEditor({
-  brew,
-  tankNumber,
-  defaultEnd,
-  busy,
-  onCancel,
-  onSave,
-}: {
+function BrewEditor({ brew, tankNumber, defaultEnd, busy, onCancel, onSave }: {
   brew: ExtendedBrew;
   tankNumber: string;
   defaultEnd: string;
@@ -696,13 +628,7 @@ function BrewEditor({
   );
 }
 
-function CustomEventEditor({
-  event,
-  busy,
-  onCancel,
-  onDelete,
-  onSave,
-}: {
+function CustomEventEditor({ event, busy, onCancel, onDelete, onSave }: {
   event: PlannerEvent;
   busy: boolean;
   onCancel: () => void;
