@@ -26,6 +26,153 @@ import {
 
 const PALLETS_COLLECTION = "pallets";
 const SHIPMENTS_COLLECTION = "shipments";
+const ACTIVE_PALLET_ZONES: PalletZone[] = [
+    "cooler",
+    "pending",
+    "bottleRoom",
+    "loadingDock",
+];
+
+export type ActivePalletSnapshotMeta = {
+    hasPendingWrites: boolean;
+    fromCache: boolean;
+};
+
+type ActivePalletSubscriber = (
+    pallets: Pallet[],
+    meta: ActivePalletSnapshotMeta,
+) => void;
+
+type ActiveZoneSubscription = {
+    zone: PalletZone;
+    callback: (pallets: Pallet[]) => void;
+    directUnsubscribe: (() => void) | null;
+};
+
+const activePalletSubscribers = new Set<ActivePalletSubscriber>();
+const activeZoneSubscriptions = new Set<ActiveZoneSubscription>();
+let sharedActiveUnsubscribe: (() => void) | null = null;
+let sharedActivePallets: Pallet[] | null = null;
+let sharedActiveMeta: ActivePalletSnapshotMeta = {
+    hasPendingWrites: false,
+    fromCache: false,
+};
+
+function isActivePalletZone(zone: PalletZone): boolean {
+    return ACTIVE_PALLET_ZONES.includes(zone);
+}
+
+function snapshotPallets(snapshot: { docs: Array<{ id: string; data: () => unknown }> }): Pallet[] {
+    return snapshot.docs.map((item) => ({
+        id: item.id,
+        ...(item.data() as Record<string, unknown>),
+    } as Pallet));
+}
+
+function notifySharedActiveSubscribers(): void {
+    if (!sharedActivePallets) return;
+
+    activePalletSubscribers.forEach((callback) => {
+        callback(sharedActivePallets!, sharedActiveMeta);
+    });
+
+    activeZoneSubscriptions.forEach((subscription) => {
+        subscription.callback(
+            sharedActivePallets!.filter((pallet) => pallet.zone === subscription.zone),
+        );
+    });
+}
+
+function startSharedActiveListener(): void {
+    if (sharedActiveUnsubscribe) return;
+
+    const q = query(
+        collection(db, PALLETS_COLLECTION),
+        where("zone", "in", ACTIVE_PALLET_ZONES),
+    );
+
+    sharedActiveUnsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+            sharedActivePallets = snapshotPallets(snapshot);
+            sharedActiveMeta = {
+                hasPendingWrites: snapshot.metadata.hasPendingWrites,
+                fromCache: snapshot.metadata.fromCache,
+            };
+            notifySharedActiveSubscribers();
+        },
+        (error) => console.error("subscribeToActivePallets error:", error),
+    );
+}
+
+function stopSharedActiveListener(): void {
+    sharedActiveUnsubscribe?.();
+    sharedActiveUnsubscribe = null;
+    sharedActivePallets = null;
+}
+
+function startDirectZoneListener(subscription: ActiveZoneSubscription): void {
+    if (subscription.directUnsubscribe) return;
+
+    const q = query(
+        collection(db, PALLETS_COLLECTION),
+        where("zone", "==", subscription.zone),
+    );
+
+    subscription.directUnsubscribe = onSnapshot(
+        q,
+        (snapshot) => subscription.callback(snapshotPallets(snapshot)),
+        (error) => console.error(`subscribeToZone(${subscription.zone}) error:`, error),
+    );
+}
+
+function rebalanceActivePalletListeners(): void {
+    // The cooler map has four zone consumers and the undo recorder needs the
+    // same active pallets. Once there are multiple consumers, one shared `in`
+    // query is strictly cheaper than N overlapping listeners. A lone zone
+    // consumer still gets a narrow equality query so unrelated screens do not
+    // read the entire cooler inventory.
+    const shouldShare =
+        activePalletSubscribers.size > 0 || activeZoneSubscriptions.size > 1;
+
+    if (shouldShare) {
+        activeZoneSubscriptions.forEach((subscription) => {
+            subscription.directUnsubscribe?.();
+            subscription.directUnsubscribe = null;
+        });
+        startSharedActiveListener();
+        if (sharedActivePallets) notifySharedActiveSubscribers();
+        return;
+    }
+
+    stopSharedActiveListener();
+    const [onlySubscription] = activeZoneSubscriptions;
+    if (onlySubscription) startDirectZoneListener(onlySubscription);
+}
+
+/**
+ * Subscribe once to all operational pallets. Multiple callers share the exact
+ * same Firestore listener. The cooler map and Undo recorder therefore no longer
+ * read every active pallet twice.
+ */
+export function subscribeToActivePallets(
+    callback: ActivePalletSubscriber,
+): () => void {
+    activePalletSubscribers.add(callback);
+    rebalanceActivePalletListeners();
+
+    if (sharedActivePallets) {
+        callback(sharedActivePallets, sharedActiveMeta);
+    }
+
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        activePalletSubscribers.delete(callback);
+        rebalanceActivePalletListeners();
+    };
+}
 
 export type ShipmentCustomerOption = {
     name: string;
@@ -36,25 +183,55 @@ function customerKey(value: string): string {
     return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("he-IL");
 }
 
+const SHIPMENT_CUSTOMER_CACHE_MS = 5 * 60 * 1000;
+let shipmentCustomerCache: {
+    loadedAt: number;
+    data?: ShipmentCustomerOption[];
+    pending?: Promise<ShipmentCustomerOption[]>;
+} | null = null;
+
 export async function getShipmentCustomerSuggestions(): Promise<ShipmentCustomerOption[]> {
-    const snapshot = await getDocsFromServer(collection(db, SHIPMENTS_COLLECTION));
-    const options = new Map<string, ShipmentCustomerOption>();
-    options.set(customerKey("טמפו"), { name: "טמפו", customerId: "tempo" });
-    snapshot.docs.forEach((shipment) => {
-        const data = shipment.data();
-        const name = String(data.customerName ?? "").trim().replace(/\s+/g, " ");
-        if (!name) return;
-        const id = typeof data.customerId === "string" && data.customerId.trim() ? data.customerId.trim() : null;
-        const canonicalName = id === "tempo" ? "טמפו" : name;
-        const key = customerKey(canonicalName);
-        const existing = options.get(key);
-        if (!existing || (!existing.customerId && id)) options.set(key, { name: canonicalName, customerId: id });
-    });
-    return [...options.values()].sort((a, b) => {
-        if (a.customerId === "tempo") return -1;
-        if (b.customerId === "tempo") return 1;
-        return a.name.localeCompare(b.name, "he");
-    });
+    const now = Date.now();
+    if (
+        shipmentCustomerCache?.data &&
+        now - shipmentCustomerCache.loadedAt < SHIPMENT_CUSTOMER_CACHE_MS
+    ) {
+        return shipmentCustomerCache.data.map((item) => ({ ...item }));
+    }
+    if (shipmentCustomerCache?.pending) {
+        return (await shipmentCustomerCache.pending).map((item) => ({ ...item }));
+    }
+
+    const pending = (async () => {
+        const snapshot = await getDocsFromServer(collection(db, SHIPMENTS_COLLECTION));
+        const options = new Map<string, ShipmentCustomerOption>();
+        options.set(customerKey("טמפו"), { name: "טמפו", customerId: "tempo" });
+        snapshot.docs.forEach((shipment) => {
+            const data = shipment.data();
+            const name = String(data.customerName ?? "").trim().replace(/\s+/g, " ");
+            if (!name) return;
+            const id = typeof data.customerId === "string" && data.customerId.trim() ? data.customerId.trim() : null;
+            const canonicalName = id === "tempo" ? "טמפו" : name;
+            const key = customerKey(canonicalName);
+            const existing = options.get(key);
+            if (!existing || (!existing.customerId && id)) options.set(key, { name: canonicalName, customerId: id });
+        });
+        return [...options.values()].sort((a, b) => {
+            if (a.customerId === "tempo") return -1;
+            if (b.customerId === "tempo") return 1;
+            return a.name.localeCompare(b.name, "he");
+        });
+    })();
+
+    shipmentCustomerCache = { loadedAt: now, pending };
+    try {
+        const data = await pending;
+        shipmentCustomerCache = { loadedAt: Date.now(), data };
+        return data.map((item) => ({ ...item }));
+    } catch (error) {
+        shipmentCustomerCache = null;
+        throw error;
+    }
 }
 
 export type CreatePalletsParams = {
@@ -176,8 +353,36 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
 }
 
 export function subscribeToZone(zone: PalletZone, cb: (pallets: Pallet[]) => void) {
-    const q = query(collection(db, PALLETS_COLLECTION), where("zone", "==", zone));
-    return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as Pallet))), (err) => console.error(`subscribeToZone(${zone}) error:`, err));
+    if (!isActivePalletZone(zone)) {
+        const q = query(collection(db, PALLETS_COLLECTION), where("zone", "==", zone));
+        return onSnapshot(
+            q,
+            (snapshot) => cb(snapshotPallets(snapshot)),
+            (error) => console.error(`subscribeToZone(${zone}) error:`, error),
+        );
+    }
+
+    const subscription: ActiveZoneSubscription = {
+        zone,
+        callback: cb,
+        directUnsubscribe: null,
+    };
+    activeZoneSubscriptions.add(subscription);
+    rebalanceActivePalletListeners();
+
+    if (sharedActivePallets && sharedActiveUnsubscribe) {
+        cb(sharedActivePallets.filter((pallet) => pallet.zone === zone));
+    }
+
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        subscription.directUnsubscribe?.();
+        subscription.directUnsubscribe = null;
+        activeZoneSubscriptions.delete(subscription);
+        rebalanceActivePalletListeners();
+    };
 }
 
 export async function updatePallet(palletId: string, input: { itemType: PalletItemType; beerStyle: string; subLabel?: string | null; quantity: number; expiryDateStr?: string | null; batchNumber?: string | null }) {
@@ -214,7 +419,7 @@ export async function splitPallet(palletId: string, splitQty: number, splitLabel
     await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("המשטח לא נמצא");
-        const pallet = { id: snap.id, ...(snap.data() as any) } as Pallet;
+        const pallet = { id: snap.id, ...(snap.data() as Record<string, unknown>) } as Pallet;
         if (quantityToSplit <= 0 || quantityToSplit >= pallet.quantity) throw new Error("כמות הפיצול חייבת להיות בין 1 לכמות פחות 1");
         const remainingQty = pallet.quantity - quantityToSplit;
         tx.update(ref, { quantity: remainingQty, heightCm: calcHeightCm(pallet.itemType, remainingQty), updatedAt: serverTimestamp() });
