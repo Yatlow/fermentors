@@ -1,6 +1,8 @@
 .status-filter-button[data-planning-badge] {
   position: relative;
-  padding-inline-end: 52px !important;
+  padding-inline-start: 16px !important;
+  padding-inline-end: 68px !important;
+  white-space: nowrap;
 }
 
 .status-filter-button[data-planning-badge]::after {
@@ -367,7 +369,10 @@
 }
 
 @media (max-width: 700px) {
-  .status-filter-button[data-planning-badge] { padding-inline-end: 48px !important; }
+  .status-filter-button[data-planning-badge] {
+    padding-inline-start: 12px !important;
+    padding-inline-end: 64px !important;
+  }
   .status-filter-button[data-planning-badge]::after { inset-inline-end: 8px; min-width: 20px; height: 20px; }
   .bp-five-week-heading { align-items: stretch; }
   .bp-five-week-toolbar { width: 100%; }
