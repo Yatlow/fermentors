@@ -35,7 +35,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 }) {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
-  const data = usePlanning(today, productionTanks);
+  const data = usePlanning(today, productionTanks, tab === "review");
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
