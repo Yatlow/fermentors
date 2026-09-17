@@ -23,14 +23,13 @@ const ROWS = [
 
 type RowId = (typeof ROWS)[number]["id"];
 type ViewMode = "summary" | "calendar";
-type GeneralEventType = "vacation" | "general";
 
 type PlannerEvent = {
   id: string;
   title: string;
   startDate: string;
   endDate: string;
-  type: GeneralEventType;
+  type: "general";
   note?: string;
 };
 
@@ -59,20 +58,29 @@ type EditableSelection =
   | { kind: "packaging"; weekId: string; runIndex: number }
   | { kind: "custom"; weekId: string; eventId: string };
 
-type CalendarEvent = {
+type DayEvent = {
   key: string;
   label: string;
-  type: "packaging" | "brews" | "holiday" | "vacation" | "general";
+  type: "packaging" | "holiday";
   styleClass?: string;
-  pending?: boolean;
   note?: string;
-  startsBefore?: boolean;
-  continuesAfter?: boolean;
   selection?: EditableSelection;
 };
 
+type SpanEvent = {
+  key: string;
+  label: string;
+  kind: "brew" | "custom";
+  styleClass?: string;
+  pending?: boolean;
+  note?: string;
+  selection: EditableSelection;
+  startCol: number;
+  endCol: number;
+  lane: number;
+};
+
 type EventDraft = {
-  type: GeneralEventType;
   title: string;
   startDate: string;
   endDate: string;
@@ -82,11 +90,10 @@ type EventDraft = {
 const DAY_NAMES = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 const MIN_ZOOM = 0.32;
 const MAX_ZOOM = 1.55;
+const BASE_CALENDAR_WIDTH = 1050;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-function dateInRange(date: string, start: string, end: string) {
-  return date >= start && date <= end;
-}
+const minDate = (a: string, b: string) => (a < b ? a : b);
+const maxDate = (a: string, b: string) => (a > b ? a : b);
 
 function sizeMultiplier(label: ReturnType<typeof brewSizeLabel>) {
   if (label === "משולש") return 3;
@@ -133,13 +140,8 @@ export default function PlanningFiveWeekOverview({
   );
   const nextPlanningWeek = addDays(currentWeek, 7);
   const rangeStart = weekIds[0];
-  const calendarDays = useMemo(
-    () => Array.from({ length: 35 }, (_, index) => addDays(rangeStart, index)),
-    [rangeStart],
-  );
 
   const [eventDraft, setEventDraft] = useState<EventDraft>(() => ({
-    type: "general",
     title: "",
     startDate: nextPlanningWeek,
     endDate: nextPlanningWeek,
@@ -193,36 +195,37 @@ export default function PlanningFiveWeekOverview({
       current.quantity += delivery.quantity;
       grouped.set(delivery.productId, current);
     }
-    const details = Array.from(grouped.values())
-      .map((item) => `${item.label} ${Math.round(item.quantity)}`)
-      .join(" · ");
-    return [{ key: `shipment:${weekId}`, title: "משלוח טמפו", meta: details }];
+    return [{
+      key: `shipment:${weekId}`,
+      title: "משלוח טמפו",
+      meta: Array.from(grouped.values()).map((item) => `${item.label} ${Math.round(item.quantity)}`).join(" · "),
+    }];
   }
 
   function packagingSummary(weekId: string): CompactItem[] {
     const plan = planFor(weekId);
     if (!plan) return [];
-    const grouped = new Map<string, { style: string; type: "crates" | "kegs"; quantity: number; pending: number; tankNumbers: Set<string> }>();
+    const grouped = new Map<string, { style: string; type: "crates" | "kegs"; quantity: number; pending: number; tanks: Set<string> }>();
     for (const run of plan.packaging.filter((item) => item.quantity > 0)) {
       const product = productFor(run.productId);
       if (!product) continue;
       const number = String(tankNumber(run.tankId, run.tankNumber));
       const key = `${run.productId}:${number}`;
-      const current = grouped.get(key) ?? {
+      const item = grouped.get(key) ?? {
         style: displayStyle(product.style),
         type: product.type,
         quantity: 0,
         pending: 0,
-        tankNumbers: new Set<string>(),
+        tanks: new Set<string>(),
       };
-      current.quantity += run.quantity;
-      current.tankNumbers.add(number);
-      if (!run.date) current.pending += 1;
-      grouped.set(key, current);
+      item.quantity += run.quantity;
+      item.tanks.add(number);
+      if (!run.date) item.pending += 1;
+      grouped.set(key, item);
     }
     return Array.from(grouped.entries()).map(([key, item]) => ({
       key,
-      title: `הורדת ${item.style} · מיכל ${Array.from(item.tankNumbers).join(", ")}`,
+      title: `הורדת ${item.style} · מיכל ${Array.from(item.tanks).join(", ")}`,
       meta: `${Math.round(item.quantity)} ${item.type === "crates" ? "ארגזים" : "חביות"}`,
       pending: item.pending > 0 && weekId > currentWeek,
       styleClass: beerStyleClass(item.style).className,
@@ -235,10 +238,10 @@ export default function PlanningFiveWeekOverview({
     const grouped = new Map<string, { count: number; pending: number }>();
     for (const brew of plan.brews) {
       const style = displayStyle(brew.style);
-      const current = grouped.get(style) ?? { count: 0, pending: 0 };
-      current.count += brewCount(plan, brew);
-      if (!brew.tankId) current.pending += 1;
-      grouped.set(style, current);
+      const item = grouped.get(style) ?? { count: 0, pending: 0 };
+      item.count += brewCount(plan, brew);
+      if (!brew.tankId) item.pending += 1;
+      grouped.set(style, item);
     }
     return Array.from(grouped.entries()).map(([style, item]) => ({
       key: style,
@@ -259,11 +262,11 @@ export default function PlanningFiveWeekOverview({
     return plan.calendarNotes?.[key] ?? "";
   }
 
-  function calendarEvents(date: string): CalendarEvent[] {
-    const events: CalendarEvent[] = [];
-    for (const holiday of holidays.filter((item) => item.date === date)) {
-      events.push({ key: `holiday:${holiday.date}:${holiday.title}`, label: holiday.title, type: "holiday" });
-    }
+  function dayEvents(date: string): DayEvent[] {
+    const events: DayEvent[] = holidays
+      .filter((item) => item.date === date)
+      .map((item) => ({ key: `holiday:${item.date}:${item.title}`, label: item.title, type: "holiday" as const }));
+
     for (const source of plans) {
       const plan = asExtended(source);
       plan.packaging.forEach((run, runIndex) => {
@@ -273,48 +276,75 @@ export default function PlanningFiveWeekOverview({
         const number = tankNumber(run.tankId, run.tankNumber);
         const quantityLabel = product?.type === "crates" ? "ארגזים" : "חביות";
         const noteKey = `pack:${run.id ?? runIndex}`;
-        const note = noteFor(plan, noteKey);
         events.push({
           key: `${plan.id}:${noteKey}`,
           label: `הורדת ${style} מיכל ${number} ל־${Math.round(run.quantity)} ${quantityLabel}`,
           type: "packaging",
           styleClass: beerStyleClass(style).className,
-          note,
+          note: noteFor(plan, noteKey),
           selection: { kind: "packaging", weekId: plan.id, runIndex },
         });
       });
+    }
+    return events;
+  }
+
+  function spanEventsForWeek(weekId: string): { events: SpanEvent[]; laneCount: number } {
+    const weekEnd = addDays(weekId, 6);
+    const candidates: Array<Omit<SpanEvent, "startCol" | "endCol" | "lane"> & { start: string; end: string }> = [];
+
+    for (const source of plans) {
+      const plan = asExtended(source);
       for (const brew of plan.brews) {
-        const endDate = brewEndDate(brew);
-        if (!dateInRange(date, brew.date, endDate)) continue;
+        const end = brewEndDate(brew);
+        if (end < weekId || brew.date > weekEnd) continue;
         const tankId = resolvedBrewTank(plan, brew);
         const number = tankId ? tankNumber(tankId) : "?";
         const tentative = !brew.tankId;
-        events.push({
+        candidates.push({
           key: `${plan.id}:brew:${brew.id}`,
           label: `בישול ${displayStyle(brew.style)} · מיכל ${number}${tentative ? " מוצע" : ""}`,
-          type: "brews",
+          kind: "brew",
           styleClass: beerStyleClass(brew.style).className,
           pending: tentative,
           note: brew.note ?? "",
-          startsBefore: date > brew.date,
-          continuesAfter: date < endDate,
           selection: { kind: "brew", weekId: plan.id, brewId: brew.id },
+          start: maxDate(brew.date, weekId),
+          end: minDate(end, weekEnd),
         });
       }
-      for (const custom of plan.calendarEvents ?? []) {
-        if (!dateInRange(date, custom.startDate, custom.endDate)) continue;
-        events.push({
-          key: `${plan.id}:custom:${custom.id}`,
-          label: custom.title,
-          type: custom.type,
-          note: custom.note,
-          startsBefore: date > custom.startDate,
-          continuesAfter: date < custom.endDate,
-          selection: { kind: "custom", weekId: plan.id, eventId: custom.id },
+      for (const event of plan.calendarEvents ?? []) {
+        if (event.endDate < weekId || event.startDate > weekEnd) continue;
+        candidates.push({
+          key: `${plan.id}:custom:${event.id}`,
+          label: event.title,
+          kind: "custom",
+          note: event.note,
+          selection: { kind: "custom", weekId: plan.id, eventId: event.id },
+          start: maxDate(event.startDate, weekId),
+          end: minDate(event.endDate, weekEnd),
         });
       }
     }
-    return events;
+
+    candidates.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+    const laneEnds: string[] = [];
+    const events = candidates.map((item) => {
+      let lane = laneEnds.findIndex((end) => end < item.start);
+      if (lane < 0) {
+        lane = laneEnds.length;
+        laneEnds.push(item.end);
+      } else {
+        laneEnds[lane] = item.end;
+      }
+      return {
+        ...item,
+        startCol: daysBetween(weekId, item.start) + 1,
+        endCol: daysBetween(weekId, item.end) + 2,
+        lane,
+      };
+    });
+    return { events, laneCount: laneEnds.length };
   }
 
   async function updatePlan(weekId: string, updater: (plan: ExtendedPlan) => ExtendedPlan) {
@@ -340,16 +370,16 @@ export default function PlanningFiveWeekOverview({
       ...plan,
       calendarEvents: [...(plan.calendarEvents ?? []), {
         id: crypto.randomUUID(),
-        type: eventDraft.type,
+        type: "general",
         title: eventDraft.title.trim(),
         startDate: eventDraft.startDate,
         endDate: eventDraft.endDate,
         note: eventDraft.note.trim(),
       }],
-      changeReason: "עדכון אירועים בלוח 5 שבועות",
+      changeReason: "הוספת אירוע ללוח 5 שבועות",
     }));
     setShowEventForm(false);
-    setEventDraft({ type: "general", title: "", startDate: nextPlanningWeek, endDate: nextPlanningWeek, note: "" });
+    setEventDraft({ title: "", startDate: nextPlanningWeek, endDate: nextPlanningWeek, note: "" });
   }
 
   function selectedPlan() {
@@ -410,9 +440,7 @@ export default function PlanningFiveWeekOverview({
     if (selected?.kind !== "custom" || !title.trim()) return;
     await updatePlan(selected.weekId, (plan) => ({
       ...plan,
-      calendarEvents: (plan.calendarEvents ?? []).map((event) =>
-        event.id === selected.eventId ? { ...event, title: title.trim() } : event,
-      ),
+      calendarEvents: (plan.calendarEvents ?? []).map((event) => event.id === selected.eventId ? { ...event, title: title.trim() } : event),
       changeReason: "עדכון שם אירוע",
     }));
   }
@@ -430,17 +458,9 @@ export default function PlanningFiveWeekOverview({
     }
     await updatePlan(selected.weekId, (plan) => ({
       ...plan,
-      brews: plan.brews.map((brew) =>
-        brew.id === selected.brewId ? { ...brew, date: nextDate, endDate: nextEnd } : brew,
-      ),
+      brews: plan.brews.map((brew) => brew.id === selected.brewId ? { ...brew, date: nextDate, endDate: nextEnd } : brew),
       changeReason: "הזזת ימי בישול בלוח 5 שבועות",
     }));
-  }
-
-  async function shiftSelectedBrew(deltaDays: number) {
-    const current = selectedBrew();
-    if (!current) return;
-    await moveSelectedBrewTo(addDays(current.date, deltaDays));
   }
 
   async function resizeSelectedBrew(days: 2 | 3) {
@@ -448,15 +468,10 @@ export default function PlanningFiveWeekOverview({
     const current = selectedBrew();
     if (!current) return;
     const nextEnd = addDays(current.date, days - 1);
-    if (nextEnd > addDays(selected.weekId, 6)) {
-      setMessage("משך הבישול חייב להישאר בתוך אותו שבוע");
-      return;
-    }
+    if (nextEnd > addDays(selected.weekId, 6)) return setMessage("משך הבישול חייב להישאר בתוך אותו שבוע");
     await updatePlan(selected.weekId, (plan) => ({
       ...plan,
-      brews: plan.brews.map((brew) =>
-        brew.id === selected.brewId ? { ...brew, endDate: nextEnd } : brew,
-      ),
+      brews: plan.brews.map((brew) => brew.id === selected.brewId ? { ...brew, endDate: nextEnd } : brew),
       changeReason: "שינוי משך בישול בלוח 5 שבועות",
     }));
   }
@@ -515,7 +530,7 @@ export default function PlanningFiveWeekOverview({
           <p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p>
         </div>
         <div className="bp-five-week-toolbar">
-          {view === "calendar" && <button type="button" onClick={() => setShowEventForm((value) => !value)}>+ אירוע / חופשה</button>}
+          {view === "calendar" && <button type="button" onClick={() => setShowEventForm((value) => !value)}>+ אירוע</button>}
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
             <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>לוח 5 שבועות</button>
             <button type="button" aria-pressed={view === "summary"} onClick={() => setView("summary")}>סיכום שבועי</button>
@@ -528,16 +543,12 @@ export default function PlanningFiveWeekOverview({
       {view === "calendar" && showEventForm && (
         <div className="bp-calendar-editor">
           <h3>אירוע חדש</h3>
-          <label>סוג<select value={eventDraft.type} onChange={(event) => setEventDraft((draft) => ({ ...draft, type: event.target.value as GeneralEventType }))}>
-            <option value="general">אירוע כללי</option>
-            <option value="vacation">חופשה</option>
-          </select></label>
           <label>שם<input value={eventDraft.title} placeholder="שם האירוע" onChange={(event) => setEventDraft((draft) => ({ ...draft, title: event.target.value }))} /></label>
           <label>התחלה<input type="date" value={eventDraft.startDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, startDate: event.target.value }))} /></label>
           <label>סיום<input type="date" value={eventDraft.endDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, endDate: event.target.value }))} /></label>
           <label className="bp-calendar-note-field">הערה<input value={eventDraft.note} placeholder="הערה (אופציונלי)" onChange={(event) => setEventDraft((draft) => ({ ...draft, note: event.target.value }))} /></label>
           <div className="bp-calendar-editor-actions">
-            <button type="button" disabled={disabled || busy} onClick={addGeneralEvent}>שמירה</button>
+            <button type="button" disabled={disabled || busy} onClick={() => void addGeneralEvent()}>שמירה</button>
             <button type="button" onClick={() => setShowEventForm(false)}>ביטול</button>
           </div>
         </div>
@@ -548,17 +559,13 @@ export default function PlanningFiveWeekOverview({
           <div className="bp-five-week-grid" role="table" aria-label="תכנון לחמישה שבועות">
             <div className="bp-five-week-corner" />
             {weekIds.map((weekId) => (
-              <div
-                key={`head:${weekId}`}
-                className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}
-              >
+              <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
                 <b>שבוע {weekNumber(weekId)}</b>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {weekId === currentWeek && <small>השבוע</small>}
                 {weekId === nextPlanningWeek && <small>שבוע התכנון הבא</small>}
               </div>
             ))}
-
             {ROWS.map((row) => (
               <Fragment key={row.id}>
                 <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
@@ -591,44 +598,51 @@ export default function PlanningFiveWeekOverview({
             <button type="button" onClick={() => setZoom(1)}>איפוס</button>
             <small>אפשר גם pinch בשתי אצבעות</small>
           </div>
-          <div
-            className="bp-month-scroll"
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={() => { pinchRef.current = null; }}
-          >
-            <div className="bp-month-zoom-layer" style={{ "--calendar-zoom": zoom } as CSSProperties}>
-              <div className="bp-month-calendar" role="grid" aria-label="לוח תכנון לחמישה שבועות">
-                {DAY_NAMES.map((name) => <div className="bp-month-day-name" key={name}>{name}</div>)}
-                {calendarDays.map((date) => {
-                  const events = calendarEvents(date);
-                  const weekId = weekStart(date);
-                  const dayNumber = Number(date.slice(8, 10));
+          <div className="bp-month-scroll" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={() => { pinchRef.current = null; }}>
+            <div className="bp-month-zoom-shell" style={{ width: `${BASE_CALENDAR_WIDTH * zoom}px` }}>
+              <div className="bp-month-zoom-layer" style={{ transform: `scale(${zoom})`, width: `${BASE_CALENDAR_WIDTH}px` }}>
+                <div className="bp-month-day-names">
+                  {DAY_NAMES.map((name) => <div className="bp-month-day-name" key={name}>{name}</div>)}
+                </div>
+                {weekIds.map((weekId) => {
+                  const days = Array.from({ length: 7 }, (_, index) => addDays(weekId, index));
+                  const spans = spanEventsForWeek(weekId);
                   return (
-                    <div
-                      className={`bp-month-day ${date === today ? "is-today" : ""} ${weekId === currentWeek ? "is-current-week" : ""} ${weekId === nextPlanningWeek ? "is-next-week" : ""}`}
-                      key={date}
-                    >
-                      <div className="bp-month-date"><b>{dayNumber}</b><small>{shortDate(date)}</small></div>
-                      <div className="bp-month-events">
-                        {events.map((event) => (
+                    <div className="bp-month-week" key={weekId} style={{ "--span-rows": spans.laneCount } as CSSProperties}>
+                      {days.map((date) => {
+                        const events = dayEvents(date);
+                        return (
+                          <div className={`bp-month-day ${date === today ? "is-today" : ""} ${weekId === currentWeek ? "is-current-week" : ""} ${weekId === nextPlanningWeek ? "is-next-week" : ""}`} key={date}>
+                            <div className="bp-month-date"><b>{Number(date.slice(8, 10))}</b><small>{shortDate(date)}</small></div>
+                            <div className="bp-month-events">
+                              {events.map((event) => (
+                                <button
+                                  type="button"
+                                  className={`bp-month-event is-${event.type} ${event.styleClass ?? ""} ${sameSelection(selected, event.selection) ? "is-selected" : ""}`}
+                                  key={event.key}
+                                  title={event.note || event.label}
+                                  disabled={!event.selection}
+                                  onClick={() => event.selection && setSelected(event.selection)}
+                                >
+                                  <span>{event.label}</span>
+                                  {event.note && <small>{event.note}</small>}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="bp-week-span-layer" aria-label={`אירועים שבוע ${weekNumber(weekId)}`}>
+                        {spans.events.map((event) => (
                           <button
                             type="button"
-                            className={`bp-month-event is-${event.type} ${event.pending ? "is-pending" : ""} ${event.styleClass ?? ""} ${sameSelection(selected, event.selection) ? "is-selected" : ""}`}
                             key={event.key}
+                            className={`bp-span-event is-${event.kind} ${event.pending ? "is-pending" : ""} ${event.styleClass ?? ""} ${sameSelection(selected, event.selection) ? "is-selected" : ""}`}
+                            style={{ gridColumn: `${event.startCol} / ${event.endCol}`, gridRow: event.lane + 1 }}
                             title={event.note || event.label}
-                            disabled={!event.selection}
-                            onClick={() => {
-                              if (!event.selection) return;
-                              setSelected(event.selection);
-                              setMessage("");
-                            }}
+                            onClick={() => { setSelected(event.selection); setMessage(""); }}
                           >
-                            <span>
-                              {event.startsBefore && <span aria-hidden="true">← </span>}
-                              {event.label}
-                              {event.continuesAfter && <span aria-hidden="true"> →</span>}
-                            </span>
+                            <span>{event.label}</span>
                             {event.note && <small>{event.note}</small>}
                           </button>
                         ))}
@@ -647,24 +661,12 @@ export default function PlanningFiveWeekOverview({
           <div className="bp-calendar-editor bp-calendar-floating-editor" onClick={(event) => event.stopPropagation()}>
             <h3>{selectedTitle}</h3>
             {selectedDates && <p className="bp-calendar-event-dates">{selectedDates}</p>}
-
             {selected.kind === "brew" && brew && (
               <>
-                <div className="bp-brew-edit-move">
-                  <button type="button" disabled={disabled || busy} onClick={() => void shiftSelectedBrew(-1)}>יום קודם</button>
-                  <label>
-                    תחילת הבישול
-                    <input
-                      type="date"
-                      value={brew.date}
-                      min={selected.weekId}
-                      max={maxBrewStart}
-                      disabled={disabled || busy}
-                      onChange={(event) => void moveSelectedBrewTo(event.target.value)}
-                    />
-                  </label>
-                  <button type="button" disabled={disabled || busy} onClick={() => void shiftSelectedBrew(1)}>יום הבא</button>
-                </div>
+                <label>
+                  תחילת הבישול
+                  <input type="date" value={brew.date} min={selected.weekId} max={maxBrewStart} disabled={disabled || busy} onChange={(event) => void moveSelectedBrewTo(event.target.value)} />
+                </label>
                 <div className="bp-calendar-editor-actions">
                   <span>משך:</span>
                   <button type="button" className={brewDuration === 2 ? "active" : ""} disabled={disabled || busy} onClick={() => void resizeSelectedBrew(2)}>2 ימים</button>
@@ -672,18 +674,9 @@ export default function PlanningFiveWeekOverview({
                 </div>
               </>
             )}
-
             {selected.kind === "custom" && custom && (
-              <label>
-                שם האירוע
-                <input
-                  key={`title:${custom.id}:${custom.title}`}
-                  defaultValue={custom.title}
-                  onBlur={(event) => { if (event.target.value.trim() && event.target.value.trim() !== custom.title) void saveCustomTitle(event.target.value); }}
-                />
-              </label>
+              <label>שם האירוע<input key={`title:${custom.id}:${custom.title}`} defaultValue={custom.title} onBlur={(event) => { if (event.target.value.trim() && event.target.value.trim() !== custom.title) void saveCustomTitle(event.target.value); }} /></label>
             )}
-
             <label className="bp-calendar-note-field">
               טקסט / הערה ביומן
               <textarea
@@ -693,9 +686,7 @@ export default function PlanningFiveWeekOverview({
                 onBlur={(event) => { if (event.target.value !== selectedNote) void saveSelectedNote(event.target.value); }}
               />
             </label>
-            <div className="bp-calendar-editor-actions">
-              <button type="button" onClick={() => setSelected(null)}>סגירה</button>
-            </div>
+            <div className="bp-calendar-editor-actions"><button type="button" onClick={() => setSelected(null)}>סגירה</button></div>
           </div>
         </div>
       )}
