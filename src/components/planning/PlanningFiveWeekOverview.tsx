@@ -219,7 +219,7 @@ export default function PlanningFiveWeekOverview({
     return Array.from(grouped.entries()).map(([key, item]) => ({
       key,
       title: `הורדת ${item.style} · מיכל ${Array.from(item.tankNumbers).join(", ")}`,
-      meta: `${Math.round(item.quantity)} ${item.type === "crates" ? "בקבוקים" : "חביות"}`,
+      meta: `${Math.round(item.quantity)} ${item.type === "crates" ? "ארגזים" : "חביות"}`,
       pending: item.pending > 0 && weekId > currentWeek,
       styleClass: beerStyleClass(item.style).className,
     }));
@@ -267,7 +267,7 @@ export default function PlanningFiveWeekOverview({
         const product = productFor(run.productId);
         const style = product ? displayStyle(product.style) : run.productId;
         const number = tankNumber(run.tankId, run.tankNumber);
-        const quantityLabel = product?.type === "crates" ? "בקבוקים" : "חביות";
+        const quantityLabel = product?.type === "crates" ? "ארגזים" : "חביות";
         const noteKey = `pack:${run.id ?? runIndex}`;
         const note = noteFor(plan, noteKey);
         events.push({
@@ -362,88 +362,87 @@ export default function PlanningFiveWeekOverview({
     return selected?.kind === "custom" ? plan?.calendarEvents?.find((event) => event.id === selected.eventId) : undefined;
   }
 
-  const activeBrew = selectedBrew();
-  const activeCustom = selectedCustom();
-  const activePlan = selectedPlan();
-  const activePack = selected?.kind === "packaging" ? activePlan?.packaging[selected.runIndex] : undefined;
-  const activePackNoteKey = selected?.kind === "packaging" ? `pack:${activePack?.id ?? selected.runIndex}` : "";
-  const activePackNote = activePlan && activePackNoteKey ? noteFor(activePlan, activePackNoteKey) : "";
-
-  async function saveBrewEdit(startDate: string, duration: number, note: string) {
-    if (!selected || selected.kind !== "brew" || !activeBrew || !activePlan) return;
-    const inferred = resolvedBrewTank(activePlan, activeBrew);
-    await updatePlan(selected.weekId, (plan) => ({
-      ...plan,
-      brews: plan.brews.map((brew) => brew.id === selected.brewId ? {
-        ...brew,
-        date: startDate,
-        endDate: addDays(startDate, duration - 1),
-        note: note.trim(),
-        tentativeTankId: brew.tankId ? brew.tentativeTankId : (brew.tentativeTankId || inferred),
-      } : brew),
-      changeReason: "עדכון אירוע בישול בלוח 5 שבועות",
-    }));
-    setSelected(null);
+  function selectedPackagingNote() {
+    const plan = selectedPlan();
+    if (!plan || selected?.kind !== "packaging") return "";
+    const run = plan.packaging[selected.runIndex];
+    if (!run) return "";
+    return noteFor(plan, `pack:${run.id ?? selected.runIndex}`);
   }
 
-  async function savePackagingNote(note: string) {
-    if (!selected || selected.kind !== "packaging" || !activePlan) return;
+  async function shiftSelectedBrew(deltaDays: number) {
+    if (selected?.kind !== "brew") return;
     await updatePlan(selected.weekId, (plan) => ({
       ...plan,
-      calendarNotes: { ...(plan.calendarNotes ?? {}), [activePackNoteKey]: note.trim() },
-      changeReason: "עדכון הערת אריזה בלוח 5 שבועות",
+      brews: plan.brews.map((brew) => brew.id === selected.brewId
+        ? { ...brew, date: addDays(brew.date, deltaDays), endDate: addDays(brewEndDate(brew), deltaDays) }
+        : brew),
+      changeReason: "הזזת בישול בלוח 5 שבועות",
     }));
-    setSelected(null);
   }
 
-  async function saveCustomEdit(title: string, startDate: string, endDate: string, note: string) {
-    if (!selected || selected.kind !== "custom" || !activeCustom) return;
-    if (!title.trim() || endDate < startDate) return;
+  async function resizeSelectedBrew(days: 2 | 3) {
+    if (selected?.kind !== "brew") return;
     await updatePlan(selected.weekId, (plan) => ({
       ...plan,
-      calendarEvents: (plan.calendarEvents ?? []).map((event) => event.id === selected.eventId ? {
-        ...event,
-        title: title.trim(),
-        startDate,
-        endDate,
-        note: note.trim(),
-      } : event),
-      changeReason: "עדכון אירוע כללי בלוח 5 שבועות",
+      brews: plan.brews.map((brew) => brew.id === selected.brewId
+        ? { ...brew, endDate: addDays(brew.date, days - 1) }
+        : brew),
+      changeReason: "שינוי משך בישול בלוח 5 שבועות",
     }));
-    setSelected(null);
   }
 
-  async function deleteCustomEvent() {
-    if (!selected || selected.kind !== "custom") return;
-    await updatePlan(selected.weekId, (plan) => ({
-      ...plan,
-      calendarEvents: (plan.calendarEvents ?? []).filter((event) => event.id !== selected.eventId),
-      changeReason: "מחיקת אירוע כללי מלוח 5 שבועות",
-    }));
-    setSelected(null);
+  async function saveSelectedNote(note: string) {
+    if (!selected) return;
+    await updatePlan(selected.weekId, (plan) => {
+      if (selected.kind === "brew") {
+        return {
+          ...plan,
+          brews: plan.brews.map((brew) => brew.id === selected.brewId ? { ...brew, note } : brew),
+          changeReason: "עדכון הערת בישול",
+        };
+      }
+      if (selected.kind === "custom") {
+        return {
+          ...plan,
+          calendarEvents: (plan.calendarEvents ?? []).map((event) => event.id === selected.eventId ? { ...event, note } : event),
+          changeReason: "עדכון הערת אירוע",
+        };
+      }
+      const run = plan.packaging[selected.runIndex];
+      if (!run) return plan;
+      const key = `pack:${run.id ?? selected.runIndex}`;
+      return {
+        ...plan,
+        calendarNotes: { ...(plan.calendarNotes ?? {}), [key]: note },
+        changeReason: "עדכון הערת אריזה",
+      };
+    });
   }
 
-  function pinchDistance(event: TouchEvent<HTMLDivElement>) {
+  function touchDistance(event: TouchEvent<HTMLDivElement>) {
+    if (event.touches.length < 2) return null;
     const a = event.touches[0];
     const b = event.touches[1];
     return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
   }
 
-  function onTouchStart(event: TouchEvent<HTMLDivElement>) {
-    if (event.touches.length !== 2) return;
-    pinchRef.current = { distance: pinchDistance(event), zoom };
+  function handleTouchStart(event: TouchEvent<HTMLDivElement>) {
+    const distance = touchDistance(event);
+    if (distance) pinchRef.current = { distance, zoom };
   }
 
-  function onTouchMove(event: TouchEvent<HTMLDivElement>) {
-    if (event.touches.length !== 2 || !pinchRef.current) return;
+  function handleTouchMove(event: TouchEvent<HTMLDivElement>) {
+    const distance = touchDistance(event);
+    const initial = pinchRef.current;
+    if (!distance || !initial) return;
     event.preventDefault();
-    const ratio = pinchDistance(event) / Math.max(1, pinchRef.current.distance);
-    setZoom(clamp(pinchRef.current.zoom * ratio, 0.65, 1.6));
+    setZoom(clamp(initial.zoom * (distance / initial.distance), .65, 1.55));
   }
 
-  function onTouchEnd(event: TouchEvent<HTMLDivElement>) {
-    if (event.touches.length < 2) pinchRef.current = null;
-  }
+  const brew = selectedBrew();
+  const custom = selectedCustom();
+  const selectedNote = brew?.note ?? custom?.note ?? selectedPackagingNote();
 
   return (
     <section className="bp-five-week-overview">
@@ -452,33 +451,28 @@ export default function PlanningFiveWeekOverview({
           <h2>מבט 5 שבועות</h2>
           <p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p>
         </div>
-        <div className="bp-five-week-toolbar">
+        <div className="bp-five-week-actions">
+          <button type="button" onClick={() => setShowEventForm((value) => !value)}>+ אירוע / חופשה</button>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
-            <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>לוח</button>
+            <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>לוח 5 שבועות</button>
             <button type="button" aria-pressed={view === "summary"} onClick={() => setView("summary")}>סיכום שבועי</button>
           </div>
-          <button type="button" disabled={disabled || busy} onClick={() => setShowEventForm((value) => !value)}>+ אירוע / חופשה</button>
         </div>
       </div>
 
-      {message && <p className="bp-five-week-message" role="status">{message}</p>}
+      {message && <p className="bp-muted" role="status">{message}</p>}
 
       {showEventForm && (
-        <div className="bp-calendar-editor bp-calendar-add-event">
-          <label>סוג
-            <select value={eventDraft.type} onChange={(event) => setEventDraft((prev) => ({ ...prev, type: event.target.value as GeneralEventType }))}>
-              <option value="general">אירוע כללי</option>
-              <option value="vacation">חופשה</option>
-            </select>
-          </label>
-          <label>כותרת<input value={eventDraft.title} onChange={(event) => setEventDraft((prev) => ({ ...prev, title: event.target.value }))} /></label>
-          <label>מתאריך<input type="date" value={eventDraft.startDate} onChange={(event) => setEventDraft((prev) => ({ ...prev, startDate: event.target.value, endDate: prev.endDate < event.target.value ? event.target.value : prev.endDate }))} /></label>
-          <label>עד תאריך<input type="date" value={eventDraft.endDate} onChange={(event) => setEventDraft((prev) => ({ ...prev, endDate: event.target.value }))} /></label>
-          <label className="bp-calendar-note-field">הערה<textarea value={eventDraft.note} onChange={(event) => setEventDraft((prev) => ({ ...prev, note: event.target.value }))} /></label>
-          <div className="bp-calendar-editor-actions">
-            <button type="button" disabled={busy} onClick={addGeneralEvent}>שמירה</button>
-            <button type="button" onClick={() => setShowEventForm(false)}>ביטול</button>
-          </div>
+        <div className="bp-calendar-event-form">
+          <select value={eventDraft.type} onChange={(event) => setEventDraft((draft) => ({ ...draft, type: event.target.value as GeneralEventType }))}>
+            <option value="general">אירוע כללי</option>
+            <option value="vacation">חופשה</option>
+          </select>
+          <input value={eventDraft.title} placeholder="שם האירוע" onChange={(event) => setEventDraft((draft) => ({ ...draft, title: event.target.value }))} />
+          <input type="date" value={eventDraft.startDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, startDate: event.target.value }))} />
+          <input type="date" value={eventDraft.endDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, endDate: event.target.value }))} />
+          <input value={eventDraft.note} placeholder="הערה (אופציונלי)" onChange={(event) => setEventDraft((draft) => ({ ...draft, note: event.target.value }))} />
+          <button type="button" disabled={disabled || busy} onClick={addGeneralEvent}>שמירה</button>
         </div>
       )}
 
@@ -487,7 +481,10 @@ export default function PlanningFiveWeekOverview({
           <div className="bp-five-week-grid" role="table" aria-label="תכנון לחמישה שבועות">
             <div className="bp-five-week-corner" />
             {weekIds.map((weekId) => (
-              <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
+              <div
+                key={`head:${weekId}`}
+                className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}
+              >
                 <b>שבוע {weekNumber(weekId)}</b>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {weekId === currentWeek && <small>השבוע</small>}
@@ -503,7 +500,7 @@ export default function PlanningFiveWeekOverview({
                   return (
                     <div className={`bp-five-week-cell is-${row.id}`} key={`${row.id}:${weekId}`}>
                       {items.map((item) => (
-                        <article className={`bp-five-week-item ${item.styleClass ?? ""} ${item.pending ? "is-pending" : ""}`} key={item.key}>
+                        <article className={`bp-five-week-item ${item.pending ? "is-pending" : ""} ${item.styleClass ?? ""}`} key={item.key}>
                           <b>{item.title}</b>
                           <small>{item.meta}</small>
                           {item.pending && <span>ממתין לשיבוץ</span>}
@@ -519,138 +516,78 @@ export default function PlanningFiveWeekOverview({
         </div>
       ) : (
         <>
-          <div className="bp-calendar-zoom-bar">
-            <span>זום</span>
-            <button type="button" onClick={() => setZoom((value) => clamp(value - 0.1, 0.65, 1.6))}>−</button>
-            <button type="button" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
-            <button type="button" onClick={() => setZoom((value) => clamp(value + 0.1, 0.65, 1.6))}>+</button>
+          <div className="bp-calendar-toolbar">
+            <button type="button" onClick={() => setZoom((value) => clamp(value - .1, .65, 1.55))}>−</button>
+            <span>{Math.round(zoom * 100)}%</span>
+            <button type="button" onClick={() => setZoom((value) => clamp(value + .1, .65, 1.55))}>+</button>
+            <button type="button" onClick={() => setZoom(1)}>איפוס</button>
             <small>אפשר גם pinch בשתי אצבעות</small>
           </div>
-          <div className="bp-month-scroll" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-            <div className="bp-month-calendar" role="grid" aria-label="לוח תכנון לחמישה שבועות" style={{ minWidth: `${1050 * zoom}px` }}>
-              {DAY_NAMES.map((name) => <div className="bp-month-day-name" key={name}>{name}</div>)}
-              {calendarDays.map((date) => {
-                const events = calendarEvents(date);
-                const weekId = weekStart(date);
-                return (
-                  <div className={`bp-month-day ${date === today ? "is-today" : ""} ${weekId === currentWeek ? "is-current-week" : ""} ${weekId === nextPlanningWeek ? "is-next-week" : ""}`} key={date} style={{ minHeight: `${126 * zoom}px` }}>
-                    <div className="bp-month-date"><b>{Number(date.slice(8, 10))}</b><small>{shortDate(date)}</small></div>
-                    <div className="bp-month-events">
-                      {events.map((event) => (
-                        <button
-                          type="button"
-                          className={`bp-month-event is-${event.type} ${event.styleClass ?? ""} ${event.pending ? "is-pending" : ""} ${event.startsBefore ? "continues-before" : ""} ${event.continuesAfter ? "continues-after" : ""}`}
-                          key={event.key}
-                          title={event.note || event.label}
-                          disabled={!event.selection || disabled}
-                          onClick={() => event.selection && setSelected(event.selection)}
-                        >
-                          <span>{event.label}</span>
-                          {event.note && <small>{event.note}</small>}
-                        </button>
-                      ))}
+          <div
+            className="bp-month-scroll"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={() => { pinchRef.current = null; }}
+          >
+            <div className="bp-month-zoom-layer" style={{ width: `${zoom * 100}%` }}>
+              <div className="bp-month-calendar" role="grid" aria-label="לוח תכנון לחמישה שבועות">
+                {DAY_NAMES.map((name) => <div className="bp-month-day-name" key={name}>{name}</div>)}
+                {calendarDays.map((date) => {
+                  const events = calendarEvents(date);
+                  const weekId = weekStart(date);
+                  const dayNumber = Number(date.slice(8, 10));
+                  return (
+                    <div
+                      className={`bp-month-day ${date === today ? "is-today" : ""} ${weekId === currentWeek ? "is-current-week" : ""} ${weekId === nextPlanningWeek ? "is-next-week" : ""}`}
+                      key={date}
+                    >
+                      <div className="bp-month-date"><b>{dayNumber}</b><small>{shortDate(date)}</small></div>
+                      <div className="bp-month-events">
+                        {events.map((event) => (
+                          <button
+                            type="button"
+                            className={`bp-month-event is-${event.type} ${event.pending ? "is-pending" : ""} ${event.styleClass ?? ""} ${selected && event.selection && JSON.stringify(selected) === JSON.stringify(event.selection) ? "is-selected" : ""}`}
+                            key={event.key}
+                            title={event.note || event.label}
+                            onClick={() => event.selection && setSelected(event.selection)}
+                          >
+                            {event.startsBefore && <span aria-hidden="true">← </span>}
+                            {event.label}
+                            {event.continuesAfter && <span aria-hidden="true"> →</span>}
+                            {event.note && <small>{event.note}</small>}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </>
       )}
 
-      {selected?.kind === "brew" && activeBrew && activePlan && (
-        <BrewEditor brew={activeBrew} tankNumber={String(tankNumber(resolvedBrewTank(activePlan, activeBrew)))} defaultEnd={brewEndDate(activeBrew)} busy={busy} onCancel={() => setSelected(null)} onSave={saveBrewEdit} />
-      )}
-
-      {selected?.kind === "packaging" && activePack && (
-        <NoteEditor title="הערה לאירוע אריזה" initialValue={activePackNote} busy={busy} onCancel={() => setSelected(null)} onSave={savePackagingNote} />
-      )}
-
-      {selected?.kind === "custom" && activeCustom && (
-        <CustomEventEditor event={activeCustom} busy={busy} onCancel={() => setSelected(null)} onDelete={deleteCustomEvent} onSave={saveCustomEdit} />
+      {selected && (
+        <div className="bp-calendar-editor">
+          <div>
+            <b>{selected.kind === "brew" ? "עריכת בישול" : selected.kind === "packaging" ? "הערת אריזה" : "עריכת אירוע"}</b>
+            {brew && <small>{displayStyle(brew.style)} · {shortDate(brew.date)}–{shortDate(brewEndDate(brew))} · {daysBetween(brew.date, brewEndDate(brew)) + 1} ימים</small>}
+          </div>
+          {selected.kind === "brew" && <div className="bp-calendar-editor-actions">
+            <button type="button" disabled={disabled || busy} onClick={() => shiftSelectedBrew(-1)}>יום קודם</button>
+            <button type="button" disabled={disabled || busy} onClick={() => shiftSelectedBrew(1)}>יום הבא</button>
+            <button type="button" disabled={disabled || busy} onClick={() => resizeSelectedBrew(2)}>2 ימים</button>
+            <button type="button" disabled={disabled || busy} onClick={() => resizeSelectedBrew(3)}>3 ימים</button>
+          </div>}
+          <textarea
+            key={`${selected.kind}:${selected.weekId}:${selected.kind === "brew" ? selected.brewId : selected.kind === "custom" ? selected.eventId : selected.runIndex}:${selectedNote}`}
+            defaultValue={selectedNote}
+            placeholder="הערה לאירוע"
+            onBlur={(event) => { if (event.target.value !== selectedNote) void saveSelectedNote(event.target.value); }}
+          />
+          <button type="button" onClick={() => setSelected(null)}>סגירה</button>
+        </div>
       )}
     </section>
-  );
-}
-
-function NoteEditor({ title, initialValue, busy, onCancel, onSave }: {
-  title: string;
-  initialValue: string;
-  busy: boolean;
-  onCancel: () => void;
-  onSave: (note: string) => Promise<void>;
-}) {
-  const [note, setNote] = useState(initialValue);
-  return (
-    <div className="bp-calendar-editor bp-calendar-floating-editor">
-      <h3>{title}</h3>
-      <label className="bp-calendar-note-field">הערה<textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
-      <div className="bp-calendar-editor-actions">
-        <button type="button" disabled={busy} onClick={() => onSave(note)}>שמירה</button>
-        <button type="button" onClick={onCancel}>ביטול</button>
-      </div>
-    </div>
-  );
-}
-
-function BrewEditor({ brew, tankNumber, defaultEnd, busy, onCancel, onSave }: {
-  brew: ExtendedBrew;
-  tankNumber: string;
-  defaultEnd: string;
-  busy: boolean;
-  onCancel: () => void;
-  onSave: (startDate: string, duration: number, note: string) => Promise<void>;
-}) {
-  const [startDate, setStartDate] = useState(brew.date);
-  const initialDuration = clamp(daysBetween(brew.date, defaultEnd) + 1, 2, 3);
-  const [duration, setDuration] = useState(initialDuration);
-  const [note, setNote] = useState(brew.note ?? "");
-  return (
-    <div className="bp-calendar-editor bp-calendar-floating-editor">
-      <h3>בישול {displayStyle(brew.style)} · מיכל {tankNumber}</h3>
-      <div className="bp-brew-edit-move">
-        <button type="button" onClick={() => setStartDate((date) => addDays(date, -1))}>← יום</button>
-        <label>התחלה<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-        <button type="button" onClick={() => setStartDate((date) => addDays(date, 1))}>יום →</button>
-      </div>
-      <label>משך
-        <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>
-          <option value={3}>3 ימים</option>
-          <option value={2}>2 ימים</option>
-        </select>
-      </label>
-      <label className="bp-calendar-note-field">הערה<textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
-      <div className="bp-calendar-editor-actions">
-        <button type="button" disabled={busy} onClick={() => onSave(startDate, duration, note)}>שמירה</button>
-        <button type="button" onClick={onCancel}>ביטול</button>
-      </div>
-    </div>
-  );
-}
-
-function CustomEventEditor({ event, busy, onCancel, onDelete, onSave }: {
-  event: PlannerEvent;
-  busy: boolean;
-  onCancel: () => void;
-  onDelete: () => Promise<void>;
-  onSave: (title: string, startDate: string, endDate: string, note: string) => Promise<void>;
-}) {
-  const [title, setTitle] = useState(event.title);
-  const [startDate, setStartDate] = useState(event.startDate);
-  const [endDate, setEndDate] = useState(event.endDate);
-  const [note, setNote] = useState(event.note ?? "");
-  return (
-    <div className="bp-calendar-editor bp-calendar-floating-editor">
-      <h3>{event.type === "vacation" ? "חופשה" : "אירוע כללי"}</h3>
-      <label>כותרת<input value={title} onChange={(change) => setTitle(change.target.value)} /></label>
-      <label>מתאריך<input type="date" value={startDate} onChange={(change) => setStartDate(change.target.value)} /></label>
-      <label>עד תאריך<input type="date" value={endDate} onChange={(change) => setEndDate(change.target.value)} /></label>
-      <label className="bp-calendar-note-field">הערה<textarea value={note} onChange={(change) => setNote(change.target.value)} /></label>
-      <div className="bp-calendar-editor-actions">
-        <button type="button" disabled={busy} onClick={() => onSave(title, startDate, endDate, note)}>שמירה</button>
-        <button type="button" disabled={busy} onClick={onDelete}>מחיקה</button>
-        <button type="button" onClick={onCancel}>ביטול</button>
-      </div>
-    </div>
   );
 }
