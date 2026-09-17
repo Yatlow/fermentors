@@ -1,33 +1,26 @@
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
-import type { PalletZone } from "./Pallettypes ";
 import type { ZoneCounts } from "./Palletservice";
 
-const ACTIVE_ZONES: PalletZone[] = ["cooler", "pending", "bottleRoom", "loadingDock"];
-
 export function subscribeToZoneCounts(callback: (counts: ZoneCounts) => void): () => void {
+    // The global navigation badge only renders the number of pallets waiting
+    // for placement. Listening to every active cooler zone kept all active
+    // pallet documents attached to every signed-in client for a single badge.
     const q = query(
         collection(db, "pallets"),
-        where("zone", "in", ACTIVE_ZONES)
+        where("zone", "==", "pending")
     );
 
     return onSnapshot(
         q,
         (snapshot) => {
-            const counts: ZoneCounts = {
+            callback({
                 cooler: 0,
-                pending: 0,
+                pending: snapshot.size,
                 bottleRoom: 0,
                 loadingDock: 0,
                 shipped: 0,
-            };
-
-            snapshot.docs.forEach((document) => {
-                const zone = document.data().zone as PalletZone | undefined;
-                if (zone && zone in counts) counts[zone] += 1;
             });
-
-            callback(counts);
         },
         (error) => console.error("subscribeToZoneCounts error:", error)
     );
