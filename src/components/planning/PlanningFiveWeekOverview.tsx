@@ -28,12 +28,6 @@ type CompactItem = {
 
 const DAY_NAMES = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
-function dayLabel(date?: string) {
-  if (!date) return "טרם שובץ";
-  const day = new Date(`${date}T12:00:00Z`).getUTCDay();
-  return `${DAY_NAMES[day]} · ${shortDate(date)}`;
-}
-
 export default function PlanningFiveWeekOverview({
   settings,
   plans,
