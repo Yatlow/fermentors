@@ -92,7 +92,7 @@ function isTempoCustomer(customerId: unknown, customerName: unknown) {
   return /טמפו|tempo/i.test(customer);
 }
 
-export function usePlanning(today: string, tanks: TankInput[]) {
+export function usePlanning(today: string, tanks: TankInput[], loadSnapshots = false) {
   const [actualShipments, setActualShipments] = useState<ShipmentEvent[]>([]);
   const [snapshots, setSnapshots] = useState<PlanningSnapshot[]>([]);
   const [snapshotError, setSnapshotError] = useState("");
@@ -126,8 +126,9 @@ export function usePlanning(today: string, tanks: TankInput[]) {
     const fail = (key: string) => (e: Error) =>
       setErrors((x) => ({ ...x, [key]: `${key}: ${e.message}` }));
 
-    const unsub = [
-      onSnapshot(
+    let unsubscribeSnapshots: () => void = () => {};
+    if (loadSnapshots) {
+      unsubscribeSnapshots = onSnapshot(
         query(
           collection(db, "planningSnapshots"),
           where("targetWeek", ">=", addDays(start, -84)),
@@ -142,7 +143,13 @@ export function usePlanning(today: string, tanks: TankInput[]) {
           setSnapshotError("");
         },
         (e) => setSnapshotError(e.message),
-      ),
+      );
+    } else {
+      setSnapshots([]);
+      setSnapshotError("");
+    }
+
+    const unsub = [
       onSnapshot(
         doc(db, "planningSettings", "main"),
         { includeMetadataChanges: true },
@@ -240,8 +247,11 @@ export function usePlanning(today: string, tanks: TankInput[]) {
         fail("אריזות"),
       ),
     ];
-    return () => unsub.forEach((fn) => fn());
-  }, [start, end, logStart]);
+    return () => {
+      unsubscribeSnapshots();
+      unsub.forEach((fn) => fn());
+    };
+  }, [start, end, logStart, loadSnapshots]);
 
   async function save(
     collectionName: string,
