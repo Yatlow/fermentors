@@ -57,10 +57,17 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   );
 
   const pendingDailyWork = useMemo(() => {
-    const nextWeekId = addDays(weekStart(today), 7);
-    const nextWeek = plans.find((plan) => plan.id === nextWeekId);
-    const brewsToAssign = nextWeek?.brews.filter((brew) => !brew.tankId).length ?? 0;
-    const packagingToAssign = nextWeek?.packaging.filter((run) => run.quantity > 0 && !run.date).length ?? 0;
+    const firstWeek = weekStart(today);
+    const horizonEnd = addDays(firstWeek, 34);
+    const upcomingPlans = plans.filter((plan) => plan.id >= firstWeek && plan.id <= horizonEnd);
+    const brewsToAssign = upcomingPlans.reduce(
+      (sum, plan) => sum + plan.brews.filter((brew) => !brew.tankId).length,
+      0,
+    );
+    const packagingToAssign = upcomingPlans.reduce(
+      (sum, plan) => sum + plan.packaging.filter((run) => run.quantity > 0 && !run.date).length,
+      0,
+    );
     return {
       brews: brewsToAssign,
       packaging: packagingToAssign,
@@ -77,10 +84,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
       if (pendingDailyWork.total > 0) {
         button.dataset.planningBadge = String(pendingDailyWork.total);
-        button.title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`;
+        button.title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ בחמשת השבועות הקרובים`;
         button.setAttribute(
           "aria-label",
-          `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`,
+          `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ בחמשת השבועות הקרובים`,
         );
       } else {
         delete button.dataset.planningBadge;
