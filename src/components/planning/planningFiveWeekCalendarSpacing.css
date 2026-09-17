@@ -1,26 +1,26 @@
 /* Extra spacing for weekly span events in the five-week calendar.
-   The blue brewing bar is absolutely positioned; this reserves equivalent
-   vertical room before day-level packaging events start. */
+   Multi-day events are absolutely positioned; reserve a full lane beneath
+   them before day-level packaging events start so the rows never overlap. */
 .bp-month-events {
-  margin-top: calc(var(--span-rows, 0) * 28px + 14px) !important;
+  margin-top: calc(var(--span-rows, 0) * 34px + 18px) !important;
   position: relative;
   z-index: 1;
 }
 
 .bp-week-span-layer {
-  grid-auto-rows: 24px !important;
-  row-gap: 4px !important;
+  grid-auto-rows: 28px !important;
+  row-gap: 5px !important;
 }
 
 .bp-span-event { z-index: 2; }
 
 @media (max-width: 700px) {
   .bp-month-events {
-    margin-top: calc(var(--span-rows, 0) * 24px + 12px) !important;
+    margin-top: calc(var(--span-rows, 0) * 30px + 16px) !important;
   }
 
   .bp-week-span-layer {
-    grid-auto-rows: 21px !important;
-    row-gap: 3px !important;
+    grid-auto-rows: 25px !important;
+    row-gap: 4px !important;
   }
 }
