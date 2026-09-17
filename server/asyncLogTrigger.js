@@ -75,19 +75,40 @@ function runAsyncMaintenance_() {
 
 function ensureAsyncLogTrigger_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty(ASYNC_LOG_TRIGGER_FLAG) === "1") return false;
+  const triggers = ScriptApp.getProjectTriggers();
 
-  // v4 migration: the maintenance trigger now owns runFermentorCycle too.
-  // Remove the old standalone cycle plus any old log/maintenance duplicates.
-  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+  const managedTriggers = triggers.filter(function (trigger) {
     const handler = trigger.getHandlerFunction();
-    if (
+    return (
       handler === "flushQueuedLogs_" ||
       handler === "runAsyncMaintenance_" ||
       handler === "runFermentorCycle"
-    ) {
-      ScriptApp.deleteTrigger(trigger);
-    }
+    );
+  });
+
+  const maintenanceTriggers = managedTriggers.filter(function (trigger) {
+    return trigger.getHandlerFunction() === "runAsyncMaintenance_";
+  });
+
+  const legacyTriggers = managedTriggers.filter(function (trigger) {
+    return trigger.getHandlerFunction() !== "runAsyncMaintenance_";
+  });
+
+  // Do not trust the ScriptProperty flag by itself. Triggers can be duplicated
+  // manually or survive older deployments while the flag still says "installed".
+  // A healthy project has exactly one maintenance trigger and no legacy owner.
+  if (maintenanceTriggers.length === 1 && legacyTriggers.length === 0) {
+    props.setProperty(ASYNC_LOG_TRIGGER_FLAG, "1");
+    props.deleteProperty("async_maintenance_trigger_installed_v3_5min");
+    props.deleteProperty("async_log_trigger_installed_v2_5min");
+    props.deleteProperty("async_log_trigger_installed_v1");
+    return false;
+  }
+
+  // Self-heal duplicates and legacy standalone jobs. It is safe to delete the
+  // trigger that invoked the current execution; the running execution continues.
+  managedTriggers.forEach(function (trigger) {
+    ScriptApp.deleteTrigger(trigger);
   });
 
   ScriptApp.newTrigger("runAsyncMaintenance_")
@@ -96,14 +117,12 @@ function ensureAsyncLogTrigger_() {
     .create();
 
   props.setProperty(ASYNC_LOG_TRIGGER_FLAG, "1");
-  // Old flags are harmless, but removing them makes the installed version clear
-  // when inspecting ScriptProperties during maintenance.
   props.deleteProperty("async_maintenance_trigger_installed_v3_5min");
   props.deleteProperty("async_log_trigger_installed_v2_5min");
   props.deleteProperty("async_log_trigger_installed_v1");
 
   Logger.log(
-    "Async maintenance trigger ready: every 5 minutes " +
+    "Async maintenance trigger repaired: exactly one every 5 minutes " +
     "(fermentor cycle + outbox + planning snapshots + logs)"
   );
   return true;
