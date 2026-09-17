@@ -1,0 +1,29 @@
+.cooler-shipment-location-alert {
+    order: 3;
+    flex: 1 0 100%;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid #fbbf24;
+    border-radius: 10px;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: .74rem;
+    font-weight: 700;
+    line-height: 1.45;
+}
+
+.cooler-shipment-location-alert svg {
+    flex: 0 0 auto;
+    margin-top: 1px;
+}
+
+@media (max-width: 700px) {
+    .cooler-shipment-location-alert {
+        padding: 8px 9px;
+        font-size: .69rem;
+    }
+}
