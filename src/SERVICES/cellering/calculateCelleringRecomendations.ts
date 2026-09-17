@@ -555,13 +555,46 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     measurement.notes || ""
                 ).includes("שמרים"));
 
+    const latestPlatoMeasurement = [...sortedMeasurements]
+        .reverse()
+        .find((measurement) => {
+            const raw = measurement.plato;
+            return raw !== null && raw !== undefined && raw !== "" && Number.isFinite(Number(raw));
+        });
+    const dryHopReadingsDate = getMeasurementDate(latestPlatoMeasurement?.id);
+
+    const latestNumericOnDate = (
+        field: "plato" | "temp" | "pressure",
+        date: string | null,
+    ): number | null => {
+        if (!date) return null;
+        for (let index = sortedMeasurements.length - 1; index >= 0; index -= 1) {
+            const measurement = sortedMeasurements[index];
+            if (getMeasurementDate(measurement.id) !== date) continue;
+            const raw = measurement[field];
+            if (raw === null || raw === undefined || raw === "") continue;
+            const numeric = Number(raw);
+            if (Number.isFinite(numeric)) return numeric;
+        }
+        return null;
+    };
+
+    // Dry-hop inputs do not have to live in the exact same measurement row.
+    // They do, however, have to come from the same calendar day as the latest
+    // Plato reading so an old pressure/temperature cannot accidentally trigger it.
+    const dryHopPlato = latestNumericOnDate("plato", dryHopReadingsDate);
+    const dryHopTemp = latestNumericOnDate("temp", dryHopReadingsDate);
+    const dryHopPressure = latestNumericOnDate("pressure", dryHopReadingsDate);
+
     const requiresDryHop = {
         display: true,
         req: isHoppy &&
-            lastMeasurement?.plato &&
-            Number(lastMeasurement?.plato) < (givenSpecs.tolorances.dryHopMinPlato || 8) &&
-            Number(lastMeasurement?.temp) > 9 &&
-            Number(lastMeasurement?.pressure) <= 0 &&
+            dryHopPlato !== null &&
+            dryHopTemp !== null &&
+            dryHopPressure !== null &&
+            dryHopPlato < (givenSpecs.tolorances.dryHopMinPlato || 8) &&
+            dryHopTemp > 9 &&
+            dryHopPressure <= 0 &&
             !dryhopped &&
             stage.name === "בתסיסה",
         reason: "מומלץ לבצע דרייהופ",
@@ -997,7 +1030,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             };
         }
 
-
         // ============================================================
         // LAST ACTION RESETS THE CLOCK
         // ============================================================
@@ -1246,7 +1278,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // ============================================================
     // YEAST DROP COMPLETION RECOMMENDATIONS
     // ============================================================
-
 
     /**
      * כל הורדות השמרים אחרי הקירור.
