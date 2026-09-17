@@ -5,11 +5,26 @@
 // Only brews that are currently inside a fermentor.
 // Historical reconciliation also removes stale same-day Firestore documents
 // when a Sheet row was deleted/recreated and therefore received a new time.
+//
+// Firestore cost guard: a full historical reconciliation is only required after
+// the underlying brew Sheet changed. We persist the Drive last-modified token
+// after a successful sync and skip unchanged batches on later trigger runs.
 // ============================================================
+
+const HISTORICAL_SYNC_REVISION_PREFIX = "historical_sheet_revision_v1:";
 
 function historicalMeasurementDayFromId_(id) {
   const match = String(id || "").match(/^(\d{4}-\d{2}-\d{2})(?:_\d{4})?$/);
   return match ? match[1] : null;
+}
+
+function historicalSheetRevision_(sheetUrl) {
+  const spreadsheetId = extractSpreadsheetId(sheetUrl);
+  return String(DriveApp.getFileById(spreadsheetId).getLastUpdated().getTime());
+}
+
+function historicalSyncRevisionKey_(batchNumber) {
+  return HISTORICAL_SYNC_REVISION_PREFIX + String(batchNumber || "").replace("#", "").trim();
 }
 
 function historicalCanonicalIdsFromSheet_(sheetUrl) {
@@ -144,194 +159,110 @@ function touchHistoricalMeasurementRevision_(projectId, fermentorId) {
 
 function syncActiveHistoricalMeasurements() {
 
-  const projectId =
-    FIREBASE_PROJECT_ID;
+  const projectId = FIREBASE_PROJECT_ID;
+  const properties = PropertiesService.getScriptProperties();
 
-  Logger.log(
-    "========================================"
-  );
+  Logger.log("========================================");
+  Logger.log("START ACTIVE HISTORICAL MEASUREMENTS SYNC");
 
-  Logger.log(
-    "START ACTIVE HISTORICAL MEASUREMENTS SYNC"
-  );
+  const fermentors = getAllFermentorsFromFirestore(projectId);
 
-
-  const fermentors =
-    getAllFermentorsFromFirestore(
-      projectId
-    );
-
-
-  Logger.log(
-    "Fermentors found: " +
-    fermentors.length
-  );
-
+  Logger.log("Fermentors found: " + fermentors.length);
 
   let processed = 0;
   let skipped = 0;
+  let unchanged = 0;
   let failed = 0;
   let duplicateDeletes = 0;
-
 
   // ==========================================================
   // PROCESS CURRENTLY ACTIVE FERMENTORS
   // ==========================================================
 
-  fermentors.forEach(
-    function (fermentor) {
+  fermentors.forEach(function (fermentor) {
+    const fermentorId = fermentor.id;
 
-      const fermentorId =
-        fermentor.id;
+    try {
+      const data = fermentor.data || {};
 
-      try {
+      // ------------------------------------------------------
+      // ONLY FERMENTORS WITH ACTIVE BREW
+      // ------------------------------------------------------
 
-        const data =
-          fermentor.data || {};
+      const batchNumber = String(data.batchNumber || "").trim();
 
-
-        // ------------------------------------------------------
-        // ONLY FERMENTORS WITH ACTIVE BREW
-        // ------------------------------------------------------
-
-        const batchNumber =
-          String(
-            data.batchNumber ||
-            ""
-          ).trim();
-
-
-        if (!batchNumber) {
-
-          Logger.log(
-            "SKIPPED " +
-            fermentorId +
-            " - no active batch."
-          );
-
-          skipped++;
-
-          return;
-        }
-
-
-        // ------------------------------------------------------
-        // SHEET URL
-        // ------------------------------------------------------
-
-        const sheetUrl =
-          String(
-            data.sheetUrl ||
-            ""
-          ).trim();
-
-
-        if (!sheetUrl) {
-
-          Logger.log(
-            "SKIPPED " +
-            fermentorId +
-            " - no sheetUrl."
-          );
-
-          skipped++;
-
-          return;
-        }
-
-
-        // ------------------------------------------------------
-        // UPLOAD + RECONCILE HISTORICAL MEASUREMENTS
-        // ------------------------------------------------------
-
-        Logger.log(
-          "Syncing historical measurements for batch " +
-          batchNumber +
-          " in fermentor " +
-          fermentorId
-        );
-
-
-        uploadHistoricalMeasurements(
-          projectId,
-          batchNumber,
-          sheetUrl
-        );
-
-        duplicateDeletes += dedupeHistoricalMeasurementsForBatch_(
-          projectId,
-          batchNumber,
-          sheetUrl
-        );
-
-        // Even if the document id stayed the same, historical values may have
-        // changed manually in Sheets. Bump the fermentor revision so open
-        // clients invalidate their measurement cache and recalculate health.
-        touchHistoricalMeasurementRevision_(
-          projectId,
-          fermentorId
-        );
-
-
-        processed++;
-
-
-        Logger.log(
-          "Historical measurements synced: " +
-          batchNumber
-        );
-
-      } catch (
-        error
-      ) {
-
-        failed++;
-
-
-        Logger.log(
-          "ERROR historical sync for fermentor " +
-          fermentorId +
-          ": " +
-          error.message
-        );
+      if (!batchNumber) {
+        Logger.log("SKIPPED " + fermentorId + " - no active batch.");
+        skipped++;
+        return;
       }
-    }
-  );
 
+      // ------------------------------------------------------
+      // SHEET URL
+      // ------------------------------------------------------
+
+      const sheetUrl = String(data.sheetUrl || "").trim();
+
+      if (!sheetUrl) {
+        Logger.log("SKIPPED " + fermentorId + " - no sheetUrl.");
+        skipped++;
+        return;
+      }
+
+      // ------------------------------------------------------
+      // CHANGE GUARD
+      // ------------------------------------------------------
+
+      const revisionKey = historicalSyncRevisionKey_(batchNumber);
+      const sheetRevision = historicalSheetRevision_(sheetUrl);
+      const previousRevision = properties.getProperty(revisionKey);
+
+      if (previousRevision === sheetRevision) {
+        unchanged++;
+        Logger.log("UNCHANGED historical sheet: " + batchNumber + " - no Firestore reconciliation needed.");
+        return;
+      }
+
+      // ------------------------------------------------------
+      // UPLOAD + RECONCILE HISTORICAL MEASUREMENTS
+      // ------------------------------------------------------
+
+      Logger.log("Syncing historical measurements for batch " + batchNumber + " in fermentor " + fermentorId);
+
+      uploadHistoricalMeasurements(projectId, batchNumber, sheetUrl);
+
+      duplicateDeletes += dedupeHistoricalMeasurementsForBatch_(
+        projectId,
+        batchNumber,
+        sheetUrl
+      );
+
+      // The Sheet changed since the previous successful reconciliation. Bump
+      // the revision once so open clients invalidate their measurement cache.
+      touchHistoricalMeasurementRevision_(projectId, fermentorId);
+
+      // Mark only after the complete upload/dedupe/revision sequence succeeded.
+      properties.setProperty(revisionKey, sheetRevision);
+
+      processed++;
+      Logger.log("Historical measurements synced: " + batchNumber);
+
+    } catch (error) {
+      failed++;
+      Logger.log("ERROR historical sync for fermentor " + fermentorId + ": " + error.message);
+    }
+  });
 
   // ==========================================================
   // SUMMARY
   // ==========================================================
 
-  Logger.log(
-    "========================================"
-  );
-
-  Logger.log(
-    "ACTIVE HISTORICAL SYNC FINISHED"
-  );
-
-  Logger.log(
-    "Processed: " +
-    processed
-  );
-
-  Logger.log(
-    "Skipped: " +
-    skipped
-  );
-
-  Logger.log(
-    "Failed: " +
-    failed
-  );
-
-  Logger.log(
-    "Duplicate same-day documents deleted: " +
-    duplicateDeletes
-  );
-
-  Logger.log(
-    "========================================"
-  );
+  Logger.log("========================================");
+  Logger.log("ACTIVE HISTORICAL SYNC FINISHED");
+  Logger.log("Processed changed sheets: " + processed);
+  Logger.log("Unchanged sheets skipped: " + unchanged);
+  Logger.log("Other skipped: " + skipped);
+  Logger.log("Failed: " + failed);
+  Logger.log("Duplicate same-day documents deleted: " + duplicateDeletes);
+  Logger.log("========================================");
 }
