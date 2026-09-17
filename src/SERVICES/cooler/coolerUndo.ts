@@ -51,7 +51,8 @@ type UndoHistoryDocument = {
     undoneAt?: unknown;
 };
 
-let recorderStarted = false;
+let recorderUsers = 0;
+let recorderUnsubscribe: (() => void) | null = null;
 let initialSnapshotSeen = false;
 let previousLocations = new Map<string, PalletLocationSnapshot>();
 let recordsSinceTrim = 0;
@@ -224,55 +225,83 @@ async function persistLocationChange(changes: LocationChange[]): Promise<void> {
     await maybeTrimHistory();
 }
 
-export function startCoolerUndoRecorder(): void {
-    if (recorderStarted) return;
-    recorderStarted = true;
+function resetRecorderState(): void {
+    initialSnapshotSeen = false;
+    previousLocations = new Map<string, PalletLocationSnapshot>();
+    suppressedRecorderTargets.clear();
+}
 
-    // Ignore historical shipped pallets. The recorder is interested only in the
-    // operational zones where a pallet can still be moved by the cooler UI.
-    const activePalletsQuery = query(
-        collection(db, "pallets"),
-        where("zone", "in", ACTIVE_PALLET_ZONES),
-    );
+/**
+ * Start recording cooler moves while a cooler UI consumer is mounted.
+ * Returns a release function. The old recorder lived for the complete browser
+ * session after the map was opened once, so later planning work kept a second
+ * full pallets listener alive. Reference counting keeps it alive only while a
+ * cooler consumer actually needs undo history.
+ */
+export function startCoolerUndoRecorder(): () => void {
+    recorderUsers += 1;
 
-    onSnapshot(activePalletsQuery, (snapshot) => {
-        if (snapshot.metadata.hasPendingWrites) return;
+    if (!recorderUnsubscribe) {
+        resetRecorderState();
 
-        const nextLocations = new Map<string, PalletLocationSnapshot>();
-        snapshot.docs.forEach((item) => {
-            nextLocations.set(item.id, locationFromData(item.id, item.data()));
-        });
+        // Ignore historical shipped pallets. The recorder is interested only in
+        // operational zones where a pallet can still be moved by the cooler UI.
+        const activePalletsQuery = query(
+            collection(db, "pallets"),
+            where("zone", "in", ACTIVE_PALLET_ZONES),
+        );
 
-        if (!initialSnapshotSeen) {
+        recorderUnsubscribe = onSnapshot(activePalletsQuery, (snapshot) => {
+            if (snapshot.metadata.hasPendingWrites) return;
+
+            const nextLocations = new Map<string, PalletLocationSnapshot>();
+            snapshot.docs.forEach((item) => {
+                nextLocations.set(item.id, locationFromData(item.id, item.data()));
+            });
+
+            if (!initialSnapshotSeen) {
+                previousLocations = nextLocations;
+                initialSnapshotSeen = true;
+                return;
+            }
+
+            const changes: LocationChange[] = [];
+            snapshot.docChanges().forEach((change) => {
+                // Entering/leaving the active-zone query is not a move we want to
+                // reconstruct here. Shipped transitions were intentionally excluded
+                // from undo history in the previous implementation as well.
+                if (change.type !== "modified") return;
+                const before = previousLocations.get(change.doc.id);
+                const after = nextLocations.get(change.doc.id);
+                if (!before || !after || sameLocation(before, after)) return;
+                if (isSuppressedReplay(after)) return;
+
+                const updatedAtMs = timestampMillis(change.doc.data().updatedAt) ?? Date.now();
+                changes.push({ before, after, updatedAtMs });
+            });
+
             previousLocations = nextLocations;
-            initialSnapshotSeen = true;
-            return;
-        }
+            if (!changes.length) return;
 
-        const changes: LocationChange[] = [];
-        snapshot.docChanges().forEach((change) => {
-            // Entering/leaving the active-zone query is not a move we want to
-            // reconstruct here. Shipped transitions were intentionally excluded
-            // from undo history in the previous implementation as well.
-            if (change.type !== "modified") return;
-            const before = previousLocations.get(change.doc.id);
-            const after = nextLocations.get(change.doc.id);
-            if (!before || !after || sameLocation(before, after)) return;
-            if (isSuppressedReplay(after)) return;
-
-            const updatedAtMs = timestampMillis(change.doc.data().updatedAt) ?? Date.now();
-            changes.push({ before, after, updatedAtMs });
+            void persistLocationChange(changes).catch((error) => {
+                console.error("Failed recording cooler undo history", error);
+            });
+        }, (error) => {
+            console.error("Cooler undo recorder subscription failed", error);
         });
+    }
 
-        previousLocations = nextLocations;
-        if (!changes.length) return;
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        recorderUsers = Math.max(0, recorderUsers - 1);
+        if (recorderUsers > 0 || !recorderUnsubscribe) return;
 
-        void persistLocationChange(changes).catch((error) => {
-            console.error("Failed recording cooler undo history", error);
-        });
-    }, (error) => {
-        console.error("Cooler undo recorder subscription failed", error);
-    });
+        recorderUnsubscribe();
+        recorderUnsubscribe = null;
+        resetRecorderState();
+    };
 }
 
 export function subscribeToCoolerUndoCount(callback: (count: number) => void): () => void {
