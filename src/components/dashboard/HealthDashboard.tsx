@@ -58,7 +58,7 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     completeMeasurementTankNumbers: [],
 };
 
-const FERMENTATION_MEASUREMENT_GRACE_MS = 24 * 60 * 60 * 1000;
+const FERMENTATION_MEASUREMENT_GRACE_MS = 12 * 60 * 60 * 1000;
 
 function tankLabel(tank: Fermentor): string {
     return String(tank.tankNumber ?? tank.uid ?? tank.id);
@@ -101,7 +101,7 @@ function timestampToMillis(value: unknown): number | null {
 }
 
 /**
- * During the first 24 hours after the actual "out to fermentor" stage begins,
+ * During the first 12 hours after the actual "out to fermentor" stage begins,
  * the health index has no requirements at all for this tank. If the operator
  * voluntarily records one or more numeric measurements today, the tank joins
  * the completed-round count and each measured field contributes positive score
