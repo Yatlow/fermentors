@@ -1,7 +1,8 @@
-import { Fragment, useMemo, useRef, useState, type TouchEvent } from "react";
+import { Fragment, useMemo, useRef, useState, type CSSProperties, type TouchEvent } from "react";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 import {
   addDays,
+  daysBetween,
   emptyWeek,
   weekNumber,
   weekStart,
@@ -79,7 +80,6 @@ type EventDraft = {
 };
 
 const DAY_NAMES = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
-const BASE_CALENDAR_WIDTH = 1050;
 const MIN_ZOOM = 0.32;
 const MAX_ZOOM = 1.55;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -133,7 +133,6 @@ export default function PlanningFiveWeekOverview({
   );
   const nextPlanningWeek = addDays(currentWeek, 7);
   const rangeStart = weekIds[0];
-  const rangeEnd = addDays(rangeStart, 34);
   const calendarDays = useMemo(
     () => Array.from({ length: 35 }, (_, index) => addDays(rangeStart, index)),
     [rangeStart],
@@ -407,6 +406,61 @@ export default function PlanningFiveWeekOverview({
     });
   }
 
+  async function saveCustomTitle(title: string) {
+    if (selected?.kind !== "custom" || !title.trim()) return;
+    await updatePlan(selected.weekId, (plan) => ({
+      ...plan,
+      calendarEvents: (plan.calendarEvents ?? []).map((event) =>
+        event.id === selected.eventId ? { ...event, title: title.trim() } : event,
+      ),
+      changeReason: "עדכון שם אירוע",
+    }));
+  }
+
+  async function moveSelectedBrewTo(nextDate: string) {
+    if (selected?.kind !== "brew") return;
+    const current = selectedBrew();
+    if (!current) return;
+    const duration = daysBetween(current.date, brewEndDate(current)) + 1;
+    const weekEnd = addDays(selected.weekId, 6);
+    const nextEnd = addDays(nextDate, duration - 1);
+    if (weekStart(nextDate) !== selected.weekId || nextEnd > weekEnd) {
+      setMessage("אפשר להזיז את הבישול רק בתוך אותו שבוע");
+      return;
+    }
+    await updatePlan(selected.weekId, (plan) => ({
+      ...plan,
+      brews: plan.brews.map((brew) =>
+        brew.id === selected.brewId ? { ...brew, date: nextDate, endDate: nextEnd } : brew,
+      ),
+      changeReason: "הזזת ימי בישול בלוח 5 שבועות",
+    }));
+  }
+
+  async function shiftSelectedBrew(deltaDays: number) {
+    const current = selectedBrew();
+    if (!current) return;
+    await moveSelectedBrewTo(addDays(current.date, deltaDays));
+  }
+
+  async function resizeSelectedBrew(days: 2 | 3) {
+    if (selected?.kind !== "brew") return;
+    const current = selectedBrew();
+    if (!current) return;
+    const nextEnd = addDays(current.date, days - 1);
+    if (nextEnd > addDays(selected.weekId, 6)) {
+      setMessage("משך הבישול חייב להישאר בתוך אותו שבוע");
+      return;
+    }
+    await updatePlan(selected.weekId, (plan) => ({
+      ...plan,
+      brews: plan.brews.map((brew) =>
+        brew.id === selected.brewId ? { ...brew, endDate: nextEnd } : brew,
+      ),
+      changeReason: "שינוי משך בישול בלוח 5 שבועות",
+    }));
+  }
+
   function touchDistance(event: TouchEvent<HTMLDivElement>) {
     if (event.touches.length < 2) return null;
     const a = event.touches[0];
@@ -449,6 +503,9 @@ export default function PlanningFiveWeekOverview({
       : custom
         ? `${shortDate(custom.startDate)}${custom.endDate !== custom.startDate ? `–${shortDate(custom.endDate)}` : ""}`
         : "";
+  const brewDuration = brew ? daysBetween(brew.date, brewEndDate(brew)) + 1 : 0;
+  const brewWeekEnd = selected?.kind === "brew" ? addDays(selected.weekId, 6) : "";
+  const maxBrewStart = brew && brewWeekEnd ? addDays(brewWeekEnd, -(brewDuration - 1)) : "";
 
   return (
     <section className="bp-five-week-overview">
@@ -458,7 +515,7 @@ export default function PlanningFiveWeekOverview({
           <p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p>
         </div>
         <div className="bp-five-week-toolbar">
-          <button type="button" onClick={() => setShowEventForm((value) => !value)}>+ אירוע / חופשה</button>
+          {view === "calendar" && <button type="button" onClick={() => setShowEventForm((value) => !value)}>+ אירוע / חופשה</button>}
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
             <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>לוח 5 שבועות</button>
             <button type="button" aria-pressed={view === "summary"} onClick={() => setView("summary")}>סיכום שבועי</button>
@@ -468,7 +525,7 @@ export default function PlanningFiveWeekOverview({
 
       {message && <p className="bp-five-week-message" role="status">{message}</p>}
 
-      {showEventForm && (
+      {view === "calendar" && showEventForm && (
         <div className="bp-calendar-editor">
           <h3>אירוע חדש</h3>
           <label>סוג<select value={eventDraft.type} onChange={(event) => setEventDraft((draft) => ({ ...draft, type: event.target.value as GeneralEventType }))}>
@@ -540,7 +597,7 @@ export default function PlanningFiveWeekOverview({
             onTouchMove={handleTouchMove}
             onTouchEnd={() => { pinchRef.current = null; }}
           >
-            <div className="bp-month-zoom-layer" style={{ width: `${BASE_CALENDAR_WIDTH * zoom}px` }}>
+            <div className="bp-month-zoom-layer" style={{ "--calendar-zoom": zoom } as CSSProperties}>
               <div className="bp-month-calendar" role="grid" aria-label="לוח תכנון לחמישה שבועות">
                 {DAY_NAMES.map((name) => <div className="bp-month-day-name" key={name}>{name}</div>)}
                 {calendarDays.map((date) => {
@@ -561,7 +618,11 @@ export default function PlanningFiveWeekOverview({
                             key={event.key}
                             title={event.note || event.label}
                             disabled={!event.selection}
-                            onClick={() => event.selection && setSelected(event.selection)}
+                            onClick={() => {
+                              if (!event.selection) return;
+                              setSelected(event.selection);
+                              setMessage("");
+                            }}
                           >
                             <span>
                               {event.startsBefore && <span aria-hidden="true">← </span>}
@@ -582,21 +643,59 @@ export default function PlanningFiveWeekOverview({
       )}
 
       {selected && (
-        <div className="bp-calendar-editor bp-calendar-floating-editor">
-          <h3>{selectedTitle}</h3>
-          {selectedDates && <p className="bp-calendar-event-dates">{selectedDates}</p>}
-          <p className="bp-calendar-event-lock">התכנון עצמו מנוהל במסך התכנון. כאן עורכים רק את הטקסט שמופיע ביומן.</p>
-          <label className="bp-calendar-note-field">
-            טקסט / הערה ביומן
-            <textarea
-              key={`${selected.kind}:${selected.weekId}:${selected.kind === "brew" ? selected.brewId : selected.kind === "custom" ? selected.eventId : selected.runIndex}:${selectedNote}`}
-              defaultValue={selectedNote}
-              placeholder="אפשר להוסיף כאן הערה שתופיע בתוך האירוע"
-              onBlur={(event) => { if (event.target.value !== selectedNote) void saveSelectedNote(event.target.value); }}
-            />
-          </label>
-          <div className="bp-calendar-editor-actions">
-            <button type="button" onClick={() => setSelected(null)}>סגירה</button>
+        <div className="bp-calendar-editor-backdrop" onClick={() => setSelected(null)}>
+          <div className="bp-calendar-editor bp-calendar-floating-editor" onClick={(event) => event.stopPropagation()}>
+            <h3>{selectedTitle}</h3>
+            {selectedDates && <p className="bp-calendar-event-dates">{selectedDates}</p>}
+
+            {selected.kind === "brew" && brew && (
+              <>
+                <div className="bp-brew-edit-move">
+                  <button type="button" disabled={disabled || busy} onClick={() => void shiftSelectedBrew(-1)}>יום קודם</button>
+                  <label>
+                    תחילת הבישול
+                    <input
+                      type="date"
+                      value={brew.date}
+                      min={selected.weekId}
+                      max={maxBrewStart}
+                      disabled={disabled || busy}
+                      onChange={(event) => void moveSelectedBrewTo(event.target.value)}
+                    />
+                  </label>
+                  <button type="button" disabled={disabled || busy} onClick={() => void shiftSelectedBrew(1)}>יום הבא</button>
+                </div>
+                <div className="bp-calendar-editor-actions">
+                  <span>משך:</span>
+                  <button type="button" className={brewDuration === 2 ? "active" : ""} disabled={disabled || busy} onClick={() => void resizeSelectedBrew(2)}>2 ימים</button>
+                  <button type="button" className={brewDuration === 3 ? "active" : ""} disabled={disabled || busy} onClick={() => void resizeSelectedBrew(3)}>3 ימים</button>
+                </div>
+              </>
+            )}
+
+            {selected.kind === "custom" && custom && (
+              <label>
+                שם האירוע
+                <input
+                  key={`title:${custom.id}:${custom.title}`}
+                  defaultValue={custom.title}
+                  onBlur={(event) => { if (event.target.value.trim() && event.target.value.trim() !== custom.title) void saveCustomTitle(event.target.value); }}
+                />
+              </label>
+            )}
+
+            <label className="bp-calendar-note-field">
+              טקסט / הערה ביומן
+              <textarea
+                key={`${selected.kind}:${selected.weekId}:${selected.kind === "brew" ? selected.brewId : selected.kind === "custom" ? selected.eventId : selected.runIndex}:${selectedNote}`}
+                defaultValue={selectedNote}
+                placeholder="אפשר להוסיף כאן הערה שתופיע בתוך האירוע"
+                onBlur={(event) => { if (event.target.value !== selectedNote) void saveSelectedNote(event.target.value); }}
+              />
+            </label>
+            <div className="bp-calendar-editor-actions">
+              <button type="button" onClick={() => setSelected(null)}>סגירה</button>
+            </div>
           </div>
         </div>
       )}
