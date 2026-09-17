@@ -74,8 +74,11 @@ export function applyOptimisticMeasurementUpdate(
 /** Call outside React state updaters, from the EXISTING fermentors listener. */
 export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData>): void {
   if (snapshot.metadata.fromCache) {
-    // Do not trust indefinite data while disconnected or before server confirmation.
-    stopMeasurementRevisionTracking();
+    // A temporary offline/cache-only snapshot must not destroy all measurement
+    // histories. Mobile Safari can move between cache/server snapshots while the
+    // app remains open; clearing here caused every active batch to be downloaded
+    // again when connectivity returned. Keep the last server revisions + cache
+    // and reconcile only when the next server-confirmed snapshot arrives.
     return;
   }
 
