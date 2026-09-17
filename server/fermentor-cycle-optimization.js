@@ -33,6 +33,10 @@ BEHAVIOR:
 - Field-level currentData masks preserve omitted fields without an extra GET.
   Null/missing protected packaging fields are omitted; explicit zero is written.
 - Measurement/progress hashes are saved only after successful writes.
+- Active measurement history is embedded once on the fermentor document as
+  cellarState, using the same Sheet snapshot already read by the cycle. Clients
+  can therefore calculate cellar health/stage without reading each batch
+  measurements subcollection separately.
 - Action flow receives successfully synchronized in-memory data.
 - Timings include reads, measurements, packaging, action flow and each tank.
 - Sheet date corrections update the cached cell. Other writers called inside the
@@ -178,7 +182,7 @@ function runFermentorCycle() {
 
 function fcFermentorPayload_(fermentor) {
   const names = ["tankNumber", "tankStatus", "batchNumber", "beerStyle", "brewDate",
-    "beerVolume", "sheetUrl", "uid", "startingPlato", "updatedAt"];
+    "beerVolume", "sheetUrl", "uid", "startingPlato", "cellarState", "updatedAt"];
   const payload = {};
   names.forEach(function (name) {
     if (Object.prototype.hasOwnProperty.call(fermentor, name) && fermentor[name] !== undefined) {
@@ -207,6 +211,14 @@ function fcPayloadMatches_(existing, payload) {
       return Object.keys(payload.currentData).every(function (field) {
         return objectsEqual(current[field], payload.currentData[field]);
       });
+    }
+    if (name === "cellarState") {
+      const previousState = existing.cellarState;
+      const nextState = payload.cellarState;
+      if (previousState == null || nextState == null) {
+        return objectsEqual(previousState, nextState);
+      }
+      return previousState.signature === nextState.signature;
     }
     return objectsEqual(existing[name], payload[name]);
   });
@@ -240,6 +252,7 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           brewDate: brew.brewDate || null,
           beerVolume: brew.beerVolume == null ? null : brew.beerVolume,
           currentData: brew.currentData ? Object.assign({}, brew.currentData) : null,
+          cellarState: brew.cellarState || null,
           sheetUrl: brew.sheetUrl || null,
           uid: entry.id,
           startingPlato: brew.startingPlato == null ? null : brew.startingPlato
@@ -348,6 +361,71 @@ function resetChangeCache() {
   });
 }
 
+function fcBuildCellarState_(values, batchNumber) {
+  const batch = String(batchNumber || "").replace("#", "").trim();
+  if (!batch) return null;
+
+  const headerRow = findRowContaining(values, "טמפרטורה");
+  const canonicalByDay = {};
+
+  if (headerRow !== -1) {
+    for (let r = headerRow + 1; r < values.length; r++) {
+      const dateText = String(values[r][0] || "").trim();
+      const date = parseIsraeliDate(dateText);
+      if (!date) continue;
+
+      const hasAnyValue = values[r][2] || values[r][3] || values[r][4] ||
+        values[r][5] || values[r][6] || values[r][7];
+      if (!hasAnyValue) continue;
+
+      const time = String(values[r][1] || "").trim();
+      const measurementId = createMeasurementId(date, time);
+      const day = String(measurementId || "").slice(0, 10);
+      if (!measurementId || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+
+      canonicalByDay[day] = {
+        id: measurementId,
+        date: dateText,
+        time: time,
+        temp: extractNumber(values[r][3]),
+        plato: extractNumber(values[r][2]),
+        pressure: extractNumber(values[r][4]),
+        carbonation: extractNumber(values[r][6]),
+        pH: extractNumber(values[r][5]),
+        notes: String(values[r][7] || "").trim()
+      };
+    }
+  }
+
+  const rows = Object.keys(canonicalByDay)
+    .sort()
+    .map(function (day) { return canonicalByDay[day]; });
+  const measurements = {};
+  rows.forEach(function (measurement) {
+    measurements[measurement.id] = measurement;
+  });
+
+  const cooled = rows.some(function (measurement) {
+    return String(measurement.notes || "").includes("קירור");
+  });
+  const lastMeasurementId = rows.length ? rows[rows.length - 1].id : null;
+  const signature = computeHash_({
+    batchNumber: batch,
+    cooled: cooled,
+    rows: rows
+  });
+
+  return {
+    version: 1,
+    batchNumber: batch,
+    cooled: cooled,
+    measurementCount: rows.length,
+    lastMeasurementId: lastMeasurementId,
+    signature: signature,
+    measurements: measurements
+  };
+}
+
 function extractBrew(spreadSheetId) {
   if (!spreadSheetId) throw new Error("No Spreadsheet ID or URL was provided.");
   const snapshot = fcSheetSnapshot_(spreadSheetId);
@@ -356,7 +434,7 @@ function extractBrew(spreadSheetId) {
   const brew = {
     batchNumber: null, beerStyle: null, brewDate: null, tankNumber: null,
     sheetUrl: ss.getUrl(), tankStatus: null, beerVolume: null,
-    startingPlato: null, pasivationDate: null,
+    startingPlato: null, pasivationDate: null, cellarState: null,
     currentData: { date: null, temp: null, plato: null, pressure:null,
       carbonation: null, pH: null, notes: "" }
   };
@@ -427,6 +505,7 @@ function extractBrew(spreadSheetId) {
   }
 
   brew.currentData = findLatestAvailableMeasurements(values);
+  brew.cellarState = fcBuildCellarState_(values, brew.batchNumber);
   return brew;
 }
 
