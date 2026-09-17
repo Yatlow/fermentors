@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, type Timestamp } from "firebase/firestore";
+import {
+    collection,
+    doc,
+    limit,
+    onSnapshot,
+    query,
+    where,
+    type Timestamp,
+} from "firebase/firestore";
 import { db } from "../../firebase";
 import "./SheetSyncStatus.css";
 
@@ -60,7 +68,8 @@ function DirectionTitle({ from, to }: { from: string; to: string }) {
 }
 
 export default function SheetSyncStatus() {
-    const [jobs, setJobs] = useState<SheetSyncJob[]>([]);
+    const [pendingJobs, setPendingJobs] = useState<SheetSyncJob[]>([]);
+    const [hasFailedJob, setHasFailedJob] = useState(false);
     const [pullStatus, setPullStatus] = useState<SheetPullStatus | null>(null);
     const [readError, setReadError] = useState(false);
     const [now, setNow] = useState(() => Date.now());
@@ -72,48 +81,97 @@ export default function SheetSyncStatus() {
     }, []);
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(
-            collection(db, "sheetSyncJobs"),
+        // Do not subscribe to the complete sheetSyncJobs collection here. Failed
+        // historical jobs can remain for troubleshooting, and the old broad
+        // listener made every dashboard refresh download all of them again.
+        // The dashboard only needs: the single pull heartbeat, every currently
+        // pending job, and whether at least one failed job exists.
+        let heartbeatError = false;
+        let pendingError = false;
+        let failedError = false;
+
+        const refreshReadError = () => {
+            setReadError(heartbeatError || pendingError || failedError);
+        };
+
+        const unsubscribeHeartbeat = onSnapshot(
+            doc(db, "sheetSyncJobs", "_sheetPullStatus"),
             (snapshot) => {
-                setReadError(false);
-
-                const heartbeat = snapshot.docs.find((doc) => doc.id === "_sheetPullStatus");
-                setPullStatus(heartbeat ? heartbeat.data() as SheetPullStatus : null);
-
-                setJobs(
-                    snapshot.docs
-                        .filter((jobDoc) => jobDoc.id !== "_sheetPullStatus")
-                        .map((jobDoc) => ({
-                            id: jobDoc.id,
-                            ...(jobDoc.data() as Omit<SheetSyncJob, "id">),
-                        }))
-                );
+                heartbeatError = false;
+                setPullStatus(snapshot.exists() ? snapshot.data() as SheetPullStatus : null);
+                refreshReadError();
             },
             (error) => {
-                console.error("Failed to subscribe to Sheet sync status:", error);
-                setReadError(true);
+                console.error("Failed to subscribe to Sheet pull heartbeat:", error);
+                heartbeatError = true;
+                refreshReadError();
             }
         );
-        return unsubscribe;
+
+        const pendingQuery = query(
+            collection(db, "sheetSyncJobs"),
+            where("state", "==", "pending")
+        );
+        const unsubscribePending = onSnapshot(
+            pendingQuery,
+            (snapshot) => {
+                pendingError = false;
+                setPendingJobs(
+                    snapshot.docs.map((jobDoc) => ({
+                        id: jobDoc.id,
+                        ...(jobDoc.data() as Omit<SheetSyncJob, "id">),
+                    }))
+                );
+                refreshReadError();
+            },
+            (error) => {
+                console.error("Failed to subscribe to pending Sheet sync jobs:", error);
+                pendingError = true;
+                refreshReadError();
+            }
+        );
+
+        const failedQuery = query(
+            collection(db, "sheetSyncJobs"),
+            where("state", "==", "failed"),
+            limit(1)
+        );
+        const unsubscribeFailed = onSnapshot(
+            failedQuery,
+            (snapshot) => {
+                failedError = false;
+                setHasFailedJob(!snapshot.empty);
+                refreshReadError();
+            },
+            (error) => {
+                console.error("Failed to subscribe to failed Sheet sync jobs:", error);
+                failedError = true;
+                refreshReadError();
+            }
+        );
+
+        return () => {
+            unsubscribeHeartbeat();
+            unsubscribePending();
+            unsubscribeFailed();
+        };
     }, []);
 
     const writeStatus = useMemo(() => {
-        const failed = jobs.filter((job) => job.state === "failed");
-        const pending = jobs.filter((job) => job.state === "pending");
-        const oldestPendingMinutes = pending.reduce((oldest, job) => {
+        const oldestPendingMinutes = pendingJobs.reduce((oldest, job) => {
             const created = dateFromUnknown(job.createdAt);
             if (!created) return oldest;
             return Math.max(oldest, Math.max(0, Math.floor((now - created.getTime()) / 60_000)));
         }, 0);
 
         let severity: Severity = "ok";
-        if (failed.length > 0) severity = "failed";
+        if (hasFailedJob) severity = "failed";
         else if (oldestPendingMinutes >= 30) severity = "failed";
         else if (oldestPendingMinutes >= 10) severity = "warning";
-        else if (pending.length > 0) severity = "pending";
+        else if (pendingJobs.length > 0) severity = "pending";
 
-        return { failed, pending, severity };
-    }, [jobs, now]);
+        return { pending: pendingJobs, hasFailedJob, severity };
+    }, [pendingJobs, hasFailedJob, now]);
 
     const pull = useMemo(() => {
         const age = ageMinutes(pullStatus?.completedAt, now);
@@ -130,8 +188,8 @@ export default function SheetSyncStatus() {
 
     const writePill = readError
         ? "לא זמין"
-        : writeStatus.failed.length > 0
-            ? `${writeStatus.failed.length} נכשלו`
+        : writeStatus.hasFailedJob
+            ? "יש כשל"
             : writeStatus.pending.length > 0
                 ? `${writeStatus.pending.length} ממתינות`
                 : "מסונכרן";
