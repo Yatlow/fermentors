@@ -126,7 +126,7 @@ export function usePlanning(today: string, tanks: TankInput[], loadSnapshots = f
     const fail = (key: string) => (e: Error) =>
       setErrors((x) => ({ ...x, [key]: `${key}: ${e.message}` }));
 
-    let unsubscribeSnapshots = () => undefined;
+    let unsubscribeSnapshots: () => void = () => {};
     if (loadSnapshots) {
       unsubscribeSnapshots = onSnapshot(
         query(
