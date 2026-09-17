@@ -54,7 +54,7 @@ type CompactItem = {
 };
 
 type EditableSelection =
-  | { kind: "brew"; weekId: string; brewId: string }
+  | { kind: "brewGroup"; weekId: string }
   | { kind: "packaging"; weekId: string; runIndex: number }
   | { kind: "custom"; weekId: string; eventId: string };
 
@@ -70,8 +70,7 @@ type DayEvent = {
 type SpanEvent = {
   key: string;
   label: string;
-  kind: "brew" | "custom";
-  styleClass?: string;
+  kind: "brewGroup" | "custom";
   pending?: boolean;
   note?: string;
   selection: EditableSelection;
@@ -103,7 +102,7 @@ function sizeMultiplier(label: ReturnType<typeof brewSizeLabel>) {
 
 function sameSelection(a: EditableSelection | null, b?: EditableSelection) {
   if (!a || !b || a.kind !== b.kind || a.weekId !== b.weekId) return false;
-  if (a.kind === "brew" && b.kind === "brew") return a.brewId === b.brewId;
+  if (a.kind === "brewGroup" && b.kind === "brewGroup") return true;
   if (a.kind === "custom" && b.kind === "custom") return a.eventId === b.eventId;
   return a.kind === "packaging" && b.kind === "packaging" && a.runIndex === b.runIndex;
 }
@@ -153,22 +152,32 @@ export default function PlanningFiveWeekOverview({
   const tankNumber = (tankId?: string, fallback?: string | number) =>
     tanks.find((tank) => tank.id === tankId)?.number ?? fallback ?? "?";
 
-  function inferredTentativeTank(plan: ExtendedPlan, brew: ExtendedBrew) {
-    if (brew.tankId) return brew.tankId;
-    if (brew.tentativeTankId) return brew.tentativeTankId;
-    const reserved = new Set(
-      plan.brews
-        .filter((candidate) => candidate.id !== brew.id)
-        .map((candidate) => candidate.tankId || candidate.tentativeTankId)
-        .filter((id): id is string => !!id),
-    );
-    return tanks
-      .filter((tank) => tank.ready <= addDays(plan.id, 6) && !reserved.has(tank.id))
-      .sort((a, b) => a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number))[0]?.id;
+  function tentativeTankMap(plan: ExtendedPlan) {
+    const result = new Map<string, string>();
+    const reserved = new Set<string>();
+
+    for (const brew of plan.brews) {
+      const existing = brew.tankId || brew.tentativeTankId;
+      if (!existing) continue;
+      result.set(brew.id, existing);
+      reserved.add(existing);
+    }
+
+    for (const brew of plan.brews) {
+      if (result.has(brew.id)) continue;
+      const candidate = tanks
+        .filter((tank) => tank.ready <= addDays(plan.id, 6) && !reserved.has(tank.id))
+        .sort((a, b) => a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number))[0];
+      if (!candidate) continue;
+      result.set(brew.id, candidate.id);
+      reserved.add(candidate.id);
+    }
+
+    return result;
   }
 
   function resolvedBrewTank(plan: ExtendedPlan, brew: ExtendedBrew) {
-    return brew.tankId || brew.tentativeTankId || inferredTentativeTank(plan, brew);
+    return tentativeTankMap(plan).get(brew.id);
   }
 
   function brewEndDate(brew: ExtendedBrew) {
@@ -279,7 +288,6 @@ export default function PlanningFiveWeekOverview({
           key: `${plan.id}:${noteKey}`,
           label: `הורדת ${style} מיכל ${number} ל־${Math.round(run.quantity)} ${quantityLabel}`,
           type: "packaging",
-          styleClass: beerStyleClass(style).className,
           note: noteFor(plan, noteKey),
           selection: { kind: "packaging", weekId: plan.id, runIndex },
         });
@@ -288,30 +296,43 @@ export default function PlanningFiveWeekOverview({
     return events;
   }
 
+  function brewGroupLabel(plan: ExtendedPlan) {
+    const tankMap = tentativeTankMap(plan);
+    const parts = plan.brews.map((brew) => {
+      const tankId = tankMap.get(brew.id);
+      const number = tankId ? tankNumber(tankId) : "לא נמצא";
+      return `${displayStyle(brew.style)} · מיכל ${number}${brew.tankId ? "" : " מוצע"}`;
+    });
+    return `בישולים · ${parts.join(" · ")}`;
+  }
+
+  function brewGroupRange(plan: ExtendedPlan) {
+    if (!plan.brews.length) return null;
+    const start = plan.brews.map((brew) => brew.date).sort()[0];
+    const end = plan.brews.map((brew) => brewEndDate(brew)).sort().at(-1);
+    return end ? { start, end } : null;
+  }
+
   function spanEventsForWeek(weekId: string): { events: SpanEvent[]; laneCount: number } {
     const weekEnd = addDays(weekId, 6);
     const candidates: Array<Omit<SpanEvent, "startCol" | "endCol" | "lane"> & { start: string; end: string }> = [];
 
     for (const source of plans) {
       const plan = asExtended(source);
-      for (const brew of plan.brews) {
-        const end = brewEndDate(brew);
-        if (end < weekId || brew.date > weekEnd) continue;
-        const tankId = resolvedBrewTank(plan, brew);
-        const number = tankId ? tankNumber(tankId) : "?";
-        const tentative = !brew.tankId;
+      const range = brewGroupRange(plan);
+      if (range && range.end >= weekId && range.start <= weekEnd) {
         candidates.push({
-          key: `${plan.id}:brew:${brew.id}`,
-          label: `בישול ${displayStyle(brew.style)} · מיכל ${number}${tentative ? " מוצע" : ""}`,
-          kind: "brew",
-          styleClass: beerStyleClass(brew.style).className,
-          pending: tentative,
-          note: brew.note ?? "",
-          selection: { kind: "brew", weekId: plan.id, brewId: brew.id },
-          start: maxDate(brew.date, weekId),
-          end: minDate(end, weekEnd),
+          key: `${plan.id}:brew-group`,
+          label: brewGroupLabel(plan),
+          kind: "brewGroup",
+          pending: plan.brews.some((brew) => !brew.tankId),
+          note: noteFor(plan, "brew-group"),
+          selection: { kind: "brewGroup", weekId: plan.id },
+          start: maxDate(range.start, weekId),
+          end: minDate(range.end, weekEnd),
         });
       }
+
       for (const event of plan.calendarEvents ?? []) {
         if (event.endDate < weekId || event.startDate > weekEnd) continue;
         candidates.push({
@@ -388,11 +409,6 @@ export default function PlanningFiveWeekOverview({
     return selected ? planFor(selected.weekId) : undefined;
   }
 
-  function selectedBrew() {
-    const plan = selectedPlan();
-    return selected?.kind === "brew" ? plan?.brews.find((brew) => brew.id === selected.brewId) : undefined;
-  }
-
   function selectedCustom() {
     const plan = selectedPlan();
     return selected?.kind === "custom" ? plan?.calendarEvents?.find((event) => event.id === selected.eventId) : undefined;
@@ -413,11 +429,11 @@ export default function PlanningFiveWeekOverview({
   async function saveSelectedNote(note: string) {
     if (!selected) return;
     await updatePlan(selected.weekId, (plan) => {
-      if (selected.kind === "brew") {
+      if (selected.kind === "brewGroup") {
         return {
           ...plan,
-          brews: plan.brews.map((brew) => brew.id === selected.brewId ? { ...brew, note } : brew),
-          changeReason: "עדכון טקסט אירוע בישול",
+          calendarNotes: { ...(plan.calendarNotes ?? {}), "brew-group": note },
+          changeReason: "עדכון טקסט אירוע בישולים",
         };
       }
       if (selected.kind === "custom") {
@@ -447,34 +463,40 @@ export default function PlanningFiveWeekOverview({
     }));
   }
 
-  async function moveSelectedBrewTo(nextDate: string) {
-    if (selected?.kind !== "brew") return;
-    const current = selectedBrew();
-    if (!current) return;
-    const duration = daysBetween(current.date, brewEndDate(current)) + 1;
-    const weekEnd = addDays(selected.weekId, 6);
+  async function moveSelectedBrewGroupTo(nextDate: string) {
+    if (selected?.kind !== "brewGroup") return;
+    const plan = selectedPlan();
+    const range = plan ? brewGroupRange(plan) : null;
+    if (!plan || !range) return;
+    const duration = daysBetween(range.start, range.end) + 1;
     const nextEnd = addDays(nextDate, duration - 1);
-    if (weekStart(nextDate) !== selected.weekId || nextEnd > weekEnd) {
-      setMessage("אפשר להזיז את הבישול רק בתוך אותו שבוע");
+    if (weekStart(nextDate) !== selected.weekId || nextEnd > addDays(selected.weekId, 6)) {
+      setMessage("אפשר להזיז את הבישולים רק בתוך אותו שבוע");
       return;
     }
-    await updatePlan(selected.weekId, (plan) => ({
-      ...plan,
-      brews: plan.brews.map((brew) => brew.id === selected.brewId ? { ...brew, date: nextDate, endDate: nextEnd } : brew),
-      changeReason: "הזזת ימי בישול בלוח 5 שבועות",
+    const delta = daysBetween(range.start, nextDate);
+    await updatePlan(selected.weekId, (current) => ({
+      ...current,
+      brews: current.brews.map((brew) => ({
+        ...brew,
+        date: addDays(brew.date, delta),
+        endDate: addDays(brewEndDate(brew), delta),
+      })),
+      changeReason: "הזזת ימי הבישול בלוח 5 שבועות",
     }));
   }
 
-  async function resizeSelectedBrew(days: 2 | 3) {
-    if (selected?.kind !== "brew") return;
-    const current = selectedBrew();
-    if (!current) return;
-    const nextEnd = addDays(current.date, days - 1);
-    if (nextEnd > addDays(selected.weekId, 6)) return setMessage("משך הבישול חייב להישאר בתוך אותו שבוע");
-    await updatePlan(selected.weekId, (plan) => ({
-      ...plan,
-      brews: plan.brews.map((brew) => brew.id === selected.brewId ? { ...brew, endDate: nextEnd } : brew),
-      changeReason: "שינוי משך בישול בלוח 5 שבועות",
+  async function resizeSelectedBrewGroup(days: 2 | 3) {
+    if (selected?.kind !== "brewGroup") return;
+    const plan = selectedPlan();
+    const range = plan ? brewGroupRange(plan) : null;
+    if (!plan || !range) return;
+    const nextEnd = addDays(range.start, days - 1);
+    if (nextEnd > addDays(selected.weekId, 6)) return setMessage("משך הבישולים חייב להישאר בתוך אותו שבוע");
+    await updatePlan(selected.weekId, (current) => ({
+      ...current,
+      brews: current.brews.map((brew) => ({ ...brew, date: range.start, endDate: nextEnd })),
+      changeReason: "שינוי משך הבישולים בלוח 5 שבועות",
     }));
   }
 
@@ -498,14 +520,15 @@ export default function PlanningFiveWeekOverview({
     setZoom(clamp(initial.zoom * (distance / initial.distance), MIN_ZOOM, MAX_ZOOM));
   }
 
-  const brew = selectedBrew();
+  const selectedPlanValue = selectedPlan();
   const custom = selectedCustom();
   const packaging = selectedPackaging();
-  const selectedNote = brew?.note ?? custom?.note ?? selectedPackagingNote();
-  const selectedPlanValue = selectedPlan();
-  const selectedTankId = brew && selectedPlanValue ? resolvedBrewTank(selectedPlanValue, brew) : undefined;
-  const selectedTitle = brew
-    ? `בישול ${displayStyle(brew.style)} · מיכל ${selectedTankId ? tankNumber(selectedTankId) : "?"}${brew.tankId ? "" : " מוצע"}`
+  const selectedBrewRange = selected?.kind === "brewGroup" && selectedPlanValue ? brewGroupRange(selectedPlanValue) : null;
+  const selectedNote = selected?.kind === "brewGroup" && selectedPlanValue
+    ? noteFor(selectedPlanValue, "brew-group")
+    : custom?.note ?? selectedPackagingNote();
+  const selectedTitle = selected?.kind === "brewGroup" && selectedPlanValue
+    ? brewGroupLabel(selectedPlanValue)
     : packaging
       ? (() => {
           const product = productFor(packaging.productId);
@@ -513,16 +536,17 @@ export default function PlanningFiveWeekOverview({
           return `הורדת ${style} מיכל ${tankNumber(packaging.tankId, packaging.tankNumber)} ל־${Math.round(packaging.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"}`;
         })()
       : custom?.title ?? "אירוע";
-  const selectedDates = brew
-    ? `${shortDate(brew.date)}–${shortDate(brewEndDate(brew))}`
+  const selectedDates = selectedBrewRange
+    ? `${shortDate(selectedBrewRange.start)}–${shortDate(selectedBrewRange.end)}`
     : packaging?.date
       ? shortDate(packaging.date)
       : custom
         ? `${shortDate(custom.startDate)}${custom.endDate !== custom.startDate ? `–${shortDate(custom.endDate)}` : ""}`
         : "";
-  const brewDuration = brew ? daysBetween(brew.date, brewEndDate(brew)) + 1 : 0;
-  const brewWeekEnd = selected?.kind === "brew" ? addDays(selected.weekId, 6) : "";
-  const maxBrewStart = brew && brewWeekEnd ? addDays(brewWeekEnd, -(brewDuration - 1)) : "";
+  const brewDuration = selectedBrewRange ? daysBetween(selectedBrewRange.start, selectedBrewRange.end) + 1 : 0;
+  const maxBrewStart = selected?.kind === "brewGroup" && selectedBrewRange
+    ? addDays(addDays(selected.weekId, 6), -(brewDuration - 1))
+    : "";
 
   return (
     <section className="bp-five-week-overview">
@@ -639,7 +663,7 @@ export default function PlanningFiveWeekOverview({
                           <button
                             type="button"
                             key={event.key}
-                            className={`bp-span-event is-${event.kind} ${event.pending ? "is-pending" : ""} ${event.styleClass ?? ""} ${sameSelection(selected, event.selection) ? "is-selected" : ""}`}
+                            className={`bp-span-event is-${event.kind} ${event.pending ? "is-pending" : ""} ${sameSelection(selected, event.selection) ? "is-selected" : ""}`}
                             style={{ gridColumn: `${event.startCol} / ${event.endCol}`, gridRow: event.lane + 1 }}
                             title={event.note || event.label}
                             onClick={() => { setSelected(event.selection); setMessage(""); }}
@@ -663,16 +687,16 @@ export default function PlanningFiveWeekOverview({
           <div className="bp-calendar-editor bp-calendar-floating-editor" onClick={(event) => event.stopPropagation()}>
             <h3>{selectedTitle}</h3>
             {selectedDates && <p className="bp-calendar-event-dates">{selectedDates}</p>}
-            {selected.kind === "brew" && brew && (
+            {selected.kind === "brewGroup" && selectedBrewRange && (
               <>
                 <label>
-                  תחילת הבישול
-                  <input type="date" value={brew.date} min={selected.weekId} max={maxBrewStart} disabled={disabled || busy} onChange={(event) => void moveSelectedBrewTo(event.target.value)} />
+                  תחילת הבישולים
+                  <input type="date" value={selectedBrewRange.start} min={selected.weekId} max={maxBrewStart} disabled={disabled || busy} onChange={(event) => void moveSelectedBrewGroupTo(event.target.value)} />
                 </label>
                 <div className="bp-calendar-editor-actions">
                   <span>משך:</span>
-                  <button type="button" className={brewDuration === 2 ? "active" : ""} disabled={disabled || busy} onClick={() => void resizeSelectedBrew(2)}>2 ימים</button>
-                  <button type="button" className={brewDuration === 3 ? "active" : ""} disabled={disabled || busy} onClick={() => void resizeSelectedBrew(3)}>3 ימים</button>
+                  <button type="button" className={brewDuration === 2 ? "active" : ""} disabled={disabled || busy} onClick={() => void resizeSelectedBrewGroup(2)}>2 ימים</button>
+                  <button type="button" className={brewDuration === 3 ? "active" : ""} disabled={disabled || busy} onClick={() => void resizeSelectedBrewGroup(3)}>3 ימים</button>
                 </div>
               </>
             )}
@@ -682,7 +706,7 @@ export default function PlanningFiveWeekOverview({
             <label className="bp-calendar-note-field">
               טקסט / הערה ביומן
               <textarea
-                key={`${selected.kind}:${selected.weekId}:${selected.kind === "brew" ? selected.brewId : selected.kind === "custom" ? selected.eventId : selected.runIndex}:${selectedNote}`}
+                key={`${selected.kind}:${selected.weekId}:${selected.kind === "custom" ? selected.eventId : selected.kind === "packaging" ? selected.runIndex : "group"}:${selectedNote}`}
                 defaultValue={selectedNote}
                 placeholder="אפשר להוסיף כאן הערה שתופיע בתוך האירוע"
                 onBlur={(event) => { if (event.target.value !== selectedNote) void saveSelectedNote(event.target.value); }}
