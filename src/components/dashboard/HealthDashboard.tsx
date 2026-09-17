@@ -4,6 +4,7 @@ import {
     calcCelleringRecomendations,
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
 import {
     getMeasurementsByBatch,
     MEASUREMENTS_UPDATED_EVENT,
@@ -118,12 +119,16 @@ function isInFermentationMeasurementGracePeriod(
     return elapsedMs >= 0 && elapsedMs < FERMENTATION_MEASUREMENT_GRACE_MS;
 }
 
-function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRecomendations>>): Recommendation[] {
-    if (!result) return [];
+function activeRecommendations(
+    result: Awaited<ReturnType<typeof calcCelleringRecomendations>>,
+    extras: Recommendation[] = []
+): Recommendation[] {
+    if (!result) return extras.filter(isActionableHealthRecommendation);
 
     // The index is deliberately an "act today" surface. Future hints stay in
     // the detailed cellar recommendation view and do not reduce today's score.
     const candidates: Array<Recommendation | undefined | null> = [
+        ...extras,
         result.requiresDryHop,
         result.requiresPresureClose,
         result.requiresWarmYeastDrop,
@@ -281,8 +286,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             true,
                             brews
                         );
+                        const bottomCarb = tank.stage.name === "קר"
+                            ? bottomCarbonationRecommendation(measurements)
+                            : null;
 
-                        activeRecommendations(recommendations).forEach((recommendation, index) => {
+                        activeRecommendations(
+                            recommendations,
+                            bottomCarb ? [bottomCarb] : []
+                        ).forEach((recommendation, index) => {
                             const importance = Math.max(1, Math.min(3, Number(recommendation.importance) || 1));
                             scoreRecommendations.push({ importance });
                             tankAlerts.push({
