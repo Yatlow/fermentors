@@ -139,7 +139,6 @@ export default function PlanningFiveWeekOverview({
     [currentWeek],
   );
   const nextPlanningWeek = addDays(currentWeek, 7);
-  const rangeStart = weekIds[0];
 
   const [eventDraft, setEventDraft] = useState<EventDraft>(() => ({
     title: "",
@@ -347,16 +346,18 @@ export default function PlanningFiveWeekOverview({
     return { events, laneCount: laneEnds.length };
   }
 
-  async function updatePlan(weekId: string, updater: (plan: ExtendedPlan) => ExtendedPlan) {
-    if (disabled || busy) return;
+  async function updatePlan(weekId: string, updater: (plan: ExtendedPlan) => ExtendedPlan): Promise<boolean> {
+    if (disabled || busy) return false;
     const existing = planFor(weekId) ?? ({ ...emptyWeek(weekId), maxRuns: settings.preferredRuns } as ExtendedPlan);
     setBusy(true);
     setMessage("");
     try {
       await saveWeek(updater(existing) as WeekPlan);
       setMessage("נשמר");
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "השמירה נכשלה");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -366,7 +367,7 @@ export default function PlanningFiveWeekOverview({
     if (!eventDraft.title.trim()) return setMessage("יש להזין שם לאירוע");
     if (eventDraft.endDate < eventDraft.startDate) return setMessage("תאריך הסיום חייב להיות אחרי תאריך ההתחלה");
     const weekId = weekStart(eventDraft.startDate);
-    await updatePlan(weekId, (plan) => ({
+    const saved = await updatePlan(weekId, (plan) => ({
       ...plan,
       calendarEvents: [...(plan.calendarEvents ?? []), {
         id: crypto.randomUUID(),
@@ -378,6 +379,7 @@ export default function PlanningFiveWeekOverview({
       }],
       changeReason: "הוספת אירוע ללוח 5 שבועות",
     }));
+    if (!saved) return;
     setShowEventForm(false);
     setEventDraft({ title: "", startDate: nextPlanningWeek, endDate: nextPlanningWeek, note: "" });
   }
