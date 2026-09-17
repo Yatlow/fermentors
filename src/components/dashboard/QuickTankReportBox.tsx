@@ -16,6 +16,12 @@ import {
     isValidHopAa,
     buildDryHopNoteText,
 } from "../../SERVICES/cellering/dryHopLogic";
+import {
+    DEFAULT_BOTTOM_CARBONATION_PRESSURE,
+    buildBottomCarbonationCloseNote,
+    buildBottomCarbonationStartNote,
+    formatClockTime,
+} from "../../SERVICES/cellering/bottomCarbonation";
 import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurrentDataToFirestore";
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
@@ -30,6 +36,8 @@ type QuickTankReportBoxProps = {
 const NOTE_TYPES = [
     { value: "סגירת מיכל", label: "סגירת מיכל", stage: "warm" },
     { value: "גיזוז", label: "בדיקת גיזוז", stage: "cold" },
+    { value: "גיזוז מלמטה התחלה", label: "תחילת גיזוז מלמטה", stage: "cold" },
+    { value: "גיזוז מלמטה סגירה", label: "סגירת גיזוז מלמטה", stage: "cold" },
     { value: "שמרים", label: "הורדת שמרים", stage: "both" },
     { value: "לחץ", label: "שינוי לחץ", stage: "both" },
     { value: "פורק", label: "כיוון פורק", stage: "warm" },
@@ -114,6 +122,10 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             case "לחץ": return (direction === "" || value === "") ? null : `${direction} לחץ ל: ${value} bar`;
             case "פורק": return value === "" ? null : `כיוון פורק ל: ${value} bar`;
             case "סגירת מיכל": return value === "" ? null : `סגירת נשם, כיוון פורק ל ${value}`;
+            case "גיזוז מלמטה התחלה":
+                return value === "" || value2 === "" ? null : buildBottomCarbonationStartNote(value, value2);
+            case "גיזוז מלמטה סגירה":
+                return value === "" || value2 === "" ? null : buildBottomCarbonationCloseNote(value, value2);
             case "דיאציטיל": return "חימום מיכל ל14° למנוחת דיאציטיל";
             case "קירור": return "קירור מיכל ל0.3°";
             case "אחר": return value === "" ? null : value;
@@ -131,8 +143,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 const pressure = getClosingPressureForStyle(tank.beerStyle, specs);
                 if (pressure === null) return null;
 
-                // aa is deliberately kept out of the fermentation note. It is
-                // written only to column B of the hops table in the brew sheet.
                 return buildDryHopNoteText(grams, hopType, pressure);
             }
             default: return null;
@@ -173,6 +183,9 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             notes: noteText,
         };
         if (noteType === "גיזוז") reading.carbonation = value;
+        if (noteType === "גיזוז מלמטה התחלה" || noteType === "גיזוז מלמטה סגירה") {
+            reading.pressure = Number(value);
+        }
 
         try {
             const res = await writeReadingsToSheets([reading]);
@@ -192,9 +205,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                         );
                     } catch (err) {
                         console.error("Failed to assign dry hop to hops table", err);
-                        // The fermentation note is already written at this point.
-                        // Surface a warning and do not invite an automatic retry that
-                        // could duplicate the note.
                         await pushCurrentDataToFirestore([{
                             ...reading,
                             sheetResult: res.find((r) => r.success)?.result,
@@ -385,6 +395,18 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                                     if (newType === "סגירת מיכל" && closingPressure !== null) {
                                         setValue(String(closingPressure));
                                     }
+                                    if (newType === "גיזוז מלמטה התחלה") {
+                                        setValue(String(DEFAULT_BOTTOM_CARBONATION_PRESSURE));
+                                        setValue2(formatClockTime());
+                                    }
+                                    if (newType === "גיזוז מלמטה סגירה") {
+                                        setValue(
+                                            tank.currentData?.pressure !== undefined && tank.currentData?.pressure !== null
+                                                ? String(tank.currentData.pressure)
+                                                : ""
+                                        );
+                                        setValue2(formatClockTime());
+                                    }
 
                                     if (newType === "דרייהופ" && specs) {
                                         const category = getDryHopStyleCategory(tank.beerStyle);
@@ -428,6 +450,28 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                             {noteType === "גיזוז" && (
                                 <input type="number" min={0} max={15} placeholder="גיזוז" value={value} disabled={isSending}
                                     onChange={(e) => setValue(e.target.value)} />
+                            )}
+
+                            {(noteType === "גיזוז מלמטה התחלה" || noteType === "גיזוז מלמטה סגירה") && (
+                                <div className="quickReportInline">
+                                    <span>{noteType === "גיזוז מלמטה התחלה" ? "לחץ" : "לחץ בסגירה"}</span>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        min={0}
+                                        value={value}
+                                        disabled={isSending}
+                                        onChange={(e) => setValue(e.target.value)}
+                                    />
+                                    <span>bar</span>
+                                    <span>שעה</span>
+                                    <input
+                                        type="time"
+                                        value={value2}
+                                        disabled={isSending}
+                                        onChange={(e) => setValue2(e.target.value)}
+                                    />
+                                </div>
                             )}
 
                             {noteType === "שמרים" && (
