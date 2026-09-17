@@ -90,9 +90,14 @@ const DAY_NAMES = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 const MIN_ZOOM = 0.32;
 const MAX_ZOOM = 1.55;
 const BASE_CALENDAR_WIDTH = 1050;
+const CRATE_LITERS = 24 * 0.33;
+const KEG_LITERS = 20;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const minDate = (a: string, b: string) => (a < b ? a : b);
 const maxDate = (a: string, b: string) => (a > b ? a : b);
+const formatLiters = (liters: number) => `${Math.round(liters).toLocaleString("he-IL")} ל׳`;
+const packagingLiters = (quantity: number, type: "crates" | "kegs") =>
+  quantity * (type === "crates" ? CRATE_LITERS : KEG_LITERS);
 
 function sizeMultiplier(label: ReturnType<typeof brewSizeLabel>) {
   if (label === "משולש") return 3;
@@ -190,6 +195,24 @@ export default function PlanningFiveWeekOverview({
     return sizeMultiplier(brewSizeLabel(brew.liters, number));
   }
 
+  function weeklyProductionTotals(weekId: string) {
+    const plan = planFor(weekId);
+    if (!plan) return { packaging: 0, brewing: 0 };
+
+    const packaging = plan.packaging.reduce((sum, run) => {
+      const product = productFor(run.productId);
+      if (!product || run.quantity <= 0) return sum;
+      return sum + packagingLiters(run.quantity, product.type);
+    }, 0);
+
+    const brewing = plan.brews.reduce((sum, brew) => {
+      const liters = Number(brew.liters);
+      return sum + (Number.isFinite(liters) && liters > 0 ? liters : 0);
+    }, 0);
+
+    return { packaging, brewing };
+  }
+
   function shipmentSummary(weekId: string): CompactItem[] {
     const plan = planFor(weekId);
     if (!plan?.deliveries?.length) return [];
@@ -213,7 +236,7 @@ export default function PlanningFiveWeekOverview({
   function packagingSummary(weekId: string): CompactItem[] {
     const plan = planFor(weekId);
     if (!plan) return [];
-    const grouped = new Map<string, { style: string; type: "crates" | "kegs"; quantity: number; pending: number; tanks: Set<string> }>();
+    const grouped = new Map<string, { style: string; type: "crates" | "kegs"; quantity: number; liters: number; pending: number; tanks: Set<string> }>();
     for (const run of plan.packaging.filter((item) => item.quantity > 0)) {
       const product = productFor(run.productId);
       if (!product) continue;
@@ -223,10 +246,12 @@ export default function PlanningFiveWeekOverview({
         style: displayStyle(product.style),
         type: product.type,
         quantity: 0,
+        liters: 0,
         pending: 0,
         tanks: new Set<string>(),
       };
       item.quantity += run.quantity;
+      item.liters += packagingLiters(run.quantity, product.type);
       item.tanks.add(number);
       if (!run.date) item.pending += 1;
       grouped.set(key, item);
@@ -234,7 +259,7 @@ export default function PlanningFiveWeekOverview({
     return Array.from(grouped.entries()).map(([key, item]) => ({
       key,
       title: `הורדת ${item.style} · מיכל ${Array.from(item.tanks).join(", ")}`,
-      meta: `${Math.round(item.quantity)} ${item.type === "crates" ? "ארגזים" : "חביות"}`,
+      meta: `${Math.round(item.quantity)} ${item.type === "crates" ? "ארגזים" : "חביות"} · ${formatLiters(item.liters)}`,
       pending: item.pending > 0 && weekId > currentWeek,
       styleClass: beerStyleClass(item.style).className,
     }));
@@ -243,18 +268,20 @@ export default function PlanningFiveWeekOverview({
   function brewSummary(weekId: string): CompactItem[] {
     const plan = planFor(weekId);
     if (!plan) return [];
-    const grouped = new Map<string, { count: number; pending: number }>();
+    const grouped = new Map<string, { count: number; liters: number; pending: number }>();
     for (const brew of plan.brews) {
       const style = displayStyle(brew.style);
-      const item = grouped.get(style) ?? { count: 0, pending: 0 };
+      const item = grouped.get(style) ?? { count: 0, liters: 0, pending: 0 };
       item.count += brewCount(plan, brew);
+      const liters = Number(brew.liters);
+      if (Number.isFinite(liters) && liters > 0) item.liters += liters;
       if (!brew.tankId) item.pending += 1;
       grouped.set(style, item);
     }
     return Array.from(grouped.entries()).map(([style, item]) => ({
       key: style,
       title: style,
-      meta: `${item.count} ${item.count === 1 ? "בישול" : "בישולים"}`,
+      meta: `${item.count} ${item.count === 1 ? "בישול" : "בישולים"} · ${formatLiters(item.liters)}`,
       pending: item.pending > 0 && weekId > currentWeek,
       styleClass: beerStyleClass(style).className,
     }));
@@ -584,14 +611,20 @@ export default function PlanningFiveWeekOverview({
         <div className="bp-five-week-scroll">
           <div className="bp-five-week-grid" role="table" aria-label="תכנון לחמישה שבועות">
             <div className="bp-five-week-corner" />
-            {weekIds.map((weekId) => (
-              <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
-                <b>שבוע {weekNumber(weekId)}</b>
-                <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
-                {weekId === currentWeek && <small>השבוע</small>}
-                {weekId === nextPlanningWeek && <small>שבוע התכנון הבא</small>}
-              </div>
-            ))}
+            {weekIds.map((weekId) => {
+              const totals = weeklyProductionTotals(weekId);
+              return (
+                <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
+                  <b>שבוע {weekNumber(weekId)}</b>
+                  <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
+                  {(totals.packaging > 0 || totals.brewing > 0) && (
+                    <small>{`אריזה ${formatLiters(totals.packaging)} · בישול ${formatLiters(totals.brewing)}`}</small>
+                  )}
+                  {weekId === currentWeek && <small>השבוע</small>}
+                  {weekId === nextPlanningWeek && <small>שבוע התכנון הבא</small>}
+                </div>
+              );
+            })}
             {ROWS.map((row) => (
               <Fragment key={row.id}>
                 <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
