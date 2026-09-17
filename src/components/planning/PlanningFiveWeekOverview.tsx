@@ -4,6 +4,7 @@ import {
   addDays,
   daysBetween,
   emptyWeek,
+  sameStyle,
   weekNumber,
   weekStart,
   type Holiday,
@@ -185,6 +186,59 @@ export default function PlanningFiveWeekOverview({
     return tentativeTankMap(plan).get(brew.id);
   }
 
+  function tentativePackagingTankMap(plan: ExtendedPlan) {
+    const result = new Map<string, string>();
+    const usedLiters = new Map<string, number>();
+    const runKey = (run: WeekPlan["packaging"][number], index: number) => String(run.id ?? index);
+
+    plan.packaging.forEach((run, index) => {
+      const product = productFor(run.productId);
+      if (!product || run.quantity <= 0) return;
+      const explicitTankId = run.tankId || tanks.find((tank) => String(tank.number) === String(run.tankNumber ?? ""))?.id;
+      if (!explicitTankId) return;
+      result.set(runKey(run, index), explicitTankId);
+      usedLiters.set(
+        explicitTankId,
+        (usedLiters.get(explicitTankId) ?? 0) + packagingLiters(run.quantity, product.type),
+      );
+    });
+
+    plan.packaging.forEach((run, index) => {
+      const key = runKey(run, index);
+      if (result.has(key) || run.quantity <= 0) return;
+      const product = productFor(run.productId);
+      if (!product) return;
+      const needed = packagingLiters(run.quantity, product.type);
+      const targetDate = run.date ?? addDays(plan.id, 6);
+      const candidate = tanks
+        .filter((tank) =>
+          tank.ready <= targetDate &&
+          sameStyle(tank.style, product.style) &&
+          Math.max(0, tank.liters - (usedLiters.get(tank.id) ?? 0)) >= needed
+        )
+        .sort((a, b) => a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number))[0];
+      if (!candidate) return;
+      result.set(key, candidate.id);
+      usedLiters.set(candidate.id, (usedLiters.get(candidate.id) ?? 0) + needed);
+    });
+
+    return result;
+  }
+
+  function resolvedPackagingTank(plan: ExtendedPlan, run: WeekPlan["packaging"][number], runIndex: number) {
+    const explicit = run.tankId || tanks.find((tank) => String(tank.number) === String(run.tankNumber ?? ""))?.id;
+    if (explicit) return { number: tankNumber(explicit, run.tankNumber), tentative: false };
+    const candidate = tentativePackagingTankMap(plan).get(String(run.id ?? runIndex));
+    return candidate
+      ? { number: tankNumber(candidate), tentative: true }
+      : { number: "?", tentative: false };
+  }
+
+  function packagingTankLabel(plan: ExtendedPlan, run: WeekPlan["packaging"][number], runIndex: number) {
+    const resolved = resolvedPackagingTank(plan, run, runIndex);
+    return resolved.tentative ? `${resolved.number} (מוצע)` : String(resolved.number);
+  }
+
   function brewEndDate(brew: ExtendedBrew) {
     return brew.endDate && brew.endDate >= brew.date ? brew.endDate : addDays(brew.date, 2);
   }
@@ -237,10 +291,10 @@ export default function PlanningFiveWeekOverview({
     const plan = planFor(weekId);
     if (!plan) return [];
     const grouped = new Map<string, { style: string; type: "crates" | "kegs"; quantity: number; liters: number; pending: number; tanks: Set<string> }>();
-    for (const run of plan.packaging.filter((item) => item.quantity > 0)) {
+    plan.packaging.filter((item) => item.quantity > 0).forEach((run, runIndex) => {
       const product = productFor(run.productId);
-      if (!product) continue;
-      const number = String(tankNumber(run.tankId, run.tankNumber));
+      if (!product) return;
+      const number = packagingTankLabel(plan, run, runIndex);
       const key = `${run.productId}:${number}`;
       const item = grouped.get(key) ?? {
         style: displayStyle(product.style),
@@ -255,7 +309,7 @@ export default function PlanningFiveWeekOverview({
       item.tanks.add(number);
       if (!run.date) item.pending += 1;
       grouped.set(key, item);
-    }
+    });
     return Array.from(grouped.entries()).map(([key, item]) => ({
       key,
       title: `הורדת ${item.style} · מיכל ${Array.from(item.tanks).join(", ")}`,
@@ -308,7 +362,7 @@ export default function PlanningFiveWeekOverview({
         if (run.quantity <= 0 || run.date !== date) return;
         const product = productFor(run.productId);
         const style = product ? displayStyle(product.style) : run.productId;
-        const number = tankNumber(run.tankId, run.tankNumber);
+        const number = packagingTankLabel(plan, run, runIndex);
         const quantityLabel = product?.type === "crates" ? "ארגזים" : "חביות";
         const noteKey = `pack:${run.id ?? runIndex}`;
         events.push({
@@ -556,11 +610,12 @@ export default function PlanningFiveWeekOverview({
     : custom?.note ?? selectedPackagingNote();
   const selectedTitle = selected?.kind === "brewGroup" && selectedPlanValue
     ? brewGroupLabel(selectedPlanValue)
-    : packaging
+    : packaging && selectedPlanValue && selected?.kind === "packaging"
       ? (() => {
           const product = productFor(packaging.productId);
           const style = product ? displayStyle(product.style) : packaging.productId;
-          return `הורדת ${style} מיכל ${tankNumber(packaging.tankId, packaging.tankNumber)} ל־${Math.round(packaging.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"}`;
+          const number = packagingTankLabel(selectedPlanValue, packaging, selected.runIndex);
+          return `הורדת ${style} מיכל ${number} ל־${Math.round(packaging.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"}`;
         })()
       : custom?.title ?? "אירוע";
   const selectedDates = selectedBrewRange
