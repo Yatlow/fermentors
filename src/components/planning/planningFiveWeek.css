@@ -288,6 +288,7 @@
 .bp-month-event > small,
 .bp-span-event > small { font-size: .44rem; opacity: .76; }
 .bp-month-event:disabled { cursor: default; opacity: 1; }
+.bp-month-event.is-packaging { background: #dcfce7; color: #166534; border-color: #86efac; }
 .bp-month-event.is-holiday { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
 .bp-month-event.is-selected,
 .bp-span-event.is-selected { box-shadow: inset 0 0 0 2px #2563eb, 0 0 0 1px #fff; }
@@ -314,6 +315,11 @@
   pointer-events: auto;
   white-space: nowrap;
 }
+.bp-span-event.is-brewGroup {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
 .bp-span-event.is-custom {
   background: #e2e8f0;
   color: #334155;
@@ -321,7 +327,7 @@
 }
 .bp-span-event.is-pending { border-style: dashed; }
 
-/* Beer-style colors are intentionally inherited from src/beerStyles.css. */
+/* Weekly summary keeps the app's beer-style colors; calendar uses operation colors. */
 
 .bp-calendar-editor {
   display: grid;
