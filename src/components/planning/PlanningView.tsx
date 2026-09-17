@@ -169,7 +169,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
           <PlanningFiveWeekOverview
             settings={calendarSettings}
-            plans={weeklyPlans}
+            plans={plans}
             tanks={tanks}
             holidays={holidays}
             today={today}
