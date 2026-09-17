@@ -59,6 +59,16 @@ type CalendarEventDoc = {
 
 /** actionType בקולקציית calendar_events שמייצג אירוע אריזה/הורדה עתידית */
 const PACKAGING_ACTION_TYPE = ["הורדה", "סיום", "ביקבוק"];
+const PLANNED_PACKAGING_CACHE_MS = 60 * 1000;
+
+type PlannedPackagingCache = {
+    key: string;
+    loadedAt: number;
+    data?: number[];
+    pending?: Promise<number[]>;
+};
+
+let plannedPackagingCache: PlannedPackagingCache | null = null;
 
 // ============================================================
 // DATE HELPERS
@@ -251,30 +261,63 @@ export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
     const currentWeekStart = getWeekStart(new Date());
     const nextWeekStart = addDays(currentWeekStart, 7);
     const nextWeekEnd = toEndOfDay(addDays(nextWeekStart, 6));
+    const key = `${nextWeekStart.getTime()}-${nextWeekEnd.getTime()}`;
+    const now = Date.now();
 
-    const snapshot = await getDocs(
-        query(
-            collection(db, "calendar_events"),
-            where("actionType", "in", PACKAGING_ACTION_TYPE),
-            where("timestamp", ">=", nextWeekStart.getTime()),
-            where("timestamp", "<=", nextWeekEnd.getTime()),
-            orderBy("timestamp", "asc")
-        )
-    );
+    if (
+        plannedPackagingCache?.key === key &&
+        plannedPackagingCache.data &&
+        now - plannedPackagingCache.loadedAt < PLANNED_PACKAGING_CACHE_MS
+    ) {
+        return [...plannedPackagingCache.data];
+    }
 
-    const tankNumbers = snapshot.docs
-        .map((doc) => {
-            const data = doc.data() as CalendarEventDoc;
+    if (plannedPackagingCache?.key === key && plannedPackagingCache.pending) {
+        return [...await plannedPackagingCache.pending];
+    }
 
-            return data.tankNumber;
-        })
-        .filter(
-            (tankNumber): tankNumber is number =>
-                typeof tankNumber === "number"
+    const pending = (async () => {
+        const snapshot = await getDocs(
+            query(
+                collection(db, "calendar_events"),
+                where("actionType", "in", PACKAGING_ACTION_TYPE),
+                where("timestamp", ">=", nextWeekStart.getTime()),
+                where("timestamp", "<=", nextWeekEnd.getTime()),
+                orderBy("timestamp", "asc")
+            )
         );
 
-    // הסרת כפילויות
-    return [...new Set(tankNumbers)];
+        const tankNumbers = snapshot.docs
+            .map((doc) => {
+                const data = doc.data() as CalendarEventDoc;
+                return data.tankNumber;
+            })
+            .filter(
+                (tankNumber): tankNumber is number =>
+                    typeof tankNumber === "number"
+            );
+
+        return [...new Set(tankNumbers)];
+    })();
+
+    plannedPackagingCache = {
+        key,
+        loadedAt: now,
+        pending,
+    };
+
+    try {
+        const data = await pending;
+        plannedPackagingCache = {
+            key,
+            loadedAt: Date.now(),
+            data,
+        };
+        return [...data];
+    } catch (error) {
+        if (plannedPackagingCache?.key === key) plannedPackagingCache = null;
+        throw error;
+    }
 }
 
 function formatISODateToDDMMYYYY(iso: string): string {
