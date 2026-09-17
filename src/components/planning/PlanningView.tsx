@@ -58,7 +58,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   const pendingDailyWork = useMemo(() => {
     const nextWeekId = addDays(weekStart(today), 7);
-    const nextWeek = executionPlans.find((plan) => plan.id === nextWeekId);
+    const nextWeek = plans.find((plan) => plan.id === nextWeekId);
     const brewsToAssign = nextWeek?.brews.filter((brew) => !brew.tankId).length ?? 0;
     const packagingToAssign = nextWeek?.packaging.filter((run) => run.quantity > 0 && !run.date).length ?? 0;
     return {
@@ -66,43 +66,39 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       packaging: packagingToAssign,
       total: brewsToAssign + packagingToAssign,
     };
-  }, [executionPlans, today]);
+  }, [plans, today]);
 
   useEffect(() => {
-    let applying = false;
-
     const applyBadge = () => {
-      if (applying) return;
-      applying = true;
-      try {
-        const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
-        const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-          .find((item) => item.textContent?.includes("לוח עבודה יומי"));
-        if (!button) return;
+      const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
+      const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((item) => item.textContent?.includes("לוח עבודה יומי"));
+      if (!button) return;
 
-        if (pendingDailyWork.total > 0) {
-          const badge = String(pendingDailyWork.total);
-          const title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`;
-          const aria = `לוח עבודה יומי, ${title}`;
-          if (button.dataset.planningBadge !== badge) button.dataset.planningBadge = badge;
-          if (button.title !== title) button.title = title;
-          if (button.getAttribute("aria-label") !== aria) button.setAttribute("aria-label", aria);
-        } else {
-          if (button.dataset.planningBadge) delete button.dataset.planningBadge;
-          if (button.title) button.removeAttribute("title");
-          if (button.getAttribute("aria-label") !== "לוח עבודה יומי") button.setAttribute("aria-label", "לוח עבודה יומי");
-        }
-      } finally {
-        applying = false;
+      if (pendingDailyWork.total > 0) {
+        button.dataset.planningBadge = String(pendingDailyWork.total);
+        button.title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`;
+        button.setAttribute(
+          "aria-label",
+          `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ`,
+        );
+      } else {
+        delete button.dataset.planningBadge;
+        button.removeAttribute("title");
+        button.setAttribute("aria-label", "לוח עבודה יומי");
       }
     };
 
     applyBadge();
     const header = document.querySelector(".dashboard-header");
-    const observer = new MutationObserver(() => queueMicrotask(applyBadge));
-    if (header) observer.observe(header, { childList: true, subtree: true });
+    const observer = new MutationObserver(() => requestAnimationFrame(applyBadge));
+    if (header) observer.observe(header, { childList: true, subtree: true, attributes: true });
+    const interval = window.setInterval(applyBadge, 1500);
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.clearInterval(interval);
+    };
   }, [pendingDailyWork.brews, pendingDailyWork.packaging, pendingDailyWork.total]);
 
   async function saveSettings(next: Settings) {
@@ -162,12 +158,18 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
           />
         </>}
 
-        {tab === "fiveWeeks" && <PlanningFiveWeekOverview
-          settings={calendarSettings}
-          plans={weeklyPlans}
-          tanks={tanks}
-          today={today}
-        />}
+        {tab === "fiveWeeks" && <>
+          {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
+          <PlanningFiveWeekOverview
+            settings={calendarSettings}
+            plans={weeklyPlans}
+            tanks={tanks}
+            holidays={holidays}
+            today={today}
+            disabled={disabled}
+            saveWeek={saveWeeklyPlan}
+          />
+        </>}
 
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
