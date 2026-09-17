@@ -24,13 +24,11 @@ export function buildBottomCarbonationCloseNote(
 }
 
 export function isBottomCarbonationStartNote(note: unknown): boolean {
-    const text = String(note ?? "");
-    return text.includes("תחילת גיזוז מלמטה");
+    return String(note ?? "").includes("תחילת גיזוז מלמטה");
 }
 
 export function isBottomCarbonationCloseNote(note: unknown): boolean {
-    const text = String(note ?? "");
-    return text.includes("סגירת גיזוז מלמטה");
+    return String(note ?? "").includes("סגירת גיזוז מלמטה");
 }
 
 export function findOpenBottomCarbonation(
