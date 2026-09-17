@@ -6,6 +6,7 @@ import {
     calcCelleringRecomendations,
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import { findOpenBottomCarbonation } from "../../SERVICES/cellering/bottomCarbonation";
 import { getBrewAge } from "./TankCard";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 
@@ -150,30 +151,42 @@ export default function FermentorInfoBox({
         brewAge,
     ]);
 
-    const recommendationList: Recommendation[] = recomendations
-        ? [
-            recomendations.lastMessurmentUpToDate,
-            recomendations.requiresDryHop,
-            recomendations.requiresPresureClose,
-            recomendations.requiresWarmYeastDrop,
-            recomendations.requiersYeastDropAfterCooling,
-            recomendations.requiresCarbTest,
-            recomendations.requiersDiacytelRest,
-            recomendations.neglectedStatus,
-            recomendations.requiresToCoolDown,
-            recomendations.requiredPressureAdjustment,
-            recomendations.requiresWarmYeastDropCompletion,
-            recomendations.requiresColdYeastDropCompletion,
-            recomendations.requiiersWedYeastDropOnThus,
-        ]
-            .filter(Boolean)
-            .map((rec) => ({
-                req: Boolean(rec.req),
-                reason: rec.reason,
-                importance: rec.importance,
+    const openBottomCarbonation = findOpenBottomCarbonation(measurements);
+
+    const recommendationList: Recommendation[] = [
+        ...(recomendations
+            ? [
+                recomendations.lastMessurmentUpToDate,
+                recomendations.requiresDryHop,
+                recomendations.requiresPresureClose,
+                recomendations.requiresWarmYeastDrop,
+                recomendations.requiersYeastDropAfterCooling,
+                recomendations.requiresCarbTest,
+                recomendations.requiersDiacytelRest,
+                recomendations.neglectedStatus,
+                recomendations.requiresToCoolDown,
+                recomendations.requiredPressureAdjustment,
+                recomendations.requiresWarmYeastDropCompletion,
+                recomendations.requiresColdYeastDropCompletion,
+                recomendations.requiiersWedYeastDropOnThus,
+            ]
+                .filter(Boolean)
+                .map((rec) => ({
+                    req: Boolean(rec.req),
+                    reason: rec.reason,
+                    importance: rec.importance,
+                    display: true,
+                }))
+            : []),
+        ...(openBottomCarbonation && tank.stage?.name === "קר"
+            ? [{
+                req: true,
+                reason: "גיזוז מלמטה עדיין פתוח — מומלץ לסגור ולדווח שעת סגירה ולחץ.",
+                importance: 2,
                 display: true,
-            }))
-        : [];
+            }]
+            : []),
+    ];
 
     const activeRecommendations = recommendationList
         .filter((rec) => rec.req)

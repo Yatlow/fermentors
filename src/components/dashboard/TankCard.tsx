@@ -913,7 +913,7 @@ function TankCard({
 
   const daysRemaining =
     daysSincePasivation !== null
-      ? (tank.tankNumber === "1" ? 180 : 90) -
+      ? (tank.tankNumber === "1" ? 180 : 80) -
       daysSincePasivation
       : null;
 

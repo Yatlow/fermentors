@@ -44,12 +44,13 @@ export default function CoolerUndoControl() {
             return;
         }
 
-        startCoolerUndoRecorder();
+        const releaseRecorder = startCoolerUndoRecorder();
         const unsubscribeUndo = subscribeToCoolerUndoCount(setUndoCount);
         const unsubscribeRedo = subscribeToCoolerRedoCount(setRedoCount);
         return () => {
             unsubscribeUndo();
             unsubscribeRedo();
+            releaseRecorder();
         };
     }, [visible]);
 

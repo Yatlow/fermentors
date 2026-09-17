@@ -9,6 +9,8 @@ import {
     query,
     runTransaction,
     serverTimestamp,
+    setDoc,
+    where,
     type DocumentData,
     type Timestamp,
 } from "firebase/firestore";
@@ -17,6 +19,13 @@ import type { CoolerCell, PalletZone } from "./Pallettypes ";
 
 const HISTORY_COLLECTION = "coolerUndoHistory";
 const HISTORY_LIMIT = 10;
+const HISTORY_TRIM_EVERY = 20;
+const ACTIVE_PALLET_ZONES: PalletZone[] = [
+    "cooler",
+    "pending",
+    "bottleRoom",
+    "loadingDock",
+];
 
 type PalletLocationSnapshot = {
     id: string;
@@ -42,9 +51,16 @@ type UndoHistoryDocument = {
     undoneAt?: unknown;
 };
 
-let recorderStarted = false;
+let recorderUsers = 0;
+let recorderUnsubscribe: (() => void) | null = null;
 let initialSnapshotSeen = false;
 let previousLocations = new Map<string, PalletLocationSnapshot>();
+let recordsSinceTrim = 0;
+
+// Undo is performed by this client. Keep the expected target locations in memory
+// so the recorder can recognize that replay without querying the last 10 history
+// documents for every normal pallet move.
+const suppressedRecorderTargets = new Map<string, PalletLocationSnapshot>();
 
 function nullableNumber(value: unknown): number | null {
     if (value === null || value === undefined || value === "") return null;
@@ -101,13 +117,6 @@ function sortedSnapshots(items: PalletLocationSnapshot[]): PalletLocationSnapsho
     return [...items].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function sameSnapshotSet(a: PalletLocationSnapshot[], b: PalletLocationSnapshot[]): boolean {
-    if (a.length !== b.length) return false;
-    const left = sortedSnapshots(a);
-    const right = sortedSnapshots(b);
-    return left.every((item, index) => sameLocation(item, right[index]));
-}
-
 function stableSnapshotText(items: PalletLocationSnapshot[]): string {
     return JSON.stringify(sortedSnapshots(items));
 }
@@ -161,32 +170,31 @@ function inferLabel(changes: LocationChange[]): string {
     return `שינוי מיקום ${changes.length} משטחים`;
 }
 
-async function isUndoReplay(changes: LocationChange[]): Promise<boolean> {
-    const recent = await getDocs(query(
-        collection(db, HISTORY_COLLECTION),
-        orderBy("createdAtMs", "desc"),
-        limit(HISTORY_LIMIT),
-    ));
+function isSuppressedReplay(after: PalletLocationSnapshot): boolean {
+    const expected = suppressedRecorderTargets.get(after.id);
+    if (!expected) return false;
 
-    const observedBefore = changes.map((change) => change.before);
-    const observedAfter = changes.map((change) => change.after);
-
-    return recent.docs.some((snapshot) => {
-        const data = snapshot.data() as UndoHistoryDocument;
-        return Boolean(data.undoneAt) &&
-            sameSnapshotSet(data.after ?? [], observedBefore) &&
-            sameSnapshotSet(data.before ?? [], observedAfter);
-    });
+    // Consume the marker either way. If the pallet did not arrive at the expected
+    // undo target, it is a real later move and must be recorded normally.
+    suppressedRecorderTargets.delete(after.id);
+    return sameLocation(expected, after);
 }
 
 async function trimHistory(): Promise<void> {
     const snapshot = await getDocs(query(
         collection(db, HISTORY_COLLECTION),
         orderBy("createdAtMs", "desc"),
-        limit(HISTORY_LIMIT + 20),
+        limit(HISTORY_LIMIT + HISTORY_TRIM_EVERY),
     ));
 
     await Promise.all(snapshot.docs.slice(HISTORY_LIMIT).map((item) => deleteDoc(item.ref)));
+}
+
+async function maybeTrimHistory(): Promise<void> {
+    recordsSinceTrim += 1;
+    if (recordsSinceTrim < HISTORY_TRIM_EVERY) return;
+    recordsSinceTrim = 0;
+    await trimHistory();
 }
 
 async function persistLocationChange(changes: LocationChange[]): Promise<void> {
@@ -195,69 +203,105 @@ async function persistLocationChange(changes: LocationChange[]): Promise<void> {
         return;
     }
 
-    if (await isUndoReplay(changes)) return;
-
     const before = changes.map((change) => change.before);
     const after = changes.map((change) => change.after);
     const createdAtMs = Math.max(...changes.map((change) => change.updatedAtMs));
     const signature = `${createdAtMs}|${stableSnapshotText(before)}|${stableSnapshotText(after)}`;
     const historyRef = doc(db, HISTORY_COLLECTION, `move-${hashText(signature)}`);
 
-    await runTransaction(db, async (tx) => {
-        const existing = await tx.get(historyRef);
-        if (existing.exists()) return;
-
-        tx.set(historyRef, {
-            label: inferLabel(changes),
-            before,
-            after,
-            createdAtMs,
-            createdAt: serverTimestamp(),
-            createdByUid: auth.currentUser?.uid ?? null,
-        });
+    // The id is deterministic for the observed move, so a direct set is already
+    // idempotent. The old transaction performed an extra Firestore read per move.
+    await setDoc(historyRef, {
+        label: inferLabel(changes),
+        before,
+        after,
+        createdAtMs,
+        createdAt: serverTimestamp(),
+        createdByUid: auth.currentUser?.uid ?? null,
     });
 
-    await trimHistory();
+    // Trimming on every movement used to read up to 30 history documents each
+    // time. Amortize that maintenance instead; UI queries still only expose 10.
+    await maybeTrimHistory();
 }
 
-export function startCoolerUndoRecorder(): void {
-    if (recorderStarted) return;
-    recorderStarted = true;
+function resetRecorderState(): void {
+    initialSnapshotSeen = false;
+    previousLocations = new Map<string, PalletLocationSnapshot>();
+    suppressedRecorderTargets.clear();
+}
 
-    onSnapshot(collection(db, "pallets"), (snapshot) => {
-        if (snapshot.metadata.hasPendingWrites) return;
+/**
+ * Start recording cooler moves while a cooler UI consumer is mounted.
+ * Returns a release function. The old recorder lived for the complete browser
+ * session after the map was opened once, so later planning work kept a second
+ * full pallets listener alive. Reference counting keeps it alive only while a
+ * cooler consumer actually needs undo history.
+ */
+export function startCoolerUndoRecorder(): () => void {
+    recorderUsers += 1;
 
-        const nextLocations = new Map<string, PalletLocationSnapshot>();
-        snapshot.docs.forEach((item) => {
-            nextLocations.set(item.id, locationFromData(item.id, item.data()));
-        });
+    if (!recorderUnsubscribe) {
+        resetRecorderState();
 
-        if (!initialSnapshotSeen) {
+        // Ignore historical shipped pallets. The recorder is interested only in
+        // operational zones where a pallet can still be moved by the cooler UI.
+        const activePalletsQuery = query(
+            collection(db, "pallets"),
+            where("zone", "in", ACTIVE_PALLET_ZONES),
+        );
+
+        recorderUnsubscribe = onSnapshot(activePalletsQuery, (snapshot) => {
+            if (snapshot.metadata.hasPendingWrites) return;
+
+            const nextLocations = new Map<string, PalletLocationSnapshot>();
+            snapshot.docs.forEach((item) => {
+                nextLocations.set(item.id, locationFromData(item.id, item.data()));
+            });
+
+            if (!initialSnapshotSeen) {
+                previousLocations = nextLocations;
+                initialSnapshotSeen = true;
+                return;
+            }
+
+            const changes: LocationChange[] = [];
+            snapshot.docChanges().forEach((change) => {
+                // Entering/leaving the active-zone query is not a move we want to
+                // reconstruct here. Shipped transitions were intentionally excluded
+                // from undo history in the previous implementation as well.
+                if (change.type !== "modified") return;
+                const before = previousLocations.get(change.doc.id);
+                const after = nextLocations.get(change.doc.id);
+                if (!before || !after || sameLocation(before, after)) return;
+                if (isSuppressedReplay(after)) return;
+
+                const updatedAtMs = timestampMillis(change.doc.data().updatedAt) ?? Date.now();
+                changes.push({ before, after, updatedAtMs });
+            });
+
             previousLocations = nextLocations;
-            initialSnapshotSeen = true;
-            return;
-        }
+            if (!changes.length) return;
 
-        const changes: LocationChange[] = [];
-        snapshot.docChanges().forEach((change) => {
-            if (change.type !== "modified") return;
-            const before = previousLocations.get(change.doc.id);
-            const after = nextLocations.get(change.doc.id);
-            if (!before || !after || sameLocation(before, after)) return;
-
-            const updatedAtMs = timestampMillis(change.doc.data().updatedAt) ?? Date.now();
-            changes.push({ before, after, updatedAtMs });
+            void persistLocationChange(changes).catch((error) => {
+                console.error("Failed recording cooler undo history", error);
+            });
+        }, (error) => {
+            console.error("Cooler undo recorder subscription failed", error);
         });
+    }
 
-        previousLocations = nextLocations;
-        if (!changes.length) return;
+    let released = false;
+    return () => {
+        if (released) return;
+        released = true;
+        recorderUsers = Math.max(0, recorderUsers - 1);
+        if (recorderUsers > 0 || !recorderUnsubscribe) return;
 
-        void persistLocationChange(changes).catch((error) => {
-            console.error("Failed recording cooler undo history", error);
-        });
-    }, (error) => {
-        console.error("Cooler undo recorder subscription failed", error);
-    });
+        recorderUnsubscribe();
+        recorderUnsubscribe = null;
+        resetRecorderState();
+    };
 }
 
 export function subscribeToCoolerUndoCount(callback: (count: number) => void): () => void {
@@ -292,40 +336,47 @@ export async function undoLastCoolerMove(): Promise<{ label: string; restoredCou
         throw new Error("היסטוריית הביטול של הפעולה אינה תקינה");
     }
 
-    await runTransaction(db, async (tx) => {
-        const historySnapshot = await tx.get(candidate.ref);
-        if (!historySnapshot.exists() || historySnapshot.data().undoneAt) {
-            throw new Error("הפעולה כבר בוטלה ממכשיר אחר");
-        }
+    before.forEach((target) => suppressedRecorderTargets.set(target.id, target));
 
-        const palletRefs = after.map((item) => doc(db, "pallets", item.id));
-        const palletSnapshots = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
-
-        palletSnapshots.forEach((snapshot, index) => {
-            if (!snapshot.exists()) throw new Error("אחד המשטחים כבר לא קיים ולכן אי אפשר לבטל בבטחה");
-            const current = locationFromData(snapshot.id, snapshot.data());
-            if (!sameLocation(current, after[index])) {
-                throw new Error("אחד המשטחים הוזז מאז הפעולה. הביטול נעצר כדי לא לדרוס שינוי חדש.");
+    try {
+        await runTransaction(db, async (tx) => {
+            const historySnapshot = await tx.get(candidate.ref);
+            if (!historySnapshot.exists() || historySnapshot.data().undoneAt) {
+                throw new Error("הפעולה כבר בוטלה ממכשיר אחר");
             }
-        });
 
-        palletRefs.forEach((ref, index) => {
-            const target = before[index];
-            tx.update(ref, {
-                zone: target.zone,
-                cell: target.cell,
-                slotIndex: target.slotIndex,
-                orderInCell: target.orderInCell,
-                orderInZone: target.orderInZone,
-                updatedAt: serverTimestamp(),
+            const palletRefs = after.map((item) => doc(db, "pallets", item.id));
+            const palletSnapshots = await Promise.all(palletRefs.map((ref) => tx.get(ref)));
+
+            palletSnapshots.forEach((snapshot, index) => {
+                if (!snapshot.exists()) throw new Error("אחד המשטחים כבר לא קיים ולכן אי אפשר לבטל בבטחה");
+                const current = locationFromData(snapshot.id, snapshot.data());
+                if (!sameLocation(current, after[index])) {
+                    throw new Error("אחד המשטחים הוזז מאז הפעולה. הביטול נעצר כדי לא לדרוס שינוי חדש.");
+                }
+            });
+
+            palletRefs.forEach((ref, index) => {
+                const target = before[index];
+                tx.update(ref, {
+                    zone: target.zone,
+                    cell: target.cell,
+                    slotIndex: target.slotIndex,
+                    orderInCell: target.orderInCell,
+                    orderInZone: target.orderInZone,
+                    updatedAt: serverTimestamp(),
+                });
+            });
+
+            tx.update(candidate.ref, {
+                undoneAt: serverTimestamp(),
+                undoneByUid: auth.currentUser?.uid ?? null,
             });
         });
-
-        tx.update(candidate.ref, {
-            undoneAt: serverTimestamp(),
-            undoneByUid: auth.currentUser?.uid ?? null,
-        });
-    });
+    } catch (error) {
+        before.forEach((target) => suppressedRecorderTargets.delete(target.id));
+        throw error;
+    }
 
     return {
         label: data.label || "שינוי מיקום במקרר",

@@ -4,6 +4,7 @@ import {
     calcCelleringRecomendations,
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
 import {
     getMeasurementsByBatch,
     MEASUREMENTS_UPDATED_EVENT,
@@ -58,7 +59,7 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     completeMeasurementTankNumbers: [],
 };
 
-const FERMENTATION_MEASUREMENT_GRACE_MS = 24 * 60 * 60 * 1000;
+const FERMENTATION_MEASUREMENT_GRACE_MS = 12 * 60 * 60 * 1000;
 
 function tankLabel(tank: Fermentor): string {
     return String(tank.tankNumber ?? tank.uid ?? tank.id);
@@ -101,7 +102,7 @@ function timestampToMillis(value: unknown): number | null {
 }
 
 /**
- * During the first 24 hours after the actual "out to fermentor" stage begins,
+ * During the first 12 hours after the actual "out to fermentor" stage begins,
  * the health index has no requirements at all for this tank. If the operator
  * voluntarily records one or more numeric measurements today, the tank joins
  * the completed-round count and each measured field contributes positive score
@@ -118,12 +119,16 @@ function isInFermentationMeasurementGracePeriod(
     return elapsedMs >= 0 && elapsedMs < FERMENTATION_MEASUREMENT_GRACE_MS;
 }
 
-function activeRecommendations(result: Awaited<ReturnType<typeof calcCelleringRecomendations>>): Recommendation[] {
-    if (!result) return [];
+function activeRecommendations(
+    result: Awaited<ReturnType<typeof calcCelleringRecomendations>>,
+    extras: Recommendation[] = []
+): Recommendation[] {
+    if (!result) return extras.filter(isActionableHealthRecommendation);
 
     // The index is deliberately an "act today" surface. Future hints stay in
     // the detailed cellar recommendation view and do not reduce today's score.
     const candidates: Array<Recommendation | undefined | null> = [
+        ...extras,
         result.requiresDryHop,
         result.requiresPresureClose,
         result.requiresWarmYeastDrop,
@@ -281,8 +286,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             true,
                             brews
                         );
+                        const bottomCarb = tank.stage.name === "קר"
+                            ? bottomCarbonationRecommendation(measurements)
+                            : null;
 
-                        activeRecommendations(recommendations).forEach((recommendation, index) => {
+                        activeRecommendations(
+                            recommendations,
+                            bottomCarb ? [bottomCarb] : []
+                        ).forEach((recommendation, index) => {
                             const importance = Math.max(1, Math.min(3, Number(recommendation.importance) || 1));
                             scoreRecommendations.push({ importance });
                             tankAlerts.push({

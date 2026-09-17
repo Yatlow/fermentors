@@ -2,6 +2,7 @@ import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
+import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday } from "../../SERVICES/planning/usePlanning";
 import {
   mergeCompletedDeliveriesBack,
@@ -55,6 +56,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const calendarSettings = useMemo(
     () => settingsAfterActualShipments(settings, data.actualShipments, today),
     [settings, data.actualShipments, today],
+  );
+
+  const fiveWeekPlans = useMemo(
+    () => withTentativeFiveWeekTanks(plans, tanks, calendarSettings),
+    [plans, tanks, calendarSettings],
   );
 
   const pendingDailyWork = useMemo(() => {
@@ -124,7 +130,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         </>}
         {tab === "fiveWeeks" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningFiveWeekOverview settings={calendarSettings} plans={plans} tanks={tanks} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan}/>
+          <PlanningFiveWeekOverview settings={calendarSettings} plans={fiveWeekPlans} tanks={tanks} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan}/>
         </>}
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}

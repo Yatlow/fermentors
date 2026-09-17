@@ -4,6 +4,7 @@ import {
     parseYeastDropAmount,
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import { expandCompoundCellarMeasurements } from "../../SERVICES/cellering/bottomCarbonation";
 import {
     buildBatchTimeline,
     type TimelineEvent,
@@ -22,11 +23,43 @@ function TimelineIcon({ event }: { event: TimelineEvent }) {
     return <>{event.icon}</>;
 }
 
+function bottomCarbonationEvent(event: TimelineEvent): TimelineEvent {
+    const note = String(event.note ?? "");
+    if (note.includes("תחילת גיזוז מלמטה")) {
+        const pressure = note.match(/הורדת לחץ ל\s*:?-?\s*(\d+(?:[.,]\d+)?)\s*bar/i)?.[1];
+        const time = note.match(/בשעה\s*(\d{1,2}:\d{2})/)?.[1];
+        return {
+            ...event,
+            type: "carbonation",
+            label: "תחילת גיזוז מלמטה",
+            icon: "🫧",
+            detail: [pressure ? `לחץ ${pressure.replace(",", ".")} bar` : "", time ? `התחלה ${time}` : ""]
+                .filter(Boolean)
+                .join(" · ") || undefined,
+        };
+    }
+    if (note.includes("סגירת גיזוז מלמטה")) {
+        const pressure = note.match(/על\s*(\d+(?:[.,]\d+)?)\s*bar/i)?.[1];
+        const time = note.match(/בשעה\s*(\d{1,2}:\d{2})/)?.[1];
+        return {
+            ...event,
+            type: "carbonation",
+            label: "סגירת גיזוז מלמטה",
+            icon: "🫧",
+            detail: [pressure ? `לחץ ${pressure.replace(",", ".")} bar` : "", time ? `סגירה ${time}` : ""]
+                .filter(Boolean)
+                .join(" · ") || undefined,
+        };
+    }
+    return event;
+}
+
 export default function BatchTimeline({ measurements, brewDate }: Props) {
-    const events = useMemo(
-        () => buildBatchTimeline(measurements, brewDate, parseYeastDropAmount),
-        [measurements, brewDate]
-    );
+    const events = useMemo(() => {
+        const expanded = expandCompoundCellarMeasurements(measurements);
+        return buildBatchTimeline(expanded, brewDate, parseYeastDropAmount)
+            .map(bottomCarbonationEvent);
+    }, [measurements, brewDate]);
 
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const startSentinelRef = useRef<HTMLSpanElement | null>(null);
