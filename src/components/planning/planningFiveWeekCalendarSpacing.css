@@ -1,0 +1,26 @@
+/* Extra spacing for weekly span events in the five-week calendar.
+   The blue brewing bar is absolutely positioned; this reserves equivalent
+   vertical room before day-level packaging events start. */
+.bp-month-events {
+  margin-top: calc(var(--span-rows, 0) * 28px + 14px) !important;
+  position: relative;
+  z-index: 1;
+}
+
+.bp-week-span-layer {
+  grid-auto-rows: 24px !important;
+  row-gap: 4px !important;
+}
+
+.bp-span-event { z-index: 2; }
+
+@media (max-width: 700px) {
+  .bp-month-events {
+    margin-top: calc(var(--span-rows, 0) * 24px + 12px) !important;
+  }
+
+  .bp-week-span-layer {
+    grid-auto-rows: 21px !important;
+    row-gap: 3px !important;
+  }
+}

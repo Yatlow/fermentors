@@ -24,6 +24,7 @@ import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
 import "./planningEnhancements.css";
 import "./planningFiveWeek.css";
+import "./planningFiveWeekCalendarSpacing.css";
 
 export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
@@ -68,11 +69,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       (sum, plan) => sum + plan.packaging.filter((run) => run.quantity > 0 && !run.date).length,
       0,
     );
-    return {
-      brews: brewsToAssign,
-      packaging: packagingToAssign,
-      total: brewsToAssign + packagingToAssign,
-    };
+    return { brews: brewsToAssign, packaging: packagingToAssign, total: brewsToAssign + packagingToAssign };
   }, [plans, today]);
 
   useEffect(() => {
@@ -81,31 +78,22 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
         .find((item) => item.textContent?.includes("לוח עבודה יומי"));
       if (!button) return;
-
       if (pendingDailyWork.total > 0) {
         button.dataset.planningBadge = String(pendingDailyWork.total);
         button.title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ בחמשת השבועות הקרובים`;
-        button.setAttribute(
-          "aria-label",
-          `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ בחמשת השבועות הקרובים`,
-        );
+        button.setAttribute("aria-label", `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ בחמשת השבועות הקרובים`);
       } else {
         delete button.dataset.planningBadge;
         button.removeAttribute("title");
         button.setAttribute("aria-label", "לוח עבודה יומי");
       }
     };
-
     applyBadge();
     const header = document.querySelector(".dashboard-header");
     const observer = new MutationObserver(() => requestAnimationFrame(applyBadge));
     if (header) observer.observe(header, { childList: true, subtree: true, attributes: true });
     const interval = window.setInterval(applyBadge, 1500);
-
-    return () => {
-      observer.disconnect();
-      window.clearInterval(interval);
-    };
+    return () => { observer.disconnect(); window.clearInterval(interval); };
   }, [pendingDailyWork.brews, pendingDailyWork.packaging, pendingDailyWork.total]);
 
   async function saveSettings(next: Settings) {
@@ -115,93 +103,36 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0]) {
     const original = plans.find((week) => week.id === next.id);
-    let merged = original
-      ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products)
-      : next;
-    if (original) {
-      merged = mergeCompletedPackagingBack(
-        original,
-        merged,
-        settings.products,
-        actuals,
-        productionTanks,
-      );
-    }
+    let merged = original ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products) : next;
+    if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
     await data.saveWeek(merged);
   }
 
   return (
     <section className="brew-planning" dir="rtl">
-      {data.loading && !data.error &&
-      <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
+      {data.loading && !data.error && <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
 
       {!data.loading && !data.error && <>
         {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={plans}/>}
-
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningWeeklyReservations
-            settings={calendarSettings}
-            plans={weeklyPlans}
-            historyPlans={plans}
-            tanks={tanks}
-            sources={productionTanks}
-            pallets={pallets}
-            actuals={actuals}
-            shipments={data.actualShipments}
-            holidays={holidays}
-            today={today}
-            disabled={disabled}
-            saveWeek={saveWeeklyPlan}
-            onOpenCoolerMap={onOpenCoolerMap}
-          />
-          <PlanningShipmentStatusPortal
-            plans={plans}
-            shipments={data.actualShipments}
-            products={settings.products}
-          />
+          <PlanningWeeklyReservations settings={calendarSettings} plans={weeklyPlans} historyPlans={plans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} onOpenCoolerMap={onOpenCoolerMap}/>
+          <PlanningShipmentStatusPortal plans={plans} shipments={data.actualShipments} products={settings.products}/>
         </>}
-
         {tab === "fiveWeeks" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningFiveWeekOverview
-            settings={calendarSettings}
-            plans={plans}
-            tanks={tanks}
-            holidays={holidays}
-            today={today}
-            disabled={disabled}
-            saveWeek={saveWeeklyPlan}
-          />
+          <PlanningFiveWeekOverview settings={calendarSettings} plans={plans} tanks={tanks} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan}/>
         </>}
-
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningBoard
-            settings={settings}
-            plans={executionPlans}
-            tanks={tanks}
-            brews={productionTanks}
-            pallets={pallets}
-            actuals={actuals}
-            shipments={data.actualShipments}
-            today={today}
-            holidays={holidays}
-            disabled={disabled}
-            saveWeek={saveWeeklyPlan}
-          />
+          <PlanningBoard settings={settings} plans={executionPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/>
         </>}
-
-        {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>}
-
-        {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>}
-
-        {tab === "review" && <>
-          <PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>
-        </>}
+        {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
+        {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>} 
+        {tab === "review" && <PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
     </section>
   );
