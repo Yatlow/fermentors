@@ -78,18 +78,23 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
     stopMeasurementRevisionTracking();
     return;
   }
+
   const next = new Map<string, string[]>();
   snapshot.docs.forEach(document => {
     const data = document.data();
     if (data.batchNumber == null) return;
     const id = keyOf(data.batchNumber);
     if (!id) return;
-    // A missing revision stays on TTL until the first revised writer runs.
+
+    // measurementsRevision is the authoritative signal that measurement history
+    // changed. currentData changes frequently for unrelated tank updates and must
+    // not invalidate/re-download the complete measurement history.
     if (typeof data.measurementsRevision !== "string" || !data.measurementsRevision) return;
     const values = next.get(id) ?? [];
-    values.push(JSON.stringify([document.id, data.measurementsRevision, data.currentData]));
+    values.push(JSON.stringify([document.id, data.measurementsRevision]));
     next.set(id, values);
   });
+
   const fresh = new Map([...next].map(([id, values]) => [id, values.sort().join("|")]));
   new Set([...revisions.keys(), ...fresh.keys()]).forEach(id => {
     if (revisions.get(id) !== fresh.get(id)) {
