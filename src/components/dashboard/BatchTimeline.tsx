@@ -22,9 +22,40 @@ function TimelineIcon({ event }: { event: TimelineEvent }) {
     return <>{event.icon}</>;
 }
 
+function bottomCarbonationEvent(event: TimelineEvent): TimelineEvent {
+    const note = String(event.note ?? "");
+    if (note.includes("תחילת גיזוז מלמטה")) {
+        const pressure = note.match(/הורדת לחץ ל\s*(\d+(?:[.,]\d+)?)\s*bar/i)?.[1];
+        const time = note.match(/בשעה\s*(\d{1,2}:\d{2})/)?.[1];
+        return {
+            ...event,
+            type: "carbonation",
+            label: "תחילת גיזוז מלמטה",
+            icon: "🫧",
+            detail: [pressure ? `לחץ ${pressure.replace(",", ".")} bar` : "", time ? `התחלה ${time}` : ""]
+                .filter(Boolean)
+                .join(" · ") || undefined,
+        };
+    }
+    if (note.includes("סגירת גיזוז מלמטה")) {
+        const pressure = note.match(/על\s*(\d+(?:[.,]\d+)?)\s*bar/i)?.[1];
+        const time = note.match(/בשעה\s*(\d{1,2}:\d{2})/)?.[1];
+        return {
+            ...event,
+            type: "carbonation",
+            label: "סגירת גיזוז מלמטה",
+            icon: "🫧",
+            detail: [pressure ? `לחץ ${pressure.replace(",", ".")} bar` : "", time ? `סגירה ${time}` : ""]
+                .filter(Boolean)
+                .join(" · ") || undefined,
+        };
+    }
+    return event;
+}
+
 export default function BatchTimeline({ measurements, brewDate }: Props) {
     const events = useMemo(
-        () => buildBatchTimeline(measurements, brewDate, parseYeastDropAmount),
+        () => buildBatchTimeline(measurements, brewDate, parseYeastDropAmount).map(bottomCarbonationEvent),
         [measurements, brewDate]
     );
 
