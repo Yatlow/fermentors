@@ -29,6 +29,7 @@ export type Pallet = {
     batchNumber?: string | null;
     palletNumber?: string | null;
     sourceTankNumber?: string | number | null;
+    updatedAt?: Timestamp | null;
 };
 
 export type ActivePalletZone =
