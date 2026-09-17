@@ -10,6 +10,7 @@ import {
 type Entry = { data?: Measurement[]; loadedAt: number; pending?: Promise<Measurement[]> };
 const cache = new Map<string, Entry>();
 const revisions = new Map<string, string>();
+const embeddedBatches = new Set<string>();
 const optimisticByBatch = new Map<string, Map<string, Measurement>>();
 let watching = false;
 let session = 0;
@@ -35,6 +36,77 @@ function applyOptimisticPatches(rows: Measurement[], batchId: string): Measureme
     (current, patch) => mergeOptimisticMeasurementIntoHistory(current, patch),
     collapseMeasurementsToLatestPerDay(rows)
   );
+}
+
+function embeddedMeasurementsFromFermentor(
+  data: DocumentData,
+  batchId: string,
+): Measurement[] | null {
+  const rawState = data.cellarState;
+  if (!rawState || typeof rawState !== "object" || Array.isArray(rawState)) return null;
+
+  const state = rawState as {
+    batchNumber?: unknown;
+    measurements?: unknown;
+  };
+  const stateBatch = keyOf(String(state.batchNumber ?? batchId));
+  if (stateBatch !== batchId) return null;
+
+  const rawMeasurements = state.measurements;
+  if (!rawMeasurements || typeof rawMeasurements !== "object" || Array.isArray(rawMeasurements)) {
+    return [];
+  }
+
+  const rows = Object.entries(rawMeasurements)
+    .map(([id, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const measurement = value as Record<string, unknown>;
+      return {
+        ...measurement,
+        id: measurement.id ?? id,
+      } as Measurement;
+    })
+    .filter((row): row is Measurement => row !== null);
+
+  return collapseMeasurementsToLatestPerDay(rows);
+}
+
+const PATCH_FIELDS = ["temp", "plato", "pH", "pressure", "carbonation", "notes"] as const;
+
+function patchIsCoveredByRows(patch: Measurement, rows: Measurement[]): boolean {
+  const day = measurementDayKeyFromId(patch.id);
+  if (!day) return false;
+
+  const row = [...rows]
+    .reverse()
+    .find((candidate) => measurementDayKeyFromId(candidate.id) === day);
+  if (!row) return false;
+
+  return PATCH_FIELDS.every((field) => {
+    const patchValue = patch[field];
+    if (patchValue === undefined || patchValue === null || patchValue === "") return true;
+
+    const rowValue = row[field];
+    if (field === "notes") {
+      const expected = String(patchValue).trim();
+      return expected === "" || String(rowValue ?? "").includes(expected);
+    }
+
+    const expected = Number(patchValue);
+    const actual = Number(rowValue);
+    return Number.isFinite(expected) && Number.isFinite(actual) && expected === actual;
+  });
+}
+
+function dropCoveredOptimisticPatches(batchId: string, rows: Measurement[]): void {
+  const byDay = optimisticByBatch.get(batchId);
+  if (!byDay) return;
+
+  byDay.forEach((patch, day) => {
+    if (patchIsCoveredByRows(patch, rows)) byDay.delete(day);
+  });
+
+  if (byDay.size === 0) optimisticByBatch.delete(batchId);
 }
 
 /**
@@ -83,11 +155,21 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
   }
 
   const next = new Map<string, string[]>();
+  const nextEmbedded = new Map<string, Measurement[]>();
+
   snapshot.docs.forEach(document => {
     const data = document.data();
     if (data.batchNumber == null) return;
     const id = keyOf(data.batchNumber);
     if (!id) return;
+
+    const embedded = embeddedMeasurementsFromFermentor(data, id);
+    if (embedded !== null) {
+      const previous = nextEmbedded.get(id);
+      if (!previous || embedded.length >= previous.length) {
+        nextEmbedded.set(id, embedded);
+      }
+    }
 
     // measurementsRevision is the authoritative signal that measurement history
     // changed. currentData changes frequently for unrelated tank updates and must
@@ -102,19 +184,31 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
   new Set([...revisions.keys(), ...fresh.keys()]).forEach(id => {
     if (revisions.get(id) !== fresh.get(id)) {
       cache.delete(id);
-      // A new server revision means the authoritative measurement write/sync
-      // caught up with any optimistic app overlay for this batch.
-      optimisticByBatch.delete(id);
+      // Keep a local/authoritative same-day overlay until the compact cellarState
+      // actually contains it. A revision can arrive a moment before the next
+      // fermentor sync writes the embedded history.
     }
   });
   revisions.clear();
   fresh.forEach((value, id) => revisions.set(id, value));
+
+  embeddedBatches.clear();
+  nextEmbedded.forEach((baseRows, id) => {
+    embeddedBatches.add(id);
+    dropCoveredOptimisticPatches(id, baseRows);
+    cache.set(id, {
+      data: applyOptimisticPatches(baseRows, id),
+      loadedAt: Date.now(),
+    });
+  });
+
   watching = true;
 }
 
 export function stopMeasurementRevisionTracking(): void {
   watching = false;
   revisions.clear();
+  embeddedBatches.clear();
   cache.clear();
   optimisticByBatch.clear();
   session++;
@@ -125,19 +219,12 @@ export function invalidateMeasurementsCache(batchNumber?: string | number): void
   else cache.delete(keyOf(batchNumber));
 }
 
-// The authoritative Sheet result now exists in Firestore. Remove the matching
-// optimistic day overlay, invalidate history, and wake every score/recommendation
-// consumer immediately.
+// The authoritative Sheet result now exists in Firestore, but the compact
+// cellarState on the fermentor can lag it by one sync cycle. Keep that exact
+// merged row as an overlay until observeMeasurementRevisions sees the same data
+// embedded in cellarState. This avoids a full-history read during that window.
 export function upsertMeasurementInCache(batchNumber: string | number, measurement: Measurement): void {
-  const batchId = keyOf(batchNumber);
-  const day = measurementDayKeyFromId(measurement.id);
-  if (day) {
-    const byDay = optimisticByBatch.get(batchId);
-    byDay?.delete(day);
-    if (byDay?.size === 0) optimisticByBatch.delete(batchId);
-  }
-  invalidateMeasurementsCache(batchId);
-  notifyMeasurementsUpdated(batchId);
+  applyOptimisticMeasurementUpdate(batchNumber, measurement);
 }
 
 export type GetMeasurementsOptions = { forceRefresh?: boolean };
@@ -148,7 +235,7 @@ export async function getMeasurementsByBatch(
   if (!id || id.includes("/")) throw new Error("Invalid batch number");
   if (options.forceRefresh) cache.delete(id);
   const cached = cache.get(id);
-  const tracked = watching && revisions.has(id);
+  const tracked = watching && (revisions.has(id) || embeddedBatches.has(id));
   if (cached?.data && (tracked || Date.now() - cached.loadedAt < FALLBACK_MS)) return copy(cached.data);
   if (cached?.pending) return copy(await cached.pending);
   const entry: Entry = { loadedAt: 0 };
