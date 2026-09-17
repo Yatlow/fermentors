@@ -19,45 +19,57 @@ export type StyleAverages = {
     days: Record<string, StyleAverageDay>;
 };
 
+const STYLE_AVERAGE_TTL_MS = 5 * 60 * 1000;
+const averageCache = new Map<string, { value: StyleAverages | null; loadedAt: number }>();
+let stylesCache: { value: string[]; loadedAt: number } | null = null;
+let stylesPending: Promise<string[]> | null = null;
+
 export async function getStyleAverages(
     style: string
 ): Promise<StyleAverages | null> {
+    if (!style) return null;
 
-    if (!style) {
-        return null;
+    const cached = averageCache.get(style);
+    if (cached && Date.now() - cached.loadedAt < STYLE_AVERAGE_TTL_MS) {
+        return cached.value;
     }
 
-    const ref = doc(
-        db,
-        "styleAverages",
-        style
-    );
-
+    const ref = doc(db, "styleAverages", style);
     const snapshot = await getDoc(ref);
 
     if (!snapshot.exists()) {
-        console.warn(
-            "No style averages found for:",
-            style
-        );
-
+        console.warn("No style averages found for:", style);
+        averageCache.set(style, { value: null, loadedAt: Date.now() });
         return null;
     }
 
-    return {
+    const value = {
         ...snapshot.data(),
         days: snapshot.data().days ?? {},
     } as StyleAverages;
+    averageCache.set(style, { value, loadedAt: Date.now() });
+    return value;
 }
 
 export async function getAllStyleAverageStyles(): Promise<string[]> {
-  const snapshot = await getDocs(collection(db, "styleAverages"));
+    if (stylesCache && Date.now() - stylesCache.loadedAt < STYLE_AVERAGE_TTL_MS) {
+        return [...stylesCache.value];
+    }
+    if (stylesPending) return [...await stylesPending];
 
-  const styles = snapshot.docs
-    // אם אצלכם שם הסגנון הוא מזהה המסמך - doc.id מספיק.
-    // אם יש שדה style/name בתוך המסמך במקום, תחליפו כאן ל-doc.data().style
-    .map((docSnap) => docSnap.id)
-    .filter((id): id is string => !!id);
+    stylesPending = (async () => {
+        const snapshot = await getDocs(collection(db, "styleAverages"));
+        const styles = snapshot.docs
+            .map((docSnap) => docSnap.id)
+            .filter((id): id is string => !!id)
+            .sort((a, b) => a.localeCompare(b, "he"));
+        stylesCache = { value: styles, loadedAt: Date.now() };
+        return styles;
+    })();
 
-  return styles.sort((a, b) => a.localeCompare(b, "he"));
+    try {
+        return [...await stylesPending];
+    } finally {
+        stylesPending = null;
+    }
 }

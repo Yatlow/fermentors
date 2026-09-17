@@ -2,13 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Redo2, Undo2 } from "lucide-react";
 import {
     startCoolerUndoRecorder,
-    subscribeToCoolerUndoCount,
     undoLastCoolerMove,
 } from "../../SERVICES/cooler/coolerUndo";
-import {
-    redoLastCoolerMove,
-    subscribeToCoolerRedoCount,
-} from "../../SERVICES/cooler/coolerRedo";
+import { redoLastCoolerMove } from "../../SERVICES/cooler/coolerRedo";
+import { subscribeToCoolerHistoryCounts } from "../../SERVICES/cooler/coolerHistoryCounts";
 
 function isEditableTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
@@ -45,11 +42,12 @@ export default function CoolerUndoControl() {
         }
 
         const releaseRecorder = startCoolerUndoRecorder();
-        const unsubscribeUndo = subscribeToCoolerUndoCount(setUndoCount);
-        const unsubscribeRedo = subscribeToCoolerRedoCount(setRedoCount);
+        const unsubscribeHistory = subscribeToCoolerHistoryCounts(({ undo, redo }) => {
+            setUndoCount(undo);
+            setRedoCount(redo);
+        });
         return () => {
-            unsubscribeUndo();
-            unsubscribeRedo();
+            unsubscribeHistory();
             releaseRecorder();
         };
     }, [visible]);

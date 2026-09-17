@@ -38,6 +38,14 @@ const JERUSALEM_PARTS = new Intl.DateTimeFormat("en-US-u-nu-latn", {
   hourCycle: "h23",
 });
 
+export type PlanningReadScope = {
+  plans?: boolean;
+  shipments?: boolean;
+  pallets?: boolean;
+  actuals?: boolean;
+  snapshots?: boolean;
+};
+
 function zonedParts(date: Date): Record<string, string> {
   return Object.fromEntries(
     JERUSALEM_PARTS.formatToParts(date)
@@ -92,7 +100,17 @@ function isTempoCustomer(customerId: unknown, customerName: unknown) {
   return /טמפו|tempo/i.test(customer);
 }
 
-export function usePlanning(today: string, tanks: TankInput[], loadSnapshots = false) {
+export function usePlanning(
+  today: string,
+  tanks: TankInput[],
+  scope: PlanningReadScope = {
+    plans: true,
+    shipments: true,
+    pallets: true,
+    actuals: true,
+    snapshots: false,
+  },
+) {
   const [actualShipments, setActualShipments] = useState<ShipmentEvent[]>([]);
   const [snapshots, setSnapshots] = useState<PlanningSnapshot[]>([]);
   const [snapshotError, setSnapshotError] = useState("");
@@ -105,8 +123,9 @@ export function usePlanning(today: string, tanks: TankInput[], loadSnapshots = f
   const [ready, setReady] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [offline, setOffline] = useState<Record<string, boolean>>({});
-  const start = weekStart(today),
-    end = addDays(start, 84);
+
+  const start = weekStart(today);
+  const end = addDays(start, 84);
   const logStart = [
     addDays(start, -84),
     ...tanks
@@ -115,143 +134,178 @@ export function usePlanning(today: string, tanks: TankInput[], loadSnapshots = f
       .filter((d): d is string => !!d && d < today),
   ].sort()[0];
 
-  useEffect(() => {
-    setReady({});
-    setErrors({});
-    const ok = (key: string, cache: boolean) => {
-      setReady((x) => ({ ...x, [key]: true }));
-      setOffline((x) => ({ ...x, [key]: cache }));
-      setErrors((x) => ({ ...x, [key]: "" }));
-    };
-    const fail = (key: string) => (e: Error) =>
-      setErrors((x) => ({ ...x, [key]: `${key}: ${e.message}` }));
+  const wantsPlans = scope.plans !== false;
+  const wantsShipments = scope.shipments !== false;
+  const wantsPallets = scope.pallets !== false;
+  const wantsActuals = scope.actuals !== false;
+  const wantsSnapshots = scope.snapshots === true;
 
-    let unsubscribeSnapshots: () => void = () => {};
-    if (loadSnapshots) {
-      unsubscribeSnapshots = onSnapshot(
-        query(
-          collection(db, "planningSnapshots"),
-          where("targetWeek", ">=", addDays(start, -84)),
-          where("targetWeek", "<", end),
-        ),
-        (snap) => {
-          setSnapshots(
-            snap.docs.map(
-              (d) => ({ ...d.data(), id: d.id }) as PlanningSnapshot,
-            ),
-          );
-          setSnapshotError("");
-        },
-        (e) => setSnapshotError(e.message),
-      );
-    } else {
+  const setPending = (key: string) => {
+    setReady((current) => ({ ...current, [key]: false }));
+    setErrors((current) => ({ ...current, [key]: "" }));
+  };
+  const ok = (key: string, cache: boolean) => {
+    setReady((current) => ({ ...current, [key]: true }));
+    setOffline((current) => ({ ...current, [key]: cache }));
+    setErrors((current) => ({ ...current, [key]: "" }));
+  };
+  const fail = (key: string) => (error: Error) => {
+    setReady((current) => ({ ...current, [key]: true }));
+    setErrors((current) => ({ ...current, [key]: `${key}: ${error.message}` }));
+  };
+
+  // Settings are tiny and are required by every planning tab.
+  useEffect(() => {
+    setPending("הגדרות");
+    return onSnapshot(
+      doc(db, "planningSettings", "main"),
+      { includeMetadataChanges: true },
+      (snap) => {
+        setSettings(
+          withSpecialTotals(
+            snap.exists()
+              ? ({
+                  ...defaultSettings(),
+                  ...snap.data(),
+                  lossPercent: 10,
+                  deliveryTransitDays: 0,
+                  totalTargetWeeks: snap.data()?.totalTargetWeeks ?? 8.5,
+                } as Settings)
+              : defaultSettings(),
+          ),
+        );
+        ok("הגדרות", snap.metadata.fromCache);
+      },
+      fail("הגדרות"),
+    );
+  }, []);
+
+  // Keep each dataset in its own effect. Previously logStart was a dependency of
+  // one giant effect, so a tank-date/status change tore down and re-subscribed
+  // settings, plans, shipments, pallets and packaging history together.
+  useEffect(() => {
+    if (!wantsPlans) {
+      setPlans([]);
+      return;
+    }
+    setPending("תוכניות");
+    return onSnapshot(
+      query(
+        collection(db, "planningWeeks"),
+        where("id", ">=", addDays(start, -84)),
+        where("id", "<", end),
+      ),
+      { includeMetadataChanges: true },
+      (snap) => {
+        setPlans(snap.docs.map((item) => item.data() as WeekPlan));
+        ok("תוכניות", snap.metadata.fromCache);
+      },
+      fail("תוכניות"),
+    );
+  }, [start, end, wantsPlans]);
+
+  useEffect(() => {
+    if (!wantsShipments) {
+      setActualShipments([]);
+      return;
+    }
+    setPending("משלוחים");
+    const startInstant = Timestamp.fromDate(startOfJerusalemDay(start));
+    const endInstant = Timestamp.fromDate(startOfJerusalemDay(end));
+    return onSnapshot(
+      query(
+        collection(db, "shipments"),
+        where("createdAt", ">=", startInstant),
+        where("createdAt", "<", endInstant),
+      ),
+      { includeMetadataChanges: true },
+      (snap) => {
+        setActualShipments(
+          snap.docs.flatMap((item) => {
+            const data = item.data();
+            if (!isTempoCustomer(data.customerId, data.customerName)) return [];
+            const date = data.createdAt?.toDate?.();
+            return date ? [{
+              id: item.id,
+              date: jerusalemDateKey(date),
+              shipmentNumber: Number(data.shipmentNumber) || undefined,
+              totals: Array.isArray(data.totals) ? data.totals : [],
+            }] : [];
+          }),
+        );
+        ok("משלוחים", snap.metadata.fromCache);
+      },
+      fail("משלוחים"),
+    );
+  }, [start, end, wantsShipments]);
+
+  useEffect(() => {
+    if (!wantsPallets) {
+      setPallets([]);
+      return;
+    }
+    setPending("מלאי");
+    return onSnapshot(
+      query(
+        collection(db, "pallets"),
+        where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"]),
+      ),
+      { includeMetadataChanges: true },
+      (snap) => {
+        setPallets(snap.docs.map((item) => ({ ...item.data(), id: item.id }) as Pallet));
+        ok("מלאי", snap.metadata.fromCache);
+      },
+      fail("מלאי"),
+    );
+  }, [wantsPallets]);
+
+  useEffect(() => {
+    if (!wantsActuals) {
+      setActuals([]);
+      return;
+    }
+    setPending("אריזות");
+    return onSnapshot(
+      query(
+        collection(db, "packagingLog"),
+        where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()),
+        where("timestamp", "<", startOfJerusalemDay(end).getTime()),
+      ),
+      { includeMetadataChanges: true },
+      (snap) => {
+        setActuals(snap.docs.map((item) => ({ ...item.data(), id: item.id }) as Actual));
+        ok("אריזות", snap.metadata.fromCache);
+      },
+      fail("אריזות"),
+    );
+  }, [logStart, end, wantsActuals]);
+
+  useEffect(() => {
+    if (!wantsSnapshots) {
       setSnapshots([]);
       setSnapshotError("");
+      return;
     }
-
-    const unsub = [
-      onSnapshot(
-        doc(db, "planningSettings", "main"),
-        { includeMetadataChanges: true },
-        (snap) => {
-          setSettings(
-            withSpecialTotals(
-              snap.exists()
-                ? ({
-                    ...defaultSettings(),
-                    ...snap.data(),
-                    lossPercent: 10,
-                    deliveryTransitDays: 0,
-                    totalTargetWeeks: snap.data()?.totalTargetWeeks ?? 8.5,
-                  } as Settings)
-                : defaultSettings(),
-            ),
-          );
-          ok("הגדרות", snap.metadata.fromCache);
-        },
-        fail("הגדרות"),
+    setPending("סנאפשוטים");
+    return onSnapshot(
+      query(
+        collection(db, "planningSnapshots"),
+        where("targetWeek", ">=", addDays(start, -84)),
+        where("targetWeek", "<", end),
       ),
-      onSnapshot(
-        query(
-          collection(db, "planningWeeks"),
-          where("id", ">=", addDays(start, -84)),
-          where("id", "<", end),
-        ),
-        { includeMetadataChanges: true },
-        (snap) => {
-          setPlans(snap.docs.map((d) => d.data() as WeekPlan));
-          ok("תוכניות", snap.metadata.fromCache);
-        },
-        fail("תוכניות"),
-      ),
-      onSnapshot(
-        query(
-          collection(db, "shipments"),
-          where(
-            "createdAt",
-            ">=",
-            Timestamp.fromDate(startOfJerusalemDay(start)),
-          ),
-        ),
-        { includeMetadataChanges: true },
-        (snap) => {
-          setActualShipments(
-            snap.docs.flatMap((d) => {
-              const data = d.data();
-              if (!isTempoCustomer(data.customerId, data.customerName)) return [];
-              const date = data.createdAt?.toDate?.();
-              return date ? [{
-                id: d.id,
-                date: jerusalemDateKey(date),
-                shipmentNumber: Number(data.shipmentNumber) || undefined,
-                totals: Array.isArray(data.totals) ? data.totals : [],
-              }] : [];
-            }),
-          );
-          ok("משלוחים", snap.metadata.fromCache);
-        },
-        fail("משלוחים"),
-      ),
-      onSnapshot(
-        query(
-          collection(db, "pallets"),
-          where("zone", "in", [
-            "cooler",
-            "pending",
-            "bottleRoom",
-            "loadingDock",
-          ]),
-        ),
-        { includeMetadataChanges: true },
-        (snap) => {
-          setPallets(
-            snap.docs.map((d) => ({ ...d.data(), id: d.id }) as Pallet),
-          );
-          ok("מלאי", snap.metadata.fromCache);
-        },
-        fail("מלאי"),
-      ),
-      onSnapshot(
-        query(
-          collection(db, "packagingLog"),
-          where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()),
-          where("timestamp", "<", startOfJerusalemDay(end).getTime()),
-        ),
-        { includeMetadataChanges: true },
-        (snap) => {
-          setActuals(
-            snap.docs.map((d) => ({ ...d.data(), id: d.id }) as Actual),
-          );
-          ok("אריזות", snap.metadata.fromCache);
-        },
-        fail("אריזות"),
-      ),
-    ];
-    return () => {
-      unsubscribeSnapshots();
-      unsub.forEach((fn) => fn());
-    };
-  }, [start, end, logStart, loadSnapshots]);
+      (snap) => {
+        setSnapshots(
+          snap.docs.map((item) => ({ ...item.data(), id: item.id }) as PlanningSnapshot),
+        );
+        setSnapshotError("");
+        ok("סנאפשוטים", snap.metadata.fromCache);
+      },
+      (error) => {
+        setSnapshotError(error.message);
+        fail("סנאפשוטים")(error);
+      },
+    );
+  }, [start, end, wantsSnapshots]);
 
   async function save(
     collectionName: string,
@@ -285,6 +339,15 @@ export function usePlanning(today: string, tanks: TankInput[], loadSnapshots = f
     });
   }
 
+  const requiredKeys = [
+    "הגדרות",
+    ...(wantsPlans ? ["תוכניות"] : []),
+    ...(wantsShipments ? ["משלוחים"] : []),
+    ...(wantsPallets ? ["מלאי"] : []),
+    ...(wantsActuals ? ["אריזות"] : []),
+    ...(wantsSnapshots ? ["סנאפשוטים"] : []),
+  ];
+
   return {
     settings,
     plans,
@@ -293,9 +356,9 @@ export function usePlanning(today: string, tanks: TankInput[], loadSnapshots = f
     actualShipments,
     snapshots,
     snapshotError,
-    loading: Object.keys(ready).length < 5,
-    error: Object.values(errors).filter(Boolean).join(" · "),
-    offline: Object.values(offline).some(Boolean),
+    loading: requiredKeys.some((key) => ready[key] !== true),
+    error: requiredKeys.map((key) => errors[key]).filter(Boolean).join(" · "),
+    offline: requiredKeys.some((key) => offline[key] === true),
     saveSettings: (s: Settings) => save("planningSettings", "main", s),
     saveWeek: (w: WeekPlan) => save("planningWeeks", w.id, w),
   };
@@ -337,26 +400,26 @@ export function useHolidays(start: string, end: string) {
       `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&i=on&lg=he&start=${start}&end=${end}`,
       { signal: controller.signal },
     )
-      .then((r) => {
-        if (!r.ok) throw new Error();
-        return r.json();
+      .then((response) => {
+        if (!response.ok) throw new Error();
+        return response.json();
       })
       .then((data) => {
         if (!controller.signal.aborted)
           setHolidays([
             ...other,
             ...(data.items ?? [])
-              .filter((x: { category: string }) => x.category === "holiday")
+              .filter((item: { category: string }) => item.category === "holiday")
               .map(
-                (x: {
+                (item: {
                   date: string;
                   hebrew?: string;
                   title: string;
                   yomtov?: boolean;
                 }) => ({
-                  date: x.date.slice(0, 10),
-                  title: x.hebrew ?? x.title,
-                  closed: !!x.yomtov,
+                  date: item.date.slice(0, 10),
+                  title: item.hebrew ?? item.title,
+                  closed: !!item.yomtov,
                 }),
               ),
           ]);

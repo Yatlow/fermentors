@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
-import { useHolidays, usePlanning, usePlanningToday } from "../../SERVICES/planning/usePlanning";
+import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import {
   mergeCompletedDeliveriesBack,
   pendingPlansAfterActualShipments,
@@ -36,7 +36,18 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 }) {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
-  const data = usePlanning(today, productionTanks, tab === "review");
+
+  // planningWeeks stays loaded for the daily-work badge on every planning tab.
+  // Heavy datasets are attached only where the rendered tab actually consumes them.
+  const readScope = useMemo<PlanningReadScope>(() => ({
+    plans: true,
+    pallets: tab === "stock" || tab === "calendar" || tab === "schedule",
+    actuals: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review",
+    shipments: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule",
+    snapshots: tab === "review",
+  }), [tab]);
+
+  const data = usePlanning(today, productionTanks, readScope);
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
