@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { Truck } from "lucide-react";
-import { subscribeToZone } from "../../SERVICES/cooler/Palletservice";
+import { db } from "../../firebase";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import "./CoolerShipmentLocationAlert.css";
 
@@ -21,7 +22,7 @@ const ZONES: Array<{ zone: AlertZone; label: string }> = [
 
 function summarize(zone: AlertZone, label: string, pallets: Pallet[]): ZoneSummary {
     return pallets
-        .filter((pallet) => pallet.markedForShipment)
+        .filter((pallet) => pallet.zone === zone)
         .reduce<ZoneSummary>((result, pallet) => {
             if (pallet.itemType === "kegs") result.kegs += pallet.quantity;
             else result.crates += pallet.quantity;
@@ -31,10 +32,7 @@ function summarize(zone: AlertZone, label: string, pallets: Pallet[]): ZoneSumma
 
 export default function CoolerShipmentLocationAlert() {
     const [target, setTarget] = useState<HTMLElement | null>(null);
-    const [zonePallets, setZonePallets] = useState<Record<AlertZone, Pallet[]>>({
-        pending: [],
-        bottleRoom: [],
-    });
+    const [markedPallets, setMarkedPallets] = useState<Pallet[]>([]);
 
     useEffect(() => {
         const resolveTarget = () => {
@@ -49,24 +47,39 @@ export default function CoolerShipmentLocationAlert() {
 
     useEffect(() => {
         if (!target) {
-            setZonePallets({ pending: [], bottleRoom: [] });
+            setMarkedPallets([]);
             return;
         }
 
-        const unsubscribers = ZONES.map(({ zone }) =>
-            subscribeToZone(zone, (pallets) => {
-                setZonePallets((current) => ({ ...current, [zone]: pallets }));
-            }),
+        // One narrow listener replaces two full-zone listeners. The alert only
+        // needs pallets that are already marked for shipment; filtering the two
+        // relevant zones locally avoids duplicating CoolerMap/planning reads.
+        const markedQuery = query(
+            collection(db, "pallets"),
+            where("markedForShipment", "==", true),
         );
 
-        return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+        return onSnapshot(
+            markedQuery,
+            (snapshot) => {
+                setMarkedPallets(
+                    snapshot.docs
+                        .map((item) => ({ id: item.id, ...item.data() } as Pallet))
+                        .filter((pallet) => pallet.zone === "pending" || pallet.zone === "bottleRoom"),
+                );
+            },
+            (error) => {
+                console.error("Cooler shipment-location alert subscription failed", error);
+                setMarkedPallets([]);
+            },
+        );
     }, [target]);
 
     const summaries = useMemo(
         () => ZONES
-            .map(({ zone, label }) => summarize(zone, label, zonePallets[zone]))
+            .map(({ zone, label }) => summarize(zone, label, markedPallets))
             .filter((summary) => summary.kegs > 0 || summary.crates > 0),
-        [zonePallets],
+        [markedPallets],
     );
 
     if (!target || summaries.length === 0) return null;
