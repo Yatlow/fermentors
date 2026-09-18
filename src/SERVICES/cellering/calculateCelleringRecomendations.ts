@@ -838,11 +838,21 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         const carbonationSpecToDay = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs)
         if (lastMeasurement?.carbonation) {
             if (carbonationSpecToDay.outOfSpec) {
-                requiresCarbTest.display = true,
+                if (lastMeasurementDate === todayDate) {
+                    // Today's carbonation test has already been performed. The
+                    // actionable item is the dedicated pressure adjustment
+                    // recommendation below, not a second duplicate "carb test"
+                    // recommendation for the same result.
+                    requiresCarbTest.display = false;
+                    requiresCarbTest.req = false;
+                    requiresCarbTest.reason =
+                        `בדיקת הגיזוז היום בוצעה (${lastMeasurement?.carbonation}) ונדרש טיפול בלחץ`;
+                } else {
+                    requiresCarbTest.display = true;
                     requiresCarbTest.req = !tookCare;
-                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה ההאחרונה לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ ` :
-                    `הגיזוז היום לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ `
+                    requiresCarbTest.reason =
+                        `הגיזוז בבדיקה האחרונה לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת`;
+                }
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             } else {
                 requiresCarbTest.display = false,
