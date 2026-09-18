@@ -154,7 +154,8 @@ export default function ManualStatusAssignment({ brews, isAdmin }: Props) {
                 targetOption.action,
                 targetOption.tankStatus,
                 selectedTank.batchNumber,
-                checkResult.fromAction
+                checkResult.fromAction,
+                checkResult.sheetUrl
             );
 
             setStep("done");
