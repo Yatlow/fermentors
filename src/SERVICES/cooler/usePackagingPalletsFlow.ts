@@ -254,37 +254,40 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         setSubmittingPhase("creatingPallets");
 
         try {
-            const createdIdsNested = await Promise.all(
-                finalRuntimes.map((runtime, jobIndex) => {
-                    if (runtime.reportedQuantity <= 0 || !runtime.palletPlan) return Promise.resolve([] as string[]);
+            const created = await Promise.all(
+                finalRuntimes.map(async (runtime, jobIndex) => {
+                    if (runtime.reportedQuantity <= 0 || !runtime.palletPlan) {
+                        return { ids: [] as string[], operationId: null as string | null };
+                    }
                     const splits: CustomPalletSplitEntry[] = rows
                         .filter((r) => r.jobIndex === jobIndex)
                         .map((r) => ({ quantity: r.quantity, subLabel: r.subLabel }));
-                    return savePackagingPalletSplits(runtime.palletPlan.operationId, splits)
-                        .then(() => createPalletsForPlan(runtime.palletPlan!, splits))
-                        .then(async (ids) => {
-                            await markPackagingPalletsCompleted(runtime.palletPlan!.operationId);
-                            return ids;
-                        });
+
+                    await savePackagingPalletSplits(runtime.palletPlan.operationId, splits);
+                    const ids = await createPalletsForPlan(runtime.palletPlan, splits);
+                    return { ids, operationId: runtime.palletPlan.operationId };
                 })
             );
-            const createdPalletIds = createdIdsNested.flat();
+            const createdPalletIds = created.flatMap((item) => item.ids);
 
-            // The weekly delivery decision is also the reservation. Newly created
-            // pallets are explicitly supplied so a just-packaged pallet gets the
-            // first chance to close an existing gap for the same SKU.
-            try {
-                await reserveNewPalletsForNearestShipment(createdPalletIds);
-            } catch (reservationError) {
-                console.error("Failed syncing planned shipment reservation", reservationError);
-                setSubmitWarnings((current) => [
-                    ...current,
-                    "המשטחים נוצרו, אך הסימון האוטומטי למשלוח המתוכנן לא הושלם. ניתן להשלים את הסימון ידנית במפת המקרר או באזורי המשטחים.",
-                ]);
-            }
+            // Reservation is part of successful packaging completion. If it
+            // fails, keep the operation awaiting_pallets so retry/recovery can
+            // safely run the same deterministic pallet creation and reservation
+            // again without duplication.
+            await reserveNewPalletsForNearestShipment(createdPalletIds);
+
+            await Promise.all(
+                created
+                    .map((item) => item.operationId)
+                    .filter((operationId): operationId is string => Boolean(operationId))
+                    .map((operationId) => markPackagingPalletsCompleted(operationId))
+            );
         } catch (err: any) {
             setStep("error");
-            setSubmitError(err?.message ?? "שגיאה ביצירת המשטחים במפת המקרר");
+            setSubmitError(
+                err?.message ??
+                "המשטחים נשמרו, אך השלמת האריזה/השיבוץ למשלוח טרם הושלמה. נסה שוב."
+            );
             return;
         }
 
