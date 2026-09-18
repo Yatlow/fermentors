@@ -1,7 +1,7 @@
 import { auth } from "../../firebase";
+import { runtimeConfig } from "../../config/runtimeConfig";
 
-export const GOOGLE_SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec";
+export const GOOGLE_SCRIPT_URL = runtimeConfig.appsScriptUrl;
 
 export type AppsScriptEnvelope<T = unknown> = {
     success: boolean;
