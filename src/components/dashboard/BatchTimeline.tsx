@@ -31,7 +31,9 @@ function bottomCarbonationEvent(event: TimelineEvent): TimelineEvent {
     if (hasStart && hasClose) {
         const startTime = note.match(/תחילת גיזוז מלמטה\s+בשעה\s*(\d{1,2}:\d{2})/i)?.[1];
         const closeMatch = note.match(/סגירת גיזוז מלמטה\s+בשעה\s*(\d{1,2}:\d{2})(?:\s+על\s*(\d+(?:[.,]\d+)?)\s*bar)?/i);
-        const finalPressure = [...note.matchAll(/(?:העלאת|הורדת|שינוי)\s+לחץ\s+ל\s*:?-?\s*(\d+(?:[.,]\d+)?)/gi)].at(-1)?.[1];
+        const finalPressureMatch = [...note.matchAll(/(העלאת|הורדת|שינוי)\s+לחץ\s+ל\s*:?-?\s*(\d+(?:[.,]\d+)?)/gi)].at(-1);
+        const finalPressureAction = finalPressureMatch?.[1];
+        const finalPressure = finalPressureMatch?.[2];
         return {
             ...event,
             type: "carbonation",
@@ -41,7 +43,9 @@ function bottomCarbonationEvent(event: TimelineEvent): TimelineEvent {
                 startTime ? `התחלה ${startTime}` : "",
                 closeMatch?.[1] ? `סיום ${closeMatch[1]}` : "",
                 closeMatch?.[2] ? `לחץ בסיום ${closeMatch[2].replace(",", ".")} bar` : "",
-                finalPressure ? `לחץ יעד ${finalPressure.replace(",", ".")} bar` : "",
+                finalPressure
+                    ? `${finalPressureAction === "הורדת" ? "הורדת" : finalPressureAction === "שינוי" ? "שינוי" : "העלאת"} לחץ ל${finalPressure.replace(",", ".")} bar`
+                    : "",
             ].filter(Boolean).join(" · ") || undefined,
         };
     }
