@@ -746,8 +746,32 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    const alreadyadjustedPToday = lastNote?.includes("הורדת לחץ") || lastNote?.includes("העלאת לחץ") || lastNote?.includes("להוריד לחץ") || lastNote?.includes("להעלות לחץ");
-    const tookCare = carbRes && alreadyadjustedPToday;
+    const noteAdjustedPressureToday =
+        lastNote?.includes("הורדת לחץ") ||
+        lastNote?.includes("העלאת לחץ") ||
+        lastNote?.includes("להוריד לחץ") ||
+        lastNote?.includes("להעלות לחץ") ||
+        lastNote?.includes("כיוון פורק") ||
+        lastNote?.includes("לכוון פורק");
+
+    const previousPressureMeasurement = [...sortedMeasurements]
+        .reverse()
+        .find((measurement) => {
+            if (getMeasurementDate(measurement.id) === todayDate) return false;
+            const value = Number(measurement.pressure);
+            return Number.isFinite(value);
+        });
+    const currentPressureToday = Number(lastMeasurement?.pressure);
+    const previousPressure = Number(previousPressureMeasurement?.pressure);
+    const pressureValueChangedToday =
+        lastMeasurementDate === todayDate &&
+        Number.isFinite(currentPressureToday) &&
+        Number.isFinite(previousPressure) &&
+        Math.abs(currentPressureToday - previousPressure) >= 0.02;
+    const pressureHandledToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(noteAdjustedPressureToday || pressureValueChangedToday);
+    const tookCare = Boolean(carbRes) && pressureHandledToday;
     let requiresCarbTest = {
         display: false,
         req: false,
@@ -1151,7 +1175,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style, givenSpecs)
 
-    const alreadyadjustedPtargetToday = lastNote?.includes("כיוון פורק") || lastNote?.includes("לכוון פורק");
     const latestCarbSpec = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs);
     const hasLatestCarb = lastMeasurement?.carbonation !== null &&
         lastMeasurement?.carbonation !== undefined &&
@@ -1161,10 +1184,10 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastMeasurementDate === todayDate &&
         hasLatestCarb &&
         latestCarbSpec.outOfSpec &&
-        !alreadyadjustedPtargetToday;
+        !pressureHandledToday;
     const warmPressureNeedsAdjustment =
         stage.name === "בתסיסה" &&
-        !alreadyadjustedPtargetToday &&
+        !pressureHandledToday &&
         Number(lastMeasurement?.pressure) > 0 &&
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
@@ -1201,6 +1224,20 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 `ולבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים`;
         }
     }
+
+    const pressureAdjustmentHandledToday = {
+        completed: Boolean(
+            stage.name === "קר" &&
+            lastMeasurementDate === todayDate &&
+            hasLatestCarb &&
+            latestCarbSpec.outOfSpec &&
+            pressureHandledToday
+        ),
+        reason: pressureHandledToday
+            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז לא תקינה (${lastMeasurement?.carbonation})`
+            : "",
+        importance: latestCarbSpec.importance,
+    };
 
     const requiredPressureAdjustment = {
         display: true,
@@ -1520,6 +1557,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiersDiacytelRest,
         neglectedStatus,
         requiresToCoolDown,
-        requiredPressureAdjustment
+        requiredPressureAdjustment,
+        pressureAdjustmentHandledToday
     }
 }
