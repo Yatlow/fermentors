@@ -3,6 +3,7 @@ export type PressureResponseSample = {
   brewDay?: number | null;
   temp?: number | null;
   carbonationBefore: number;
+  carbAgeAtAdjustment?: number | null;
   pressureBefore: number;
   targetPressure: number;
   pressureDelta: number;
@@ -56,6 +57,7 @@ export function estimatePressureTarget(args: {
   pressureMeanToDate?: number | null;
   pressureMeanLast3Days?: number | null;
   pressureMeanLast7Days?: number | null;
+  carbAgeAtAdjustment?: number | null;
 }): PressureRecommendationEstimate | null {
   const {
     currentCarbonation,
@@ -109,7 +111,11 @@ export function estimatePressureTarget(args: {
         const sampleMeanToDate = finiteNumber(sample.pressureMeanToDate);
         const sampleMean3 = finiteNumber(sample.pressureMeanLast3Days);
         const sampleMean7 = finiteNumber(sample.pressureMeanLast7Days);
+        const sampleCarbAge = finiteNumber(sample.carbAgeAtAdjustment);
 
+        if (args.carbAgeAtAdjustment != null && sampleCarbAge !== null) {
+          score += Math.abs(sampleCarbAge - args.carbAgeAtAdjustment) * 0.75;
+        }
         if (args.pressureMeanToDate != null && sampleMeanToDate !== null) {
           score += Math.abs(sampleMeanToDate - args.pressureMeanToDate) * 0.5;
         }
