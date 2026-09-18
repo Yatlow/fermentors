@@ -750,9 +750,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastNote?.includes("הורדת לחץ") ||
         lastNote?.includes("העלאת לחץ") ||
         lastNote?.includes("להוריד לחץ") ||
-        lastNote?.includes("להעלות לחץ") ||
-        lastNote?.includes("כיוון פורק") ||
-        lastNote?.includes("לכוון פורק");
+        lastNote?.includes("להעלות לחץ");
 
     // The normal pressure round is only reported once in the morning, so a
     // different pressure value versus yesterday is NOT proof that the operator
