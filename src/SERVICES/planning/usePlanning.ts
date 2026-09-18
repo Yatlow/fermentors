@@ -17,6 +17,7 @@ import type { Pallet } from "../cooler/Pallettypes ";
 import {
   addDays,
   defaultSettings,
+  emptyWeek,
   weekStart,
   parseDate,
   type TankInput,
@@ -311,10 +312,15 @@ export function usePlanning(
     collectionName: string,
     id: string,
     value: Settings | WeekPlan,
+    options?: { allowClosedWeek?: boolean },
   ) {
     if (!auth.currentUser) throw new Error("יש להתחבר מחדש");
     await runTransaction(db, async (tx) => {
-      if (collectionName === "planningWeeks" && weekIsClosed(id))
+      if (
+        collectionName === "planningWeeks" &&
+        weekIsClosed(id) &&
+        options?.allowClosedWeek !== true
+      )
         throw new Error(
           "השבוע נסגר לתכנון בתחילת יום שישי. ניתן לצפות בו בלבד.",
         );
@@ -339,6 +345,97 @@ export function usePlanning(
     });
   }
 
+  async function moveCalendarEvent(
+    sourceWeekId: string,
+    targetWeekId: string,
+    eventId: string,
+    nextEvent: {
+      id: string;
+      title: string;
+      startDate: string;
+      endDate: string;
+      type: "general";
+      note?: string;
+    },
+  ) {
+    if (!auth.currentUser) throw new Error("יש להתחבר מחדש");
+
+    await runTransaction(db, async (tx) => {
+      const sourceRef = doc(db, "planningWeeks", sourceWeekId);
+      const sourceSnap = await tx.get(sourceRef);
+      if (!sourceSnap.exists()) throw new Error("שבוע המקור לא נמצא");
+
+      const sourceData = sourceSnap.data() as WeekPlan & {
+        calendarEvents?: typeof nextEvent[];
+      };
+      const sourceEvents = Array.isArray(sourceData.calendarEvents)
+        ? sourceData.calendarEvents
+        : [];
+      if (!sourceEvents.some((event) => event.id === eventId)) {
+        throw new Error("האירוע כבר לא קיים בתכנון");
+      }
+
+      const makeNext = (
+        base: WeekPlan & { calendarEvents?: typeof nextEvent[]; createdAt?: unknown },
+        events: typeof nextEvent[],
+        reason: string,
+        createdAt: unknown,
+      ) => ({
+        ...base,
+        calendarEvents: events,
+        changeReason: reason,
+        createdAt,
+        revision: Number(base.revision ?? 0) + 1,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser!.uid,
+      });
+
+      if (sourceWeekId === targetWeekId) {
+        const next = makeNext(
+          sourceData,
+          sourceEvents.map((event) => event.id === eventId ? nextEvent : event),
+          "שינוי תאריכי אירוע ידני",
+          sourceData.createdAt ?? null,
+        );
+        tx.set(sourceRef, next);
+        tx.set(doc(sourceRef, "revisions", String(next.revision)), next);
+        return;
+      }
+
+      const targetRef = doc(db, "planningWeeks", targetWeekId);
+      const targetSnap = await tx.get(targetRef);
+      const targetData = (
+        targetSnap.exists()
+          ? targetSnap.data()
+          : { ...emptyWeek(targetWeekId), maxRuns: settings.preferredRuns }
+      ) as WeekPlan & {
+        calendarEvents?: typeof nextEvent[];
+        createdAt?: unknown;
+      };
+      const targetEvents = Array.isArray(targetData.calendarEvents)
+        ? targetData.calendarEvents.filter((event) => event.id !== eventId)
+        : [];
+
+      const sourceNext = makeNext(
+        sourceData,
+        sourceEvents.filter((event) => event.id !== eventId),
+        "העברת אירוע ידני לשבוע אחר",
+        sourceData.createdAt ?? null,
+      );
+      const targetNext = makeNext(
+        targetData,
+        [...targetEvents, nextEvent],
+        "העברת אירוע ידני משבוע אחר",
+        targetSnap.exists() ? (targetData.createdAt ?? null) : serverTimestamp(),
+      );
+
+      tx.set(sourceRef, sourceNext);
+      tx.set(doc(sourceRef, "revisions", String(sourceNext.revision)), sourceNext);
+      tx.set(targetRef, targetNext);
+      tx.set(doc(targetRef, "revisions", String(targetNext.revision)), targetNext);
+    });
+  }
+
   const requiredKeys = [
     "הגדרות",
     ...(wantsPlans ? ["תוכניות"] : []),
@@ -360,7 +457,9 @@ export function usePlanning(
     error: requiredKeys.map((key) => errors[key]).filter(Boolean).join(" · "),
     offline: requiredKeys.some((key) => offline[key] === true),
     saveSettings: (s: Settings) => save("planningSettings", "main", s),
-    saveWeek: (w: WeekPlan) => save("planningWeeks", w.id, w),
+    saveWeek: (w: WeekPlan, options?: { allowClosedWeek?: boolean }) =>
+      save("planningWeeks", w.id, w, options),
+    moveCalendarEvent,
   };
 }
 
