@@ -435,10 +435,15 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         );
 
                         scheduledCompletedForDisplay.forEach((row) => {
+                            // Scheduling changes urgency before execution, not
+                            // the value of the physical cellar action itself.
+                            // A scheduled carbonation test / yeast drop earns
+                            // the same completion credit as the same action
+                            // performed naturally.
                             addCompleted(
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
-                                3,
+                                1,
                                 row.note ? `בוצע לפי המלצה מתוזמנת · ${row.note}` : "בוצע לפי המלצה מתוזמנת"
                             );
                         });
