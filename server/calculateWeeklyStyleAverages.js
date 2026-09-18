@@ -343,7 +343,11 @@ function mergePressureSamples_(existingSamples, incomingSamples, maxSamples) {
 
   return Array.from(merged.values())
     .sort(function (a, b) {
-      return String(a.eventDate || "").localeCompare(String(b.eventDate || ""));
+      const aDate = parseDateOnly(a && a.eventDate);
+      const bDate = parseDateOnly(b && b.eventDate);
+      const aTime = aDate ? aDate.getTime() : 0;
+      const bTime = bDate ? bDate.getTime() : 0;
+      return aTime - bTime;
     })
     .slice(-Math.max(20, Number(maxSamples) || 600));
 }
@@ -844,6 +848,7 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
   });
   const samples = [];
   let latestCarb = null;
+  let latestCarbDate = null;
   let latestPressure = null;
   let latestTemp = null;
 
@@ -881,6 +886,12 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
           const carbonationDelta = afterCarb - beforeCarb;
           const brewDay = differenceInDays(brewDate, eventDate);
           const pressureHistory = pressureHistoryContext_(rows, index, eventDate);
+          const carbSourceDate = currentCarb !== null
+            ? parseDateOnly(measurement.date)
+            : latestCarbDate;
+          const carbAgeAtAdjustment = carbSourceDate
+            ? Math.max(0, differenceInDays(carbSourceDate, eventDate))
+            : null;
 
           samples.push({
             batchId: String(batchId),
@@ -888,6 +899,7 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
             brewDay: brewDay,
             temp: temp,
             carbonationBefore: beforeCarb,
+            carbAgeAtAdjustment: carbAgeAtAdjustment,
             pressureBefore: beforePressure,
             pressureMeanToDate: pressureHistory.pressureMeanToDate,
             pressureMeanLast3Days: pressureHistory.pressureMeanLast3Days,
@@ -904,7 +916,10 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
       }
     }
 
-    if (currentCarb !== null) latestCarb = currentCarb;
+    if (currentCarb !== null) {
+      latestCarb = currentCarb;
+      latestCarbDate = parseDateOnly(measurement.date);
+    }
     if (currentPressure !== null) latestPressure = currentPressure;
     if (currentTemp !== null) latestTemp = currentTemp;
   });
