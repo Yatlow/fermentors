@@ -521,6 +521,24 @@ export async function createPallet(input: { itemType: PalletItemType; beerStyle:
     return ids[0];
 }
 
+async function reconcilePendingPackagingAfterManualCreation(input: {
+    itemType: PalletItemType;
+    beerStyle: string;
+    batchNumber?: string | null;
+}): Promise<void> {
+    const pending = await findPendingPackagingForManualPallet({
+        itemType: input.itemType,
+        batchNumber: input.batchNumber,
+    });
+    if (!pending || pending.remainingQuantity > 0) return;
+    if (pending.beerStyle.trim() && pending.beerStyle.trim() !== input.beerStyle.trim()) return;
+
+    await updateDoc(doc(db, "packagingOperations", pending.operationId), {
+        state: "completed",
+        updatedAt: serverTimestamp(),
+    });
+}
+
 export async function getManualPalletPackagingWarning(input: {
     itemType: PalletItemType;
     beerStyle: string;
@@ -552,6 +570,17 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
     const ids: string[] = [];
     chunks.forEach((quantity) => { const ref = doc(collection(db, PALLETS_COLLECTION)); ids.push(ref.id); batch.set(ref, palletCreateData({ ...input, quantity })); });
     await batch.commit();
+
+    // A manual pallet can satisfy a packaging operation that was interrupted
+    // before automatic pallet creation. Reconcile only after the pallet batch
+    // committed, so a failed manual create never closes the outbox item.
+    if (input.batchNumber) {
+        await reconcilePendingPackagingAfterManualCreation({
+            itemType: input.itemType,
+            beerStyle: input.beerStyle,
+            batchNumber: input.batchNumber,
+        });
+    }
     return ids;
 }
 
