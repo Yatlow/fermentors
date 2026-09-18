@@ -396,15 +396,41 @@ export async function createPalletsForPlan(
     plan: PackagingPalletPlan,
     splits: CustomPalletSplitEntry[]
 ): Promise<string[]> {
+    const linked = await getDocs(query(
+        collection(db, "pallets"),
+        where("packagingOperationId", "==", plan.operationId),
+    ));
+    const covered = linked.docs.reduce((sum, palletDoc) => {
+        const data = palletDoc.data();
+        const applied = data.packagingAppliedQuantity;
+        return sum + Math.max(0, Number(applied == null ? data.quantity : applied) || 0);
+    }, 0);
+    const remaining = Math.max(0, Math.round(plan.quantity) - covered);
+    if (remaining === 0) return [];
+
+    const remainingSplits: CustomPalletSplitEntry[] = [];
+    let left = remaining;
+    for (const split of splits) {
+        if (left <= 0) break;
+        const quantity = Math.min(Math.max(0, Math.round(split.quantity)), left);
+        if (quantity > 0) {
+            remainingSplits.push({ quantity, subLabel: split.subLabel ?? null });
+            left -= quantity;
+        }
+    }
+    if (left > 0) {
+        throw new Error("חלוקת המשטחים השמורה אינה מכסה את יתרת פעולת האריזה");
+    }
+
     return createPalletsFromCustomSplit({
         itemType: plan.itemType,
-        expectedTotalQuantity: plan.quantity,
+        expectedTotalQuantity: remaining,
         beerStyle: plan.beerStyle,
         batchNumber: plan.batchNumber,
         expiryDateStr: plan.expiryDateStr,
         sourceTankNumber: plan.sourceTankNumber,
         operationId: plan.operationId,
-        splits,
+        splits: remainingSplits,
     });
 }
 
