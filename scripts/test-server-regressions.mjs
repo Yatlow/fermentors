@@ -35,6 +35,8 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   DriveApp: {},
   MimeType: { GOOGLE_SHEETS: "sheet" },
   parseBatchNumber: (value) => { const n = Number(String(value ?? "").replace("#", "").trim()); return Number.isFinite(n) ? n : null; },
+  normalizeTankNumber: (value) => String(value ?? "").trim(),
+  tankNumbersEqual: (a, b) => String(a ?? "").trim() === String(b ?? "").trim(),
 });
 
 {
