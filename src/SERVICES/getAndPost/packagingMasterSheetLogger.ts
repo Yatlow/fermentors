@@ -439,27 +439,42 @@ export async function createPalletsForPlan(
         collection(db, "pallets"),
         where("packagingOperationId", "==", plan.operationId),
     ));
-    const covered = linked.docs.reduce((sum, palletDoc) => {
+
+    // Recovery pallets retain the approved split index. Manual pallets do not
+    // replace a particular split; their applied quantity is consumed from the
+    // first still-uncreated approved splits.
+    const createdSplitIndexes = new Set<number>();
+    let manualCoverage = 0;
+    linked.docs.forEach((palletDoc) => {
         const data = palletDoc.data();
-        const applied = data.packagingAppliedQuantity;
-        return sum + Math.max(0, Number(applied == null ? data.quantity : applied) || 0);
-    }, 0);
-    const remaining = Math.max(0, Math.round(plan.quantity) - covered);
-    if (remaining === 0) return [];
+        if (data.packagingSource === "manual") {
+            manualCoverage += Math.max(0, Number(data.packagingAppliedQuantity ?? 0) || 0);
+            return;
+        }
+        const splitIndex = Number(data.packagingSplitIndex);
+        if (Number.isInteger(splitIndex) && splitIndex >= 0) createdSplitIndexes.add(splitIndex);
+    });
 
     const remainingSplits: CustomPalletSplitEntry[] = [];
-    let left = remaining;
-    for (const split of splits) {
-        if (left <= 0) break;
-        const quantity = Math.min(Math.max(0, Math.round(split.quantity)), left);
-        if (quantity > 0) {
-            remainingSplits.push({ quantity, subLabel: split.subLabel ?? null });
-            left -= quantity;
+    splits.forEach((split, index) => {
+        if (createdSplitIndexes.has(index)) return;
+        let quantity = Math.max(0, Math.round(split.quantity));
+        if (manualCoverage > 0) {
+            const consumed = Math.min(quantity, manualCoverage);
+            quantity -= consumed;
+            manualCoverage -= consumed;
         }
-    }
-    if (left > 0) {
-        throw new Error("חלוקת המשטחים השמורה אינה מכסה את יתרת פעולת האריזה");
-    }
+        if (quantity > 0) {
+            remainingSplits.push({
+                quantity,
+                subLabel: split.subLabel ?? null,
+                operationSplitIndex: index,
+            });
+        }
+    });
+
+    const remaining = remainingSplits.reduce((sum, split) => sum + split.quantity, 0);
+    if (remaining === 0) return [];
 
     return createPalletsFromCustomSplit({
         itemType: plan.itemType,
