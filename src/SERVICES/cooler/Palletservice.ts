@@ -12,7 +12,6 @@ import {
     serverTimestamp,
     getCountFromServer,
     getDocsFromServer,
-    limit,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
