@@ -524,11 +524,17 @@ export async function findPendingPackagingForManualPallet(input: {
     // A batch can legitimately have more than one packaging operation (for
     // example bottles and kegs, or a retry from another packaging day). Do not
     // let an arbitrary limit(1) hide the exact style operation.
-    const found =
-        snapshot.docs.find((candidate) => {
+    const requestedStyle = input.beerStyle?.trim();
+    const found = requestedStyle
+        ? snapshot.docs.find((candidate) => {
             const style = String(candidate.data().beerStyle ?? "").trim();
-            return !style || style === input.beerStyle?.trim();
-        }) ?? snapshot.docs[0];
+            return !style || style === requestedStyle;
+        })
+        : snapshot.docs[0];
+
+    // Never attach a manual pallet to another beer style just because it was
+    // the first open operation returned by Firestore.
+    if (!found) return null;
     const data = found.data();
     const quantity = Math.max(0, Number(data.quantity ?? 0));
 
