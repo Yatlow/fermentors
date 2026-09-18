@@ -96,6 +96,11 @@ service cloud.firestore {
       allow read, write: if isApprovedUser();
     }
 
+    match /pressureResponseModels/{document} {
+      allow read: if isApprovedUser();
+      allow write: if false;
+    }
+
     match /sheetSyncJobs/{requestId} {
       allow read: if isApprovedUser();
       allow create: if isApprovedUser()
