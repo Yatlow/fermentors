@@ -228,6 +228,159 @@ function addFermentationNoteFast_(ss, sheet, spreadsheetId, notes, startedAt) {
   };
 }
 
+function addFermentationCarbonationFast_(
+  ss,
+  sheet,
+  spreadsheetId,
+  carbonation,
+  startedAt
+) {
+  const clock = getJerusalemMeasurementClock_();
+  const cache = CacheService.getScriptCache();
+  const todayKey = "fermentation_today:" + spreadsheetId + ":" + clock.dateKey;
+  const cachedTodayRow = Number(cache.get(todayKey));
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  let targetRow = -1;
+  let rowDisplay = null;
+
+  if (
+    Number.isFinite(cachedTodayRow) &&
+    cachedTodayRow >= 1 &&
+    cachedTodayRow <= Math.max(lastRow, cachedTodayRow)
+  ) {
+    const cachedDisplay = sheet
+      .getRange(cachedTodayRow, 1, 1, 8)
+      .getDisplayValues()[0];
+
+    if (fermentationDateMatchesToday_(cachedDisplay[0], clock)) {
+      targetRow = cachedTodayRow;
+      rowDisplay = cachedDisplay;
+      Logger.log("Fast carbonation: today-row cache hit at row " + targetRow);
+    }
+  }
+
+  if (targetRow === -1) {
+    const headerRow = getCachedFermentationHeaderRow_(
+      sheet,
+      spreadsheetId,
+      lastRow
+    );
+
+    const dataRowCount = Math.max(lastRow - headerRow, 0);
+    const dateTimeValues = dataRowCount > 0
+      ? sheet.getRange(headerRow + 1, 1, dataRowCount, 2).getDisplayValues()
+      : [];
+
+    let lastMeasurementRow = headerRow;
+
+    for (let i = 0; i < dateTimeValues.length; i++) {
+      const absoluteRow = headerRow + 1 + i;
+      const rawDate = String(dateTimeValues[i][0] || "").trim();
+      if (!rawDate) continue;
+
+      if (parseIsraeliDate(rawDate)) {
+        lastMeasurementRow = absoluteRow;
+      }
+
+      if (fermentationDateMatchesToday_(rawDate, clock)) {
+        targetRow = absoluteRow;
+      }
+    }
+
+    if (targetRow !== -1) {
+      rowDisplay = sheet
+        .getRange(targetRow, 1, 1, 8)
+        .getDisplayValues()[0];
+    } else {
+      targetRow = lastMeasurementRow + 1;
+      const existing = sheet
+        .getRange(targetRow, 1, 1, 8)
+        .getDisplayValues()[0];
+
+      if (existing.some(function (value) {
+        return String(value || "").trim() !== "";
+      })) {
+        throw new Error(
+          "SAFETY STOP: Fast-carbonation target row " + targetRow +
+          " is not empty. Nothing was written."
+        );
+      }
+
+      const carbonationValue = formatMeasurementValue(carbonation);
+      const newRow = [
+        clock.sheetDate,
+        clock.timeText,
+        "",
+        "",
+        "",
+        "",
+        carbonationValue,
+        ""
+      ];
+
+      sheet.getRange(targetRow, 1, 1, 8).setValues([newRow]);
+      sheet.getRange(targetRow, 1, 1, 2)
+        .setNumberFormats([["dd/MM/yyyy", "HH:mm"]]);
+      sheet.getRange(targetRow, 7).setNumberFormat("0.00");
+
+      cache.put(todayKey, String(targetRow), 21600);
+
+      Logger.log(
+        "Fast carbonation: created today's row " + targetRow +
+        " | total " + (Date.now() - startedAt) + "ms"
+      );
+
+      return {
+        success: true,
+        overwritten: false,
+        spreadsheetId: spreadsheetId,
+        sheetName: sheet.getName(),
+        row: targetRow,
+        date: clock.dateText,
+        time: clock.timeText,
+        sugar: "",
+        temperature: "",
+        pressure: "",
+        pH: "",
+        carbonation: carbonationValue,
+        notes: "",
+        sheetUrl: ss.getUrl(),
+        fastPath: "carbonation"
+      };
+    }
+  }
+
+  const carbonationValue = formatMeasurementValue(carbonation);
+  sheet.getRange(targetRow, 7)
+    .setValue(carbonationValue)
+    .setNumberFormat("0.00");
+  cache.put(todayKey, String(targetRow), 21600);
+
+  Logger.log(
+    "Fast carbonation: updated row " + targetRow +
+    " | total " + (Date.now() - startedAt) + "ms"
+  );
+
+  return {
+    success: true,
+    overwritten: true,
+    spreadsheetId: spreadsheetId,
+    sheetName: sheet.getName(),
+    row: targetRow,
+    date: clock.dateText,
+    time: String((rowDisplay && rowDisplay[1]) || clock.timeText).trim(),
+    sugar: rowDisplay ? rowDisplay[2] : "",
+    temperature: rowDisplay ? rowDisplay[3] : "",
+    pressure: rowDisplay ? rowDisplay[4] : "",
+    pH: rowDisplay ? rowDisplay[5] : "",
+    carbonation: carbonationValue,
+    notes: rowDisplay ? rowDisplay[7] : "",
+    sheetUrl: ss.getUrl(),
+    fastPath: "carbonation"
+  };
+}
+
+
 function addFermentationMeasurement(
   sheetUrl,
   temperature,
@@ -280,6 +433,30 @@ function addFermentationMeasurement(
         sheet,
         spreadsheetId,
         notes,
+        startedAt
+      );
+    }
+
+    // A carbonation test is usually reported later in the day, after the
+    // morning pressure/temperature row already exists. The old numeric path
+    // rescanned and rewrote the whole fermentation table just to change column
+    // G, which is why this specific report could hit the 15-second browser
+    // timeout. Use the cached today row when possible and update only G.
+    const carbonationOnly =
+      hasFermentationValue_(carbonation) &&
+      !hasFermentationValue_(temperature) &&
+      !hasFermentationValue_(pressure) &&
+      !hasFermentationValue_(sugar) &&
+      !hasFermentationValue_(pH) &&
+      !hasNotes &&
+      boldNotes !== true;
+
+    if (carbonationOnly) {
+      return addFermentationCarbonationFast_(
+        ss,
+        sheet,
+        spreadsheetId,
+        carbonation,
         startedAt
       );
     }
