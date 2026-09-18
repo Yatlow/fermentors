@@ -44,7 +44,8 @@ export async function applyManualStatusChange(
   fermentorID: string,
   desiredAction: number,
   desiredTankStatus: boolean,
-  expectedBatchNumber?: string | number | null
+  expectedBatchNumber?: string | number | null,
+  expectedFromAction?: number | null
 ) {
   const parsed = await callAppsScriptPost<AppsScriptEnvelope>({
     action: "ApplyManualStatus",
@@ -52,6 +53,7 @@ export async function applyManualStatusChange(
     desiredAction,
     desiredTankStatus,
     expectedBatchNumber: expectedBatchNumber ?? "",
+    expectedFromAction: expectedFromAction ?? null,
   }, {
     timeoutMs: 30000,
     retries: 1,
