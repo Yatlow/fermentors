@@ -292,8 +292,7 @@ function calculateWeeklyStyleAverages(force) {
   let pressureModelsUpdated = 0;
   Object.keys(pressureSamplesByStyle).forEach(function (styleKey) {
     const samples = pressureSamplesByStyle[styleKey]
-      .filter(function (sample) { return sample && sample.success === true; })
-      .slice(-120);
+      .filter(function (sample) { return Boolean(sample); });
 
     if (samples.length === 0) return;
 
@@ -337,7 +336,7 @@ function mergePressureSamples_(existingSamples, incomingSamples, maxSamples) {
     merged.set(pressureSampleKey_(sample), sample);
   });
   (incomingSamples || []).forEach(function (sample) {
-    if (!sample || sample.success !== true) return;
+    if (!sample) return;
     merged.set(pressureSampleKey_(sample), sample);
   });
 
@@ -351,6 +350,168 @@ function mergePressureSamples_(existingSamples, incomingSamples, maxSamples) {
     })
     .slice(-Math.max(20, Number(maxSamples) || 600));
 }
+
+function pressureCalibrationNumber_(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function pressureCalibrationMedian_(values) {
+  const sorted = (values || [])
+    .filter(function (value) { return Number.isFinite(value); })
+    .slice()
+    .sort(function (a, b) { return a - b; });
+  if (sorted.length === 0) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function pressureCalibrationClamp_(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function pressureCalibrationDistance_(a, b) {
+  let score = 0;
+
+  const pairs = [
+    ["brewDay", 0.15],
+    ["temp", 0.5],
+    ["carbonationBefore", 4],
+    ["pressureBefore", 1.5],
+    ["carbAgeAtAdjustment", 0.75],
+    ["pressureMeanToDate", 0.5],
+    ["pressureMeanLast3Days", 1.5],
+    ["pressureMeanLast7Days", 1]
+  ];
+
+  pairs.forEach(function (pair) {
+    const av = pressureCalibrationNumber_(a && a[pair[0]]);
+    const bv = pressureCalibrationNumber_(b && b[pair[0]]);
+    if (av !== null && bv !== null) {
+      score += Math.abs(av - bv) * pair[1];
+    }
+  });
+
+  return score;
+}
+
+function buildPressureCalibration_(samples) {
+  const rows = (samples || []).filter(function (sample) {
+    const pressureDelta = pressureCalibrationNumber_(sample && sample.pressureDelta);
+    const carbonationDelta = pressureCalibrationNumber_(sample && sample.carbonationDelta);
+    const elapsedDays = pressureCalibrationNumber_(sample && sample.elapsedDays);
+    return (
+      pressureDelta !== null &&
+      carbonationDelta !== null &&
+      elapsedDays !== null &&
+      Math.abs(pressureDelta) >= 0.02 &&
+      elapsedDays >= 1 &&
+      elapsedDays <= 5
+    );
+  });
+
+  const evaluated = [];
+
+  rows.forEach(function (sample) {
+    const pressureDelta = Number(sample.pressureDelta);
+    const direction = Math.sign(pressureDelta);
+    if (direction === 0) return;
+
+    const peers = rows
+      .filter(function (candidate) {
+        if (candidate === sample || candidate.success === false) return false;
+        const candidatePressureDelta = Number(candidate.pressureDelta);
+        const candidateCarbDelta = Number(candidate.carbonationDelta);
+        return (
+          Math.sign(candidatePressureDelta) === direction &&
+          Math.sign(candidateCarbDelta) === direction &&
+          Math.abs(candidateCarbDelta) >= 0.01
+        );
+      })
+      .sort(function (a, b) {
+        return pressureCalibrationDistance_(sample, a) -
+          pressureCalibrationDistance_(sample, b);
+      })
+      .slice(0, 20);
+
+    if (peers.length < 5) return;
+
+    const peerRate = pressureCalibrationMedian_(
+      peers.map(function (peer) {
+        return Math.abs(Number(peer.carbonationDelta) / Number(peer.pressureDelta));
+      }).filter(function (rate) {
+        return Number.isFinite(rate) && rate >= 0.05 && rate <= 4;
+      })
+    );
+    if (peerRate === null) return;
+
+    const predictedMagnitude = peerRate * Math.abs(pressureDelta);
+    if (!Number.isFinite(predictedMagnitude) || predictedMagnitude <= 0) return;
+
+    const directedActual = direction * Number(sample.carbonationDelta);
+    const ratio = pressureCalibrationClamp_(
+      Math.max(0, directedActual) / predictedMagnitude,
+      0.4,
+      1.6
+    );
+
+    evaluated.push({
+      ratio: ratio,
+      predictedMagnitude: predictedMagnitude,
+      directedActual: directedActual,
+      directionSuccess: directedActual > 0
+    });
+  });
+
+  if (evaluated.length < 8) {
+    return {
+      responseMultiplier: 1,
+      evaluatedSamples: evaluated.length,
+      directionSuccessRate: null,
+      within005Rate: null,
+      meanAbsoluteError: null,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  const multiplier = pressureCalibrationClamp_(
+    pressureCalibrationMedian_(
+      evaluated.map(function (item) { return item.ratio; })
+    ) || 1,
+    0.7,
+    1.3
+  );
+
+  const errors = evaluated.map(function (item) {
+    return Math.abs(
+      item.directedActual -
+      item.predictedMagnitude * multiplier
+    );
+  });
+
+  const successCount = evaluated.filter(function (item) {
+    return item.directionSuccess;
+  }).length;
+  const within005Count = errors.filter(function (error) {
+    return error <= 0.05;
+  }).length;
+
+  return {
+    responseMultiplier: Math.round(multiplier * 1000) / 1000,
+    evaluatedSamples: evaluated.length,
+    directionSuccessRate: Math.round((successCount / evaluated.length) * 1000) / 1000,
+    within005Rate: Math.round((within005Count / evaluated.length) * 1000) / 1000,
+    meanAbsoluteError:
+      Math.round(
+        (errors.reduce(function (sum, error) { return sum + error; }, 0) /
+          errors.length) * 1000
+      ) / 1000,
+    updatedAt: new Date().toISOString()
+  };
+}
+
 
 function getPressureResponseModel_(projectId, styleKey) {
   const url =
@@ -387,6 +548,8 @@ function writeMergedPressureResponseModel_(projectId, styleKey, incomingSamples)
 
   if (samples.length === 0) return null;
 
+  const calibration = buildPressureCalibration_(samples);
+
   return setFirestoreDocument(
     projectId,
     "pressureResponseModels/" + encodeURIComponent(styleKey),
@@ -394,6 +557,7 @@ function writeMergedPressureResponseModel_(projectId, styleKey, incomingSamples)
       style: styleKey,
       samples: samples,
       sampleCount: samples.length,
+      calibration: calibration,
       updatedAt: new Date().toISOString()
     }
   );
