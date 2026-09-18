@@ -9,6 +9,9 @@ export type PressureResponseSample = {
   carbonationAfter: number;
   carbonationDelta: number;
   elapsedDays: number;
+  pressureMeanToDate?: number | null;
+  pressureMeanLast3Days?: number | null;
+  pressureMeanLast7Days?: number | null;
   success?: boolean;
 };
 
@@ -50,6 +53,9 @@ export function estimatePressureTarget(args: {
   currentPressure: number;
   brewDay?: number | null;
   temp?: number | null;
+  pressureMeanToDate?: number | null;
+  pressureMeanLast3Days?: number | null;
+  pressureMeanLast7Days?: number | null;
 }): PressureRecommendationEstimate | null {
   const {
     currentCarbonation,
@@ -88,13 +94,38 @@ export function estimatePressureTarget(args: {
       sample.elapsedDays <= 5
     )
     .sort((a, b) => {
-      const aAge = brewDay !== null && a.brewDay !== null ? Math.abs(a.brewDay - brewDay) : 0;
-      const bAge = brewDay !== null && b.brewDay !== null ? Math.abs(b.brewDay - brewDay) : 0;
-      const aTemp = temp !== null && a.temp !== null ? Math.abs(a.temp - temp) : 0;
-      const bTemp = temp !== null && b.temp !== null ? Math.abs(b.temp - temp) : 0;
-      return aAge - bAge || aTemp - bTemp;
+      const contextDistance = (sample: typeof a) => {
+        let score = 0;
+        if (brewDay !== null && sample.brewDay !== null) {
+          score += Math.abs(sample.brewDay - brewDay) * 0.15;
+        }
+        if (temp !== null && sample.temp !== null) {
+          score += Math.abs(sample.temp - temp) * 0.5;
+        }
+
+        score += Math.abs(sample.carbonationBefore - currentCarbonation) * 4;
+        score += Math.abs(sample.pressureBefore - currentPressure) * 1.5;
+
+        const sampleMeanToDate = finiteNumber(sample.pressureMeanToDate);
+        const sampleMean3 = finiteNumber(sample.pressureMeanLast3Days);
+        const sampleMean7 = finiteNumber(sample.pressureMeanLast7Days);
+
+        if (args.pressureMeanToDate != null && sampleMeanToDate !== null) {
+          score += Math.abs(sampleMeanToDate - args.pressureMeanToDate) * 0.5;
+        }
+        if (args.pressureMeanLast3Days != null && sampleMean3 !== null) {
+          score += Math.abs(sampleMean3 - args.pressureMeanLast3Days) * 1.5;
+        }
+        if (args.pressureMeanLast7Days != null && sampleMean7 !== null) {
+          score += Math.abs(sampleMean7 - args.pressureMeanLast7Days);
+        }
+
+        return score;
+      };
+
+      return contextDistance(a) - contextDistance(b);
     })
-    .slice(0, 30);
+    .slice(0, 40);
 
   if (valid.length < 5) return null;
 
