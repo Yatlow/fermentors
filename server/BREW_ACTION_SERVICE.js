@@ -1199,50 +1199,6 @@ function getAllFermentorsFromFirebase() {
 // ============================================================
 // FIRESTORE: SINGLE FERMENTOR
 // ============================================================
-
-function getFermentorFromFirebase(
-  tankNumber
-) {
-
-  const fermentorId =
-    String(tankNumber).trim();
-
-  const url =
-    "https://firestore.googleapis.com/v1/projects/" +
-    FIREBASE_PROJECT_ID +
-    "/databases/(default)/documents/fermentors/" +
-    encodeURIComponent(
-      fermentorId
-    );
-
-  const document =
-    getFirestoreDocument(url);
-
-  if (
-    !document ||
-    !document.fields
-  ) {
-
-    return null;
-  }
-
-  const result = {};
-
-  for (
-    const key in document.fields
-  ) {
-
-    result[key] =
-      normalizeFirestoreValue(
-        document.fields[key]
-      );
-  }
-
-  return result;
-}
-
-
-// ============================================================
 // ACTION 5: ATOMIC FERMENTOR TRANSITION
 // ============================================================
 
