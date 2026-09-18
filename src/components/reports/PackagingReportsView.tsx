@@ -334,7 +334,7 @@ function formatISODateToDDMMYYYY(iso: string): string {
 
 
 export default function PackagingReportsView() {
-    const [mode, setMode] = useState<RangeMode>("range");
+    const [mode, setMode] = useState<RangeMode>("week");
 
     const [startDate, setStartDate] = useState<string>(
         () => toDateInputValue(addDays(new Date(), -29))
