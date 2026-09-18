@@ -12,7 +12,6 @@ import {
     serverTimestamp,
     getCountFromServer,
     getDocsFromServer,
-    getDoc,
     limit,
 } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -295,7 +294,6 @@ export async function createPalletsFromPackaging(params: CreatePalletsParams): P
     const quantities = splitQuantity(totalQuantity, maxPerPallet);
     const batch = writeBatch(db);
     const ids: string[] = [];
-    let operationCoverageRemaining = linkedOperationId ? pending!.remainingQuantity : 0;
 
     quantities.forEach((quantity) => {
         const ref = doc(collection(db, PALLETS_COLLECTION));
