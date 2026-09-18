@@ -531,6 +531,7 @@ export async function logPackagingToMasterSheet(
         try {
             const splits = getDefaultSplitForPlan(record.palletPlan);
             await createPalletsForPlan(record.palletPlan, splits);
+            await markPackagingPalletsCompleted(record.palletPlan.operationId);
         } catch (err) {
             console.error("Failed to create pallets for cooler map:", err);
             warnings.push("הרישום הצליח אך יצירת המשטחים במפת המקרר נכשלה - יש להוסיף ידנית");
