@@ -21,6 +21,7 @@ export type ScheduledCellarRecommendation = {
   note?: string;
   status: "active" | "completed" | "cancelled";
   createdBy?: string;
+  resolvedDate?: string;
 };
 
 const COLLECTION = "scheduledCellarRecommendations";
@@ -127,17 +128,54 @@ export async function setScheduledCellarRecommendationStatus(
   id: string,
   status: "completed" | "cancelled",
 ): Promise<void> {
+  const resolvedDate = todayDateKey();
+
   if (isPullRequestPreview()) {
     writePreviewRows(
-      readPreviewRows().map((row) => row.id === id ? { ...row, status } : row)
+      readPreviewRows().map((row) =>
+        row.id === id ? { ...row, status, resolvedDate } : row
+      )
     );
     return;
   }
 
   await updateDoc(doc(db, COLLECTION, id), {
     status,
+    resolvedDate,
+    resolvedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+}
+
+export function subscribeCompletedScheduledCellarRecommendationsToday(
+  callback: (rows: ScheduledCellarRecommendation[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const today = todayDateKey();
+
+  if (isPullRequestPreview()) {
+    const emit = () => callback(
+      readPreviewRows().filter((row) => row.status === "completed" && row.resolvedDate === today)
+    );
+    emit();
+    window.addEventListener(PREVIEW_EVENT, emit);
+    return () => window.removeEventListener(PREVIEW_EVENT, emit);
+  }
+
+  return onSnapshot(
+    query(collection(db, COLLECTION), where("resolvedDate", "==", today)),
+    (snapshot) => {
+      callback(
+        snapshot.docs
+          .map((item) => ({
+            id: item.id,
+            ...(item.data() as Omit<ScheduledCellarRecommendation, "id">),
+          }))
+          .filter((row) => row.status === "completed")
+      );
+    },
+    (error) => onError?.(error),
+  );
 }
 
 export function scheduledForTank(
