@@ -206,6 +206,7 @@ function runAsyncMaintenance_() {
   let sheetSync = null;
   let packagingCleanup = null;
   let styleModels = null;
+  let pressureBackfill = null;
   let logs = null;
 
   try {
@@ -259,6 +260,12 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    pressureBackfill = pressureResponseBackfillStep_();
+  } catch (error) {
+    console.log("Historical pressure model backfill failed: " + error.message);
+  }
+
+  try {
     logs = flushQueuedLogs_();
   } catch (error) {
     console.log("Async log flush failed: " + error.message);
@@ -275,6 +282,7 @@ function runAsyncMaintenance_() {
     sheetSync: sheetSync,
     packagingCleanup: packagingCleanup,
     styleModels: styleModels,
+    pressureBackfill: pressureBackfill,
     logs: logs
   };
 }
