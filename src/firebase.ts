@@ -6,16 +6,9 @@ import {
   persistentMultipleTabManager,
 } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { runtimeConfig } from "./config/runtimeConfig";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyAzmFTjWuLZjNzYDVKM9kK_xNEm37jiuGY",
-  authDomain: "fermenter-dashboard-bada3.firebaseapp.com",
-  projectId: "fermenter-dashboard-bada3",
-  storageBucket: "fermenter-dashboard-bada3.firebasestorage.app",
-  messagingSenderId: "1000438477674",
-  appId: "1:1000438477674:web:3e105bd365821853556b13",
-  measurementId: "G-Y1EWH9FMV9",
-};
+const firebaseConfig = runtimeConfig.firebase;
 
 const app = initializeApp(firebaseConfig);
 
