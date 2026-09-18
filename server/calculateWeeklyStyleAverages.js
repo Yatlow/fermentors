@@ -297,15 +297,10 @@ function calculateWeeklyStyleAverages(force) {
 
     if (samples.length === 0) return;
 
-    setFirestoreDocument(
+    writeMergedPressureResponseModel_(
       projectId,
-      "pressureResponseModels/" + encodeURIComponent(styleKey),
-      {
-        style: styleKey,
-        samples: samples,
-        sampleCount: samples.length,
-        updatedAt: new Date().toISOString()
-      }
+      styleKey,
+      samples
     );
     pressureModelsUpdated++;
   });
@@ -324,6 +319,80 @@ function calculateWeeklyStyleAverages(force) {
     stylesUpdated: stylesUpdated,
     pressureModelsUpdated: pressureModelsUpdated
   };
+}
+
+function pressureSampleKey_(sample) {
+  return [
+    String(sample && sample.batchId || ""),
+    String(sample && sample.eventDate || ""),
+    String(sample && sample.targetPressure || "")
+  ].join("|");
+}
+
+function mergePressureSamples_(existingSamples, incomingSamples, maxSamples) {
+  const merged = new Map();
+
+  (existingSamples || []).forEach(function (sample) {
+    if (!sample) return;
+    merged.set(pressureSampleKey_(sample), sample);
+  });
+  (incomingSamples || []).forEach(function (sample) {
+    if (!sample || sample.success !== true) return;
+    merged.set(pressureSampleKey_(sample), sample);
+  });
+
+  return Array.from(merged.values())
+    .sort(function (a, b) {
+      return String(a.eventDate || "").localeCompare(String(b.eventDate || ""));
+    })
+    .slice(-Math.max(20, Number(maxSamples) || 240));
+}
+
+function getPressureResponseModel_(projectId, styleKey) {
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    encodeURIComponent(projectId) +
+    "/databases/(default)/documents/pressureResponseModels/" +
+    encodeURIComponent(styleKey);
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() === 404) return null;
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(
+      "Pressure model read failed (" + response.getResponseCode() + "): " +
+      response.getContentText()
+    );
+  }
+
+  const parsed = JSON.parse(response.getContentText() || "{}");
+  return firestoreFieldsToObject_(parsed.fields || {});
+}
+
+function writeMergedPressureResponseModel_(projectId, styleKey, incomingSamples) {
+  const existing = getPressureResponseModel_(projectId, styleKey);
+  const samples = mergePressureSamples_(
+    existing && Array.isArray(existing.samples) ? existing.samples : [],
+    incomingSamples,
+    240
+  );
+
+  if (samples.length === 0) return null;
+
+  return setFirestoreDocument(
+    projectId,
+    "pressureResponseModels/" + encodeURIComponent(styleKey),
+    {
+      style: styleKey,
+      samples: samples,
+      sampleCount: samples.length,
+      updatedAt: new Date().toISOString()
+    }
+  );
 }
 
 // ============================================================
