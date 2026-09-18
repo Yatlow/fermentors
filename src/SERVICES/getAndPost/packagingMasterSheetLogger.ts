@@ -1,4 +1,4 @@
-import { doc, getDoc, collection, addDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
@@ -18,6 +18,99 @@ const BOTTLES_PER_CRATE = 24;
 
 /** שם הקולקציה בפיירסטור שאליה נכתבים אירועי אריזה בפועל (לצורך דוחות) */
 const PACKAGING_LOG_COLLECTION = "packagingLog";
+
+const PACKAGING_OPERATIONS_COLLECTION = "packagingOperations";
+
+async function persistPackagingOperation(params: {
+    operationId: string;
+    packagingType: PackagingType;
+    beerStyle: string | undefined | null;
+    quantity: number;
+    batchNumber: string | number | undefined | null;
+    tankNumber: string | number | null;
+    expiryDateStr: string;
+}): Promise<void> {
+    const ref = doc(db, PACKAGING_OPERATIONS_COLLECTION, params.operationId);
+    const immutable = {
+        operationId: params.operationId,
+        packagingType: params.packagingType,
+        itemType: params.packagingType === "kegs" ? "kegs" : "crates",
+        beerStyle: String(params.beerStyle ?? "").trim(),
+        quantity: params.quantity,
+        batchNumber: params.batchNumber == null ? null : String(params.batchNumber),
+        tankNumber: params.tankNumber ?? null,
+        expiryDateStr: params.expiryDateStr,
+    };
+
+    await runTransaction(db, async (tx) => {
+        const existing = await tx.get(ref);
+        if (existing.exists()) {
+            const data = existing.data();
+            const mismatch = Object.entries(immutable).some(([key, value]) => data[key] !== value);
+            if (mismatch) {
+                throw new Error("מזהה פעולת האריזה כבר קיים עם נתונים אחרים. הפעולה נעצרה כדי למנוע כפילות.");
+            }
+            // Retry of the same logical operation: preserve createdAt and,
+            // critically, never reopen an operation that is already completed.
+            return;
+        }
+
+        tx.set(ref, {
+            ...immutable,
+            state: "awaiting_pallets",
+            updatedAt: serverTimestamp(),
+            createdAt: serverTimestamp(),
+        });
+    });
+}
+
+export async function savePackagingPalletSplits(operationId: string, splits: CustomPalletSplitEntry[]): Promise<void> {
+    await updateDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
+        palletSplits: splits.map((split) => ({ quantity: Math.round(split.quantity), subLabel: split.subLabel ?? null })),
+        updatedAt: serverTimestamp(),
+    });
+}
+
+export async function recoverPackagingOperation(operationId: string): Promise<string[]> {
+    const operationRef = doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId);
+    const snapshot = await getDoc(operationRef);
+    if (!snapshot.exists()) throw new Error("פעולת האריזה לא נמצאה");
+    const operation = snapshot.data();
+    if (operation.state === "completed") return [];
+
+    const splits = Array.isArray(operation.palletSplits)
+        ? operation.palletSplits.map((split: any) => ({
+            quantity: Math.round(Number(split?.quantity ?? 0)),
+            subLabel: split?.subLabel ?? null,
+        })).filter((split: CustomPalletSplitEntry) => split.quantity > 0)
+        : [];
+    if (splits.length === 0) {
+        throw new Error("לפעולת האריזה אין חלוקת משטחים שמורה ולכן לא ניתן לשחזר אותה אוטומטית");
+    }
+
+    const plan: PackagingPalletPlan = {
+        operationId,
+        itemType: operation.itemType,
+        quantity: Math.round(Number(operation.quantity ?? 0)),
+        beerStyle: String(operation.beerStyle ?? ""),
+        batchNumber: operation.batchNumber ?? null,
+        expiryDateStr: String(operation.expiryDateStr ?? ""),
+        sourceTankNumber: operation.tankNumber ?? null,
+        tankNumber: operation.tankNumber ?? null,
+    };
+    const ids = await createPalletsForPlan(plan, splits);
+    await markPackagingPalletsCompleted(operationId);
+    return ids;
+}
+
+export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
+    await setDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
+        state: "completed",
+        updatedAt: serverTimestamp(),
+    }, { merge: true });
+}
+
+
 
 /**
  * ⚠️ חדש - חישוב סינכרוני בלבד (לא נוגע ברשת) של כמות המשטחים (חביות/ארגזים)
@@ -98,6 +191,8 @@ export type MasterSheetLogParams = {
     batchNumber: string | number | undefined | null;
     tankNumber: string | number | null;
     tankStatus: boolean;
+    /** Stable id supplied by the packaging UI; retries must reuse it. */
+    operationId?: string;
 };
 
 export type MasterSheetLogResult = {
@@ -111,6 +206,8 @@ export type MasterSheetLogResult = {
  * ולאפשר למשתמש לערוך אותה, בלי שום תלות ברשת. מוחזר מ-submitPackagingRecord.
  */
 export type PackagingPalletPlan = {
+    /** Stable identity shared by Sheet log, Firestore log and pallet creation. */
+    operationId: string;
     itemType: PalletItemType;
     /** הכמות הכוללת בפועל (מספר חביות, או מספר ארגזים שלמים לבקבוקים) */
     quantity: number;
@@ -142,6 +239,7 @@ type MasterSheetServerResult = {
  * כדי שיהיה קל לאחד בין השניים בקומפוננטת הדוחות.
  */
 async function logPackagingToFirestore(params: {
+    operationId: string;
     packagingType: PackagingType;
     beerStyle: string | undefined | null;
     quantity: number;
@@ -152,7 +250,7 @@ async function logPackagingToFirestore(params: {
     tankNumber: string | number | null;
     tankStatus: boolean;
 }): Promise<void> {
-    const { packagingType, beerStyle, quantity, batchNumber, tankNumber, productionDateStr, expiryDateStr, productDate, tankStatus } = params;
+    const { operationId, packagingType, beerStyle, quantity, batchNumber, tankNumber, productionDateStr, expiryDateStr, productDate, tankStatus } = params;
 
     const unit = packagingType === "kegs" ? "חביות" : "ארגזים";
     const itemLabel = String(beerStyle ?? "").trim();
@@ -161,7 +259,9 @@ async function logPackagingToFirestore(params: {
             ? `אריזת חביות ${itemLabel} - ${quantity} חביות`
             : `אריזת ${itemLabel} - ${quantity} ארגזים`;
 
-    await addDoc(collection(db, PACKAGING_LOG_COLLECTION), {
+    // Deterministic id: retrying the same logical packaging operation overwrites
+    // the same log document instead of creating a duplicate actual-packaging row.
+    await setDoc(doc(db, PACKAGING_LOG_COLLECTION, operationId), {
         source: "actual",
         packagingType,
         beerStyle: itemLabel,
@@ -174,8 +274,9 @@ async function logPackagingToFirestore(params: {
         date: productionDateStr,
         timestamp: productDate.getTime(),
         title,
-        createdAt: Timestamp.now(),
-    });
+        operationId,
+        createdAt: Timestamp.fromDate(productDate),
+    }, { merge: true });
     const docRef = doc(db, "fermentors", tankNumber?.toString() ?? "");
     try {
         await updateDoc(docRef, {
@@ -230,7 +331,18 @@ export async function submitPackagingRecord(
     // SAME id is reused for all HTTP attempts of this logical write. The server
     // stores the completed result before replying, so a broken Google redirect
     // can be retried without appending the packaging row twice.
-    const requestId = createAppsScriptRequestId("packaging");
+    const operationId = params.operationId?.trim() || createAppsScriptRequestId("packaging");
+    const requestId = operationId;
+    await persistPackagingOperation({
+        operationId,
+        packagingType,
+        beerStyle,
+        quantity,
+        batchNumber,
+        tankNumber,
+        expiryDateStr,
+    });
+
     const payload = {
         action: "logPackagingToMasterSheet",
         requestId,
@@ -248,6 +360,7 @@ export async function submitPackagingRecord(
             { retries: 2, retryDelayMs: 600 }
         ),
         logPackagingToFirestore({
+            operationId,
             packagingType,
             beerStyle,
             quantity,
@@ -270,6 +383,7 @@ export async function submitPackagingRecord(
     // תוכנית המשטחים לא תלויה בהצלחת הכתיבה לגיליון - מחזירים אותה תמיד
     // (אלא אם הכמות עצמה לא תקינה, שנבדק כבר למעלה).
     const palletPlan: PackagingPalletPlan = {
+        operationId,
         itemType: packagingType === "kegs" ? "kegs" : "crates",
         quantity,
         beerStyle: String(beerStyle ?? "").trim(),
@@ -321,14 +435,56 @@ export async function createPalletsForPlan(
     plan: PackagingPalletPlan,
     splits: CustomPalletSplitEntry[]
 ): Promise<string[]> {
+    const linked = await getDocs(query(
+        collection(db, "pallets"),
+        where("packagingOperationId", "==", plan.operationId),
+    ));
+
+    // Recovery pallets retain the approved split index. Manual pallets do not
+    // replace a particular split; their applied quantity is consumed from the
+    // first still-uncreated approved splits.
+    const createdSplitIndexes = new Set<number>();
+    let manualCoverage = 0;
+    linked.docs.forEach((palletDoc) => {
+        const data = palletDoc.data();
+        if (data.packagingSource === "manual") {
+            manualCoverage += Math.max(0, Number(data.packagingAppliedQuantity ?? 0) || 0);
+            return;
+        }
+        const splitIndex = Number(data.packagingSplitIndex);
+        if (Number.isInteger(splitIndex) && splitIndex >= 0) createdSplitIndexes.add(splitIndex);
+    });
+
+    const remainingSplits: CustomPalletSplitEntry[] = [];
+    splits.forEach((split, index) => {
+        if (createdSplitIndexes.has(index)) return;
+        let quantity = Math.max(0, Math.round(split.quantity));
+        if (manualCoverage > 0) {
+            const consumed = Math.min(quantity, manualCoverage);
+            quantity -= consumed;
+            manualCoverage -= consumed;
+        }
+        if (quantity > 0) {
+            remainingSplits.push({
+                quantity,
+                subLabel: split.subLabel ?? null,
+                operationSplitIndex: index,
+            });
+        }
+    });
+
+    const remaining = remainingSplits.reduce((sum, split) => sum + split.quantity, 0);
+    if (remaining === 0) return [];
+
     return createPalletsFromCustomSplit({
         itemType: plan.itemType,
-        expectedTotalQuantity: plan.quantity,
+        expectedTotalQuantity: remaining,
         beerStyle: plan.beerStyle,
         batchNumber: plan.batchNumber,
         expiryDateStr: plan.expiryDateStr,
         sourceTankNumber: plan.sourceTankNumber,
-        splits,
+        operationId: plan.operationId,
+        splits: remainingSplits,
     });
 }
 

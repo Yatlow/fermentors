@@ -119,3 +119,27 @@
         font-size: 0.67rem;
     }
 }
+
+.sheet-sync-packaging-recovery {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 0.73rem;
+}
+
+.sheet-sync-recovery-button {
+    min-height: 28px;
+    padding: 4px 9px;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+}
+
+.sheet-sync-recovery-button:disabled { opacity: 0.55; cursor: wait; }
+.sheet-sync-recovery-error { width: 100%; color: #991b1b; }

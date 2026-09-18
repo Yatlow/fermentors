@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import BeerLoader from "../general/Loading";
-import { createPallets } from "../../SERVICES/cooler/Palletservice";
+import { createPallets, findPendingPackagingForManualPallet } from "../../SERVICES/cooler/Palletservice";
 import { MAX_CRATES_PER_PALLET, MAX_KEGS_PER_PALLET, } from "../../SERVICES/cooler/Pallettypes ";
 import { getDefaultExpiryDateStr } from "../../SERVICES/getAndPost/packagingMasterSheetLogger";
 import { reserveNewPalletsForNearestShipment } from "../../SERVICES/planning/planningShipmentReservations";
@@ -22,6 +22,7 @@ export default function AddPalletModal({ brews, onClose, onDone }: { brews?: Fer
     const [batchNumber, setBatchNumber] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [packagingWarning, setPackagingWarning] = useState<string | null>(null);
 
     const maxPerPallet = itemType === "kegs" ? MAX_KEGS_PER_PALLET : MAX_CRATES_PER_PALLET;
     const knownBatches = useMemo(() => {
@@ -43,6 +44,38 @@ export default function AddPalletModal({ brews, onClose, onDone }: { brews?: Fer
             .finally(() => { if (!cancelled) setExpiryLoading(false); });
         return () => { cancelled = true; };
     }, [itemType, beerStyle]);
+
+
+    useEffect(() => {
+        let cancelled = false;
+        const normalizedBatch = batchNumber.trim();
+        if (!normalizedBatch || !beerStyle.trim()) {
+            setPackagingWarning(null);
+            return;
+        }
+
+        findPendingPackagingForManualPallet({ itemType, batchNumber: normalizedBatch })
+            .then((pending) => {
+                if (cancelled || !pending || pending.remainingQuantity <= 0) {
+                    if (!cancelled) setPackagingWarning(null);
+                    return;
+                }
+                if (pending.beerStyle.trim() && pending.beerStyle.trim() !== beerStyle.trim()) {
+                    setPackagingWarning(null);
+                    return;
+                }
+                const unit = itemType === "kegs" ? "חביות" : "ארגזים";
+                setPackagingWarning(
+                    `לאצווה ${normalizedBatch} קיימת פעולת אריזה שממתינה למשטחים: ${pending.remainingQuantity} ${unit} עדיין לא כוסו. משטחים שתיצור כאן ייחשבו לכיסוי היתרה כדי למנוע יצירה כפולה.`
+                );
+            })
+            .catch((warningError) => {
+                console.error("Failed checking pending packaging operation", warningError);
+                if (!cancelled) setPackagingWarning(null);
+            });
+
+        return () => { cancelled = true; };
+    }, [itemType, beerStyle, batchNumber]);
 
     function pickBatch(bn: string) {
         setBatchNumber(bn);
@@ -105,6 +138,7 @@ export default function AddPalletModal({ brews, onClose, onDone }: { brews?: Fer
                 <small className="field-hint">מבוסס על אותה טבלת תוקף שמשמשת את דיווח האריזה. אפשר לשנות ידנית.</small>
 
                 <div className="add-preview"><strong>{palletPreview} משטחים</strong><span>סה״כ {totalPreview} {itemType === "kegs" ? "חביות" : "ארגזים"}</span></div>
+                {packagingWarning && <div className="edit-specs-message warning">{packagingWarning}</div>}
                 {error && <div className="edit-specs-message error">{error}</div>}
                 <button className="modal-save-btn" disabled={busy || expiryLoading} onClick={submit}>{busy ? <BeerLoader message="יוצר…" size="spinner" /> : "הוסף משטחים"}</button>
                 <button className="modal-cancel-btn" disabled={busy} onClick={onClose}>ביטול</button>

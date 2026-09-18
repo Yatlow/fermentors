@@ -12,6 +12,7 @@ import {
     serverTimestamp,
     getCountFromServer,
     getDocsFromServer,
+    limit,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
@@ -293,6 +294,7 @@ export async function createPalletsFromPackaging(params: CreatePalletsParams): P
     const quantities = splitQuantity(totalQuantity, maxPerPallet);
     const batch = writeBatch(db);
     const ids: string[] = [];
+
     quantities.forEach((quantity) => {
         const ref = doc(collection(db, PALLETS_COLLECTION));
         ids.push(ref.id);
@@ -302,7 +304,7 @@ export async function createPalletsFromPackaging(params: CreatePalletsParams): P
     return ids;
 }
 
-export type CustomPalletSplitEntry = { quantity: number; subLabel?: string | null };
+export type CustomPalletSplitEntry = { quantity: number; subLabel?: string | null; operationSplitIndex?: number };
 
 export function getDefaultPalletSplit(itemType: PalletItemType, totalQuantity: number): CustomPalletSplitEntry[] {
     if (!totalQuantity || totalQuantity <= 0) return [];
@@ -321,14 +323,16 @@ export type CreatePalletsFromCustomSplitParams = {
     batchNumber: string | number | null | undefined;
     expiryDateStr: string;
     sourceTankNumber: string | number | null | undefined;
+    /** Stable packaging operation id. Makes pallet creation safe to retry. */
+    operationId?: string | null;
     splits: CustomPalletSplitEntry[];
 };
 
 export async function createPalletsFromCustomSplit(params: CreatePalletsFromCustomSplitParams): Promise<string[]> {
-    const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, splits } = params;
+    const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, operationId, splits } = params;
     const expectedTotal = Math.round(expectedTotalQuantity);
     if (!expectedTotal || expectedTotal <= 0) return [];
-    const sanitized = splits.map((s) => ({ quantity: Math.round(s.quantity), subLabel: s.subLabel?.trim() || null })).filter((s) => s.quantity > 0);
+    const sanitized = splits.map((s) => ({ quantity: Math.round(s.quantity), subLabel: s.subLabel?.trim() || null, operationSplitIndex: s.operationSplitIndex })).filter((s) => s.quantity > 0);
     if (sanitized.length === 0) throw new Error("יש להזין לפחות משטח אחד עם כמות גדולה מ-0");
     const actualTotal = sanitized.reduce((sum, s) => sum + s.quantity, 0);
     if (actualTotal !== expectedTotal) {
@@ -341,14 +345,73 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
         const unit = itemType === "kegs" ? "חביות" : "ארגזים";
         throw new Error(`משטח בודד יכול להכיל עד ${maxPerPallet} ${unit} (נמצא משטח עם ${overLimit.quantity})`);
     }
-    const palletBatch = writeBatch(db);
-    const ids: string[] = [];
-    sanitized.forEach((entry) => {
-        const palletRef = doc(collection(db, PALLETS_COLLECTION));
-        ids.push(palletRef.id);
-        palletBatch.set(palletRef, palletCreateData({ itemType, beerStyle, subLabel: entry.subLabel ?? null, quantity: entry.quantity, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber == null ? null : String(batchNumber), sourceTankNumber: sourceTankNumber ?? null }));
+
+    const refs = sanitized.map((entry, index) =>
+        operationId
+            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${(entry.operationSplitIndex ?? index) + 1}_${entry.quantity}`)
+            : doc(collection(db, PALLETS_COLLECTION))
+    );
+    const ids = refs.map((ref) => ref.id);
+
+    if (!operationId) {
+        const palletBatch = writeBatch(db);
+        sanitized.forEach((entry, index) => {
+            palletBatch.set(refs[index], palletCreateData({
+                itemType,
+                beerStyle,
+                subLabel: entry.subLabel ?? null,
+                quantity: entry.quantity,
+                expiryDateStr: expiryDateStr || null,
+                batchNumber: batchNumber == null ? null : String(batchNumber),
+                sourceTankNumber: sourceTankNumber ?? null,
+            }));
+        });
+        await palletBatch.commit();
+        return ids;
+    }
+
+    // The operation document is the concurrency guard. Firestore retries this
+    // transaction when another device changes the operation, so two recovery
+    // attempts cannot both claim/create the same remaining quantity.
+    const operationRef = doc(db, "packagingOperations", operationId);
+    await runTransaction(db, async (tx) => {
+        const operationSnap = await tx.get(operationRef);
+        if (!operationSnap.exists()) throw new Error("פעולת האריזה לשחזור לא נמצאה");
+        const operation = operationSnap.data();
+        if (operation.state === "completed") return;
+        if (operation.state !== "awaiting_pallets") throw new Error("פעולת האריזה אינה זמינה לשחזור");
+
+        const palletSnaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+        let newlyCreatedQuantity = 0;
+
+        sanitized.forEach((entry, index) => {
+            if (palletSnaps[index].exists()) return;
+            newlyCreatedQuantity += entry.quantity;
+            tx.set(refs[index], {
+                ...palletCreateData({
+                    itemType,
+                    beerStyle,
+                    subLabel: entry.subLabel ?? null,
+                    quantity: entry.quantity,
+                    expiryDateStr: expiryDateStr || null,
+                    batchNumber: batchNumber == null ? null : String(batchNumber),
+                    sourceTankNumber: sourceTankNumber ?? null,
+                }),
+                packagingOperationId: operationId,
+                packagingSplitIndex: entry.operationSplitIndex ?? index,
+                packagingAppliedQuantity: entry.quantity,
+                packagingSource: "recovery",
+            });
+        });
+
+        if (newlyCreatedQuantity > 0) {
+            tx.update(operationRef, {
+                recoveryRevision: Number(operation.recoveryRevision ?? 0) + 1,
+                updatedAt: serverTimestamp(),
+            });
+        }
     });
-    await palletBatch.commit();
+
     return ids;
 }
 
@@ -433,9 +496,100 @@ export async function reorderPalletsInCell(orderedPalletIds: string[]) {
     await batch.commit();
 }
 
-export async function createPallet(input: { itemType: PalletItemType; beerStyle: string; subLabel?: string | null; quantity: number; expiryDateStr?: string | null; batchNumber?: string | null }): Promise<string> {
-    const ids = await createPallets({ ...input, palletCount: 1 });
-    return ids[0];
+export type PendingPackagingMatch = {
+    operationId: string;
+    quantity: number;
+    coveredQuantity: number;
+    remainingQuantity: number;
+    beerStyle: string;
+    itemType: PalletItemType;
+};
+
+export async function findPendingPackagingForManualPallet(input: {
+    itemType: PalletItemType;
+    batchNumber?: string | null;
+}): Promise<PendingPackagingMatch | null> {
+    const batchNumber = input.batchNumber?.trim();
+    if (!batchNumber) return null;
+
+    const q = query(
+        collection(db, "packagingOperations"),
+        where("state", "==", "awaiting_pallets"),
+        where("batchNumber", "==", batchNumber),
+        where("itemType", "==", input.itemType),
+        limit(1),
+    );
+    const snapshot = await getDocsFromServer(q);
+    if (snapshot.empty) return null;
+
+    const found = snapshot.docs[0];
+    const data = found.data();
+    const quantity = Math.max(0, Number(data.quantity ?? 0));
+
+    // Only pallets explicitly linked to THIS open operation count as coverage.
+    // A pallet from an earlier packaging day can have the same batch/style and
+    // must never reduce the recovery quantity.
+    const palletQuery = query(
+        collection(db, PALLETS_COLLECTION),
+        where("packagingOperationId", "==", found.id),
+    );
+    const palletSnapshot = await getDocsFromServer(palletQuery);
+    const coveredQuantity = palletSnapshot.docs.reduce((sum, palletDoc) => {
+        const pallet = palletDoc.data();
+        // Manual pallets may be larger than the open remainder. Only the portion
+        // explicitly applied to this operation counts. Deterministic packaging
+        // pallets predate this field, so their full quantity remains coverage.
+        const applied = pallet.packagingAppliedQuantity;
+        const quantity = applied == null ? pallet.quantity : applied;
+        return sum + Math.max(0, Number(quantity ?? 0));
+    }, 0);
+
+    return {
+        operationId: found.id,
+        quantity,
+        coveredQuantity,
+        remainingQuantity: Math.max(0, quantity - coveredQuantity),
+        beerStyle: String(data.beerStyle ?? ""),
+        itemType: data.itemType as PalletItemType,
+    };
+}
+
+async function reconcilePendingPackagingAfterManualCreation(input: {
+    itemType: PalletItemType;
+    beerStyle: string;
+    batchNumber?: string | null;
+}): Promise<void> {
+    const pending = await findPendingPackagingForManualPallet({
+        itemType: input.itemType,
+        batchNumber: input.batchNumber,
+    });
+    if (!pending || pending.remainingQuantity > 0) return;
+    if (pending.beerStyle.trim() && pending.beerStyle.trim() !== input.beerStyle.trim()) return;
+
+    await updateDoc(doc(db, "packagingOperations", pending.operationId), {
+        state: "completed",
+        updatedAt: serverTimestamp(),
+    });
+}
+
+export async function getManualPalletPackagingWarning(input: {
+    itemType: PalletItemType;
+    beerStyle: string;
+    batchNumber?: string | null;
+    quantity: number;
+}): Promise<string | null> {
+    const pending = await findPendingPackagingForManualPallet({
+        itemType: input.itemType,
+        batchNumber: input.batchNumber,
+    });
+    if (!pending || pending.remainingQuantity <= 0) return null;
+    if (pending.beerStyle.trim() && pending.beerStyle.trim() !== input.beerStyle.trim()) return null;
+
+    const unit = input.itemType === "kegs" ? "חביות" : "ארגזים";
+    const afterCreation = Math.max(0, pending.remainingQuantity - Math.round(input.quantity));
+    return afterCreation === 0
+        ? `לאצווה ${input.batchNumber} קיימת פעולת אריזה ממתינה ל-${pending.remainingQuantity} ${unit}. יצירה זו מכסה את היתרה; אין ליצור אותם שוב דרך שחזור האריזה.`
+        : `לאצווה ${input.batchNumber} קיימת פעולת אריזה ממתינה. נותרו ${pending.remainingQuantity} ${unit}; אחרי יצירה זו יישארו ${afterCreation} ${unit} לכיסוי.`;
 }
 
 export async function createPallets(input: { itemType: PalletItemType; beerStyle: string; subLabel?: string | null; quantity: number; palletCount?: number; expiryDateStr?: string | null; batchNumber?: string | null }): Promise<string[]> {
@@ -445,10 +599,51 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
     const totalModeChunks = splitQuantity(input.quantity, max);
     const chunks = input.palletCount && input.palletCount > 1 ? Array.from({ length: Math.floor(input.palletCount) }, () => input.quantity) : totalModeChunks;
     if (chunks.some((q) => q > max)) throw new Error(`משטח בודד יכול להכיל עד ${max} ${input.itemType === "kegs" ? "חביות" : "ארגזים"}`);
+
+    // Manual creation only participates in an outbox operation when there is a
+    // currently-open operation for the exact batch/item/style. Old/completed
+    // packaging operations are deliberately ignored.
+    const pending = input.batchNumber
+        ? await findPendingPackagingForManualPallet({
+            itemType: input.itemType,
+            batchNumber: input.batchNumber,
+        })
+        : null;
+    const linkedOperationId =
+        pending &&
+        pending.remainingQuantity > 0 &&
+        (!pending.beerStyle.trim() || pending.beerStyle.trim() === input.beerStyle.trim())
+            ? pending.operationId
+            : null;
+
     const batch = writeBatch(db);
     const ids: string[] = [];
-    chunks.forEach((quantity) => { const ref = doc(collection(db, PALLETS_COLLECTION)); ids.push(ref.id); batch.set(ref, palletCreateData({ ...input, quantity })); });
+    let operationCoverageRemaining = linkedOperationId ? pending!.remainingQuantity : 0;
+    chunks.forEach((quantity) => {
+        const ref = doc(collection(db, PALLETS_COLLECTION));
+        ids.push(ref.id);
+        const appliedToPackaging = linkedOperationId
+            ? Math.min(quantity, operationCoverageRemaining)
+            : 0;
+        operationCoverageRemaining = Math.max(0, operationCoverageRemaining - appliedToPackaging);
+        batch.set(ref, {
+            ...palletCreateData({ ...input, quantity }),
+            ...(linkedOperationId && appliedToPackaging > 0 ? {
+                packagingOperationId: linkedOperationId,
+                packagingSource: "manual",
+                packagingAppliedQuantity: appliedToPackaging,
+            } : {}),
+        });
+    });
     await batch.commit();
+
+    if (linkedOperationId) {
+        await reconcilePendingPackagingAfterManualCreation({
+            itemType: input.itemType,
+            beerStyle: input.beerStyle,
+            batchNumber: input.batchNumber,
+        });
+    }
     return ids;
 }
 

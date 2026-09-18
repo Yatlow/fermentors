@@ -113,6 +113,30 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    match /packagingOperations/{operationId} {
+      allow read: if isApprovedUser();
+      allow create: if isApprovedUser()
+        && request.resource.data.operationId == operationId
+        && request.resource.data.state == 'awaiting_pallets';
+      allow update: if isApprovedUser()
+        && request.resource.data.operationId == resource.data.operationId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['state', 'updatedAt', 'recoveryRevision', 'palletSplits'])
+        && (
+          (resource.data.state == 'awaiting_pallets'
+            && request.resource.data.state in ['awaiting_pallets', 'completed'])
+          || (resource.data.state == 'completed'
+            && request.resource.data.state == 'completed')
+        )
+        && request.resource.data.get('recoveryRevision', 0) >= resource.data.get('recoveryRevision', 0)
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['palletSplits'])
+          || (resource.data.state == 'awaiting_pallets'
+            && !resource.data.keys().hasAny(['palletSplits']))
+        );
+      allow delete: if false;
+    }
+
     match /operationReceipts/{requestId} {
       allow get: if isApprovedUser() &&
         resource.data.userEmail == request.auth.token.email;

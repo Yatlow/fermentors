@@ -9,6 +9,7 @@ import {
     type Timestamp,
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { recoverPackagingOperation } from "../../SERVICES/getAndPost/packagingMasterSheetLogger";
 import "./SheetSyncStatus.css";
 
 type SheetSyncJob = {
@@ -70,9 +71,12 @@ function DirectionTitle({ from, to }: { from: string; to: string }) {
 export default function SheetSyncStatus() {
     const [pendingJobs, setPendingJobs] = useState<SheetSyncJob[]>([]);
     const [hasFailedJob, setHasFailedJob] = useState(false);
+    const [pendingPackaging, setPendingPackaging] = useState<SheetSyncJob[]>([]);
     const [pullStatus, setPullStatus] = useState<SheetPullStatus | null>(null);
     const [readError, setReadError] = useState(false);
     const [now, setNow] = useState(() => Date.now());
+    const [recoveringPackagingId, setRecoveringPackagingId] = useState<string | null>(null);
+    const [recoveryError, setRecoveryError] = useState<string>("");
     const isPreviewHost = typeof window !== "undefined" && window.location.hostname.includes("--pr");
 
     useEffect(() => {
@@ -89,9 +93,10 @@ export default function SheetSyncStatus() {
         let heartbeatError = false;
         let pendingError = false;
         let failedError = false;
+        let packagingError = false;
 
         const refreshReadError = () => {
-            setReadError(heartbeatError || pendingError || failedError);
+            setReadError(heartbeatError || pendingError || failedError || packagingError);
         };
 
         const unsubscribeHeartbeat = onSnapshot(
@@ -131,6 +136,28 @@ export default function SheetSyncStatus() {
             }
         );
 
+        const packagingQuery = query(
+            collection(db, "packagingOperations"),
+            where("state", "==", "awaiting_pallets"),
+            limit(20)
+        );
+        const unsubscribePackaging = onSnapshot(
+            packagingQuery,
+            (snapshot) => {
+                packagingError = false;
+                setPendingPackaging(snapshot.docs.map((operationDoc) => ({
+                    id: operationDoc.id,
+                    ...(operationDoc.data() as Omit<SheetSyncJob, "id">),
+                })));
+                refreshReadError();
+            },
+            (error) => {
+                console.error("Failed to subscribe to pending packaging operations:", error);
+                packagingError = true;
+                refreshReadError();
+            }
+        );
+
         const failedQuery = query(
             collection(db, "sheetSyncJobs"),
             where("state", "==", "failed"),
@@ -154,11 +181,13 @@ export default function SheetSyncStatus() {
             unsubscribeHeartbeat();
             unsubscribePending();
             unsubscribeFailed();
+            unsubscribePackaging();
         };
     }, []);
 
     const writeStatus = useMemo(() => {
-        const oldestPendingMinutes = pendingJobs.reduce((oldest, job) => {
+        const allPending = [...pendingJobs, ...pendingPackaging];
+        const oldestPendingMinutes = allPending.reduce((oldest, job) => {
             const created = dateFromUnknown(job.createdAt);
             if (!created) return oldest;
             return Math.max(oldest, Math.max(0, Math.floor((now - created.getTime()) / 60_000)));
@@ -168,10 +197,10 @@ export default function SheetSyncStatus() {
         if (hasFailedJob) severity = "failed";
         else if (oldestPendingMinutes >= 30) severity = "failed";
         else if (oldestPendingMinutes >= 10) severity = "warning";
-        else if (pendingJobs.length > 0) severity = "pending";
+        else if (allPending.length > 0) severity = "pending";
 
-        return { pending: pendingJobs, hasFailedJob, severity };
-    }, [pendingJobs, hasFailedJob, now]);
+        return { pending: allPending, sheetPending: pendingJobs.length, packagingPending: pendingPackaging.length, hasFailedJob, severity };
+    }, [pendingJobs, pendingPackaging, hasFailedJob, now]);
 
     const pull = useMemo(() => {
         const age = ageMinutes(pullStatus?.completedAt, now);
@@ -191,8 +220,22 @@ export default function SheetSyncStatus() {
         : writeStatus.hasFailedJob
             ? "יש כשל"
             : writeStatus.pending.length > 0
-                ? `${writeStatus.pending.length} ממתינות`
+                ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""}`
                 : "מסונכרן";
+
+    async function recoverPackaging(operationId: string) {
+        if (recoveringPackagingId) return;
+        setRecoveringPackagingId(operationId);
+        setRecoveryError("");
+        try {
+            await recoverPackagingOperation(operationId);
+        } catch (error: any) {
+            console.error("Failed to recover packaging operation:", error);
+            setRecoveryError(error?.message ?? "שחזור המשטחים נכשל");
+        } finally {
+            setRecoveringPackagingId(null);
+        }
+    }
 
     const pullPill = readError
         ? "לא זמין"
@@ -221,6 +264,24 @@ export default function SheetSyncStatus() {
                     </span>
                 </div>
             </div>
+
+            {pendingPackaging.length > 0 && (
+                <div className="sheet-sync-packaging-recovery">
+                    <span>יש {pendingPackaging.length} פעולות אריזה שממתינות להשלמת משטחים.</span>
+                    {pendingPackaging.map((operation) => (
+                        <button
+                            key={operation.id}
+                            type="button"
+                            className="sheet-sync-recovery-button"
+                            disabled={Boolean(recoveringPackagingId)}
+                            onClick={() => recoverPackaging(operation.id)}
+                        >
+                            {recoveringPackagingId === operation.id ? "משחזר…" : "שחזר משטחים"}
+                        </button>
+                    ))}
+                    {recoveryError && <span className="sheet-sync-recovery-error">{recoveryError}</span>}
+                </div>
+            )}
         </section>
     );
 }
