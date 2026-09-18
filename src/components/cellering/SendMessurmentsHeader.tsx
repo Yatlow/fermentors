@@ -3,6 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../../SERVICES/getAndPost/writeReadingToSheets";
 import type { Fermentor, NewReading } from "../../App";
 import { calcCelleringRecomendations, type Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import {
+    dueScheduledForTank,
+    scheduledActionLabel,
+    subscribeScheduledCellarRecommendations,
+    type ScheduledCellarRecommendation,
+} from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
@@ -62,6 +68,7 @@ export default function SendMessurmentsHeader({
     const [sendResults, setSendResults] = useState<writeReadingResult[]>([]);
     const [showSendStatus, setShowSendStatus] = useState(false);
     const [rcs, setRcs] = useState<RecommendationsByTank>({});
+    const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
 
     // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
     const [writeWarning, setWriteWarning] = useState<writeReadingResult[] | null>(null);
@@ -81,6 +88,13 @@ export default function SendMessurmentsHeader({
             el.scrollHeight - el.scrollTop - el.clientHeight > 10;
         setShowScrollHint(hasMoreToScroll);
     };
+
+    useEffect(() => {
+        return subscribeScheduledCellarRecommendations(
+            setScheduledRecommendations,
+            (error) => console.error("Failed loading scheduled cellar recommendations:", error),
+        );
+    }, []);
 
     useEffect(() => {
         checkScrollState();
@@ -755,7 +769,7 @@ export default function SendMessurmentsHeader({
             return [];
         }
 
-        return [
+        const natural = [
             rec.lastMessurmentUpToDate,
             rec.requiresDryHop,
             rec.requiresPresureClose,
@@ -781,11 +795,33 @@ export default function SendMessurmentsHeader({
                         : false,
             }))
             .filter((recommendation) => recommendation.req)
-            .filter((recommendation) => recommendation.display)
-            .sort(
-                (a, b) =>
-                    b.importance - a.importance
-            );
+            .filter((recommendation) => recommendation.display);
+
+        const tank = brews.find((candidate) => String(candidate.tankNumber) === String(tankNumber));
+        const naturalCarb = Boolean(rec.requiresCarbTest?.req);
+        const naturalYeast = Boolean(
+            rec.requiresWarmYeastDrop?.req ||
+            rec.requiersYeastDropAfterCooling?.req ||
+            rec.requiresWarmYeastDropCompletion?.req ||
+            rec.requiresColdYeastDropCompletion?.req ||
+            rec.requiiersWedYeastDropOnThus?.req
+        );
+        const manual = tank
+            ? dueScheduledForTank(
+                scheduledRecommendations,
+                tank.tankNumber,
+                tank.batchNumber,
+              )
+                .filter((row) => row.actionType === "carbTest" ? !naturalCarb : !naturalYeast)
+                .map((row) => ({
+                    req: true,
+                    reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
+                    importance: 1,
+                    display: true,
+                }))
+            : [];
+
+        return [...natural, ...manual].sort((a, b) => b.importance - a.importance);
     };
 
     function getDailyActionRecommendation() {
