@@ -385,7 +385,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             });
                         };
 
-                        if (todayRows.some((measurement) => Number.isFinite(Number(measurement.carbonation)))) {
+                        if (/בדיקת\s+גיזוז/.test(todayNotes)) {
                             addCompleted(`carb-${tank.id}`, "בדיקת גיזוז");
                         }
                         if (todayNotes.includes("שמרים") || todayNotes.includes("שמרי")) {
