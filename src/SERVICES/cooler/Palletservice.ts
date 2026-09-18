@@ -461,6 +461,8 @@ export async function reorderPalletsInCell(orderedPalletIds: string[]) {
 export type PendingPackagingMatch = {
     operationId: string;
     quantity: number;
+    coveredQuantity: number;
+    remainingQuantity: number;
     beerStyle: string;
     itemType: PalletItemType;
 };
@@ -481,11 +483,34 @@ export async function findPendingPackagingForManualPallet(input: {
     );
     const snapshot = await getDocsFromServer(q);
     if (snapshot.empty) return null;
+
     const found = snapshot.docs[0];
     const data = found.data();
+    const quantity = Math.max(0, Number(data.quantity ?? 0));
+
+    // Count pallets already created manually for this batch/SKU. Packaging-created
+    // deterministic pallets carry packagingOperationId and are excluded here so
+    // recovery never counts the same operation twice.
+    const palletQuery = query(
+        collection(db, PALLETS_COLLECTION),
+        where("batchNumber", "==", batchNumber),
+        where("itemType", "==", input.itemType),
+    );
+    const palletSnapshot = await getDocsFromServer(palletQuery);
+    const coveredQuantity = palletSnapshot.docs.reduce((sum, palletDoc) => {
+        const pallet = palletDoc.data();
+        if (pallet.packagingOperationId) return sum;
+        const palletBeerStyle = String(pallet.beerStyle ?? "").trim();
+        const operationBeerStyle = String(data.beerStyle ?? "").trim();
+        if (operationBeerStyle && palletBeerStyle !== operationBeerStyle) return sum;
+        return sum + Math.max(0, Number(pallet.quantity ?? 0));
+    }, 0);
+
     return {
         operationId: found.id,
-        quantity: Number(data.quantity ?? 0),
+        quantity,
+        coveredQuantity,
+        remainingQuantity: Math.max(0, quantity - coveredQuantity),
         beerStyle: String(data.beerStyle ?? ""),
         itemType: data.itemType as PalletItemType,
     };
