@@ -556,15 +556,36 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
     const totalModeChunks = splitQuantity(input.quantity, max);
     const chunks = input.palletCount && input.palletCount > 1 ? Array.from({ length: Math.floor(input.palletCount) }, () => input.quantity) : totalModeChunks;
     if (chunks.some((q) => q > max)) throw new Error(`משטח בודד יכול להכיל עד ${max} ${input.itemType === "kegs" ? "חביות" : "ארגזים"}`);
+
+    // Manual creation only participates in an outbox operation when there is a
+    // currently-open operation for the exact batch/item/style. Old/completed
+    // packaging operations are deliberately ignored.
+    const pending = input.batchNumber
+        ? await findPendingPackagingForManualPallet({
+            itemType: input.itemType,
+            batchNumber: input.batchNumber,
+        })
+        : null;
+    const linkedOperationId =
+        pending &&
+        pending.remainingQuantity > 0 &&
+        (!pending.beerStyle.trim() || pending.beerStyle.trim() === input.beerStyle.trim())
+            ? pending.operationId
+            : null;
+
     const batch = writeBatch(db);
     const ids: string[] = [];
-    chunks.forEach((quantity) => { const ref = doc(collection(db, PALLETS_COLLECTION)); ids.push(ref.id); batch.set(ref, palletCreateData({ ...input, quantity })); });
+    chunks.forEach((quantity) => {
+        const ref = doc(collection(db, PALLETS_COLLECTION));
+        ids.push(ref.id);
+        batch.set(ref, {
+            ...palletCreateData({ ...input, quantity }),
+            ...(linkedOperationId ? { packagingOperationId: linkedOperationId, packagingSource: "manual" } : {}),
+        });
+    });
     await batch.commit();
 
-    // A manual pallet can satisfy a packaging operation that was interrupted
-    // before automatic pallet creation. Reconcile only after the pallet batch
-    // committed, so a failed manual create never closes the outbox item.
-    if (input.batchNumber) {
+    if (linkedOperationId) {
         await reconcilePendingPackagingAfterManualCreation({
             itemType: input.itemType,
             beerStyle: input.beerStyle,
