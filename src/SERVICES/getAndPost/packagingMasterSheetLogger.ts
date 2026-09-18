@@ -1,4 +1,4 @@
-import { doc, getDoc, collection, setDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, collection, setDoc, Timestamp, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
@@ -18,6 +18,41 @@ const BOTTLES_PER_CRATE = 24;
 
 /** שם הקולקציה בפיירסטור שאליה נכתבים אירועי אריזה בפועל (לצורך דוחות) */
 const PACKAGING_LOG_COLLECTION = "packagingLog";
+
+const PACKAGING_OPERATIONS_COLLECTION = "packagingOperations";
+
+async function persistPackagingOperation(params: {
+    operationId: string;
+    packagingType: PackagingType;
+    beerStyle: string | undefined | null;
+    quantity: number;
+    batchNumber: string | number | undefined | null;
+    tankNumber: string | number | null;
+    expiryDateStr: string;
+}): Promise<void> {
+    await setDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, params.operationId), {
+        operationId: params.operationId,
+        state: "awaiting_pallets",
+        packagingType: params.packagingType,
+        itemType: params.packagingType === "kegs" ? "kegs" : "crates",
+        beerStyle: String(params.beerStyle ?? "").trim(),
+        quantity: params.quantity,
+        batchNumber: params.batchNumber == null ? null : String(params.batchNumber),
+        tankNumber: params.tankNumber ?? null,
+        expiryDateStr: params.expiryDateStr,
+        updatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+    }, { merge: true });
+}
+
+export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
+    await setDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
+        state: "completed",
+        updatedAt: serverTimestamp(),
+    }, { merge: true });
+}
+
+
 
 /**
  * ⚠️ חדש - חישוב סינכרוני בלבד (לא נוגע ברשת) של כמות המשטחים (חביות/ארגזים)
@@ -240,6 +275,16 @@ export async function submitPackagingRecord(
     // can be retried without appending the packaging row twice.
     const operationId = params.operationId?.trim() || createAppsScriptRequestId("packaging");
     const requestId = operationId;
+    await persistPackagingOperation({
+        operationId,
+        packagingType,
+        beerStyle,
+        quantity,
+        batchNumber,
+        tankNumber,
+        expiryDateStr,
+    });
+
     const payload = {
         action: "logPackagingToMasterSheet",
         requestId,
