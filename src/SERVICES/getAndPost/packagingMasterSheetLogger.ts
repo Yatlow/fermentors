@@ -130,14 +130,21 @@ export async function markPackagingPalletsCompleted(operationId: string): Promis
         );
     }
 
-    const cleanupAfter = new Date();
-    cleanupAfter.setDate(cleanupAfter.getDate() + 30);
-
-    await updateDoc(operationRef, {
+    const completionUpdate: Record<string, unknown> = {
         state: "completed",
         updatedAt: serverTimestamp(),
-        cleanupAfter: Timestamp.fromDate(cleanupAfter),
-    });
+    };
+
+    // Preview channels still use the production Firestore rules until merge.
+    // cleanupAfter is a new PR #27 field, so omit it there to let the full
+    // pallet/recovery flow complete under the currently deployed rules.
+    if (!isPullRequestPreview()) {
+        const cleanupAfter = new Date();
+        cleanupAfter.setDate(cleanupAfter.getDate() + 30);
+        completionUpdate.cleanupAfter = Timestamp.fromDate(cleanupAfter);
+    }
+
+    await updateDoc(operationRef, completionUpdate);
 }
 
 
