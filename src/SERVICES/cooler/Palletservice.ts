@@ -13,6 +13,7 @@ import {
     getCountFromServer,
     getDocsFromServer,
     getDoc,
+    limit,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
@@ -455,6 +456,39 @@ export async function reorderPalletsInCell(orderedPalletIds: string[]) {
     const batch = writeBatch(db);
     orderedPalletIds.forEach((id, index) => batch.update(doc(db, PALLETS_COLLECTION, id), { orderInCell: index, slotIndex: index, updatedAt: serverTimestamp() }));
     await batch.commit();
+}
+
+export type PendingPackagingMatch = {
+    operationId: string;
+    quantity: number;
+    beerStyle: string;
+    itemType: PalletItemType;
+};
+
+export async function findPendingPackagingForManualPallet(input: {
+    itemType: PalletItemType;
+    batchNumber?: string | null;
+}): Promise<PendingPackagingMatch | null> {
+    const batchNumber = input.batchNumber?.trim();
+    if (!batchNumber) return null;
+
+    const q = query(
+        collection(db, "packagingOperations"),
+        where("state", "==", "awaiting_pallets"),
+        where("batchNumber", "==", batchNumber),
+        where("itemType", "==", input.itemType),
+        limit(1),
+    );
+    const snapshot = await getDocsFromServer(q);
+    if (snapshot.empty) return null;
+    const found = snapshot.docs[0];
+    const data = found.data();
+    return {
+        operationId: found.id,
+        quantity: Number(data.quantity ?? 0),
+        beerStyle: String(data.beerStyle ?? ""),
+        itemType: data.itemType as PalletItemType,
+    };
 }
 
 export async function createPallet(input: { itemType: PalletItemType; beerStyle: string; subLabel?: string | null; quantity: number; expiryDateStr?: string | null; batchNumber?: string | null }): Promise<string> {
