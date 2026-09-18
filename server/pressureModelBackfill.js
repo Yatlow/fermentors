@@ -1,11 +1,12 @@
 // ================================================================
 // ONE-TIME HISTORICAL PRESSURE MODEL BACKFILL
 // ================================================================
-// Usage after deploy:
-//   startPressureResponseBackfill_()
-// Maintenance then processes a small page every 5 minutes until every brew has
-// been inspected. Existing pressureResponseModels samples are merged/deduped,
-// so the normal weekly 12-month refresh never erases historical learning.
+// The maintenance cycle starts this automatically exactly once after deploy.
+// It then processes a small page every 5 minutes until every brew has been
+// inspected. Existing pressureResponseModels samples are merged/deduped, so
+// the normal weekly 12-month refresh never erases historical learning.
+// startPressureResponseBackfill_() remains available only for an intentional
+// manual re-run/reset.
 // ================================================================
 
 const PRESSURE_BACKFILL_STATE_KEY = "pressure_model_backfill_v1";
@@ -52,10 +53,28 @@ function pressureBackfillListPage_(projectId, pageToken) {
 
 function pressureResponseBackfillStep_() {
   const props = PropertiesService.getScriptProperties();
-  const state = pressureResponseBackfillState_();
+  let state = pressureResponseBackfillState_();
 
-  if (!state || state.active !== true) {
-    return { skipped: true, reason: "not_started" };
+  // No state means this deployment has never backfilled historical brews.
+  // Start once automatically. A completed state is kept permanently so the
+  // historical scan does not restart on every maintenance cycle.
+  if (!state) {
+    state = {
+      active: true,
+      pageToken: "",
+      processedBrews: 0,
+      startedAt: new Date().toISOString()
+    };
+    props.setProperty(PRESSURE_BACKFILL_STATE_KEY, JSON.stringify(state));
+    console.log("Pressure model historical backfill started automatically.");
+  }
+
+  if (state.active !== true) {
+    return {
+      skipped: true,
+      reason: state.completed === true ? "completed" : "inactive",
+      processedBrews: Number(state.processedBrews || 0)
+    };
   }
 
   const projectId = FIREBASE_PROJECT_ID;
