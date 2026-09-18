@@ -19,7 +19,7 @@ import {
 import type { TooltipContentProps } from "recharts";
 
 import {
-    getAllBrewsSummary,
+    getBrewsSummaryPage,
     type BrewSummary,
 } from "../../SERVICES/getAndPost/getAllBrews";
 
@@ -329,6 +329,9 @@ export default function BatchReportsView({
 
     const [brews, setBrews] = useState<BrewSummary[]>([]);
     const [loadingBrews, setLoadingBrews] = useState(true);
+    const [loadingMoreBrews, setLoadingMoreBrews] = useState(false);
+    const [brewCursor, setBrewCursor] = useState<string | null>(null);
+    const [hasMoreBrews, setHasMoreBrews] = useState(false);
 
     const [reportView, setReportView] = useState<ReportView>("current");
 
@@ -362,10 +365,31 @@ export default function BatchReportsView({
     // ========================================================
 
     useEffect(() => {
-        getAllBrewsSummary()
-            .then(setBrews)
+        getBrewsSummaryPage(null, 60)
+            .then((page) => {
+                setBrews(page.rows);
+                setBrewCursor(page.nextCursor);
+                setHasMoreBrews(page.hasMore);
+            })
             .finally(() => setLoadingBrews(false));
     }, []);
+
+    async function loadMoreBrews() {
+        if (!brewCursor || loadingMoreBrews || !hasMoreBrews) return;
+        setLoadingMoreBrews(true);
+        try {
+            const page = await getBrewsSummaryPage(brewCursor, 60);
+            setBrews((current) => {
+                const byId = new Map(current.map((brew) => [brew.id, brew]));
+                page.rows.forEach((brew) => byId.set(brew.id, brew));
+                return [...byId.values()].sort((a, b) => Number(b.batchNumber) - Number(a.batchNumber));
+            });
+            setBrewCursor(page.nextCursor);
+            setHasMoreBrews(page.hasMore);
+        } finally {
+            setLoadingMoreBrews(false);
+        }
+    }
 
 
     // ========================================================
@@ -745,6 +769,17 @@ export default function BatchReportsView({
                                 </option>
                             ))}
                         </select>
+                    )}
+
+                    {reportView === "old" && hasMoreBrews && (
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={loadingMoreBrews}
+                            onClick={() => void loadMoreBrews()}
+                        >
+                            {loadingMoreBrews ? "טוען…" : "טען עוד אצוות"}
+                        </button>
                     )}
 
                     {!loadingBrews && selectableBrews.length === 0 && (
