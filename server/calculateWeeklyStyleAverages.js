@@ -1,4 +1,18 @@
-function calculateWeeklyStyleAverages() {
+const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_models_last_run_v2";
+const WEEKLY_STYLE_MODEL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function calculateWeeklyStyleAverages(force) {
+  const runStartedAt = Date.now();
+  const props = PropertiesService.getScriptProperties();
+  const lastRunAt = Number(props.getProperty(WEEKLY_STYLE_MODEL_LAST_RUN_KEY) || 0);
+
+  if (!force && lastRunAt && runStartedAt - lastRunAt < WEEKLY_STYLE_MODEL_INTERVAL_MS) {
+    return {
+      skipped: true,
+      lastRunAt: new Date(lastRunAt).toISOString()
+    };
+  }
+
   const projectId = FIREBASE_PROJECT_ID;
 
   Logger.log("========================================");
@@ -303,6 +317,13 @@ function calculateWeeklyStyleAverages() {
   );
 
   Logger.log("========================================");
+
+  props.setProperty(WEEKLY_STYLE_MODEL_LAST_RUN_KEY, String(Date.now()));
+  return {
+    skipped: false,
+    stylesUpdated: stylesUpdated,
+    pressureModelsUpdated: pressureModelsUpdated
+  };
 }
 
 // ============================================================
