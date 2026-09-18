@@ -130,9 +130,13 @@ export async function markPackagingPalletsCompleted(operationId: string): Promis
         );
     }
 
+    const cleanupAfter = new Date();
+    cleanupAfter.setDate(cleanupAfter.getDate() + 30);
+
     await updateDoc(operationRef, {
         state: "completed",
         updatedAt: serverTimestamp(),
+        cleanupAfter: Timestamp.fromDate(cleanupAfter),
     });
 }
 
