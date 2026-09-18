@@ -37,6 +37,11 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   parseBatchNumber: (value) => { const n = Number(String(value ?? "").replace("#", "").trim()); return Number.isFinite(n) ? n : null; },
   normalizeTankNumber: (value) => String(value ?? "").trim(),
   tankNumbersEqual: (a, b) => String(a ?? "").trim() === String(b ?? "").trim(),
+  extractBrew: (id) => ({
+    wrong: { tankNumber: "11", beerStyle: "IPA" },
+    right: { tankNumber: "10", beerStyle: "פייל", brewDate: "18/09/2026" },
+  })[id],
+  buildSheetUrl: (id) => "url:" + id,
 });
 
 {
@@ -72,12 +77,6 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
     { batch: 1594, fileId: "wrong", fileName: "1594 #" },
     { batch: 1595, fileId: "right", fileName: "1595 #" },
   ];
-  const candidateBrews = {
-    wrong: { tankNumber: "11", beerStyle: "IPA" },
-    right: { tankNumber: "10", beerStyle: "פייל", brewDate: "18/09/2026" },
-  };
-  action.extractBrewCached = (id) => candidateBrews[id];
-  action.buildSheetUrl = (id) => "url:" + id;
   const found = action.findNextBrewForTankRecursive("10", 1593, candidates, {});
   assert.equal(found.batchNumber, "1595", "ACTION 5 must skip a future brew assigned to another tank");
   assert.equal(found.sheetUrl, "url:right");
