@@ -521,6 +521,26 @@ export async function createPallet(input: { itemType: PalletItemType; beerStyle:
     return ids[0];
 }
 
+export async function getManualPalletPackagingWarning(input: {
+    itemType: PalletItemType;
+    beerStyle: string;
+    batchNumber?: string | null;
+    quantity: number;
+}): Promise<string | null> {
+    const pending = await findPendingPackagingForManualPallet({
+        itemType: input.itemType,
+        batchNumber: input.batchNumber,
+    });
+    if (!pending || pending.remainingQuantity <= 0) return null;
+    if (pending.beerStyle.trim() && pending.beerStyle.trim() !== input.beerStyle.trim()) return null;
+
+    const unit = input.itemType === "kegs" ? "חביות" : "ארגזים";
+    const afterCreation = Math.max(0, pending.remainingQuantity - Math.round(input.quantity));
+    return afterCreation === 0
+        ? `לאצווה ${input.batchNumber} קיימת פעולת אריזה ממתינה ל-${pending.remainingQuantity} ${unit}. יצירה זו מכסה את היתרה; אין ליצור אותם שוב דרך שחזור האריזה.`
+        : `לאצווה ${input.batchNumber} קיימת פעולת אריזה ממתינה. נותרו ${pending.remainingQuantity} ${unit}; אחרי יצירה זו יישארו ${afterCreation} ${unit} לכיסוי.`;
+}
+
 export async function createPallets(input: { itemType: PalletItemType; beerStyle: string; subLabel?: string | null; quantity: number; palletCount?: number; expiryDateStr?: string | null; batchNumber?: string | null }): Promise<string[]> {
     if (!input.beerStyle.trim()) throw new Error("יש להזין סגנון בירה");
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error("כמות חייבת להיות גדולה מ-0");
