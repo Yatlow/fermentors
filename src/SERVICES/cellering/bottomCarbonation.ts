@@ -133,8 +133,31 @@ export function expandCompoundCellarMeasurements<T extends BottomCarbonationMeas
 ): T[] {
     return measurements.flatMap((measurement) => {
         const note = String(measurement.notes ?? "");
-        const segments = note.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+        let segments = note.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
         if (segments.length <= 1) return [measurement];
+
+        // Bottom-carbonation start + close + the final pressure adjustment are
+        // one operational cellar action even when the report stores them as
+        // pipe-separated note fragments. Keep preceding/following unrelated
+        // actions (for example a yeast drop) separate, but collapse the whole
+        // bottom-carbonation session into one synthetic measurement.
+        const startIndex = segments.findIndex(isBottomCarbonationStartNote);
+        const closeIndex = segments.findIndex((segment, index) =>
+            index > startIndex && isBottomCarbonationCloseNote(segment)
+        );
+        if (startIndex >= 0 && closeIndex > startIndex) {
+            let sessionEnd = closeIndex;
+            const afterClose = segments[closeIndex + 1] ?? "";
+            if (/(?:העלאת|הורדת|שינוי)\s+לחץ\s+ל/i.test(afterClose)) {
+                sessionEnd = closeIndex + 1;
+            }
+            const session = segments.slice(startIndex, sessionEnd + 1).join(" | ");
+            segments = [
+                ...segments.slice(0, startIndex),
+                session,
+                ...segments.slice(sessionEnd + 1),
+            ];
+        }
 
         const base = idDateAndMinutes(measurement.id);
         let cursor = base?.minutes ?? 0;
