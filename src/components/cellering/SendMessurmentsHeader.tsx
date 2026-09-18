@@ -798,13 +798,13 @@ export default function SendMessurmentsHeader({
             .filter((recommendation) => recommendation.display);
 
         const tank = brews.find((candidate) => String(candidate.tankNumber) === String(tankNumber));
-        const naturalCarb = Boolean(rec.requiresCarbTest?.req);
+        const naturalCarb = Boolean(rec.requiresCarbTest?.req && rec.requiresCarbTest?.display);
         const naturalYeast = Boolean(
-            rec.requiresWarmYeastDrop?.req ||
-            rec.requiersYeastDropAfterCooling?.req ||
-            rec.requiresWarmYeastDropCompletion?.req ||
-            rec.requiresColdYeastDropCompletion?.req ||
-            rec.requiiersWedYeastDropOnThus?.req
+            (rec.requiresWarmYeastDrop?.req && rec.requiresWarmYeastDrop?.display) ||
+            (rec.requiersYeastDropAfterCooling?.req && rec.requiersYeastDropAfterCooling?.display) ||
+            (rec.requiresWarmYeastDropCompletion?.req && rec.requiresWarmYeastDropCompletion?.display) ||
+            (rec.requiresColdYeastDropCompletion?.req && rec.requiresColdYeastDropCompletion?.display) ||
+            (rec.requiiersWedYeastDropOnThus?.req && rec.requiiersWedYeastDropOnThus?.display)
         );
         const manual = tank
             ? dueScheduledForTank(
