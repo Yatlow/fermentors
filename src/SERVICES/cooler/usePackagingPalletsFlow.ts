@@ -6,6 +6,7 @@ import {
     type PackagingType,
     type PackagingPalletPlan,
     markPackagingPalletsCompleted,
+    savePackagingPalletSplits,
 } from "../getAndPost/packagingMasterSheetLogger";
 import {
     getDefaultPalletSplit,
@@ -257,10 +258,12 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
                     const splits: CustomPalletSplitEntry[] = rows
                         .filter((r) => r.jobIndex === jobIndex)
                         .map((r) => ({ quantity: r.quantity, subLabel: r.subLabel }));
-                    return createPalletsForPlan(runtime.palletPlan, splits).then(async (ids) => {
-                        await markPackagingPalletsCompleted(runtime.palletPlan!.operationId);
-                        return ids;
-                    });
+                    return savePackagingPalletSplits(runtime.palletPlan.operationId, splits)
+                        .then(() => createPalletsForPlan(runtime.palletPlan!, splits))
+                        .then(async (ids) => {
+                            await markPackagingPalletsCompleted(runtime.palletPlan!.operationId);
+                            return ids;
+                        });
                 })
             );
             const createdPalletIds = createdIdsNested.flat();
