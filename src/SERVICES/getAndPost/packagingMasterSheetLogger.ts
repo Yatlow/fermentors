@@ -30,9 +30,9 @@ async function persistPackagingOperation(params: {
     tankNumber: string | number | null;
     expiryDateStr: string;
 }): Promise<void> {
-    await setDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, params.operationId), {
+    const ref = doc(db, PACKAGING_OPERATIONS_COLLECTION, params.operationId);
+    const immutable = {
         operationId: params.operationId,
-        state: "awaiting_pallets",
         packagingType: params.packagingType,
         itemType: params.packagingType === "kegs" ? "kegs" : "crates",
         beerStyle: String(params.beerStyle ?? "").trim(),
@@ -40,9 +40,28 @@ async function persistPackagingOperation(params: {
         batchNumber: params.batchNumber == null ? null : String(params.batchNumber),
         tankNumber: params.tankNumber ?? null,
         expiryDateStr: params.expiryDateStr,
-        updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-    }, { merge: true });
+    };
+
+    await runTransaction(db, async (tx) => {
+        const existing = await tx.get(ref);
+        if (existing.exists()) {
+            const data = existing.data();
+            const mismatch = Object.entries(immutable).some(([key, value]) => data[key] !== value);
+            if (mismatch) {
+                throw new Error("מזהה פעולת האריזה כבר קיים עם נתונים אחרים. הפעולה נעצרה כדי למנוע כפילות.");
+            }
+            // Retry of the same logical operation: preserve createdAt and,
+            // critically, never reopen an operation that is already completed.
+            return;
+        }
+
+        tx.set(ref, {
+            ...immutable,
+            state: "awaiting_pallets",
+            updatedAt: serverTimestamp(),
+            createdAt: serverTimestamp(),
+        });
+    });
 }
 
 export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
