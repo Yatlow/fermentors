@@ -15,7 +15,9 @@ import {
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
-import ScheduledCellarRecommendationsPanel from "./ScheduledCellarRecommendationsPanel";
+import ScheduledCellarRecommendationsPanel, {
+    type NaturalFutureCellarRecommendation,
+} from "./ScheduledCellarRecommendationsPanel";
 
 type FermentorInfoBoxProps = {
     tank: Fermentor;
@@ -34,6 +36,58 @@ type Recommendation = {
     importance: number;
     display: boolean;
 };
+
+function futureDateFromReason(reason: string): string | undefined {
+    let days: number | null = null;
+    const inDays = reason.match(/בעוד\s+(\d+)\s+ימים?/);
+    if (inDays) days = Number(inDays[1]);
+    else if (reason.includes("מחר")) days = 1;
+    if (days === null || !Number.isFinite(days)) return undefined;
+
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() + days);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function naturalFutureRecommendations(
+    recommendations: Recomendations | null,
+): NaturalFutureCellarRecommendation[] {
+    if (!recommendations) return [];
+
+    const candidates = [
+        {
+            id: "natural-future-carb",
+            actionType: "carbTest" as const,
+            recommendation: recommendations.requiresCarbTest,
+            label: "בדיקת גיזוז",
+        },
+        {
+            id: "natural-future-yeast",
+            actionType: "yeastDrop" as const,
+            recommendation: recommendations.requiresWarmYeastDrop,
+            label: "הורדת שמרים",
+        },
+    ];
+
+    return candidates.flatMap(({ id, actionType, recommendation, label }) => {
+        const reason = String(recommendation?.reason ?? "").trim();
+        const isKnownFuture =
+            recommendation?.req === true &&
+            recommendation?.display === false &&
+            /בעוד\s+\d+\s+ימים?|מחר|שבוע הבא/.test(reason);
+
+        return isKnownFuture
+            ? [{
+                id,
+                actionType,
+                label,
+                dueDate: futureDateFromReason(reason),
+                detail: reason,
+            }]
+            : [];
+    });
+}
 
 export default function FermentorInfoBox({
     tank,
@@ -175,6 +229,8 @@ export default function FermentorInfoBox({
         recomendations?.requiresColdYeastDropCompletion?.req ||
         recomendations?.requiiersWedYeastDropOnThus?.req
     );
+    const naturalFuture = naturalFutureRecommendations(recomendations);
+
     const dueManualRecommendations = dueScheduledForTank(
         scheduledRecommendations,
         tank.tankNumber,
@@ -221,7 +277,7 @@ export default function FermentorInfoBox({
         ...dueManualRecommendations.map((row) => ({
             req: true,
             reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
-            importance: 1,
+            importance: 3,
             display: true,
         })),
     ];
@@ -321,6 +377,7 @@ export default function FermentorInfoBox({
                         tankNumber={tank.tankNumber ?? tank.id}
                         batchNumber={tank.batchNumber}
                         rows={scheduledRecommendations}
+                        naturalFuture={naturalFuture}
                     />
                 )}
             </div>
