@@ -419,7 +419,8 @@ function executePostAction_(data) {
       data.fermentorID,
       data.desiredAction,
       data.desiredTankStatus,
-      data.expectedBatchNumber
+      data.expectedBatchNumber,
+      data.expectedFromAction
     );
     return { success: true, action: "ApplyManualStatus", result: result };
   }
