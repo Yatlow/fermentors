@@ -2,17 +2,23 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
   estimatePressureTarget,
+  type PressureModelCalibration,
   type PressureRecommendationEstimate,
   type PressureResponseSample,
 } from "./pressureRecommendationEstimator";
 
 export { estimatePressureTarget };
-export type { PressureRecommendationEstimate, PressureResponseSample };
+export type {
+  PressureModelCalibration,
+  PressureRecommendationEstimate,
+  PressureResponseSample,
+};
 
 export type PressureResponseModel = {
   style: string;
   samples: PressureResponseSample[];
   sampleCount?: number;
+  calibration?: PressureModelCalibration | null;
   updatedAt?: string;
 };
 
@@ -50,6 +56,9 @@ export async function getPressureResponseModel(
         style: String(data.style ?? key),
         samples: Array.isArray(data.samples) ? data.samples : [],
         sampleCount: Number(data.sampleCount ?? 0),
+        calibration: data.calibration && typeof data.calibration === "object"
+          ? data.calibration as PressureModelCalibration
+          : null,
         updatedAt: data.updatedAt ? String(data.updatedAt) : undefined,
       } satisfies PressureResponseModel;
     })
