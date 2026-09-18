@@ -97,4 +97,21 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal("totalLiters" in payload.currentData, false);
 }
 
+{
+  const outbox = loadAppsScript("server/sheetSyncOutbox.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+    FIREBASE_AUTH_PROJECT_ID: "test-project",
+    ScriptApp: { getOAuthToken: () => "token" },
+    UrlFetchApp: { fetch() { throw new Error("unexpected network"); } },
+    postIdempotencyKey_: (_action, id) => id,
+    postReadIdempotencyRecord_: () => null,
+    runPostActionIdempotently_: () => ({ success: true, results: [{ success: true }] }),
+    POST_IDEMPOTENCY_IN_PROGRESS_TTL_MS: 60_000,
+  });
+  assert.equal(outbox.sheetSyncNormalizeBatch_("#1593"), "1593");
+  assert.equal(outbox.sheetSyncResponseSucceeded_({ success: true, results: [{ success: true }] }), true);
+  assert.equal(outbox.sheetSyncResponseSucceeded_({ success: true, results: [{ success: false }] }), false);
+  assert.equal(outbox.sheetSyncResponseSucceeded_({ success: false }), false);
+}
+
 console.log("Critical server regression tests passed");
