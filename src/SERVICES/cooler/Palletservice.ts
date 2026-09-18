@@ -295,6 +295,8 @@ export async function createPalletsFromPackaging(params: CreatePalletsParams): P
     const quantities = splitQuantity(totalQuantity, maxPerPallet);
     const batch = writeBatch(db);
     const ids: string[] = [];
+    let operationCoverageRemaining = linkedOperationId ? pending!.remainingQuantity : 0;
+
     quantities.forEach((quantity) => {
         const ref = doc(collection(db, PALLETS_COLLECTION));
         ids.push(ref.id);
@@ -496,10 +498,15 @@ export async function findPendingPackagingForManualPallet(input: {
         where("packagingOperationId", "==", found.id),
     );
     const palletSnapshot = await getDocsFromServer(palletQuery);
-    const coveredQuantity = palletSnapshot.docs.reduce(
-        (sum, palletDoc) => sum + Math.max(0, Number(palletDoc.data().quantity ?? 0)),
-        0,
-    );
+    const coveredQuantity = palletSnapshot.docs.reduce((sum, palletDoc) => {
+        const pallet = palletDoc.data();
+        // Manual pallets may be larger than the open remainder. Only the portion
+        // explicitly applied to this operation counts. Deterministic packaging
+        // pallets predate this field, so their full quantity remains coverage.
+        const applied = pallet.packagingAppliedQuantity;
+        const quantity = applied == null ? pallet.quantity : applied;
+        return sum + Math.max(0, Number(quantity ?? 0));
+    }, 0);
 
     return {
         operationId: found.id,
@@ -578,9 +585,17 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
     chunks.forEach((quantity) => {
         const ref = doc(collection(db, PALLETS_COLLECTION));
         ids.push(ref.id);
+        const appliedToPackaging = linkedOperationId
+            ? Math.min(quantity, operationCoverageRemaining)
+            : 0;
+        operationCoverageRemaining = Math.max(0, operationCoverageRemaining - appliedToPackaging);
         batch.set(ref, {
             ...palletCreateData({ ...input, quantity }),
-            ...(linkedOperationId ? { packagingOperationId: linkedOperationId, packagingSource: "manual" } : {}),
+            ...(linkedOperationId && appliedToPackaging > 0 ? {
+                packagingOperationId: linkedOperationId,
+                packagingSource: "manual",
+                packagingAppliedQuantity: appliedToPackaging,
+            } : {}),
         });
     });
     await batch.commit();
