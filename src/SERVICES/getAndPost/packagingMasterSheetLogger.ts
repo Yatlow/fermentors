@@ -1,4 +1,4 @@
-import { doc, getDoc, collection, addDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, collection, setDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
@@ -111,6 +111,8 @@ export type MasterSheetLogResult = {
  * ולאפשר למשתמש לערוך אותה, בלי שום תלות ברשת. מוחזר מ-submitPackagingRecord.
  */
 export type PackagingPalletPlan = {
+    /** Stable identity shared by Sheet log, Firestore log and pallet creation. */
+    operationId: string;
     itemType: PalletItemType;
     /** הכמות הכוללת בפועל (מספר חביות, או מספר ארגזים שלמים לבקבוקים) */
     quantity: number;
@@ -142,6 +144,7 @@ type MasterSheetServerResult = {
  * כדי שיהיה קל לאחד בין השניים בקומפוננטת הדוחות.
  */
 async function logPackagingToFirestore(params: {
+    operationId: string;
     packagingType: PackagingType;
     beerStyle: string | undefined | null;
     quantity: number;
@@ -152,7 +155,7 @@ async function logPackagingToFirestore(params: {
     tankNumber: string | number | null;
     tankStatus: boolean;
 }): Promise<void> {
-    const { packagingType, beerStyle, quantity, batchNumber, tankNumber, productionDateStr, expiryDateStr, productDate, tankStatus } = params;
+    const { operationId, packagingType, beerStyle, quantity, batchNumber, tankNumber, productionDateStr, expiryDateStr, productDate, tankStatus } = params;
 
     const unit = packagingType === "kegs" ? "חביות" : "ארגזים";
     const itemLabel = String(beerStyle ?? "").trim();
@@ -161,7 +164,9 @@ async function logPackagingToFirestore(params: {
             ? `אריזת חביות ${itemLabel} - ${quantity} חביות`
             : `אריזת ${itemLabel} - ${quantity} ארגזים`;
 
-    await addDoc(collection(db, PACKAGING_LOG_COLLECTION), {
+    // Deterministic id: retrying the same logical packaging operation overwrites
+    // the same log document instead of creating a duplicate actual-packaging row.
+    await setDoc(doc(db, PACKAGING_LOG_COLLECTION, operationId), {
         source: "actual",
         packagingType,
         beerStyle: itemLabel,
@@ -174,8 +179,9 @@ async function logPackagingToFirestore(params: {
         date: productionDateStr,
         timestamp: productDate.getTime(),
         title,
+        operationId,
         createdAt: Timestamp.now(),
-    });
+    }, { merge: true });
     const docRef = doc(db, "fermentors", tankNumber?.toString() ?? "");
     try {
         await updateDoc(docRef, {
@@ -231,6 +237,7 @@ export async function submitPackagingRecord(
     // stores the completed result before replying, so a broken Google redirect
     // can be retried without appending the packaging row twice.
     const requestId = createAppsScriptRequestId("packaging");
+    const operationId = requestId;
     const payload = {
         action: "logPackagingToMasterSheet",
         requestId,
@@ -248,6 +255,7 @@ export async function submitPackagingRecord(
             { retries: 2, retryDelayMs: 600 }
         ),
         logPackagingToFirestore({
+            operationId,
             packagingType,
             beerStyle,
             quantity,
@@ -270,6 +278,7 @@ export async function submitPackagingRecord(
     // תוכנית המשטחים לא תלויה בהצלחת הכתיבה לגיליון - מחזירים אותה תמיד
     // (אלא אם הכמות עצמה לא תקינה, שנבדק כבר למעלה).
     const palletPlan: PackagingPalletPlan = {
+        operationId,
         itemType: packagingType === "kegs" ? "kegs" : "crates",
         quantity,
         beerStyle: String(beerStyle ?? "").trim(),
@@ -328,6 +337,7 @@ export async function createPalletsForPlan(
         batchNumber: plan.batchNumber,
         expiryDateStr: plan.expiryDateStr,
         sourceTankNumber: plan.sourceTankNumber,
+        operationId: plan.operationId,
         splits,
     });
 }
