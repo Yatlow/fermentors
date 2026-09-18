@@ -304,7 +304,7 @@ export async function createPalletsFromPackaging(params: CreatePalletsParams): P
     return ids;
 }
 
-export type CustomPalletSplitEntry = { quantity: number; subLabel?: string | null };
+export type CustomPalletSplitEntry = { quantity: number; subLabel?: string | null; operationSplitIndex?: number };
 
 export function getDefaultPalletSplit(itemType: PalletItemType, totalQuantity: number): CustomPalletSplitEntry[] {
     if (!totalQuantity || totalQuantity <= 0) return [];
@@ -332,7 +332,7 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
     const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, operationId, splits } = params;
     const expectedTotal = Math.round(expectedTotalQuantity);
     if (!expectedTotal || expectedTotal <= 0) return [];
-    const sanitized = splits.map((s) => ({ quantity: Math.round(s.quantity), subLabel: s.subLabel?.trim() || null })).filter((s) => s.quantity > 0);
+    const sanitized = splits.map((s) => ({ quantity: Math.round(s.quantity), subLabel: s.subLabel?.trim() || null, operationSplitIndex: s.operationSplitIndex })).filter((s) => s.quantity > 0);
     if (sanitized.length === 0) throw new Error("יש להזין לפחות משטח אחד עם כמות גדולה מ-0");
     const actualTotal = sanitized.reduce((sum, s) => sum + s.quantity, 0);
     if (actualTotal !== expectedTotal) {
@@ -348,7 +348,7 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
 
     const refs = sanitized.map((entry, index) =>
         operationId
-            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${index + 1}_${entry.quantity}`)
+            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${(entry.operationSplitIndex ?? index) + 1}_${entry.quantity}`)
             : doc(collection(db, PALLETS_COLLECTION))
     );
     const ids = refs.map((ref) => ref.id);
@@ -398,7 +398,7 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
                     sourceTankNumber: sourceTankNumber ?? null,
                 }),
                 packagingOperationId: operationId,
-                packagingSplitIndex: index,
+                packagingSplitIndex: entry.operationSplitIndex ?? index,
                 packagingAppliedQuantity: entry.quantity,
                 packagingSource: "recovery",
             });
