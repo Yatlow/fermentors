@@ -1,7 +1,6 @@
 // SERVICES/getAllBrews.ts
 import {
   collection,
-  documentId,
   getDocs,
   limit,
   orderBy,
@@ -27,6 +26,20 @@ const BREW_SUMMARY_TTL_MS = 5 * 60 * 1000;
 const pageCache = new Map<string, { loadedAt: number; page: BrewSummaryPage }>();
 const pendingPages = new Map<string, Promise<BrewSummaryPage>>();
 
+function encodeBrewCursor(value: unknown): string {
+  return typeof value === "number"
+    ? `n:${value}`
+    : `s:${String(value ?? "")}`;
+}
+
+function decodeBrewCursor(cursor: string): string | number {
+  if (cursor.startsWith("n:")) {
+    const value = Number(cursor.slice(2));
+    return Number.isFinite(value) ? value : cursor.slice(2);
+  }
+  return cursor.startsWith("s:") ? cursor.slice(2) : cursor;
+}
+
 function copyPage(page: BrewSummaryPage): BrewSummaryPage {
   return {
     rows: page.rows.map((row) => ({ ...row })),
@@ -51,8 +64,8 @@ export async function getBrewsSummaryPage(
 
   const request = (async () => {
     const constraints = [
-      orderBy(documentId(), "desc"),
-      ...(cursor ? [startAfter(cursor)] : []),
+      orderBy("batchNumber", "desc"),
+      ...(cursor ? [startAfter(decodeBrewCursor(cursor))] : []),
       // Fetch one extra doc so the UI knows whether "load more" is useful.
       limit(safeSize + 1),
     ];
@@ -68,9 +81,14 @@ export async function getBrewsSummaryPage(
       };
     });
     const hasMore = snapshot.docs.length > safeSize;
+    const lastVisibleData = visible.length
+      ? (visible[visible.length - 1].data() as Record<string, unknown>)
+      : null;
     const page: BrewSummaryPage = {
       rows,
-      nextCursor: hasMore && visible.length ? visible[visible.length - 1].id : null,
+      nextCursor: hasMore && lastVisibleData
+        ? encodeBrewCursor(lastVisibleData.batchNumber)
+        : null,
       hasMore,
     };
     pageCache.set(key, { loadedAt: Date.now(), page });
