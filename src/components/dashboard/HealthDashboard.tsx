@@ -334,13 +334,16 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             recommendations,
                             bottomCarb ? [bottomCarb] : []
                         );
-                        const naturalCarb = Boolean(recommendations?.requiresCarbTest?.req);
+                        const naturalCarb = Boolean(
+                            recommendations?.requiresCarbTest?.req &&
+                            recommendations?.requiresCarbTest?.display
+                        );
                         const naturalYeast = Boolean(
-                            recommendations?.requiresWarmYeastDrop?.req ||
-                            recommendations?.requiersYeastDropAfterCooling?.req ||
-                            recommendations?.requiresWarmYeastDropCompletion?.req ||
-                            recommendations?.requiresColdYeastDropCompletion?.req ||
-                            recommendations?.requiiersWedYeastDropOnThus?.req
+                            (recommendations?.requiresWarmYeastDrop?.req && recommendations?.requiresWarmYeastDrop?.display) ||
+                            (recommendations?.requiersYeastDropAfterCooling?.req && recommendations?.requiersYeastDropAfterCooling?.display) ||
+                            (recommendations?.requiresWarmYeastDropCompletion?.req && recommendations?.requiresWarmYeastDropCompletion?.display) ||
+                            (recommendations?.requiresColdYeastDropCompletion?.req && recommendations?.requiresColdYeastDropCompletion?.display) ||
+                            (recommendations?.requiiersWedYeastDropOnThus?.req && recommendations?.requiiersWedYeastDropOnThus?.display)
                         );
                         const manualDue = dueScheduledForTank(
                             scheduledRecommendations,
@@ -385,10 +388,33 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             });
                         };
 
-                        if (/בדיקת\s+גיזוז/.test(todayNotes)) {
+                        const completedScheduledForTank = completedScheduledToday.filter((row) =>
+                            String(row.tankNumber) === String(tank.tankNumber) &&
+                            String(row.batchNumber).replace("#", "") === String(tank.batchNumber).replace("#", "")
+                        );
+                        const completedScheduledCarb = completedScheduledForTank.some(
+                            (row) => row.actionType === "carbTest"
+                        );
+                        const completedScheduledYeast = completedScheduledForTank.some(
+                            (row) => row.actionType === "yeastDrop"
+                        );
+
+                        completedScheduledForTank.forEach((row) => {
+                            addCompleted(
+                                `scheduled-${row.id}`,
+                                scheduledActionLabel(row.actionType),
+                                3,
+                                row.note ? `בוצע לפי המלצה מתוזמנת · ${row.note}` : "בוצע לפי המלצה מתוזמנת"
+                            );
+                        });
+
+                        if (/בדיקת\s+גיזוז/.test(todayNotes) && !completedScheduledCarb) {
                             addCompleted(`carb-${tank.id}`, "בדיקת גיזוז");
                         }
-                        if (todayNotes.includes("שמרים") || todayNotes.includes("שמרי")) {
+                        if (
+                            (todayNotes.includes("שמרים") || todayNotes.includes("שמרי")) &&
+                            !completedScheduledYeast
+                        ) {
                             addCompleted(`yeast-${tank.id}`, "הורדת שמרים");
                         }
                         if (todayNotes.includes("כשות")) {
@@ -412,20 +438,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 recommendations.pressureAdjustmentHandledToday.reason
                             );
                         }
-
-                        completedScheduledToday
-                            .filter((row) =>
-                                String(row.tankNumber) === String(tank.tankNumber) &&
-                                String(row.batchNumber).replace("#", "") === String(tank.batchNumber).replace("#", "")
-                            )
-                            .forEach((row) => {
-                                addCompleted(
-                                    `scheduled-${row.id}`,
-                                    `המלצה ידנית: ${scheduledActionLabel(row.actionType)}`,
-                                    3,
-                                    row.note || undefined
-                                );
-                            });
 
                         return {
                             included: true,
