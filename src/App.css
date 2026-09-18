@@ -792,6 +792,17 @@ body {
 
 /* METRICS IN ONE/TWO COMPACT LINES */
 
+.tank-planned-packaging {
+    margin: 3px 0;
+    padding: 4px 6px;
+    border-radius: 6px;
+    background: #eff6ff;
+    border: 1px solid #dbeafe;
+    color: #1e3a8a;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+
 .tank-data {
     display: flex;
     flex-wrap: wrap;
