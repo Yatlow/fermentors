@@ -199,7 +199,14 @@ export default function SheetSyncStatus() {
         else if (oldestPendingMinutes >= 10) severity = "warning";
         else if (allPending.length > 0) severity = "pending";
 
-        return { pending: allPending, sheetPending: pendingJobs.length, packagingPending: pendingPackaging.length, hasFailedJob, severity };
+        return {
+            pending: allPending,
+            sheetPending: pendingJobs.length,
+            packagingPending: pendingPackaging.length,
+            hasFailedJob,
+            severity,
+            oldestPendingMinutes,
+        };
     }, [pendingJobs, pendingPackaging, hasFailedJob, now]);
 
     const pull = useMemo(() => {
@@ -220,7 +227,7 @@ export default function SheetSyncStatus() {
         : writeStatus.hasFailedJob
             ? "יש כשל"
             : writeStatus.pending.length > 0
-                ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""}`
+                ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""} · ${writeStatus.oldestPendingMinutes < 5 ? "בטיפול" : `הוותיקה ${writeStatus.oldestPendingMinutes} דק׳`}`
                 : "מסונכרן";
 
     async function recoverPackaging(operationId: string) {
