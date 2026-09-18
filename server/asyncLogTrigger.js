@@ -205,6 +205,7 @@ function runAsyncMaintenance_() {
   let planningSnapshots = null;
   let sheetSync = null;
   let packagingCleanup = null;
+  let styleModels = null;
   let logs = null;
 
   try {
@@ -252,6 +253,12 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    styleModels = calculateWeeklyStyleAverages(false);
+  } catch (error) {
+    console.log("Weekly style/pressure model maintenance failed: " + error.message);
+  }
+
+  try {
     logs = flushQueuedLogs_();
   } catch (error) {
     console.log("Async log flush failed: " + error.message);
@@ -267,6 +274,7 @@ function runAsyncMaintenance_() {
     planningSnapshots: planningSnapshots,
     sheetSync: sheetSync,
     packagingCleanup: packagingCleanup,
+    styleModels: styleModels,
     logs: logs
   };
 }
