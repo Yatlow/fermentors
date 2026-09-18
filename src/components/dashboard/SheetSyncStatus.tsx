@@ -70,6 +70,7 @@ function DirectionTitle({ from, to }: { from: string; to: string }) {
 export default function SheetSyncStatus() {
     const [pendingJobs, setPendingJobs] = useState<SheetSyncJob[]>([]);
     const [hasFailedJob, setHasFailedJob] = useState(false);
+    const [pendingPackaging, setPendingPackaging] = useState<SheetSyncJob[]>([]);
     const [pullStatus, setPullStatus] = useState<SheetPullStatus | null>(null);
     const [readError, setReadError] = useState(false);
     const [now, setNow] = useState(() => Date.now());
@@ -89,9 +90,10 @@ export default function SheetSyncStatus() {
         let heartbeatError = false;
         let pendingError = false;
         let failedError = false;
+        let packagingError = false;
 
         const refreshReadError = () => {
-            setReadError(heartbeatError || pendingError || failedError);
+            setReadError(heartbeatError || pendingError || failedError || packagingError);
         };
 
         const unsubscribeHeartbeat = onSnapshot(
@@ -131,6 +133,28 @@ export default function SheetSyncStatus() {
             }
         );
 
+        const packagingQuery = query(
+            collection(db, "packagingOperations"),
+            where("state", "==", "awaiting_pallets"),
+            limit(20)
+        );
+        const unsubscribePackaging = onSnapshot(
+            packagingQuery,
+            (snapshot) => {
+                packagingError = false;
+                setPendingPackaging(snapshot.docs.map((operationDoc) => ({
+                    id: operationDoc.id,
+                    ...(operationDoc.data() as Omit<SheetSyncJob, "id">),
+                })));
+                refreshReadError();
+            },
+            (error) => {
+                console.error("Failed to subscribe to pending packaging operations:", error);
+                packagingError = true;
+                refreshReadError();
+            }
+        );
+
         const failedQuery = query(
             collection(db, "sheetSyncJobs"),
             where("state", "==", "failed"),
@@ -154,11 +178,13 @@ export default function SheetSyncStatus() {
             unsubscribeHeartbeat();
             unsubscribePending();
             unsubscribeFailed();
+            unsubscribePackaging();
         };
     }, []);
 
     const writeStatus = useMemo(() => {
-        const oldestPendingMinutes = pendingJobs.reduce((oldest, job) => {
+        const allPending = [...pendingJobs, ...pendingPackaging];
+        const oldestPendingMinutes = allPending.reduce((oldest, job) => {
             const created = dateFromUnknown(job.createdAt);
             if (!created) return oldest;
             return Math.max(oldest, Math.max(0, Math.floor((now - created.getTime()) / 60_000)));
@@ -168,10 +194,10 @@ export default function SheetSyncStatus() {
         if (hasFailedJob) severity = "failed";
         else if (oldestPendingMinutes >= 30) severity = "failed";
         else if (oldestPendingMinutes >= 10) severity = "warning";
-        else if (pendingJobs.length > 0) severity = "pending";
+        else if (allPending.length > 0) severity = "pending";
 
-        return { pending: pendingJobs, hasFailedJob, severity };
-    }, [pendingJobs, hasFailedJob, now]);
+        return { pending: allPending, sheetPending: pendingJobs.length, packagingPending: pendingPackaging.length, hasFailedJob, severity };
+    }, [pendingJobs, pendingPackaging, hasFailedJob, now]);
 
     const pull = useMemo(() => {
         const age = ageMinutes(pullStatus?.completedAt, now);
@@ -191,7 +217,7 @@ export default function SheetSyncStatus() {
         : writeStatus.hasFailedJob
             ? "יש כשל"
             : writeStatus.pending.length > 0
-                ? `${writeStatus.pending.length} ממתינות`
+                ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""}`
                 : "מסונכרן";
 
     const pullPill = readError
