@@ -334,6 +334,23 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             recommendations,
                             bottomCarb ? [bottomCarb] : []
                         );
+
+                        const today = localDateKey(new Date());
+                        const todayRows = measurements.filter(
+                            (measurement) => measurementDateKey(measurement) === today
+                        );
+                        const todayNotes = todayRows
+                            .map((measurement) => String(measurement.notes ?? ""))
+                            .join(" | ");
+                        const hasTodayCarbonation = todayRows.some((measurement) =>
+                            measurement.carbonation !== null &&
+                            measurement.carbonation !== undefined &&
+                            measurement.carbonation !== "" &&
+                            Number.isFinite(Number(measurement.carbonation))
+                        );
+                        const handledPressureAfterCarb =
+                            recommendations?.pressureAdjustmentHandledToday?.completed === true;
+
                         const naturalCarb = Boolean(
                             recommendations?.requiresCarbTest?.req &&
                             recommendations?.requiresCarbTest?.display
@@ -345,13 +362,25 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             (recommendations?.requiresColdYeastDropCompletion?.req && recommendations?.requiresColdYeastDropCompletion?.display) ||
                             (recommendations?.requiiersWedYeastDropOnThus?.req && recommendations?.requiiersWedYeastDropOnThus?.display)
                         );
-                        const manualDue = dueScheduledForTank(
+
+                        const dueScheduled = dueScheduledForTank(
                             scheduledRecommendations,
                             tank.tankNumber,
                             tank.batchNumber
-                        ).filter((row) =>
-                            row.actionType === "carbTest" ? !naturalCarb : !naturalYeast
                         );
+                        const effectivelyCompletedScheduled = dueScheduled.filter((row) =>
+                            row.actionType === "carbTest"
+                                ? hasTodayCarbonation || handledPressureAfterCarb
+                                : /שמרים|שמרי/.test(todayNotes)
+                        );
+                        const effectivelyCompletedIds = new Set(
+                            effectivelyCompletedScheduled.map((row) => row.id)
+                        );
+                        const manualDue = dueScheduled
+                            .filter((row) => !effectivelyCompletedIds.has(row.id))
+                            .filter((row) =>
+                                row.actionType === "carbTest" ? !naturalCarb : !naturalYeast
+                            );
 
                         [
                             ...naturalRecommendations,
@@ -373,9 +402,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             });
                         });
 
-                        const today = localDateKey(new Date());
-                        const todayRows = measurements.filter((measurement) => measurementDateKey(measurement) === today);
-                        const todayNotes = todayRows.map((measurement) => String(measurement.notes ?? "")).join(" | ");
                         const addCompleted = (id: string, title: string, importance = 1, detail?: string) => {
                             if (completedActions.some((action) => action.id === id)) return;
                             completedActions.push({
@@ -392,14 +418,23 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             String(row.tankNumber) === String(tank.tankNumber) &&
                             String(row.batchNumber).replace("#", "") === String(tank.batchNumber).replace("#", "")
                         );
-                        const completedScheduledCarb = completedScheduledForTank.some(
+                        const completedScheduledIds = new Set(
+                            completedScheduledForTank.map((row) => row.id)
+                        );
+                        const scheduledCompletedForDisplay = [
+                            ...completedScheduledForTank,
+                            ...effectivelyCompletedScheduled.filter(
+                                (row) => !completedScheduledIds.has(row.id)
+                            ),
+                        ];
+                        const completedScheduledCarb = scheduledCompletedForDisplay.some(
                             (row) => row.actionType === "carbTest"
                         );
-                        const completedScheduledYeast = completedScheduledForTank.some(
+                        const completedScheduledYeast = scheduledCompletedForDisplay.some(
                             (row) => row.actionType === "yeastDrop"
                         );
 
-                        completedScheduledForTank.forEach((row) => {
+                        scheduledCompletedForDisplay.forEach((row) => {
                             addCompleted(
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
@@ -408,7 +443,10 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             );
                         });
 
-                        if (/בדיקת\s+גיזוז/.test(todayNotes) && !completedScheduledCarb) {
+                        if (
+                            (hasTodayCarbonation || handledPressureAfterCarb) &&
+                            !completedScheduledCarb
+                        ) {
                             addCompleted(`carb-${tank.id}`, "בדיקת גיזוז");
                         }
                         if (
