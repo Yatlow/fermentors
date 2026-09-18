@@ -1266,17 +1266,25 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 pressureMeanToDate: pressureContext.pressureMeanToDate,
                 pressureMeanLast3Days: pressureContext.pressureMeanLast3Days,
                 pressureMeanLast7Days: pressureContext.pressureMeanLast7Days,
+                calibration: model.calibration ?? null,
             })
             : null;
 
         if (estimate) {
             const directionText = estimate.pressureDelta > 0 ? "להעלות" : "להוריד";
             const confidenceText = estimate.confidence === "high" ? "ביטחון גבוה" : "ביטחון בינוני";
+            const calibrationText =
+                estimate.calibrationEvaluatedSamples >= 8 &&
+                estimate.calibrationWithin005Rate !== null
+                    ? ` המחשבון כייל את עצמו על ${estimate.calibrationEvaluatedSamples} מקרי אימות; ` +
+                      `${Math.round(estimate.calibrationWithin005Rate * 100)}% היו בטווח ±0.05 בגיזוז.`
+                    : "";
             learnedPressureReason =
                 `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
                 `לפי ${estimate.sampleCount} תיקוני לחץ דומים בסגנון הזה (${confidenceText}), ` +
                 `מומלץ ${directionText} לחץ מ-${Number(lastMeasurement.pressure)} ל-${estimate.targetPressure} bar ` +
-                `ולבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים`;
+                `ולבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים.` +
+                calibrationText;
         }
     }
 
