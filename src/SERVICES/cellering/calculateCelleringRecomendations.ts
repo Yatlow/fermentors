@@ -1151,11 +1151,33 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style, givenSpecs)
 
     const alreadyadjustedPtargetToday = lastNote?.includes("כיוון פורק") || lastNote?.includes("לכוון פורק");
+    const latestCarbSpec = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs);
+    const hasLatestCarb = lastMeasurement?.carbonation !== null &&
+        lastMeasurement?.carbonation !== undefined &&
+        Number.isFinite(Number(lastMeasurement.carbonation));
+    const coldCarbNeedsPressureAdjustment =
+        stage.name === "קר" &&
+        lastMeasurementDate === todayDate &&
+        hasLatestCarb &&
+        latestCarbSpec.outOfSpec &&
+        !alreadyadjustedPtargetToday;
+    const warmPressureNeedsAdjustment =
+        stage.name === "בתסיסה" &&
+        !alreadyadjustedPtargetToday &&
+        Number(lastMeasurement?.pressure) > 0 &&
+        Number(lastMeasurement?.temp) > 9 &&
+        !isPressureOutOfRangeVal.onSpec;
+
+    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
     const requiredPressureAdjustment = {
         display: true,
-        req: stage.name === "בתסיסה" && !alreadyadjustedPtargetToday && Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && !isPressureOutOfRangeVal.onSpec,
-        reason: `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
-        importance: isPressureOutOfRangeVal.howBad
+        req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
+        reason: coldCarbNeedsPressureAdjustment
+            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם`
+            : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
+        importance: coldCarbNeedsPressureAdjustment
+            ? latestCarbSpec.importance
+            : isPressureOutOfRangeVal.howBad
     }
 
     const isAnActionDay = Number(lastMeasurement.temp) < 9 && (corrected === 1 || corrected === 4 || corrected === 5)
