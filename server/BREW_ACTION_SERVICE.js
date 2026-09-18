@@ -333,7 +333,8 @@ function processAction5(
   updateFermentorForNextBrew_(
     tankNumber,
     uploadedBrew,
-    nextBrew.sheetUrl
+    nextBrew.sheetUrl,
+    currentBatch
   );
 
   Logger.log(
@@ -1248,7 +1249,8 @@ function getFermentorFromFirebase(
 function updateFermentorForNextBrew_(
   tankNumber,
   brew,
-  sheetUrl
+  sheetUrl,
+  expectedCurrentBatch
 ) {
 
   if (!brew) {
@@ -1282,6 +1284,39 @@ function updateFermentorForNextBrew_(
     startingPlato: brew.startingPlato || null,
     sheetUrl: sheetUrl
   };
+
+  // Re-read immediately before the destructive transition. The cycle may have
+  // spent time scanning Drive/uploading history, during which a user could
+  // change the tank. Never overwrite a newer manual state with stale ACTION-5
+  // data.
+  const currentUrl =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId);
+
+  const currentResponse = UrlFetchApp.fetch(currentUrl, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (currentResponse.getResponseCode() !== 200) {
+    throw new Error("ACTION 5: failed to re-read fermentor " + fermentorId);
+  }
+  const currentDocument = JSON.parse(currentResponse.getContentText());
+  const currentFields = currentDocument.fields || {};
+  const currentAction = Number((currentFields.action || {}).integerValue);
+  const currentBatch = parseBatchNumber(
+    (currentFields.batchNumber || {}).stringValue ||
+    (currentFields.batchNumber || {}).integerValue
+  );
+  if (currentAction !== 5 || currentBatch !== expectedCurrentBatch) {
+    Logger.log(
+      "ACTION 5 aborted for tank " + fermentorId +
+      ": tank changed while next brew was being prepared."
+    );
+    return;
+  }
 
   const fields = toFirestoreFields(payload);
 
