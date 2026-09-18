@@ -2,7 +2,6 @@ import {
   collection,
   getDocsFromServer,
   query,
-  Timestamp,
   where,
 } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -69,8 +68,8 @@ async function loadFuturePackagingMaps() {
     getDocsFromServer(
       query(
         collection(db, "calendar_events"),
-        where("timestamp", ">=", Timestamp.fromDate(new Date(`${today}T00:00:00`))),
-        where("timestamp", "<", Timestamp.fromDate(endDate)),
+        where("timestamp", ">=", new Date(`${today}T00:00:00`).getTime()),
+        where("timestamp", "<", endDate.getTime()),
       ),
     ),
   ]).then(([planningSnapshot, calendarSnapshot]) => {
