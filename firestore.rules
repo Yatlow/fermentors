@@ -121,8 +121,9 @@ service cloud.firestore {
       allow update: if isApprovedUser()
         && request.resource.data.operationId == resource.data.operationId
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['state', 'updatedAt'])
-        && request.resource.data.state == 'completed';
+          .hasOnly(['state', 'updatedAt', 'recoveryRevision'])
+        && request.resource.data.state in ['awaiting_pallets', 'completed']
+        && request.resource.data.get('recoveryRevision', 0) >= resource.data.get('recoveryRevision', 0);
       allow delete: if false;
     }
 
