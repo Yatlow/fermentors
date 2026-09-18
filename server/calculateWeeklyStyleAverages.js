@@ -703,9 +703,12 @@ function pressureModelNumber_(value) {
 }
 
 function pressureTargetFromNote_(note) {
-  const match = String(note || "").match(
-    /(?:העלאת|הורדת|שינוי)\s+לחץ\s+ל\s*:?-?\s*(\d+(?:[.,]\d+)?)/i
+  const matches = Array.from(
+    String(note || "").matchAll(
+      /(?:העלאת|הורדת|שינוי)\s+לחץ\s+ל\s*:?-?\s*(\d+(?:[.,]\d+)?)/gi
+    )
   );
+  const match = matches.length ? matches[matches.length - 1] : null;
   return match ? pressureModelNumber_(match[1]) : null;
 }
 
@@ -733,7 +736,10 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
     const currentPressure = pressureModelNumber_(measurement.pressure);
     const currentTemp = pressureModelNumber_(measurement.temp);
     const beforeCarb = currentCarb !== null ? currentCarb : latestCarb;
-    const beforePressure = currentPressure !== null ? currentPressure : latestPressure;
+    // A pressure-changing note often shares the row with the post-action
+    // pressure. Prefer the previous measurement as the "before" pressure so
+    // compound notes such as 0 -> 0.2 -> 1.4 learn the actual correction.
+    const beforePressure = latestPressure !== null ? latestPressure : currentPressure;
     const temp = currentTemp !== null ? currentTemp : latestTemp;
     const targetPressure = pressureTargetFromNote_(measurement.notes);
 
