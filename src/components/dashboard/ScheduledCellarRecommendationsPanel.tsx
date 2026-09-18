@@ -54,6 +54,37 @@ export default function ScheduledCellarRecommendationsPanel({
     [rows, tankNumber, batchNumber],
   );
 
+  const futureItems = useMemo(() => {
+    const visibleManual = existing.filter((manual) =>
+      !naturalFuture.some((natural) =>
+        natural.actionType === manual.actionType &&
+        Boolean(natural.dueDate) &&
+        natural.dueDate === manual.dueDate
+      )
+    );
+
+    return [
+      ...naturalFuture.map((row) => ({
+        key: `natural:${row.id}`,
+        actionType: row.actionType,
+        label: row.label,
+        dueDate: row.dueDate,
+        detail: row.detail,
+        manualId: null as string | null,
+      })),
+      ...visibleManual.map((row) => ({
+        key: `manual:${row.id}`,
+        actionType: row.actionType,
+        label: scheduledActionLabel(row.actionType),
+        dueDate: row.dueDate,
+        detail: row.note || undefined,
+        manualId: row.id,
+      })),
+    ].sort((a, b) =>
+      String(a.dueDate ?? "9999-99-99").localeCompare(String(b.dueDate ?? "9999-99-99"))
+    );
+  }, [existing, naturalFuture]);
+
   async function add() {
     if (!dueDate) return;
     if (existing.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
@@ -111,11 +142,12 @@ export default function ScheduledCellarRecommendationsPanel({
         </button>
       </div>
 
-      {naturalFuture.length > 0 && (
-        <div className="scheduled-cellar-natural">
-          <small>המלצות טבעיות שכבר ידועות</small>
-          {naturalFuture.map((row) => (
-            <div className="scheduled-cellar-row natural" key={row.id}>
+      {futureItems.length === 0 ? (
+        <small className="scheduled-cellar-empty">אין המלצות עתידיות למיכל הזה</small>
+      ) : (
+        <div className="scheduled-cellar-list">
+          {futureItems.map((row) => (
+            <div className="scheduled-cellar-row" key={row.key}>
               <div>
                 <b>{row.label}</b>
                 <span>
@@ -123,25 +155,12 @@ export default function ScheduledCellarRecommendationsPanel({
                   {row.detail ? ` · ${row.detail}` : ""}
                 </span>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {existing.length === 0 ? (
-        <small className="scheduled-cellar-empty">אין המלצות עתידיות ידניות למיכל הזה</small>
-      ) : (
-        <div className="scheduled-cellar-list">
-          {existing.map((row) => (
-            <div className="scheduled-cellar-row" key={row.id}>
-              <div>
-                <b>{scheduledActionLabel(row.actionType)}</b>
-                <span>{displayDate(row.dueDate)}{row.note ? ` · ${row.note}` : ""}</span>
-              </div>
-              <div className="scheduled-cellar-actions">
-                <button type="button" disabled={saving} onClick={() => void finish(row.id, "completed")}>בוצע</button>
-                <button type="button" disabled={saving} onClick={() => void finish(row.id, "cancelled")}>בטל</button>
-              </div>
+              {row.manualId && (
+                <div className="scheduled-cellar-actions">
+                  <button type="button" disabled={saving} onClick={() => void finish(row.manualId!, "completed")}>בוצע</button>
+                  <button type="button" disabled={saving} onClick={() => void finish(row.manualId!, "cancelled")}>בטל</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
