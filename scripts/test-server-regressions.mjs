@@ -71,11 +71,29 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
 }
 
 {
+  // Earlier processAction5 tests intentionally replace globals. Reload the
+  // Apps Script file so this search test exercises its real lexical functions.
+  const searchAction = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+    BREW_FOLDER_ID: "test-folder",
+    ScriptApp: { getOAuthToken: () => "token" },
+    Utilities: { sleep() {}, formatDate: () => "2026-09-18" },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {}, deleteProperty() {} }) },
+    Drive: { Changes: {} },
+    DriveApp: {},
+    MimeType: { GOOGLE_SHEETS: "sheet" },
+    parseBatchNumber: (value) => { const n = Number(String(value ?? "").replace("#", "").trim()); return Number.isFinite(n) ? n : null; },
+    extractBrew: (id) => ({
+      wrong: { tankNumber: "11", beerStyle: "IPA" },
+      right: { tankNumber: "10", beerStyle: "פייל", brewDate: "18/09/2026" },
+    })[id],
+    buildSheetUrl: (id) => "url:" + id,
+  });
   const candidates = [
     { batch: 1594, fileId: "wrong", fileName: "1594 #" },
     { batch: 1595, fileId: "right", fileName: "1595 #" },
   ];
-  const found = action.findNextBrewForTankRecursive("10", 1593, candidates, {});
+  const found = searchAction.findNextBrewForTankRecursive("10", 1593, candidates, {});
   assert.equal(found.batchNumber, "1595", "ACTION 5 must skip a future brew assigned to another tank");
   assert.equal(found.sheetUrl, "url:right");
 }
