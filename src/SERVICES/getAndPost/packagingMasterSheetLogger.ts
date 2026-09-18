@@ -1,5 +1,5 @@
-import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where } from "firebase/firestore";
-import { db } from "../../firebase";
+import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc } from "firebase/firestore";
+import { auth, db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
     getDefaultPalletSplit,
@@ -256,6 +256,63 @@ type MasterSheetServerResult = {
     duplicate?: boolean;
 };
 
+async function persistPackagingSheetSyncJob(
+    operationId: string,
+    payload: Record<string, unknown>
+): Promise<void> {
+    const user = auth.currentUser;
+    if (!user?.email) throw new Error("אין משתמש מחובר. יש להתחבר מחדש.");
+
+    await setDoc(doc(db, "sheetSyncJobs", operationId), {
+        requestId: operationId,
+        action: "logPackagingToMasterSheet",
+        ownerUid: user.uid,
+        ownerEmail: user.email,
+        state: "pending",
+        attempts: 0,
+        payloadJson: JSON.stringify(payload),
+        createdAt: serverTimestamp(),
+    });
+}
+
+async function clearPackagingSheetSyncJob(operationId: string): Promise<void> {
+    try {
+        await deleteDoc(doc(db, "sheetSyncJobs", operationId));
+    } catch (error) {
+        // The maintenance worker will observe the same idempotency receipt and
+        // clean the pending job. A cleanup miss must not reopen the modal.
+        console.warn("Could not clear completed packaging Sheet sync job", {
+            operationId,
+            error,
+        });
+    }
+}
+
+function syncPackagingSheetInBackground(
+    operationId: string,
+    payload: Record<string, unknown>
+): void {
+    void callAppsScriptPost<AppsScriptEnvelope<MasterSheetServerResult>>(
+        payload,
+        { retries: 2, retryDelayMs: 600 }
+    )
+        .then(async (result) => {
+            if (!result.success) {
+                console.error(
+                    "Background packaging Sheet sync returned failure:",
+                    result.error || result.message
+                );
+                return;
+            }
+            await clearPackagingSheetSyncJob(operationId);
+        })
+        .catch((error) => {
+            // Keep the durable outbox job pending. Apps Script maintenance will
+            // safely retry with this operationId/requestId.
+            console.error("Background packaging Sheet sync failed:", error);
+        });
+}
+
 /**
  * כותבת אירוע אריזה בפועל לפיירסטור, לקולקציית packagingLog.
  * מבנה הדוקומנט תואם בכוונה למבנה של calendar_events (title/itemType/quantity/unit/timestamp)
@@ -338,11 +395,8 @@ export async function submitPackagingRecord(
     const expiryDateStr =
         expiryMonths !== null ? formatDDMMYYYY(addMonths(today, expiryMonths)) : "";
 
-    // עמודה B: לחביות - הכמות כפי שהוזנה. לבקבוקים - מספר ארגזים (24 בקבוק לארגז).
     const quantity = computePalletQuantity(packagingType, amount);
-
     if (packagingType === "bottles" && quantity <= 0) {
-        // פחות מארגז שלם אחד - לא נכתב לטבלת המאסטר (נרשם ידנית במקום אחר)
         return { success: false, error: "פחות מארגז שלם - לא נכתב לטבלת המאסטר", palletPlan: null };
     }
 
@@ -351,11 +405,7 @@ export async function submitPackagingRecord(
             ? `חביות ${beerStyle ?? ""}`.trim()
             : `ארגזי ${beerStyle ?? ""}`.trim();
 
-    // SAME id is reused for all HTTP attempts of this logical write. The server
-    // stores the completed result before replying, so a broken Google redirect
-    // can be retried without appending the packaging row twice.
     const operationId = params.operationId?.trim() || createAppsScriptRequestId("packaging");
-    const requestId = operationId;
     await persistPackagingOperation({
         operationId,
         packagingType,
@@ -368,7 +418,7 @@ export async function submitPackagingRecord(
 
     const payload = {
         action: "logPackagingToMasterSheet",
-        requestId,
+        requestId: operationId,
         productLabel,
         quantity,
         batchNumber: batchNumber ?? "",
@@ -376,12 +426,11 @@ export async function submitPackagingRecord(
         productionDateStr,
     };
 
-    // כותבים לגיליון ולפיירסטור במקביל. כשל באחד לא ימנע את השני.
-    const [sheetResult, firestoreResult] = await Promise.allSettled([
-        callAppsScriptPost<AppsScriptEnvelope<MasterSheetServerResult>>(
-            payload,
-            { retries: 2, retryDelayMs: 600 }
-        ),
+    // Durable first: the business log and Sheet outbox are persisted before the
+    // external Apps Script request starts. From this point the modal can close
+    // after pallet confirmation without waiting for Google.
+    await Promise.all([
+        persistPackagingSheetSyncJob(operationId, payload),
         logPackagingToFirestore({
             operationId,
             packagingType,
@@ -396,15 +445,6 @@ export async function submitPackagingRecord(
         }),
     ]);
 
-    const warnings: string[] = [];
-
-    if (firestoreResult.status === "rejected") {
-        console.error("Failed to log packaging to Firestore:", firestoreResult.reason);
-        warnings.push("הרישום לגיליון הצליח אך הרישום לפיירבייס נכשל");
-    }
-
-    // תוכנית המשטחים לא תלויה בהצלחת הכתיבה לגיליון - מחזירים אותה תמיד
-    // (אלא אם הכמות עצמה לא תקינה, שנבדק כבר למעלה).
     const palletPlan: PackagingPalletPlan = {
         operationId,
         itemType: packagingType === "kegs" ? "kegs" : "crates",
@@ -416,35 +456,10 @@ export async function submitPackagingRecord(
         tankNumber,
     };
 
-    if (sheetResult.status === "rejected") {
-        console.error("Failed to log packaging to master sheet:", sheetResult.reason);
-        return {
-            success: false,
-            error: sheetResult.reason?.message ?? "שגיאה בכתיבה לטבלת המאסטר",
-            warnings,
-            palletPlan,
-        };
-    }
-
-    const parsed = sheetResult.value;
-
-    if (!parsed.success) {
-        return {
-            success: false,
-            error: parsed.error || parsed.message || "Master sheet log failed",
-            warnings,
-            palletPlan,
-        };
-    }
-
-    const serverWarnings = parsed.result?.warnings;
-    if (serverWarnings && serverWarnings.length > 0) {
-        warnings.push(...serverWarnings);
-    }
+    syncPackagingSheetInBackground(operationId, payload);
 
     return {
         success: true,
-        warnings: warnings.length > 0 ? warnings : undefined,
         palletPlan,
     };
 }
