@@ -12,6 +12,7 @@ import {
     serverTimestamp,
     getCountFromServer,
     getDocsFromServer,
+    getDoc,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
@@ -345,21 +346,31 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
     }
     const palletBatch = writeBatch(db);
     const ids: string[] = [];
-    sanitized.forEach((entry, index) => {
-        // A packaging retry must address the exact same pallet documents. Random
-        // ids made a lost response capable of duplicating physical inventory.
-        const palletRef = operationId
+    const refs = sanitized.map((_, index) =>
+        operationId
             ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${index + 1}`)
-            : doc(collection(db, PALLETS_COLLECTION));
+            : doc(collection(db, PALLETS_COLLECTION))
+    );
+
+    // With a stable operation id, an existing pallet means this is a retry.
+    // Never overwrite it: the pallet may already have been moved, edited or
+    // marked for shipment after the first successful creation.
+    const existing = operationId
+        ? await Promise.all(refs.map((ref) => getDoc(ref)))
+        : [];
+
+    sanitized.forEach((entry, index) => {
+        const palletRef = refs[index];
         ids.push(palletRef.id);
-        palletBatch.set(
-            palletRef,
-            {
-                ...palletCreateData({ itemType, beerStyle, subLabel: entry.subLabel ?? null, quantity: entry.quantity, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber == null ? null : String(batchNumber), sourceTankNumber: sourceTankNumber ?? null }),
-                ...(operationId ? { packagingOperationId: operationId, packagingSplitIndex: index } : {}),
-            },
-            { merge: Boolean(operationId) },
-        );
+
+        if (operationId && existing[index]?.exists()) {
+            return;
+        }
+
+        palletBatch.set(palletRef, {
+            ...palletCreateData({ itemType, beerStyle, subLabel: entry.subLabel ?? null, quantity: entry.quantity, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber == null ? null : String(batchNumber), sourceTankNumber: sourceTankNumber ?? null }),
+            ...(operationId ? { packagingOperationId: operationId, packagingSplitIndex: index } : {}),
+        });
     });
     await palletBatch.commit();
     return ids;
