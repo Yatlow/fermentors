@@ -153,8 +153,8 @@
   background: #f0fdf4;
   border-color: #bbf7d0;
 }
-.bp-five-week-item b { font-size: .62rem; line-height: 1.15; }
-.bp-five-week-item small { font-size: .54rem; line-height: 1.25; opacity: .78; white-space: normal; }
+.bp-five-week-item b { font-size: .72rem; line-height: 1.2; }
+.bp-five-week-item small { font-size: .63rem; line-height: 1.3; opacity: .82; white-space: normal; }
 .bp-five-week-item > span { margin-top: 1px; color: #b45309; font-size: .52rem; font-weight: 800; }
 .bp-five-week-item.is-pending { border-style: dashed; }
 .bp-five-week-empty { margin: auto; opacity: .3; font-size: .9rem; }
@@ -423,3 +423,5 @@
   .bp-calendar-floating-editor { width: calc(100vw - 16px); max-height: 84vh; }
   .bp-calendar-editor-backdrop { padding: 8px; }
 }
+
+.bp-danger-button { border-color: #b91c1c !important; color: #991b1b !important; background: #fff7f7 !important; }
