@@ -47,3 +47,34 @@
   border-radius: 7px;
 }
 .scheduled-cellar-form input:nth-of-type(2) { grid-column: 1 / -1; }
+
+.scheduled-cellar-heading button,
+.scheduled-cellar-actions button,
+.scheduled-cellar-form button {
+  cursor: pointer;
+}
+
+.scheduled-cellar-heading button:disabled,
+.scheduled-cellar-actions button:disabled,
+.scheduled-cellar-form button:disabled {
+  cursor: not-allowed;
+}
+
+.scheduled-cellar-natural {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+}
+
+.scheduled-cellar-natural > small {
+  font-weight: bold;
+  color: #1e3a8a;
+}
+
+.scheduled-cellar-row.natural {
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+}
