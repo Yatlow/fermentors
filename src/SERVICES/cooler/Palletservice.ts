@@ -508,6 +508,7 @@ export type PendingPackagingMatch = {
 export async function findPendingPackagingForManualPallet(input: {
     itemType: PalletItemType;
     batchNumber?: string | null;
+    beerStyle?: string | null;
 }): Promise<PendingPackagingMatch | null> {
     const batchNumber = input.batchNumber?.trim();
     if (!batchNumber) return null;
@@ -517,12 +518,18 @@ export async function findPendingPackagingForManualPallet(input: {
         where("state", "==", "awaiting_pallets"),
         where("batchNumber", "==", batchNumber),
         where("itemType", "==", input.itemType),
-        limit(1),
     );
     const snapshot = await getDocsFromServer(q);
     if (snapshot.empty) return null;
 
-    const found = snapshot.docs[0];
+    // A batch can legitimately have more than one packaging operation (for
+    // example bottles and kegs, or a retry from another packaging day). Do not
+    // let an arbitrary limit(1) hide the exact style operation.
+    const found =
+        snapshot.docs.find((candidate) => {
+            const style = String(candidate.data().beerStyle ?? "").trim();
+            return !style || style === input.beerStyle?.trim();
+        }) ?? snapshot.docs[0];
     const data = found.data();
     const quantity = Math.max(0, Number(data.quantity ?? 0));
 
@@ -607,6 +614,7 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
         ? await findPendingPackagingForManualPallet({
             itemType: input.itemType,
             batchNumber: input.batchNumber,
+            beerStyle: input.beerStyle,
         })
         : null;
     const linkedOperationId =
