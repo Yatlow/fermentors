@@ -9,8 +9,20 @@
 // manual re-run/reset.
 // ================================================================
 
-const PRESSURE_BACKFILL_STATE_KEY = "pressure_model_backfill_v1";
+const PRESSURE_BACKFILL_STATE_KEY = "pressure_model_backfill_v2_turbo";
 const PRESSURE_BACKFILL_PAGE_SIZE = 20;
+const PRESSURE_BACKFILL_DAILY_READ_BUDGET = 8000;
+const PRESSURE_BACKFILL_READ_HEADROOM = 1000;
+const PRESSURE_BACKFILL_MAX_RUN_MS = 180000;
+const PRESSURE_BACKFILL_TIMEZONE = "Asia/Jerusalem";
+
+function pressureBackfillDayKey_(date) {
+  return Utilities.formatDate(
+    date || new Date(),
+    PRESSURE_BACKFILL_TIMEZONE,
+    "yyyy-MM-dd"
+  );
+}
 
 function startPressureResponseBackfill_() {
   PropertiesService.getScriptProperties().setProperty(
@@ -19,6 +31,9 @@ function startPressureResponseBackfill_() {
       active: true,
       pageToken: "",
       processedBrews: 0,
+      scannedBrews: 0,
+      dailyReadDate: pressureBackfillDayKey_(new Date()),
+      readsToday: 0,
       startedAt: new Date().toISOString()
     })
   );
@@ -52,102 +67,174 @@ function pressureBackfillListPage_(projectId, pageToken) {
 }
 
 function pressureResponseBackfillStep_() {
+  const startedAtMs = Date.now();
   const props = PropertiesService.getScriptProperties();
   let state = pressureResponseBackfillState_();
 
   // No state means this deployment has never backfilled historical brews.
   // Start once automatically. A completed state is kept permanently so the
-  // historical scan does not restart on every maintenance cycle.
+  // historical scan never restarts after completion.
   if (!state) {
     state = {
       active: true,
       pageToken: "",
       processedBrews: 0,
+      scannedBrews: 0,
+      dailyReadDate: pressureBackfillDayKey_(new Date()),
+      readsToday: 0,
       startedAt: new Date().toISOString()
     };
     props.setProperty(PRESSURE_BACKFILL_STATE_KEY, JSON.stringify(state));
-    console.log("Pressure model historical backfill started automatically.");
+    console.log("Pressure model historical TURBO backfill started automatically.");
   }
 
   if (state.active !== true) {
     return {
       skipped: true,
       reason: state.completed === true ? "completed" : "inactive",
-      processedBrews: Number(state.processedBrews || 0)
+      processedBrews: Number(state.processedBrews || 0),
+      scannedBrews: Number(state.scannedBrews || 0)
     };
+  }
+
+  const todayKey = pressureBackfillDayKey_(new Date());
+  if (String(state.dailyReadDate || "") !== todayKey) {
+    state.dailyReadDate = todayKey;
+    state.readsToday = 0;
   }
 
   const projectId = FIREBASE_PROJECT_ID;
-  const page = pressureBackfillListPage_(projectId, String(state.pageToken || ""));
-  const samplesByStyle = {};
-  let processedThisStep = 0;
+  let pageToken = String(state.pageToken || "");
+  let processedBrews = Number(state.processedBrews || 0);
+  let scannedBrews = Number(state.scannedBrews || 0);
+  let readsToday = Number(state.readsToday || 0);
+  const readsAtStart = readsToday;
+  let pagesProcessed = 0;
+  let processedThisRun = 0;
 
-  page.documents.forEach(function (document) {
-    const id = String(document.name || "").split("/").pop();
-    const data = firestoreFieldsToObject_(document.fields || {});
-    const style = String(data.beerStyle || "").trim();
-    const brewDate = parseDateOnly(data.brewDate);
-    if (!id || !style || !brewDate) return;
+  while (
+    Date.now() - startedAtMs < PRESSURE_BACKFILL_MAX_RUN_MS &&
+    readsToday < PRESSURE_BACKFILL_DAILY_READ_BUDGET - PRESSURE_BACKFILL_READ_HEADROOM
+  ) {
+    const page = pressureBackfillListPage_(projectId, pageToken);
+    readsToday += page.documents.length;
+    scannedBrews += page.documents.length;
 
-    try {
-      const measurements = getMeasurementsForBrew(projectId, id);
-      const styleKey = normalizePressureModelStyle_(style);
-      if (!samplesByStyle[styleKey]) samplesByStyle[styleKey] = [];
+    const samplesByStyle = {};
+    let processedThisPage = 0;
 
-      Array.prototype.push.apply(
-        samplesByStyle[styleKey],
-        buildPressureResponseSamplesForBrew_(measurements, brewDate, id)
+    page.documents.forEach(function (document) {
+      const id = String(document.name || "").split("/").pop();
+      const data = firestoreFieldsToObject_(document.fields || {});
+      const style = String(data.beerStyle || "").trim();
+      const brewDate = parseDateOnly(data.brewDate);
+      if (!id || !style || !brewDate) return;
+
+      try {
+        const measurements = getMeasurementsForBrew(projectId, id);
+        // Firestore bills one document read for every measurement document
+        // returned by the REST list call. Track it so the turbo run stays well
+        // below the user's dedicated 10k/day historical-read allowance.
+        readsToday += measurements.length;
+
+        const styleKey = normalizePressureModelStyle_(style);
+        if (!samplesByStyle[styleKey]) samplesByStyle[styleKey] = [];
+
+        Array.prototype.push.apply(
+          samplesByStyle[styleKey],
+          buildPressureResponseSamplesForBrew_(measurements, brewDate, id)
+        );
+        processedThisPage++;
+      } catch (error) {
+        console.log("Pressure backfill skipped brew " + id + ": " + error.message);
+      }
+    });
+
+    // Each style write performs one model-document read before merging. Count
+    // those reads too. Writes are only one document per touched style/page and
+    // are orders of magnitude below the separate 10k/day write allowance.
+    Object.keys(samplesByStyle).forEach(function (styleKey) {
+      readsToday++;
+      writeMergedPressureResponseModel_(
+        projectId,
+        styleKey,
+        samplesByStyle[styleKey]
       );
-      processedThisStep++;
-    } catch (error) {
-      console.log("Pressure backfill skipped brew " + id + ": " + error.message);
-    }
-  });
+    });
 
-  Object.keys(samplesByStyle).forEach(function (styleKey) {
-    writeMergedPressureResponseModel_(
-      projectId,
-      styleKey,
-      samplesByStyle[styleKey]
-    );
-  });
+    processedBrews += processedThisPage;
+    processedThisRun += processedThisPage;
+    pagesProcessed++;
 
-  const processedBrews = Number(state.processedBrews || 0) + processedThisStep;
-
-  if (!page.nextPageToken) {
-    props.setProperty(
-      PRESSURE_BACKFILL_STATE_KEY,
-      JSON.stringify({
+    if (!page.nextPageToken) {
+      const completedState = {
         active: false,
         completed: true,
         processedBrews: processedBrews,
+        scannedBrews: scannedBrews,
+        dailyReadDate: todayKey,
+        readsToday: readsToday,
         startedAt: state.startedAt || null,
         completedAt: new Date().toISOString()
-      })
-    );
-    console.log("Pressure model historical backfill completed. Brews: " + processedBrews);
-    return {
-      skipped: false,
-      completed: true,
+      };
+      props.setProperty(
+        PRESSURE_BACKFILL_STATE_KEY,
+        JSON.stringify(completedState)
+      );
+      console.log(
+        "Pressure model historical TURBO backfill completed. " +
+        "Brews processed: " + processedBrews +
+        " | reads today: " + readsToday
+      );
+      return {
+        skipped: false,
+        completed: true,
+        processedBrews: processedBrews,
+        scannedBrews: scannedBrews,
+        processedThisRun: processedThisRun,
+        pagesProcessed: pagesProcessed,
+        readsThisRun: readsToday - readsAtStart,
+        readsToday: readsToday
+      };
+    }
+
+    pageToken = page.nextPageToken;
+
+    // Persist progress after every page. If Apps Script is terminated between
+    // pages, the next maintenance invocation resumes from the next page rather
+    // than rescanning the completed one.
+    state = {
+      active: true,
+      pageToken: pageToken,
       processedBrews: processedBrews,
-      processedThisStep: processedThisStep
+      scannedBrews: scannedBrews,
+      dailyReadDate: todayKey,
+      readsToday: readsToday,
+      startedAt: state.startedAt || new Date().toISOString()
     };
+    props.setProperty(PRESSURE_BACKFILL_STATE_KEY, JSON.stringify(state));
   }
 
-  props.setProperty(
-    PRESSURE_BACKFILL_STATE_KEY,
-    JSON.stringify({
-      active: true,
-      pageToken: page.nextPageToken,
-      processedBrews: processedBrews,
-      startedAt: state.startedAt || new Date().toISOString()
-    })
+  const budgetPaused =
+    readsToday >= PRESSURE_BACKFILL_DAILY_READ_BUDGET - PRESSURE_BACKFILL_READ_HEADROOM;
+
+  console.log(
+    "Pressure TURBO backfill paused: " +
+    (budgetPaused ? "daily read budget" : "execution time budget") +
+    " | pages=" + pagesProcessed +
+    " | readsThisRun=" + (readsToday - readsAtStart) +
+    " | readsToday=" + readsToday
   );
 
   return {
     skipped: false,
     completed: false,
+    pausedFor: budgetPaused ? "daily_read_budget" : "execution_time_budget",
     processedBrews: processedBrews,
-    processedThisStep: processedThisStep
+    scannedBrews: scannedBrews,
+    processedThisRun: processedThisRun,
+    pagesProcessed: pagesProcessed,
+    readsThisRun: readsToday - readsAtStart,
+    readsToday: readsToday
   };
 }
