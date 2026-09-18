@@ -265,7 +265,7 @@ export default function FermentorInfoBox({
                     req: Boolean(rec.req),
                     reason: rec.reason,
                     importance: rec.importance,
-                    display: true,
+                    display: Boolean(rec.display),
                 }))
             : []),
         ...(openBottomCarbonation && tank.stage?.name === "קר"
@@ -285,7 +285,7 @@ export default function FermentorInfoBox({
     ];
 
     const activeRecommendations = recommendationList
-        .filter((rec) => rec.req)
+        .filter((rec) => rec.req && rec.display)
         .sort((a, b) => b.importance - a.importance);
 
     return (
