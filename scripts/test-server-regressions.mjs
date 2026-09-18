@@ -245,6 +245,30 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal(samples[0].pressureBefore, 1.1);
   assert.equal(samples[0].targetPressure, 1.4);
   assert.ok(samples[0].carbonationDelta > 0);
+
+  const calibrationSamples = Array.from({ length: 12 }, (_, index) => ({
+    batchId: String(1600 + index),
+    eventDate: `${String((index % 9) + 1).padStart(2, "0")}/09/2026`,
+    brewDay: 18 + (index % 3),
+    temp: 1.5,
+    carbonationBefore: 2.3,
+    carbAgeAtAdjustment: index % 3,
+    pressureBefore: 1.2,
+    pressureMeanToDate: 1.0,
+    pressureMeanLast3Days: 1.15,
+    pressureMeanLast7Days: 1.1,
+    targetPressure: 1.4,
+    pressureDelta: 0.2,
+    carbonationAfter: 2.4,
+    carbonationDelta: 0.1,
+    elapsedDays: 2,
+    success: true,
+  }));
+  const calibration = weekly.buildPressureCalibration_(calibrationSamples);
+  assert.ok(calibration.evaluatedSamples >= 8);
+  assert.equal(calibration.responseMultiplier, 1);
+  assert.equal(calibration.directionSuccessRate, 1);
+  assert.equal(calibration.within005Rate, 1);
 }
 
 console.log("Critical server regression tests passed");
