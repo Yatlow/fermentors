@@ -6,6 +6,7 @@ import { calcCelleringRecomendations, type Measurement } from "../../SERVICES/ce
 import {
     dueScheduledForTank,
     scheduledActionLabel,
+    setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
@@ -245,6 +246,49 @@ export default function SendMessurmentsHeader({
             String(a.id).localeCompare(String(b.id))
         );
     };
+
+    async function resolveScheduledActionsForSuccessfulReadings(
+        readings: typeof readingsToSend extends never ? never : any[],
+        results: writeReadingResult[]
+    ) {
+        const completedIds = new Set<string>();
+
+        for (const reading of readings) {
+            const result = results.find(
+                (candidate) => String(candidate.tankId) === String(reading.tankId)
+            );
+            if (result?.success === false) continue;
+
+            const tank = brews.find((candidate) => String(candidate.id) === String(reading.tankId));
+            if (!tank?.batchNumber) continue;
+
+            const noteText = String(reading.notes ?? "");
+            const performed = new Set<"carbTest" | "yeastDrop">();
+
+            if (
+                reading.carbonation !== undefined &&
+                reading.carbonation !== null &&
+                reading.carbonation !== ""
+            ) {
+                performed.add("carbTest");
+            }
+            if (/בדיקת\s+גיזוז/.test(noteText)) performed.add("carbTest");
+            if (/שמרים|שמרי/.test(noteText)) performed.add("yeastDrop");
+            if (performed.size === 0) continue;
+
+            const due = dueScheduledForTank(
+                scheduledRecommendations,
+                tank.tankNumber,
+                tank.batchNumber,
+            );
+
+            for (const row of due) {
+                if (!performed.has(row.actionType) || completedIds.has(row.id)) continue;
+                await setScheduledCellarRecommendationStatus(row.id, "completed");
+                completedIds.add(row.id);
+            }
+        }
+    }
 
     const sendReadings = async () => {
         setShowSendStatus(true)
@@ -560,6 +604,12 @@ export default function SendMessurmentsHeader({
             }
 
             const allSucceeded = res.every((r) => r.success);
+
+            try {
+                await resolveScheduledActionsForSuccessfulReadings(readingsToSend, res);
+            } catch (error) {
+                console.error("Failed resolving scheduled cellar recommendations:", error);
+            }
 
             if (isFastPath) {
                 // ההמלצות כבר הוצגו למשתמש קודם. כאן רק מוסיפים אזהרה אם צריך.
