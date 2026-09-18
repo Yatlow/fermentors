@@ -347,35 +347,73 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
         const unit = itemType === "kegs" ? "חביות" : "ארגזים";
         throw new Error(`משטח בודד יכול להכיל עד ${maxPerPallet} ${unit} (נמצא משטח עם ${overLimit.quantity})`);
     }
-    const palletBatch = writeBatch(db);
-    const ids: string[] = [];
-    const refs = sanitized.map((_, index) =>
+
+    const refs = sanitized.map((entry, index) =>
         operationId
-            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${index + 1}_${sanitized[index].quantity}`)
+            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${index + 1}_${entry.quantity}`)
             : doc(collection(db, PALLETS_COLLECTION))
     );
+    const ids = refs.map((ref) => ref.id);
 
-    // With a stable operation id, an existing pallet means this is a retry.
-    // Never overwrite it: the pallet may already have been moved, edited or
-    // marked for shipment after the first successful creation.
-    const existing = operationId
-        ? await Promise.all(refs.map((ref) => getDoc(ref)))
-        : [];
-
-    sanitized.forEach((entry, index) => {
-        const palletRef = refs[index];
-        ids.push(palletRef.id);
-
-        if (operationId && existing[index]?.exists()) {
-            return;
-        }
-
-        palletBatch.set(palletRef, {
-            ...palletCreateData({ itemType, beerStyle, subLabel: entry.subLabel ?? null, quantity: entry.quantity, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber == null ? null : String(batchNumber), sourceTankNumber: sourceTankNumber ?? null }),
-            ...(operationId ? { packagingOperationId: operationId, packagingSplitIndex: index } : {}),
+    if (!operationId) {
+        const palletBatch = writeBatch(db);
+        sanitized.forEach((entry, index) => {
+            palletBatch.set(refs[index], palletCreateData({
+                itemType,
+                beerStyle,
+                subLabel: entry.subLabel ?? null,
+                quantity: entry.quantity,
+                expiryDateStr: expiryDateStr || null,
+                batchNumber: batchNumber == null ? null : String(batchNumber),
+                sourceTankNumber: sourceTankNumber ?? null,
+            }));
         });
+        await palletBatch.commit();
+        return ids;
+    }
+
+    // The operation document is the concurrency guard. Firestore retries this
+    // transaction when another device changes the operation, so two recovery
+    // attempts cannot both claim/create the same remaining quantity.
+    const operationRef = doc(db, "packagingOperations", operationId);
+    await runTransaction(db, async (tx) => {
+        const operationSnap = await tx.get(operationRef);
+        if (!operationSnap.exists()) throw new Error("פעולת האריזה לשחזור לא נמצאה");
+        const operation = operationSnap.data();
+        if (operation.state === "completed") return;
+        if (operation.state !== "awaiting_pallets") throw new Error("פעולת האריזה אינה זמינה לשחזור");
+
+        const palletSnaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+        let newlyCreatedQuantity = 0;
+
+        sanitized.forEach((entry, index) => {
+            if (palletSnaps[index].exists()) return;
+            newlyCreatedQuantity += entry.quantity;
+            tx.set(refs[index], {
+                ...palletCreateData({
+                    itemType,
+                    beerStyle,
+                    subLabel: entry.subLabel ?? null,
+                    quantity: entry.quantity,
+                    expiryDateStr: expiryDateStr || null,
+                    batchNumber: batchNumber == null ? null : String(batchNumber),
+                    sourceTankNumber: sourceTankNumber ?? null,
+                }),
+                packagingOperationId: operationId,
+                packagingSplitIndex: index,
+                packagingAppliedQuantity: entry.quantity,
+                packagingSource: "recovery",
+            });
+        });
+
+        if (newlyCreatedQuantity > 0) {
+            tx.update(operationRef, {
+                recoveryRevision: Number(operation.recoveryRevision ?? 0) + 1,
+                updatedAt: serverTimestamp(),
+            });
+        }
     });
-    await palletBatch.commit();
+
     return ids;
 }
 
