@@ -118,11 +118,14 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     setMessage("הנתונים נשמרו");
   }
 
-  async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0]) {
+  async function saveWeeklyPlan(
+    next: Parameters<typeof data.saveWeek>[0],
+    options?: Parameters<typeof data.saveWeek>[1],
+  ) {
     const original = plans.find((week) => week.id === next.id);
     let merged = original ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products) : next;
     if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
-    await data.saveWeek(merged);
+    await data.saveWeek(merged, options);
   }
 
   return (
@@ -141,7 +144,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         </>}
         {tab === "fiveWeeks" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningFiveWeekOverview settings={calendarSettings} plans={fiveWeekPlans} tanks={tanks} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan}/>
+          <PlanningFiveWeekOverview settings={calendarSettings} plans={fiveWeekPlans} tanks={tanks} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} moveCalendarEvent={data.moveCalendarEvent}/>
         </>}
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
