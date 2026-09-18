@@ -221,13 +221,15 @@ export default function FermentorInfoBox({
     ]);
 
     const openBottomCarbonation = findOpenBottomCarbonation(measurements);
-    const naturalCarbRecommendation = Boolean(recomendations?.requiresCarbTest?.req);
+    const naturalCarbRecommendation = Boolean(
+        recomendations?.requiresCarbTest?.req && recomendations?.requiresCarbTest?.display
+    );
     const naturalYeastRecommendation = Boolean(
-        recomendations?.requiresWarmYeastDrop?.req ||
-        recomendations?.requiersYeastDropAfterCooling?.req ||
-        recomendations?.requiresWarmYeastDropCompletion?.req ||
-        recomendations?.requiresColdYeastDropCompletion?.req ||
-        recomendations?.requiiersWedYeastDropOnThus?.req
+        (recomendations?.requiresWarmYeastDrop?.req && recomendations?.requiresWarmYeastDrop?.display) ||
+        (recomendations?.requiersYeastDropAfterCooling?.req && recomendations?.requiersYeastDropAfterCooling?.display) ||
+        (recomendations?.requiresWarmYeastDropCompletion?.req && recomendations?.requiresWarmYeastDropCompletion?.display) ||
+        (recomendations?.requiresColdYeastDropCompletion?.req && recomendations?.requiresColdYeastDropCompletion?.display) ||
+        (recomendations?.requiiersWedYeastDropOnThus?.req && recomendations?.requiiersWedYeastDropOnThus?.display)
     );
     const naturalFuture = naturalFutureRecommendations(recomendations);
 
