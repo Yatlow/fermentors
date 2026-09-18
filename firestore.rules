@@ -97,17 +97,27 @@ service cloud.firestore {
       allow create: if isApprovedUser()
         && request.resource.data.keys().hasOnly([
           'requestId', 'action', 'ownerUid', 'ownerEmail', 'state',
-          'attempts', 'readingsJson', 'createdAt'
+          'attempts', 'readingsJson', 'payloadJson', 'createdAt'
         ])
         && request.resource.data.requestId == requestId
-        && request.resource.data.action == 'addFermentationMeasurements'
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.ownerEmail == request.auth.token.email
         && request.resource.data.state == 'pending'
         && request.resource.data.attempts == 0
-        && request.resource.data.readingsJson is string
-        && request.resource.data.readingsJson.size() <= 50000
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (
+          (
+            request.resource.data.action == 'addFermentationMeasurements'
+            && request.resource.data.get('readingsJson', '') is string
+            && request.resource.data.get('readingsJson', '').size() <= 50000
+          )
+          ||
+          (
+            request.resource.data.action == 'logPackagingToMasterSheet'
+            && request.resource.data.get('payloadJson', '') is string
+            && request.resource.data.get('payloadJson', '').size() <= 10000
+          )
+        );
       allow delete: if isApprovedUser()
         && resource.data.ownerUid == request.auth.uid;
       allow update: if false;
