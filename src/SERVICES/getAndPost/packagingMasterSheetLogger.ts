@@ -6,6 +6,7 @@ import {
     type CustomPalletSplitEntry,
 } from "../cooler/Palletservice";
 import type { PalletItemType } from "../cooler/Pallettypes ";
+import { reserveNewPalletsForNearestShipment } from "../planning/planningShipmentReservations";
 import {
     callAppsScriptPost,
     createAppsScriptRequestId,
@@ -99,6 +100,7 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         tankNumber: operation.tankNumber ?? null,
     };
     const ids = await createPalletsForPlan(plan, splits);
+    await reserveNewPalletsForNearestShipment(ids);
     await markPackagingPalletsCompleted(operationId);
     return ids;
 }
