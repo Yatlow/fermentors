@@ -330,7 +330,8 @@ function applyManualStatusChange(
   fermentorID,
   desiredAction,
   desiredTankStatus,
-  expectedBatchNumber
+  expectedBatchNumber,
+  expectedFromAction
 ) {
   const fermentorId = String(fermentorID || "").trim();
   const action = Number(desiredAction);
@@ -353,6 +354,14 @@ function applyManualStatusChange(
   if (expectedBatch && currentBatch !== expectedBatch) {
     throw new Error(
       "האצווה במיכל השתנתה בזמן האישור (" + currentBatch + "). פתח מחדש את הפעולה."
+    );
+  }
+
+  const expectedAction = Number(expectedFromAction);
+  const currentAction = Number(existing.action);
+  if (Number.isFinite(expectedAction) && currentAction !== expectedAction) {
+    throw new Error(
+      "סטטוס המיכל השתנה בזמן האישור. פתח מחדש את הפעולה."
     );
   }
 
