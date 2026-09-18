@@ -582,6 +582,7 @@ export async function createPallets(input: { itemType: PalletItemType; beerStyle
 
     const batch = writeBatch(db);
     const ids: string[] = [];
+    let operationCoverageRemaining = linkedOperationId ? pending!.remainingQuantity : 0;
     chunks.forEach((quantity) => {
         const ref = doc(collection(db, PALLETS_COLLECTION));
         ids.push(ref.id);
