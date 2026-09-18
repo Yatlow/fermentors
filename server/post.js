@@ -117,7 +117,8 @@ const POST_MUTATION_ACTIONS = {
   AssignBatch: true,
   refreshSingleTank: true,
   addFermentationMeasurement: true,
-  triggerTankUpdate: true
+  triggerTankUpdate: true,
+  manualNightSync: true
 };
 
 function postIdempotencyKey_(action, requestId) {
@@ -512,6 +513,16 @@ function executePostAction_(data) {
   if (data.action === "triggerTankUpdate") {
     const result = runFermentorCycle();
     return { success: true, action: "triggerTankUpdate", result: result };
+  }
+
+  if (data.action === "manualNightSync") {
+    const result = runManualNightFermentorSync_();
+    return {
+      success: result.success === true,
+      action: "manualNightSync",
+      result: result,
+      message: result.message || undefined
+    };
   }
 
   throw new Error("Unknown action: " + data.action);
