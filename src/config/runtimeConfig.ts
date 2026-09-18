@@ -22,7 +22,10 @@ export const runtimeConfig = {
     "VITE_APPS_SCRIPT_URL",
     "https://script.google.com/macros/s/AKfycbzSq8vnL_P9DOkiXluKReSUNFILqlRkK-WxnPC_Q0BNt23rFHbLpRlkvPudbqElqw5h/exec",
   ),
-  googleClientId: env("VITE_GOOGLE_CLIENT_ID", ""),
+  googleClientId: env(
+    "VITE_GOOGLE_CLIENT_ID",
+    "1000438477674-d4bl366t8qkiovrhmlpr0cnlcd97lp8p.apps.googleusercontent.com",
+  ),
   brewFolderId: env(
     "VITE_BREW_FOLDER_ID",
     "0B6DbCIATIM92fm1KQkpVeTR3dXk1ZVRPOUttUVJGelMzcl9nUTR6SzM3ZEE3WjVvc0RvSVk",
