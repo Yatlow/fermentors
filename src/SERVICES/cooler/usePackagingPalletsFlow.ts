@@ -117,6 +117,7 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
             batchNumber: job.batchNumber,
             tankNumber: job.tankNumber,
             tankStatus: job.tankStatus,
+            operationId: job.submissionId,
         })
             .then((result) => {
                 setRuntimesSynced((prev) => {
