@@ -345,7 +345,7 @@ function mergePressureSamples_(existingSamples, incomingSamples, maxSamples) {
     .sort(function (a, b) {
       return String(a.eventDate || "").localeCompare(String(b.eventDate || ""));
     })
-    .slice(-Math.max(20, Number(maxSamples) || 240));
+    .slice(-Math.max(20, Number(maxSamples) || 600));
 }
 
 function getPressureResponseModel_(projectId, styleKey) {
@@ -378,7 +378,7 @@ function writeMergedPressureResponseModel_(projectId, styleKey, incomingSamples)
   const samples = mergePressureSamples_(
     existing && Array.isArray(existing.samples) ? existing.samples : [],
     incomingSamples,
-    240
+    600
   );
 
   if (samples.length === 0) return null;
@@ -812,6 +812,32 @@ function measurementSortTime_(measurement) {
   return date.getTime();
 }
 
+function pressureHistoryContext_(rows, endIndexExclusive, referenceDate) {
+  const values = [];
+  for (let i = 0; i < endIndexExclusive; i++) {
+    const row = rows[i];
+    const pressure = pressureModelNumber_(row && row.pressure);
+    const date = parseDateOnly(row && row.date);
+    if (pressure === null || !date) continue;
+    const daysAgo = differenceInDays(date, referenceDate);
+    if (daysAgo < 0) continue;
+    values.push({ pressure: pressure, daysAgo: daysAgo });
+  }
+
+  function mean(filtered) {
+    if (!filtered.length) return null;
+    return filtered.reduce(function (sum, item) {
+      return sum + item.pressure;
+    }, 0) / filtered.length;
+  }
+
+  return {
+    pressureMeanToDate: mean(values),
+    pressureMeanLast3Days: mean(values.filter(function (item) { return item.daysAgo <= 3; })),
+    pressureMeanLast7Days: mean(values.filter(function (item) { return item.daysAgo <= 7; }))
+  };
+}
+
 function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
   const rows = (measurements || []).slice().sort(function (a, b) {
     return measurementSortTime_(a) - measurementSortTime_(b);
@@ -854,6 +880,7 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
           const pressureDelta = targetPressure - beforePressure;
           const carbonationDelta = afterCarb - beforeCarb;
           const brewDay = differenceInDays(brewDate, eventDate);
+          const pressureHistory = pressureHistoryContext_(rows, index, eventDate);
 
           samples.push({
             batchId: String(batchId),
@@ -862,6 +889,9 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
             temp: temp,
             carbonationBefore: beforeCarb,
             pressureBefore: beforePressure,
+            pressureMeanToDate: pressureHistory.pressureMeanToDate,
+            pressureMeanLast3Days: pressureHistory.pressureMeanLast3Days,
+            pressureMeanLast7Days: pressureHistory.pressureMeanLast7Days,
             targetPressure: targetPressure,
             pressureDelta: pressureDelta,
             carbonationAfter: afterCarb,
