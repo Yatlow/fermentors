@@ -110,6 +110,7 @@ const POST_MUTATION_ACTIONS = {
   logPackagingToMasterSheet: true,
   addFermentationMeasurements: true,
   AssignAndRefreshTank: true,
+  ApplyManualStatus: true,
   updateTankStatus: true,
   assignDryHop: true,
   updatePackagingInfo: true,
@@ -411,6 +412,16 @@ function executePostAction_(data) {
   if (data.action === "AssignAndRefreshTank") {
     const result = assignAndRefreshTank(data.fermentorID, data.sheetUrl, data.desiredAction, data.desiredTankStatus);
     return { success: true, action: "AssignAndRefreshTank", result: result };
+  }
+
+  if (data.action === "ApplyManualStatus") {
+    const result = applyManualStatusChange(
+      data.fermentorID,
+      data.desiredAction,
+      data.desiredTankStatus,
+      data.expectedBatchNumber
+    );
+    return { success: true, action: "ApplyManualStatus", result: result };
   }
 
   if (data.action === "updateTankStatus") {
