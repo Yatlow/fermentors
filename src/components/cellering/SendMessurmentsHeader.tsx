@@ -1,7 +1,7 @@
 import BeerLoader from "./../general/Loading";
 import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../../SERVICES/getAndPost/writeReadingToSheets";
-import type { Fermentor, NewReading } from "../../App";
+import type { Fermentor, NewReading, ReadingToSend } from "../../App";
 import { calcCelleringRecomendations, type Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import {
     dueScheduledForTank,
@@ -248,7 +248,7 @@ export default function SendMessurmentsHeader({
     };
 
     async function resolveScheduledActionsForSuccessfulReadings(
-        readings: typeof readingsToSend extends never ? never : any[],
+        readings: ReadingToSend[],
         results: writeReadingResult[]
     ) {
         const completedIds = new Set<string>();
