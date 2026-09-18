@@ -1197,8 +1197,6 @@ function getAllFermentorsFromFirebase() {
 
 
 // ============================================================
-// FIRESTORE: SINGLE FERMENTOR
-// ============================================================
 // ACTION 5: ATOMIC FERMENTOR TRANSITION
 // ============================================================
 
@@ -1412,5 +1410,3 @@ function updateFermentorAction(
 }
 
 
-// ============================================================
-// UPDATE SHEET URL
