@@ -44,6 +44,7 @@ type ExtendedPlan = Omit<WeekPlan, "brews"> & {
   brews: ExtendedBrew[];
   calendarEvents?: PlannerEvent[];
   calendarNotes?: Record<string, string>;
+  calendarBrewDurationDays?: 2 | 3;
 };
 
 type CompactItem = {
@@ -390,6 +391,10 @@ export default function PlanningFiveWeekOverview({
   function brewGroupRange(plan: ExtendedPlan) {
     if (!plan.brews.length) return null;
     const start = plan.brews.map((brew) => brew.date).sort()[0];
+    const explicitDuration = plan.calendarBrewDurationDays;
+    if (explicitDuration === 2 || explicitDuration === 3) {
+      return { start, end: addDays(start, explicitDuration - 1) };
+    }
     const end = plan.brews.map((brew) => brewEndDate(brew)).sort().at(-1);
     return end ? { start, end } : null;
   }
@@ -576,9 +581,21 @@ export default function PlanningFiveWeekOverview({
     if (nextEnd > addDays(selected.weekId, 6)) return setMessage("משך הבישולים חייב להישאר בתוך אותו שבוע");
     await updatePlan(selected.weekId, (current) => ({
       ...current,
-      brews: current.brews.map((brew) => ({ ...brew, date: range.start, endDate: nextEnd })),
+      calendarBrewDurationDays: days,
+      brews: current.brews.map((brew) => ({ ...brew, endDate: nextEnd })),
       changeReason: "שינוי משך הבישולים בלוח 5 שבועות",
     }));
+  }
+
+  async function deleteSelectedCustomEvent() {
+    if (selected?.kind !== "custom") return;
+    const eventId = selected.eventId;
+    const saved = await updatePlan(selected.weekId, (plan) => ({
+      ...plan,
+      calendarEvents: (plan.calendarEvents ?? []).filter((event) => event.id !== eventId),
+      changeReason: "מחיקת אירוע ידני מלוח 5 שבועות",
+    }));
+    if (saved) setSelected(null);
   }
 
   function touchDistance(event: TouchEvent<HTMLDivElement>) {
@@ -800,7 +817,14 @@ export default function PlanningFiveWeekOverview({
                 onBlur={(event) => { if (event.target.value !== selectedNote) void saveSelectedNote(event.target.value); }}
               />
             </label>
-            <div className="bp-calendar-editor-actions"><button type="button" onClick={() => setSelected(null)}>סגירה</button></div>
+            <div className="bp-calendar-editor-actions">
+              {selected.kind === "custom" && (
+                <button type="button" className="bp-danger-button" disabled={disabled || busy} onClick={() => void deleteSelectedCustomEvent()}>
+                  מחיקת אירוע
+                </button>
+              )}
+              <button type="button" onClick={() => setSelected(null)}>סגירה</button>
+            </div>
           </div>
         </div>
       )}
