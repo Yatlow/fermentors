@@ -1,4 +1,5 @@
 import { callAppsScriptGet, callAppsScriptPost, type AppsScriptEnvelope } from "../getAndPost/appsScriptClient";
+import { assignAndRefreshTank } from "./manualBatch";
 
 export type TransitionWarning = {
   level: "info" | "warning";
@@ -45,8 +46,18 @@ export async function applyManualStatusChange(
   desiredAction: number,
   desiredTankStatus: boolean,
   expectedBatchNumber?: string | number | null,
-  expectedFromAction?: number | null
+  expectedFromAction?: number | null,
+  sheetUrl?: string | null
 ) {
+  if (typeof window !== "undefined" && window.location.hostname.includes("--pr")) {
+    if (!sheetUrl) throw new Error("חסר גיליון משויך למיכל");
+    return assignAndRefreshTank(
+      fermentorID,
+      sheetUrl,
+      desiredAction,
+      desiredTankStatus,
+    );
+  }
   const parsed = await callAppsScriptPost<AppsScriptEnvelope>({
     action: "ApplyManualStatus",
     fermentorID,
