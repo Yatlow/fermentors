@@ -13,7 +13,7 @@ import {
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
-import { displayStyle } from "../../SERVICES/planning/planningPresentation";
+import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { brewSizeLabel } from "../../SERVICES/planning/productionCycle";
 
 const ROWS = [
@@ -476,6 +476,9 @@ export default function PlanningFiveWeekOverview({
     if (!eventDraft.title.trim()) return setMessage("יש להזין שם לאירוע");
     if (eventDraft.endDate < eventDraft.startDate) return setMessage("תאריך הסיום חייב להיות אחרי תאריך ההתחלה");
     const weekId = weekStart(eventDraft.startDate);
+    if (weekIsClosed(weekId, today)) {
+      return setMessage("השבוע הזה כבר נסגר לעריכה. בחר תאריך מהשבוע הבא והלאה.");
+    }
     const saved = await updatePlan(weekId, (plan) => ({
       ...plan,
       calendarEvents: [...(plan.calendarEvents ?? []), {
@@ -673,8 +676,8 @@ export default function PlanningFiveWeekOverview({
         <div className="bp-calendar-editor">
           <h3>אירוע חדש</h3>
           <label>שם<input value={eventDraft.title} placeholder="שם האירוע" onChange={(event) => setEventDraft((draft) => ({ ...draft, title: event.target.value }))} /></label>
-          <label>התחלה<input type="date" value={eventDraft.startDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, startDate: event.target.value }))} /></label>
-          <label>סיום<input type="date" value={eventDraft.endDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, endDate: event.target.value }))} /></label>
+          <label>התחלה<input type="date" min={nextPlanningWeek} value={eventDraft.startDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, startDate: event.target.value }))} /></label>
+          <label>סיום<input type="date" min={eventDraft.startDate || nextPlanningWeek} value={eventDraft.endDate} onChange={(event) => setEventDraft((draft) => ({ ...draft, endDate: event.target.value }))} /></label>
           <label className="bp-calendar-note-field">הערה<input value={eventDraft.note} placeholder="הערה (אופציונלי)" onChange={(event) => setEventDraft((draft) => ({ ...draft, note: event.target.value }))} /></label>
           <div className="bp-calendar-editor-actions">
             <button type="button" disabled={disabled || busy} onClick={() => void addGeneralEvent()}>שמירה</button>
