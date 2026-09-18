@@ -569,6 +569,7 @@ async function reconcilePendingPackagingAfterManualCreation(input: {
     const pending = await findPendingPackagingForManualPallet({
         itemType: input.itemType,
         batchNumber: input.batchNumber,
+        beerStyle: input.beerStyle,
     });
     if (!pending || pending.remainingQuantity > 0) return;
     if (pending.beerStyle.trim() && pending.beerStyle.trim() !== input.beerStyle.trim()) return;
@@ -588,6 +589,7 @@ export async function getManualPalletPackagingWarning(input: {
     const pending = await findPendingPackagingForManualPallet({
         itemType: input.itemType,
         batchNumber: input.batchNumber,
+        beerStyle: input.beerStyle,
     });
     if (!pending || pending.remainingQuantity <= 0) return null;
     if (pending.beerStyle.trim() && pending.beerStyle.trim() !== input.beerStyle.trim()) return null;
