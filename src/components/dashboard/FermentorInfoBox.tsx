@@ -227,13 +227,32 @@ export default function FermentorInfoBox({
         if (!tank.batchNumber || measurements.length === 0) return;
 
         const today = todayDateKey();
-        const todayNotes = measurements
-            .filter((measurement) => String(measurement.id ?? "").startsWith(today))
+        const todayMeasurements = measurements.filter(
+            (measurement) => String(measurement.id ?? "").startsWith(today)
+        );
+        const todayNotes = todayMeasurements
             .map((measurement) => String(measurement.notes ?? ""))
             .join(" | ");
+        const hasTodayCarbonation = todayMeasurements.some((measurement) => {
+            const value = Number(measurement.carbonation);
+            return measurement.carbonation !== null &&
+                measurement.carbonation !== undefined &&
+                Number.isFinite(value);
+        });
+        const handledPressureAfterCarb =
+            recomendations?.pressureAdjustmentHandledToday?.completed === true;
 
         const performed = new Set<"carbTest" | "yeastDrop">();
-        if (/בדיקת\s+גיזוז/.test(todayNotes)) performed.add("carbTest");
+        // A due scheduled carbonation test is considered completed if today's
+        // batch data contains a carbonation result. Also, an explicit pressure
+        // correction after an out-of-spec test logically proves the test happened.
+        if (
+            /בדיקת\s+גיזוז/.test(todayNotes) ||
+            hasTodayCarbonation ||
+            handledPressureAfterCarb
+        ) {
+            performed.add("carbTest");
+        }
         if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
         if (performed.size === 0) return;
 
@@ -261,6 +280,7 @@ export default function FermentorInfoBox({
         scheduledRecommendations,
         tank.batchNumber,
         tank.tankNumber,
+        recomendations,
     ]);
 
     const openBottomCarbonation = findOpenBottomCarbonation(measurements);
