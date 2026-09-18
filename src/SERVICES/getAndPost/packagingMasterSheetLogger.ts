@@ -262,6 +262,17 @@ type MasterSheetServerResult = {
     duplicate?: boolean;
 };
 
+function isPullRequestPreview(): boolean {
+    return typeof window !== "undefined" && window.location.hostname.includes("--pr");
+}
+
+function isFirestorePermissionDenied(error: unknown): boolean {
+    return typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        String((error as { code?: unknown }).code) === "permission-denied";
+}
+
 async function persistPackagingSheetSyncJob(
     operationId: string,
     payload: Record<string, unknown>
@@ -435,8 +446,22 @@ export async function submitPackagingRecord(
     // Durable first: the business log and Sheet outbox are persisted before the
     // external Apps Script request starts. From this point the modal can close
     // after pallet confirmation without waiting for Google.
+    let outboxPersisted = true;
+    const outboxPromise = persistPackagingSheetSyncJob(operationId, payload)
+        .catch((error) => {
+            // Hosting preview channels use the production Firestore rules until
+            // merge. Let the preview exercise the rest of the packaging flow
+            // without weakening the production durability contract.
+            if (isPullRequestPreview() && isFirestorePermissionDenied(error)) {
+                console.warn("Preview rules do not allow packaging Sheet outbox yet; using synchronous preview fallback.");
+                outboxPersisted = false;
+                return;
+            }
+            throw error;
+        });
+
     await Promise.all([
-        persistPackagingSheetSyncJob(operationId, payload),
+        outboxPromise,
         logPackagingToFirestore({
             operationId,
             packagingType,
@@ -462,7 +487,24 @@ export async function submitPackagingRecord(
         tankNumber,
     };
 
-    syncPackagingSheetInBackground(operationId, payload);
+    if (outboxPersisted) {
+        syncPackagingSheetInBackground(operationId, payload);
+    } else {
+        // Preview-only compatibility: without the new rules there is no durable
+        // job to recover a lost response, so wait for the current production
+        // Apps Script to confirm the write before treating the send as done.
+        const previewResult = await callAppsScriptPost<AppsScriptEnvelope<MasterSheetServerResult>>(
+            payload,
+            { retries: 2, retryDelayMs: 600 }
+        );
+        if (!previewResult.success) {
+            return {
+                success: false,
+                error: previewResult.error || previewResult.message || "Master sheet log failed",
+                palletPlan,
+            };
+        }
+    }
 
     return {
         success: true,
