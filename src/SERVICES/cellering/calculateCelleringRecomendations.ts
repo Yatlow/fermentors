@@ -3,6 +3,10 @@ import { getPlannedPackagingContainerNumbers } from "../../components/reports/Pa
 import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
+import {
+    estimatePressureTarget,
+    getPressureResponseModel,
+} from "./pressureRecommendationModel";
 
 
 
@@ -1169,11 +1173,44 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !isPressureOutOfRangeVal.onSpec;
 
     const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
+    let learnedPressureReason: string | null = null;
+
+    if (
+        coldCarbNeedsPressureAdjustment &&
+        Number.isFinite(Number(carbonationTarget)) &&
+        Number.isFinite(Number(lastMeasurement?.pressure))
+    ) {
+        const model = await getPressureResponseModel(style);
+        const estimate = model
+            ? estimatePressureTarget({
+                samples: model.samples,
+                currentCarbonation: Number(lastMeasurement.carbonation),
+                targetCarbonation: Number(carbonationTarget),
+                currentPressure: Number(lastMeasurement.pressure),
+                brewDay: brewAge,
+                temp: Number.isFinite(Number(lastMeasurement.temp))
+                    ? Number(lastMeasurement.temp)
+                    : null,
+            })
+            : null;
+
+        if (estimate) {
+            const directionText = estimate.pressureDelta > 0 ? "להעלות" : "להוריד";
+            const confidenceText = estimate.confidence === "high" ? "ביטחון גבוה" : "ביטחון בינוני";
+            learnedPressureReason =
+                `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
+                `לפי ${estimate.sampleCount} תיקוני לחץ דומים בסגנון הזה (${confidenceText}), ` +
+                `מומלץ ${directionText} לחץ מ-${Number(lastMeasurement.pressure)} ל-${estimate.targetPressure} bar ` +
+                `ולבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים`;
+        }
+    }
+
     const requiredPressureAdjustment = {
         display: true,
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
         reason: coldCarbNeedsPressureAdjustment
-            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם`
+            ? learnedPressureReason ??
+                `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם`
             : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
