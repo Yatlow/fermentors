@@ -158,6 +158,38 @@ function sheetSyncSanitizedReadings_(jobDocument) {
   });
 }
 
+function sheetSyncPackagingPayload_(jobDocument, requestId) {
+  const raw = String(sheetSyncField_(jobDocument, "payloadJson") || "");
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (error) {
+    throw new Error("Invalid packaging payloadJson");
+  }
+
+  const productLabel = String(payload && payload.productLabel || "").trim();
+  const quantity = Number(payload && payload.quantity);
+  const productionDateStr = String(payload && payload.productionDateStr || "").trim();
+  const expiryDateStr = String(payload && payload.expiryDateStr || "").trim();
+  const batchNumber = String(payload && payload.batchNumber || "").trim();
+
+  if (!productLabel || !Number.isFinite(quantity) || quantity <= 0 || !productionDateStr) {
+    const invalid = new Error("Invalid packaging Sheet outbox payload");
+    invalid.sheetSyncTerminal = true;
+    throw invalid;
+  }
+
+  return {
+    action: "logPackagingToMasterSheet",
+    requestId: requestId,
+    productLabel: productLabel,
+    quantity: quantity,
+    batchNumber: batchNumber,
+    expiryDateStr: expiryDateStr,
+    productionDateStr: productionDateStr
+  };
+}
+
 function sheetSyncResponseSucceeded_(response) {
   if (!response || response.success === false) return false;
   if (!Array.isArray(response.results)) return true;
@@ -220,7 +252,14 @@ function processPendingSheetSyncJobs_() {
     }
 
     try {
-      const key = postIdempotencyKey_("addFermentationMeasurements", requestId);
+      const action = String(sheetSyncField_(jobDocument, "action") || "").trim();
+      if (action !== "addFermentationMeasurements" && action !== "logPackagingToMasterSheet") {
+        const unsupported = new Error("Unsupported Sheet sync action: " + action);
+        unsupported.sheetSyncTerminal = true;
+        throw unsupported;
+      }
+
+      const key = postIdempotencyKey_(action, requestId);
       const existing = postReadIdempotencyRecord_(key);
 
       if (existing && existing.state === "done" && existing.response) {
@@ -243,12 +282,15 @@ function processPendingSheetSyncJobs_() {
         return;
       }
 
-      const readings = sheetSyncSanitizedReadings_(jobDocument);
-      const result = runPostActionIdempotently_({
-        action: "addFermentationMeasurements",
-        requestId: requestId,
-        readings: readings
-      });
+      const payload = action === "addFermentationMeasurements"
+        ? {
+            action: action,
+            requestId: requestId,
+            readings: sheetSyncSanitizedReadings_(jobDocument)
+          }
+        : sheetSyncPackagingPayload_(jobDocument, requestId);
+
+      const result = runPostActionIdempotently_(payload);
 
       if (!sheetSyncResponseSucceeded_(result)) {
         sheetSyncMarkJob_(jobId, "failed", attempts + 1, "Sheet write returned a partial failure");
