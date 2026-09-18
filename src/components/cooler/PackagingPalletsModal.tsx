@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import BeerLoader from "../general/Loading";
 import { usePackagingPalletsFlow, type PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
 
@@ -34,6 +35,12 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
     } = usePackagingPalletsFlow(jobs);
 
     const currentStepIndex = STEP_ORDER.indexOf(step === "error" ? "submitting" : step);
+
+    useEffect(() => {
+        if (step === "done" && submitWarnings.length === 0) {
+            onFinished();
+        }
+    }, [step, submitWarnings.length, onFinished]);
 
     return (
         // בכוונה בלי onClick לסגירה על הרקע - פעולה קריטית, לא רוצים סגירה בטעות
@@ -197,16 +204,14 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                         </div>
                     )}
 
-                    {step === "done" && (
+                    {step === "done" && submitWarnings.length > 0 && (
                         <div className="edit-specs-message success">
                             המשטחים נוצרו בהצלחה ונוספו למפת המקרר.
-                            {submitWarnings.length > 0 && (
-                                <ul>
-                                    {submitWarnings.map((w, i) => (
-                                        <li key={i}>{w}</li>
-                                    ))}
-                                </ul>
-                            )}
+                            <ul>
+                                {submitWarnings.map((w, i) => (
+                                    <li key={i}>{w}</li>
+                                ))}
+                            </ul>
                             <div style={{ marginTop: 10 }}>
                                 <button type="button" className="btn-primary" onClick={onFinished}>
                                     סגירה
