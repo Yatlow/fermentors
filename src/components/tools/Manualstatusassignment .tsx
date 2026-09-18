@@ -153,7 +153,8 @@ export default function ManualStatusAssignment({ brews, isAdmin }: Props) {
                 selectedTank.id,
                 targetOption.action,
                 targetOption.tankStatus,
-                selectedTank.batchNumber
+                selectedTank.batchNumber,
+                checkResult.fromAction
             );
 
             setStep("done");
