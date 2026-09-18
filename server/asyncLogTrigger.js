@@ -19,6 +19,7 @@
 const ASYNC_LOG_TRIGGER_FLAG = "async_maintenance_trigger_installed_v4_cycle";
 const SMART_FULL_CYCLE_LAST_AT_KEY_ = "smart_full_fermentor_cycle_last_at_v1";
 const SMART_FULL_CYCLE_NIGHT_INTERVAL_MS_ = 60 * 60 * 1000;
+const SMART_MANUAL_SYNC_MIN_AGE_MS_ = 10 * 60 * 1000;
 const SMART_SYNC_TIMEZONE_ = "Asia/Jerusalem";
 const SMART_SYNC_DAY_START_MINUTE_ = 4 * 60 + 30; // 04:30
 const SMART_SYNC_DAY_END_MINUTE_ = 17 * 60;       // 17:00
@@ -184,6 +185,68 @@ function smartRunNightAction0Guard_(projectId, now) {
   };
 }
 
+function runManualNightFermentorSync_() {
+  const now = new Date();
+
+  if (smartIsDaySyncWindow_(now)) {
+    return {
+      success: false,
+      reason: "day_window",
+      message: "הסנכרון הידני זמין רק בשעות הלילה"
+    };
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const lastAt = Number(
+    props.getProperty(SMART_FULL_CYCLE_LAST_AT_KEY_) || 0
+  );
+  const ageMs = lastAt > 0 ? now.getTime() - lastAt : Infinity;
+
+  if (Number.isFinite(ageMs) && ageMs < SMART_MANUAL_SYNC_MIN_AGE_MS_) {
+    return {
+      success: false,
+      reason: "too_fresh",
+      ageMinutes: Math.max(0, Math.floor(ageMs / 60000)),
+      retryAfterMinutes: Math.max(
+        1,
+        Math.ceil((SMART_MANUAL_SYNC_MIN_AGE_MS_ - ageMs) / 60000)
+      ),
+      message: "הנתונים כבר סונכרנו בעשר הדקות האחרונות"
+    };
+  }
+
+  const cycle = runFermentorCycle();
+  if (!cycle || cycle.skipped === true) {
+    return {
+      success: false,
+      reason: cycle && cycle.reason ? cycle.reason : "cycle_skipped",
+      message: "סנכרון אחר כבר רץ. נסה שוב בעוד רגע"
+    };
+  }
+
+  smartMarkFullCycleSuccess_(now);
+
+  const sync = cycle.sync || {};
+  const sheetPull = recordSheetPullFreshness_(FIREBASE_PROJECT_ID, {
+    startedAt: new Date(
+      Date.now() - Math.max(0, Number(cycle.durationSeconds) || 0) * 1000
+    ),
+    configuredSheets: Number(cycle.sheetReads) || 0,
+    sheetsRead: Number(cycle.sheetReads) || 0,
+    syncErrors: Number(sync.errors) || 0,
+    measurementErrors: Number(sync.measurementErrors) || 0,
+    packagingErrors: Number(sync.packagingErrors) || 0
+  });
+
+  return {
+    success: true,
+    cycle: cycle,
+    sheetPull: sheetPull,
+    completedAt: new Date().toISOString()
+  };
+}
+
+
 function runAsyncMaintenance_() {
   // Self-migrate after deploy. The existing v3 trigger will execute this new
   // code once, remove the old standalone runFermentorCycle trigger, and leave
@@ -204,6 +267,10 @@ function runAsyncMaintenance_() {
   let sheetPull = null;
   let planningSnapshots = null;
   let sheetSync = null;
+  let packagingCleanup = null;
+  let operationReceiptCleanup = null;
+  let styleModels = null;
+  let pressureBackfill = null;
   let logs = null;
 
   try {
@@ -245,6 +312,30 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    packagingCleanup = cleanupCompletedPackagingOperations_();
+  } catch (error) {
+    console.log("Packaging operation cleanup failed: " + error.message);
+  }
+
+  try {
+    operationReceiptCleanup = cleanupLegacyOperationReceipts_();
+  } catch (error) {
+    console.log("Legacy operation receipt cleanup failed: " + error.message);
+  }
+
+  try {
+    styleModels = calculateWeeklyStyleAverages(false);
+  } catch (error) {
+    console.log("Weekly style/pressure model maintenance failed: " + error.message);
+  }
+
+  try {
+    pressureBackfill = pressureResponseBackfillStep_();
+  } catch (error) {
+    console.log("Historical pressure model backfill failed: " + error.message);
+  }
+
+  try {
     logs = flushQueuedLogs_();
   } catch (error) {
     console.log("Async log flush failed: " + error.message);
@@ -259,6 +350,10 @@ function runAsyncMaintenance_() {
     sheetPull: sheetPull,
     planningSnapshots: planningSnapshots,
     sheetSync: sheetSync,
+    packagingCleanup: packagingCleanup,
+    operationReceiptCleanup: operationReceiptCleanup,
+    styleModels: styleModels,
+    pressureBackfill: pressureBackfill,
     logs: logs
   };
 }

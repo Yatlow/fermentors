@@ -143,3 +143,37 @@
 
 .sheet-sync-recovery-button:disabled { opacity: 0.55; cursor: wait; }
 .sheet-sync-recovery-error { width: 100%; color: #991b1b; }
+
+
+.sheet-sync-manual-button {
+    flex: 0 0 auto;
+    min-height: 26px;
+    padding: 3px 8px;
+    border: 1px solid #94a3b8;
+    border-radius: 8px;
+    background: #fff;
+    color: #334155;
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.sheet-sync-manual-button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.sheet-sync-manual-error {
+    margin-top: 7px;
+    color: #991b1b;
+    font-size: 0.72rem;
+}
+
+@media (max-width: 600px) {
+    .sheet-sync-manual-button {
+        min-height: 24px;
+        padding: 2px 7px;
+        font-size: 0.66rem;
+    }
+}

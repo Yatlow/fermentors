@@ -9,6 +9,17 @@ import {
 import { findOpenBottomCarbonation } from "../../SERVICES/cellering/bottomCarbonation";
 import { getBrewAge } from "./TankCard";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
+import {
+    dueScheduledForTank,
+    scheduledActionLabel,
+    setScheduledCellarRecommendationStatus,
+    subscribeScheduledCellarRecommendations,
+    todayDateKey,
+    type ScheduledCellarRecommendation,
+} from "../../SERVICES/cellering/scheduledCellarRecommendations";
+import ScheduledCellarRecommendationsPanel, {
+    type NaturalFutureCellarRecommendation,
+} from "./ScheduledCellarRecommendationsPanel";
 
 type FermentorInfoBoxProps = {
     tank: Fermentor;
@@ -28,6 +39,58 @@ type Recommendation = {
     display: boolean;
 };
 
+function futureDateFromReason(reason: string): string | undefined {
+    let days: number | null = null;
+    const inDays = reason.match(/בעוד\s+(\d+)\s+ימים?/);
+    if (inDays) days = Number(inDays[1]);
+    else if (reason.includes("מחר")) days = 1;
+    if (days === null || !Number.isFinite(days)) return undefined;
+
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() + days);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function naturalFutureRecommendations(
+    recommendations: Recomendations | null,
+): NaturalFutureCellarRecommendation[] {
+    if (!recommendations) return [];
+
+    const candidates = [
+        {
+            id: "natural-future-carb",
+            actionType: "carbTest" as const,
+            recommendation: recommendations.requiresCarbTest,
+            label: "בדיקת גיזוז",
+        },
+        {
+            id: "natural-future-yeast",
+            actionType: "yeastDrop" as const,
+            recommendation: recommendations.requiresWarmYeastDrop,
+            label: "הורדת שמרים",
+        },
+    ];
+
+    return candidates.flatMap(({ id, actionType, recommendation, label }) => {
+        const reason = String(recommendation?.reason ?? "").trim();
+        const isKnownFuture =
+            recommendation?.req === true &&
+            recommendation?.display === false &&
+            /בעוד\s+\d+\s+ימים?|מחר|שבוע הבא/.test(reason);
+
+        return isKnownFuture
+            ? [{
+                id,
+                actionType,
+                label,
+                dueDate: futureDateFromReason(reason),
+                detail: reason,
+            }]
+            : [];
+    });
+}
+
 export default function FermentorInfoBox({
     tank,
     onClose,
@@ -38,9 +101,11 @@ export default function FermentorInfoBox({
     const [recomendations, setRecomendations] = useState<Recomendations | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
 
     const brewAge = getBrewAge(tank.brewDate);
     const infoBoxRef = useRef<HTMLDivElement | null>(null);
+    const autoResolvedScheduledIds = useRef(new Set<string>());
 
     const getSafePosition = () => {
         const margin = 12;
@@ -69,6 +134,13 @@ export default function FermentorInfoBox({
 
     const safePosition = getSafePosition();
     const isNewBatch = brewAge !== null && brewAge < 2;
+
+    useEffect(() => {
+        return subscribeScheduledCellarRecommendations(
+            setScheduledRecommendations,
+            (error) => console.error("Failed loading scheduled cellar recommendations:", error),
+        );
+    }, []);
 
     useEffect(() => {
         function handleOutsideClick(event: MouseEvent) {
@@ -151,7 +223,88 @@ export default function FermentorInfoBox({
         brewAge,
     ]);
 
+    useEffect(() => {
+        if (!tank.batchNumber || measurements.length === 0) return;
+
+        const today = todayDateKey();
+        const todayMeasurements = measurements.filter(
+            (measurement) => String(measurement.id ?? "").startsWith(today)
+        );
+        const todayNotes = todayMeasurements
+            .map((measurement) => String(measurement.notes ?? ""))
+            .join(" | ");
+        const hasTodayCarbonation = todayMeasurements.some((measurement) => {
+            const value = Number(measurement.carbonation);
+            return measurement.carbonation !== null &&
+                measurement.carbonation !== undefined &&
+                Number.isFinite(value);
+        });
+        const handledPressureAfterCarb =
+            recomendations?.pressureAdjustmentHandledToday?.completed === true;
+
+        const performed = new Set<"carbTest" | "yeastDrop">();
+        // A due scheduled carbonation test is considered completed if today's
+        // batch data contains a carbonation result. Also, an explicit pressure
+        // correction after an out-of-spec test logically proves the test happened.
+        if (
+            /בדיקת\s+גיזוז/.test(todayNotes) ||
+            hasTodayCarbonation ||
+            handledPressureAfterCarb
+        ) {
+            performed.add("carbTest");
+        }
+        if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
+        if (performed.size === 0) return;
+
+        const due = dueScheduledForTank(
+            scheduledRecommendations,
+            tank.tankNumber,
+            tank.batchNumber,
+            today,
+        ).filter((row) =>
+            performed.has(row.actionType) &&
+            !autoResolvedScheduledIds.current.has(row.id)
+        );
+
+        if (due.length === 0) return;
+
+        due.forEach((row) => autoResolvedScheduledIds.current.add(row.id));
+        void Promise.all(
+            due.map((row) => setScheduledCellarRecommendationStatus(row.id, "completed"))
+        ).catch((error) => {
+            due.forEach((row) => autoResolvedScheduledIds.current.delete(row.id));
+            console.error("Failed auto-completing scheduled cellar recommendation:", error);
+        });
+    }, [
+        measurements,
+        scheduledRecommendations,
+        tank.batchNumber,
+        tank.tankNumber,
+        recomendations,
+    ]);
+
     const openBottomCarbonation = findOpenBottomCarbonation(measurements);
+    const naturalCarbRecommendation = Boolean(
+        recomendations?.requiresCarbTest?.req && recomendations?.requiresCarbTest?.display
+    );
+    const naturalYeastRecommendation = Boolean(
+        (recomendations?.requiresWarmYeastDrop?.req && recomendations?.requiresWarmYeastDrop?.display) ||
+        (recomendations?.requiersYeastDropAfterCooling?.req && recomendations?.requiersYeastDropAfterCooling?.display) ||
+        (recomendations?.requiresWarmYeastDropCompletion?.req && recomendations?.requiresWarmYeastDropCompletion?.display) ||
+        (recomendations?.requiresColdYeastDropCompletion?.req && recomendations?.requiresColdYeastDropCompletion?.display) ||
+        (recomendations?.requiiersWedYeastDropOnThus?.req && recomendations?.requiiersWedYeastDropOnThus?.display)
+    );
+    const naturalFuture = naturalFutureRecommendations(recomendations);
+
+    const dueManualRecommendations = dueScheduledForTank(
+        scheduledRecommendations,
+        tank.tankNumber,
+        tank.batchNumber,
+    ).filter((row) => (
+        row.actionType === "carbTest"
+            ? !naturalCarbRecommendation
+            : !naturalYeastRecommendation
+    ));
 
     const recommendationList: Recommendation[] = [
         ...(recomendations
@@ -175,7 +328,7 @@ export default function FermentorInfoBox({
                     req: Boolean(rec.req),
                     reason: rec.reason,
                     importance: rec.importance,
-                    display: true,
+                    display: Boolean(rec.display),
                 }))
             : []),
         ...(openBottomCarbonation && tank.stage?.name === "קר"
@@ -186,10 +339,16 @@ export default function FermentorInfoBox({
                 display: true,
             }]
             : []),
+        ...dueManualRecommendations.map((row) => ({
+            req: true,
+            reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
+            importance: 3,
+            display: true,
+        })),
     ];
 
     const activeRecommendations = recommendationList
-        .filter((rec) => rec.req)
+        .filter((rec) => rec.req && rec.display)
         .sort((a, b) => b.importance - a.importance);
 
     return (
@@ -277,6 +436,15 @@ export default function FermentorInfoBox({
                             )}
                         </div>
                     )}
+
+                {tank.batchNumber && Number(tank.tankNumber) > 1 && (
+                    <ScheduledCellarRecommendationsPanel
+                        tankNumber={tank.tankNumber ?? tank.id}
+                        batchNumber={tank.batchNumber}
+                        rows={scheduledRecommendations}
+                        naturalFuture={naturalFuture}
+                    />
+                )}
             </div>
         </div>
     );

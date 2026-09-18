@@ -3,6 +3,10 @@ import { getPlannedPackagingContainerNumbers } from "../../components/reports/Pa
 import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
+import {
+    estimatePressureTarget,
+    getPressureResponseModel,
+} from "./pressureRecommendationModel";
 
 
 
@@ -340,22 +344,64 @@ export function parseYeastDropAmount(notes: string | number | null | undefined):
 
 
 function getMeasurementDate(id: string | number | null | undefined): string | null {
-    if (id === null || id === undefined) {
-        return null;
-    }
-    const idString = String(id);
+    if (id === null || id === undefined) return null;
+    const idString = String(id).trim();
 
-    // Expected format:
-    // 2026-07-31_1355
-
-    const match = idString.match(/^(\d{4}-\d{2}-\d{2})_\d{4}$/);
-
+    // Historical rows also contain unpadded morning times such as _917.
+    const match = idString.match(/^(\d{4}-\d{2}-\d{2})(?:_\d{3,4})?$/);
     if (!match) {
         console.warn("Invalid measurement ID format:", idString);
         return null;
     }
-
     return match[1];
+}
+
+function pressureHistoryContext(
+    measurements: Measurement[],
+    referenceDateKey: string | null
+): {
+    pressureMeanToDate: number | null;
+    pressureMeanLast3Days: number | null;
+    pressureMeanLast7Days: number | null;
+} {
+    if (!referenceDateKey) {
+        return {
+            pressureMeanToDate: null,
+            pressureMeanLast3Days: null,
+            pressureMeanLast7Days: null,
+        };
+    }
+
+    const reference = new Date(`${referenceDateKey}T12:00:00`);
+    const values = measurements.flatMap((measurement) => {
+        const dateKey = getMeasurementDate(measurement.id);
+        const pressure = Number(measurement.pressure);
+        if (!dateKey || !Number.isFinite(pressure)) return [];
+
+        const date = new Date(`${dateKey}T12:00:00`);
+        const daysAgo = Math.round(
+            (reference.getTime() - date.getTime()) / (24 * 60 * 60 * 1000)
+        );
+        if (daysAgo < 0) return [];
+        return [{ pressure, daysAgo }];
+    });
+
+    const mean = (items: typeof values): number | null => {
+        if (!items.length) return null;
+        return items.reduce((sum, item) => sum + item.pressure, 0) / items.length;
+    };
+
+    return {
+        pressureMeanToDate: mean(values),
+        pressureMeanLast3Days: mean(values.filter((item) => item.daysAgo <= 3)),
+        pressureMeanLast7Days: mean(values.filter((item) => item.daysAgo <= 7)),
+    };
+}
+
+function measurementIdSortKey(id: string | number | null | undefined): string {
+    const text = String(id ?? "").trim();
+    const match = text.match(/^(\d{4}-\d{2}-\d{2})_(\d{3,4})$/);
+    return match ? `${match[1]}_${match[2].padStart(4, "0")}` : text;
 }
 
 export function extractYeastDrops(measurements: Measurement[]): YeastDrop[] {
@@ -389,10 +435,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const sortedMeasurements = [...measurements].sort((a, b) => {
 
-        const dateA = String(a.id ?? "");
-        const dateB = String(b.id ?? "");
-
-        return dateA.localeCompare(dateB);
+        return measurementIdSortKey(a.id).localeCompare(measurementIdSortKey(b.id));
     });
     const brewAge = getBrewAge(brewDate);
     // =======  =====================================================
@@ -745,8 +788,26 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    const alreadyadjustedPToday = lastNote?.includes("הורדת לחץ") || lastNote?.includes("העלאת לחץ") || lastNote?.includes("להוריד לחץ") || lastNote?.includes("להעלות לחץ");
-    const tookCare = carbRes && alreadyadjustedPToday;
+    const noteAdjustedPressureToday =
+        lastNote?.includes("הורדת לחץ") ||
+        lastNote?.includes("העלאת לחץ") ||
+        lastNote?.includes("להוריד לחץ") ||
+        lastNote?.includes("להעלות לחץ");
+    const noteAdjustedPrvToday =
+        lastNote?.includes("כיוון פורק") ||
+        lastNote?.includes("לכוון פורק");
+
+    // The normal pressure round is only reported once in the morning, so a
+    // different pressure value versus yesterday is NOT proof that the operator
+    // acted on today's carbonation result. A PRV adjustment is also a separate
+    // warm-pressure operation; it must not close a carbonation correction.
+    const pressureHandledToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(noteAdjustedPressureToday);
+    const prvHandledToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(noteAdjustedPrvToday);
+    const tookCare = Boolean(carbRes) && pressureHandledToday;
     let requiresCarbTest = {
         display: false,
         req: false,
@@ -813,11 +874,21 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         const carbonationSpecToDay = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs)
         if (lastMeasurement?.carbonation) {
             if (carbonationSpecToDay.outOfSpec) {
-                requiresCarbTest.display = true,
+                if (lastMeasurementDate === todayDate) {
+                    // Today's carbonation test has already been performed. The
+                    // actionable item is the dedicated pressure adjustment
+                    // recommendation below, not a second duplicate "carb test"
+                    // recommendation for the same result.
+                    requiresCarbTest.display = false;
+                    requiresCarbTest.req = false;
+                    requiresCarbTest.reason =
+                        `בדיקת הגיזוז היום בוצעה (${lastMeasurement?.carbonation}) ונדרש טיפול בלחץ`;
+                } else {
+                    requiresCarbTest.display = true;
                     requiresCarbTest.req = !tookCare;
-                requiresCarbTest.reason = lastMessurmentUpToDate.req ?
-                    `הגיזוז בבדיקה ההאחרונה לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ ` :
-                    `הגיזוז היום לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע שינוי לחץ בהתאם, או לוודא שבוצע שינוי לחץ `
+                    requiresCarbTest.reason =
+                        `הגיזוז בבדיקה האחרונה לא תקין (${lastMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת`;
+                }
                 requiresCarbTest.importance = carbonationSpecToDay.importance
             } else {
                 requiresCarbTest.display = false,
@@ -1150,12 +1221,104 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style, givenSpecs)
 
-    const alreadyadjustedPtargetToday = lastNote?.includes("כיוון פורק") || lastNote?.includes("לכוון פורק");
+    const latestCarbSpec = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs);
+    const hasLatestCarb = lastMeasurement?.carbonation !== null &&
+        lastMeasurement?.carbonation !== undefined &&
+        Number.isFinite(Number(lastMeasurement.carbonation));
+    const coldCarbNeedsPressureAdjustment =
+        stage.name === "קר" &&
+        lastMeasurementDate === todayDate &&
+        hasLatestCarb &&
+        latestCarbSpec.outOfSpec &&
+        !pressureHandledToday;
+    const warmPressureNeedsAdjustment =
+        stage.name === "בתסיסה" &&
+        !prvHandledToday &&
+        Number(lastMeasurement?.pressure) > 0 &&
+        Number(lastMeasurement?.temp) > 9 &&
+        !isPressureOutOfRangeVal.onSpec;
+
+    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
+    let learnedPressureReason: string | null = null;
+    let pressureModelSampleCount: number | null = null;
+
+    if (
+        coldCarbNeedsPressureAdjustment &&
+        Number.isFinite(Number(carbonationTarget)) &&
+        Number.isFinite(Number(lastMeasurement?.pressure))
+    ) {
+        const model = await getPressureResponseModel(style);
+        pressureModelSampleCount = model?.samples?.length ?? 0;
+        const pressureContext = pressureHistoryContext(
+            sortedMeasurements,
+            lastMeasurementDate
+        );
+        const estimate = model
+            ? estimatePressureTarget({
+                samples: model.samples,
+                currentCarbonation: Number(lastMeasurement.carbonation),
+                targetCarbonation: Number(carbonationTarget),
+                currentPressure: Number(lastMeasurement.pressure),
+                brewDay: brewAge,
+                temp: Number.isFinite(Number(lastMeasurement.temp))
+                    ? Number(lastMeasurement.temp)
+                    : null,
+                pressureMeanToDate: pressureContext.pressureMeanToDate,
+                pressureMeanLast3Days: pressureContext.pressureMeanLast3Days,
+                pressureMeanLast7Days: pressureContext.pressureMeanLast7Days,
+                calibration: model.calibration ?? null,
+            })
+            : null;
+
+        if (estimate) {
+            const directionText = estimate.pressureDelta > 0 ? "להעלות" : "להוריד";
+            const confidenceText = estimate.confidence === "high" ? "ביטחון גבוה" : "ביטחון בינוני";
+            const calibrationText =
+                estimate.calibrationEvaluatedSamples >= 8 &&
+                estimate.calibrationWithin005Rate !== null
+                    ? ` המחשבון כייל את עצמו על ${estimate.calibrationEvaluatedSamples} מקרי אימות; ` +
+                      `${Math.round(estimate.calibrationWithin005Rate * 100)}% היו בטווח ±0.05 בגיזוז.`
+                    : "";
+            learnedPressureReason =
+                `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
+                `לפי ${estimate.sampleCount} תיקוני לחץ דומים בסגנון הזה (${confidenceText}), ` +
+                `מומלץ ${directionText} לחץ מ-${Number(lastMeasurement.pressure)} ל-${estimate.targetPressure} bar ` +
+                `ולבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים.` +
+                calibrationText;
+        }
+    }
+
+    const pressureAdjustmentHandledToday = {
+        completed: Boolean(
+            stage.name === "קר" &&
+            lastMeasurementDate === todayDate &&
+            hasLatestCarb &&
+            latestCarbSpec.outOfSpec &&
+            pressureHandledToday
+        ),
+        reason: pressureHandledToday
+            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז לא תקינה (${lastMeasurement?.carbonation})`
+            : "",
+        importance: latestCarbSpec.importance,
+    };
+
     const requiredPressureAdjustment = {
         display: true,
-        req: stage.name === "בתסיסה" && !alreadyadjustedPtargetToday && Number(lastMeasurement?.pressure) > 0 && Number(lastMeasurement?.temp) > 9 && !isPressureOutOfRangeVal.onSpec,
-        reason: `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
-        importance: isPressureOutOfRangeVal.howBad
+        req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
+        reason: coldCarbNeedsPressureAdjustment
+            ? learnedPressureReason ??
+                (
+                    `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם. ` +
+                    (
+                        pressureModelSampleCount === null || pressureModelSampleCount === 0
+                            ? "מחשבון שינוי הלחץ עדיין ללא היסטוריה זמינה"
+                            : `מחשבון שינוי הלחץ מכיל ${pressureModelSampleCount} דוגמאות, אך עדיין אין לפחות 5 דוגמאות דומות מספיק למצב הנוכחי`
+                    )
+                )
+            : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
+        importance: coldCarbNeedsPressureAdjustment
+            ? latestCarbSpec.importance
+            : isPressureOutOfRangeVal.howBad
     }
 
     const isAnActionDay = Number(lastMeasurement.temp) < 9 && (corrected === 1 || corrected === 4 || corrected === 5)
@@ -1464,6 +1627,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiersDiacytelRest,
         neglectedStatus,
         requiresToCoolDown,
-        requiredPressureAdjustment
+        requiredPressureAdjustment,
+        pressureAdjustmentHandledToday
     }
 }

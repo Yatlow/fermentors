@@ -1,8 +1,15 @@
 import BeerLoader from "./../general/Loading";
 import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../../SERVICES/getAndPost/writeReadingToSheets";
-import type { Fermentor, NewReading } from "../../App";
+import type { Fermentor, NewReading, ReadingToSend } from "../../App";
 import { calcCelleringRecomendations, type Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import {
+    dueScheduledForTank,
+    scheduledActionLabel,
+    setScheduledCellarRecommendationStatus,
+    subscribeScheduledCellarRecommendations,
+    type ScheduledCellarRecommendation,
+} from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
@@ -62,6 +69,7 @@ export default function SendMessurmentsHeader({
     const [sendResults, setSendResults] = useState<writeReadingResult[]>([]);
     const [showSendStatus, setShowSendStatus] = useState(false);
     const [rcs, setRcs] = useState<RecommendationsByTank>({});
+    const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
 
     // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
     const [writeWarning, setWriteWarning] = useState<writeReadingResult[] | null>(null);
@@ -81,6 +89,13 @@ export default function SendMessurmentsHeader({
             el.scrollHeight - el.scrollTop - el.clientHeight > 10;
         setShowScrollHint(hasMoreToScroll);
     };
+
+    useEffect(() => {
+        return subscribeScheduledCellarRecommendations(
+            setScheduledRecommendations,
+            (error) => console.error("Failed loading scheduled cellar recommendations:", error),
+        );
+    }, []);
 
     useEffect(() => {
         checkScrollState();
@@ -231,6 +246,49 @@ export default function SendMessurmentsHeader({
             String(a.id).localeCompare(String(b.id))
         );
     };
+
+    async function resolveScheduledActionsForSuccessfulReadings(
+        readings: ReadingToSend[],
+        results: writeReadingResult[]
+    ) {
+        const completedIds = new Set<string>();
+
+        for (const reading of readings) {
+            const result = results.find(
+                (candidate) => String(candidate.tankId) === String(reading.tankId)
+            );
+            if (result?.success === false) continue;
+
+            const tank = brews.find((candidate) => String(candidate.id) === String(reading.tankId));
+            if (!tank?.batchNumber) continue;
+
+            const noteText = String(reading.notes ?? "");
+            const performed = new Set<"carbTest" | "yeastDrop">();
+
+            if (
+                reading.carbonation !== undefined &&
+                reading.carbonation !== null &&
+                reading.carbonation !== ""
+            ) {
+                performed.add("carbTest");
+            }
+            if (/בדיקת\s+גיזוז/.test(noteText)) performed.add("carbTest");
+            if (/שמרים|שמרי/.test(noteText)) performed.add("yeastDrop");
+            if (performed.size === 0) continue;
+
+            const due = dueScheduledForTank(
+                scheduledRecommendations,
+                tank.tankNumber,
+                tank.batchNumber,
+            );
+
+            for (const row of due) {
+                if (!performed.has(row.actionType) || completedIds.has(row.id)) continue;
+                await setScheduledCellarRecommendationStatus(row.id, "completed");
+                completedIds.add(row.id);
+            }
+        }
+    }
 
     const sendReadings = async () => {
         setShowSendStatus(true)
@@ -547,6 +605,12 @@ export default function SendMessurmentsHeader({
 
             const allSucceeded = res.every((r) => r.success);
 
+            try {
+                await resolveScheduledActionsForSuccessfulReadings(readingsToSend, res);
+            } catch (error) {
+                console.error("Failed resolving scheduled cellar recommendations:", error);
+            }
+
             if (isFastPath) {
                 // ההמלצות כבר הוצגו למשתמש קודם. כאן רק מוסיפים אזהרה אם צריך.
                 if (!allSucceeded) {
@@ -755,7 +819,7 @@ export default function SendMessurmentsHeader({
             return [];
         }
 
-        return [
+        const natural = [
             rec.lastMessurmentUpToDate,
             rec.requiresDryHop,
             rec.requiresPresureClose,
@@ -781,11 +845,33 @@ export default function SendMessurmentsHeader({
                         : false,
             }))
             .filter((recommendation) => recommendation.req)
-            .filter((recommendation) => recommendation.display)
-            .sort(
-                (a, b) =>
-                    b.importance - a.importance
-            );
+            .filter((recommendation) => recommendation.display);
+
+        const tank = brews.find((candidate) => String(candidate.tankNumber) === String(tankNumber));
+        const naturalCarb = Boolean(rec.requiresCarbTest?.req && rec.requiresCarbTest?.display);
+        const naturalYeast = Boolean(
+            (rec.requiresWarmYeastDrop?.req && rec.requiresWarmYeastDrop?.display) ||
+            (rec.requiersYeastDropAfterCooling?.req && rec.requiersYeastDropAfterCooling?.display) ||
+            (rec.requiresWarmYeastDropCompletion?.req && rec.requiresWarmYeastDropCompletion?.display) ||
+            (rec.requiresColdYeastDropCompletion?.req && rec.requiresColdYeastDropCompletion?.display) ||
+            (rec.requiiersWedYeastDropOnThus?.req && rec.requiiersWedYeastDropOnThus?.display)
+        );
+        const manual = tank
+            ? dueScheduledForTank(
+                scheduledRecommendations,
+                tank.tankNumber,
+                tank.batchNumber,
+              )
+                .filter((row) => row.actionType === "carbTest" ? !naturalCarb : !naturalYeast)
+                .map((row) => ({
+                    req: true,
+                    reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
+                    importance: 3,
+                    display: true,
+                }))
+            : [];
+
+        return [...natural, ...manual].sort((a, b) => b.importance - a.importance);
     };
 
     function getDailyActionRecommendation() {

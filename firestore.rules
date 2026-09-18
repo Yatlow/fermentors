@@ -92,22 +92,41 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
+    match /scheduledCellarRecommendations/{document} {
+      allow read, write: if isApprovedUser();
+    }
+
+    match /pressureResponseModels/{document} {
+      allow read: if isApprovedUser();
+      allow write: if false;
+    }
+
     match /sheetSyncJobs/{requestId} {
       allow read: if isApprovedUser();
       allow create: if isApprovedUser()
         && request.resource.data.keys().hasOnly([
           'requestId', 'action', 'ownerUid', 'ownerEmail', 'state',
-          'attempts', 'readingsJson', 'createdAt'
+          'attempts', 'readingsJson', 'payloadJson', 'createdAt'
         ])
         && request.resource.data.requestId == requestId
-        && request.resource.data.action == 'addFermentationMeasurements'
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.ownerEmail == request.auth.token.email
         && request.resource.data.state == 'pending'
         && request.resource.data.attempts == 0
-        && request.resource.data.readingsJson is string
-        && request.resource.data.readingsJson.size() <= 50000
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (
+          (
+            request.resource.data.action == 'addFermentationMeasurements'
+            && request.resource.data.get('readingsJson', '') is string
+            && request.resource.data.get('readingsJson', '').size() <= 50000
+          )
+          ||
+          (
+            request.resource.data.action == 'logPackagingToMasterSheet'
+            && request.resource.data.get('payloadJson', '') is string
+            && request.resource.data.get('payloadJson', '').size() <= 10000
+          )
+        );
       allow delete: if isApprovedUser()
         && resource.data.ownerUid == request.auth.uid;
       allow update: if false;
@@ -121,7 +140,7 @@ service cloud.firestore {
       allow update: if isApprovedUser()
         && request.resource.data.operationId == resource.data.operationId
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['state', 'updatedAt', 'recoveryRevision', 'palletSplits'])
+          .hasOnly(['state', 'updatedAt', 'recoveryRevision', 'palletSplits', 'cleanupAfter'])
         && (
           (resource.data.state == 'awaiting_pallets'
             && request.resource.data.state in ['awaiting_pallets', 'completed'])
@@ -133,6 +152,10 @@ service cloud.firestore {
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['palletSplits'])
           || (resource.data.state == 'awaiting_pallets'
             && !resource.data.keys().hasAny(['palletSplits']))
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['cleanupAfter'])
+          || request.resource.data.state == 'completed'
         );
       allow delete: if false;
     }

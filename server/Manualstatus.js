@@ -58,7 +58,7 @@ function checkStatusTransition(tankNumber, toAction) {
 
   logToSheet("CheckStatusTransition - Tank: " + tankID + ", target action: " + targetAction);
 
-  const fermentor = getFermentorFromFirebase(tankID);
+  const fermentor = getFermentorFromFirestore(FIREBASE_PROJECT_ID, tankID);
 
   if (!fermentor) {
     throw new Error("Fermentor not found: " + tankID);

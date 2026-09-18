@@ -1,11 +1,12 @@
-import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where } from "firebase/firestore";
-import { db } from "../../firebase";
+import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc } from "firebase/firestore";
+import { auth, db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
     getDefaultPalletSplit,
     type CustomPalletSplitEntry,
 } from "../cooler/Palletservice";
 import type { PalletItemType } from "../cooler/Pallettypes ";
+import { reserveNewPalletsForNearestShipment } from "../planning/planningShipmentReservations";
 import {
     callAppsScriptPost,
     createAppsScriptRequestId,
@@ -99,6 +100,7 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         tankNumber: operation.tankNumber ?? null,
     };
     const ids = await createPalletsForPlan(plan, splits);
+    await reserveNewPalletsForNearestShipment(ids);
     await markPackagingPalletsCompleted(operationId);
     return ids;
 }
@@ -128,10 +130,21 @@ export async function markPackagingPalletsCompleted(operationId: string): Promis
         );
     }
 
-    await updateDoc(operationRef, {
+    const completionUpdate: Record<string, unknown> = {
         state: "completed",
         updatedAt: serverTimestamp(),
-    });
+    };
+
+    // Preview channels still use the production Firestore rules until merge.
+    // cleanupAfter is a new PR #27 field, so omit it there to let the full
+    // pallet/recovery flow complete under the currently deployed rules.
+    if (!isPullRequestPreview()) {
+        const cleanupAfter = new Date();
+        cleanupAfter.setDate(cleanupAfter.getDate() + 30);
+        completionUpdate.cleanupAfter = Timestamp.fromDate(cleanupAfter);
+    }
+
+    await updateDoc(operationRef, completionUpdate);
 }
 
 
@@ -256,6 +269,74 @@ type MasterSheetServerResult = {
     duplicate?: boolean;
 };
 
+function isPullRequestPreview(): boolean {
+    return typeof window !== "undefined" && window.location.hostname.includes("--pr");
+}
+
+function isFirestorePermissionDenied(error: unknown): boolean {
+    return typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        String((error as { code?: unknown }).code) === "permission-denied";
+}
+
+async function persistPackagingSheetSyncJob(
+    operationId: string,
+    payload: Record<string, unknown>
+): Promise<void> {
+    const user = auth.currentUser;
+    if (!user?.email) throw new Error("אין משתמש מחובר. יש להתחבר מחדש.");
+
+    await setDoc(doc(db, "sheetSyncJobs", operationId), {
+        requestId: operationId,
+        action: "logPackagingToMasterSheet",
+        ownerUid: user.uid,
+        ownerEmail: user.email,
+        state: "pending",
+        attempts: 0,
+        payloadJson: JSON.stringify(payload),
+        createdAt: serverTimestamp(),
+    });
+}
+
+async function clearPackagingSheetSyncJob(operationId: string): Promise<void> {
+    try {
+        await deleteDoc(doc(db, "sheetSyncJobs", operationId));
+    } catch (error) {
+        // The maintenance worker will observe the same idempotency receipt and
+        // clean the pending job. A cleanup miss must not reopen the modal.
+        console.warn("Could not clear completed packaging Sheet sync job", {
+            operationId,
+            error,
+        });
+    }
+}
+
+function syncPackagingSheetInBackground(
+    operationId: string,
+    payload: Record<string, unknown>
+): void {
+    void callAppsScriptPost<AppsScriptEnvelope<MasterSheetServerResult>>(
+        payload,
+        { retries: 2, retryDelayMs: 600 }
+    )
+        .then(async (result) => {
+            if (!result.success) {
+                console.error(
+                    "Background packaging Sheet sync returned failure:",
+                    result.error || result.message
+                );
+                return;
+            }
+            await clearPackagingSheetSyncJob(operationId);
+        })
+        .catch((error) => {
+            // Keep the durable outbox job pending. Apps Script maintenance will
+            // safely retry with this operationId/requestId.
+            console.error("Background packaging Sheet sync failed:", error);
+        });
+}
+
 /**
  * כותבת אירוע אריזה בפועל לפיירסטור, לקולקציית packagingLog.
  * מבנה הדוקומנט תואם בכוונה למבנה של calendar_events (title/itemType/quantity/unit/timestamp)
@@ -338,11 +419,8 @@ export async function submitPackagingRecord(
     const expiryDateStr =
         expiryMonths !== null ? formatDDMMYYYY(addMonths(today, expiryMonths)) : "";
 
-    // עמודה B: לחביות - הכמות כפי שהוזנה. לבקבוקים - מספר ארגזים (24 בקבוק לארגז).
     const quantity = computePalletQuantity(packagingType, amount);
-
     if (packagingType === "bottles" && quantity <= 0) {
-        // פחות מארגז שלם אחד - לא נכתב לטבלת המאסטר (נרשם ידנית במקום אחר)
         return { success: false, error: "פחות מארגז שלם - לא נכתב לטבלת המאסטר", palletPlan: null };
     }
 
@@ -351,11 +429,7 @@ export async function submitPackagingRecord(
             ? `חביות ${beerStyle ?? ""}`.trim()
             : `ארגזי ${beerStyle ?? ""}`.trim();
 
-    // SAME id is reused for all HTTP attempts of this logical write. The server
-    // stores the completed result before replying, so a broken Google redirect
-    // can be retried without appending the packaging row twice.
     const operationId = params.operationId?.trim() || createAppsScriptRequestId("packaging");
-    const requestId = operationId;
     await persistPackagingOperation({
         operationId,
         packagingType,
@@ -368,7 +442,7 @@ export async function submitPackagingRecord(
 
     const payload = {
         action: "logPackagingToMasterSheet",
-        requestId,
+        requestId: operationId,
         productLabel,
         quantity,
         batchNumber: batchNumber ?? "",
@@ -376,12 +450,25 @@ export async function submitPackagingRecord(
         productionDateStr,
     };
 
-    // כותבים לגיליון ולפיירסטור במקביל. כשל באחד לא ימנע את השני.
-    const [sheetResult, firestoreResult] = await Promise.allSettled([
-        callAppsScriptPost<AppsScriptEnvelope<MasterSheetServerResult>>(
-            payload,
-            { retries: 2, retryDelayMs: 600 }
-        ),
+    // Durable first: the business log and Sheet outbox are persisted before the
+    // external Apps Script request starts. From this point the modal can close
+    // after pallet confirmation without waiting for Google.
+    let outboxPersisted = true;
+    const outboxPromise = persistPackagingSheetSyncJob(operationId, payload)
+        .catch((error) => {
+            // Hosting preview channels use the production Firestore rules until
+            // merge. Let the preview exercise the rest of the packaging flow
+            // without weakening the production durability contract.
+            if (isPullRequestPreview() && isFirestorePermissionDenied(error)) {
+                console.warn("Preview rules do not allow packaging Sheet outbox yet; using synchronous preview fallback.");
+                outboxPersisted = false;
+                return;
+            }
+            throw error;
+        });
+
+    await Promise.all([
+        outboxPromise,
         logPackagingToFirestore({
             operationId,
             packagingType,
@@ -396,15 +483,6 @@ export async function submitPackagingRecord(
         }),
     ]);
 
-    const warnings: string[] = [];
-
-    if (firestoreResult.status === "rejected") {
-        console.error("Failed to log packaging to Firestore:", firestoreResult.reason);
-        warnings.push("הרישום לגיליון הצליח אך הרישום לפיירבייס נכשל");
-    }
-
-    // תוכנית המשטחים לא תלויה בהצלחת הכתיבה לגיליון - מחזירים אותה תמיד
-    // (אלא אם הכמות עצמה לא תקינה, שנבדק כבר למעלה).
     const palletPlan: PackagingPalletPlan = {
         operationId,
         itemType: packagingType === "kegs" ? "kegs" : "crates",
@@ -416,35 +494,27 @@ export async function submitPackagingRecord(
         tankNumber,
     };
 
-    if (sheetResult.status === "rejected") {
-        console.error("Failed to log packaging to master sheet:", sheetResult.reason);
-        return {
-            success: false,
-            error: sheetResult.reason?.message ?? "שגיאה בכתיבה לטבלת המאסטר",
-            warnings,
-            palletPlan,
-        };
-    }
-
-    const parsed = sheetResult.value;
-
-    if (!parsed.success) {
-        return {
-            success: false,
-            error: parsed.error || parsed.message || "Master sheet log failed",
-            warnings,
-            palletPlan,
-        };
-    }
-
-    const serverWarnings = parsed.result?.warnings;
-    if (serverWarnings && serverWarnings.length > 0) {
-        warnings.push(...serverWarnings);
+    if (outboxPersisted) {
+        syncPackagingSheetInBackground(operationId, payload);
+    } else {
+        // Preview-only compatibility: without the new rules there is no durable
+        // job to recover a lost response, so wait for the current production
+        // Apps Script to confirm the write before treating the send as done.
+        const previewResult = await callAppsScriptPost<AppsScriptEnvelope<MasterSheetServerResult>>(
+            payload,
+            { retries: 2, retryDelayMs: 600 }
+        );
+        if (!previewResult.success) {
+            return {
+                success: false,
+                error: previewResult.error || previewResult.message || "Master sheet log failed",
+                palletPlan,
+            };
+        }
     }
 
     return {
         success: true,
-        warnings: warnings.length > 0 ? warnings : undefined,
         palletPlan,
     };
 }

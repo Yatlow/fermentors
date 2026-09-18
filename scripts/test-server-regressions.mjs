@@ -176,4 +176,99 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal(maintenance.smartShouldRunFullCycle_(at(10, 0)), true, "day window must always run the full cycle");
 }
 
+
+
+{
+  let patched = null;
+  const manualStatus = loadAppsScript("server/assignAndRefreshTank.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+    ScriptApp: { getOAuthToken: () => "token" },
+    getFermentorFromFirestore: () => ({
+      action: 1,
+      batchNumber: "1593",
+      tankStatus: false,
+    }),
+    UrlFetchApp: {
+      fetch(_url, options) {
+        patched = JSON.parse(options.payload);
+        return {
+          getResponseCode: () => 200,
+          getContentText: () => "{}",
+        };
+      },
+    },
+    logToSheet() {},
+  });
+
+  const result = manualStatus.applyManualStatusChange("10", 3, true, "1593", 1);
+  assert.equal(result.action, 3);
+  assert.equal(result.tankStatus, true);
+  assert.equal(patched.fields.action.integerValue, "3");
+  assert.equal(patched.fields.tankStatus.booleanValue, true);
+
+  manualStatus.getFermentorFromFirestore = () => ({
+    action: 4,
+    batchNumber: "1593",
+    tankStatus: true,
+  });
+  assert.throws(
+    () => manualStatus.applyManualStatusChange("10", 3, true, "1593", 1),
+    /סטטוס המיכל השתנה/,
+    "manual status commit must abort when the status changed after confirmation",
+  );
+}
+
+
+
+{
+  const weekly = loadAppsScript("server/calculateWeeklyStyleAverages.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+  });
+  assert.equal(
+    weekly.pressureTargetFromNote_(
+      "הורדת לחץ ל0 | העלאת לחץ ל0.2 | העלאת לחץ ל: 1.4 bar"
+    ),
+    1.4,
+    "pressure learning must use the final pressure target from a compound note",
+  );
+
+  const samples = weekly.buildPressureResponseSamplesForBrew_(
+    [
+      { date: "16/09/2026", time: "08:00", pressure: 1.1, carbonation: 2.3, temp: 1.5 },
+      { date: "18/09/2026", time: "09:00", pressure: 1.4, carbonation: 2.31, temp: 1.5, notes: "העלאת לחץ ל: 1.4 bar" },
+      { date: "20/09/2026", time: "09:00", pressure: 1.4, carbonation: 2.43, temp: 1.5 },
+    ],
+    new Date(2026, 8, 1),
+    "1593",
+  );
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0].pressureBefore, 1.1);
+  assert.equal(samples[0].targetPressure, 1.4);
+  assert.ok(samples[0].carbonationDelta > 0);
+
+  const calibrationSamples = Array.from({ length: 12 }, (_, index) => ({
+    batchId: String(1600 + index),
+    eventDate: `${String((index % 9) + 1).padStart(2, "0")}/09/2026`,
+    brewDay: 18 + (index % 3),
+    temp: 1.5,
+    carbonationBefore: 2.3,
+    carbAgeAtAdjustment: index % 3,
+    pressureBefore: 1.2,
+    pressureMeanToDate: 1.0,
+    pressureMeanLast3Days: 1.15,
+    pressureMeanLast7Days: 1.1,
+    targetPressure: 1.4,
+    pressureDelta: 0.2,
+    carbonationAfter: 2.4,
+    carbonationDelta: 0.1,
+    elapsedDays: 2,
+    success: true,
+  }));
+  const calibration = weekly.buildPressureCalibration_(calibrationSamples);
+  assert.ok(calibration.evaluatedSamples >= 8);
+  assert.equal(calibration.responseMultiplier, 1);
+  assert.equal(calibration.directionSuccessRate, 1);
+  assert.equal(calibration.within005Rate, 1);
+}
+
 console.log("Critical server regression tests passed");

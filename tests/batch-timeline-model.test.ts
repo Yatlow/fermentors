@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildBatchTimeline } from "../src/SERVICES/dashboard/batchTimelineModel";
+import { expandCompoundCellarMeasurements } from "../src/SERVICES/cellering/bottomCarbonation";
 
 test("every standalone recorded carbonation test appears on the timeline including zero", () => {
     const events = buildBatchTimeline([
@@ -124,4 +125,24 @@ test("diacetyl rest uses a hot-water/heating icon instead of fire", () => {
 
     const diacetyl = events.find((event) => event.type === "diacetyl");
     assert.equal(diacetyl?.icon, "♨️");
+});
+
+
+test("bottom-carbonation start close and final pressure stay one operational timeline action", () => {
+    const expanded = expandCompoundCellarMeasurements([
+        {
+            id: "2026-09-18_0910",
+            pressure: 1.33,
+            notes: "הורדת 1.5 דליי שמרים, לחץ אחרי 1.33 bar | הורדת לחץ ל0. פתיחת כוסית מים של הפורק לחץ, ניקוי והחזרה עם מים חדשים. העלאת לחץ ל0.2. תחילת גיזוז מלמטה בשעה 9:10 | סגירת גיזוז מלמטה בשעה 14:40 על 0.43bar | העלאת לחץ ל: 1.4 bar",
+        },
+    ]);
+
+    assert.equal(expanded.length, 2);
+    assert.match(String(expanded[1]?.notes ?? ""), /תחילת גיזוז מלמטה/);
+    assert.match(String(expanded[1]?.notes ?? ""), /סגירת גיזוז מלמטה/);
+    assert.match(String(expanded[1]?.notes ?? ""), /העלאת לחץ ל: 1.4/);
+
+    const events = buildBatchTimeline(expanded, "10/09/2026", () => 1.5);
+    assert.equal(events.filter((event) => event.type === "yeast").length, 1);
+    assert.equal(events.filter((event) => event.type === "pressure").length, 1);
 });

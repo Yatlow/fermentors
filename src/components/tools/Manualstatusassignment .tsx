@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import {
     checkStatusTransition,
-    assignAndRefreshTank,
+    applyManualStatusChange,
     type StatusTransitionCheckResult,
 } from "../../SERVICES/tools/Manualstatus ";
 
@@ -149,11 +149,13 @@ export default function ManualStatusAssignment({ brews, isAdmin }: Props) {
         setErrorMsg("");
 
         try {
-            await assignAndRefreshTank(
+            await applyManualStatusChange(
                 selectedTank.id,
-                checkResult.sheetUrl,
                 targetOption.action,
-                targetOption.tankStatus
+                targetOption.tankStatus,
+                selectedTank.batchNumber,
+                checkResult.fromAction,
+                checkResult.sheetUrl
             );
 
             setStep("done");

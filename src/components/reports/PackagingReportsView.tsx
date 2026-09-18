@@ -8,6 +8,10 @@ import {
     query,
     where,
     orderBy,
+    limit,
+    startAfter,
+    type DocumentData,
+    type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 
@@ -60,6 +64,7 @@ type CalendarEventDoc = {
 /** actionType בקולקציית calendar_events שמייצג אירוע אריזה/הורדה עתידית */
 const PACKAGING_ACTION_TYPE = ["הורדה", "סיום", "ביקבוק"];
 const PLANNED_PACKAGING_CACHE_MS = 60 * 1000;
+const REPORT_PAGE_SIZE = 50;
 
 type PlannedPackagingCache = {
     key: string;
@@ -332,7 +337,7 @@ export default function PackagingReportsView() {
     const [mode, setMode] = useState<RangeMode>("week");
 
     const [startDate, setStartDate] = useState<string>(
-        todayInputValue()
+        () => toDateInputValue(addDays(new Date(), -29))
     );
 
     const [endDate, setEndDate] = useState<string>(
@@ -348,6 +353,9 @@ export default function PackagingReportsView() {
 
     const [rows, setRows] = useState<PackagingRow[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [actualCursor, setActualCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+    const [hasMoreActual, setHasMoreActual] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const weekOptions = useMemo(() => getWeekOptions(), []);
@@ -422,13 +430,16 @@ export default function PackagingReportsView() {
     useEffect(() => {
         if (!range) {
             setRows([]);
+            setActualCursor(null);
+            setHasMoreActual(false);
             return;
         }
 
         let cancelled = false;
-
         setLoading(true);
         setError(null);
+        setActualCursor(null);
+        setHasMoreActual(false);
 
         const startTs = range.start.getTime();
         const endTs = range.end.getTime();
@@ -441,157 +452,159 @@ export default function PackagingReportsView() {
                         collection(db, "packagingLog"),
                         where("timestamp", ">=", startTs),
                         where("timestamp", "<=", endTs),
-                        orderBy("timestamp", "asc")
+                        orderBy("timestamp", "desc"),
+                        limit(REPORT_PAGE_SIZE + 1)
                     )
                 );
 
-                // אירועים עתידיים/מוערכים
                 const todayStart = toStartOfDay(new Date(now)).getTime();
                 const estimatedStartTs = Math.max(startTs, todayStart);
-
                 const shouldLoadEstimated = endTs >= now;
 
                 const estimatedRowsPromise = shouldLoadEstimated
                     ? getDocs(
                         query(
                             collection(db, "calendar_events"),
-                            where(
-                                "actionType",
-                                "in",
-                                PACKAGING_ACTION_TYPE
-                            ),
-                            where(
-                                "timestamp",
-                                ">=",
-                                estimatedStartTs
-                            ),
-                            where(
-                                "timestamp",
-                                "<=",
-                                endTs
-                            ),
-                            orderBy(
-                                "timestamp",
-                                "asc"
-                            )
+                            where("actionType", "in", PACKAGING_ACTION_TYPE),
+                            where("timestamp", ">=", estimatedStartTs),
+                            where("timestamp", "<=", endTs),
+                            orderBy("timestamp", "asc")
                         )
                     )
                     : Promise.resolve(null);
 
-                const [
-                    actualSnap,
-                    estimatedSnap,
-                ] = await Promise.all([
+                const [actualSnap, estimatedSnap] = await Promise.all([
                     actualRowsPromise,
                     estimatedRowsPromise,
                 ]);
+                if (cancelled) return;
 
-                if (cancelled) {
-                    return;
-                }
-
-                const actualRows: PackagingRow[] =
-                    actualSnap.docs.map((d) => {
-                        const data =
-                            d.data() as PackagingLogDoc;
-
-                        return {
-                            id: d.id,
-                            date: data.date ?? "",
-                            timestamp:
-                                data.timestamp ?? 0,
-                            expiryDateStr:
-                                data.expiryDateStr ?? "",
-                            itemLabel: normalizeItemLabel(data.beerStyle ?? ""),
-                            packagingType:
-                                data.packagingType ?? null,
-                            unit:
-                                data.unit ??
-                                (data.packagingType ===
-                                    "kegs"
-                                    ? "חביות"
-                                    : "ארגזים"),
-                            quantity: Number(
-                                data.quantity ?? 0
-                            ),
-                            batchNumber:
-                                data.batchNumber,
-                            tankNumber: data.tankNumber ?? null,
-                            source: "actual",
-                        };
-                    });
-
-                const estimatedRowsRaw: PackagingRow[] =
-                    estimatedSnap
-                        ? estimatedSnap.docs.map((d) => {
-                            const data =
-                                d.data() as CalendarEventDoc;
-
-                            return {
-                                id: d.id,
-                                date:
-                                    formatISODateToDDMMYYYY(data.date ?? ""),
-                                timestamp:
-                                    data.timestamp ??
-                                    0,
-                                expiryDateStr: "",
-                                itemLabel:
-                                    normalizeItemLabel(data.beerStyle ?? data.itemType ?? data.title ?? ""),
-                                packagingType: null,
-                                unit:
-                                    data.unit ?? "",
-                                quantity: Number(
-                                    data.quantity ?? 0
-                                ),
-                                batchNumber: null,
-                                tankNumber: data.tankNumber ?? null,
-                                source: "estimated",
-                            };
-                        })
-                        : [];
-                const actualKeys = new Set(
-                    actualRows
-                        .filter((r) => r.tankNumber != null)
-                        .map((r) => `${r.date}__${r.tankNumber}`)
-                );
-                const estimatedRows = estimatedRowsRaw.filter((r) => {
-                    if (r.tankNumber == null) return true; // אין מיכל לזהות - עדיף להשאיר מאשר לאבד מידע
-                    return !actualKeys.has(`${r.date}__${r.tankNumber}`);
+                const visibleActualDocs = actualSnap.docs.slice(0, REPORT_PAGE_SIZE);
+                const actualRows: PackagingRow[] = visibleActualDocs.map((d) => {
+                    const data = d.data() as PackagingLogDoc;
+                    return {
+                        id: d.id,
+                        date: data.date ?? "",
+                        timestamp: data.timestamp ?? 0,
+                        expiryDateStr: data.expiryDateStr ?? "",
+                        itemLabel: normalizeItemLabel(data.beerStyle ?? ""),
+                        packagingType: data.packagingType ?? null,
+                        unit: data.unit ?? (data.packagingType === "kegs" ? "חביות" : "ארגזים"),
+                        quantity: Number(data.quantity ?? 0),
+                        batchNumber: data.batchNumber,
+                        tankNumber: data.tankNumber ?? null,
+                        source: "actual",
+                    };
                 });
 
-                const merged = [
-                    ...actualRows,
-                    ...estimatedRows,
-                ].sort(
-                    (a, b) =>
-                        a.timestamp - b.timestamp
+                const estimatedRowsRaw: PackagingRow[] = estimatedSnap
+                    ? estimatedSnap.docs.map((d) => {
+                        const data = d.data() as CalendarEventDoc;
+                        return {
+                            id: d.id,
+                            date: formatISODateToDDMMYYYY(data.date ?? ""),
+                            timestamp: data.timestamp ?? 0,
+                            expiryDateStr: "",
+                            itemLabel: normalizeItemLabel(data.beerStyle ?? data.itemType ?? data.title ?? ""),
+                            packagingType: null,
+                            unit: data.unit ?? "",
+                            quantity: Number(data.quantity ?? 0),
+                            batchNumber: null,
+                            tankNumber: data.tankNumber ?? null,
+                            source: "estimated",
+                        };
+                    })
+                    : [];
+
+                const actualKeys = new Set(
+                    actualRows
+                        .filter((row) => row.tankNumber != null)
+                        .map((row) => `${row.date}__${row.tankNumber}`)
+                );
+                const estimatedRows = estimatedRowsRaw.filter((row) =>
+                    row.tankNumber == null || !actualKeys.has(`${row.date}__${row.tankNumber}`)
                 );
 
-                setRows(merged);
-            } catch (err: any) {
-                console.error(
-                    "Failed loading packaging report:",
-                    err
+                setRows([...actualRows, ...estimatedRows].sort((a, b) => b.timestamp - a.timestamp));
+                setHasMoreActual(actualSnap.docs.length > REPORT_PAGE_SIZE);
+                setActualCursor(
+                    actualSnap.docs.length > REPORT_PAGE_SIZE && visibleActualDocs.length
+                        ? visibleActualDocs[visibleActualDocs.length - 1]
+                        : null
                 );
-
+            } catch (err) {
+                console.error("Failed loading packaging report:", err);
                 if (!cancelled) {
-                    setError(
-                        "שגיאה בטעינת הדוח. ייתכן שנדרש אינדקס בפיירסטור - בדוק את הקונסול לקישור ליצירתו."
-                    );
+                    setError("שגיאה בטעינת הדוח. ייתכן שנדרש אינדקס בפיירסטור - בדוק את הקונסול לקישור ליצירתו.");
                 }
             } finally {
-                if (!cancelled) {
-                    setLoading(false);
-                }
+                if (!cancelled) setLoading(false);
             }
         }
 
-        load();
-
+        void load();
         return () => {
             cancelled = true;
         };
     }, [range]);
+
+    async function loadMoreActualRows() {
+        if (!range || !actualCursor || !hasMoreActual || loadingMore) return;
+        setLoadingMore(true);
+        try {
+            const snapshot = await getDocs(
+                query(
+                    collection(db, "packagingLog"),
+                    where("timestamp", ">=", range.start.getTime()),
+                    where("timestamp", "<=", range.end.getTime()),
+                    orderBy("timestamp", "desc"),
+                    startAfter(actualCursor),
+                    limit(REPORT_PAGE_SIZE + 1)
+                )
+            );
+            const visible = snapshot.docs.slice(0, REPORT_PAGE_SIZE);
+            const moreRows: PackagingRow[] = visible.map((d) => {
+                const data = d.data() as PackagingLogDoc;
+                return {
+                    id: d.id,
+                    date: data.date ?? "",
+                    timestamp: data.timestamp ?? 0,
+                    expiryDateStr: data.expiryDateStr ?? "",
+                    itemLabel: normalizeItemLabel(data.beerStyle ?? ""),
+                    packagingType: data.packagingType ?? null,
+                    unit: data.unit ?? (data.packagingType === "kegs" ? "חביות" : "ארגזים"),
+                    quantity: Number(data.quantity ?? 0),
+                    batchNumber: data.batchNumber,
+                    tankNumber: data.tankNumber ?? null,
+                    source: "actual",
+                };
+            });
+
+            setRows((current) => {
+                const byKey = new Map(current.map((row) => [`${row.source}:${row.id}`, row]));
+                moreRows.forEach((row) => byKey.set(`${row.source}:${row.id}`, row));
+                return [...byKey.values()].sort((a, b) => b.timestamp - a.timestamp);
+            });
+            setHasMoreActual(snapshot.docs.length > REPORT_PAGE_SIZE);
+            setActualCursor(
+                snapshot.docs.length > REPORT_PAGE_SIZE && visible.length
+                    ? visible[visible.length - 1]
+                    : null
+            );
+        } catch (err) {
+            console.error("Failed loading more packaging rows:", err);
+            setError("טעינת העמוד הבא נכשלה");
+        } finally {
+            setLoadingMore(false);
+        }
+    }
+
+    function setQuickRange(days: number) {
+        const today = new Date();
+        setMode("range");
+        setStartDate(toDateInputValue(addDays(today, -(days - 1))));
+        setEndDate(toDateInputValue(today));
+    }
 
     // ========================================================
     // TOTALS
@@ -781,6 +794,13 @@ export default function PackagingReportsView() {
                 </div>
             ) : (
                 <div className="packaging-report-pickers">
+                    <div className="packaging-report-quick-ranges">
+                        {[7, 30, 90].map((days) => (
+                            <button key={days} type="button" className="btn-secondary" onClick={() => setQuickRange(days)}>
+                                {days} ימים
+                            </button>
+                        ))}
+                    </div>
                     <label className="packaging-report-label">
                         מתאריך
 
@@ -911,6 +931,18 @@ export default function PackagingReportsView() {
                                 ))}
                             </tbody>
                         </table>
+                        {hasMoreActual && (
+                            <div className="packaging-report-load-more">
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    disabled={loadingMore}
+                                    onClick={() => void loadMoreActualRows()}
+                                >
+                                    {loadingMore ? "טוען…" : "טען עוד"}
+                                </button>
+                            </div>
+                        )}
 
                         <div className="packaging-report-totals">
                             <div className="packaging-report-totals-title">

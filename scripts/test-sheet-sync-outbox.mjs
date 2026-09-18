@@ -28,11 +28,17 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function job({ id = "job-1", requestId = "req-1", attempts = 0 } = {}) {
+function job({
+  id = "job-1",
+  requestId = "req-1",
+  attempts = 0,
+  action = "addFermentationMeasurements",
+} = {}) {
   return {
     name: `projects/test/databases/(default)/documents/sheetSyncJobs/${id}`,
     fields: {
       requestId: { stringValue: requestId },
+      action: { stringValue: action },
       attempts: { integerValue: String(attempts) },
     },
   };
@@ -49,6 +55,18 @@ function installProcessMocks(context, options = {}) {
   context.sheetSyncSanitizedReadings_ = () => {
     if (options.sanitizeError) throw options.sanitizeError;
     return options.readings ?? [{ tankId: "10", notes: "קירור" }];
+  };
+  context.sheetSyncPackagingPayload_ = (_job, requestId) => {
+    if (options.sanitizeError) throw options.sanitizeError;
+    return options.packagingPayload ?? {
+      action: "logPackagingToMasterSheet",
+      requestId,
+      productLabel: "חביות IPA",
+      quantity: 20,
+      batchNumber: "1593",
+      expiryDateStr: "18/03/2027",
+      productionDateStr: "18/09/2026",
+    };
   };
   context.runPostActionIdempotently_ = (payload) => {
     runCalls.push(payload);
@@ -165,4 +183,21 @@ test("terminal safety failures are failed immediately", () => {
   assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 1, deferred: 0 });
   assert.equal(mocks.marked[0].state, "failed");
   assert.equal(mocks.marked[0].attempts, 1);
+});
+
+
+test("packaging outbox retries the same operation/request id without changing payload identity", () => {
+  const context = createRuntime();
+  const mocks = installProcessMocks(context, {
+    jobs: [job({ id: "packaging-1", requestId: "packaging-1", action: "logPackagingToMasterSheet" })],
+  });
+
+  const stats = context.processPendingSheetSyncJobs_();
+
+  assert.deepEqual(plain(stats), { found: 1, completed: 1, failed: 0, deferred: 0 });
+  assert.equal(mocks.runCalls.length, 1);
+  assert.equal(mocks.runCalls[0].action, "logPackagingToMasterSheet");
+  assert.equal(mocks.runCalls[0].requestId, "packaging-1");
+  assert.equal(mocks.runCalls[0].quantity, 20);
+  assert.deepEqual(mocks.deleted, ["packaging-1"]);
 });

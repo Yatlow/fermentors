@@ -16,6 +16,9 @@ async function fetchDeployedVersion(): Promise<string | null> {
 
     if (!response.ok) return null;
 
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) return null;
+
     const data = (await response.json()) as VersionFile;
     const version = String(data.version || "").trim();
     return version || null;

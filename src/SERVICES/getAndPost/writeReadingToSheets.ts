@@ -149,20 +149,23 @@ async function persistFirestoreState(
     noteOnlyBatch: boolean,
     requestId: string
 ): Promise<void> {
+    // PR Hosting previews run against the currently deployed production
+    // Firestore rules. Those rules do not know PR #27's new sheetSyncJobs
+    // write shape yet. Previously we deliberately tried the durable write,
+    // waited for permission-denied, then retried without the outbox. That made
+    // every note/action report in Preview pay an unnecessary failed network
+    // round-trip. Skip that known-to-fail write up front in Preview.
+    if (noteOnlyBatch && isPullRequestPreview()) {
+        await pushCurrentDataToFirestore(readings);
+        return;
+    }
+
     try {
         await pushCurrentDataToFirestore(readings, {
             sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
         });
     } catch (error) {
-        // Firebase Hosting PR channels still use the live project's currently
-        // deployed Firestore rules. Until this PR is merged, those production
-        // rules do not know sheetSyncJobs yet. Keep preview testing functional
-        // without weakening production durability; live builds never use this
-        // fallback.
         if (noteOnlyBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
-            console.warn(
-                "PR preview cannot create sheetSyncJobs until the new Firestore rules are deployed; using preview-only fallback."
-            );
             await pushCurrentDataToFirestore(readings);
             return;
         }

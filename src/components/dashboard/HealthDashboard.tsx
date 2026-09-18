@@ -15,10 +15,20 @@ import {
     calculateCellarHealthScore,
     dailyMeasurementProgress,
     healthBand,
+    healthActionPoints,
     isActionableHealthRecommendation,
+    localDateKey,
+    measurementDateKey,
     type MeasurementIssue,
     type ScoredRecommendation,
 } from "../../SERVICES/dashboard/healthModel";
+import {
+    dueScheduledForTank,
+    scheduledActionLabel,
+    subscribeCompletedScheduledCellarRecommendationsToday,
+    subscribeScheduledCellarRecommendations,
+    type ScheduledCellarRecommendation,
+} from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import "./HealthDashboard.css";
 
 type Severity = "critical" | "warning" | "info";
@@ -38,9 +48,19 @@ type Recommendation = {
     importance?: number;
 };
 
+type CompletedCellarAction = {
+    id: string;
+    tankNumber: string;
+    title: string;
+    detail?: string;
+    importance: number;
+    points: number;
+};
+
 type CellarAnalysis = {
     alerts: HealthAlert[];
     scoreRecommendations: ScoredRecommendation[];
+    completedActions: CompletedCellarAction[];
     measurementProgress: MeasurementIssue[];
     checkedTanks: number;
     completeMeasurementTankNumbers: string[];
@@ -54,6 +74,7 @@ type Props = {
 const EMPTY_ANALYSIS: CellarAnalysis = {
     alerts: [],
     scoreRecommendations: [],
+    completedActions: [],
     measurementProgress: [],
     checkedTanks: 0,
     completeMeasurementTankNumbers: [],
@@ -166,6 +187,23 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
+    const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
+    const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
+
+    useEffect(() => {
+        const unsubscribeActive = subscribeScheduledCellarRecommendations(
+            setScheduledRecommendations,
+            (error) => console.error("Failed loading scheduled cellar recommendations for health:", error)
+        );
+        const unsubscribeCompleted = subscribeCompletedScheduledCellarRecommendationsToday(
+            setCompletedScheduledToday,
+            (error) => console.error("Failed loading completed scheduled cellar recommendations:", error)
+        );
+        return () => {
+            unsubscribeActive();
+            unsubscribeCompleted();
+        };
+    }, []);
 
     useEffect(() => {
         const refresh = () => setMeasurementRefresh((current) => current + 1);
@@ -196,6 +234,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     const number = tankLabel(tank);
                     const tankAlerts: HealthAlert[] = [];
                     const scoreRecommendations: ScoredRecommendation[] = [];
+                    const completedActions: CompletedCellarAction[] = [];
                     const hotTank = isHotTank(tank);
                     const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
 
@@ -215,6 +254,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                     included: false,
                                     alerts: [] as HealthAlert[],
                                     scoreRecommendations: [] as ScoredRecommendation[],
+                                    completedActions: [] as CompletedCellarAction[],
                                     measurementProgress: {
                                         missingFields: [],
                                         requiredFieldCount: 0,
@@ -290,10 +330,67 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             ? bottomCarbonationRecommendation(measurements)
                             : null;
 
-                        activeRecommendations(
+                        const naturalRecommendations = activeRecommendations(
                             recommendations,
                             bottomCarb ? [bottomCarb] : []
-                        ).forEach((recommendation, index) => {
+                        );
+
+                        const today = localDateKey(new Date());
+                        const todayRows = measurements.filter(
+                            (measurement) => measurementDateKey(measurement) === today
+                        );
+                        const todayNotes = todayRows
+                            .map((measurement) => String(measurement.notes ?? ""))
+                            .join(" | ");
+                        const hasTodayCarbonation = todayRows.some((measurement) =>
+                            measurement.carbonation !== null &&
+                            measurement.carbonation !== undefined &&
+                            measurement.carbonation !== "" &&
+                            Number.isFinite(Number(measurement.carbonation))
+                        );
+                        const handledPressureAfterCarb =
+                            recommendations?.pressureAdjustmentHandledToday?.completed === true;
+
+                        const naturalCarb = Boolean(
+                            recommendations?.requiresCarbTest?.req &&
+                            recommendations?.requiresCarbTest?.display
+                        );
+                        const naturalYeast = Boolean(
+                            (recommendations?.requiresWarmYeastDrop?.req && recommendations?.requiresWarmYeastDrop?.display) ||
+                            (recommendations?.requiersYeastDropAfterCooling?.req && recommendations?.requiersYeastDropAfterCooling?.display) ||
+                            (recommendations?.requiresWarmYeastDropCompletion?.req && recommendations?.requiresWarmYeastDropCompletion?.display) ||
+                            (recommendations?.requiresColdYeastDropCompletion?.req && recommendations?.requiresColdYeastDropCompletion?.display) ||
+                            (recommendations?.requiiersWedYeastDropOnThus?.req && recommendations?.requiiersWedYeastDropOnThus?.display)
+                        );
+
+                        const dueScheduled = dueScheduledForTank(
+                            scheduledRecommendations,
+                            tank.tankNumber,
+                            tank.batchNumber
+                        );
+                        const effectivelyCompletedScheduled = dueScheduled.filter((row) =>
+                            row.actionType === "carbTest"
+                                ? hasTodayCarbonation || handledPressureAfterCarb
+                                : /שמרים|שמרי/.test(todayNotes)
+                        );
+                        const effectivelyCompletedIds = new Set(
+                            effectivelyCompletedScheduled.map((row) => row.id)
+                        );
+                        const manualDue = dueScheduled
+                            .filter((row) => !effectivelyCompletedIds.has(row.id))
+                            .filter((row) =>
+                                row.actionType === "carbTest" ? !naturalCarb : !naturalYeast
+                            );
+
+                        [
+                            ...naturalRecommendations,
+                            ...manualDue.map((row) => ({
+                                req: true,
+                                display: true,
+                                importance: 3,
+                                reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
+                            })),
+                        ].forEach((recommendation, index) => {
                             const importance = Math.max(1, Math.min(3, Number(recommendation.importance) || 1));
                             scoreRecommendations.push({ importance });
                             tankAlerts.push({
@@ -305,10 +402,91 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             });
                         });
 
+                        const addCompleted = (id: string, title: string, importance = 1, detail?: string) => {
+                            if (completedActions.some((action) => action.id === id)) return;
+                            completedActions.push({
+                                id,
+                                tankNumber: number,
+                                title,
+                                detail,
+                                importance,
+                                points: healthActionPoints(importance),
+                            });
+                        };
+
+                        const completedScheduledForTank = completedScheduledToday.filter((row) =>
+                            String(row.tankNumber) === String(tank.tankNumber) &&
+                            String(row.batchNumber).replace("#", "") === String(tank.batchNumber).replace("#", "")
+                        );
+                        const completedScheduledIds = new Set(
+                            completedScheduledForTank.map((row) => row.id)
+                        );
+                        const scheduledCompletedForDisplay = [
+                            ...completedScheduledForTank,
+                            ...effectivelyCompletedScheduled.filter(
+                                (row) => !completedScheduledIds.has(row.id)
+                            ),
+                        ];
+                        const completedScheduledCarb = scheduledCompletedForDisplay.some(
+                            (row) => row.actionType === "carbTest"
+                        );
+                        const completedScheduledYeast = scheduledCompletedForDisplay.some(
+                            (row) => row.actionType === "yeastDrop"
+                        );
+
+                        scheduledCompletedForDisplay.forEach((row) => {
+                            // Scheduling changes urgency before execution, not
+                            // the value of the physical cellar action itself.
+                            // A scheduled carbonation test / yeast drop earns
+                            // the same completion credit as the same action
+                            // performed naturally.
+                            addCompleted(
+                                `scheduled-${row.id}`,
+                                scheduledActionLabel(row.actionType),
+                                1,
+                                row.note ? `בוצע לפי המלצה מתוזמנת · ${row.note}` : "בוצע לפי המלצה מתוזמנת"
+                            );
+                        });
+
+                        if (
+                            (hasTodayCarbonation || handledPressureAfterCarb) &&
+                            !completedScheduledCarb
+                        ) {
+                            addCompleted(`carb-${tank.id}`, "בדיקת גיזוז");
+                        }
+                        if (
+                            (todayNotes.includes("שמרים") || todayNotes.includes("שמרי")) &&
+                            !completedScheduledYeast
+                        ) {
+                            addCompleted(`yeast-${tank.id}`, "הורדת שמרים");
+                        }
+                        if (todayNotes.includes("כשות")) {
+                            addCompleted(`dryhop-${tank.id}`, "דרייהופ");
+                        }
+                        if (todayNotes.includes("קירור")) {
+                            addCompleted(`cooling-${tank.id}`, "התחלת קירור");
+                        }
+                        if (todayNotes.includes("גיזוז מלמטה")) {
+                            addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
+                        }
+                        if (recommendations?.pressureAdjustmentHandledToday?.completed) {
+                            const importance = Math.max(
+                                1,
+                                Math.min(3, Number(recommendations.pressureAdjustmentHandledToday.importance) || 1)
+                            );
+                            addCompleted(
+                                `pressure-adjust-${tank.id}`,
+                                "שינוי לחץ לאחר בדיקת גיזוז",
+                                importance,
+                                recommendations.pressureAdjustmentHandledToday.reason
+                            );
+                        }
+
                         return {
                             included: true,
                             alerts: tankAlerts,
                             scoreRecommendations,
+                            completedActions,
                             measurementProgress: progress,
                             completeMeasurements,
                             tankNumber: number,
@@ -350,6 +528,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             included: true,
                             alerts: tankAlerts,
                             scoreRecommendations,
+                            completedActions,
                             measurementProgress: {
                                 missingFields: [...missingFields],
                                 requiredFieldCount,
@@ -371,6 +550,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     .flatMap((result) => result.alerts)
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
                 scoreRecommendations: eligibleResults.flatMap((result) => result.scoreRecommendations),
+                completedActions: eligibleResults.flatMap((result) => result.completedActions ?? []),
                 measurementProgress: eligibleResults.map((result) => result.measurementProgress),
                 checkedTanks: eligibleResults.length,
                 completeMeasurementTankNumbers: eligibleResults
@@ -384,14 +564,15 @@ export default function HealthDashboard({ brews, specs }: Props) {
         return () => {
             cancelled = true;
         };
-    }, [brews, specs, measurementRefresh]);
+    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday]);
 
     const healthScore = useMemo(
         () => calculateCellarHealthScore(
             analysis.scoreRecommendations,
-            analysis.measurementProgress
+            analysis.measurementProgress,
+            analysis.completedActions
         ),
-        [analysis.scoreRecommendations, analysis.measurementProgress]
+        [analysis.scoreRecommendations, analysis.measurementProgress, analysis.completedActions]
     );
     const overallClass = healthBand(healthScore);
 
@@ -454,6 +635,20 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
             {expanded && (
                 <div className="health-dashboard-details">
+                    {analysis.completedActions.length > 0 && (
+                        <section className="health-completed-actions" aria-label="פעולות שבוצעו היום">
+                            <strong>בוצע היום</strong>
+                            <div className="health-completed-actions-list">
+                                {analysis.completedActions.map((action) => (
+                                    <div className="health-completed-action" key={action.id}>
+                                        <span>✓ מיכל {action.tankNumber} · {action.title}</span>
+                                        <b>+{action.points}</b>
+                                        {action.detail && <small>{action.detail}</small>}
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
                     {analysis.alerts.length === 0 && !analyzing ? (
                         <div className="health-empty-state">
                             אין כרגע פעולות סלרינג לביצוע וכל המדידות הנדרשות להיום קיימות.

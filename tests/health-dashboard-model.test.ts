@@ -192,3 +192,29 @@ test("zero completed work stays at zero even with many recommendations", () => {
 
     assert.equal(score, 0);
 });
+
+
+test("completed cellar actions add earned action credit", () => {
+    const score = calculateCellarHealthScore(
+        [{ importance: 3 }],
+        [{ missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 }],
+        [{ importance: 3 }],
+    );
+
+    assert.equal(score, 56);
+});
+
+test("completed high-importance action can fully replace an equal unresolved action once handled", () => {
+    const before = calculateCellarHealthScore(
+        [{ importance: 3 }],
+        [{ missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 }],
+    );
+    const after = calculateCellarHealthScore(
+        [],
+        [{ missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 }],
+        [{ importance: 3 }],
+    );
+
+    assert.equal(before, 22);
+    assert.equal(after, 100);
+});

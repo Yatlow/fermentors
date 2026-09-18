@@ -10,6 +10,11 @@ import {
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import { recoverPackagingOperation } from "../../SERVICES/getAndPost/packagingMasterSheetLogger";
+import {
+    callAppsScriptPost,
+    createAppsScriptRequestId,
+    type AppsScriptEnvelope,
+} from "../../SERVICES/getAndPost/appsScriptClient";
 import "./SheetSyncStatus.css";
 
 type SheetSyncJob = {
@@ -58,6 +63,19 @@ function compactAge(minutes: number | null): string {
     return `נקרא לפני ${minutes} דק׳`;
 }
 
+function isJerusalemNight(now: number): boolean {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Jerusalem",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+    }).formatToParts(new Date(now));
+    const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+    const minuteOfDay = hour * 60 + minute;
+    return minuteOfDay < 4 * 60 + 30 || minuteOfDay >= 17 * 60;
+}
+
 function DirectionTitle({ from, to }: { from: string; to: string }) {
     return (
         <strong className="sheet-sync-direction-title" aria-label={`${from} אל ${to}`}>
@@ -77,6 +95,8 @@ export default function SheetSyncStatus() {
     const [now, setNow] = useState(() => Date.now());
     const [recoveringPackagingId, setRecoveringPackagingId] = useState<string | null>(null);
     const [recoveryError, setRecoveryError] = useState<string>("");
+    const [manualSyncState, setManualSyncState] = useState<"idle" | "syncing" | "error">("idle");
+    const [manualSyncError, setManualSyncError] = useState("");
     const isPreviewHost = typeof window !== "undefined" && window.location.hostname.includes("--pr");
 
     useEffect(() => {
@@ -199,7 +219,14 @@ export default function SheetSyncStatus() {
         else if (oldestPendingMinutes >= 10) severity = "warning";
         else if (allPending.length > 0) severity = "pending";
 
-        return { pending: allPending, sheetPending: pendingJobs.length, packagingPending: pendingPackaging.length, hasFailedJob, severity };
+        return {
+            pending: allPending,
+            sheetPending: pendingJobs.length,
+            packagingPending: pendingPackaging.length,
+            hasFailedJob,
+            severity,
+            oldestPendingMinutes,
+        };
     }, [pendingJobs, pendingPackaging, hasFailedJob, now]);
 
     const pull = useMemo(() => {
@@ -220,7 +247,7 @@ export default function SheetSyncStatus() {
         : writeStatus.hasFailedJob
             ? "יש כשל"
             : writeStatus.pending.length > 0
-                ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""}`
+                ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""} · ${writeStatus.oldestPendingMinutes < 5 ? "בטיפול" : `הוותיקה ${writeStatus.oldestPendingMinutes} דק׳`}`
                 : "מסונכרן";
 
     async function recoverPackaging(operationId: string) {
@@ -245,6 +272,48 @@ export default function SheetSyncStatus() {
                 ? "קריאה חלקית"
                 : compactAge(pull.age);
 
+    const canManualNightSync =
+        !isPreviewHost &&
+        !readError &&
+        isJerusalemNight(now) &&
+        pull.age !== null &&
+        pull.age >= 10;
+
+    async function runManualNightSync() {
+        if (!canManualNightSync || manualSyncState === "syncing") return;
+
+        setManualSyncState("syncing");
+        setManualSyncError("");
+        try {
+            const response = await callAppsScriptPost<AppsScriptEnvelope<{
+                success?: boolean;
+                message?: string;
+                reason?: string;
+            }>>({
+                action: "manualNightSync",
+                requestId: createAppsScriptRequestId("manualNightSync"),
+            }, {
+                timeoutMs: 45_000,
+                retries: 0,
+            });
+
+            if (!response.success || response.result?.success !== true) {
+                throw new Error(
+                    response.result?.message ||
+                    response.message ||
+                    response.error ||
+                    "הסנכרון הידני לא הושלם"
+                );
+            }
+
+            setManualSyncState("idle");
+        } catch (error: any) {
+            console.error("Manual night sync failed:", error);
+            setManualSyncState("error");
+            setManualSyncError(error?.message ?? "הסנכרון הידני נכשל");
+        }
+    }
+
     return (
         <section className="sheet-sync-status" dir="rtl">
             <strong className="sheet-sync-status-title">סנכרון נתונים</strong>
@@ -262,8 +331,22 @@ export default function SheetSyncStatus() {
                     <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : pull.severity}`}>
                         {pullPill}
                     </span>
+                    {canManualNightSync && (
+                        <button
+                            type="button"
+                            className="sheet-sync-manual-button"
+                            disabled={manualSyncState === "syncing"}
+                            onClick={() => void runManualNightSync()}
+                        >
+                            {manualSyncState === "syncing" ? "מסנכרן…" : "סנכרן עכשיו"}
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {manualSyncError && (
+                <div className="sheet-sync-manual-error">{manualSyncError}</div>
+            )}
 
             {pendingPackaging.length > 0 && (
                 <div className="sheet-sync-packaging-recovery">

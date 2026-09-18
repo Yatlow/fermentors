@@ -14,6 +14,10 @@ export type ScoredRecommendation = {
     importance?: number | null;
 };
 
+export type CompletedHealthAction = {
+    importance?: number | null;
+};
+
 export type HealthRecommendationState = {
     req?: unknown;
     display?: unknown;
@@ -36,6 +40,11 @@ const RECOMMENDATION_WEIGHT: Record<number, number> = {
     2: 4,
     3: 7,
 };
+
+export function healthActionPoints(importance: number | null | undefined): number {
+    const normalized = Math.max(1, Math.min(3, Math.round(Number(importance) || 1)));
+    return RECOMMENDATION_WEIGHT[normalized];
+}
 
 export const DAILY_FIELD_LABELS: Record<DailyMeasurementField, string> = {
     temp: "טמפ׳",
@@ -163,7 +172,8 @@ export function missingDailyMeasurementFields(
  */
 export function calculateCellarHealthScore(
     recommendations: ScoredRecommendation[],
-    measurementProgress: MeasurementIssue[]
+    measurementProgress: MeasurementIssue[],
+    completedActions: CompletedHealthAction[] = []
 ): number {
     const measurementPossible = measurementProgress.reduce(
         (sum, progress) => sum + Math.max(0, Number(progress.requiredFieldCount) || 0),
@@ -180,15 +190,25 @@ export function calculateCellarHealthScore(
         return sum + completed + bonus;
     }, 0);
 
-    const unresolvedRecommendationWeight = recommendations.reduce((sum, recommendation) => {
-        const importance = Math.max(1, Math.min(3, Math.round(Number(recommendation.importance) || 1)));
-        return sum + RECOMMENDATION_WEIGHT[importance];
-    }, 0);
+    const unresolvedRecommendationWeight = recommendations.reduce(
+        (sum, recommendation) => sum + healthActionPoints(recommendation.importance),
+        0
+    );
+    const completedActionWeight = completedActions.reduce(
+        (sum, action) => sum + healthActionPoints(action.importance),
+        0
+    );
 
-    const possible = measurementPossible + unresolvedRecommendationWeight;
+    const possible = measurementPossible + unresolvedRecommendationWeight + completedActionWeight;
     if (possible <= 0) return 100;
 
-    return Math.max(0, Math.min(100, Math.round((measurementEarned / possible) * 100)));
+    return Math.max(
+        0,
+        Math.min(
+            100,
+            Math.round(((measurementEarned + completedActionWeight) / possible) * 100)
+        )
+    );
 }
 
 export function healthBand(score: number): "healthy" | "warning" | "critical" {

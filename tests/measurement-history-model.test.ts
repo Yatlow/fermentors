@@ -72,3 +72,16 @@ test("app cellar action appends today's note immediately", () => {
   assert.equal(rows[0].notes, "בדיקת גיזוז 2.30 | כיוון פורק ל: 1.3 bar");
   assert.equal(rows[0].pressure, 1.1);
 });
+
+
+test("legacy three-digit measurement times are recognized and sorted chronologically", () => {
+  assert.equal(measurementDayKeyFromId("2026-08-28_917"), "2026-08-28");
+
+  const rows = collapseMeasurementsToLatestPerDay([
+    { id: "2026-08-28_917", temp: 17 },
+    { id: "2026-08-28_1010", temp: 18 },
+  ]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "2026-08-28_1010");
+});

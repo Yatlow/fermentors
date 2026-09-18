@@ -1,4 +1,5 @@
-import { callAppsScriptGet, type AppsScriptEnvelope } from "../getAndPost/appsScriptClient";
+import { callAppsScriptGet, callAppsScriptPost, type AppsScriptEnvelope } from "../getAndPost/appsScriptClient";
+import { assignAndRefreshTank } from "./manualBatch";
 
 export type TransitionWarning = {
   level: "info" | "warning";
@@ -40,8 +41,38 @@ export async function checkStatusTransition(
   }) as Promise<StatusTransitionCheckResult>;
 }
 
-// Re-export so ManualStatusAssignment.tsx has a single import
-// source; this is the SAME server action manualBatch.ts already
-// uses to finalize a batch assignment — it doesn't require a
-// new sheet, so it fits the "change status only" flow as-is.
-export { assignAndRefreshTank } from "./manualBatch";
+export async function applyManualStatusChange(
+  fermentorID: string,
+  desiredAction: number,
+  desiredTankStatus: boolean,
+  expectedBatchNumber?: string | number | null,
+  expectedFromAction?: number | null,
+  sheetUrl?: string | null
+) {
+  if (typeof window !== "undefined" && window.location.hostname.includes("--pr")) {
+    if (!sheetUrl) throw new Error("חסר גיליון משויך למיכל");
+    return assignAndRefreshTank(
+      fermentorID,
+      sheetUrl,
+      desiredAction,
+      desiredTankStatus,
+    );
+  }
+  const parsed = await callAppsScriptPost<AppsScriptEnvelope>({
+    action: "ApplyManualStatus",
+    fermentorID,
+    desiredAction,
+    desiredTankStatus,
+    expectedBatchNumber: expectedBatchNumber ?? "",
+    expectedFromAction: expectedFromAction ?? null,
+  }, {
+    timeoutMs: 30000,
+    retries: 1,
+  });
+
+  if (!parsed.success) {
+    throw new Error(parsed.error || parsed.message || "ApplyManualStatus failed");
+  }
+
+  return parsed.result;
+}

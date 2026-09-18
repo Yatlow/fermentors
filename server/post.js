@@ -110,13 +110,15 @@ const POST_MUTATION_ACTIONS = {
   logPackagingToMasterSheet: true,
   addFermentationMeasurements: true,
   AssignAndRefreshTank: true,
+  ApplyManualStatus: true,
   updateTankStatus: true,
   assignDryHop: true,
   updatePackagingInfo: true,
   AssignBatch: true,
   refreshSingleTank: true,
   addFermentationMeasurement: true,
-  triggerTankUpdate: true
+  triggerTankUpdate: true,
+  manualNightSync: true
 };
 
 function postIdempotencyKey_(action, requestId) {
@@ -413,6 +415,17 @@ function executePostAction_(data) {
     return { success: true, action: "AssignAndRefreshTank", result: result };
   }
 
+  if (data.action === "ApplyManualStatus") {
+    const result = applyManualStatusChange(
+      data.fermentorID,
+      data.desiredAction,
+      data.desiredTankStatus,
+      data.expectedBatchNumber,
+      data.expectedFromAction
+    );
+    return { success: true, action: "ApplyManualStatus", result: result };
+  }
+
   if (data.action === "updateTankStatus") {
     updateTankStatus(data.fermentorID, data.tankAction, data.date, data.pasivationDate);
     return {
@@ -502,6 +515,16 @@ function executePostAction_(data) {
     return { success: true, action: "triggerTankUpdate", result: result };
   }
 
+  if (data.action === "manualNightSync") {
+    const result = runManualNightFermentorSync_();
+    return {
+      success: result.success === true,
+      action: "manualNightSync",
+      result: result,
+      message: result.message || undefined
+    };
+  }
+
   throw new Error("Unknown action: " + data.action);
 }
 
@@ -513,14 +536,12 @@ function checkBatchForTank(tankNumber, requestedBatch) {
   if (!targetTank) throw new Error("Invalid tank number");
   if (!Number.isFinite(targetBatch)) throw new Error("Invalid batch number");
 
-  const rootFolder = DriveApp.getFolderById(BREW_FOLDER_ID);
-  const files = [];
-  collectGoogleSheetsRecursive(rootFolder, files);
-
-  const candidates = [];
-  files.forEach(function (file) {
-    const batchFromFilename = extractBatchFromFilename(file.getName());
-    if (batchFromFilename !== null && batchFromFilename === targetBatch) candidates.push(file);
+  // Reuse the same Drive Changes-backed snapshot as ACTION 5 instead of doing
+  // a fresh recursive Drive walk for every manual check. The snapshot refreshes
+  // immediately when Drive reports changes, but the normal path is a cheap
+  // PropertiesService read.
+  const candidates = getBrewFolderCandidatesCached().filter(function (candidate) {
+    return Number(candidate.batch) === targetBatch;
   });
 
   if (candidates.length === 0) {
@@ -533,13 +554,15 @@ function checkBatchForTank(tankNumber, requestedBatch) {
     };
   }
 
+  const brewExtractCache = {};
+  let firstMismatch = null;
+
   for (let i = 0; i < candidates.length; i++) {
-    const file = candidates[i];
-    const fileName = file.getName();
+    const candidate = candidates[i];
     let brew;
 
     try {
-      brew = extractBrew(file.getId());
+      brew = extractBrewCached(candidate.fileId, brewExtractCache);
     } catch (error) {
       logToSheet("extractBrew failed: " + error.message);
       continue;
@@ -548,37 +571,38 @@ function checkBatchForTank(tankNumber, requestedBatch) {
     if (!brew) continue;
 
     const actualTank = normalizeTankNumber(brew.tankNumber);
-
-    if (tankNumbersEqual(actualTank, targetTank)) {
-      return {
-        valid: true,
-        warning: false,
-        batchNumber: String(targetBatch),
-        tankNumber: targetTank,
-        beerStyle: brew.beerStyle,
-        brewDate: brew.brewDate,
-        beerVolume: brew.beerVolume,
-        startingPlato: brew.startingPlato,
-        sheetUrl: file.getUrl(),
-        fileId: file.getId(),
-        fileName: fileName
-      };
-    }
-
-    return {
-      valid: false,
-      warning: true,
-      reason: "Batch belongs to a different tank",
-      requestedBatch: String(targetBatch),
-      requestedTank: targetTank,
-      actualTank: actualTank,
+    const result = {
+      batchNumber: String(targetBatch),
+      tankNumber: targetTank,
       beerStyle: brew.beerStyle,
       brewDate: brew.brewDate,
-      sheetUrl: file.getUrl(),
-      fileId: file.getId(),
-      fileName: fileName
+      beerVolume: brew.beerVolume,
+      startingPlato: brew.startingPlato,
+      sheetUrl: buildSheetUrl(candidate.fileId),
+      fileId: candidate.fileId,
+      fileName: candidate.fileName
     };
+
+    if (tankNumbersEqual(actualTank, targetTank)) {
+      return Object.assign({
+        valid: true,
+        warning: false
+      }, result);
+    }
+
+    if (!firstMismatch) {
+      firstMismatch = Object.assign({
+        valid: false,
+        warning: true,
+        reason: "Batch belongs to a different tank",
+        requestedBatch: String(targetBatch),
+        requestedTank: targetTank,
+        actualTank: actualTank
+      }, result);
+    }
   }
+
+  if (firstMismatch) return firstMismatch;
 
   return {
     valid: false,

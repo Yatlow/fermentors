@@ -21,6 +21,10 @@ import QuickTankReportBox from "./QuickTankReportBox";
 import BatchHistoryChart from "./Batchhistorychart";
 import { Pencil, MessageCirclePlus, SaveCheck } from 'lucide-react';
 import { updateSpecficNote } from "../../SERVICES/cellering/updateSpecficNote";
+import {
+  getPlannedPackagingForTank,
+  type PlannedTankPackaging,
+} from "../../SERVICES/planning/plannedPackagingForTanks";
 
 
 type TankCardProps = {
@@ -338,6 +342,7 @@ function TankCard({
   // LOCAL STATE
   // ==========================================================
   const [showInfo, setShowInfo] = useState(false);
+  const [plannedPackaging, setPlannedPackaging] = useState<PlannedTankPackaging | null>(null);
   const [state, setState] =
     useState<TankState>({
       action:
@@ -411,6 +416,31 @@ function TankCard({
     tank.specificTankNote,
   ]);
 
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (Number(tank.tankNumber) <= 1 || Number(tank.action) !== 1) {
+      setPlannedPackaging(null);
+      return;
+    }
+
+    getPlannedPackagingForTank({
+      tankId: tank.id,
+      tankNumber: tank.tankNumber,
+    })
+      .then((plan) => {
+        if (!cancelled) setPlannedPackaging(plan);
+      })
+      .catch((error) => {
+        console.warn("Failed loading planned packaging for tank", tank.tankNumber, error);
+        if (!cancelled) setPlannedPackaging(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tank.id, tank.tankNumber, tank.action]);
 
   const isCLT = Number(tank.tankNumber) === 1;
 
@@ -1223,6 +1253,20 @@ function TankCard({
             </div>
 
           )}
+
+        {Number(tank.tankNumber) > 1 && Number(tank.action) === 1 && plannedPackaging && (() => {
+          const [year, month, day] = plannedPackaging.date.split("-");
+          const plannedDate = new Date(`${plannedPackaging.date}T00:00:00`);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const daysLeft = Math.max(0, Math.round((plannedDate.getTime() - today.getTime()) / 86400000));
+          return (
+            <div className="tank-planned-packaging">
+              מתוכנן להורדה ב-{day}/{month}/{year}
+              {daysLeft === 0 ? " · היום" : ` · עוד ${daysLeft} ימים`}
+            </div>
+          );
+        })()}
 
         {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && (
 

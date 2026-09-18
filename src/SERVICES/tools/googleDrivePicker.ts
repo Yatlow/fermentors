@@ -1,14 +1,14 @@
+import { runtimeConfig } from "../../config/runtimeConfig";
 declare global {
   interface Window {
     google: any;
   }
 }
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
+const GOOGLE_CLIENT_ID = runtimeConfig.googleClientId;
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
-const BREW_FOLDER_ID =
-  "0B6DbCIATIM92fm1KQkpVeTR3dXk1ZVRPOUttUVJGelMzcl9nUTR6SzM3ZEE3WjVvc0RvSVk";
+const BREW_FOLDER_ID = runtimeConfig.brewFolderId;
 
 let gisLoaded = false;
 let accessToken: string | null = null;
