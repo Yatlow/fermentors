@@ -114,4 +114,46 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal(outbox.sheetSyncResponseSucceeded_({ success: false }), false);
 }
 
+{
+  let lastFullCycleAt = null;
+  const maintenance = loadAppsScript("server/asyncLogTrigger.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+    normalizeFirestoreValue: (value) => value,
+    Utilities: {
+      formatDate(date, _tz, pattern) {
+        const hh = String(date.getUTCHours()).padStart(2, "0");
+        const mm = String(date.getUTCMinutes()).padStart(2, "0");
+        if (pattern === "HH:mm") return hh + ":" + mm;
+        if (pattern === "yyyyMMdd") return "20260918";
+        return "";
+      },
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: () => lastFullCycleAt,
+        setProperty: (_key, value) => { lastFullCycleAt = value; },
+        deleteProperty() {},
+      }),
+    },
+    ScriptApp: { getOAuthToken: () => "token", getProjectTriggers: () => [] },
+    UrlFetchApp: { fetch() { throw new Error("unexpected network"); } },
+    processAction0() {},
+  });
+  const at = (hour, minute = 0) => new Date(Date.UTC(2026, 8, 18, hour, minute));
+  assert.equal(maintenance.smartIsDaySyncWindow_(at(4, 29)), false);
+  assert.equal(maintenance.smartIsDaySyncWindow_(at(4, 30)), true);
+  assert.equal(maintenance.smartIsDaySyncWindow_(at(16, 59)), true);
+  assert.equal(maintenance.smartIsDaySyncWindow_(at(17, 0)), false);
+  assert.equal(maintenance.smartDateKey_("18/09/2026"), 20260918);
+  assert.equal(maintenance.smartDateKey_("2026-09-18"), 20260918);
+  assert.equal(maintenance.smartAction0IsDue_({ data: { brewDate: "18/09/2026" } }, at(2)), true);
+  assert.equal(maintenance.smartAction0IsDue_({ data: { brewDate: "19/09/2026" } }, at(2)), false);
+  assert.equal(maintenance.smartAction0IsDue_({ data: { brewDate: "" } }, at(2)), true);
+
+  lastFullCycleAt = String(at(18).getTime());
+  assert.equal(maintenance.smartShouldRunFullCycle_(at(18, 30)), false, "night full sync must stay throttled inside one hour");
+  assert.equal(maintenance.smartShouldRunFullCycle_(at(19, 0)), true, "night full sync must run after one hour");
+  assert.equal(maintenance.smartShouldRunFullCycle_(at(10, 0)), true, "day window must always run the full cycle");
+}
+
 console.log("Critical server regression tests passed");
