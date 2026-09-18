@@ -5,8 +5,14 @@ export type MeasurementHistoryLike = {
 };
 
 export function measurementDayKeyFromId(id: unknown): string | null {
-  const match = String(id ?? "").trim().match(/^(\d{4}-\d{2}-\d{2})(?:_\d{4})?$/);
+  const match = String(id ?? "").trim().match(/^(\d{4}-\d{2}-\d{2})(?:_\d{3,4})?$/);
   return match ? match[1] : null;
+}
+
+function measurementSortKey(id: unknown): string {
+  const text = String(id ?? "").trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})_(\d{3,4})$/);
+  return match ? `${match[1]}_${match[2].padStart(4, "0")}` : text;
 }
 
 function hasPatchValue(value: unknown): boolean {
@@ -61,7 +67,7 @@ export function mergeOptimisticMeasurementIntoHistory<T extends MeasurementHisto
   });
 
   collapsed[index] = merged;
-  return collapsed.sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+  return collapsed.sort((a, b) => measurementSortKey(a.id).localeCompare(measurementSortKey(b.id)));
 }
 
 /**
@@ -73,7 +79,7 @@ export function mergeOptimisticMeasurementIntoHistory<T extends MeasurementHisto
  * id formats are preserved rather than silently discarded.
  */
 export function collapseMeasurementsToLatestPerDay<T extends MeasurementHistoryLike>(rows: T[]): T[] {
-  const sorted = [...rows].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+  const sorted = [...rows].sort((a, b) => measurementSortKey(a.id).localeCompare(measurementSortKey(b.id)));
   const latestByDay = new Map<string, T>();
   const passthrough: T[] = [];
 
@@ -89,5 +95,5 @@ export function collapseMeasurementsToLatestPerDay<T extends MeasurementHistoryL
   });
 
   return [...latestByDay.values(), ...passthrough]
-    .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+    .sort((a, b) => measurementSortKey(a.id).localeCompare(measurementSortKey(b.id)));
 }
