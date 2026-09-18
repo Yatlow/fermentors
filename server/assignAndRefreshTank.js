@@ -320,3 +320,77 @@ function assignAndRefreshTank(
   };
 
 }
+
+// Lightweight commit path for the "manual status only" tool. The confirmation
+// step already re-read the Sheet. Re-extracting the whole brew again here made
+// the final click unnecessarily slow and was the main reason it could exceed
+// the browser's 15s request timeout. We still re-read Firestore immediately
+// before the PATCH and guard against the batch changing underneath the user.
+function applyManualStatusChange(
+  fermentorID,
+  desiredAction,
+  desiredTankStatus,
+  expectedBatchNumber
+) {
+  const fermentorId = String(fermentorID || "").trim();
+  const action = Number(desiredAction);
+
+  if (!fermentorId) throw new Error("Missing fermentorID");
+  if (![0, 1, 3, 4, 5].includes(action)) {
+    throw new Error("Invalid desiredAction");
+  }
+
+  const existing = getFermentorFromFirestore(FIREBASE_PROJECT_ID, fermentorId);
+  if (!existing) throw new Error("Fermentor not found: " + fermentorId);
+
+  const expectedBatch = String(expectedBatchNumber == null ? "" : expectedBatchNumber)
+    .replace("#", "")
+    .trim();
+  const currentBatch = String(existing.batchNumber == null ? "" : existing.batchNumber)
+    .replace("#", "")
+    .trim();
+
+  if (expectedBatch && currentBatch !== expectedBatch) {
+    throw new Error(
+      "האצווה במיכל השתנתה בזמן האישור (" + currentBatch + "). פתח מחדש את הפעולה."
+    );
+  }
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId) +
+    "?updateMask.fieldPaths=action" +
+    "&updateMask.fieldPaths=tankStatus" +
+    "&updateMask.fieldPaths=updatedAt";
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({
+      fields: {
+        action: { integerValue: String(action) },
+        tankStatus: { booleanValue: Boolean(desiredTankStatus) },
+        updatedAt: { timestampValue: new Date().toISOString() }
+      }
+    }),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error(
+      "Failed to update fermentor status " + fermentorId + ": " +
+      code + " " + response.getContentText()
+    );
+  }
+
+  return {
+    fermentorID: fermentorId,
+    batchNumber: currentBatch || null,
+    action: action,
+    tankStatus: Boolean(desiredTankStatus)
+  };
+}
