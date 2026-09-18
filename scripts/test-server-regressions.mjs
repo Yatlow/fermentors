@@ -95,7 +95,7 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   ];
   const found = searchAction.findNextBrewForTankRecursive("10", 1593, candidates, {});
   assert.equal(found.batchNumber, "1595", "ACTION 5 must skip a future brew assigned to another tank");
-  assert.equal(found.sheetUrl, "url:right");
+  assert.equal(found.sheetUrl, "https://docs.google.com/spreadsheets/d/right/edit");
 }
 
 const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
