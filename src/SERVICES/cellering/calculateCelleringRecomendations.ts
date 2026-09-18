@@ -344,22 +344,22 @@ export function parseYeastDropAmount(notes: string | number | null | undefined):
 
 
 function getMeasurementDate(id: string | number | null | undefined): string | null {
-    if (id === null || id === undefined) {
-        return null;
-    }
-    const idString = String(id);
+    if (id === null || id === undefined) return null;
+    const idString = String(id).trim();
 
-    // Expected format:
-    // 2026-07-31_1355
-
-    const match = idString.match(/^(\d{4}-\d{2}-\d{2})_\d{4}$/);
-
+    // Historical rows also contain unpadded morning times such as _917.
+    const match = idString.match(/^(\d{4}-\d{2}-\d{2})(?:_\d{3,4})?$/);
     if (!match) {
         console.warn("Invalid measurement ID format:", idString);
         return null;
     }
-
     return match[1];
+}
+
+function measurementIdSortKey(id: string | number | null | undefined): string {
+    const text = String(id ?? "").trim();
+    const match = text.match(/^(\d{4}-\d{2}-\d{2})_(\d{3,4})$/);
+    return match ? `${match[1]}_${match[2].padStart(4, "0")}` : text;
 }
 
 export function extractYeastDrops(measurements: Measurement[]): YeastDrop[] {
@@ -393,10 +393,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const sortedMeasurements = [...measurements].sort((a, b) => {
 
-        const dateA = String(a.id ?? "");
-        const dateB = String(b.id ?? "");
-
-        return dateA.localeCompare(dateB);
+        return measurementIdSortKey(a.id).localeCompare(measurementIdSortKey(b.id));
     });
     const brewAge = getBrewAge(brewDate);
     // =======  =====================================================
