@@ -24,6 +24,8 @@ function calculateWeeklyStyleAverages() {
   const accumulator = {};
   // style -> unique brew IDs
   const batchTracker = {};
+  // normalized style -> historical pressure correction outcomes
+  const pressureSamplesByStyle = {};
   allBrews.forEach(function (brew) {
 
     const data = brew.data || {};
@@ -69,6 +71,15 @@ function calculateWeeklyStyleAverages() {
         projectId,
         brew.id
       );
+
+    const pressureStyle = normalizePressureModelStyle_(style);
+    if (!pressureSamplesByStyle[pressureStyle]) {
+      pressureSamplesByStyle[pressureStyle] = [];
+    }
+    Array.prototype.push.apply(
+      pressureSamplesByStyle[pressureStyle],
+      buildPressureResponseSamplesForBrew_(measurements, brewDate, brew.id)
+    );
 
     measurements.forEach(function (measurement) {
 
@@ -263,6 +274,29 @@ function calculateWeeklyStyleAverages() {
     "Styles updated: " +
     stylesUpdated
   );
+
+  let pressureModelsUpdated = 0;
+  Object.keys(pressureSamplesByStyle).forEach(function (styleKey) {
+    const samples = pressureSamplesByStyle[styleKey]
+      .filter(function (sample) { return sample && sample.success === true; })
+      .slice(-120);
+
+    if (samples.length === 0) return;
+
+    setFirestoreDocument(
+      projectId,
+      "pressureResponseModels/" + encodeURIComponent(styleKey),
+      {
+        style: styleKey,
+        samples: samples,
+        sampleCount: samples.length,
+        updatedAt: new Date().toISOString()
+      }
+    );
+    pressureModelsUpdated++;
+  });
+
+  Logger.log("Pressure response models updated: " + pressureModelsUpdated);
 
   Logger.log(
     "WEEKLY STYLE AVERAGES FINISHED"
@@ -653,6 +687,104 @@ function parseDateOnly(value) {
   return null;
 }
 
+
+
+function normalizePressureModelStyle_(style) {
+  return String(style || "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)[0] || "other";
+}
+
+function pressureModelNumber_(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+function pressureTargetFromNote_(note) {
+  const match = String(note || "").match(
+    /(?:העלאת|הורדת|שינוי)\s+לחץ\s+ל\s*:?-?\s*(\d+(?:[.,]\d+)?)/i
+  );
+  return match ? pressureModelNumber_(match[1]) : null;
+}
+
+function measurementSortTime_(measurement) {
+  const date = parseDateOnly(measurement && measurement.date);
+  if (!date) return 0;
+  const timeMatch = String(measurement.time || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (timeMatch) {
+    date.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0);
+  }
+  return date.getTime();
+}
+
+function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
+  const rows = (measurements || []).slice().sort(function (a, b) {
+    return measurementSortTime_(a) - measurementSortTime_(b);
+  });
+  const samples = [];
+  let latestCarb = null;
+  let latestPressure = null;
+  let latestTemp = null;
+
+  rows.forEach(function (measurement, index) {
+    const currentCarb = pressureModelNumber_(measurement.carbonation);
+    const currentPressure = pressureModelNumber_(measurement.pressure);
+    const currentTemp = pressureModelNumber_(measurement.temp);
+    const beforeCarb = currentCarb !== null ? currentCarb : latestCarb;
+    const beforePressure = currentPressure !== null ? currentPressure : latestPressure;
+    const temp = currentTemp !== null ? currentTemp : latestTemp;
+    const targetPressure = pressureTargetFromNote_(measurement.notes);
+
+    if (
+      targetPressure !== null &&
+      beforeCarb !== null &&
+      beforePressure !== null &&
+      Math.abs(targetPressure - beforePressure) >= 0.02
+    ) {
+      const eventDate = parseDateOnly(measurement.date);
+      if (eventDate) {
+        for (let nextIndex = index + 1; nextIndex < rows.length; nextIndex++) {
+          const next = rows[nextIndex];
+          const afterCarb = pressureModelNumber_(next.carbonation);
+          const nextDate = parseDateOnly(next.date);
+          if (afterCarb === null || !nextDate) continue;
+
+          const elapsedDays = differenceInDays(eventDate, nextDate);
+          if (elapsedDays < 1) continue;
+          if (elapsedDays > 5) break;
+
+          const pressureDelta = targetPressure - beforePressure;
+          const carbonationDelta = afterCarb - beforeCarb;
+          const brewDay = differenceInDays(brewDate, eventDate);
+
+          samples.push({
+            batchId: String(batchId),
+            eventDate: String(measurement.date || ""),
+            brewDay: brewDay,
+            temp: temp,
+            carbonationBefore: beforeCarb,
+            pressureBefore: beforePressure,
+            targetPressure: targetPressure,
+            pressureDelta: pressureDelta,
+            carbonationAfter: afterCarb,
+            carbonationDelta: carbonationDelta,
+            elapsedDays: elapsedDays,
+            success: pressureDelta * carbonationDelta > 0
+          });
+          break;
+        }
+      }
+    }
+
+    if (currentCarb !== null) latestCarb = currentCarb;
+    if (currentPressure !== null) latestPressure = currentPressure;
+    if (currentTemp !== null) latestTemp = currentTemp;
+  });
+
+  return samples;
+}
 
 
 function differenceInDays(
