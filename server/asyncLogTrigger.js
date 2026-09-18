@@ -205,6 +205,7 @@ function runAsyncMaintenance_() {
   let planningSnapshots = null;
   let sheetSync = null;
   let packagingCleanup = null;
+  let operationReceiptCleanup = null;
   let styleModels = null;
   let pressureBackfill = null;
   let logs = null;
@@ -254,6 +255,12 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    operationReceiptCleanup = cleanupLegacyOperationReceipts_();
+  } catch (error) {
+    console.log("Legacy operation receipt cleanup failed: " + error.message);
+  }
+
+  try {
     styleModels = calculateWeeklyStyleAverages(false);
   } catch (error) {
     console.log("Weekly style/pressure model maintenance failed: " + error.message);
@@ -281,6 +288,7 @@ function runAsyncMaintenance_() {
     planningSnapshots: planningSnapshots,
     sheetSync: sheetSync,
     packagingCleanup: packagingCleanup,
+    operationReceiptCleanup: operationReceiptCleanup,
     styleModels: styleModels,
     pressureBackfill: pressureBackfill,
     logs: logs
