@@ -391,7 +391,9 @@ export default function PlanningFiveWeekOverview({
   function brewGroupRange(plan: ExtendedPlan) {
     if (!plan.brews.length) return null;
     const start = plan.brews.map((brew) => brew.date).sort()[0];
-    const explicitDuration = plan.calendarBrewDurationDays;
+    const explicitDuration =
+      plan.calendarBrewDurationDays ??
+      Number(plan.calendarNotes?.["brew-duration-days"]);
     if (explicitDuration === 2 || explicitDuration === 3) {
       return { start, end: addDays(start, explicitDuration - 1) };
     }
@@ -581,8 +583,10 @@ export default function PlanningFiveWeekOverview({
     if (nextEnd > addDays(selected.weekId, 6)) return setMessage("משך הבישולים חייב להישאר בתוך אותו שבוע");
     await updatePlan(selected.weekId, (current) => ({
       ...current,
-      calendarBrewDurationDays: days,
-      brews: current.brews.map((brew) => ({ ...brew, endDate: nextEnd })),
+      calendarNotes: {
+        ...(current.calendarNotes ?? {}),
+        "brew-duration-days": String(days),
+      },
       changeReason: "שינוי משך הבישולים בלוח 5 שבועות",
     }));
   }
