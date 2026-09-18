@@ -92,6 +92,10 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
+    match /scheduledCellarRecommendations/{document} {
+      allow read, write: if isApprovedUser();
+    }
+
     match /sheetSyncJobs/{requestId} {
       allow read: if isApprovedUser();
       allow create: if isApprovedUser()
