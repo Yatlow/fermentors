@@ -98,6 +98,8 @@ export type MasterSheetLogParams = {
     batchNumber: string | number | undefined | null;
     tankNumber: string | number | null;
     tankStatus: boolean;
+    /** Stable id supplied by the packaging UI; retries must reuse it. */
+    operationId?: string;
 };
 
 export type MasterSheetLogResult = {
@@ -236,8 +238,8 @@ export async function submitPackagingRecord(
     // SAME id is reused for all HTTP attempts of this logical write. The server
     // stores the completed result before replying, so a broken Google redirect
     // can be retried without appending the packaging row twice.
-    const requestId = createAppsScriptRequestId("packaging");
-    const operationId = requestId;
+    const operationId = params.operationId?.trim() || createAppsScriptRequestId("packaging");
+    const requestId = operationId;
     const payload = {
         action: "logPackagingToMasterSheet",
         requestId,
