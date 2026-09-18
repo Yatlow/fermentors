@@ -16,6 +16,15 @@ export type PressureResponseSample = {
   success?: boolean;
 };
 
+export type PressureModelCalibration = {
+  responseMultiplier?: number | null;
+  evaluatedSamples?: number | null;
+  directionSuccessRate?: number | null;
+  within005Rate?: number | null;
+  meanAbsoluteError?: number | null;
+  updatedAt?: string;
+};
+
 export type PressureRecommendationEstimate = {
   targetPressure: number;
   pressureDelta: number;
@@ -23,6 +32,9 @@ export type PressureRecommendationEstimate = {
   confidence: "medium" | "high";
   expectedDays: number;
   responsePerBar: number;
+  calibrationMultiplier: number;
+  calibrationEvaluatedSamples: number;
+  calibrationWithin005Rate: number | null;
 };
 
 function finiteNumber(value: unknown): number | null {
@@ -58,6 +70,7 @@ export function estimatePressureTarget(args: {
   pressureMeanLast3Days?: number | null;
   pressureMeanLast7Days?: number | null;
   carbAgeAtAdjustment?: number | null;
+  calibration?: PressureModelCalibration | null;
 }): PressureRecommendationEstimate | null {
   const {
     currentCarbonation,
@@ -138,8 +151,14 @@ export function estimatePressureTarget(args: {
   const responseRates = valid
     .map((sample) => Math.abs(sample.carbonationDelta! / sample.pressureDelta!))
     .filter((rate) => Number.isFinite(rate) && rate >= 0.05 && rate <= 4);
-  const responsePerBar = median(responseRates);
-  if (responsePerBar === null || responseRates.length < 5) return null;
+  const baseResponsePerBar = median(responseRates);
+  if (baseResponsePerBar === null || responseRates.length < 5) return null;
+
+  const calibrationMultiplierRaw = finiteNumber(args.calibration?.responseMultiplier);
+  const calibrationMultiplier = calibrationMultiplierRaw === null
+    ? 1
+    : clamp(calibrationMultiplierRaw, 0.7, 1.3);
+  const responsePerBar = baseResponsePerBar * calibrationMultiplier;
 
   const rawDelta = desiredCarbDelta / responsePerBar;
   const boundedDelta = clamp(rawDelta, -0.35, 0.35);
@@ -155,12 +174,25 @@ export function estimatePressureTarget(args: {
     2.2,
   );
 
+  const calibrationEvaluatedSamples = Math.max(
+    0,
+    Math.round(Number(args.calibration?.evaluatedSamples) || 0),
+  );
+  const calibrationWithin005Rate = finiteNumber(args.calibration?.within005Rate);
+  const calibrationReliable =
+    calibrationEvaluatedSamples < 8 ||
+    calibrationWithin005Rate === null ||
+    calibrationWithin005Rate >= 0.55;
+
   return {
     targetPressure: Number(targetPressure.toFixed(2)),
     pressureDelta: Number((targetPressure - currentPressure).toFixed(2)),
     sampleCount: valid.length,
-    confidence: valid.length >= 12 ? "high" : "medium",
+    confidence: valid.length >= 12 && calibrationReliable ? "high" : "medium",
     expectedDays: Math.max(1, Math.round(expectedDaysMedian ?? 2)),
     responsePerBar: Number(responsePerBar.toFixed(3)),
+    calibrationMultiplier: Number(calibrationMultiplier.toFixed(3)),
+    calibrationEvaluatedSamples,
+    calibrationWithin005Rate,
   };
 }
