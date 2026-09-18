@@ -10,10 +10,19 @@ import {
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import "./ScheduledCellarRecommendationsPanel.css";
 
+export type NaturalFutureCellarRecommendation = {
+  id: string;
+  actionType: ScheduledCellarActionType;
+  label: string;
+  dueDate?: string;
+  detail?: string;
+};
+
 type Props = {
   tankNumber: string | number;
   batchNumber: string | number;
   rows: ScheduledCellarRecommendation[];
+  naturalFuture?: NaturalFutureCellarRecommendation[];
 };
 
 function tomorrowKey(): string {
@@ -31,6 +40,7 @@ export default function ScheduledCellarRecommendationsPanel({
   tankNumber,
   batchNumber,
   rows,
+  naturalFuture = [],
 }: Props) {
   const [open, setOpen] = useState(false);
   const [actionType, setActionType] = useState<ScheduledCellarActionType>("carbTest");
@@ -47,7 +57,11 @@ export default function ScheduledCellarRecommendationsPanel({
   async function add() {
     if (!dueDate) return;
     if (existing.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
-      setMessage("כבר קיימת המלצה מאותו סוג לתאריך הזה");
+      setMessage("כבר קיימת המלצה ידנית מאותו סוג לתאריך הזה");
+      return;
+    }
+    if (naturalFuture.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
+      setMessage("כבר קיימת המלצה טבעית מאותו סוג לתאריך הזה");
       return;
     }
 
@@ -76,6 +90,11 @@ export default function ScheduledCellarRecommendationsPanel({
     setMessage("");
     try {
       await setScheduledCellarRecommendationStatus(id, status);
+      setMessage(
+        status === "completed"
+          ? "סומן כבוצע — הפעולה תקבל ניקוד חיובי במדד של היום"
+          : "ההמלצה בוטלה ולא תוצג יותר"
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "עדכון ההמלצה נכשל");
     } finally {
@@ -91,6 +110,23 @@ export default function ScheduledCellarRecommendationsPanel({
           {open ? "ביטול" : "+ המלצה"}
         </button>
       </div>
+
+      {naturalFuture.length > 0 && (
+        <div className="scheduled-cellar-natural">
+          <small>המלצות טבעיות שכבר ידועות</small>
+          {naturalFuture.map((row) => (
+            <div className="scheduled-cellar-row natural" key={row.id}>
+              <div>
+                <b>{row.label}</b>
+                <span>
+                  {row.dueDate ? displayDate(row.dueDate) : "מועד יחושב לפי התהליך"}
+                  {row.detail ? ` · ${row.detail}` : ""}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {existing.length === 0 ? (
         <small className="scheduled-cellar-empty">אין המלצות עתידיות ידניות למיכל הזה</small>
