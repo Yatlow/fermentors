@@ -38,7 +38,10 @@ export type NextBatchResult =
   | null;
 
 async function callGasGet(params: Record<string, string>) {
-  const parsed = await callAppsScriptGet<AppsScriptEnvelope>(params);
+  const parsed = await callAppsScriptGet<AppsScriptEnvelope>(params, {
+    timeoutMs: 30000,
+    retries: 1,
+  });
 
   if (!parsed.success) {
     throw new Error(parsed.error || parsed.message || "Request failed");
@@ -109,6 +112,9 @@ export async function assignAndRefreshTank(
     sheetUrl,
     desiredAction,
     desiredTankStatus,
+  }, {
+    timeoutMs: 45000,
+    retries: 1,
   });
 
   if (!parsed.success) {
