@@ -321,11 +321,13 @@ export type CreatePalletsFromCustomSplitParams = {
     batchNumber: string | number | null | undefined;
     expiryDateStr: string;
     sourceTankNumber: string | number | null | undefined;
+    /** Stable packaging operation id. Makes pallet creation safe to retry. */
+    operationId?: string | null;
     splits: CustomPalletSplitEntry[];
 };
 
 export async function createPalletsFromCustomSplit(params: CreatePalletsFromCustomSplitParams): Promise<string[]> {
-    const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, splits } = params;
+    const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, operationId, splits } = params;
     const expectedTotal = Math.round(expectedTotalQuantity);
     if (!expectedTotal || expectedTotal <= 0) return [];
     const sanitized = splits.map((s) => ({ quantity: Math.round(s.quantity), subLabel: s.subLabel?.trim() || null })).filter((s) => s.quantity > 0);
@@ -343,10 +345,21 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
     }
     const palletBatch = writeBatch(db);
     const ids: string[] = [];
-    sanitized.forEach((entry) => {
-        const palletRef = doc(collection(db, PALLETS_COLLECTION));
+    sanitized.forEach((entry, index) => {
+        // A packaging retry must address the exact same pallet documents. Random
+        // ids made a lost response capable of duplicating physical inventory.
+        const palletRef = operationId
+            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${index + 1}`)
+            : doc(collection(db, PALLETS_COLLECTION));
         ids.push(palletRef.id);
-        palletBatch.set(palletRef, palletCreateData({ itemType, beerStyle, subLabel: entry.subLabel ?? null, quantity: entry.quantity, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber == null ? null : String(batchNumber), sourceTankNumber: sourceTankNumber ?? null }));
+        palletBatch.set(
+            palletRef,
+            {
+                ...palletCreateData({ itemType, beerStyle, subLabel: entry.subLabel ?? null, quantity: entry.quantity, expiryDateStr: expiryDateStr || null, batchNumber: batchNumber == null ? null : String(batchNumber), sourceTankNumber: sourceTankNumber ?? null }),
+                ...(operationId ? { packagingOperationId: operationId, packagingSplitIndex: index } : {}),
+            },
+            { merge: Boolean(operationId) },
+        );
     });
     await palletBatch.commit();
     return ids;
