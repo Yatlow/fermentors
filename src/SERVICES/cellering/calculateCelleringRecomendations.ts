@@ -754,23 +754,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastNote?.includes("כיוון פורק") ||
         lastNote?.includes("לכוון פורק");
 
-    const previousPressureMeasurement = [...sortedMeasurements]
-        .reverse()
-        .find((measurement) => {
-            if (getMeasurementDate(measurement.id) === todayDate) return false;
-            const value = Number(measurement.pressure);
-            return Number.isFinite(value);
-        });
-    const currentPressureToday = Number(lastMeasurement?.pressure);
-    const previousPressure = Number(previousPressureMeasurement?.pressure);
-    const pressureValueChangedToday =
-        lastMeasurementDate === todayDate &&
-        Number.isFinite(currentPressureToday) &&
-        Number.isFinite(previousPressure) &&
-        Math.abs(currentPressureToday - previousPressure) >= 0.02;
+    // The normal pressure round is only reported once in the morning, so a
+    // different pressure value versus yesterday is NOT proof that the operator
+    // acted on today's carbonation result. Only an explicit cellar action note
+    // can close the recommendation and earn completion credit.
     const pressureHandledToday =
         lastMeasurementDate === todayDate &&
-        Boolean(noteAdjustedPressureToday || pressureValueChangedToday);
+        Boolean(noteAdjustedPressureToday);
     const tookCare = Boolean(carbRes) && pressureHandledToday;
     let requiresCarbTest = {
         display: false,
