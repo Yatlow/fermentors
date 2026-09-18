@@ -488,23 +488,18 @@ export async function findPendingPackagingForManualPallet(input: {
     const data = found.data();
     const quantity = Math.max(0, Number(data.quantity ?? 0));
 
-    // Count pallets already created manually for this batch/SKU. Packaging-created
-    // deterministic pallets carry packagingOperationId and are excluded here so
-    // recovery never counts the same operation twice.
+    // Only pallets explicitly linked to THIS open operation count as coverage.
+    // A pallet from an earlier packaging day can have the same batch/style and
+    // must never reduce the recovery quantity.
     const palletQuery = query(
         collection(db, PALLETS_COLLECTION),
-        where("batchNumber", "==", batchNumber),
-        where("itemType", "==", input.itemType),
+        where("packagingOperationId", "==", found.id),
     );
     const palletSnapshot = await getDocsFromServer(palletQuery);
-    const coveredQuantity = palletSnapshot.docs.reduce((sum, palletDoc) => {
-        const pallet = palletDoc.data();
-        if (pallet.packagingOperationId) return sum;
-        const palletBeerStyle = String(pallet.beerStyle ?? "").trim();
-        const operationBeerStyle = String(data.beerStyle ?? "").trim();
-        if (operationBeerStyle && palletBeerStyle !== operationBeerStyle) return sum;
-        return sum + Math.max(0, Number(pallet.quantity ?? 0));
-    }, 0);
+    const coveredQuantity = palletSnapshot.docs.reduce(
+        (sum, palletDoc) => sum + Math.max(0, Number(palletDoc.data().quantity ?? 0)),
+        0,
+    );
 
     return {
         operationId: found.id,
@@ -514,11 +509,6 @@ export async function findPendingPackagingForManualPallet(input: {
         beerStyle: String(data.beerStyle ?? ""),
         itemType: data.itemType as PalletItemType,
     };
-}
-
-export async function createPallet(input: { itemType: PalletItemType; beerStyle: string; subLabel?: string | null; quantity: number; expiryDateStr?: string | null; batchNumber?: string | null }): Promise<string> {
-    const ids = await createPallets({ ...input, palletCount: 1 });
-    return ids[0];
 }
 
 async function reconcilePendingPackagingAfterManualCreation(input: {
