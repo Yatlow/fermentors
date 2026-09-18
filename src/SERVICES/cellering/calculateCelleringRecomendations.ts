@@ -751,14 +751,20 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastNote?.includes("העלאת לחץ") ||
         lastNote?.includes("להוריד לחץ") ||
         lastNote?.includes("להעלות לחץ");
+    const noteAdjustedPrvToday =
+        lastNote?.includes("כיוון פורק") ||
+        lastNote?.includes("לכוון פורק");
 
     // The normal pressure round is only reported once in the morning, so a
     // different pressure value versus yesterday is NOT proof that the operator
-    // acted on today's carbonation result. Only an explicit cellar action note
-    // can close the recommendation and earn completion credit.
+    // acted on today's carbonation result. A PRV adjustment is also a separate
+    // warm-pressure operation; it must not close a carbonation correction.
     const pressureHandledToday =
         lastMeasurementDate === todayDate &&
         Boolean(noteAdjustedPressureToday);
+    const prvHandledToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(noteAdjustedPrvToday);
     const tookCare = Boolean(carbRes) && pressureHandledToday;
     let requiresCarbTest = {
         display: false,
@@ -1185,7 +1191,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !pressureHandledToday;
     const warmPressureNeedsAdjustment =
         stage.name === "בתסיסה" &&
-        !pressureHandledToday &&
+        !prvHandledToday &&
         Number(lastMeasurement?.pressure) > 0 &&
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
