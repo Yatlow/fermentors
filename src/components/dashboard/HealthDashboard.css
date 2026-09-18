@@ -344,3 +344,44 @@
         padding: 9px;
     }
 }
+
+
+.health-completed-actions {
+    display: grid;
+    gap: 7px;
+    padding: 10px 11px;
+    border: 1px solid #bbf7d0;
+    border-radius: 11px;
+    background: #f0fdf4;
+}
+
+.health-completed-actions > strong {
+    color: #166534;
+    font-size: 0.84rem;
+}
+
+.health-completed-actions-list {
+    display: grid;
+    gap: 5px;
+}
+
+.health-completed-action {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 8px;
+    align-items: center;
+    color: #14532d;
+    font-size: 0.78rem;
+}
+
+.health-completed-action b {
+    direction: ltr;
+    color: #166534;
+    font-weight: bold;
+}
+
+.health-completed-action small {
+    grid-column: 1 / -1;
+    color: #4b5563;
+    font-size: 0.7rem;
+}
