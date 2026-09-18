@@ -1287,8 +1287,6 @@ function updateFermentorForNextBrew_(
 
   // currentData belongs to the completed batch. Deleting it in the same PATCH
   // prevents a new waiting brew from temporarily inheriting old measurements.
-  fields.currentData = { nullValue: null };
-
   const masks = [
     "action",
     "stage",
@@ -1299,6 +1297,8 @@ function updateFermentorForNextBrew_(
     "beerVolume",
     "startingPlato",
     "sheetUrl",
+    // Including currentData in the update mask while omitting it from fields
+    // deletes the completed batch's measurements atomically.
     "currentData"
   ];
 
