@@ -94,3 +94,55 @@ test("pressure recommendation ignores outcomes in the wrong direction", () => {
 
   assert.equal(estimate, null);
 });
+
+
+test("pressure recommendation applies learned response calibration", () => {
+  const samples = Array.from({ length: 12 }, () => sample(0.2, 0.1));
+
+  const uncalibrated = estimatePressureTarget({
+    samples,
+    currentCarbonation: 2.3,
+    targetCarbonation: 2.45,
+    currentPressure: 1.2,
+  });
+  const calibrated = estimatePressureTarget({
+    samples,
+    currentCarbonation: 2.3,
+    targetCarbonation: 2.45,
+    currentPressure: 1.2,
+    calibration: {
+      responseMultiplier: 1.2,
+      evaluatedSamples: 20,
+      within005Rate: 0.8,
+    },
+  });
+
+  assert.ok(uncalibrated);
+  assert.ok(calibrated);
+  assert.equal(calibrated.calibrationMultiplier, 1.2);
+  assert.equal(calibrated.calibrationEvaluatedSamples, 20);
+  assert.equal(calibrated.calibrationWithin005Rate, 0.8);
+  assert.ok(
+    calibrated.targetPressure <= uncalibrated.targetPressure,
+    "stronger learned response should not require a larger pressure increase",
+  );
+});
+
+test("low calibration accuracy prevents high confidence", () => {
+  const samples = Array.from({ length: 14 }, () => sample(0.2, 0.1));
+
+  const estimate = estimatePressureTarget({
+    samples,
+    currentCarbonation: 2.3,
+    targetCarbonation: 2.45,
+    currentPressure: 1.2,
+    calibration: {
+      responseMultiplier: 1,
+      evaluatedSamples: 30,
+      within005Rate: 0.4,
+    },
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.confidence, "medium");
+});
