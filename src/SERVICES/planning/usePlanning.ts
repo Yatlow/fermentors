@@ -367,6 +367,7 @@ export function usePlanning(
 
       const sourceData = sourceSnap.data() as WeekPlan & {
         calendarEvents?: typeof nextEvent[];
+        createdAt?: unknown;
       };
       const sourceEvents = Array.isArray(sourceData.calendarEvents)
         ? sourceData.calendarEvents
