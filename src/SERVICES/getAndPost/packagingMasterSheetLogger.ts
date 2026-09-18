@@ -180,7 +180,7 @@ async function logPackagingToFirestore(params: {
         timestamp: productDate.getTime(),
         title,
         operationId,
-        createdAt: Timestamp.now(),
+        createdAt: Timestamp.fromDate(productDate),
     }, { merge: true });
     const docRef = doc(db, "fermentors", tankNumber?.toString() ?? "");
     try {
