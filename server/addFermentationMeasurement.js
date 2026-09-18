@@ -381,6 +381,180 @@ function addFermentationCarbonationFast_(
 }
 
 
+function addFermentationSimpleMeasurementFast_(
+  ss,
+  sheet,
+  spreadsheetId,
+  temperature,
+  pressure,
+  sugar,
+  pH,
+  carbonation,
+  notes,
+  startedAt
+) {
+  const clock = getJerusalemMeasurementClock_();
+  const cache = CacheService.getScriptCache();
+  const todayKey = "fermentation_today:" + spreadsheetId + ":" + clock.dateKey;
+  const cachedTodayRow = Number(cache.get(todayKey));
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  let targetRow = -1;
+  let rowDisplay = null;
+
+  if (
+    Number.isFinite(cachedTodayRow) &&
+    cachedTodayRow >= 1 &&
+    cachedTodayRow <= Math.max(lastRow, cachedTodayRow)
+  ) {
+    const cachedDisplay = sheet
+      .getRange(cachedTodayRow, 1, 1, 8)
+      .getDisplayValues()[0];
+
+    if (fermentationDateMatchesToday_(cachedDisplay[0], clock)) {
+      targetRow = cachedTodayRow;
+      rowDisplay = cachedDisplay;
+      Logger.log("Fast measurement: today-row cache hit at row " + targetRow);
+    }
+  }
+
+  if (targetRow === -1) {
+    const headerRow = getCachedFermentationHeaderRow_(sheet, spreadsheetId, lastRow);
+    const dataRowCount = Math.max(lastRow - headerRow, 0);
+    const dateTimeValues = dataRowCount > 0
+      ? sheet.getRange(headerRow + 1, 1, dataRowCount, 2).getDisplayValues()
+      : [];
+
+    let lastMeasurementRow = headerRow;
+    for (let i = 0; i < dateTimeValues.length; i++) {
+      const absoluteRow = headerRow + 1 + i;
+      const rawDate = String(dateTimeValues[i][0] || "").trim();
+      if (!rawDate) continue;
+      if (parseIsraeliDate(rawDate)) lastMeasurementRow = absoluteRow;
+      if (fermentationDateMatchesToday_(rawDate, clock)) targetRow = absoluteRow;
+    }
+
+    if (targetRow !== -1) {
+      rowDisplay = sheet.getRange(targetRow, 1, 1, 8).getDisplayValues()[0];
+    } else {
+      targetRow = lastMeasurementRow + 1;
+      const existing = sheet.getRange(targetRow, 1, 1, 8).getDisplayValues()[0];
+      if (existing.some(function (value) { return String(value || "").trim() !== ""; })) {
+        throw new Error(
+          "SAFETY STOP: Fast-measurement target row " + targetRow +
+          " is not empty. Nothing was written."
+        );
+      }
+
+      const rowValues = [
+        clock.sheetDate,
+        clock.timeText,
+        hasFermentationValue_(sugar) ? formatMeasurementValue(sugar) : "",
+        hasFermentationValue_(temperature) ? formatMeasurementValue(temperature) : "",
+        hasFermentationValue_(pressure) ? formatMeasurementValue(pressure) : "",
+        hasFermentationValue_(pH) ? formatMeasurementValue(pH) : "",
+        hasFermentationValue_(carbonation) ? formatMeasurementValue(carbonation) : "",
+        hasFermentationValue_(notes) ? String(notes).trim() : ""
+      ];
+
+      sheet.getRange(targetRow, 1, 1, 8).setValues([rowValues]);
+      sheet.getRange(targetRow, 1, 1, 7).setNumberFormats([[
+        "dd/MM/yyyy",
+        "HH:mm",
+        '0.00"°P"',
+        '0.00"°C"',
+        '0.00"Bar"',
+        "0.00",
+        "0.00"
+      ]]);
+
+      cache.put(todayKey, String(targetRow), 21600);
+      Logger.log(
+        "Fast measurement: created today's row " + targetRow +
+        " | total " + (Date.now() - startedAt) + "ms"
+      );
+
+      return {
+        success: true,
+        overwritten: false,
+        spreadsheetId: spreadsheetId,
+        sheetName: sheet.getName(),
+        row: targetRow,
+        date: clock.dateText,
+        time: clock.timeText,
+        sugar: rowValues[2],
+        temperature: rowValues[3],
+        pressure: rowValues[4],
+        pH: rowValues[5],
+        carbonation: rowValues[6],
+        notes: rowValues[7],
+        sheetUrl: ss.getUrl(),
+        fastPath: "simple_measurement"
+      };
+    }
+  }
+
+  const result = {
+    sugar: rowDisplay ? rowDisplay[2] : "",
+    temperature: rowDisplay ? rowDisplay[3] : "",
+    pressure: rowDisplay ? rowDisplay[4] : "",
+    pH: rowDisplay ? rowDisplay[5] : "",
+    carbonation: rowDisplay ? rowDisplay[6] : "",
+    notes: rowDisplay ? rowDisplay[7] : ""
+  };
+
+  if (hasFermentationValue_(sugar)) {
+    result.sugar = formatMeasurementValue(sugar);
+    sheet.getRange(targetRow, 3).setValue(result.sugar).setNumberFormat('0.00"°P"');
+  }
+  if (hasFermentationValue_(temperature)) {
+    result.temperature = formatMeasurementValue(temperature);
+    sheet.getRange(targetRow, 4).setValue(result.temperature).setNumberFormat('0.00"°C"');
+  }
+  if (hasFermentationValue_(pressure)) {
+    result.pressure = formatMeasurementValue(pressure);
+    sheet.getRange(targetRow, 5).setValue(result.pressure).setNumberFormat('0.00"Bar"');
+  }
+  if (hasFermentationValue_(pH)) {
+    result.pH = formatMeasurementValue(pH);
+    sheet.getRange(targetRow, 6).setValue(result.pH).setNumberFormat("0.00");
+  }
+  if (hasFermentationValue_(carbonation)) {
+    result.carbonation = formatMeasurementValue(carbonation);
+    sheet.getRange(targetRow, 7).setValue(result.carbonation).setNumberFormat("0.00");
+  }
+  if (hasFermentationValue_(notes)) {
+    const oldNotes = String(result.notes || "").trim();
+    const newNotes = String(notes || "").trim();
+    result.notes = oldNotes && newNotes ? oldNotes + " | " + newNotes : (newNotes || oldNotes);
+    sheet.getRange(targetRow, 8).setValue(result.notes);
+  }
+
+  cache.put(todayKey, String(targetRow), 21600);
+  Logger.log(
+    "Fast measurement: updated row " + targetRow +
+    " | total " + (Date.now() - startedAt) + "ms"
+  );
+
+  return {
+    success: true,
+    overwritten: true,
+    spreadsheetId: spreadsheetId,
+    sheetName: sheet.getName(),
+    row: targetRow,
+    date: clock.dateText,
+    time: String((rowDisplay && rowDisplay[1]) || clock.timeText).trim(),
+    sugar: result.sugar,
+    temperature: result.temperature,
+    pressure: result.pressure,
+    pH: result.pH,
+    carbonation: result.carbonation,
+    notes: result.notes,
+    sheetUrl: ss.getUrl(),
+    fastPath: "simple_measurement"
+  };
+}
+
+
 function addFermentationMeasurement(
   sheetUrl,
   temperature,
@@ -457,6 +631,25 @@ function addFermentationMeasurement(
         sheet,
         spreadsheetId,
         carbonation,
+        startedAt
+      );
+    }
+
+    // Normal cellar measurements do not need the expensive full-table A:H
+    // rewrite either. This covers warm reports, pressure/temperature reports,
+    // and bottom-carbonation start/close (pressure + note). Packaging keeps the
+    // legacy full path because it needs rich-text note formatting.
+    if (hasNumericMeasurement && boldNotes !== true) {
+      return addFermentationSimpleMeasurementFast_(
+        ss,
+        sheet,
+        spreadsheetId,
+        temperature,
+        pressure,
+        sugar,
+        pH,
+        carbonation,
+        notes,
         startedAt
       );
     }
