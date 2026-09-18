@@ -201,6 +201,7 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
         packagingReadings.map((reading) =>
             callAppsScriptPost<AppsScriptEnvelope<Record<string, unknown>>>({
                 action: "updatePackagingInfo",
+                requestId: createAppsScriptRequestId(`updatePackagingInfo-${reading.tankId}`),
                 sheetUrl: reading.sheetUrl,
                 isEmpty: reading.isEmpty,
                 kegs: reading.kegs,
