@@ -12,7 +12,9 @@ import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import {
     dueScheduledForTank,
     scheduledActionLabel,
+    setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
+    todayDateKey,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import ScheduledCellarRecommendationsPanel, {
@@ -103,6 +105,7 @@ export default function FermentorInfoBox({
 
     const brewAge = getBrewAge(tank.brewDate);
     const infoBoxRef = useRef<HTMLDivElement | null>(null);
+    const autoResolvedScheduledIds = useRef(new Set<string>());
 
     const getSafePosition = () => {
         const margin = 12;
@@ -218,6 +221,46 @@ export default function FermentorInfoBox({
         tank.tankNumber,
         specs,
         brewAge,
+    ]);
+
+    useEffect(() => {
+        if (!tank.batchNumber || measurements.length === 0) return;
+
+        const today = todayDateKey();
+        const todayNotes = measurements
+            .filter((measurement) => String(measurement.id ?? "").startsWith(today))
+            .map((measurement) => String(measurement.notes ?? ""))
+            .join(" | ");
+
+        const performed = new Set<"carbTest" | "yeastDrop">();
+        if (/בדיקת\s+גיזוז/.test(todayNotes)) performed.add("carbTest");
+        if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
+        if (performed.size === 0) return;
+
+        const due = dueScheduledForTank(
+            scheduledRecommendations,
+            tank.tankNumber,
+            tank.batchNumber,
+            today,
+        ).filter((row) =>
+            performed.has(row.actionType) &&
+            !autoResolvedScheduledIds.current.has(row.id)
+        );
+
+        if (due.length === 0) return;
+
+        due.forEach((row) => autoResolvedScheduledIds.current.add(row.id));
+        void Promise.all(
+            due.map((row) => setScheduledCellarRecommendationStatus(row.id, "completed"))
+        ).catch((error) => {
+            due.forEach((row) => autoResolvedScheduledIds.current.delete(row.id));
+            console.error("Failed auto-completing scheduled cellar recommendation:", error);
+        });
+    }, [
+        measurements,
+        scheduledRecommendations,
+        tank.batchNumber,
+        tank.tankNumber,
     ]);
 
     const openBottomCarbonation = findOpenBottomCarbonation(measurements);
