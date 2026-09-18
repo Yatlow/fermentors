@@ -1254,8 +1254,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם. ` +
                     (
                         pressureModelSampleCount === null || pressureModelSampleCount === 0
-                            ? "מנוע הלחץ עדיין ללא היסטוריה זמינה"
-                            : `מנוע הלחץ מכיל ${pressureModelSampleCount} דוגמאות, אך עדיין אין לפחות 5 דוגמאות דומות מספיק למצב הנוכחי`
+                            ? "מחשבון שינוי הלחץ עדיין ללא היסטוריה זמינה"
+                            : `מחשבון שינוי הלחץ מכיל ${pressureModelSampleCount} דוגמאות, אך עדיין אין לפחות 5 דוגמאות דומות מספיק למצב הנוכחי`
                     )
                 )
             : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
