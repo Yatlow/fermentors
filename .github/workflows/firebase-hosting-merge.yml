@@ -27,6 +27,7 @@ jobs:
         run: npm ci && npm test && npm run build
         env:
           VITE_APP_VERSION: ${{ github.sha }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
 
       # Keep rules and frontend deployment ordered. This matters for features
       # such as sheetSyncJobs: the new client must never go live before the rules
