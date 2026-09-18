@@ -816,7 +816,7 @@ export default function SendMessurmentsHeader({
                 .map((row) => ({
                     req: true,
                     reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
-                    importance: 1,
+                    importance: 3,
                     display: true,
                 }))
             : [];
