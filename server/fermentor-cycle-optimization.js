@@ -509,12 +509,6 @@ function extractBrew(spreadSheetId) {
   return brew;
 }
 
-// Legacy implementation kept only for reference while the optimized file is
-// still being consolidated. Nothing calls this name in production.
-function legacyExtractBrewStageInfo_(spreadSheetId, fermentorHint) {
-  throw new Error("legacyExtractBrewStageInfo_ is retired; use extractBrewStageInfo from extractBrewStageInfo.js");
-}
-
 function writeLatestMeasurementIfChanged_(projectId, batchId, sheetUrl) {
   return fcWithScriptLock_(function () {
     const values = fcSheetSnapshot_(sheetUrl).values;
@@ -546,12 +540,6 @@ function writeLatestMeasurementIfChanged_(projectId, batchId, sheetUrl) {
     }
     return false;
   });
-}
-
-// Legacy implementation kept under a unique name so it cannot shadow the
-// timestamp-aware implementation in extractBrewStageInfo.js.
-function legacyUpdateFermentorBrewProgress_(tankNumber, stageInfo) {
-  throw new Error("legacyUpdateFermentorBrewProgress_ is retired; use updateFermentorBrewProgress from extractBrewStageInfo.js");
 }
 
 function mrTargets_(projectId, batchId) {
