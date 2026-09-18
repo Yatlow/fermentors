@@ -9,6 +9,7 @@ import {
     type Timestamp,
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { recoverPackagingOperation } from "../../SERVICES/getAndPost/packagingMasterSheetLogger";
 import "./SheetSyncStatus.css";
 
 type SheetSyncJob = {
@@ -74,6 +75,8 @@ export default function SheetSyncStatus() {
     const [pullStatus, setPullStatus] = useState<SheetPullStatus | null>(null);
     const [readError, setReadError] = useState(false);
     const [now, setNow] = useState(() => Date.now());
+    const [recoveringPackagingId, setRecoveringPackagingId] = useState<string | null>(null);
+    const [recoveryError, setRecoveryError] = useState<string>("");
     const isPreviewHost = typeof window !== "undefined" && window.location.hostname.includes("--pr");
 
     useEffect(() => {
@@ -220,6 +223,20 @@ export default function SheetSyncStatus() {
                 ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""}`
                 : "מסונכרן";
 
+    async function recoverPackaging(operationId: string) {
+        if (recoveringPackagingId) return;
+        setRecoveringPackagingId(operationId);
+        setRecoveryError("");
+        try {
+            await recoverPackagingOperation(operationId);
+        } catch (error: any) {
+            console.error("Failed to recover packaging operation:", error);
+            setRecoveryError(error?.message ?? "שחזור המשטחים נכשל");
+        } finally {
+            setRecoveringPackagingId(null);
+        }
+    }
+
     const pullPill = readError
         ? "לא זמין"
         : !pullStatus && isPreviewHost
@@ -247,6 +264,24 @@ export default function SheetSyncStatus() {
                     </span>
                 </div>
             </div>
+
+            {pendingPackaging.length > 0 && (
+                <div className="sheet-sync-packaging-recovery">
+                    <span>יש {pendingPackaging.length} פעולות אריזה שממתינות להשלמת משטחים.</span>
+                    {pendingPackaging.map((operation) => (
+                        <button
+                            key={operation.id}
+                            type="button"
+                            className="sheet-sync-recovery-button"
+                            disabled={Boolean(recoveringPackagingId)}
+                            onClick={() => recoverPackaging(operation.id)}
+                        >
+                            {recoveringPackagingId === operation.id ? "משחזר…" : "שחזר משטחים"}
+                        </button>
+                    ))}
+                    {recoveryError && <span className="sheet-sync-recovery-error">{recoveryError}</span>}
+                </div>
+            )}
         </section>
     );
 }
