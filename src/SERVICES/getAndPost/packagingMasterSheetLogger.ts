@@ -71,6 +71,38 @@ export async function savePackagingPalletSplits(operationId: string, splits: Cus
     });
 }
 
+export async function recoverPackagingOperation(operationId: string): Promise<string[]> {
+    const operationRef = doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId);
+    const snapshot = await getDoc(operationRef);
+    if (!snapshot.exists()) throw new Error("פעולת האריזה לא נמצאה");
+    const operation = snapshot.data();
+    if (operation.state === "completed") return [];
+
+    const splits = Array.isArray(operation.palletSplits)
+        ? operation.palletSplits.map((split: any) => ({
+            quantity: Math.round(Number(split?.quantity ?? 0)),
+            subLabel: split?.subLabel ?? null,
+        })).filter((split: CustomPalletSplitEntry) => split.quantity > 0)
+        : [];
+    if (splits.length === 0) {
+        throw new Error("לפעולת האריזה אין חלוקת משטחים שמורה ולכן לא ניתן לשחזר אותה אוטומטית");
+    }
+
+    const plan: PackagingPalletPlan = {
+        operationId,
+        itemType: operation.itemType,
+        quantity: Math.round(Number(operation.quantity ?? 0)),
+        beerStyle: String(operation.beerStyle ?? ""),
+        batchNumber: operation.batchNumber ?? null,
+        expiryDateStr: String(operation.expiryDateStr ?? ""),
+        sourceTankNumber: operation.tankNumber ?? null,
+        tankNumber: operation.tankNumber ?? null,
+    };
+    const ids = await createPalletsForPlan(plan, splits);
+    await markPackagingPalletsCompleted(operationId);
+    return ids;
+}
+
 export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
     await setDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
         state: "completed",
