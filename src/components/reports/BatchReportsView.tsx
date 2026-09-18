@@ -140,6 +140,19 @@ function parseDate(value: string): Date | null {
 }
 
 
+function dateInputValue(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function daysAgoInput(days: number): string {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return dateInputValue(date);
+}
+
 function getDayFromBrew(
     brewDateString: string,
     measurementDateString: string
@@ -334,6 +347,8 @@ export default function BatchReportsView({
     const [hasMoreBrews, setHasMoreBrews] = useState(false);
 
     const [reportView, setReportView] = useState<ReportView>("current");
+    const [brewStartDate, setBrewStartDate] = useState(() => daysAgoInput(29));
+    const [brewEndDate, setBrewEndDate] = useState(() => dateInputValue(new Date()));
 
     const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
     const [selectedAverageStyle, setSelectedAverageStyle] = useState<string | null>(null);
@@ -430,11 +445,16 @@ export default function BatchReportsView({
                 if (Number.isFinite(batchNum) && batchNum < MIN_OLD_BATCH_NUMBER) {
                     return false;
                 }
+
+                const brewDate = parseDate(b.brewDate);
+                const from = new Date(`${brewStartDate}T00:00:00`);
+                const to = new Date(`${brewEndDate}T23:59:59`);
+                if (brewDate && (brewDate < from || brewDate > to)) return false;
             }
 
             return true;
         });
-    }, [brews, currentBatchNumbers, reportView]);
+    }, [brews, currentBatchNumbers, reportView, brewStartDate, brewEndDate]);
 
 
     function handleReportViewChange(view: ReportView) {
@@ -780,6 +800,44 @@ export default function BatchReportsView({
                         >
                             {loadingMoreBrews ? "טוען…" : "טען עוד אצוות"}
                         </button>
+                    )}
+
+                    {reportView === "old" && (
+                        <div className="packaging-report-pickers" style={{ marginTop: 8 }}>
+                            <div className="packaging-report-quick-ranges">
+                                {[30, 90, 365].map((days) => (
+                                    <button
+                                        key={days}
+                                        type="button"
+                                        className="btn-secondary"
+                                        onClick={() => {
+                                            setBrewStartDate(daysAgoInput(days - 1));
+                                            setBrewEndDate(dateInputValue(new Date()));
+                                        }}
+                                    >
+                                        {days === 365 ? "שנה" : `${days} ימים`}
+                                    </button>
+                                ))}
+                            </div>
+                            <label className="packaging-report-label">
+                                מתאריך
+                                <input
+                                    type="date"
+                                    className="packaging-report-input"
+                                    value={brewStartDate}
+                                    onChange={(event) => setBrewStartDate(event.target.value)}
+                                />
+                            </label>
+                            <label className="packaging-report-label">
+                                עד תאריך
+                                <input
+                                    type="date"
+                                    className="packaging-report-input"
+                                    value={brewEndDate}
+                                    onChange={(event) => setBrewEndDate(event.target.value)}
+                                />
+                            </label>
+                        </div>
                     )}
 
                     {!loadingBrews && selectableBrews.length === 0 && (
