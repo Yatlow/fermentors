@@ -218,4 +218,33 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   );
 }
 
+
+
+{
+  const weekly = loadAppsScript("server/calculateWeeklyStyleAverages.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+  });
+  assert.equal(
+    weekly.pressureTargetFromNote_(
+      "הורדת לחץ ל0 | העלאת לחץ ל0.2 | העלאת לחץ ל: 1.4 bar"
+    ),
+    1.4,
+    "pressure learning must use the final pressure target from a compound note",
+  );
+
+  const samples = weekly.buildPressureResponseSamplesForBrew_(
+    [
+      { date: "16/09/2026", time: "08:00", pressure: 1.1, carbonation: 2.3, temp: 1.5 },
+      { date: "18/09/2026", time: "09:00", pressure: 1.4, carbonation: 2.31, temp: 1.5, notes: "העלאת לחץ ל: 1.4 bar" },
+      { date: "20/09/2026", time: "09:00", pressure: 1.4, carbonation: 2.43, temp: 1.5 },
+    ],
+    new Date(2026, 8, 1),
+    "1593",
+  );
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0].pressureBefore, 1.1);
+  assert.equal(samples[0].targetPressure, 1.4);
+  assert.ok(samples[0].carbonationDelta > 0);
+}
+
 console.log("Critical server regression tests passed");
