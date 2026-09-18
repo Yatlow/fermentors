@@ -64,6 +64,13 @@ async function persistPackagingOperation(params: {
     });
 }
 
+export async function savePackagingPalletSplits(operationId: string, splits: CustomPalletSplitEntry[]): Promise<void> {
+    await updateDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
+        palletSplits: splits.map((split) => ({ quantity: Math.round(split.quantity), subLabel: split.subLabel ?? null })),
+        updatedAt: serverTimestamp(),
+    });
+}
+
 export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
     await setDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
         state: "completed",
