@@ -321,18 +321,19 @@ function processAction5(
     return;
   }
 
-  uploadBrewToFirebase(
-    nextBrew.sheetUrl
-  );
+  // Upload the brew/history first, but deliberately suppress the helper's
+  // legacy fermentor side effect. ACTION 5 owns the tank transition and commits
+  // all tank fields in one Firestore PATCH below.
+  const uploadedBrew =
+    uploadBrewToFirebase(
+      nextBrew.sheetUrl,
+      { skipFermentorUpdate: true }
+    );
 
-  updateFermentorSheetUrl(
+  updateFermentorForNextBrew_(
     tankNumber,
+    uploadedBrew,
     nextBrew.sheetUrl
-  );
-
-  updateFermentorAction(
-    tankNumber,
-    0
   );
 
   Logger.log(
@@ -1237,6 +1238,109 @@ function getFermentorFromFirebase(
   }
 
   return result;
+}
+
+
+// ============================================================
+// ACTION 5: ATOMIC FERMENTOR TRANSITION
+// ============================================================
+
+function updateFermentorForNextBrew_(
+  tankNumber,
+  brew,
+  sheetUrl
+) {
+
+  if (!brew) {
+    throw new Error("ACTION 5: missing uploaded brew data.");
+  }
+
+  const fermentorId = String(tankNumber).trim();
+  const nextBatch = parseBatchNumber(brew.batchNumber);
+
+  if (nextBatch === null) {
+    throw new Error("ACTION 5: invalid next batch.");
+  }
+
+  if (!tankNumbersEqual(brew.tankNumber, fermentorId)) {
+    throw new Error(
+      "ACTION 5: extracted brew tank " +
+      brew.tankNumber +
+      " does not match fermentor " +
+      fermentorId
+    );
+  }
+
+  const payload = {
+    action: 0,
+    stage: 0,
+    tankStatus: false,
+    batchNumber: brew.batchNumber,
+    beerStyle: brew.beerStyle || null,
+    brewDate: brew.brewDate || null,
+    beerVolume: brew.beerVolume || null,
+    startingPlato: brew.startingPlato || null,
+    sheetUrl: sheetUrl
+  };
+
+  const fields = toFirestoreFields(payload);
+
+  // currentData belongs to the completed batch. Deleting it in the same PATCH
+  // prevents a new waiting brew from temporarily inheriting old measurements.
+  fields.currentData = { nullValue: null };
+
+  const masks = [
+    "action",
+    "stage",
+    "tankStatus",
+    "batchNumber",
+    "beerStyle",
+    "brewDate",
+    "beerVolume",
+    "startingPlato",
+    "sheetUrl",
+    "currentData"
+  ];
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId) +
+    "?" +
+    masks.map(function (path) {
+      return "updateMask.fieldPaths=" + encodeURIComponent(path);
+    }).join("&");
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: {
+      Authorization: "Bearer " + ScriptApp.getOAuthToken()
+    },
+    payload: JSON.stringify({ fields: fields }),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+
+  if (code < 200 || code >= 300) {
+    throw new Error(
+      "ACTION 5 fermentor transition failed for tank " +
+      fermentorId +
+      ": " +
+      code +
+      " " +
+      response.getContentText()
+    );
+  }
+
+  Logger.log(
+    "ACTION 5 atomically moved tank " +
+    fermentorId +
+    " to batch " +
+    nextBatch
+  );
 }
 
 
