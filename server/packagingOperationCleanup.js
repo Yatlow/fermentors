@@ -97,3 +97,65 @@ function cleanupCompletedPackagingOperations_() {
 
   return { skipped: false, deleted: deleted };
 }
+
+
+// Legacy operationReceipts are no longer written (requestId idempotency replaced
+// them). Delete a small page per day until the old collection is empty.
+const OPERATION_RECEIPT_CLEANUP_DAY_KEY = "operation_receipts_cleanup_day_v1";
+const OPERATION_RECEIPT_CLEANUP_LIMIT = 50;
+
+function cleanupLegacyOperationReceipts_() {
+  const props = PropertiesService.getScriptProperties();
+  const today = Utilities.formatDate(new Date(), "Asia/Jerusalem", "yyyy-MM-dd");
+
+  if (props.getProperty(OPERATION_RECEIPT_CLEANUP_DAY_KEY) === today) {
+    return { skipped: true, deleted: 0 };
+  }
+
+  const token = ScriptApp.getOAuthToken();
+  const listResponse = UrlFetchApp.fetch(
+    packagingCleanupBaseUrl_() + "/operationReceipts?pageSize=" + OPERATION_RECEIPT_CLEANUP_LIMIT,
+    {
+      method: "get",
+      headers: { Authorization: "Bearer " + token },
+      muteHttpExceptions: true
+    }
+  );
+
+  const code = listResponse.getResponseCode();
+  if (code === 404) {
+    props.setProperty(OPERATION_RECEIPT_CLEANUP_DAY_KEY, today);
+    return { skipped: false, deleted: 0 };
+  }
+  if (code < 200 || code >= 300) {
+    throw new Error("Operation receipt cleanup list failed: HTTP " + code);
+  }
+
+  const documents = JSON.parse(listResponse.getContentText() || "{}").documents || [];
+  let deleted = 0;
+
+  documents.forEach(function (document) {
+    const id = String(document.name || "").split("/").pop();
+    if (!id) return;
+    const response = UrlFetchApp.fetch(
+      packagingCleanupBaseUrl_() + "/operationReceipts/" + encodeURIComponent(id),
+      {
+        method: "delete",
+        headers: { Authorization: "Bearer " + token },
+        muteHttpExceptions: true
+      }
+    );
+    const deleteCode = response.getResponseCode();
+    if (deleteCode === 404 || (deleteCode >= 200 && deleteCode < 300)) {
+      deleted++;
+      return;
+    }
+    throw new Error("Operation receipt cleanup delete failed for " + id + ": HTTP " + deleteCode);
+  });
+
+  props.setProperty(OPERATION_RECEIPT_CLEANUP_DAY_KEY, today);
+  if (deleted > 0) {
+    console.log("Legacy operation receipt cleanup deleted " + deleted + " records.");
+  }
+  return { skipped: false, deleted: deleted };
+}
