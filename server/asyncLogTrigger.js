@@ -204,6 +204,7 @@ function runAsyncMaintenance_() {
   let sheetPull = null;
   let planningSnapshots = null;
   let sheetSync = null;
+  let packagingCleanup = null;
   let logs = null;
 
   try {
@@ -245,6 +246,12 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    packagingCleanup = cleanupCompletedPackagingOperations_();
+  } catch (error) {
+    console.log("Packaging operation cleanup failed: " + error.message);
+  }
+
+  try {
     logs = flushQueuedLogs_();
   } catch (error) {
     console.log("Async log flush failed: " + error.message);
@@ -259,6 +266,7 @@ function runAsyncMaintenance_() {
     sheetPull: sheetPull,
     planningSnapshots: planningSnapshots,
     sheetSync: sheetSync,
+    packagingCleanup: packagingCleanup,
     logs: logs
   };
 }
