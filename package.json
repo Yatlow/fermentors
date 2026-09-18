@@ -11,7 +11,8 @@
     "test:planning": "node scripts/test-planning.mjs",
     "test:dashboard": "node scripts/test-dashboard.mjs",
     "test:planning-snapshots": "node scripts/test-planning-snapshots.mjs",
-    "test": "npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots"
+    "test": "npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions",
+    "test:server-regressions": "node scripts/test-server-regressions.mjs"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",

@@ -104,12 +104,35 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
 }
 
 export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
-    await setDoc(doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId), {
+    const operationRef = doc(db, PACKAGING_OPERATIONS_COLLECTION, operationId);
+    const operationSnap = await getDoc(operationRef);
+    if (!operationSnap.exists()) throw new Error("פעולת האריזה לא נמצאה");
+    const operation = operationSnap.data();
+    if (operation.state === "completed") return;
+    if (operation.state !== "awaiting_pallets") throw new Error("פעולת האריזה אינה במצב שמאפשר השלמה");
+
+    const expectedQuantity = Math.max(0, Math.round(Number(operation.quantity ?? 0)));
+    const linkedSnapshot = await getDocs(query(
+        collection(db, "pallets"),
+        where("packagingOperationId", "==", operationId),
+    ));
+    const coveredQuantity = linkedSnapshot.docs.reduce((sum, palletDoc) => {
+        const pallet = palletDoc.data();
+        const applied = pallet.packagingAppliedQuantity;
+        return sum + Math.max(0, Number(applied == null ? pallet.quantity : applied) || 0);
+    }, 0);
+
+    if (coveredQuantity < expectedQuantity) {
+        throw new Error(
+            `לא ניתן להשלים את פעולת האריזה: נוצרו/קושרו ${coveredQuantity} מתוך ${expectedQuantity} פריטים`
+        );
+    }
+
+    await updateDoc(operationRef, {
         state: "completed",
         updatedAt: serverTimestamp(),
-    }, { merge: true });
+    });
 }
-
 
 
 /**
@@ -508,6 +531,7 @@ export async function logPackagingToMasterSheet(
         try {
             const splits = getDefaultSplitForPlan(record.palletPlan);
             await createPalletsForPlan(record.palletPlan, splits);
+            await markPackagingPalletsCompleted(record.palletPlan.operationId);
         } catch (err) {
             console.error("Failed to create pallets for cooler map:", err);
             warnings.push("הרישום הצליח אך יצירת המשטחים במפת המקרר נכשלה - יש להוסיף ידנית");

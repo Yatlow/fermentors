@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     submitPackagingRecord,
     createPalletsForPlan,
@@ -148,10 +148,12 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
         return promise;
     }
 
-    useMemo(() => {
+    useEffect(() => {
         if (sendStartedRef.current) return;
         sendStartedRef.current = true;
         sendPromisesRef.current = jobsRef.current.map((_, jobIndex) => sendJob(jobIndex));
+        // Sending is an external side effect; it must run after commit, never during render.
+        // jobsRef intentionally freezes the jobs that opened this flow.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
