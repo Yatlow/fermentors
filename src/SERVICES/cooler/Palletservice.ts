@@ -351,7 +351,7 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
     const ids: string[] = [];
     const refs = sanitized.map((_, index) =>
         operationId
-            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${index + 1}`)
+            ? doc(db, PALLETS_COLLECTION, `pkg_${operationId}_${index + 1}_${sanitized[index].quantity}`)
             : doc(collection(db, PALLETS_COLLECTION))
     );
 
