@@ -176,4 +176,46 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal(maintenance.smartShouldRunFullCycle_(at(10, 0)), true, "day window must always run the full cycle");
 }
 
+
+
+{
+  let patched = null;
+  const manualStatus = loadAppsScript("server/assignAndRefreshTank.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+    ScriptApp: { getOAuthToken: () => "token" },
+    getFermentorFromFirestore: () => ({
+      action: 1,
+      batchNumber: "1593",
+      tankStatus: false,
+    }),
+    UrlFetchApp: {
+      fetch(_url, options) {
+        patched = JSON.parse(options.payload);
+        return {
+          getResponseCode: () => 200,
+          getContentText: () => "{}",
+        };
+      },
+    },
+    logToSheet() {},
+  });
+
+  const result = manualStatus.applyManualStatusChange("10", 3, true, "1593", 1);
+  assert.equal(result.action, 3);
+  assert.equal(result.tankStatus, true);
+  assert.equal(patched.fields.action.integerValue, "3");
+  assert.equal(patched.fields.tankStatus.booleanValue, true);
+
+  manualStatus.getFermentorFromFirestore = () => ({
+    action: 4,
+    batchNumber: "1593",
+    tankStatus: true,
+  });
+  assert.throws(
+    () => manualStatus.applyManualStatusChange("10", 3, true, "1593", 1),
+    /סטטוס המיכל השתנה/,
+    "manual status commit must abort when the status changed after confirmation",
+  );
+}
+
 console.log("Critical server regression tests passed");
