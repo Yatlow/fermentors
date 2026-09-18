@@ -1970,8 +1970,11 @@ function uploadFermentorToFirebase(
 // ============================================================
 
 function uploadBrewToFirebase(
-  sheetUrl
+  sheetUrl,
+  options
 ) {
+
+  options = options || {};
 
   if (!sheetUrl) {
 
@@ -2252,10 +2255,12 @@ function uploadBrewToFirebase(
   // FERMENTOR
   // ==========================================================
 
-  uploadFermentorToFirebase(
-    FIREBASE_PROJECT_ID,
-    brew
-  );
+  if (!options.skipFermentorUpdate) {
+    uploadFermentorToFirebase(
+      FIREBASE_PROJECT_ID,
+      brew
+    );
+  }
 
 
   // ==========================================================
@@ -2266,6 +2271,11 @@ function uploadBrewToFirebase(
     "Finished uploading brew: " +
     documentId
   );
+
+  // ACTION 5 already extracted this brew while searching. Returning the
+  // canonical extraction lets its caller perform one deliberate fermentor
+  // transition instead of relying on this helper's historical side effect.
+  return brew;
 }
 
 
