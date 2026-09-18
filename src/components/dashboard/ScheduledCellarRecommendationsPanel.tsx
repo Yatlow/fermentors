@@ -136,7 +136,7 @@ export default function ScheduledCellarRecommendationsPanel({
   return (
     <section className="scheduled-cellar-panel">
       <div className="scheduled-cellar-heading">
-        <strong>המלצות מתוזמנות</strong>
+        <strong>המלצות עתידיות</strong>
         <button type="button" disabled={saving} onClick={() => setOpen((value) => !value)}>
           {open ? "ביטול" : "+ המלצה"}
         </button>
