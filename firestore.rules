@@ -131,7 +131,7 @@ service cloud.firestore {
       allow update: if isApprovedUser()
         && request.resource.data.operationId == resource.data.operationId
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['state', 'updatedAt', 'recoveryRevision', 'palletSplits'])
+          .hasOnly(['state', 'updatedAt', 'recoveryRevision', 'palletSplits', 'cleanupAfter'])
         && (
           (resource.data.state == 'awaiting_pallets'
             && request.resource.data.state in ['awaiting_pallets', 'completed'])
@@ -143,6 +143,10 @@ service cloud.firestore {
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['palletSplits'])
           || (resource.data.state == 'awaiting_pallets'
             && !resource.data.keys().hasAny(['palletSplits']))
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['cleanupAfter'])
+          || request.resource.data.state == 'completed'
         );
       allow delete: if false;
     }
