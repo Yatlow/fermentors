@@ -24,6 +24,27 @@ export type ScheduledCellarRecommendation = {
 };
 
 const COLLECTION = "scheduledCellarRecommendations";
+const PREVIEW_STORAGE_KEY = "preview_scheduled_cellar_recommendations_v1";
+const PREVIEW_EVENT = "preview-scheduled-cellar-recommendations";
+
+function isPullRequestPreview(): boolean {
+  return typeof window !== "undefined" && window.location.hostname.includes("--pr");
+}
+
+function readPreviewRows(): ScheduledCellarRecommendation[] {
+  if (!isPullRequestPreview()) return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PREVIEW_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePreviewRows(rows: ScheduledCellarRecommendation[]) {
+  window.localStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(rows));
+  window.dispatchEvent(new Event(PREVIEW_EVENT));
+}
 
 export function todayDateKey(date = new Date()): string {
   const year = date.getFullYear();
@@ -40,6 +61,13 @@ export function subscribeScheduledCellarRecommendations(
   callback: (rows: ScheduledCellarRecommendation[]) => void,
   onError?: (error: Error) => void,
 ): Unsubscribe {
+  if (isPullRequestPreview()) {
+    const emit = () => callback(readPreviewRows().filter((row) => row.status === "active"));
+    emit();
+    window.addEventListener(PREVIEW_EVENT, emit);
+    return () => window.removeEventListener(PREVIEW_EVENT, emit);
+  }
+
   return onSnapshot(
     query(collection(db, COLLECTION), where("status", "==", "active")),
     (snapshot) => {
@@ -62,6 +90,23 @@ export async function createScheduledCellarRecommendation(input: {
   const user = auth.currentUser;
   if (!user?.email) throw new Error("אין משתמש מחובר");
 
+  if (isPullRequestPreview()) {
+    const id = globalThis.crypto?.randomUUID?.() ?? `preview-${Date.now()}`;
+    const rows = readPreviewRows();
+    rows.push({
+      id,
+      tankNumber: String(input.tankNumber),
+      batchNumber: String(input.batchNumber),
+      actionType: input.actionType,
+      dueDate: input.dueDate,
+      note: input.note?.trim() || "",
+      status: "active",
+      createdBy: user.email,
+    });
+    writePreviewRows(rows);
+    return id;
+  }
+
   const ref = doc(collection(db, COLLECTION));
   await setDoc(ref, {
     tankNumber: String(input.tankNumber),
@@ -82,6 +127,13 @@ export async function setScheduledCellarRecommendationStatus(
   id: string,
   status: "completed" | "cancelled",
 ): Promise<void> {
+  if (isPullRequestPreview()) {
+    writePreviewRows(
+      readPreviewRows().map((row) => row.id === id ? { ...row, status } : row)
+    );
+    return;
+  }
+
   await updateDoc(doc(db, COLLECTION, id), {
     status,
     updatedAt: serverTimestamp(),
