@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   estimateBottomCarbonation,
   type BottomCarbonationSample,
-} from "../src/SERVICES/cellering/bottomCarbonationRecommendationModel";
+} from "../src/SERVICES/cellering/bottomCarbonationEstimator";
 
 function bottomSample(
   overrides: Partial<BottomCarbonationSample> = {},
