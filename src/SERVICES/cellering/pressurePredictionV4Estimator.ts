@@ -17,6 +17,7 @@ export type PressureV4Candidate = {
 export type PressureV4Estimate = {
   targetPressure: number;
   predictedCarbonation: number;
+  predictedCarbonationWithoutChange: number;
   targetCarbonation: number;
   error: number;
   supportCount: number;
@@ -89,18 +90,24 @@ function weightedLinearPrediction(args: {
     stateDistance: number;
   }>;
   candidatePressure: number;
+  currentPressure: number;
 }): PressureV4Candidate | null {
   const weighted = args.rows
     .map(({ sample, stateDistance }) => {
-      // State similarity determines the main weight. Action-target proximity
-      // also matters, but remains soft so we can interpolate between pressures.
-      const actionDistance = Math.abs(sample.targetPressure - args.candidatePressure);
+      // Learn the intervention relative to the pressure that already existed.
+      // x=0 therefore means "do nothing". The intercept becomes the expected
+      // two-day carbonation drift from CO2 already in process before the action.
+      const sampleActionDelta = Number.isFinite(sample.actionPressureDelta)
+        ? sample.actionPressureDelta
+        : sample.targetPressure - sample.currentPressure;
+      const candidateActionDelta = args.candidatePressure - args.currentPressure;
+      const actionDistance = Math.abs(sampleActionDelta - candidateActionDelta);
       const weight =
         1 /
         (0.2 + stateDistance * stateDistance + actionDistance * actionDistance * 4);
 
       return {
-        x: sample.targetPressure,
+        x: sampleActionDelta,
         y: sample.carbonationDelta,
         weight,
       };
@@ -192,6 +199,7 @@ export function estimatePressureTargetV4(args: {
     const predicted = weightedLinearPrediction({
       rows: usable,
       candidatePressure: targetPressure,
+      currentPressure: args.state.currentPressure,
     });
     if (!predicted) continue;
 
@@ -202,6 +210,15 @@ export function estimatePressureTargetV4(args: {
   }
 
   if (!candidates.length) return null;
+
+  const noChangePrediction = weightedLinearPrediction({
+    rows: usable,
+    candidatePressure: args.state.currentPressure,
+    currentPressure: args.state.currentPressure,
+  });
+  const predictedCarbonationWithoutChange = noChangePrediction
+    ? Number((args.state.carbonation + noChangePrediction.predictedDelta).toFixed(3))
+    : args.state.carbonation;
 
   const ranked = [...candidates].sort((a, b) => {
     const aError = Math.abs(a.predictedCarbonation - args.targetCarbonation);
@@ -234,6 +251,7 @@ export function estimatePressureTargetV4(args: {
   return {
     targetPressure: best.targetPressure,
     predictedCarbonation: best.predictedCarbonation,
+    predictedCarbonationWithoutChange,
     targetCarbonation: args.targetCarbonation,
     error: Number(error.toFixed(3)),
     supportCount: best.supportCount,
