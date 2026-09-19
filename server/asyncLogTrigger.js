@@ -270,7 +270,6 @@ function runAsyncMaintenance_() {
   let packagingCleanup = null;
   let operationReceiptCleanup = null;
   let styleModels = null;
-  let pressureBackfill = null;
   let pressureV4Backfill = null;
   let logs = null;
 
@@ -331,12 +330,6 @@ function runAsyncMaintenance_() {
   }
 
   try {
-    pressureBackfill = pressureResponseBackfillStep_();
-  } catch (error) {
-    console.log("Historical pressure model backfill failed: " + error.message);
-  }
-
-  try {
     let v4State = pressurePredictionV4BackfillState_();
     if (!v4State) {
       startPressurePredictionV4Backfill_();
@@ -372,7 +365,6 @@ function runAsyncMaintenance_() {
     packagingCleanup: packagingCleanup,
     operationReceiptCleanup: operationReceiptCleanup,
     styleModels: styleModels,
-    pressureBackfill: pressureBackfill,
     pressureV4Backfill: pressureV4Backfill,
     logs: logs
   };
