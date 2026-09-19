@@ -219,10 +219,10 @@ function buildHypotheticalProductionPressureText(
 
     if (estimate.decisionStatus === "early_cooling_exception") {
         return (
-            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
-            `המיכל עדיין בתהליך קירור; מומלץ ${actionText}. ` +
-            `תחזית הגיזוז לעוד יומיים היא ${estimate.predictedCarbonation.toFixed(3)}, מחוץ לטווח ${targetRange}, ` +
-            "ולכן מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
+            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}), ` +
+            "אבל המיכל עדיין בתהליך קירור ולכן זו החלטת ניהול לחץ בזמן קירור — לא ניסיון להביא את הגיזוז ליעד בתוך 48 שעות. " +
+            `מומלץ ${actionText} כדי לנהל את לחץ הראש שנצבר בזמן הירידה בטמפרטורה, ` +
+            "ולבצע בדיקת גיזוז חוזרת בעוד יומיים. תחזית 48 השעות נשארת מוצגת ב-V4 רק לצורכי debug."
         );
     }
 
