@@ -5,7 +5,6 @@ import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
 import {
     estimateBottomCarbonation,
-    getBottomCarbonationActivationThreshold,
     getBottomCarbonationModel,
 } from "./bottomCarbonationRecommendationModel";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
@@ -771,9 +770,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             : needsFirstColdYeastDrop && CoolAge! > 2
                 ? `הורדת השמרים שהומלצה יומיים אחרי הקירור התפספסה לפני ${CoolAge! - 2} ימים- מומלץ לבצע היום`
                 : "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
-        // First/extra yeast drop after cooling is a real cellar action,
-        // not an informational hint. Keep it at importance 2 even on the
-        // exact due day so recommendations and the health score agree.
         importance: 2
     }
 
@@ -836,9 +832,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresCarbTest.reason = CoolAge > 1
             ? `בדיקת הגיזוז הראשונה שהומלצה יום אחרי הקירור התפספסה לפני ${CoolAge - 1} ימים- מומלץ לבצע היום ולפתוח ברזי גליקול`
             : "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)";
-        // The first carbonation test after cooling is importance 2 on
-        // the due day as well as when overdue. HealthDashboard consumes this
-        // same importance for the cellar score.
         requiresCarbTest.importance = 2;
     }
     const YeastDroppedToday = lastNote?.includes("שמרים");
@@ -1309,29 +1302,25 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !bottomCarbonationCompletedToday;
 
     // Bottom carbonation is a different intervention from ordinary pressure
-    // correction. 2.20 is only the safe fallback until enough historical
-    // sessions exist; after that, each style learns its own trigger threshold.
+    // correction. The operational routing rule is strict: < 2.15 vol.
     const bottomCarbonationPotential =
         coldCarbOutOfSpecToday &&
         currentCarbonation !== null &&
         Number.isFinite(Number(carbonationTarget)) &&
         currentCarbonation < Number(carbonationTarget) &&
-        currentCarbonation <= 2.2 &&
+        currentCarbonation < 2.15 &&
         !openBottomCarbonation;
 
     let bottomCarbonationCandidate = false;
     let bottomCarbonationReason: string | null = null;
-    let bottomActivationThreshold = 2.2;
+    let bottomActivationThreshold = 2.15;
     let shouldUseBottomCarbonation = false;
 
     if (bottomCarbonationPotential) {
         const bottomModel = await getBottomCarbonationModel(style);
-        const learnedActivation = bottomModel
-            ? getBottomCarbonationActivationThreshold(bottomModel.samples)
-            : null;
-        bottomActivationThreshold = learnedActivation?.threshold ?? 2.2;
+        bottomActivationThreshold = 2.15;
         bottomCarbonationCandidate =
-            currentCarbonation! <= bottomActivationThreshold;
+            currentCarbonation! < bottomActivationThreshold;
 
         let bottomState = null;
         let bottomEquilibriumForTemp:
