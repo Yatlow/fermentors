@@ -61,6 +61,7 @@ function startPressureResponseBackfill_() {
       readsToday: pressureBackfillExistingReadsForDay_(dayKey),
       styleBrewCounts: {},
       styleSampleCounts: {},
+      equilibriumStyleObservationCounts: {},
       bottomStyleSampleCounts: {},
       startedAt: new Date().toISOString()
     })
@@ -114,6 +115,7 @@ function pressureResponseBackfillStep_() {
       ),
       styleBrewCounts: {},
       styleSampleCounts: {},
+      equilibriumStyleObservationCounts: {},
       bottomStyleSampleCounts: {},
       startedAt: new Date().toISOString()
     };
@@ -143,6 +145,10 @@ function pressureResponseBackfillStep_() {
   let readsToday = Number(state.readsToday || 0);
   const styleBrewCounts = Object.assign({}, state.styleBrewCounts || {});
   const styleSampleCounts = Object.assign({}, state.styleSampleCounts || {});
+  const equilibriumStyleObservationCounts = Object.assign(
+    {},
+    state.equilibriumStyleObservationCounts || {}
+  );
   const bottomStyleSampleCounts = Object.assign(
     {},
     state.bottomStyleSampleCounts || {}
@@ -160,6 +166,7 @@ function pressureResponseBackfillStep_() {
     scannedBrews += page.documents.length;
 
     const samplesByStyle = {};
+    const equilibriumByStyle = {};
     const bottomSamplesByStyle = {};
     let processedThisPage = 0;
 
@@ -179,9 +186,15 @@ function pressureResponseBackfillStep_() {
 
         const styleKey = normalizePressureModelStyle_(style);
         if (!samplesByStyle[styleKey]) samplesByStyle[styleKey] = [];
+        if (!equilibriumByStyle[styleKey]) equilibriumByStyle[styleKey] = [];
         if (!bottomSamplesByStyle[styleKey]) bottomSamplesByStyle[styleKey] = [];
 
         const brewSamples = buildPressureResponseSamplesForBrew_(
+          measurements,
+          brewDate,
+          id
+        );
+        const equilibriumObservations = buildPressureEquilibriumObservationsForBrew_(
           measurements,
           brewDate,
           id
@@ -193,11 +206,18 @@ function pressureResponseBackfillStep_() {
         );
 
         Array.prototype.push.apply(samplesByStyle[styleKey], brewSamples);
+        Array.prototype.push.apply(
+          equilibriumByStyle[styleKey],
+          equilibriumObservations
+        );
         Array.prototype.push.apply(bottomSamplesByStyle[styleKey], bottomSamples);
 
         styleBrewCounts[styleKey] = Number(styleBrewCounts[styleKey] || 0) + 1;
         styleSampleCounts[styleKey] =
           Number(styleSampleCounts[styleKey] || 0) + brewSamples.length;
+        equilibriumStyleObservationCounts[styleKey] =
+          Number(equilibriumStyleObservationCounts[styleKey] || 0) +
+          equilibriumObservations.length;
         bottomStyleSampleCounts[styleKey] =
           Number(bottomStyleSampleCounts[styleKey] || 0) + bottomSamples.length;
         processedThisPage++;
@@ -214,7 +234,8 @@ function pressureResponseBackfillStep_() {
         writeMergedPressureResponseModel_(
           projectId,
           styleKey,
-          samplesByStyle[styleKey]
+          samplesByStyle[styleKey],
+          equilibriumByStyle[styleKey] || []
         );
       }
 
@@ -245,6 +266,7 @@ function pressureResponseBackfillStep_() {
         readsToday: readsToday,
         styleBrewCounts: styleBrewCounts,
         styleSampleCounts: styleSampleCounts,
+        equilibriumStyleObservationCounts: equilibriumStyleObservationCounts,
         bottomStyleSampleCounts: bottomStyleSampleCounts,
         startedAt: state.startedAt || null,
         completedAt: new Date().toISOString()
@@ -259,6 +281,7 @@ function pressureResponseBackfillStep_() {
         " | reads today: " + readsToday +
         " | brewsByStyle=" + JSON.stringify(styleBrewCounts) +
         " | pressureSamplesByStyle=" + JSON.stringify(styleSampleCounts) +
+        " | equilibriumByStyle=" + JSON.stringify(equilibriumStyleObservationCounts) +
         " | bottomSamplesByStyle=" + JSON.stringify(bottomStyleSampleCounts)
       );
       return {
@@ -287,6 +310,7 @@ function pressureResponseBackfillStep_() {
       readsToday: readsToday,
       styleBrewCounts: styleBrewCounts,
       styleSampleCounts: styleSampleCounts,
+      equilibriumStyleObservationCounts: equilibriumStyleObservationCounts,
       bottomStyleSampleCounts: bottomStyleSampleCounts,
       startedAt: state.startedAt || new Date().toISOString()
     };
@@ -304,6 +328,7 @@ function pressureResponseBackfillStep_() {
     " | readsToday=" + readsToday +
     " | brewsByStyle=" + JSON.stringify(styleBrewCounts) +
     " | pressureSamplesByStyle=" + JSON.stringify(styleSampleCounts) +
+    " | equilibriumByStyle=" + JSON.stringify(equilibriumStyleObservationCounts) +
     " | bottomSamplesByStyle=" + JSON.stringify(bottomStyleSampleCounts)
   );
 
