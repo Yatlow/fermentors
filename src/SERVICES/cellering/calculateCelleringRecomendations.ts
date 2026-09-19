@@ -13,6 +13,7 @@ import {
     getBottomCarbonationModel,
 } from "./bottomCarbonationRecommendationModel";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
+import { carbonationRetestPolicy } from "./carbonationRetestPolicy";
 
 
 
@@ -982,7 +983,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
                 if (
                     carbonationAge !== null &&
-                    carbonationAge > 2 &&
+                    carbonationAge >= 2 &&
                     lastCarbonationSpec.outOfSpec
                 ) {
                     requiresCarbTest.req = true;
@@ -992,6 +993,57 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
                     requiresCarbTest.importance =
                         lastCarbonationSpec.importance;
+                }
+            }
+        }
+
+        // Final authority for repeat-carbonation timing. Positional checks such
+        // as "yesterdayMeasurement" are useful for copy, but they become wrong
+        // when multiple reports exist on the same day. Use the actual dated
+        // carbonation/treatment history to decide whether a repeat test is due.
+        const retestPolicy = carbonationRetestPolicy(
+            sortedMeasurements,
+            todayDate
+        );
+
+        if (
+            retestPolicy.hasCarbonation &&
+            retestPolicy.lastCarbonation !== null
+        ) {
+            const lastCarbSpec = isCarbonationOutOfRange(
+                retestPolicy.lastCarbonation,
+                style,
+                givenSpecs
+            );
+
+            if (lastCarbSpec.outOfSpec) {
+                if (retestPolicy.due) {
+                    requiresCarbTest.req = true;
+                    requiresCarbTest.display = true;
+                    requiresCarbTest.importance = lastCarbSpec.importance;
+
+                    if (retestPolicy.waitReason === "bottom_carbonation") {
+                        requiresCarbTest.reason =
+                            `אתמול בוצע גיזוז מלמטה לאחר בדיקת גיזוז לא תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
+                    } else if (retestPolicy.waitReason === "ordinary_pressure") {
+                        requiresCarbTest.reason =
+                            `עברו יומיים משינוי הלחץ שבוצע בעקבות בדיקת גיזוז לא תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
+                    } else {
+                        requiresCarbTest.reason =
+                            `בדיקת הגיזוז האחרונה היתה לפני יומיים או יותר ולא היתה תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
+                    }
+                } else if (
+                    retestPolicy.waitReason === "ordinary_pressure" ||
+                    retestPolicy.waitReason === "bottom_carbonation" ||
+                    retestPolicy.waitReason === "tested_today" ||
+                    retestPolicy.waitReason === "cadence"
+                ) {
+                    // A pressure correction needs two full days to equilibrate.
+                    // Bottom carbonation is the exception: it may be re-tested
+                    // the next day. In either case do not let Sunday/Wednesday
+                    // routine rules create an earlier duplicate test.
+                    requiresCarbTest.req = false;
+                    requiresCarbTest.display = false;
                 }
             }
         }
@@ -1327,8 +1379,22 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !shouldUseBottomCarbonation &&
         !openBottomCarbonation;
 
+    const hasPressureMeasurementToday = sortedMeasurements.some((measurement) => {
+        const measurementDate = getMeasurementDate(measurement.id);
+        const pressure = measurement.pressure;
+        return (
+            measurementDate === todayDate &&
+            pressure !== null &&
+            pressure !== undefined &&
+            pressure !== "" &&
+            Number.isFinite(Number(pressure))
+        );
+    });
+
     const warmPressureNeedsAdjustment =
         stage.name === "בתסיסה" &&
+        hasPressureMeasurementToday &&
+        lastMeasurementDate === todayDate &&
         !prvHandledToday &&
         Number(lastMeasurement?.pressure) > 0 &&
         Number(lastMeasurement?.temp) > 9 &&
