@@ -32,6 +32,7 @@ import "./CellarSimulator.css";
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
 type StageMode = "actual" | "cold" | "warm";
 type CarbonationScenarioMode = "auto" | "first" | "subsequent";
+type EvaluationTimeMode = "now" | "atMeasurement";
 
 type Props = {
     brews: Fermentor[];
@@ -252,6 +253,7 @@ function scenarioMeasurements(args: {
     plato?: number;
     firstCarbonation: boolean;
     treatment: Treatment;
+    evaluationTimeMode: EvaluationTimeMode;
 }): Measurement[] {
     const carbDate = dateKey(args.carbAgeDays);
     const today = dateKey(0);
@@ -291,7 +293,13 @@ function scenarioMeasurements(args: {
         notes: treatmentNote,
     };
 
-    if (args.carbAgeDays === 0) {
+    // Historical replay: stop the timeline at the carbonation measurement.
+    // This answers "what would the engine have recommended then?" instead of
+    // projecting that old measurement forward to today.
+    if (
+        args.evaluationTimeMode === "atMeasurement" ||
+        args.carbAgeDays === 0
+    ) {
         return [...base, carbRow];
     }
 
@@ -336,6 +344,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [carbonationScenarioMode, setCarbonationScenarioMode] =
         useState<CarbonationScenarioMode>("auto");
     const [stageMode, setStageMode] = useState<StageMode>("actual");
+    const [evaluationTimeMode, setEvaluationTimeMode] =
+        useState<EvaluationTimeMode>("now");
 
     const tank = tanks.find((item) => item.id === tankId) ?? null;
 
@@ -441,6 +451,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 plato: numericOrUndefined(plato),
                 firstCarbonation: carbonationScenario.first,
                 treatment,
+                evaluationTimeMode,
             });
 
             const stage =
@@ -635,6 +646,25 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 </label>
 
                 <label>
+                    <span>מתי לחשב את ההמלצה</span>
+                    <select
+                        value={evaluationTimeMode}
+                        onChange={(event) =>
+                            setEvaluationTimeMode(
+                                event.target.value as EvaluationTimeMode
+                            )
+                        }
+                    >
+                        <option value="now">
+                            עכשיו — לקדם מדידה ישנה עד היום
+                        </option>
+                        <option value="atMeasurement">
+                            בזמן המדידה — מה היה מומלץ אז
+                        </option>
+                    </select>
+                </label>
+
+                <label>
                     <span>לחץ</span>
                     <input type="number" step="0.01" value={pressure} onChange={(event) => setPressure(event.target.value)} placeholder="bar" />
                 </label>
@@ -676,6 +706,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
             </label>
 
             <div className="cellar-simulator-v4-status">
+                {evaluationTimeMode === "atMeasurement" && carbAgeDays > 0
+                    ? `Replay היסטורי: המנוע נעצר בזמן בדיקת הגיזוז מלפני ${carbAgeDays === 1 ? "יום" : `${carbAgeDays} ימים`} ולא רואה שום נתון מאוחר יותר. · `
+                    : evaluationTimeMode === "now" && carbAgeDays > 0
+                        ? "חישוב להיום: המדידה הישנה מקודמת קדימה לפי הזמן והחשיפה מאז. · "
+                        : ""}
                 {(() => {
                     const resolved = resolveFirstCarbonation({
                         source,
