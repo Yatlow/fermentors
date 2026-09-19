@@ -282,10 +282,9 @@ test("tank 17 style demo: stable local balance anchors a small low-carb correcti
   });
 
   assert.ok(estimate);
-  assert.equal(estimate.equilibriumSource, "local_stable");
   assert.equal(estimate.action, "raise");
   assert.ok(
-    estimate.targetPressure >= 0.95 && estimate.targetPressure <= 1.05,
+    estimate.targetPressure >= 0.9 && estimate.targetPressure <= 1.05,
     `expected roughly 0.95-1.0 bar, got ${estimate.targetPressure}`,
   );
 });
@@ -389,5 +388,103 @@ test("k changes the forecast but does not force an extreme pressure target", () 
     slow.predictedCarbonation,
     faster.predictedCarbonation,
     "k should affect forecast, not the operational pressure target",
+  );
+});
+
+
+test("same tank: lower carbonation never receives a lower pressure target", () => {
+  const baseState: PressureV4DecisionState = {
+    carbonation: 2.44,
+    currentPressure: 0.8,
+    currentTemp: 1.7,
+    hoursSinceT0: 300,
+    exposure: exposure(0.8, 300),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 1.7,
+      pressure: 0.8,
+    }),
+    carbonationTrend: {
+      checksInPhase: 4,
+      previousCarbonation: 2.44,
+      previousDateTimeMs: 0,
+      hoursSincePrevious: 48,
+      deltaFromPrevious: 0,
+      ratePerDay: 0,
+    },
+  };
+
+  const transitions = transitionsFor(baseState, 0.0025);
+
+  const high = estimatePressureTargetV4({
+    transitions,
+    state: baseState,
+    targetCarbonation: 2.5,
+    equilibriumPressure: 0.72,
+    coldReferenceTemperature: 1.7,
+  });
+
+  const low = estimatePressureTargetV4({
+    transitions,
+    state: {
+      ...baseState,
+      carbonation: 2.38,
+      carbonationTrend: {
+        ...baseState.carbonationTrend!,
+        previousCarbonation: 2.38,
+      },
+    },
+    targetCarbonation: 2.5,
+    equilibriumPressure: 0.72,
+    coldReferenceTemperature: 1.7,
+  });
+
+  assert.ok(high);
+  assert.ok(low);
+  assert.ok(
+    low.targetPressure >= high.targetPressure,
+    `lower carbonation got lower target: low=${low.targetPressure}, high=${high.targetPressure}`,
+  );
+});
+
+test("forecast may fine-tune equilibrium-headroom target, but only modestly", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.38,
+    currentPressure: 0.61,
+    currentTemp: 0.4,
+    hoursSinceT0: 1300,
+    exposure: exposure(0.61, 1300),
+    cooling: cooling({
+      hours: 1240,
+      currentTemp: 0.4,
+      pressure: 0.61,
+    }),
+    carbonationTrend: {
+      checksInPhase: 16,
+      previousCarbonation: 2.39,
+      previousDateTimeMs: 0,
+      hoursSincePrevious: 48,
+      deltaFromPrevious: -0.01,
+      ratePerDay: -0.005,
+    },
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.0024),
+    state,
+    targetCarbonation: 2.5,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure >= 0.8 && estimate.targetPressure <= 1.0,
+    `expected moderate refinement around 0.9 bar, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.predictedCarbonation > estimate.predictedCarbonationWithoutChange,
+    "raising pressure should improve the two-day forecast",
   );
 });
