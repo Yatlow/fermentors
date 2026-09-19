@@ -23,6 +23,14 @@ export type PressureV4Exposure = {
   coverageRatio: number;
 };
 
+export type PressureV4DecisionState = {
+  carbonation: number;
+  currentPressure: number;
+  currentTemp: number | null;
+  hoursSinceT0: number;
+  exposure: PressureV4Exposure;
+};
+
 export type PressureV4Outcome = {
   carbonation: number;
   dateTimeMs: number;
@@ -408,4 +416,59 @@ export function buildPressureV4Samples(args: {
   });
 
   return samples;
+}
+
+
+export function buildPressureV4DecisionState(args: {
+  measurements: Measurement[];
+  equilibriumPressure?: EquilibriumPressureFn;
+}): PressureV4DecisionState | null {
+  const rows = args.measurements
+    .map((measurement) => ({
+      measurement,
+      time: measurementDateTimeMs(measurement),
+    }))
+    .filter((row): row is { measurement: Measurement; time: number } =>
+      row.time !== null
+    )
+    .sort((a, b) => a.time - b.time);
+
+  if (!rows.length) return null;
+
+  const t0 = detectPressureV4T0(args.measurements);
+  if (!t0) return null;
+
+  const latest = rows[rows.length - 1];
+  let carbonation: number | null = null;
+  let currentPressure: number | null = null;
+  let currentTemp: number | null = null;
+
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index].measurement;
+    if (carbonation === null) carbonation = finiteNumber(row.carbonation);
+    if (currentPressure === null) currentPressure = finiteNumber(row.pressure);
+    if (currentTemp === null) currentTemp = finiteNumber(row.temp);
+    if (
+      carbonation !== null &&
+      currentPressure !== null &&
+      currentTemp !== null
+    ) break;
+  }
+
+  if (carbonation === null || currentPressure === null) return null;
+
+  const exposure = buildPressureV4Exposure({
+    measurements: args.measurements,
+    t0Ms: t0.dateTimeMs,
+    endMs: latest.time,
+    equilibriumPressure: args.equilibriumPressure,
+  });
+
+  return {
+    carbonation,
+    currentPressure,
+    currentTemp,
+    hoursSinceT0: Math.max(0, (latest.time - t0.dateTimeMs) / 3600000),
+    exposure,
+  };
 }
