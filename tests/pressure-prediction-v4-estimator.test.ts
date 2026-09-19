@@ -13,6 +13,9 @@ import {
   equilibriumPressureBar,
   evolveCarbonation,
 } from "../src/SERVICES/cellering/pressureCarbonationPhysics";
+import {
+  estimateVentingDuration,
+} from "../src/SERVICES/cellering/ventingEstimator";
 
 function exposure(
   pressure: number,
@@ -802,4 +805,91 @@ test("early-cooling safety correction is bounded and never exceeds current press
     `expected a less aggressive vent near 1.0-1.1 bar, got ${estimate.targetPressure}`,
   );
   assert.ok(estimate.targetPressure <= state.currentPressure);
+});
+
+
+test("early cooling prefers a pressure that actually lands inside ±0.02 when available", () => {
+  const earlyCooling = cooling({
+    hours: 48,
+    currentTemp: 5,
+    pressure: 1.25,
+    stillCooling: true,
+    tempChange24h: -2,
+  });
+  const state: PressureV4DecisionState = {
+    carbonation: 2.32,
+    currentPressure: 1.3,
+    currentTemp: 5,
+    hoursSinceT0: 80,
+    exposure: exposure(1.25, 80, 0.3),
+    cooling: earlyCooling,
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.008),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.7,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.forecastInTargetWindow ||
+      estimate.decisionStatus === "early_cooling_exception",
+  );
+  if (estimate.forecastInTargetWindow) {
+    assert.ok(
+      Math.abs(
+        estimate.predictedCarbonation - estimate.targetCarbonation,
+      ) <= 0.02,
+    );
+  }
+});
+
+test("venting engine estimates timed zero-bar opening from downward transitions", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.62,
+    currentPressure: 0.8,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.8, 300),
+    cooling: cooling({
+      hours: 240,
+      currentTemp: 1,
+      pressure: 0.8,
+    }),
+    carbonationTrend: null,
+  };
+
+  const downward = Array.from({ length: 10 }, (_, index) =>
+    transition(index, {
+      k: 0.02 + (index % 3) * 0.002,
+      currentTemp: 1 + (index % 2) * 0.2,
+      pressure: 0.05,
+      hoursSinceT0: 280 + index * 4,
+      startCarbonation: 2.6,
+    }),
+  ).map((sample) => ({
+    ...sample,
+    endCarbonation: sample.startCarbonation - 0.12,
+  }));
+
+  const venting = estimateVentingDuration({
+    transitions: downward,
+    state,
+    targetCarbonation: 2.5,
+    ventPressureBar: 0,
+    maxMinutes: 24 * 60,
+  });
+
+  assert.ok(venting);
+  assert.ok(venting.durationMinutes > 0);
+  assert.ok(venting.durationMinutes <= 24 * 60);
+  assert.ok(
+    venting.predictedCarbonationAtClose >= 2.48 &&
+      venting.predictedCarbonationAtClose <= 2.52,
+  );
+  assert.ok(venting.supportCount >= 4);
 });
