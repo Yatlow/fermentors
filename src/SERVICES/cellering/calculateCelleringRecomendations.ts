@@ -1303,19 +1303,19 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !bottomCarbonationCompletedToday;
 
     // Bottom carbonation is a different intervention from ordinary pressure
-    // correction. 2.20 is only the safe fallback until enough historical
-    // sessions exist; after that, each style learns its own trigger threshold.
+    // correction. Only carbonation strictly below 2.15 vol may enter this route;
+    // history may learn an even stricter style-specific threshold.
     const bottomCarbonationPotential =
         coldCarbOutOfSpecToday &&
         currentCarbonation !== null &&
         Number.isFinite(Number(carbonationTarget)) &&
         currentCarbonation < Number(carbonationTarget) &&
-        currentCarbonation <= 2.2 &&
+        currentCarbonation < 2.15 &&
         !openBottomCarbonation;
 
     let bottomCarbonationCandidate = false;
     let bottomCarbonationReason: string | null = null;
-    let bottomActivationThreshold = 2.2;
+    let bottomActivationThreshold = 2.15;
     let shouldUseBottomCarbonation = false;
 
     if (bottomCarbonationPotential) {
@@ -1323,9 +1323,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         const learnedActivation = bottomModel
             ? getBottomCarbonationActivationThreshold(bottomModel.samples)
             : null;
-        bottomActivationThreshold = learnedActivation?.threshold ?? 2.2;
+        bottomActivationThreshold = learnedActivation?.threshold ?? 2.15;
         bottomCarbonationCandidate =
-            currentCarbonation! <= bottomActivationThreshold;
+            currentCarbonation! < bottomActivationThreshold;
 
         let bottomState = null;
         let bottomEquilibriumForTemp:
