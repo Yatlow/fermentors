@@ -262,11 +262,11 @@ function learnK(args: {
         sample.pressureMeanDuring ?? sample.currentPressure,
       );
 
+      // K describes transfer kinetics for this tank state. Do not use the
+      // current carbonation value itself as a neighbour selector: otherwise
+      // changing only the hypothetical carbonation in the simulator also
+      // changes the learned response and can cancel the intended correction.
       let distance = 0;
-      distance +=
-        Math.abs(
-          sample.startCarbonation - args.state.carbonation,
-        ) / 0.25;
 
       if (temp !== null) {
         distance += Math.abs(temp - args.temperature) / 4;
@@ -457,7 +457,7 @@ function carbonationErrorGain(args: {
   if (args.firstCoolingMode) {
     // First-cooling checks still carry stored-pressure/cooling context, but
     // large misses need a stronger correction than the old linear V5 gave.
-    return clamp(1 + 11 * excess, 1, 3.2);
+    return clamp(1 + 16 * excess, 1, 3.8);
   }
 
   // Stable tanks: progressively stronger correction as the carbonation error
