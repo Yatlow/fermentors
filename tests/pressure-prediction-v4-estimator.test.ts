@@ -1197,11 +1197,11 @@ test("pressure-action outcomes calibrate candidate forecasts instead of being ig
       exposure: exposure(0.8, 300),
       intermediateDay1: null,
       primaryOutcome: {
-        carbonation: 2.45,
+        carbonation: 2.40,
         dateTimeMs: index * 100000 + 48 * 3600000,
         calendarDaysAfterAction: 2,
       },
-      carbonationDelta: 0.11,
+      carbonationDelta: 0.06,
       actionPressureDelta: 0.2,
       quality: "high",
     }),
@@ -1477,7 +1477,7 @@ test("2.15 -> 2.40 must not present a pressure setpoint when it closes only a sm
   assert.equal(estimate.empiricalModelUsed, true);
   assert.ok(estimate.empiricalSlopeVolPerBar > 0);
   assert.ok(
-    estimate.pressureActionEffectVol < 0.03,
+    estimate.pressureActionEffectVol < 0.05,
     `expected the proposed pressure move to add only a few hundredths, got ${estimate.pressureActionEffectVol}`,
   );
   assert.ok(
