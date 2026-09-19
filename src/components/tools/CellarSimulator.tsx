@@ -438,7 +438,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             <strong>מודל לחץ V4</strong>
                             <p>
                                 יעד לחץ מומלץ: {v4Result.targetPressure} bar ·
-                                גיזוז חזוי בעוד יומיים: {v4Result.predictedCarbonation} ·
+                                ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
+                                אחרי הפעולה: {v4Result.predictedCarbonation} ·
                                 יעד: {v4Result.targetCarbonation} ·
                                 ביטחון: {v4Result.confidence} ·
                                 תמיכה: {v4Result.supportCount} דוגמאות
