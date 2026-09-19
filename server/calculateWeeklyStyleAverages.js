@@ -1283,25 +1283,33 @@ function buildBottomCarbonationSamplesForBrew_(measurements, brewDate, batchId) 
         startMinutes !== null
       ) {
         let v4State = null;
-        const t0 = pressureV4DetectT0_(rows);
-        const eventMs = pressureV4DateTime_(measurement);
         const pressureBefore = latestPressure !== null ? latestPressure : currentPressure;
         const stateTemp = currentTemp !== null ? currentTemp : latestTemp;
 
         if (
-          t0 &&
-          eventMs !== null &&
-          eventMs >= t0.dateTimeMs &&
-          pressureBefore !== null
+          typeof pressureV4DetectT0_ === "function" &&
+          typeof pressureV4DateTime_ === "function" &&
+          typeof pressureV4Exposure_ === "function" &&
+          typeof pressureV4Quality_ === "function"
         ) {
-          const exposure = pressureV4Exposure_(rows, t0.dateTimeMs, eventMs);
-          v4State = {
-            hoursSinceT0: Math.max(0, (eventMs - t0.dateTimeMs) / 3600000),
-            currentPressure: pressureBefore,
-            currentTemp: stateTemp,
-            exposure: exposure,
-            quality: pressureV4Quality_(exposure)
-          };
+          const t0 = pressureV4DetectT0_(rows);
+          const eventMs = pressureV4DateTime_(measurement);
+
+          if (
+            t0 &&
+            eventMs !== null &&
+            eventMs >= t0.dateTimeMs &&
+            pressureBefore !== null
+          ) {
+            const exposure = pressureV4Exposure_(rows, t0.dateTimeMs, eventMs);
+            v4State = {
+              hoursSinceT0: Math.max(0, (eventMs - t0.dateTimeMs) / 3600000),
+              currentPressure: pressureBefore,
+              currentTemp: stateTemp,
+              exposure: exposure,
+              quality: pressureV4Quality_(exposure)
+            };
+          }
         }
 
         open = {
