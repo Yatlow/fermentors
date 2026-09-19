@@ -1436,15 +1436,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !isPressureOutOfRangeVal.onSpec;
 
     let learnedPressureReason: string | null = null;
-    let pressureModelSampleCount: number | null = null;
-
     if (
         coldCarbNeedsPressureAdjustment &&
         Number.isFinite(Number(carbonationTarget)) &&
         currentPressure !== null
     ) {
         const model = await getPressureResponseModel(style);
-        pressureModelSampleCount = model?.samples?.length ?? 0;
         const pressureContext = pressureHistoryContext(
             sortedMeasurements,
             lastMeasurementDate
