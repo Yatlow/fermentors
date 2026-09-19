@@ -618,22 +618,40 @@ function refinePressureWithForecast(args: {
     // margin. The correction is intentionally bounded to 0.20 bar and can
     // never exceed the pressure that is already in the tank.
     if (currentAtBaseline < lowerTargetBound) {
-      const forecastShortfall =
-        lowerTargetBound - currentAtBaseline;
-      const correctionBar = clamp(
-        0.05 + forecastShortfall,
-        0.05,
-        0.20,
-      );
-      return snapPressure(
-        Math.min(
-          args.state.currentPressure,
-          args.baselinePressure + correctionBar,
-        ),
-        args.minPressure,
-        args.maxPressure,
-        args.step,
-      );
+      const referenceTemp =
+        finite(args.coldReferenceTemperature) ??
+        finite(args.state.currentTemp);
+      const physicalTargetEquilibrium =
+        referenceTemp === null
+          ? null
+          : equilibriumPressureBar(
+              referenceTemp,
+              args.targetCarbonation,
+            );
+
+      if (physicalTargetEquilibrium !== null) {
+        const carbonationDeficit = Math.max(
+          0,
+          args.targetCarbonation - args.state.carbonation,
+        );
+        const safetyHeadroom = clamp(
+          0.35 + 0.8 * carbonationDeficit,
+          0.40,
+          0.50,
+        );
+        const safetyFloor =
+          physicalTargetEquilibrium + safetyHeadroom;
+
+        return snapPressure(
+          Math.min(
+            args.state.currentPressure,
+            Math.max(args.baselinePressure, safetyFloor),
+          ),
+          args.minPressure,
+          args.maxPressure,
+          args.step,
+        );
+      }
     }
 
     return args.baselinePressure;
