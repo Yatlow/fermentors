@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildPressureV4CoolingState,
   buildPressureV4Exposure,
   buildPressureV4Samples,
   detectPressureV4T0,
@@ -121,4 +122,54 @@ test("V4 rejects ordinary-pressure training sample if bottom carbonation occurs 
   ];
 
   assert.equal(buildPressureV4Samples({ measurements }).length, 0);
+});
+
+
+test("V4 T0 does not mistake bottom-carbonation close for pressure closure", () => {
+  const measurements: Measurement[] = [
+    row("2026-09-01_0800", 0, 18),
+    row("2026-09-02_0800", 0.7, 15, undefined, "סגירת לחץ"),
+    row(
+      "2026-09-05_1000",
+      0.8,
+      2,
+      undefined,
+      "סגירת גיזוז מלמטה בשעה 10:45 על 0.8 bar",
+    ),
+  ];
+
+  const t0 = detectPressureV4T0(measurements);
+  assert.ok(t0);
+  assert.equal(
+    t0.dateTimeMs,
+    new Date(2026, 8, 2, 8).getTime(),
+    "bottom-carbonation close must not redefine T0",
+  );
+});
+
+test("V4 cooling state tracks cooling age, temperature fall and pressure history", () => {
+  const measurements: Measurement[] = [
+    row("2026-09-01_0800", 1.2, 15, undefined, "סגירת לחץ"),
+    row("2026-09-02_0800", 1.3, 14, undefined, "קירור"),
+    row("2026-09-02_2000", 1.25, 10),
+    row("2026-09-03_0800", 1.15, 6.5),
+  ];
+
+  const t0 = new Date(2026, 8, 1, 8).getTime();
+  const end = new Date(2026, 8, 3, 8).getTime();
+  const cooling = buildPressureV4CoolingState({
+    measurements,
+    t0Ms: t0,
+    endMs: end,
+    equilibriumPressure: () => 0.8,
+  });
+
+  assert.ok(cooling);
+  assert.equal(cooling.hoursSinceCooling, 24);
+  assert.equal(cooling.startTemp, 14);
+  assert.equal(cooling.currentTemp, 6.5);
+  assert.equal(Number(cooling.tempDropSinceCooling?.toFixed(1)), 7.5);
+  assert.equal(cooling.stillCooling, true);
+  assert.ok((cooling.pressureMeanSinceCooling ?? 0) > 1.1);
+  assert.ok((cooling.equilibriumDeltaBarHoursSinceCooling ?? 0) > 0);
 });
