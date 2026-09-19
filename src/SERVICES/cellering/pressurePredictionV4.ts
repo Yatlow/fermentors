@@ -51,6 +51,12 @@ export type PressureV4CarbonationTrend = {
   hoursSincePrevious: number | null;
   deltaFromPrevious: number | null;
   ratePerDay: number | null;
+  previousPressure?: number | null;
+  previousTemp?: number | null;
+  previousPreviousCarbonation?: number | null;
+  previousPreviousDateTimeMs?: number | null;
+  hoursBetweenPreviousChecks?: number | null;
+  previousHistoricalRatePerDay?: number | null;
 };
 
 export type PressureV4DecisionState = {
@@ -787,8 +793,15 @@ export function buildPressureV4DecisionState(args: {
     .map((entry) => ({
       time: entry.time,
       carbonation: finiteNumber(entry.measurement.carbonation),
+      pressure: finiteNumber(entry.measurement.pressure),
+      temp: finiteNumber(entry.measurement.temp),
     }))
-    .filter((entry): entry is { time: number; carbonation: number } =>
+    .filter((entry): entry is {
+      time: number;
+      carbonation: number;
+      pressure: number | null;
+      temp: number | null;
+    } =>
       entry.time >= phaseStartMs &&
       entry.carbonation !== null
     );
@@ -798,6 +811,10 @@ export function buildPressureV4DecisionState(args: {
     carbonationChecks.length >= 2
       ? carbonationChecks[carbonationChecks.length - 2]
       : null;
+  const previousPreviousCheck =
+    carbonationChecks.length >= 3
+      ? carbonationChecks[carbonationChecks.length - 3]
+      : null;
   const hoursSincePrevious =
     currentCheck && previousCheck
       ? Math.max(0, (currentCheck.time - previousCheck.time) / 3600000)
@@ -806,6 +823,18 @@ export function buildPressureV4DecisionState(args: {
     currentCheck && previousCheck
       ? currentCheck.carbonation - previousCheck.carbonation
       : null;
+  const hoursBetweenPreviousChecks =
+    previousCheck && previousPreviousCheck
+      ? Math.max(
+          0,
+          (previousCheck.time - previousPreviousCheck.time) / 3600000,
+        )
+      : null;
+  const previousHistoricalDelta =
+    previousCheck && previousPreviousCheck
+      ? previousCheck.carbonation - previousPreviousCheck.carbonation
+      : null;
+
   const carbonationTrend: PressureV4CarbonationTrend = {
     checksInPhase: carbonationChecks.length,
     previousCarbonation: previousCheck?.carbonation ?? null,
@@ -817,6 +846,19 @@ export function buildPressureV4DecisionState(args: {
       hoursSincePrevious !== null &&
       hoursSincePrevious > 0
         ? deltaFromPrevious * 24 / hoursSincePrevious
+        : null,
+    previousPressure: previousCheck?.pressure ?? null,
+    previousTemp: previousCheck?.temp ?? null,
+    previousPreviousCarbonation:
+      previousPreviousCheck?.carbonation ?? null,
+    previousPreviousDateTimeMs:
+      previousPreviousCheck?.time ?? null,
+    hoursBetweenPreviousChecks,
+    previousHistoricalRatePerDay:
+      previousHistoricalDelta !== null &&
+      hoursBetweenPreviousChecks !== null &&
+      hoursBetweenPreviousChecks > 0
+        ? previousHistoricalDelta * 24 / hoursBetweenPreviousChecks
         : null,
   };
 
