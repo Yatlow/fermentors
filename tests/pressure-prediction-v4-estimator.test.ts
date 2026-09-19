@@ -893,3 +893,40 @@ test("venting engine estimates timed zero-bar opening from downward transitions"
   );
   assert.ok(venting.supportCount >= 4);
 });
+
+
+test("tank 17 2.38->2.45 may refine to about 1.1 bar instead of declaring pressure-only insufficient", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.38,
+    currentPressure: 0.83,
+    currentTemp: 0.6,
+    hoursSinceT0: 300,
+    exposure: exposure(0.83, 300),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 0.6,
+      pressure: 0.83,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00123),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.6,
+    coldReferenceTemperature: 0.6,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure >= 1.05 && estimate.targetPressure <= 1.2,
+    `expected about 1.1 bar, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.forecastInTargetWindow ||
+      estimate.predictedCarbonation >= 2.43,
+    `expected forecast to reach the target window edge, got ${estimate.predictedCarbonation}`,
+  );
+});
