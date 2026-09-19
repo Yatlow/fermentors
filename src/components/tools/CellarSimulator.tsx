@@ -15,6 +15,7 @@ import {
     type PressureV4Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV4Estimator";
 import {
+    getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
 } from "../../SERVICES/cellering/pressurePredictionV4Model";
@@ -162,6 +163,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [result, setResult] = useState<Record<string, RecommendationLike> | null>(null);
     const [v4Result, setV4Result] = useState<PressureV4Estimate | null>(null);
     const [v4Status, setV4Status] = useState("");
+    const [v4CoolingStatus, setV4CoolingStatus] = useState("");
 
     const [carbonation, setCarbonation] = useState("2.10");
     const [pressure, setPressure] = useState("");
@@ -178,6 +180,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setResult(null);
         setV4Result(null);
         setV4Status("");
+        setV4CoolingStatus("");
         setError("");
         if (!tank?.batchNumber) {
             setSource([]);
@@ -251,6 +254,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setResult(null);
         setV4Result(null);
         setV4Status("");
+        setV4CoolingStatus("");
 
         try {
             const simulated = scenarioMeasurements({
@@ -310,6 +314,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     if (!state) {
                         setV4Status("אין מספיק היסטוריית לחץ/גיזוז לבניית מצב V4");
                     } else {
+                        setV4CoolingStatus(
+                            state.cooling
+                                ? `${Math.round(state.cooling.hoursSinceCooling)} שעות מאז קירור${state.cooling.stillCooling ? " · עדיין מתקרר" : ""}`
+                                : "אין אירוע קירור מזוהה"
+                        );
                         const estimate = estimatePressureTargetV4({
                             samples: v4Model.samples,
                             passiveSamples: v4Model.passiveSamples,
@@ -318,10 +327,13 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             targetCarbonation: Number(carbonationTarget),
                             firstCarbonation,
                             equilibriumPressure: equilibriumForTemp(state.currentTemp),
+                            coldReferenceTemperature:
+                                getColdReferenceTemperatureV4(v4Model),
                         });
                         if (estimate) {
                             setV4Result(estimate);
                             setV4Status("");
+        setV4CoolingStatus("");
                         } else {
                             setV4Status("אין מספיק מצבים היסטוריים דומים להמלצת V4");
                         }
@@ -448,6 +460,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 ביטחון: {v4Result.confidence} ·
                                 דיוק היסטורי: {v4Result.accuracyPercent}% ·
                                 k: {v4Result.kPerHour}/שעה ·
+                                {v4CoolingStatus} ·
                                 לחץ שיווי־משקל ליעד: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar ·
                                 תמיכה: {v4Result.supportCount} מעברים
                             </p>
