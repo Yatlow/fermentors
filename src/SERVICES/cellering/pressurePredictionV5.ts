@@ -42,6 +42,8 @@ export type PressureV5Estimate = {
   targetEquilibriumPressure: number;
   targetPressureRangeLow: number | null;
   targetPressureRangeHigh: number | null;
+  setpointResponseVolPerBar: number;
+  setpointBasis: "first_cooling_kinetic" | "stable_incremental";
   supportCount: number;
   confidence: "low" | "medium" | "high";
 
@@ -595,6 +597,21 @@ export function estimatePressureTargetV5(args: {
       Number(targetEquilibriumPressure.toFixed(2)),
     targetPressureRangeLow: null,
     targetPressureRangeHigh: null,
+    setpointResponseVolPerBar: Number(
+      (
+        firstCoolingMode
+          ? clamp(
+              effectiveVolPerBar48h,
+              0.25,
+              OPERATIONAL_VOL_PER_BAR_MAX,
+            )
+          : OPERATIONAL_VOL_PER_BAR_MIN
+      ).toFixed(3),
+    ),
+    setpointBasis:
+      firstCoolingMode
+        ? "first_cooling_kinetic"
+        : "stable_incremental",
     supportCount: learned.supportCount,
     confidence: learned.confidence,
     equilibriumPressureForCurrentCarb:
