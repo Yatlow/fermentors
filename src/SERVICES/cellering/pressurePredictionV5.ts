@@ -455,9 +455,10 @@ function carbonationErrorGain(args: {
   const excess = gap - 0.07;
 
   if (args.firstCoolingMode) {
-    // First-cooling checks still carry stored-pressure/cooling context, but
-    // large misses need a stronger correction than the old linear V5 gave.
-    return clamp(1 + 16 * excess, 1, 3.8);
+    // First carbonation already has its own absolute equilibrium/cooling model.
+    // Applying the nonlinear error gain here double-counts the miss from target
+    // and makes stored-pressure corrections too aggressive.
+    return 1;
   }
 
   // Stable tanks: progressively stronger correction as the carbonation error
