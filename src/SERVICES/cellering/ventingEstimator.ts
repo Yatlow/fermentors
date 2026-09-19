@@ -2,7 +2,6 @@ import type {
   PressureV4DecisionState,
   PressureV4TransitionSample,
 } from "./pressurePredictionV4";
-import { evolveCarbonation } from "./pressureCarbonationPhysics";
 
 export type VentingEstimate = {
   ventPressureBar: number;
@@ -12,7 +11,7 @@ export type VentingEstimate = {
   targetWindowMin: number;
   targetWindowMax: number;
   supportCount: number;
-  kPerHour: number;
+  dropPerHour: number;
   confidence: "low" | "medium" | "high";
 };
 
@@ -82,12 +81,16 @@ export function estimateVentingDuration(args: {
       const delta =
         sample.endCarbonation - sample.startCarbonation;
       const sampleTemp = finite(sample.currentTemp);
+      const pressureMean = finite(sample.pressureMeanDuring);
+      const durationHours = finite(sample.durationHours);
       return (
         delta <= -0.01 &&
-        Number.isFinite(sample.kPerHour) &&
-        sample.kPerHour > 0 &&
-        sample.kPerHour < 1 &&
         sampleTemp !== null &&
+        pressureMean !== null &&
+        pressureMean <= 0.15 &&
+        durationHours !== null &&
+        durationHours > 0 &&
+        durationHours <= 6 &&
         Math.abs(sampleTemp - currentTemp) <= 3 &&
         Math.abs(
           sample.startCarbonation - args.state.carbonation,
@@ -96,6 +99,10 @@ export function estimateVentingDuration(args: {
     })
     .map((sample) => {
       const sampleTemp = finite(sample.currentTemp)!;
+      const durationHours = finite(sample.durationHours)!;
+      const dropPerHour =
+        (sample.startCarbonation - sample.endCarbonation) /
+        durationHours;
       const carbDistance =
         Math.abs(
           sample.startCarbonation - args.state.carbonation,
@@ -118,21 +125,26 @@ export function estimateVentingDuration(args: {
 
       return {
         sample,
+        dropPerHour,
         weight: 1 / (0.25 + distance * distance),
       };
     })
+    .filter((row) =>
+      Number.isFinite(row.dropPerHour) &&
+      row.dropPerHour > 0
+    )
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 20);
 
   if (downward.length < 4) return null;
 
-  const kPerHour = weightedMedian(
+  const dropPerHour = weightedMedian(
     downward.map((row) => ({
-      value: row.sample.kPerHour,
+      value: row.dropPerHour,
       weight: row.weight,
     })),
   );
-  if (kPerHour === null) return null;
+  if (dropPerHour === null || dropPerHour <= 0) return null;
 
   const ventPressureBar =
     finite(args.ventPressureBar) ?? 0;
@@ -141,59 +153,56 @@ export function estimateVentingDuration(args: {
   const stepMinutes =
     Math.max(1, Math.round(finite(args.stepMinutes) ?? 5));
 
-  let best: {
-    minutes: number;
-    carbonation: number;
-    error: number;
-  } | null = null;
+  const requiredDrop =
+    args.state.carbonation - args.targetCarbonation;
+  const estimatedMinutes =
+    requiredDrop / dropPerHour * 60;
 
-  for (
-    let minutes = stepMinutes;
-    minutes <= maxMinutes;
-    minutes += stepMinutes
+  // A timed "leave it open" instruction must come from real low-pressure
+  // historical windows and must remain operationally short. If the estimate is
+  // several hours long, the evidence is not suitable for an automatic timed
+  // vent recommendation; fall back to a pressure-setpoint/recheck instruction.
+  if (
+    !Number.isFinite(estimatedMinutes) ||
+    estimatedMinutes <= 0 ||
+    estimatedMinutes > Math.min(maxMinutes, 180)
   ) {
-    const predicted = evolveCarbonation({
-      carbonation: args.state.carbonation,
-      pressureBar: ventPressureBar,
-      temperatureC: currentTemp,
-      kPerHour,
-      hours: minutes / 60,
-    });
-    if (predicted === null) continue;
-
-    const error = Math.abs(
-      predicted - args.targetCarbonation,
-    );
-    if (!best || error < best.error) {
-      best = { minutes, carbonation: predicted, error };
-    }
-
-    if (
-      predicted >= targetWindowMin &&
-      predicted <= targetWindowMax
-    ) {
-      const confidence: VentingEstimate["confidence"] =
-        downward.length >= 12
-          ? "high"
-          : downward.length >= 7
-            ? "medium"
-            : "low";
-
-      return {
-        ventPressureBar,
-        durationMinutes: minutes,
-        predictedCarbonationAtClose: Number(
-          predicted.toFixed(3),
-        ),
-        targetCarbonation: args.targetCarbonation,
-        targetWindowMin: Number(targetWindowMin.toFixed(2)),
-        targetWindowMax: Number(targetWindowMax.toFixed(2)),
-        supportCount: downward.length,
-        kPerHour: Number(kPerHour.toFixed(5)),
-        confidence,
-      };
-    }
+    return null;
   }
 
-  return null;
+  const durationMinutes = Math.max(
+    stepMinutes,
+    Math.round(estimatedMinutes / stepMinutes) * stepMinutes,
+  );
+  const predicted =
+    args.state.carbonation -
+    dropPerHour * (durationMinutes / 60);
+
+  if (
+    predicted < targetWindowMin ||
+    predicted > targetWindowMax
+  ) {
+    return null;
+  }
+
+  const confidence: VentingEstimate["confidence"] =
+    downward.length >= 12
+      ? "high"
+      : downward.length >= 7
+        ? "medium"
+        : "low";
+
+  return {
+    ventPressureBar,
+    durationMinutes,
+    predictedCarbonationAtClose: Number(
+      predicted.toFixed(3),
+    ),
+    targetCarbonation: args.targetCarbonation,
+    targetWindowMin: Number(targetWindowMin.toFixed(2)),
+    targetWindowMax: Number(targetWindowMax.toFixed(2)),
+    supportCount: downward.length,
+    dropPerHour: Number(dropPerHour.toFixed(5)),
+    confidence,
+  };
 }

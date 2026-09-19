@@ -44,6 +44,7 @@ export type PressureV4Estimate = {
   decisionStatus:
     | "within_window"
     | "early_cooling_exception"
+    | "pressure_adjust_and_recheck"
     | "pressure_only_insufficient";
   targetWindowMin: number;
   targetWindowMax: number;
@@ -470,7 +471,21 @@ function headroomPrior(args: {
   }
 
   const excess = Math.abs(args.carbonationError);
-  return -clamp(0.12 + 4.5 * excess, 0.15, 0.55);
+
+  // A small over-carbonation should first be corrected by moving the regulator
+  // toward the equilibrium pressure, not by treating it like an emergency vent.
+  // Example: 2.45 vs 2.40 at ~1°C should land near the ~0.5 bar equilibrium area.
+  if (excess <= 0.055) {
+    return -clamp((excess - TARGET_TOLERANCE_VOL) * 0.6, 0, 0.03);
+  }
+
+  // Once the excess is materially larger, venting pressure can fall much more
+  // sharply. This preserves the aggressive response for genuinely high CO2.
+  return -clamp(
+    0.15 + 15 * (excess - 0.055),
+    0.15,
+    0.55,
+  );
 }
 
 function learnedHeadroom(args: {
@@ -738,22 +753,37 @@ function refinePressureWithForecast(args: {
   // to the old "slow k => 1.9 bar" failure mode.
   const direction =
     currentAtBaseline < args.targetCarbonation ? 1 : -1;
+
+  if (
+    args.state.carbonation > args.targetCarbonation &&
+    currentAtBaseline > args.targetCarbonation + TARGET_TOLERANCE_VOL
+  ) {
+    return args.baselinePressure;
+  }
+
   const currentCarbError = Math.abs(
     args.targetCarbonation - args.state.carbonation,
   );
-  const maxRefinement = clamp(
-    0.12 +
-      1.6 * currentCarbError +
-      6 * Math.max(0, currentCarbError - 0.10),
-    // Stable cold beer is allowed enough room to actually enter the ±0.02
-    // target window. A 0.15-0.20 bar cap was too restrictive for ordinary
-    // cases such as 2.38 -> 2.45, where ~1.1 bar is still a perfectly
-    // reasonable correction. We still hard-cap forecast refinement at 0.50 bar
-    // from the operational baseline so the model cannot chase the target with
-    // absurd 1.8/1.9 bar recommendations.
-    0.35,
-    0.50,
+  const maxRaiseFromCurrent = clamp(
+    0.15 + 4 * currentCarbError,
+    0.25,
+    0.75,
   );
+  const maxOperationalPressure =
+    direction > 0
+      ? Math.min(
+          args.maxPressure,
+          args.state.currentPressure + maxRaiseFromCurrent,
+        )
+      : args.maxPressure;
+  const maxRefinement =
+    direction > 0
+      ? Math.max(
+          0,
+          maxOperationalPressure - args.baselinePressure,
+        )
+      : 0;
+
   let bestPressure = args.baselinePressure;
   let bestError = baselineError;
 
@@ -780,7 +810,20 @@ function refinePressureWithForecast(args: {
     if (predicted === null) continue;
 
     const error = Math.abs(predicted - args.targetCarbonation);
-    if (error + 0.003 < bestError) {
+
+    if (
+      direction > 0 &&
+      predicted >=
+        args.targetCarbonation - TARGET_TOLERANCE_VOL / 2 &&
+      predicted <= args.targetCarbonation + TARGET_TOLERANCE_VOL
+    ) {
+      // For under-carbonation, choose the first (lowest) pressure that actually
+      // enters the requested window rather than continuing to chase the exact
+      // midpoint with unnecessary pressure.
+      return candidate;
+    }
+
+    if (error + 0.0001 < bestError) {
       bestError = error;
       bestPressure = candidate;
     }
@@ -1042,12 +1085,32 @@ export function estimatePressureTargetV4(args: {
   // inside ±0.02 vol, or pressure-only is explicitly declared insufficient.
   // The only allowed forecast miss is while the beer is still in the active
   // cooling phase, where equilibrium/head-pressure history remains primary.
+  const nearLowerPressureLimit =
+    targetPressure <= minPressure + Math.max(step, 0.05);
+  const nearUpperPressureLimit =
+    targetPressure >= maxPressure - Math.max(step, 0.05);
+  const lowConfidence = confidence === "low";
+
+  const trulyPressureLimited =
+    (
+      carbonationError > 0 &&
+      nearUpperPressureLimit &&
+      predictedRaw < args.targetCarbonation - TARGET_TOLERANCE_VOL
+    ) ||
+    (
+      carbonationError < 0 &&
+      nearLowerPressureLimit &&
+      predictedRaw > args.targetCarbonation + TARGET_TOLERANCE_VOL
+    );
+
   const decisionStatus: PressureV4Estimate["decisionStatus"] =
     forecastInTargetWindow
       ? "within_window"
       : effectivelyStillCooling
         ? "early_cooling_exception"
-        : "pressure_only_insufficient";
+        : trulyPressureLimited && !lowConfidence
+          ? "pressure_only_insufficient"
+          : "pressure_adjust_and_recheck";
 
   const pressureOnlyLikelyInsufficient =
     decisionStatus === "pressure_only_insufficient";
