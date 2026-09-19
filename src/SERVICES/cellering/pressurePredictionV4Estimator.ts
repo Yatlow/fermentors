@@ -1350,6 +1350,29 @@ export function estimatePressureTargetV4(args: {
     passiveSamples: args.passiveSamples ?? [],
     state: args.state,
   });
+  const empiricalPassiveForSelection =
+    estimatePassiveDrift(empiricalRows);
+  const empiricalSlopeForSelection =
+    estimatePressureSlope(
+      empiricalRows,
+      empiricalPassiveForSelection,
+    );
+  const nearbyActionRows = empiricalRows
+    .filter((row) => row.kind === "action")
+    .slice(0, 8);
+  const nearbyActionMeanDistance =
+    nearbyActionRows.length
+      ? nearbyActionRows.reduce(
+          (sum, row) => sum + row.stateDistance,
+          0,
+        ) / nearbyActionRows.length
+      : Infinity;
+  const hasEmpiricalPressureEvidence =
+    Boolean(empiricalSlopeForSelection) ||
+    (
+      nearbyActionRows.length >= 4 &&
+      nearbyActionMeanDistance <= 4.5
+    );
 
   const physicalNoChange = simulateForward({
     carbonation: args.state.carbonation,
@@ -1485,20 +1508,42 @@ export function estimatePressureTargetV4(args: {
         step,
       });
     } else if (carbonationError > 0) {
-      // Stable under-carbonation is selected directly from the forecast
-      // surface. The prior must not force a higher setpoint before historical
-      // action evidence is considered.
-      targetPressure = selectStablePressureByForecast({
-        state: args.state,
-        targetCarbonation: args.targetCarbonation,
-        forecastAtPressure: (pressure) =>
-          forecastAtPressure(pressure)?.predicted ?? null,
-        minPressure,
-        maxPressure,
-        step,
-      });
-      headroomBar =
-        targetPressure - targetEquilibriumPressure;
+      if (hasEmpiricalPressureEvidence) {
+        // When real pressure actions exist in similar states, search the full
+        // forecast surface and prefer the smallest change that reaches target.
+        targetPressure = selectStablePressureByForecast({
+          state: args.state,
+          targetCarbonation: args.targetCarbonation,
+          forecastAtPressure: (pressure) =>
+            forecastAtPressure(pressure)?.predicted ?? null,
+          minPressure,
+          maxPressure,
+          step,
+        });
+        headroomBar =
+          targetPressure - targetEquilibriumPressure;
+      } else {
+        // Kinetics alone may fine-tune an operational equilibrium/headroom
+        // target, but may not drive an unconstrained search toward 1.9 bar.
+        headroomBar = blended.value;
+        targetPressure = snapPressure(
+          targetEquilibriumPressure + headroomBar,
+          minPressure,
+          maxPressure,
+          step,
+        );
+        targetPressure = refinePressureWithForecast({
+          baselinePressure: targetPressure,
+          state: args.state,
+          targetCarbonation: args.targetCarbonation,
+          forecastAtPressure: (pressure) =>
+            forecastAtPressure(pressure)?.predicted ?? null,
+          coldReferenceTemperature,
+          minPressure,
+          maxPressure,
+          step,
+        });
+      }
     } else {
       // For over-carbonation, equilibrium is itself the operational anchor.
       // A slow kinetic forecast must not drive a mild excess all the way toward
