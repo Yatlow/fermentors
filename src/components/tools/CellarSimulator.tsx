@@ -774,18 +774,22 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                             ? `k היסטורי נפסל${v5Result.rawLearnedKPerHour !== null ? ` (raw ${v5Result.rawLearnedKPerHour.toFixed(5)})` : ""}; משתמשים בכלל התפעולי`
                                             : "נגזר מכלל העבודה התפעולי"
                                 }) ·
-                                אפקט שקול ל-48 שעות: {v5Result.effectiveVolPerBar48h.toFixed(3)} vol/bar ·
+                                אפקט קינטי משוער ל-48 שעות: {v5Result.effectiveVolPerBar48h.toFixed(3)} vol/bar ·
                                 תמיכה: {v5Result.supportCount} מעברים ·
                                 ביטחון: {v5Result.confidence} ·
-                                טמפרטורת חיזוי: {v5Result.forecastTemperature.toFixed(1)}°C ·
+                                טמפרטורת חישוב: {v5Result.forecastTemperature.toFixed(1)}°C ·
                                 לחץ שיווי־משקל של הגיזוז המשוער עכשיו: {v5Result.equilibriumPressureForCurrentCarb.toFixed(2)} bar ·
-                                מרחק הלחץ משיווי־משקל: {v5Result.pressureDistanceFromEquilibrium >= 0 ? "+" : ""}{v5Result.pressureDistanceFromEquilibrium.toFixed(2)} bar ·
+                                לחץ שיווי־משקל של יעד {v5Result.targetCarbonation.toFixed(2)}: {v5Result.targetEquilibriumPressure.toFixed(2)} bar ·
+                                מרחק הלחץ הנוכחי משיווי־משקל: {v5Result.pressureDistanceFromEquilibrium >= 0 ? "+" : ""}{v5Result.pressureDistanceFromEquilibrium.toFixed(2)} bar ·
                                 בעוד 48 שעות בלי שינוי לחץ: {v5Result.predictedWithoutChange.toFixed(3)} vol
+                                {v5Result.targetPressureRangeLow !== null && v5Result.targetPressureRangeHigh !== null
+                                    ? ` · טווח לחץ לפי כלל 0.5–1.0 vol/bar: ${v5Result.targetPressureRangeLow.toFixed(2)}–${v5Result.targetPressureRangeHigh.toFixed(2)} bar`
+                                    : ""}
                                 {v5Result.rawTargetPressure !== null
-                                    ? ` · לחץ מתמטי ליעד: ${v5Result.rawTargetPressure.toFixed(2)} bar`
+                                    ? ` · המלצה שמרנית: ${v5Result.rawTargetPressure.toFixed(2)} bar`
                                     : ""}
                                 {v5Result.predictedAtTarget !== null
-                                    ? ` · תחזית בלחץ היעד: ${v5Result.predictedAtTarget.toFixed(3)} vol`
+                                    ? ` · יעד גיזוז בחישוב: ${v5Result.predictedAtTarget.toFixed(3)} vol`
                                     : ""}
                                 {v5Result.edgeCase === "bottom_carbonation"
                                     ? " · מתחת 2.15: V5 רק מזהה את המסלול ולא מחשב טיפול."
