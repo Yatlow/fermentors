@@ -67,6 +67,9 @@ export type PressureV4DecisionState = {
   exposure: PressureV4Exposure;
   cooling: PressureV4CoolingState | null;
   carbonationTrend?: PressureV4CarbonationTrend | null;
+  currentCarbonationDateTimeMs?: number | null;
+  hoursSinceCurrentCarbonation?: number | null;
+  postCarbonationExposure?: PressureV4Exposure | null;
 };
 
 export type PressureV4Outcome = {
@@ -835,6 +838,20 @@ export function buildPressureV4DecisionState(args: {
       ? previousCheck.carbonation - previousPreviousCheck.carbonation
       : null;
 
+  const postCarbonationExposure =
+    currentCheck && latest.time > currentCheck.time
+      ? buildPressureV4Exposure({
+          measurements: args.measurements,
+          t0Ms: currentCheck.time,
+          endMs: latest.time,
+          equilibriumPressure: args.equilibriumPressure,
+        })
+      : null;
+  const hoursSinceCurrentCarbonation =
+    currentCheck
+      ? Math.max(0, (latest.time - currentCheck.time) / 3600000)
+      : null;
+
   const carbonationTrend: PressureV4CarbonationTrend = {
     checksInPhase: carbonationChecks.length,
     previousCarbonation: previousCheck?.carbonation ?? null,
@@ -870,5 +887,8 @@ export function buildPressureV4DecisionState(args: {
     exposure,
     cooling,
     carbonationTrend,
+    currentCarbonationDateTimeMs: currentCheck?.time ?? null,
+    hoursSinceCurrentCarbonation,
+    postCarbonationExposure,
   };
 }
