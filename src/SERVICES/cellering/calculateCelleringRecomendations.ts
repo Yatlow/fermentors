@@ -14,6 +14,17 @@ import {
 } from "./bottomCarbonationRecommendationModel";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { carbonationRetestPolicy } from "./carbonationRetestPolicy";
+import {
+    buildPressureV4DecisionState,
+} from "./pressurePredictionV4";
+import {
+    estimatePressureTargetV4,
+} from "./pressurePredictionV4Estimator";
+import {
+    getEquilibriumPressureForV4,
+    getPressurePredictionModelV4,
+    isPressurePredictionV4Ready,
+} from "./pressurePredictionV4Model";
 
 
 
@@ -1438,54 +1449,97 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number.isFinite(Number(carbonationTarget)) &&
         currentPressure !== null
     ) {
-        const model = await getPressureResponseModel(style);
-        const pressureContext = pressureHistoryContext(
-            sortedMeasurements,
-            lastMeasurementDate
-        );
-        const estimate = model
-            ? estimatePressureTarget({
-                samples: model.samples,
-                currentCarbonation: Number(lastMeasurement.carbonation),
-                targetCarbonation: Number(carbonationTarget),
-                currentPressure,
-                brewDay: brewAge,
-                temp: Number.isFinite(Number(lastMeasurement.temp))
-                    ? Number(lastMeasurement.temp)
-                    : null,
-                pressureMeanToDate: pressureContext.pressureMeanToDate,
-                pressureMeanLast3Days: pressureContext.pressureMeanLast3Days,
-                pressureMeanLast7Days: pressureContext.pressureMeanLast7Days,
-                carbAgeAtAdjustment: 0,
-                calibration: model.calibration ?? null,
-                equilibriumObservations: model.equilibriumObservations ?? [],
-            })
-            : null;
+        // V4 is used in production only after this style has enough independent
+        // historical support. Until then V3 remains the exact fallback.
+        const v4Model = await getPressurePredictionModelV4(style);
+        const v4Ready = isPressurePredictionV4Ready(v4Model);
 
-        if (estimate) {
-            const actionText =
-                estimate.currentPressureChange > 0.025
-                    ? `מומלץ להעלות את הלחץ ל-${estimate.targetPressure} bar.`
-                    : estimate.currentPressureChange < -0.025
-                        ? `מומלץ להוריד את הלחץ ל-${estimate.targetPressure} bar.`
-                        : `מומלץ לכוון את הלחץ ל-${estimate.targetPressure} bar.`;
-            const retestText =
-                estimate.expectedDays === 1
-                    ? "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יום."
-                    : estimate.expectedDays === 2
-                        ? "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
-                        : `מומלץ לבצע בדיקת גיזוז חוזרת בעוד ${estimate.expectedDays} ימים.`;
-            const calibrationText =
-                estimate.calibrationEvaluatedSamples >= 8 &&
-                estimate.calibrationWithin005Rate !== null
-                    ? ` ${Math.round(estimate.calibrationWithin005Rate * 100)}% דיוק לפי מודל סטטיסטי.`
-                    : "";
+        if (v4Ready && v4Model) {
+            const equilibriumForTemp = (temperature: number | null) =>
+                getEquilibriumPressureForV4(v4Model, temperature);
 
-            learnedPressureReason =
-                `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
-                actionText +
-                ` ${retestText}` +
-                calibrationText;
+            const v4State = buildPressureV4DecisionState({
+                measurements: sortedMeasurements,
+                equilibriumPressure: equilibriumForTemp,
+            });
+
+            const v4Estimate = v4State
+                ? estimatePressureTargetV4({
+                    samples: v4Model.samples,
+                    state: v4State,
+                    targetCarbonation: Number(carbonationTarget),
+                })
+                : null;
+
+            // Do not surface a low-confidence V4 target to workers. A style can
+            // be globally ready while the current tank is unlike its history.
+            if (v4Estimate && v4Estimate.confidence !== "low") {
+                const change =
+                    v4Estimate.targetPressure - currentPressure;
+                const actionText =
+                    change > 0.025
+                        ? `מומלץ להעלות את הלחץ ל-${v4Estimate.targetPressure} bar.`
+                        : change < -0.025
+                            ? `מומלץ להוריד את הלחץ ל-${v4Estimate.targetPressure} bar.`
+                            : `מומלץ לכוון את הלחץ ל-${v4Estimate.targetPressure} bar.`;
+
+                learnedPressureReason =
+                    `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
+                    actionText +
+                    " מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים.";
+            }
+        }
+
+        if (!learnedPressureReason) {
+            const model = await getPressureResponseModel(style);
+            const pressureContext = pressureHistoryContext(
+                sortedMeasurements,
+                lastMeasurementDate
+            );
+            const estimate = model
+                ? estimatePressureTarget({
+                    samples: model.samples,
+                    currentCarbonation: Number(lastMeasurement.carbonation),
+                    targetCarbonation: Number(carbonationTarget),
+                    currentPressure,
+                    brewDay: brewAge,
+                    temp: Number.isFinite(Number(lastMeasurement.temp))
+                        ? Number(lastMeasurement.temp)
+                        : null,
+                    pressureMeanToDate: pressureContext.pressureMeanToDate,
+                    pressureMeanLast3Days: pressureContext.pressureMeanLast3Days,
+                    pressureMeanLast7Days: pressureContext.pressureMeanLast7Days,
+                    carbAgeAtAdjustment: 0,
+                    calibration: model.calibration ?? null,
+                    equilibriumObservations: model.equilibriumObservations ?? [],
+                })
+                : null;
+
+            if (estimate) {
+                const actionText =
+                    estimate.currentPressureChange > 0.025
+                        ? `מומלץ להעלות את הלחץ ל-${estimate.targetPressure} bar.`
+                        : estimate.currentPressureChange < -0.025
+                            ? `מומלץ להוריד את הלחץ ל-${estimate.targetPressure} bar.`
+                            : `מומלץ לכוון את הלחץ ל-${estimate.targetPressure} bar.`;
+                const retestText =
+                    estimate.expectedDays === 1
+                        ? "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יום."
+                        : estimate.expectedDays === 2
+                            ? "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
+                            : `מומלץ לבצע בדיקת גיזוז חוזרת בעוד ${estimate.expectedDays} ימים.`;
+                const calibrationText =
+                    estimate.calibrationEvaluatedSamples >= 8 &&
+                    estimate.calibrationWithin005Rate !== null
+                        ? ` ${Math.round(estimate.calibrationWithin005Rate * 100)}% דיוק לפי מודל סטטיסטי.`
+                        : "";
+
+                learnedPressureReason =
+                    `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
+                    actionText +
+                    ` ${retestText}` +
+                    calibrationText;
+            }
         }
     }
 
