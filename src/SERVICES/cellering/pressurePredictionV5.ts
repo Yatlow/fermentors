@@ -435,6 +435,36 @@ function roundPressure(pressure: number): number {
   return Math.round(pressure * 20) / 20;
 }
 
+// The learned response is deliberately trusted close to target, where the
+// current V5 behavior already matches cellar practice well. Farther from the
+// target we increase the correction progressively instead of applying the same
+// linear vol/bar conversion to every error.
+//
+// This is a gain on the calculated pressure correction, NOT a lookup table of
+// carbonation -> pressure. The learned tank response, equilibrium anchor,
+// cooling state and pressure history still determine the underlying setpoint.
+function carbonationErrorGain(args: {
+  carbonationGap: number;
+  firstCoolingMode: boolean;
+}): number {
+  const gap = Math.abs(args.carbonationGap);
+
+  // Keep the good near-target behaviour essentially unchanged.
+  if (gap <= 0.07) return 1;
+
+  const excess = gap - 0.07;
+
+  if (args.firstCoolingMode) {
+    // First-cooling checks still carry stored-pressure/cooling context, but
+    // large misses need a stronger correction than the old linear V5 gave.
+    return clamp(1 + 11 * excess, 1, 3.2);
+  }
+
+  // Stable tanks: progressively stronger correction as the carbonation error
+  // grows. Around 0.13 vol this is ~1.6x; around 0.20 vol ~2.3x.
+  return clamp(1 + 10 * excess, 1, 2.6);
+}
+
 export function estimatePressureTargetV5(args: {
   samples?: PressureV4Sample[];
   passiveSamples?: PressureV4PassiveSample[];
@@ -669,9 +699,14 @@ export function estimatePressureTargetV5(args: {
     OPERATIONAL_VOL_PER_BAR_MAX,
   );
 
+  const correctionGain = carbonationErrorGain({
+    carbonationGap,
+    firstCoolingMode,
+  });
+
   const rawTargetPressure =
     correctionBasePressure +
-    carbonationGap / learnedSetpointResponse;
+    (carbonationGap / learnedSetpointResponse) * correctionGain;
 
   if (rawTargetPressure < 0) {
     return {
