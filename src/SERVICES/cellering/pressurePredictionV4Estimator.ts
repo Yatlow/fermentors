@@ -23,6 +23,7 @@ export type PressureV4Estimate = {
   error: number;
   supportCount: number;
   confidence: "low" | "medium" | "high";
+  accuracyPercent: number;
   candidates: PressureV4Candidate[];
 };
 
@@ -199,6 +200,60 @@ function weightedLinearPrediction(args: {
   };
 }
 
+function historicalAccuracyPercent(
+  rows: Array<{
+    sample: PressureV4Sample;
+    stateDistance: number;
+  }>,
+  baselineDelta: number,
+): number {
+  const weighted = rows.map(({ sample, stateDistance }) => {
+    const x = Number.isFinite(sample.actionPressureDelta)
+      ? sample.actionPressureDelta
+      : sample.targetPressure - sample.currentPressure;
+    const weight = 1 / (0.2 + stateDistance * stateDistance);
+    return {
+      x,
+      y: sample.carbonationDelta,
+      weight,
+    };
+  }).filter((row) =>
+    Number.isFinite(row.x) &&
+    Number.isFinite(row.y) &&
+    Number.isFinite(row.weight) &&
+    row.weight > 0
+  );
+
+  if (weighted.length < 5) return 0;
+
+  const denominator = weighted.reduce(
+    (sum, row) => sum + row.weight * row.x ** 2,
+    0,
+  );
+  const numerator = weighted.reduce(
+    (sum, row) =>
+      sum + row.weight * row.x * (row.y - baselineDelta),
+    0,
+  );
+  const slope = denominator >= 0.002
+    ? Math.max(0, numerator / denominator)
+    : 0;
+
+  const totalWeight = weighted.reduce((sum, row) => sum + row.weight, 0);
+  if (totalWeight <= 0) return 0;
+
+  const hitWeight = weighted.reduce((sum, row) => {
+    const predicted = baselineDelta + slope * row.x;
+    const hit = Math.abs(predicted - row.y) <= 0.05;
+    return sum + (hit ? row.weight : 0);
+  }, 0);
+
+  return Math.max(
+    0,
+    Math.min(100, Math.round((hitWeight / totalWeight) * 100)),
+  );
+}
+
 export function estimatePressureTargetV4(args: {
   samples: PressureV4Sample[];
   passiveSamples?: PressureV4PassiveSample[];
@@ -340,6 +395,11 @@ export function estimatePressureTargetV4(args: {
   // predicts that even its best candidate remains materially off target.
   if (error > 0.06) return null;
 
+  const accuracyPercent = historicalAccuracyPercent(
+    usable,
+    baselineDelta,
+  );
+
   return {
     targetPressure: best.targetPressure,
     predictedCarbonation: best.predictedCarbonation,
@@ -348,6 +408,7 @@ export function estimatePressureTargetV4(args: {
     error: Number(error.toFixed(3)),
     supportCount: best.supportCount,
     confidence,
+    accuracyPercent,
     candidates,
   };
 }
