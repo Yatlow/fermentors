@@ -17,6 +17,15 @@ export type PressureResponseSample = {
   success?: boolean;
 };
 
+export type PressureEquilibriumObservation = {
+  batchId?: string;
+  date?: string;
+  brewDay?: number | null;
+  temp?: number | null;
+  carbonation: number;
+  pressure: number;
+};
+
 export type PressureModelCalibration = {
   responseMultiplier?: number | null;
   evaluatedSamples?: number | null;
@@ -81,6 +90,7 @@ export function estimatePressureTarget(args: {
   pressureMeanLast7Days?: number | null;
   carbAgeAtAdjustment?: number | null;
   calibration?: PressureModelCalibration | null;
+  equilibriumObservations?: PressureEquilibriumObservation[];
 }): PressureRecommendationEstimate | null {
   const {
     currentCarbonation,
@@ -121,7 +131,43 @@ export function estimatePressureTarget(args: {
       sample.elapsedDays <= 5
     );
 
-  const targetEquilibriumCandidates = mapped
+  const currentTemp = finiteNumber(temp);
+  const currentBrewDay = finiteNumber(brewDay);
+
+  const observationCandidates = (args.equilibriumObservations ?? [])
+    .map((observation) => ({
+      pressure: finiteNumber(observation.pressure),
+      carbonation: finiteNumber(observation.carbonation),
+      temp: finiteNumber(observation.temp),
+      brewDay: finiteNumber(observation.brewDay),
+    }))
+    .filter((observation) =>
+      observation.pressure !== null &&
+      observation.carbonation !== null &&
+      Math.abs(observation.carbonation - targetCarbonation) <= 0.1 &&
+      (
+        currentTemp === null ||
+        observation.temp === null ||
+        Math.abs(observation.temp - currentTemp) <= 2.5
+      )
+    )
+    .sort((a, b) => {
+      const distance = (observation: typeof a) => {
+        let score = Math.abs(observation.carbonation! - targetCarbonation) * 5;
+        if (currentTemp !== null && observation.temp !== null) {
+          score += Math.abs(observation.temp - currentTemp) * 0.8;
+        }
+        if (currentBrewDay !== null && observation.brewDay !== null) {
+          score += Math.abs(observation.brewDay - currentBrewDay) * 0.08;
+        }
+        return score;
+      };
+      return distance(a) - distance(b);
+    })
+    .slice(0, 60)
+    .map((observation) => observation.pressure!);
+
+  const responseOutcomeCandidates = mapped
     .filter((sample) =>
       sample.pressureAfter !== null &&
       Math.abs(sample.carbonationAfter! - targetCarbonation) <= 0.1
@@ -132,14 +178,18 @@ export function estimatePressureTarget(args: {
     finiteNumber(args.calibration?.equilibriumPressure);
 
   let equilibriumPressure: number | null = null;
-  let equilibriumSampleCount = targetEquilibriumCandidates.length;
+  let equilibriumSampleCount = 0;
 
-  if (targetEquilibriumCandidates.length >= 5) {
-    equilibriumPressure = median(targetEquilibriumCandidates);
+  if (observationCandidates.length >= 5) {
+    equilibriumPressure = median(observationCandidates);
+    equilibriumSampleCount = observationCandidates.length;
+  } else if (responseOutcomeCandidates.length >= 5) {
+    equilibriumPressure = median(responseOutcomeCandidates);
+    equilibriumSampleCount = responseOutcomeCandidates.length;
   } else if (learnedCalibrationEquilibrium !== null) {
     equilibriumPressure = learnedCalibrationEquilibrium;
     equilibriumSampleCount = Math.max(
-      equilibriumSampleCount,
+      responseOutcomeCandidates.length,
       Math.round(Number(args.calibration?.equilibriumSampleCount) || 0),
     );
   }
