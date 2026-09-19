@@ -1065,8 +1065,36 @@ function pressurePredictionV4BackfillState_() {
 function pressurePredictionV4BackfillStep_() {
   const props = PropertiesService.getScriptProperties();
   const state = pressurePredictionV4BackfillState_();
-  if (!state || state.active !== true) {
-    return { skipped: true, reason: "not_started_or_completed" };
+  if (!state) {
+    return { skipped: true, reason: "not_started" };
+  }
+
+  const nowForPolicy = new Date();
+  const quotaForPolicy = pressureV4QuotaWindow_(nowForPolicy);
+  const policyBeforeActiveCheck = pressureV4BackfillPolicy_(
+    nowForPolicy,
+    state,
+    quotaForPolicy.key
+  );
+
+  // The 09:50 one-off rescan must be able to restart even if an earlier
+  // historical scan had already reached the end of the brews collection.
+  if (
+    state.active !== true &&
+    policyBeforeActiveCheck.restartForPassive
+  ) {
+    state.active = true;
+    state.completed = false;
+    state.pageToken = "";
+    state.passiveRescanStartedAt = nowForPolicy.toISOString();
+    props.setProperty(
+      PRESSURE_V4_BACKFILL_STATE_KEY,
+      JSON.stringify(state)
+    );
+  }
+
+  if (state.active !== true) {
+    return { skipped: true, reason: "completed" };
   }
 
   const quota = pressureV4QuotaWindow_(new Date());
