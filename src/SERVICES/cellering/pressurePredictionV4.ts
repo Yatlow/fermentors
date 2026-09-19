@@ -29,12 +29,28 @@ export type PressureV4Exposure = {
   coverageRatio: number;
 };
 
+export type PressureV4CoolingState = {
+  startDateTimeMs: number;
+  hoursSinceCooling: number;
+  startTemp: number | null;
+  currentTemp: number | null;
+  tempDropSinceCooling: number | null;
+  tempChange24h: number | null;
+  pressureMeanSinceCooling: number | null;
+  pressureMean24h: number | null;
+  pressureHoursSinceCooling: number;
+  equilibriumDeltaBarHoursSinceCooling: number | null;
+  coverageRatio: number;
+  stillCooling: boolean;
+};
+
 export type PressureV4DecisionState = {
   carbonation: number;
   currentPressure: number;
   currentTemp: number | null;
   hoursSinceT0: number;
   exposure: PressureV4Exposure;
+  cooling: PressureV4CoolingState | null;
 };
 
 export type PressureV4Outcome = {
@@ -55,6 +71,7 @@ export type PressureV4TransitionSample = {
   currentTemp: number | null;
   hoursSinceT0: number;
   exposure: PressureV4Exposure;
+  cooling: PressureV4CoolingState | null;
   pressureMeanDuring: number | null;
   temperatureMeanDuring: number | null;
   kPerHour: number;
@@ -154,8 +171,16 @@ function isBottomCarbonation(measurement: PressureV4Measurement): boolean {
 }
 
 function isExplicitPressureClose(measurement: PressureV4Measurement): boolean {
+  if (isBottomCarbonation(measurement)) return false;
   const note = noteText(measurement);
-  return /סגירת\s+(?:לחץ|מיכל)|סגירה\s+(?:לחץ|מיכל)|סגירת/i.test(note);
+  return /סגירת\s+(?:לחץ|מיכל)|סגירה\s+(?:לחץ|מיכל)/i.test(note);
+}
+
+function isCoolingAction(measurement: PressureV4Measurement): boolean {
+  const note = noteText(measurement);
+  if (!note.includes("קירור")) return false;
+  if (/אחרי\s+קירור|לאחר\s+קירור/.test(note)) return false;
+  return /(?:^|\||\s)קירור(?:$|\||\s|[-–—])/u.test(note);
 }
 
 function ordinaryPressureTarget(measurement: PressureV4Measurement): number | null {
@@ -321,6 +346,121 @@ export function buildPressureV4Exposure(args: {
     coverageRatio: hoursSinceT0 > 0 ? Math.min(1, coveredHours / hoursSinceT0) : 0,
   };
 }
+
+function valueAtOrBefore(
+  rows: Array<{ measurement: PressureV4Measurement; time: number }>,
+  endMs: number,
+  field: "temp" | "pressure",
+): number | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (rows[index].time > endMs) continue;
+    const value = finiteNumber(rows[index].measurement[field]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function detectCoolingStartMs(
+  measurements: PressureV4Measurement[],
+  t0Ms: number,
+): number | null {
+  const rows = measurements
+    .map((measurement) => ({
+      measurement,
+      time: measurementDateTimeMs(measurement),
+      temp: finiteNumber(measurement.temp),
+    }))
+    .filter((row): row is {
+      measurement: PressureV4Measurement;
+      time: number;
+      temp: number | null;
+    } => row.time !== null && row.time >= t0Ms)
+    .sort((a, b) => a.time - b.time);
+
+  const explicit = rows.find((row) => isCoolingAction(row.measurement));
+  if (explicit) return explicit.time;
+
+  // Fallback only when the action note is absent: first clear crossing from
+  // fermentation temperature into the cold range.
+  let previousTemp: number | null = null;
+  for (const row of rows) {
+    if (row.temp === null) continue;
+    if (previousTemp !== null && previousTemp > 9 && row.temp <= 9) {
+      return row.time;
+    }
+    previousTemp = row.temp;
+  }
+  return null;
+}
+
+export function buildPressureV4CoolingState(args: {
+  measurements: PressureV4Measurement[];
+  t0Ms: number;
+  endMs: number;
+  equilibriumPressure?: EquilibriumPressureFn;
+}): PressureV4CoolingState | null {
+  const coolingStartMs = detectCoolingStartMs(args.measurements, args.t0Ms);
+  if (coolingStartMs === null || coolingStartMs > args.endMs) return null;
+
+  const rows = args.measurements
+    .map((measurement) => ({
+      measurement,
+      time: measurementDateTimeMs(measurement),
+    }))
+    .filter((row): row is { measurement: PressureV4Measurement; time: number } =>
+      row.time !== null
+    )
+    .sort((a, b) => a.time - b.time);
+
+  const startTemp = valueAtOrBefore(rows, coolingStartMs, "temp");
+  const currentTemp = valueAtOrBefore(rows, args.endMs, "temp");
+  const temp24hAgo = valueAtOrBefore(
+    rows,
+    Math.max(coolingStartMs, args.endMs - 24 * 3600000),
+    "temp",
+  );
+
+  const exposure = buildPressureV4Exposure({
+    measurements: args.measurements,
+    t0Ms: coolingStartMs,
+    endMs: args.endMs,
+    equilibriumPressure: args.equilibriumPressure,
+  });
+
+  const tempDropSinceCooling =
+    startTemp !== null && currentTemp !== null
+      ? startTemp - currentTemp
+      : null;
+  const tempChange24h =
+    temp24hAgo !== null && currentTemp !== null
+      ? currentTemp - temp24hAgo
+      : null;
+
+  return {
+    startDateTimeMs: coolingStartMs,
+    hoursSinceCooling: Math.max(0, (args.endMs - coolingStartMs) / 3600000),
+    startTemp,
+    currentTemp,
+    tempDropSinceCooling,
+    tempChange24h,
+    pressureMeanSinceCooling: exposure.pressureMean,
+    pressureMean24h: exposure.pressureMean24h,
+    pressureHoursSinceCooling: exposure.pressureHours,
+    equilibriumDeltaBarHoursSinceCooling:
+      exposure.equilibriumDeltaBarHours,
+    coverageRatio: exposure.coverageRatio,
+    stillCooling:
+      tempChange24h !== null
+        ? tempChange24h <= -0.5
+        : (
+            startTemp !== null &&
+            currentTemp !== null &&
+            startTemp - currentTemp >= 2 &&
+            currentTemp > 2
+          ),
+  };
+}
+
 
 function sampleQuality(exposure: PressureV4Exposure): "low" | "medium" | "high" {
   if (
@@ -602,6 +742,12 @@ export function buildPressureV4DecisionState(args: {
     endMs: latest.time,
     equilibriumPressure: args.equilibriumPressure,
   });
+  const cooling = buildPressureV4CoolingState({
+    measurements: args.measurements,
+    t0Ms: t0.dateTimeMs,
+    endMs: latest.time,
+    equilibriumPressure: args.equilibriumPressure,
+  });
 
   return {
     carbonation,
@@ -609,5 +755,6 @@ export function buildPressureV4DecisionState(args: {
     currentTemp,
     hoursSinceT0: Math.max(0, (latest.time - t0.dateTimeMs) / 3600000),
     exposure,
+    cooling,
   };
 }
