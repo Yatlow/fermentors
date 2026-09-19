@@ -199,6 +199,24 @@ function localTransitions(
     .slice(0, 30);
 }
 
+function directionalTransitions(
+  rows: WeightedTransition[],
+  carbonationError: number,
+): WeightedTransition[] {
+  if (Math.abs(carbonationError) <= 0.04) return rows;
+
+  const direction = Math.sign(carbonationError);
+  const matching = rows.filter((row) => {
+    const delta =
+      row.sample.endCarbonation - row.sample.startCarbonation;
+    return Math.sign(delta) === direction && Math.abs(delta) >= 0.01;
+  });
+
+  // Prefer kinetics from transitions that actually moved CO2 in the direction
+  // we now need. Fall back to the broader local set only when history is thin.
+  return matching.length >= 4 ? matching : rows;
+}
+
 function estimateK(rows: WeightedTransition[]): number | null {
   return weightedQuantile(rows, (row) => row.sample.kPerHour, 0.5);
 }
@@ -564,13 +582,6 @@ function refinePressureWithForecast(args: {
   maxPressure: number;
   step: number;
 }): number {
-  // A near-zero fitted k means the kinetic model has little leverage over a
-  // 48h forecast. In that case it may describe the forecast, but it must not
-  // inflate the pressure target merely to compensate for slow historical uptake.
-  if (args.kPerHour < 0.001) {
-    return args.baselinePressure;
-  }
-
   // On the first/early cold check, if the operational calculation already
   // says to vent from a high closing pressure, do not let a slow fitted k undo
   // that decision. The stored head pressure plus continuing cooling are the
@@ -601,14 +612,31 @@ function refinePressureWithForecast(args: {
     Math.abs(currentAtBaseline - args.targetCarbonation);
   if (baselineError <= 0.025) return args.baselinePressure;
 
-  // k is only a bounded fine-tuner. It may move the operational target at most
-  // 0.15 bar; it may never turn a slow fitted k into an extreme 1.8/1.9 bar.
+  // k is a bounded fine-tuner, not the primary decision-maker. The allowed
+  // correction grows with the actual carbonation deficit/excess: tiny misses
+  // get a tiny pressure trim, while a 0.12-0.15 vol deficit may justify roughly
+  // another 0.4-0.5 bar. This keeps pressure changes monotonic without returning
+  // to the old "slow k => 1.9 bar" failure mode.
   const direction =
     currentAtBaseline < args.targetCarbonation ? 1 : -1;
+  const currentCarbError = Math.abs(
+    args.targetCarbonation - args.state.carbonation,
+  );
+  const maxRefinement = clamp(
+    0.12 +
+      1.6 * currentCarbError +
+      6 * Math.max(0, currentCarbError - 0.10),
+    0.15,
+    0.50,
+  );
   let bestPressure = args.baselinePressure;
   let bestError = baselineError;
 
-  for (let delta = args.step; delta <= 0.1501; delta += args.step) {
+  for (
+    let delta = args.step;
+    delta <= maxRefinement + 0.001;
+    delta += args.step
+  ) {
     const candidate = snapPressure(
       args.baselinePressure + direction * delta,
       args.minPressure,
@@ -683,7 +711,10 @@ export function estimatePressureTargetV4(args: {
   const rows = localTransitions(args.transitions ?? [], args.state);
   if (rows.length < 4) return null;
 
-  const kPerHour = estimateK(rows);
+  const carbonationError =
+    args.targetCarbonation - args.state.carbonation;
+  const kineticRows = directionalTransitions(rows, carbonationError);
+  const kPerHour = estimateK(kineticRows);
   if (kPerHour === null) return null;
 
   const refTemp = referenceTemperature(
@@ -741,8 +772,6 @@ export function estimatePressureTargetV4(args: {
   });
   if (predictedCarbonationWithoutChangeRaw === null) return null;
 
-  const carbonationError =
-    args.targetCarbonation - args.state.carbonation;
   const withinTargetNow = Math.abs(carbonationError) <= 0.04;
   const staysWithinTarget =
     Math.abs(
@@ -781,7 +810,10 @@ export function estimatePressureTargetV4(args: {
 
     // Avoid meaningless 0.05-bar oscillations. If the newly calculated target
     // is practically the current setting, leave the regulator alone.
-    if (Math.abs(targetPressure - args.state.currentPressure) < 0.075) {
+    if (
+      Math.abs(targetPressure - args.state.currentPressure) < 0.075 &&
+      staysWithinTarget
+    ) {
       targetPressure = args.state.currentPressure;
     }
 
@@ -819,7 +851,10 @@ export function estimatePressureTargetV4(args: {
 
   const candidates: PressureV4Candidate[] = [];
   const count = Math.round((maxPressure - minPressure) / step);
-  const effectiveWeight = rows.reduce((sum, row) => sum + row.weight, 0);
+  const effectiveWeight = kineticRows.reduce(
+    (sum, row) => sum + row.weight,
+    0,
+  );
 
   for (let index = 0; index <= count; index += 1) {
     const pressure = Number((minPressure + index * step).toFixed(2));
@@ -840,24 +875,33 @@ export function estimatePressureTargetV4(args: {
       predictedDelta: Number(
         (predicted - args.state.carbonation).toFixed(3),
       ),
-      supportCount: rows.length,
+      supportCount: kineticRows.length,
       effectiveWeight,
     });
   }
 
   const meanDistance =
-    rows.reduce((sum, row) => sum + row.distance, 0) / rows.length;
-  const k25 = weightedQuantile(rows, (row) => row.sample.kPerHour, 0.25);
-  const k75 = weightedQuantile(rows, (row) => row.sample.kPerHour, 0.75);
+    kineticRows.reduce((sum, row) => sum + row.distance, 0) /
+    kineticRows.length;
+  const k25 = weightedQuantile(
+    kineticRows,
+    (row) => row.sample.kPerHour,
+    0.25,
+  );
+  const k75 = weightedQuantile(
+    kineticRows,
+    (row) => row.sample.kPerHour,
+    0.75,
+  );
   const spread =
     k25 !== null && k75 !== null && k25 > 0
       ? k75 / k25
       : Infinity;
 
   const confidence: PressureV4Estimate["confidence"] =
-    rows.length >= 12 && meanDistance <= 2.5 && spread <= 2.5
+    kineticRows.length >= 12 && meanDistance <= 2.5 && spread <= 2.5
       ? "high"
-      : rows.length >= 6 && meanDistance <= 4 && spread <= 4
+      : kineticRows.length >= 6 && meanDistance <= 4 && spread <= 4
         ? "medium"
         : "low";
 
@@ -878,9 +922,9 @@ export function estimatePressureTargetV4(args: {
     error: Number(
       Math.abs(predictedRaw - args.targetCarbonation).toFixed(3),
     ),
-    supportCount: rows.length,
+    supportCount: kineticRows.length,
     confidence,
-    accuracyPercent: accuracyPercent(rows, kPerHour),
+    accuracyPercent: accuracyPercent(kineticRows, kPerHour),
     candidates,
     kPerHour: Number(kPerHour.toFixed(5)),
     targetEquilibriumPressure: Number(
