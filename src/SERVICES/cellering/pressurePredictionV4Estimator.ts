@@ -1,15 +1,10 @@
 import type {
+  PressureV4DecisionState,
   PressureV4Exposure,
   PressureV4Sample,
 } from "./pressurePredictionV4";
 
-export type PressureV4DecisionState = {
-  carbonation: number;
-  currentPressure: number;
-  currentTemp: number | null;
-  hoursSinceT0: number;
-  exposure: PressureV4Exposure;
-};
+export type { PressureV4DecisionState };
 
 export type PressureV4Candidate = {
   targetPressure: number;
