@@ -27,6 +27,8 @@ try {
       "tests/sync-status-model.test.ts",
       "tests/measurement-history-model.test.ts",
       "tests/pressure-recommendation-estimator.test.ts",
+      "tests/bottom-carbonation-recommendation.test.ts",
+      "tests/carbonation-retest-policy.test.ts",
     ],
     { stdio: "inherit" },
   );
@@ -43,6 +45,8 @@ try {
         join(output, "tests/sync-status-model.test.js"),
         join(output, "tests/measurement-history-model.test.js"),
         join(output, "tests/pressure-recommendation-estimator.test.js"),
+        join(output, "tests/bottom-carbonation-recommendation.test.js"),
+        join(output, "tests/carbonation-retest-policy.test.js"),
       ],
       { stdio: "inherit" },
     );
