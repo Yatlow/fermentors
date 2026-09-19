@@ -617,13 +617,80 @@ function refinePressureWithForecast(args: {
   if (earlyCoolingVent) {
     const lowerTargetBound =
       args.targetCarbonation - TARGET_TOLERANCE_VOL;
+    const upperTargetBound =
+      args.targetCarbonation + TARGET_TOLERANCE_VOL;
 
-    // During the first/active cooling phase, equilibrium + headroom remains
-    // the primary decision. But if its own 48h forecast is still materially
-    // below the target window, do not vent all the way to that baseline.
-    // Keep a small amount of the already-stored head pressure as a safety
-    // margin. The correction is intentionally bounded to 0.20 bar and can
-    // never exceed the pressure that is already in the tank.
+    // First try to hit the same ±0.02 target used by stable beer. During active
+    // cooling we only search between the operational vent baseline and the
+    // pressure already stored in the tank: we may vent less aggressively, but
+    // we never add more pressure than is already present just to satisfy a
+    // noisy early-cooling forecast.
+    const earlyCandidates: Array<{
+      pressure: number;
+      predicted: number;
+      error: number;
+    }> = [];
+    const start = Math.min(
+      args.baselinePressure,
+      args.state.currentPressure,
+    );
+    const end = Math.max(
+      args.baselinePressure,
+      args.state.currentPressure,
+    );
+
+    for (
+      let pressure = start;
+      pressure <= end + 0.001;
+      pressure += args.step
+    ) {
+      const candidate = snapPressure(
+        pressure,
+        args.minPressure,
+        args.maxPressure,
+        args.step,
+      );
+      const predicted = simulateForward({
+        carbonation: args.state.carbonation,
+        pressureBar: candidate,
+        pressureCalibrationOffset: args.pressureCalibrationOffset,
+        state: args.state,
+        coldReferenceTemperature: args.coldReferenceTemperature,
+        kPerHour: args.kPerHour,
+        hours: args.horizonHours,
+      });
+      if (predicted === null) continue;
+
+      if (
+        predicted >= lowerTargetBound &&
+        predicted <= upperTargetBound
+      ) {
+        earlyCandidates.push({
+          pressure: candidate,
+          predicted,
+          error: Math.abs(
+            predicted - args.targetCarbonation,
+          ),
+        });
+      }
+    }
+
+    if (earlyCandidates.length) {
+      earlyCandidates.sort((a, b) => {
+        if (Math.abs(a.error - b.error) > 0.001) {
+          return a.error - b.error;
+        }
+        // With equal forecast quality, prefer the lower pressure so we still
+        // respect the operational goal of releasing excess stored head pressure.
+        return a.pressure - b.pressure;
+      });
+      return earlyCandidates[0].pressure;
+    }
+
+    // If no pressure between the operational baseline and current pressure can
+    // hit the 48h window, keep a conservative physical safety floor. This is
+    // the only case where active cooling is allowed to return a forecast outside
+    // ±0.02, and the estimate is explicitly labelled as an early-cooling exception.
     if (currentAtBaseline < lowerTargetBound) {
       const referenceTemp =
         finite(args.coldReferenceTemperature) ??
