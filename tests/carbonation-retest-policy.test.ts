@@ -86,3 +86,22 @@ test("today's carbonation never requests another test today", () => {
   assert.equal(policy.waitReason, "tested_today");
   assert.equal(policy.due, false);
 });
+
+
+test("ordinary pressure retest uses calendar dates, not a 48-hour timer", () => {
+  const policy = carbonationRetestPolicy(
+    [
+      {
+        id: "2026-01-01_2359",
+        carbonation: 2.26,
+        notes: "העלאת לחץ ל1.3 bar",
+      },
+      { id: "2026-01-03_0000" },
+    ],
+    "2026-01-03",
+  );
+
+  assert.equal(policy.waitReason, "ordinary_pressure");
+  assert.equal(policy.daysSinceReference, 2);
+  assert.equal(policy.due, true);
+});
