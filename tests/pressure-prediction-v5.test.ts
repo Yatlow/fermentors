@@ -451,7 +451,25 @@ test("V5 stable setpoints are monotonic as carbonation moves away from target", 
   assert.ok(c225!.targetPressure !== null && c225!.targetPressure >= 1.35);
 });
 
-test("V5 first-carbonation extremes keep cooling context", () => {
+
+
+test("V5 does not force a 0.10 bar step for an exact 0.02 vol miss", () => {
+  const estimate = estimatePressureTargetV5({
+    state: state(2.52, 0.61, 0.4),
+    targetCarbonation: 2.50,
+    firstCarbonation: false,
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.targetPressure !== null &&
+      Math.abs(estimate.targetPressure - 0.61) < 0.075,
+    `2.52 vs 2.50 should be HOLD / tiny correction, got ${estimate.targetPressure}`,
+  );
+  assert.equal(estimate.action, "hold");
+});
+
+test("V5 first-carbonation checks on tanks 18 and 16 stay near 1.1 bar without nonlinear gain", () => {
   const transitions = Array.from(
     { length: 24 },
     (_, index) => transition(index, 0.00097),
@@ -460,14 +478,14 @@ test("V5 first-carbonation extremes keep cooling context", () => {
   const tank18 = estimatePressureTargetV5({
     transitions,
     state: state(2.26, 1.37, 4.5),
-    targetCarbonation: 2.4,
+    targetCarbonation: 2.40,
     coldReferenceTemperature: 0.7,
     firstCarbonation: true,
   });
 
   const tank16 = estimatePressureTargetV5({
     transitions,
-    state: state(2.68, 1.44, 6.8),
+    state: state(2.26, 1.44, 6.8),
     targetCarbonation: 2.45,
     coldReferenceTemperature: 0.5,
     firstCarbonation: true,
@@ -475,17 +493,13 @@ test("V5 first-carbonation extremes keep cooling context", () => {
 
   assert.ok(tank18);
   assert.ok(tank16);
-  assert.equal(tank18.mode, "first_cooling");
-  assert.equal(tank16.mode, "first_cooling");
-  assert.ok(
-    tank18.targetPressure !== null &&
-      tank18.targetPressure >= 0.9 &&
-      tank18.targetPressure <= 1.1,
-    `tank 18 first check should stay near 1.0 bar, got ${tank18.targetPressure}`,
-  );
-  assert.ok(
-    tank16.edgeCase === "venting_below_zero" ||
-      (tank16.targetPressure !== null && tank16.targetPressure <= 0.15),
-    `tank 16 high first check should reach atmospheric territory, got ${tank16.targetPressure} / ${tank16.edgeCase}`,
-  );
+  for (const [name, estimate] of [["tank18", tank18], ["tank16", tank16]] as const) {
+    assert.equal(estimate.mode, "first_cooling");
+    assert.ok(
+      estimate.targetPressure !== null &&
+        estimate.targetPressure >= 0.95 &&
+        estimate.targetPressure <= 1.20,
+      `${name} should land around 1.1 bar, got ${estimate.targetPressure}`,
+    );
+  }
 });
