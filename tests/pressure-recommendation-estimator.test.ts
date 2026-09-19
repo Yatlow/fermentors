@@ -246,3 +246,48 @@ test("same-day repeated readings do not count as a stable equilibrium period", (
   assert.equal(estimate.equilibriumPressure, 0.8);
   assert.notEqual(estimate.equilibriumPressure, 1.21);
 });
+
+
+test("larger carbonation deficits do not collapse to the same pressure target", () => {
+  const samples = Array.from({ length: 20 }, (_, index) =>
+    sample(0.4, 0.08 + (index % 2) * 0.01, {
+      carbonationBefore: 2.2 + (index % 3) * 0.03,
+      carbonationAfter: 2.28 + (index % 3) * 0.03,
+      pressureBefore: 1.4,
+      targetPressure: 1.05,
+      pressureAfter: 0.65,
+    })
+  );
+
+  const common = {
+    samples,
+    targetCarbonation: 2.45,
+    currentPressure: 1.44,
+    calibration: {
+      equilibriumPressure: 0.65,
+      equilibriumSampleCount: 20,
+      responseMultiplier: 1,
+      evaluatedSamples: 20,
+      within005Rate: 0.8,
+    },
+  };
+
+  const mild = estimatePressureTarget({
+    ...common,
+    currentCarbonation: 2.4,
+  });
+  const medium = estimatePressureTarget({
+    ...common,
+    currentCarbonation: 2.3,
+  });
+  const large = estimatePressureTarget({
+    ...common,
+    currentCarbonation: 2.26,
+  });
+
+  assert.ok(mild);
+  assert.ok(medium);
+  assert.ok(large);
+  assert.ok(mild.targetPressure < medium.targetPressure);
+  assert.ok(medium.targetPressure <= large.targetPressure);
+});
