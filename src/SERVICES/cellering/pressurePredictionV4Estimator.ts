@@ -312,6 +312,26 @@ function simulateForward(args: {
   return carbonation;
 }
 
+function isEffectivelyStillCooling(
+  state: PressureV4DecisionState,
+  coldReferenceTemperature: number | null,
+): boolean {
+  const currentTemp = finite(state.currentTemp);
+  const cold = finite(coldReferenceTemperature);
+  const cooling = state.cooling;
+  if (!cooling || currentTemp === null || cold === null) return false;
+
+  if (cooling.stillCooling) return true;
+
+  // Sparse temperature logging can miss the falling 24h slope. During the
+  // first four days after cooling, a beer still several degrees above its
+  // learned cold floor should still be treated as cooling toward that floor.
+  return (
+    cooling.hoursSinceCooling <= 96 &&
+    currentTemp >= cold + 1.5
+  );
+}
+
 function referenceTemperature(
   state: PressureV4DecisionState,
   coldReferenceTemperature: number | null,
@@ -321,7 +341,7 @@ function referenceTemperature(
 
   const cold = finite(coldReferenceTemperature);
   if (
-    state.cooling?.stillCooling &&
+    isEffectivelyStillCooling(state, cold) &&
     cold !== null &&
     cold < currentTemp
   ) {
@@ -394,7 +414,10 @@ function headroomPrior(args: {
     const currentTemp = finite(args.state.currentTemp);
     const coldTemp = finite(args.coldReferenceTemperature);
     if (
-      args.state.cooling?.stillCooling &&
+      isEffectivelyStillCooling(
+        args.state,
+        args.coldReferenceTemperature,
+      ) &&
       currentTemp !== null &&
       coldTemp !== null &&
       currentTemp > coldTemp + 1
@@ -526,6 +549,68 @@ function blendHeadroom(
   };
 }
 
+function refinePressureWithForecast(args: {
+  baselinePressure: number;
+  state: PressureV4DecisionState;
+  targetCarbonation: number;
+  pressureCalibrationOffset: number;
+  coldReferenceTemperature: number | null;
+  kPerHour: number;
+  horizonHours: number;
+  minPressure: number;
+  maxPressure: number;
+  step: number;
+}): number {
+  const currentAtBaseline = simulateForward({
+    carbonation: args.state.carbonation,
+    pressureBar: args.baselinePressure,
+    pressureCalibrationOffset: args.pressureCalibrationOffset,
+    state: args.state,
+    coldReferenceTemperature: args.coldReferenceTemperature,
+    kPerHour: args.kPerHour,
+    hours: args.horizonHours,
+  });
+  if (currentAtBaseline === null) return args.baselinePressure;
+
+  const baselineError =
+    Math.abs(currentAtBaseline - args.targetCarbonation);
+  if (baselineError <= 0.025) return args.baselinePressure;
+
+  // k is only a bounded fine-tuner. It may move the operational target at most
+  // 0.15 bar; it may never turn a slow fitted k into an extreme 1.8/1.9 bar.
+  const direction =
+    currentAtBaseline < args.targetCarbonation ? 1 : -1;
+  let bestPressure = args.baselinePressure;
+  let bestError = baselineError;
+
+  for (let delta = args.step; delta <= 0.1501; delta += args.step) {
+    const candidate = snapPressure(
+      args.baselinePressure + direction * delta,
+      args.minPressure,
+      args.maxPressure,
+      args.step,
+    );
+    const predicted = simulateForward({
+      carbonation: args.state.carbonation,
+      pressureBar: candidate,
+      pressureCalibrationOffset: args.pressureCalibrationOffset,
+      state: args.state,
+      coldReferenceTemperature: args.coldReferenceTemperature,
+      kPerHour: args.kPerHour,
+      hours: args.horizonHours,
+    });
+    if (predicted === null) continue;
+
+    const error = Math.abs(predicted - args.targetCarbonation);
+    if (error + 0.003 < bestError) {
+      bestError = error;
+      bestPressure = candidate;
+    }
+  }
+
+  return bestPressure;
+}
+
 function snapPressure(
   pressure: number,
   minPressure: number,
@@ -588,19 +673,15 @@ export function estimatePressureTargetV4(args: {
   );
   if (standardTargetEquilibrium === null) return null;
 
-  const localEquilibrium = localStableTargetEquilibrium({
-    state: args.state,
-    targetCarbonation: args.targetCarbonation,
-  });
   const learnedEquilibrium = finite(args.equilibriumPressure);
 
+  // Equilibrium for the target must not move when the operator changes only
+  // the hypothetical carbonation reading in the simulator. Use the historical
+  // style curve (or physics fallback), never the simulated current reading.
   let targetEquilibriumPressure = standardTargetEquilibrium;
   let equilibriumSource: PressureV4Estimate["equilibriumSource"] = "physics";
 
-  if (localEquilibrium !== null) {
-    targetEquilibriumPressure = localEquilibrium;
-    equilibriumSource = "local_stable";
-  } else if (learnedEquilibrium !== null) {
+  if (learnedEquilibrium !== null) {
     targetEquilibriumPressure = learnedEquilibrium;
     equilibriumSource = "learned_curve";
   }
@@ -645,7 +726,7 @@ export function estimatePressureTargetV4(args: {
       carbonationError,
       state: args.state,
       coldReferenceTemperature,
-      hasLocalEquilibrium: localEquilibrium !== null,
+      hasLocalEquilibrium: false,
     });
     const learned = learnedHeadroom({
       rows,
@@ -671,6 +752,19 @@ export function estimatePressureTargetV4(args: {
     if (Math.abs(targetPressure - args.state.currentPressure) < 0.075) {
       targetPressure = args.state.currentPressure;
     }
+
+    targetPressure = refinePressureWithForecast({
+      baselinePressure: targetPressure,
+      state: args.state,
+      targetCarbonation: args.targetCarbonation,
+      pressureCalibrationOffset,
+      coldReferenceTemperature,
+      kPerHour,
+      horizonHours,
+      minPressure,
+      maxPressure,
+      step,
+    });
   }
 
   const action: PressureV4Estimate["action"] =
