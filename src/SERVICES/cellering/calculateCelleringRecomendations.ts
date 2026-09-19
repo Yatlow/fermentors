@@ -9,6 +9,7 @@ import {
 } from "./pressureRecommendationModel";
 import {
     estimateBottomCarbonation,
+    getBottomCarbonationActivationThreshold,
     getBottomCarbonationModel,
 } from "./bottomCarbonationRecommendationModel";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
@@ -1250,9 +1251,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !pressureHandledToday;
 
     // Bottom carbonation is a different intervention from ordinary pressure
-    // correction. Operationally it is considered only for clearly low
-    // carbonation; the learned model can tighten that threshold below 2.20.
-    const bottomCarbonationCandidate =
+    // correction. 2.20 is only the safe fallback until enough historical
+    // sessions exist; after that, each style learns its own trigger threshold.
+    const bottomCarbonationPotential =
         coldCarbOutOfSpecToday &&
         currentCarbonation !== null &&
         Number.isFinite(Number(carbonationTarget)) &&
@@ -1260,27 +1261,37 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         currentCarbonation <= 2.2 &&
         !openBottomCarbonation;
 
+    let bottomCarbonationCandidate = false;
     let bottomCarbonationReason: string | null = null;
     let bottomCarbonationModelSampleCount: number | null = null;
+    let bottomActivationThreshold = 2.2;
     let shouldUseBottomCarbonation = false;
 
-    if (bottomCarbonationCandidate) {
+    if (bottomCarbonationPotential) {
         const bottomModel = await getBottomCarbonationModel(style);
         bottomCarbonationModelSampleCount = bottomModel?.samples?.length ?? 0;
-        const bottomEstimate = bottomModel
-            ? estimateBottomCarbonation({
-                samples: bottomModel.samples,
-                currentCarbonation: currentCarbonation!,
-                targetCarbonation: Number(carbonationTarget),
-                currentPressure,
-                brewDay: brewAge,
-                temp: Number.isFinite(Number(lastMeasurement.temp))
-                    ? Number(lastMeasurement.temp)
-                    : null,
-            })
+        const learnedActivation = bottomModel
+            ? getBottomCarbonationActivationThreshold(bottomModel.samples)
             : null;
+        bottomActivationThreshold = learnedActivation?.threshold ?? 2.2;
+        bottomCarbonationCandidate =
+            currentCarbonation! <= bottomActivationThreshold;
 
-        shouldUseBottomCarbonation = true;
+        const bottomEstimate =
+            bottomCarbonationCandidate && bottomModel
+                ? estimateBottomCarbonation({
+                    samples: bottomModel.samples,
+                    currentCarbonation: currentCarbonation!,
+                    targetCarbonation: Number(carbonationTarget),
+                    currentPressure,
+                    brewDay: brewAge,
+                    temp: Number.isFinite(Number(lastMeasurement.temp))
+                        ? Number(lastMeasurement.temp)
+                        : null,
+                })
+                : null;
+
+        shouldUseBottomCarbonation = bottomCarbonationCandidate;
 
         if (bottomEstimate) {
             const confidenceText = bottomEstimate.confidence === "high"
@@ -1298,7 +1309,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 `בסביבות ${bottomEstimate.closePressure} bar, ולבצע בדיקת גיזוז חוזרת בעוד כ-${bottomEstimate.expectedDays} ימים.`;
         } else {
             bottomCarbonationReason =
-                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתחת לסף התפעולי 2.20. ` +
+                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתחת לסף לגיזוז מלמטה (${bottomActivationThreshold.toFixed(2)}). ` +
                 (
                     bottomCarbonationModelSampleCount && bottomCarbonationModelSampleCount > 0
                         ? `יש כרגע ${bottomCarbonationModelSampleCount} דוגמאות גיזוז מלמטה, אך עדיין אין לפחות 5 דוגמאות דומות מספיק כדי להמליץ בבטחה על משך ולחצי התחלה/סגירה.`
