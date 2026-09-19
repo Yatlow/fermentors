@@ -6,7 +6,6 @@ export type PressureV4Measurement = {
   notes?: string | number | null;
 };
 
-import type { Measurement } from "./calculateCelleringRecomendations";
 import { detectPressureV4T0 } from "./pressurePredictionV4";
 
 export type PressureEquilibriumV4Point = {
