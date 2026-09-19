@@ -134,6 +134,7 @@ function scenarioMeasurements(args: {
     return [...base, carbRow, currentRow];
 }
 
+// Preview refresh after pressure-model equilibrium and wording updates.
 export default function CellarSimulator({ brews, specs }: Props) {
     const tanks = useMemo(
         () => brews
