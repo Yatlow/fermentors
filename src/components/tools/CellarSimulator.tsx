@@ -782,11 +782,14 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 לחץ שיווי־משקל של יעד {v5Result.targetCarbonation.toFixed(2)}: {v5Result.targetEquilibriumPressure.toFixed(2)} bar ·
                                 מרחק הלחץ הנוכחי משיווי־משקל: {v5Result.pressureDistanceFromEquilibrium >= 0 ? "+" : ""}{v5Result.pressureDistanceFromEquilibrium.toFixed(2)} bar ·
                                 בעוד 48 שעות בלי שינוי לחץ: {v5Result.predictedWithoutChange.toFixed(3)} vol
+                                {v5Result.setpointBasis === "first_cooling_kinetic"
+                                    ? ` · בסיס setpoint: אפקט קינטי 48h ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`
+                                    : ` · בסיס setpoint: תיקון אינקרמנטלי מהלחץ הנוכחי לפי ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`}
                                 {v5Result.targetPressureRangeLow !== null && v5Result.targetPressureRangeHigh !== null
-                                    ? ` · טווח לחץ לפי כלל 0.5–1.0 vol/bar: ${v5Result.targetPressureRangeLow.toFixed(2)}–${v5Result.targetPressureRangeHigh.toFixed(2)} bar`
+                                    ? ` · טווח כלל העבודה 0.5–1.0 vol/bar: ${v5Result.targetPressureRangeLow.toFixed(2)}–${v5Result.targetPressureRangeHigh.toFixed(2)} bar`
                                     : ""}
                                 {v5Result.rawTargetPressure !== null
-                                    ? ` · המלצה שמרנית: ${v5Result.rawTargetPressure.toFixed(2)} bar`
+                                    ? ` · לחץ יעד: ${v5Result.rawTargetPressure.toFixed(2)} bar`
                                     : ""}
                                 {v5Result.predictedAtTarget !== null
                                     ? ` · יעד גיזוז בחישוב: ${v5Result.predictedAtTarget.toFixed(3)} vol`
