@@ -189,12 +189,20 @@ function pointFromOutcome(args: {
 function pointFromTransition(
   sample: PressureV4TransitionSample,
   state: PressureV4DecisionState,
+  equilibriumTemperatureOverride?: number | null,
 ): PressureV5TrainingPoint | null {
   const pressure = finite(sample.pressureMeanDuring) ?? finite(sample.currentPressure);
-  const temp = finite(sample.temperatureMeanDuring) ?? finite(sample.currentTemp);
-  if (pressure === null || temp === null) return null;
+  const observedTemp = finite(sample.currentTemp) ?? finite(sample.temperatureMeanDuring);
+  const equilibriumTemp =
+    finite(equilibriumTemperatureOverride) ??
+    finite(sample.temperatureMeanDuring) ??
+    observedTemp;
+  if (pressure === null || observedTemp === null || equilibriumTemp === null) return null;
 
-  const equilibrium = equilibriumCarbonationVolumes(temp, pressure);
+  const equilibrium = equilibriumCarbonationVolumes(
+    equilibriumTemp,
+    pressure,
+  );
   if (equilibrium === null) return null;
 
   const observedDelta = sample.endCarbonation - sample.startCarbonation;
@@ -212,7 +220,7 @@ function pointFromTransition(
     alpha48,
     startCarbonation: sample.startCarbonation,
     pressureBar: pressure,
-    temperatureC: temp,
+    temperatureC: equilibriumTemp,
     drivingGapVol: drivingGap,
     observedDeltaVol: observedDelta,
     durationHours: sample.durationHours,
@@ -220,10 +228,10 @@ function pointFromTransition(
     distance: pointDistance({
       sampleCarbonation: sample.startCarbonation,
       samplePressure: pressure,
-      sampleTemp: temp,
+      sampleTemp: observedTemp,
       currentCarbonation: state.carbonation,
       currentPressure: state.currentPressure,
-      currentTemp: state.currentTemp ?? temp,
+      currentTemp: state.currentTemp ?? observedTemp,
       quality: sample.quality,
     }),
   };
@@ -234,8 +242,39 @@ export function buildPressureV5TrainingPoints(args: {
   passiveSamples?: PressureV4PassiveSample[];
   transitions?: PressureV4TransitionSample[];
   state: PressureV4DecisionState;
+  firstCarbonation?: boolean;
+  coldReferenceTemperature?: number | null;
 }): PressureV5TrainingPoint[] {
   const points: PressureV5TrainingPoint[] = [];
+
+  if (args.firstCarbonation) {
+    const coldReference = finite(args.coldReferenceTemperature);
+    const earlyCoolingTransitions = (args.transitions ?? []).filter((sample) => {
+      const cooling = sample.cooling;
+      if (!cooling) return false;
+      if (cooling.stillCooling) return true;
+      if (cooling.hoursSinceCooling <= 120) return true;
+      const sampleTemp = finite(sample.currentTemp);
+      return (
+        coldReference !== null &&
+        sampleTemp !== null &&
+        sampleTemp >= coldReference + 1.5
+      );
+    });
+
+    for (const sample of earlyCoolingTransitions) {
+      const point = pointFromTransition(
+        sample,
+        args.state,
+        coldReference,
+      );
+      if (point) points.push(point);
+    }
+
+    return points
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 24);
+  }
 
   for (const sample of args.samples ?? []) {
     const point = pointFromOutcome({
@@ -377,6 +416,7 @@ export function estimatePressureTargetV5(args: {
   state: PressureV4DecisionState;
   targetCarbonation: number;
   coldReferenceTemperature?: number | null;
+  firstCarbonation?: boolean;
 }): PressureV5Estimate | null {
   const currentTemp = finite(args.state.currentTemp);
   if (
@@ -386,18 +426,25 @@ export function estimatePressureTargetV5(args: {
     !Number.isFinite(args.targetCarbonation)
   ) return null;
 
-  const forecastTemperature =
-    args.state.cooling?.stillCooling &&
-    finite(args.coldReferenceTemperature) !== null &&
-    Number(args.coldReferenceTemperature) < currentTemp
-      ? Number(args.coldReferenceTemperature)
-      : currentTemp;
+  const coldReference = finite(args.coldReferenceTemperature);
+  const shouldUseColdReference =
+    coldReference !== null &&
+    coldReference < currentTemp &&
+    (
+      args.firstCarbonation === true ||
+      args.state.cooling?.stillCooling === true
+    );
+  const forecastTemperature = shouldUseColdReference
+    ? coldReference
+    : currentTemp;
 
   const points = buildPressureV5TrainingPoints({
     samples: args.samples,
     passiveSamples: args.passiveSamples,
     transitions: args.transitions,
     state: args.state,
+    firstCarbonation: args.firstCarbonation,
+    coldReferenceTemperature: coldReference,
   });
   const learned = learnPressureV5Alpha(points);
   const alpha = learned.alpha48;
