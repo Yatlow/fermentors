@@ -7,6 +7,7 @@ export type PressureResponseSample = {
   pressureBefore: number;
   targetPressure: number;
   pressureDelta: number;
+  pressureAfter?: number | null;
   carbonationAfter: number;
   carbonationDelta: number;
   elapsedDays: number;
@@ -22,12 +23,19 @@ export type PressureModelCalibration = {
   directionSuccessRate?: number | null;
   within005Rate?: number | null;
   meanAbsoluteError?: number | null;
+  equilibriumPressure?: number | null;
+  equilibriumSampleCount?: number | null;
   updatedAt?: string;
 };
 
 export type PressureRecommendationEstimate = {
   targetPressure: number;
+  /** Offset above/below the learned equilibrium pressure. */
   pressureDelta: number;
+  /** Physical change from the pressure measured right now. */
+  currentPressureChange: number;
+  equilibriumPressure: number;
+  equilibriumSampleCount: number;
   sampleCount: number;
   confidence: "medium" | "high";
   expectedDays: number;
@@ -44,7 +52,8 @@ function finiteNumber(value: unknown): number | null {
 
 function median(values: number[]): number | null {
   if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = [...values].filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return null;
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2
     ? sorted[middle]
@@ -79,6 +88,7 @@ export function estimatePressureTarget(args: {
     brewDay = null,
     temp = null,
   } = args;
+
   const desiredCarbDelta = targetCarbonation - currentCarbonation;
   if (
     !Number.isFinite(desiredCarbDelta) ||
@@ -86,28 +96,69 @@ export function estimatePressureTarget(args: {
     !Number.isFinite(currentPressure)
   ) return null;
 
-  const direction = Math.sign(desiredCarbDelta);
-  const valid = args.samples
-    .filter((sample) => sample?.success !== false)
+  const mapped = args.samples
     .map((sample) => ({
       ...sample,
-      pressureDelta: finiteNumber(sample.pressureDelta),
+      carbonationBefore: finiteNumber(sample.carbonationBefore),
+      carbonationAfter: finiteNumber(sample.carbonationAfter),
+      pressureBefore: finiteNumber(sample.pressureBefore),
+      targetPressure: finiteNumber(sample.targetPressure),
+      pressureAfter: finiteNumber(sample.pressureAfter),
       carbonationDelta: finiteNumber(sample.carbonationDelta),
       elapsedDays: finiteNumber(sample.elapsedDays),
       brewDay: finiteNumber(sample.brewDay),
       temp: finiteNumber(sample.temp),
     }))
     .filter((sample) =>
-      sample.pressureDelta !== null &&
+      sample.carbonationBefore !== null &&
+      sample.carbonationAfter !== null &&
+      sample.pressureBefore !== null &&
+      sample.targetPressure !== null &&
       sample.carbonationDelta !== null &&
       sample.elapsedDays !== null &&
-      Math.sign(sample.pressureDelta) === direction &&
-      Math.sign(sample.carbonationDelta) === direction &&
-      Math.abs(sample.pressureDelta) >= 0.02 &&
-      Math.abs(sample.carbonationDelta) >= 0.01 &&
       sample.elapsedDays >= 1 &&
       sample.elapsedDays <= 5
+    );
+
+  const targetEquilibriumCandidates = mapped
+    .filter((sample) =>
+      sample.pressureAfter !== null &&
+      Math.abs(sample.carbonationAfter! - targetCarbonation) <= 0.1
     )
+    .map((sample) => sample.pressureAfter!);
+
+  const learnedCalibrationEquilibrium =
+    finiteNumber(args.calibration?.equilibriumPressure);
+
+  let equilibriumPressure: number | null = null;
+  let equilibriumSampleCount = targetEquilibriumCandidates.length;
+
+  if (targetEquilibriumCandidates.length >= 5) {
+    equilibriumPressure = median(targetEquilibriumCandidates);
+  } else if (learnedCalibrationEquilibrium !== null) {
+    equilibriumPressure = learnedCalibrationEquilibrium;
+    equilibriumSampleCount = Math.max(
+      equilibriumSampleCount,
+      Math.round(Number(args.calibration?.equilibriumSampleCount) || 0),
+    );
+  }
+
+  if (equilibriumPressure === null) return null;
+  equilibriumPressure = clamp(equilibriumPressure, 0, 1.5);
+
+  const direction = Math.sign(desiredCarbDelta);
+
+  const valid = mapped
+    .filter((sample) => sample.success !== false)
+    .filter((sample) => {
+      const dose = sample.targetPressure! - equilibriumPressure!;
+      return (
+        Math.sign(dose) === direction &&
+        Math.sign(sample.carbonationDelta!) === direction &&
+        Math.abs(dose) >= 0.02 &&
+        Math.abs(sample.carbonationDelta!) >= 0.01
+      );
+    })
     .sort((a, b) => {
       const contextDistance = (sample: typeof a) => {
         let score = 0;
@@ -118,8 +169,8 @@ export function estimatePressureTarget(args: {
           score += Math.abs(sample.temp - temp) * 0.5;
         }
 
-        score += Math.abs(sample.carbonationBefore - currentCarbonation) * 4;
-        score += Math.abs(sample.pressureBefore - currentPressure) * 1.5;
+        score += Math.abs(sample.carbonationBefore! - currentCarbonation) * 4;
+        score += Math.abs(sample.pressureBefore! - currentPressure) * 0.75;
 
         const sampleMeanToDate = finiteNumber(sample.pressureMeanToDate);
         const sampleMean3 = finiteNumber(sample.pressureMeanLast3Days);
@@ -149,8 +200,14 @@ export function estimatePressureTarget(args: {
   if (valid.length < 5) return null;
 
   const responseRates = valid
-    .map((sample) => Math.abs(sample.carbonationDelta! / sample.pressureDelta!))
+    .map((sample) => {
+      const dose = Math.abs(sample.targetPressure! - equilibriumPressure!);
+      return dose >= 0.02
+        ? Math.abs(sample.carbonationDelta! / dose)
+        : NaN;
+    })
     .filter((rate) => Number.isFinite(rate) && rate >= 0.05 && rate <= 4);
+
   const baseResponsePerBar = median(responseRates);
   if (baseResponsePerBar === null || responseRates.length < 5) return null;
 
@@ -160,16 +217,17 @@ export function estimatePressureTarget(args: {
     : clamp(calibrationMultiplierRaw, 0.7, 1.3);
   const responsePerBar = baseResponsePerBar * calibrationMultiplier;
 
-  const rawDelta = desiredCarbDelta / responsePerBar;
-  const boundedDelta = clamp(rawDelta, -0.35, 0.35);
-  const roundedDelta = roundToStep(boundedDelta, 0.05);
-  if (Math.abs(roundedDelta) < 0.05) return null;
+  const rawOffset = desiredCarbDelta / responsePerBar;
+  const boundedOffset = clamp(rawOffset, -0.35, 0.35);
+  const roundedOffset = roundToStep(boundedOffset, 0.05);
+  if (Math.abs(roundedOffset) < 0.05) return null;
 
   const expectedDaysMedian = median(
     valid.map((sample) => sample.elapsedDays!).filter(Number.isFinite),
   );
+
   const targetPressure = clamp(
-    roundToStep(currentPressure + roundedDelta, 0.05),
+    roundToStep(equilibriumPressure + roundedOffset, 0.05),
     0,
     2.2,
   );
@@ -186,7 +244,10 @@ export function estimatePressureTarget(args: {
 
   return {
     targetPressure: Number(targetPressure.toFixed(2)),
-    pressureDelta: Number((targetPressure - currentPressure).toFixed(2)),
+    pressureDelta: Number((targetPressure - equilibriumPressure).toFixed(2)),
+    currentPressureChange: Number((targetPressure - currentPressure).toFixed(2)),
+    equilibriumPressure: Number(equilibriumPressure.toFixed(2)),
+    equilibriumSampleCount,
     sampleCount: valid.length,
     confidence: valid.length >= 12 && calibrationReliable ? "high" : "medium",
     expectedDays: Math.max(1, Math.round(expectedDaysMedian ?? 2)),
