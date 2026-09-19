@@ -12,7 +12,10 @@
 const PRESSURE_BACKFILL_STATE_KEY = "pressure_model_backfill_v3_turbo";
 const PRESSURE_BACKFILL_PREVIOUS_STATE_KEY = "pressure_model_backfill_v2_turbo";
 const PRESSURE_BACKFILL_PAGE_SIZE = 20;
-const PRESSURE_BACKFILL_DAILY_READ_BUDGET = 8000;
+// Weekend V3 rebuild allowance: reserve up to 10k Firestore document reads
+// for the historical model refresh. Stop around 9k counted reads so a final
+// page plus unrelated app traffic still has roughly 1k of safety margin.
+const PRESSURE_BACKFILL_DAILY_READ_BUDGET = 10000;
 const PRESSURE_BACKFILL_READ_HEADROOM = 1000;
 const PRESSURE_BACKFILL_MAX_RUN_MS = 180000;
 const PRESSURE_BACKFILL_TIMEZONE = "Asia/Jerusalem";
