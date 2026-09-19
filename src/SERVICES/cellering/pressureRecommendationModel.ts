@@ -18,6 +18,8 @@ export type PressureResponseModel = {
   style: string;
   samples: PressureResponseSample[];
   sampleCount?: number;
+  equilibriumPressure?: number | null;
+  equilibriumSampleCount?: number;
   calibration?: PressureModelCalibration | null;
   updatedAt?: string;
 };
@@ -48,7 +50,7 @@ export async function getPressureResponseModel(
   }
   if (cached?.pending) return cached.pending;
 
-  const pending = getDoc(doc(db, "pressureResponseModels", key))
+  const pending = getDoc(doc(db, "pressureResponseModelsV3", key))
     .then((snapshot) => {
       if (!snapshot.exists()) return null;
       const data = snapshot.data() as Partial<PressureResponseModel>;
@@ -56,6 +58,10 @@ export async function getPressureResponseModel(
         style: String(data.style ?? key),
         samples: Array.isArray(data.samples) ? data.samples : [],
         sampleCount: Number(data.sampleCount ?? 0),
+        equilibriumPressure: Number.isFinite(Number(data.equilibriumPressure))
+          ? Number(data.equilibriumPressure)
+          : null,
+        equilibriumSampleCount: Number(data.equilibriumSampleCount ?? 0),
         calibration: data.calibration && typeof data.calibration === "object"
           ? data.calibration as PressureModelCalibration
           : null,
