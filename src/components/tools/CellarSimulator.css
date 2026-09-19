@@ -1,0 +1,162 @@
+.cellar-simulator {
+    width: min(980px, calc(100% - 24px));
+    margin: 18px auto 40px;
+    padding: 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+}
+
+.cellar-simulator-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.cellar-simulator-header h2,
+.cellar-simulator-results h3 {
+    margin: 0 0 6px;
+}
+
+.cellar-simulator-header p {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.cellar-simulator-badge {
+    flex: 0 0 auto;
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.cellar-simulator-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.cellar-simulator-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.cellar-simulator-grid input,
+.cellar-simulator-grid select {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--text-main);
+    font: inherit;
+}
+
+.cellar-simulator-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: #f8fafc;
+    font-weight: 700;
+}
+
+.cellar-simulator-check input {
+    width: 18px;
+    height: 18px;
+}
+
+.cellar-simulator-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+}
+
+.cellar-simulator-error {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid #fecaca;
+    border-radius: var(--radius-md);
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.cellar-simulator-results {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border-color);
+}
+
+.cellar-simulator-result {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--rec-1-border);
+    border-inline-start: 5px solid var(--rec-1-stripe);
+    border-radius: var(--radius-md);
+    background: var(--rec-1-bg);
+    color: var(--rec-1-text);
+}
+
+.cellar-simulator-result.level-2 {
+    border-color: var(--rec-2-border);
+    border-inline-start-color: var(--rec-2-stripe);
+    background: var(--rec-2-bg);
+    color: var(--rec-2-text);
+}
+
+.cellar-simulator-result.level-3 {
+    border-color: var(--rec-3-border);
+    border-inline-start-color: var(--rec-3-stripe);
+    background: var(--rec-3-bg);
+    color: var(--rec-3-text);
+}
+
+.cellar-simulator-result p {
+    margin: 5px 0 0;
+    line-height: 1.55;
+}
+
+.cellar-simulator-empty {
+    color: var(--text-muted);
+}
+
+@media (max-width: 600px) {
+    .cellar-simulator {
+        width: calc(100% - 12px);
+        margin-top: 10px;
+        padding: 12px;
+    }
+
+    .cellar-simulator-header {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .cellar-simulator-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+    }
+
+    .cellar-simulator-actions {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
