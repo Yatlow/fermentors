@@ -163,6 +163,13 @@ function pressureV4Exposure_(rows, t0Ms, endMs) {
   const hoursSinceT0 = Math.max(0, (endMs - t0Ms) / 3600000);
   return {
     hoursSinceT0: hoursSinceT0,
+    pressureHours: pressureSegments.reduce(function (sum, segment) {
+      return sum + segment.value * segment.hours;
+    }, 0),
+    temperatureHours: tempSegments.reduce(function (sum, segment) {
+      return sum + segment.value * segment.hours;
+    }, 0),
+    equilibriumDeltaBarHours: null,
     pressureMean: pressureV4WeightedMean_(pressureSegments),
     pressureMean24h: trailingMean(endMs - 24 * 3600000),
     pressureMean48h: trailingMean(endMs - 48 * 3600000),
@@ -254,18 +261,34 @@ function pressureV4BuildSamples_(measurements, batchId) {
 
     samples.push({
       batchId: String(batchId || ""),
-      t0Date: t0.date,
-      t0Source: t0.source,
+      t0: {
+        index: -1,
+        dateTimeMs: t0.dateTimeMs,
+        source: t0.source,
+        pressure: t0.pressure,
+        previousPressure: t0.previousPressure
+      },
+      actionDateTimeMs: actionTime,
       actionDate: String(row.date || ""),
       carbonationBefore: carbonationBefore,
-      pressureBefore: pressureBefore,
+      currentPressure: pressureBefore,
       targetPressure: targetPressure,
-      temp: pressureV4Number_(row && row.temp),
+      currentTemp: pressureV4Number_(row && row.temp),
       hoursSinceT0: Math.max(0, (actionTime - t0.dateTimeMs) / 3600000),
       exposure: exposure,
-      intermediateDay1: day1,
-      carbonationAfter2d: outcome.carbonation,
-      carbonationDelta2d: outcome.carbonation - carbonationBefore,
+      intermediateDay1: day1
+        ? {
+            carbonation: day1.carbonation,
+            dateTimeMs: actionTime + 24 * 3600000,
+            calendarDaysAfterAction: 1
+          }
+        : null,
+      primaryOutcome: {
+        carbonation: outcome.carbonation,
+        dateTimeMs: actionTime + 2 * 24 * 3600000,
+        calendarDaysAfterAction: 2
+      },
+      carbonationDelta: outcome.carbonation - carbonationBefore,
       actionPressureDelta: targetPressure - pressureBefore,
       quality: pressureV4Quality_(exposure)
     });
