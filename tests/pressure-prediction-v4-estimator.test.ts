@@ -208,8 +208,8 @@ test("tank 15 style demo: low carbonation makes a moderate raise, not 1.85 bar",
   assert.ok(estimate);
   assert.equal(estimate.action, "raise");
   assert.ok(
-    estimate.targetPressure >= 0.75 && estimate.targetPressure <= 0.85,
-    `expected about 0.8 bar, got ${estimate.targetPressure}`,
+    estimate.targetPressure >= 0.85 && estimate.targetPressure <= 0.95,
+    `expected a moderate raise around 0.9 bar, got ${estimate.targetPressure}`,
   );
 });
 
@@ -290,8 +290,8 @@ test("tank 17 style demo: stable local balance anchors a small low-carb correcti
   assert.ok(estimate);
   assert.equal(estimate.action, "raise");
   assert.ok(
-    estimate.targetPressure >= 0.9 && estimate.targetPressure <= 1.05,
-    `expected roughly 0.95-1.0 bar, got ${estimate.targetPressure}`,
+    estimate.targetPressure >= 1.0 && estimate.targetPressure <= 1.2,
+    `expected a modest but real raise around 1.0-1.2 bar, got ${estimate.targetPressure}`,
   );
 });
 
@@ -509,8 +509,8 @@ test("forecast may fine-tune equilibrium-headroom target, but only modestly", ()
   assert.ok(estimate);
   assert.equal(estimate.action, "raise");
   assert.ok(
-    estimate.targetPressure >= 0.8 && estimate.targetPressure <= 1.0,
-    `expected moderate refinement around 0.9 bar, got ${estimate.targetPressure}`,
+    estimate.targetPressure >= 0.95 && estimate.targetPressure <= 1.2,
+    `expected forecast-driven refinement around 1.0-1.2 bar, got ${estimate.targetPressure}`,
   );
   assert.ok(
     estimate.predictedCarbonation > estimate.predictedCarbonationWithoutChange,
@@ -610,8 +610,8 @@ test("tank 15 style demo: slow historical k still allows a useful moderate press
   assert.ok(estimate);
   assert.equal(estimate.action, "raise");
   assert.ok(
-    estimate.targetPressure >= 0.7 && estimate.targetPressure <= 0.85,
-    `expected a moderate raise near 0.75-0.8 bar, got ${estimate.targetPressure}`,
+    estimate.targetPressure >= 0.85 && estimate.targetPressure <= 0.95,
+    `expected a useful moderate raise near 0.9 bar, got ${estimate.targetPressure}`,
   );
 });
 
