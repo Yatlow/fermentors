@@ -271,6 +271,7 @@ function runAsyncMaintenance_() {
   let operationReceiptCleanup = null;
   let styleModels = null;
   let pressureV4Backfill = null;
+  let pressureV3Cleanup = null;
   let logs = null;
 
   try {
@@ -330,6 +331,12 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    pressureV3Cleanup = cleanupPressureV3Artifacts_();
+  } catch (error) {
+    console.log("V3 pressure cleanup failed: " + error.message);
+  }
+
+  try {
     let v4State = pressurePredictionV4BackfillState_();
     if (!v4State) {
       startPressurePredictionV4Backfill_();
@@ -365,6 +372,7 @@ function runAsyncMaintenance_() {
     packagingCleanup: packagingCleanup,
     operationReceiptCleanup: operationReceiptCleanup,
     styleModels: styleModels,
+    pressureV3Cleanup: pressureV3Cleanup,
     pressureV4Backfill: pressureV4Backfill,
     logs: logs
   };
