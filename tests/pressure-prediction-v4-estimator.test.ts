@@ -201,19 +201,81 @@ test("V4 stays within absolute operational pressure bounds", () => {
 });
 
 
-test("first carbonation above equilibrium never recommends raising head pressure", () => {
-  const samples: PressureV4Sample[] = [
-    sample(0.9, 0.05),
-    sample(1.0, 0.08),
-    sample(1.1, 0.12),
-    sample(1.2, 0.16),
-    sample(1.3, 0.20),
-    sample(1.4, 0.24),
-    sample(1.5, 0.28),
-    sample(1.6, 0.32),
+
+test("first carbonation behavior follows pressure history rather than a fixed prior", () => {
+  const highExposureSamples: PressureV4Sample[] = [
+    sample(0.9, 0.16, {
+      currentPressure: 1.4,
+      actionPressureDelta: -0.5,
+      exposure: exposure(1.35, 1.3, 0.45),
+    }),
+    sample(1.0, 0.18, {
+      currentPressure: 1.4,
+      actionPressureDelta: -0.4,
+      exposure: exposure(1.35, 1.3, 0.45),
+    }),
+    sample(1.1, 0.20, {
+      currentPressure: 1.4,
+      actionPressureDelta: -0.3,
+      exposure: exposure(1.35, 1.3, 0.45),
+    }),
+    sample(1.2, 0.22, {
+      currentPressure: 1.4,
+      actionPressureDelta: -0.2,
+      exposure: exposure(1.35, 1.3, 0.45),
+    }),
+    sample(1.3, 0.24, {
+      currentPressure: 1.4,
+      actionPressureDelta: -0.1,
+      exposure: exposure(1.35, 1.3, 0.45),
+    }),
+    sample(1.4, 0.26, {
+      currentPressure: 1.4,
+      actionPressureDelta: 0,
+      exposure: exposure(1.35, 1.3, 0.45),
+    }),
   ];
 
-  const state: PressureV4DecisionState = {
+  const lowExposureSamples: PressureV4Sample[] = [
+    sample(0.8, 0.01, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(0.9, 0.03, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.1,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.0, 0.05, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.2,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.1, 0.07, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.3,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.2, 0.09, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.4,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.3, 0.11, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.5,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+  ];
+
+  const highExposureState: PressureV4DecisionState = {
     carbonation: 2.25,
     currentPressure: 1.44,
     currentTemp: 6.8,
@@ -221,22 +283,101 @@ test("first carbonation above equilibrium never recommends raising head pressure
     exposure: exposure(1.36, 1.31, 0.46),
   };
 
-  const estimate = estimatePressureTargetV4({
-    samples,
+  const lowExposureState: PressureV4DecisionState = {
+    carbonation: 2.38,
+    currentPressure: 0.8,
+    currentTemp: 6.8,
+    hoursSinceT0: 72,
+    exposure: exposure(0.8, 0.8, 0),
+  };
+
+  const lower = estimatePressureTargetV4({
+    samples: highExposureSamples,
     passiveSamples: [],
-    state,
+    state: highExposureState,
+    targetCarbonation: 2.45,
+    firstCarbonation: true,
+    equilibriumPressure: 0.79,
+  });
+  const raise = estimatePressureTargetV4({
+    samples: lowExposureSamples,
+    passiveSamples: [],
+    state: lowExposureState,
     targetCarbonation: 2.45,
     firstCarbonation: true,
     equilibriumPressure: 0.79,
   });
 
+  assert.ok(lower);
+  assert.ok(raise);
+  assert.ok(
+    lower.targetPressure < highExposureState.currentPressure,
+    "high prior pressure exposure should support lowering pressure",
+  );
+  assert.ok(
+    raise.targetPressure > lowExposureState.currentPressure,
+    "low prior pressure exposure with a remaining carb deficit should support raising pressure",
+  );
+});
+
+test("non-first carbonation can recommend pressure change without separate passive samples", () => {
+  const samples: PressureV4Sample[] = [
+    sample(0.8, 0.01, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(0.9, 0.03, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.1,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.0, 0.05, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.2,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.1, 0.07, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.3,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.2, 0.09, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.4,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+    sample(1.3, 0.11, {
+      carbonationBefore: 2.38,
+      currentPressure: 0.8,
+      actionPressureDelta: 0.5,
+      exposure: exposure(0.8, 0.8, 0),
+    }),
+  ];
+
+  const state: PressureV4DecisionState = {
+    carbonation: 2.38,
+    currentPressure: 0.8,
+    currentTemp: 6.8,
+    hoursSinceT0: 120,
+    exposure: exposure(0.8, 0.8, 0),
+  };
+
+  const estimate = estimatePressureTargetV4({
+    samples,
+    passiveSamples: [],
+    state,
+    targetCarbonation: 2.45,
+    firstCarbonation: false,
+    equilibriumPressure: 0.79,
+  });
+
   assert.ok(estimate);
-  assert.ok(
-    estimate.targetPressure <= state.currentPressure,
-    "first carbonation with ~0.65 bar excess pressure must never recommend raising pressure",
-  );
-  assert.ok(
-    estimate.predictedCarbonationWithoutChange >= 2.59,
-    "first-carbonation prior should preserve the observed ~0.35 vol passive rise",
-  );
+  assert.ok(estimate.targetPressure > state.currentPressure);
+  assert.ok(Math.abs(estimate.predictedCarbonation - 2.45) <= 0.03);
 });
