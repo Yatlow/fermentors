@@ -12,6 +12,8 @@ import {
 
 export type { PressureV4DecisionState };
 
+const TARGET_TOLERANCE_VOL = 0.02;
+
 export type PressureV4Candidate = {
   targetPressure: number;
   predictedCarbonation: number;
@@ -203,7 +205,7 @@ function directionalTransitions(
   rows: WeightedTransition[],
   carbonationError: number,
 ): WeightedTransition[] {
-  if (Math.abs(carbonationError) <= 0.04) return rows;
+  if (Math.abs(carbonationError) <= TARGET_TOLERANCE_VOL) return rows;
 
   const direction = Math.sign(carbonationError);
   const matching = rows.filter((row) => {
@@ -419,7 +421,7 @@ function headroomPrior(args: {
   coldReferenceTemperature: number | null;
   hasLocalEquilibrium: boolean;
 }): number {
-  if (Math.abs(args.carbonationError) <= 0.04) return 0;
+  if (Math.abs(args.carbonationError) <= TARGET_TOLERANCE_VOL) return 0;
 
   if (args.carbonationError > 0) {
     let headroom = clamp(
@@ -476,7 +478,7 @@ function learnedHeadroom(args: {
 
   if (
     !equilibriumForTemperature ||
-    Math.abs(args.carbonationError) <= 0.04
+    Math.abs(args.carbonationError) <= TARGET_TOLERANCE_VOL
   ) {
     return null;
   }
@@ -486,7 +488,7 @@ function learnedHeadroom(args: {
       const sampleError =
         args.targetCarbonation - row.sample.startCarbonation;
       if (
-        Math.abs(sampleError) <= 0.04 ||
+        Math.abs(sampleError) <= TARGET_TOLERANCE_VOL ||
         Math.sign(sampleError) !== Math.sign(args.carbonationError) ||
         Math.abs(row.sample.endCarbonation - args.targetCarbonation) > 0.06
       ) {
@@ -610,7 +612,7 @@ function refinePressureWithForecast(args: {
 
   const baselineError =
     Math.abs(currentAtBaseline - args.targetCarbonation);
-  if (baselineError <= 0.025) return args.baselinePressure;
+  if (baselineError <= TARGET_TOLERANCE_VOL) return args.baselinePressure;
 
   // k is a bounded fine-tuner, not the primary decision-maker. The allowed
   // correction grows with the actual carbonation deficit/excess: tiny misses
@@ -658,6 +660,57 @@ function refinePressureWithForecast(args: {
     if (error + 0.003 < bestError) {
       bestError = error;
       bestPressure = candidate;
+    }
+  }
+
+  if (
+    !isEffectivelyStillCooling(
+      args.state,
+      args.coldReferenceTemperature,
+    )
+  ) {
+    const inTolerance: Array<{
+      pressure: number;
+      error: number;
+    }> = [];
+
+    const count = Math.round(
+      (args.maxPressure - args.minPressure) / args.step,
+    );
+    for (let index = 0; index <= count; index += 1) {
+      const candidate = Number(
+        (args.minPressure + index * args.step).toFixed(2),
+      );
+      const predicted = simulateForward({
+        carbonation: args.state.carbonation,
+        pressureBar: candidate,
+        pressureCalibrationOffset: args.pressureCalibrationOffset,
+        state: args.state,
+        coldReferenceTemperature: args.coldReferenceTemperature,
+        kPerHour: args.kPerHour,
+        hours: args.horizonHours,
+      });
+      if (predicted === null) continue;
+
+      const error = Math.abs(
+        predicted - args.targetCarbonation,
+      );
+      if (error <= TARGET_TOLERANCE_VOL) {
+        inTolerance.push({ pressure: candidate, error });
+      }
+    }
+
+    if (inTolerance.length) {
+      inTolerance.sort((a, b) => {
+        const baselineDistance =
+          Math.abs(a.pressure - args.baselinePressure) -
+          Math.abs(b.pressure - args.baselinePressure);
+        if (Math.abs(baselineDistance) > 0.001) {
+          return baselineDistance;
+        }
+        return a.error - b.error;
+      });
+      return inTolerance[0].pressure;
     }
   }
 
@@ -772,11 +825,11 @@ export function estimatePressureTargetV4(args: {
   });
   if (predictedCarbonationWithoutChangeRaw === null) return null;
 
-  const withinTargetNow = Math.abs(carbonationError) <= 0.04;
+  const withinTargetNow = Math.abs(carbonationError) <= TARGET_TOLERANCE_VOL;
   const staysWithinTarget =
     Math.abs(
       predictedCarbonationWithoutChangeRaw - args.targetCarbonation,
-    ) <= 0.04;
+    ) <= TARGET_TOLERANCE_VOL;
 
   let headroomBar = 0;
   let headroomSupport = 0;
