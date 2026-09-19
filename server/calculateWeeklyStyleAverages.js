@@ -38,11 +38,6 @@ function calculateWeeklyStyleAverages(force) {
   const accumulator = {};
   // style -> unique brew IDs
   const batchTracker = {};
-  // normalized style -> historical pressure correction outcomes
-  const pressureSamplesByStyle = {};
-  // normalized style -> cold, no-action carbonation/pressure observations used
-  // to learn the style-specific equilibrium pressure.
-  const pressureEquilibriumByStyle = {};
   // normalized style -> historical bottom-carbonation sessions
   const bottomCarbonationSamplesByStyle = {};
   allBrews.forEach(function (brew) {
@@ -92,22 +87,6 @@ function calculateWeeklyStyleAverages(force) {
       );
 
     const pressureStyle = normalizePressureModelStyle_(style);
-    if (!pressureSamplesByStyle[pressureStyle]) {
-      pressureSamplesByStyle[pressureStyle] = [];
-    }
-    Array.prototype.push.apply(
-      pressureSamplesByStyle[pressureStyle],
-      buildPressureResponseSamplesForBrew_(measurements, brewDate, brew.id)
-    );
-
-    if (!pressureEquilibriumByStyle[pressureStyle]) {
-      pressureEquilibriumByStyle[pressureStyle] = [];
-    }
-    Array.prototype.push.apply(
-      pressureEquilibriumByStyle[pressureStyle],
-      buildPressureEquilibriumObservationsForBrew_(measurements, brewDate, brew.id)
-    );
-
     if (!bottomCarbonationSamplesByStyle[pressureStyle]) {
       bottomCarbonationSamplesByStyle[pressureStyle] = [];
     }
@@ -310,22 +289,6 @@ function calculateWeeklyStyleAverages(force) {
     stylesUpdated
   );
 
-  let pressureModelsUpdated = 0;
-  Object.keys(pressureSamplesByStyle).forEach(function (styleKey) {
-    const samples = pressureSamplesByStyle[styleKey]
-      .filter(function (sample) { return Boolean(sample); });
-
-    if (samples.length === 0) return;
-
-    writeMergedPressureResponseModel_(
-      projectId,
-      styleKey,
-      samples,
-      pressureEquilibriumByStyle[styleKey] || []
-    );
-    pressureModelsUpdated++;
-  });
-
   let bottomCarbonationModelsUpdated = 0;
   Object.keys(bottomCarbonationSamplesByStyle).forEach(function (styleKey) {
     const samples = bottomCarbonationSamplesByStyle[styleKey]
@@ -341,7 +304,6 @@ function calculateWeeklyStyleAverages(force) {
     bottomCarbonationModelsUpdated++;
   });
 
-  Logger.log("Pressure response models updated: " + pressureModelsUpdated);
   Logger.log("Bottom carbonation models updated: " + bottomCarbonationModelsUpdated);
 
   Logger.log(
@@ -354,7 +316,6 @@ function calculateWeeklyStyleAverages(force) {
   return {
     skipped: false,
     stylesUpdated: stylesUpdated,
-    pressureModelsUpdated: pressureModelsUpdated,
     bottomCarbonationModelsUpdated: bottomCarbonationModelsUpdated
   };
 }
