@@ -269,3 +269,165 @@ test("V5 can learn alpha from existing transitions when 48h samples are sparse",
     `expected alpha around 0.40 from transitions, got ${estimate.alpha48}`,
   );
 });
+
+
+test("V5 first carbonation uses cold destination temperature and lowers stored head pressure", () => {
+  const s: PressureV4DecisionState = {
+    carbonation: 2.26,
+    currentPressure: 1.44,
+    currentTemp: 6.8,
+    hoursSinceT0: 90,
+    exposure: exposure(1.44, 90),
+    cooling: {
+      startDateTimeMs: 0,
+      hoursSinceCooling: 36,
+      startTemp: 14,
+      currentTemp: 6.8,
+      tempDropSinceCooling: 7.2,
+      tempChange24h: -3,
+      pressureMeanSinceCooling: 1.4,
+      pressureMean24h: 1.44,
+      pressureHoursSinceCooling: 1.4 * 36,
+      equilibriumDeltaBarHoursSinceCooling: 0,
+      coverageRatio: 1,
+      stillCooling: false,
+    },
+    carbonationTrend: {
+      checksInPhase: 1,
+      previousCarbonation: null,
+      previousDateTimeMs: null,
+      hoursSincePrevious: null,
+      deltaFromPrevious: null,
+      ratePerDay: null,
+    },
+  };
+
+  const estimate = estimatePressureTargetV5({
+    state: s,
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 1,
+    firstCarbonation: true,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.mode, "first_cooling");
+  assert.equal(estimate.alphaSource, "heuristic");
+  assert.equal(estimate.forecastTemperature, 1);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure !== null &&
+      estimate.targetPressure < 1.0,
+    `stored 1.44 bar during cooling should be reduced, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.predictedWithoutChange > 2.45,
+    `at the cold destination, unchanged 1.44 bar should overshoot target; got ${estimate.predictedWithoutChange}`,
+  );
+});
+
+test("V5 first-carbonation alpha is learned only from early-cooling transitions", () => {
+  const s: PressureV4DecisionState = {
+    carbonation: 2.26,
+    currentPressure: 1.35,
+    currentTemp: 5.5,
+    hoursSinceT0: 100,
+    exposure: exposure(1.35, 100),
+    cooling: {
+      startDateTimeMs: 0,
+      hoursSinceCooling: 48,
+      startTemp: 14,
+      currentTemp: 5.5,
+      tempDropSinceCooling: 8.5,
+      tempChange24h: -2.5,
+      pressureMeanSinceCooling: 1.3,
+      pressureMean24h: 1.35,
+      pressureHoursSinceCooling: 1.3 * 48,
+      equilibriumDeltaBarHoursSinceCooling: 0,
+      coverageRatio: 1,
+      stillCooling: true,
+    },
+    carbonationTrend: null,
+  };
+
+  const coldReference = 1;
+  const earlyTransitions: PressureV4TransitionSample[] =
+    Array.from({ length: 8 }, (_, index) => {
+      const pressure = 1.1 + (index % 4) * 0.1;
+      const startCarbonation = 2.2 + (index % 3) * 0.03;
+      const eqCold = equilibriumCarbonationVolumes(
+        coldReference,
+        pressure,
+      );
+      if (eqCold === null) throw new Error("invalid cold equilibrium");
+      const alpha48 = 0.32;
+      const endCarbonation =
+        startCarbonation +
+        alpha48 * (eqCold - startCarbonation);
+
+      return {
+        batchId: `early-${index}`,
+        style: "test",
+        startDateTimeMs: index * 100000,
+        endDateTimeMs: index * 100000 + 48 * 3600000,
+        durationHours: 48,
+        startCarbonation,
+        endCarbonation,
+        currentPressure: pressure,
+        currentTemp: 5.5,
+        hoursSinceT0: 100,
+        exposure: exposure(pressure, 100),
+        cooling: {
+          startDateTimeMs: 0,
+          hoursSinceCooling: 48,
+          startTemp: 14,
+          currentTemp: 5.5,
+          tempDropSinceCooling: 8.5,
+          tempChange24h: -2.5,
+          pressureMeanSinceCooling: pressure,
+          pressureMean24h: pressure,
+          pressureHoursSinceCooling: pressure * 48,
+          equilibriumDeltaBarHoursSinceCooling: 0,
+          coverageRatio: 1,
+          stillCooling: true,
+        },
+        pressureMeanDuring: pressure,
+        temperatureMeanDuring: 3.5,
+        kPerHour: 0.001,
+        quality: "high",
+      };
+    });
+
+  const irrelevantStableSamples = Array.from(
+    { length: 20 },
+    (_, index) =>
+      actionSample(
+        index,
+        0.7 + (index % 4) * 0.1,
+        0.08,
+        2.3,
+        1,
+      ),
+  );
+
+  const estimate = estimatePressureTargetV5({
+    samples: irrelevantStableSamples,
+    transitions: earlyTransitions,
+    state: s,
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: coldReference,
+    firstCarbonation: true,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.mode, "first_cooling");
+  assert.equal(estimate.alphaSource, "learned");
+  assert.ok(
+    Math.abs(estimate.alpha48 - 0.32) <= 0.03,
+    `expected early-cooling alpha around 0.32, got ${estimate.alpha48}`,
+  );
+  assert.equal(
+    estimate.supportCount,
+    8,
+    "stable action samples must not contaminate first-carbonation alpha",
+  );
+});
