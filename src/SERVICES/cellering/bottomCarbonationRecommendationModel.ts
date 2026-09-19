@@ -1,6 +1,5 @@
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { normalizePressureModelStyle } from "./pressureRecommendationModel";
 import type { BottomCarbonationModel } from "./bottomCarbonationEstimator";
 export {
   estimateBottomCarbonation,
@@ -11,6 +10,13 @@ export type {
   BottomCarbonationModel,
   BottomCarbonationSample,
 } from "./bottomCarbonationEstimator";
+
+function normalizePressureModelStyle(style: unknown): string {
+  return String(style ?? "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)[0] || "other";
+}
 
 const MODEL_CACHE_MS = 5 * 60 * 1000;
 const modelCache = new Map<string, {
