@@ -4,6 +4,7 @@ import {
   estimatePressureTargetV5,
   learnPressureResponseV5,
 } from "../src/SERVICES/cellering/pressurePredictionV5";
+import { equilibriumPressureBar } from "../src/SERVICES/cellering/pressureCarbonationPhysics";
 import type {
   PressureV4DecisionState,
   PressureV4Exposure,
@@ -48,11 +49,18 @@ function actionSample(
   index: number,
   actionDelta: number,
   slope = 0.67,
-  passiveDrift = 0.02,
 ): PressureV4Sample {
   const currentPressure = 0.7;
   const carbonationBefore = 2.3;
-  const carbonationDelta = passiveDrift + slope * actionDelta;
+  const currentTemp = 1;
+  const targetPressure = currentPressure + actionDelta;
+  const equilibrium = equilibriumPressureBar(
+    currentTemp,
+    carbonationBefore,
+  );
+  if (equilibrium === null) throw new Error("invalid equilibrium");
+  const pressureDistance = targetPressure - equilibrium;
+  const carbonationDelta = slope * pressureDistance;
   return {
     batchId: `a-${index}`,
     style: "test",
@@ -67,8 +75,8 @@ function actionSample(
     actionDate: "2026-09-01",
     carbonationBefore,
     currentPressure,
-    targetPressure: currentPressure + actionDelta,
-    currentTemp: 1,
+    targetPressure,
+    currentTemp,
     hoursSinceT0: 300,
     exposure: exposure(currentPressure),
     intermediateDay1: null,
@@ -85,10 +93,17 @@ function actionSample(
 
 function passiveSample(
   index: number,
-  drift = 0.02,
+  slope = 0.67,
 ): PressureV4PassiveSample {
   const carbonationBefore = 2.3;
   const pressure = 0.7;
+  const currentTemp = 1;
+  const equilibrium = equilibriumPressureBar(
+    currentTemp,
+    carbonationBefore,
+  );
+  if (equilibrium === null) throw new Error("invalid equilibrium");
+  const drift = slope * (pressure - equilibrium);
   return {
     batchId: `p-${index}`,
     style: "test",
@@ -96,7 +111,7 @@ function passiveSample(
     sampleDate: "2026-09-01",
     carbonationBefore,
     currentPressure: pressure,
-    currentTemp: 1,
+    currentTemp,
     hoursSinceT0: 300,
     exposure: exposure(pressure),
     primaryOutcome: {
@@ -113,10 +128,10 @@ test("V5 learns vol/bar directly from historical pressure actions", () => {
   const s = state(2.3, 0.7);
   const actionDeltas = [-0.2, -0.1, 0.1, 0.2, 0.35, 0.5];
   const samples = Array.from({ length: 18 }, (_, index) =>
-    actionSample(index, actionDeltas[index % actionDeltas.length], 0.67, 0.02)
+    actionSample(index, actionDeltas[index % actionDeltas.length], 0.67)
   );
   const passiveSamples = Array.from({ length: 8 }, (_, index) =>
-    passiveSample(index, 0.02)
+    passiveSample(index, 0.67)
   );
 
   const learned = learnPressureResponseV5({
@@ -173,10 +188,10 @@ test("V5 first carbonation counts stored head pressure at the cold destination",
 test("V5 uses the same learned response for first and subsequent checks", () => {
   const actionDeltas = [-0.2, -0.1, 0.1, 0.2, 0.35, 0.5];
   const samples = Array.from({ length: 18 }, (_, index) =>
-    actionSample(index, actionDeltas[index % actionDeltas.length], 0.55, 0.01)
+    actionSample(index, actionDeltas[index % actionDeltas.length], 0.55)
   );
   const passiveSamples = Array.from({ length: 8 }, (_, index) =>
-    passiveSample(index, 0.01)
+    passiveSample(index, 0.55)
   );
 
   const stable = estimatePressureTargetV5({
