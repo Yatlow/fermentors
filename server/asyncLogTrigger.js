@@ -270,7 +270,6 @@ function runAsyncMaintenance_() {
   let packagingCleanup = null;
   let operationReceiptCleanup = null;
   let styleModels = null;
-  let pressureV4Backfill = null;
   let pressureV3Cleanup = null;
   let logs = null;
 
@@ -337,24 +336,6 @@ function runAsyncMaintenance_() {
   }
 
   try {
-    let v4State = pressurePredictionV4BackfillState_();
-    if (!v4State) {
-      startPressurePredictionV4Backfill_();
-      v4State = pressurePredictionV4BackfillState_();
-    }
-    if (v4State && v4State.active === true) {
-      pressureV4Backfill = pressurePredictionV4BackfillStep_();
-    } else {
-      pressureV4Backfill = {
-        skipped: true,
-        reason: v4State && v4State.completed ? "completed" : "inactive"
-      };
-    }
-  } catch (error) {
-    console.log("Historical V4 pressure model backfill failed: " + error.message);
-  }
-
-  try {
     logs = flushQueuedLogs_();
   } catch (error) {
     console.log("Async log flush failed: " + error.message);
@@ -373,7 +354,6 @@ function runAsyncMaintenance_() {
     operationReceiptCleanup: operationReceiptCleanup,
     styleModels: styleModels,
     pressureV3Cleanup: pressureV3Cleanup,
-    pressureV4Backfill: pressureV4Backfill,
     logs: logs
   };
 }
