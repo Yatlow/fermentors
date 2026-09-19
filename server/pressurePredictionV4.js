@@ -8,7 +8,7 @@
 // ================================================================
 
 const PRESSURE_V4_BACKFILL_STATE_KEY = "pressure_prediction_v4_backfill_v1";
-const PRESSURE_V4_BACKFILL_PAGE_SIZE = 8;
+const PRESSURE_V4_BACKFILL_PAGE_SIZE = 1; // keep quota overshoot bounded to one brew
 const PRESSURE_V4_INITIAL_PRE_RESET_BUDGET = 3000;
 const PRESSURE_V4_DAILY_READ_BUDGET = 15000;
 const PRESSURE_V4_TIMEZONE = "Asia/Jerusalem";
@@ -490,8 +490,9 @@ function pressureV4WriteModel_(projectId, styleKey, incomingSamples, incomingPoi
     function (point) { return String(point && point.batchId || ""); },
     PRESSURE_V4_MAX_EQUILIBRIUM_POINTS_PER_STYLE
   );
+  const readiness = pressureV4ModelReadiness_(samples, points);
 
-  return setFirestoreDocument(
+  setFirestoreDocument(
     projectId,
     "pressurePredictionModelsV4/" + encodeURIComponent(styleKey),
     {
@@ -501,10 +502,16 @@ function pressureV4WriteModel_(projectId, styleKey, incomingSamples, incomingPoi
       sampleCount: samples.length,
       equilibriumPoints: points,
       equilibriumPointCount: points.length,
-      readiness: pressureV4ModelReadiness_(samples, points),
+      readiness: readiness,
       updatedAt: new Date().toISOString()
     }
   );
+
+  return {
+    sampleCount: samples.length,
+    equilibriumPointCount: points.length,
+    readiness: readiness
+  };
 }
 
 function pressureV4QuotaWindow_(now) {
@@ -615,6 +622,11 @@ function pressurePredictionV4BackfillStep_() {
 
   const readsInWindow = Number(state.readsInWindow || 0);
   if (readsInWindow >= budget) {
+    Logger.log(
+      "V4 BACKFILL | paused: quota budget | reads " +
+      readsInWindow + "/" + budget +
+      " | processed brews " + Number(state.processedBrews || 0)
+    );
     return {
       skipped: true,
       reason: "quota_window_budget_reached",
@@ -677,18 +689,20 @@ function pressurePredictionV4BackfillStep_() {
   });
 
   const touchedStyles = {};
+  const styleReadiness = {};
   Object.keys(byStyle).concat(Object.keys(pointsByStyle)).forEach(function (styleKey) {
     touchedStyles[styleKey] = true;
   });
 
   Object.keys(touchedStyles).forEach(function (styleKey) {
     readsThisStep++;
-    pressureV4WriteModel_(
+    const writeResult = pressureV4WriteModel_(
       projectId,
       styleKey,
       byStyle[styleKey] || [],
       pointsByStyle[styleKey] || []
     );
+    styleReadiness[styleKey] = writeResult.readiness;
   });
 
   const nextPageToken = page.nextPageToken || "";
@@ -707,6 +721,22 @@ function pressurePredictionV4BackfillStep_() {
 
   props.setProperty(PRESSURE_V4_BACKFILL_STATE_KEY, JSON.stringify(nextState));
 
+  const readinessText = Object.keys(styleReadiness).map(function (styleKey) {
+    const readiness = styleReadiness[styleKey];
+    return styleKey + "=" +
+      (readiness.ready ? "READY" : "collecting") +
+      "(" + readiness.usableSampleCount + " samples," +
+      readiness.distinctBatchCount + " batches," +
+      readiness.equilibriumPointCount + " eq)";
+  }).join(" | ");
+
+  Logger.log(
+    "V4 BACKFILL | reads " + nextState.readsInWindow + "/" + budget +
+    " | this run " + readsThisStep +
+    " | brews " + nextState.processedBrews +
+    (readinessText ? " | " + readinessText : "")
+  );
+
   return {
     skipped: false,
     automatic: true,
@@ -718,6 +748,7 @@ function pressurePredictionV4BackfillStep_() {
     budget: budget,
     quotaWindowKey: quota.key,
     touchedStyles: Object.keys(touchedStyles),
+    styleReadiness: styleReadiness,
     state: nextState
   };
 }
