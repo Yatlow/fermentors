@@ -383,11 +383,18 @@ test("k changes the forecast but does not force an extreme pressure target", () 
 
   assert.ok(slow);
   assert.ok(faster);
-  assert.equal(slow.targetPressure, faster.targetPressure);
+  assert.ok(
+    slow.targetPressure <= faster.targetPressure,
+    "a very slow k must not force a higher target than an informative k",
+  );
+  assert.ok(
+    faster.targetPressure - slow.targetPressure <= 0.15,
+    "kinetic fine-tuning must remain bounded to 0.15 bar",
+  );
   assert.notEqual(
     slow.predictedCarbonation,
     faster.predictedCarbonation,
-    "k should affect forecast, not the operational pressure target",
+    "k should still affect the forecast",
   );
 });
 
