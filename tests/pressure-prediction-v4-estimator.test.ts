@@ -197,3 +197,44 @@ test("V4 stays within absolute operational pressure bounds", () => {
   assert.ok(estimate.targetPressure >= 0);
   assert.ok(estimate.targetPressure <= 1.9);
 });
+
+
+test("first carbonation above equilibrium never recommends raising head pressure", () => {
+  const samples: PressureV4Sample[] = [
+    sample(0.9, 0.05),
+    sample(1.0, 0.08),
+    sample(1.1, 0.12),
+    sample(1.2, 0.16),
+    sample(1.3, 0.20),
+    sample(1.4, 0.24),
+    sample(1.5, 0.28),
+    sample(1.6, 0.32),
+  ];
+
+  const state: PressureV4DecisionState = {
+    carbonation: 2.25,
+    currentPressure: 1.44,
+    currentTemp: 6.8,
+    hoursSinceT0: 72,
+    exposure: exposure(1.36, 1.31, 0.46),
+  };
+
+  const estimate = estimatePressureTargetV4({
+    samples,
+    passiveSamples: [],
+    state,
+    targetCarbonation: 2.45,
+    firstCarbonation: true,
+    equilibriumPressure: 0.79,
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.targetPressure <= state.currentPressure,
+    "first carbonation with ~0.65 bar excess pressure must never recommend raising pressure",
+  );
+  assert.ok(
+    estimate.predictedCarbonationWithoutChange >= 2.59,
+    "first-carbonation prior should preserve the observed ~0.35 vol passive rise",
+  );
+});
