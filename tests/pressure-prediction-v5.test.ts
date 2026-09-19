@@ -167,6 +167,40 @@ test("V5 first carbonation with stored head pressure recommends lower pressure",
   );
 });
 
+test("V5 anchors the reserve above TARGET equilibrium, not current-carbonation equilibrium", () => {
+  const estimate = estimatePressureTargetV5({
+    state: state(2.26, 1.44, 6.8),
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.targetEquilibriumPressure >
+      estimate.equilibriumPressureForCurrentCarb,
+    "target carbonation must have a higher equilibrium-pressure anchor than current carbonation",
+  );
+
+  const expectedConservative =
+    estimate.targetEquilibriumPressure +
+    (2.45 - estimate.estimatedCurrentCarbonation) / 0.5;
+
+  assert.ok(
+    estimate.rawTargetPressure !== null &&
+      Math.abs(estimate.rawTargetPressure - expectedConservative) <= 0.02,
+    `expected conservative target-equilibrium reserve near ${expectedConservative.toFixed(2)} bar, got ${estimate.rawTargetPressure}`,
+  );
+
+  assert.ok(
+    estimate.targetPressureRangeLow !== null &&
+      estimate.targetPressureRangeHigh !== null &&
+      estimate.targetPressureRangeHigh > estimate.targetPressureRangeLow,
+    "simulator should expose the 0.5–1.0 vol/bar target-pressure range",
+  );
+});
+
+
 test("V5 uses elapsed time since the carbonation measurement", () => {
   const fresh = estimatePressureTargetV5({
     state: state(2.26, 1.44, 6.8, 0),
