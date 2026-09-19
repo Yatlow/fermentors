@@ -5,7 +5,10 @@ import {
   type PressureEquilibriumV4Curve,
   type PressureEquilibriumV4Point,
 } from "./pressureEquilibriumV4";
-import type { PressureV4Sample } from "./pressurePredictionV4";
+import type {
+  PressureV4PassiveSample,
+  PressureV4Sample,
+} from "./pressurePredictionV4";
 
 export type PressurePredictionModelV4Readiness = {
   ready: boolean;
@@ -19,6 +22,8 @@ export type PressurePredictionModelV4 = {
   style: string;
   samples: PressureV4Sample[];
   sampleCount: number;
+  passiveSamples: PressureV4PassiveSample[];
+  passiveSampleCount: number;
   equilibriumPoints: PressureEquilibriumV4Point[];
   equilibriumPointCount: number;
   readiness?: PressurePredictionModelV4Readiness;
@@ -104,12 +109,44 @@ export async function getPressurePredictionModelV4(
       const samples = Array.isArray(raw.samples)
         ? raw.samples
         : [];
+      const passiveSamples = Array.isArray(raw.passiveSamples)
+        ? raw.passiveSamples
+        : [];
 
       return {
         version: 4,
         style: String(raw.style ?? key),
         samples: enrichExposureWithEquilibrium(key, samples, points),
         sampleCount: Number(raw.sampleCount ?? samples.length),
+        passiveSamples: passiveSamples.map((sample) => {
+          if (sample.exposure.equilibriumDeltaBarHours !== null) return sample;
+          const temp =
+            sample.exposure.temperatureMean ??
+            sample.currentTemp ??
+            null;
+          const equilibrium = estimateEquilibriumPressureV4(
+            { style: key, points },
+            temp,
+          );
+          const pressureMean = sample.exposure.pressureMean;
+          if (
+            equilibrium === null ||
+            pressureMean === null ||
+            sample.exposure.hoursSinceT0 <= 0
+          ) return sample;
+
+          return {
+            ...sample,
+            exposure: {
+              ...sample.exposure,
+              equilibriumDeltaBarHours:
+                (pressureMean - equilibrium) * sample.exposure.hoursSinceT0,
+            },
+          };
+        }),
+        passiveSampleCount: Number(
+          raw.passiveSampleCount ?? passiveSamples.length,
+        ),
         equilibriumPoints: points,
         equilibriumPointCount: Number(
           raw.equilibriumPointCount ?? points.length,
