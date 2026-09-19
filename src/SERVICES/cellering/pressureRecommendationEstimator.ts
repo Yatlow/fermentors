@@ -144,9 +144,6 @@ export function estimatePressureTarget(args: {
       sample.elapsedDays <= 5
     );
 
-  const currentTemp = finiteNumber(temp);
-  const currentBrewDay = finiteNumber(brewDay);
-
   // Equilibrium is a style/target property, not a property of the current tank.
   // Learn it only from batches that show a genuinely stable cold period:
   // carbonation close to target for several observations and pressure staying
