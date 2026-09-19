@@ -19,6 +19,10 @@ import {
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
 } from "../../SERVICES/cellering/pressurePredictionV4Model";
+import {
+    estimateVentingDuration,
+    type VentingEstimate,
+} from "../../SERVICES/cellering/ventingEstimator";
 import "./CellarSimulator.css";
 
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
@@ -135,6 +139,7 @@ function resolveFirstCarbonation(args: {
 function buildHypotheticalProductionPressureText(
     estimate: PressureV4Estimate,
     currentCarbonation: number,
+    venting: VentingEstimate | null,
 ): string {
     const targetRange =
         `${estimate.targetWindowMin.toFixed(2)}–${estimate.targetWindowMax.toFixed(2)}`;
@@ -144,6 +149,18 @@ function buildHypotheticalProductionPressureText(
             currentCarbonation < estimate.targetCarbonation
                 ? "הגיזוז נמוך"
                 : "הגיזוז גבוה";
+        if (
+            currentCarbonation > estimate.targetCarbonation &&
+            venting
+        ) {
+            return (
+                `${directionText} (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+                `לפי מודל V4 שינוי לחץ ראש בלבד לא צפוי להביא את הגיזוז לטווח ${targetRange} בתוך יומיים. ` +
+                `מומלץ לפתוח ל-${venting.ventPressureBar.toFixed(2)} bar למשך כ-${venting.durationMinutes} דקות, ` +
+                `ואז לסגור מחדש ולבצע בדיקת גיזוז חוזרת. התחזית בסיום האוורור: ${venting.predictedCarbonationAtClose.toFixed(3)}.`
+            );
+        }
+
         const nextAction =
             currentCarbonation < estimate.targetCarbonation
                 ? "מומלץ לשקול גיזוז מלמטה"
@@ -265,6 +282,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v4Result, setV4Result] = useState<PressureV4Estimate | null>(null);
     const [v4Status, setV4Status] = useState("");
     const [v4CoolingStatus, setV4CoolingStatus] = useState("");
+    const [ventingResult, setVentingResult] = useState<VentingEstimate | null>(null);
 
     const [carbonation, setCarbonation] = useState("2.10");
     const [pressure, setPressure] = useState("");
@@ -283,6 +301,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4Result(null);
         setV4Status("");
         setV4CoolingStatus("");
+        setVentingResult(null);
+        setVentingResult(null);
         setError("");
         if (!tank?.batchNumber) {
             setSource([]);
@@ -357,6 +377,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4Result(null);
         setV4Status("");
         setV4CoolingStatus("");
+        setVentingResult(null);
 
         try {
             const carbonationScenario = resolveFirstCarbonation({
@@ -463,6 +484,20 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             if (estimate) {
                                 setV4Result(estimate);
                                 setV4Status("");
+
+                                const venting =
+                                    carbonationValue >
+                                    estimate.targetWindowMax
+                                        ? estimateVentingDuration({
+                                            transitions:
+                                                v4Model.transitions,
+                                            state,
+                                            targetCarbonation:
+                                                Number(carbonationTarget),
+                                            ventPressureBar: 0,
+                                        })
+                                        : null;
+                                setVentingResult(venting);
                             } else {
                                 setV4Status(
                                     "אין מספיק מצבים היסטוריים דומים להמלצת V4"
@@ -609,6 +644,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             {buildHypotheticalProductionPressureText(
                                 v4Result,
                                 Number(carbonation),
+                                ventingResult,
                             )}
                         </p>
                     </article>
@@ -618,6 +654,21 @@ export default function CellarSimulator({ brews, specs }: Props) {
             {(v4Result || v4Status) && (
                 <div className="cellar-simulator-results">
                     <h3>V4 ניסיוני</h3>
+                    {ventingResult && (
+                        <article className="cellar-simulator-result level-1">
+                            <strong>מנוע אוורור / הורדת גיזוז</strong>
+                            <p>
+                                פתיחה ל-{ventingResult.ventPressureBar.toFixed(2)} bar
+                                {" "}לכ-{ventingResult.durationMinutes} דקות ·
+                                תחזית בסגירה: {ventingResult.predictedCarbonationAtClose.toFixed(3)} ·
+                                יעד: {ventingResult.targetWindowMin.toFixed(2)}–
+                                {ventingResult.targetWindowMax.toFixed(2)} ·
+                                תמיכה: {ventingResult.supportCount} מעברי ירידת גיזוז ·
+                                ביטחון: {ventingResult.confidence}
+                            </p>
+                        </article>
+                    )}
+
                     {v4Result ? (
                         <article className="cellar-simulator-result level-1">
                             <strong>מודל לחץ V4</strong>
