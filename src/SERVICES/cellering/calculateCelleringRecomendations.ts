@@ -1786,10 +1786,10 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 display: true,
                 req: true,
                 reason:
-                    `סה"כ בהוצאות חמות עד כה הוצאו ${formatYeastAmount(totalWarmYeastDropped)} דליים. ` +
+                    `סה"כ בהוצאות שמרים חמות עד כה הוצאו ${formatYeastAmount(totalWarmYeastDropped)} דליים. ` +
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(warmYeastDropTarget)} דליים - ` +
                     (latestWarmYeastDropAge > 1
-                        ? `השלמת ההוצאה התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
+                        ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
                         : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`),
                 importance: 2,
             };
