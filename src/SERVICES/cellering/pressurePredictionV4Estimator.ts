@@ -1484,10 +1484,10 @@ export function estimatePressureTargetV4(args: {
         maxPressure,
         step,
       });
-    } else {
-      // Stable cold beer is selected directly from the forecast surface. The
-      // prior no longer forces a setpoint before historical action evidence is
-      // considered: choose the smallest change that reaches the target band.
+    } else if (carbonationError > 0) {
+      // Stable under-carbonation is selected directly from the forecast
+      // surface. The prior must not force a higher setpoint before historical
+      // action evidence is considered.
       targetPressure = selectStablePressureByForecast({
         state: args.state,
         targetCarbonation: args.targetCarbonation,
@@ -1499,6 +1499,28 @@ export function estimatePressureTargetV4(args: {
       });
       headroomBar =
         targetPressure - targetEquilibriumPressure;
+    } else {
+      // For over-carbonation, equilibrium is itself the operational anchor.
+      // A slow kinetic forecast must not drive a mild excess all the way toward
+      // zero pressure; keep the dedicated equilibrium/headroom correction.
+      headroomBar = blended.value;
+      targetPressure = snapPressure(
+        targetEquilibriumPressure + headroomBar,
+        minPressure,
+        maxPressure,
+        step,
+      );
+      targetPressure = refinePressureWithForecast({
+        baselinePressure: targetPressure,
+        state: args.state,
+        targetCarbonation: args.targetCarbonation,
+        forecastAtPressure: (pressure) =>
+          forecastAtPressure(pressure)?.predicted ?? null,
+        coldReferenceTemperature,
+        minPressure,
+        maxPressure,
+        step,
+      });
     }
   }
 
