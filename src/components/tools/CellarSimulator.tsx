@@ -7,6 +7,17 @@ import {
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { STAGE_INFO } from "../../SERVICES/dashboard/tankstage";
+import {
+    buildPressureV4DecisionState,
+} from "../../SERVICES/cellering/pressurePredictionV4";
+import {
+    estimatePressureTargetV4,
+    type PressureV4Estimate,
+} from "../../SERVICES/cellering/pressurePredictionV4Estimator";
+import {
+    getEquilibriumPressureForV4,
+    getPressurePredictionModelV4,
+} from "../../SERVICES/cellering/pressurePredictionV4Model";
 import "./CellarSimulator.css";
 
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
@@ -149,6 +160,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [running, setRunning] = useState(false);
     const [error, setError] = useState("");
     const [result, setResult] = useState<Record<string, RecommendationLike> | null>(null);
+    const [v4Result, setV4Result] = useState<PressureV4Estimate | null>(null);
+    const [v4Status, setV4Status] = useState("");
 
     const [carbonation, setCarbonation] = useState("2.10");
     const [pressure, setPressure] = useState("");
@@ -163,6 +176,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
     useEffect(() => {
         setResult(null);
+        setV4Result(null);
+        setV4Status("");
         setError("");
         if (!tank?.batchNumber) {
             setSource([]);
@@ -234,6 +249,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setRunning(true);
         setError("");
         setResult(null);
+        setV4Result(null);
+        setV4Status("");
 
         try {
             const simulated = scenarioMeasurements({
@@ -266,6 +283,47 @@ export default function CellarSimulator({ brews, specs }: Props) {
             );
 
             setResult((recommendations ?? {}) as Record<string, RecommendationLike>);
+
+            const normalizedStyle = String(tank.beerStyle ?? "")
+                .trim()
+                .toLowerCase()
+                .split(/\s+/)[0] || "other";
+            const carbonationTarget =
+                specs.carbonation?.[normalizedStyle] ??
+                specs.carbonation?.other;
+
+            if (!Number.isFinite(Number(carbonationTarget))) {
+                setV4Status("אין יעד גיזוז זמין לסגנון");
+            } else {
+                const v4Model = await getPressurePredictionModelV4(tank.beerStyle);
+                if (!v4Model || v4Model.samples.length < 5) {
+                    setV4Status("מודל V4 עדיין ללא מספיק דוגמאות");
+                } else {
+                    const equilibriumForTemp = (temperature: number | null) =>
+                        getEquilibriumPressureForV4(v4Model, temperature);
+
+                    const state = buildPressureV4DecisionState({
+                        measurements: simulated,
+                        equilibriumPressure: equilibriumForTemp,
+                    });
+
+                    if (!state) {
+                        setV4Status("אין מספיק היסטוריית לחץ/גיזוז לבניית מצב V4");
+                    } else {
+                        const estimate = estimatePressureTargetV4({
+                            samples: v4Model.samples,
+                            state,
+                            targetCarbonation: Number(carbonationTarget),
+                        });
+                        if (estimate) {
+                            setV4Result(estimate);
+                            setV4Status("");
+                        } else {
+                            setV4Status("אין מספיק מצבים היסטוריים דומים להמלצת V4");
+                        }
+                    }
+                }
+            }
         } catch (reason) {
             setError(reason instanceof Error ? reason.message : String(reason));
         } finally {
@@ -371,6 +429,26 @@ export default function CellarSimulator({ brews, specs }: Props) {
             </div>
 
             {error && <div className="cellar-simulator-error">{error}</div>}
+
+            {(v4Result || v4Status) && (
+                <div className="cellar-simulator-results">
+                    <h3>V4 ניסיוני</h3>
+                    {v4Result ? (
+                        <article className="cellar-simulator-result level-1">
+                            <strong>מודל לחץ V4</strong>
+                            <p>
+                                יעד לחץ מומלץ: {v4Result.targetPressure} bar ·
+                                גיזוז חזוי בעוד יומיים: {v4Result.predictedCarbonation} ·
+                                יעד: {v4Result.targetCarbonation} ·
+                                ביטחון: {v4Result.confidence} ·
+                                תמיכה: {v4Result.supportCount} דוגמאות
+                            </p>
+                        </article>
+                    ) : (
+                        <div className="cellar-simulator-empty">{v4Status}</div>
+                    )}
+                </div>
+            )}
 
             {result && (
                 <div className="cellar-simulator-results">
