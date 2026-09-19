@@ -1433,6 +1433,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             const v4Estimate = v4State
                 ? estimatePressureTargetV4({
                     samples: v4Model.samples,
+                    passiveSamples: v4Model.passiveSamples,
                     state: v4State,
                     targetCarbonation: Number(carbonationTarget),
                 })
