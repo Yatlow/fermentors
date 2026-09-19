@@ -573,7 +573,12 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 headroom: {v4Result.headroomBar >= 0 ? "+" : ""}{v4Result.headroomBar} bar ·
                                 ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
-                                יעד גיזוז: {v4Result.targetCarbonation} ·
+                                יעד גיזוז: {v4Result.targetCarbonation}
+                                {" "}(
+                                {(v4Result.targetCarbonation - 0.02).toFixed(2)}
+                                –
+                                {(v4Result.targetCarbonation + 0.02).toFixed(2)}
+                                ) ·
                                 ביטחון: {v4Result.confidence} ·
                                 דיוק היסטורי: {v4Result.accuracyPercent}% ·
                                 k לחיזוי בלבד: {v4Result.kPerHour}/שעה ·
