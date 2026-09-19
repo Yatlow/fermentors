@@ -297,12 +297,6 @@ export function estimatePressureTargetV4(args: {
 
   if (!candidates.length) return null;
 
-  const noChangePrediction = weightedLinearPrediction({
-    rows: usable,
-    candidatePressure: args.state.currentPressure,
-    currentPressure: args.state.currentPressure,
-    baselineDelta,
-  });
   const predictedCarbonationWithoutChange = Number(
     (args.state.carbonation + baselineDelta).toFixed(3),
   );
