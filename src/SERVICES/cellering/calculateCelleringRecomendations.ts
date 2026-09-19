@@ -14,12 +14,8 @@ import {
     buildPressureV4DecisionState,
 } from "./pressurePredictionV4";
 import {
-    estimatePressureTargetV4,
-} from "./pressurePredictionV4Estimator";
-import {
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
-    isPressurePredictionV4Ready,
 } from "./pressurePredictionV4Model";
 
 
@@ -1290,16 +1286,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number.isFinite(Number(lastMeasurement.carbonation));
     const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
     const currentCarbonation = hasLatestCarb ? Number(lastMeasurement.carbonation) : null;
-    const isFirstCarbonationMeasurement =
-        hasLatestCarb &&
-        !sortedMeasurements
-            .slice(0, -1)
-            .some((measurement) =>
-                measurement.carbonation !== null &&
-                measurement.carbonation !== undefined &&
-                measurement.carbonation !== "" &&
-                Number.isFinite(Number(measurement.carbonation))
-            );
     const currentPressure = Number.isFinite(Number(lastMeasurement?.pressure))
         ? Number(lastMeasurement.pressure)
         : null;
@@ -1420,58 +1406,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
 
-    let learnedPressureReason: string | null = null;
-    if (
-        coldCarbNeedsPressureAdjustment &&
-        Number.isFinite(Number(carbonationTarget)) &&
-        currentPressure !== null
-    ) {
-        // V4 is used in production only after this style has enough independent
-        // historical support. Until then V3 remains the exact fallback.
-        const v4Model = await getPressurePredictionModelV4(style);
-        const v4Ready = isPressurePredictionV4Ready(v4Model);
-
-        if (v4Ready && v4Model) {
-            const equilibriumForTemp = (temperature: number | null) =>
-                getEquilibriumPressureForV4(v4Model, temperature);
-
-            const v4State = buildPressureV4DecisionState({
-                measurements: sortedMeasurements,
-                equilibriumPressure: equilibriumForTemp,
-            });
-
-            const v4Estimate = v4State
-                ? estimatePressureTargetV4({
-                    samples: v4Model.samples,
-                    passiveSamples: v4Model.passiveSamples,
-                    state: v4State,
-                    targetCarbonation: Number(carbonationTarget),
-                    firstCarbonation: isFirstCarbonationMeasurement,
-                    equilibriumPressure: equilibriumForTemp(v4State.currentTemp),
-                })
-                : null;
-
-            if (v4Estimate) {
-                const change =
-                    v4Estimate.targetPressure - currentPressure;
-                const actionText =
-                    change > 0.025
-                        ? `מומלץ לבצע העלאת לחץ ל-${v4Estimate.targetPressure} bar.`
-                        : change < -0.025
-                            ? `מומלץ לבצע הורדת לחץ ל-${v4Estimate.targetPressure} bar.`
-                            : `מומלץ לכוון את הלחץ ל-${v4Estimate.targetPressure} bar.`;
-
-                learnedPressureReason =
-                    `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
-                    actionText +
-                    ` לפי מודל סטטיסטי בדיוק היסטורי של ${v4Estimate.accuracyPercent}%. ` +
-                    "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים.";
-            }
-        }
-
-
-    }
-
     const requiredBottomCarbonation = {
         display: bottomCarbonationCandidate,
         req: bottomCarbonationCandidate,
@@ -1497,10 +1431,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         display: true,
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
         reason: coldCarbNeedsPressureAdjustment
-            ? learnedPressureReason ??
-                (
-                    `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם. אין המלצה זמינה ללחץ רצוי.`
-                )
+            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם.`
             : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
