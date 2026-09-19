@@ -810,6 +810,14 @@ function pressureV4GetModel_(projectId, styleKey) {
   return firestoreFieldsToObject_(parsed.fields || {});
 }
 
+function pressureV4TransitionKey_(sample) {
+  return [
+    String(sample && sample.batchId || ""),
+    String(sample && sample.startDateTimeMs || ""),
+    String(sample && sample.endDateTimeMs || "")
+  ].join("|");
+}
+
 function pressureV4PassiveSampleKey_(sample) {
   return [
     String(sample && sample.batchId || ""),
@@ -841,6 +849,7 @@ function pressureV4WriteModel_(
   styleKey,
   incomingSamples,
   incomingPassiveSamples,
+  incomingTransitions,
   incomingPoints
 ) {
   const existing = pressureV4GetModel_(projectId, styleKey) || {};
@@ -856,13 +865,23 @@ function pressureV4WriteModel_(
     pressureV4PassiveSampleKey_,
     PRESSURE_V4_MAX_SAMPLES_PER_STYLE
   );
+  const transitions = pressureV4MergeByKey_(
+    Array.isArray(existing.transitions) ? existing.transitions : [],
+    incomingTransitions || [],
+    pressureV4TransitionKey_,
+    PRESSURE_V4_MAX_TRANSITIONS_PER_STYLE
+  );
   const points = pressureV4MergeByKey_(
     Array.isArray(existing.equilibriumPoints) ? existing.equilibriumPoints : [],
     incomingPoints || [],
     function (point) { return String(point && point.batchId || ""); },
     PRESSURE_V4_MAX_EQUILIBRIUM_POINTS_PER_STYLE
   );
-  const readiness = pressureV4ModelReadiness_(samples, points);
+  const readiness = pressureV4ModelReadiness_(
+    samples,
+    points,
+    transitions
+  );
 
   setFirestoreDocument(
     projectId,
@@ -874,6 +893,8 @@ function pressureV4WriteModel_(
       sampleCount: samples.length,
       passiveSamples: passiveSamples,
       passiveSampleCount: passiveSamples.length,
+      transitions: transitions,
+      transitionCount: transitions.length,
       equilibriumPoints: points,
       equilibriumPointCount: points.length,
       readiness: readiness,
@@ -884,6 +905,7 @@ function pressureV4WriteModel_(
   return {
     sampleCount: samples.length,
     passiveSampleCount: passiveSamples.length,
+    transitionCount: transitions.length,
     equilibriumPointCount: points.length,
     readiness: readiness
   };
@@ -955,7 +977,7 @@ function pressureV4BackfillPolicy_(now, state, quotaKey) {
   };
 }
 
-function pressureV4ModelReadiness_(samples, equilibriumPoints) {
+function pressureV4ModelReadiness_(samples, equilibriumPoints, transitions) {
   const usable = (samples || []).filter(function (sample) {
     return sample &&
       sample.primaryOutcome &&
@@ -972,16 +994,28 @@ function pressureV4ModelReadiness_(samples, equilibriumPoints) {
     return point && point.quality !== "low";
   });
 
+  const usableTransitions = (transitions || []).filter(function (sample) {
+    return sample &&
+      Number.isFinite(Number(sample.kPerHour)) &&
+      Number(sample.kPerHour) > 0 &&
+      sample.quality !== "low";
+  });
+  const transitionBatches = {};
+  usableTransitions.forEach(function (sample) {
+    if (sample.batchId) transitionBatches[String(sample.batchId)] = true;
+  });
+
   const ready =
-    usable.length >= 12 &&
-    Object.keys(batchIds).length >= 4 &&
-    goodEquilibrium.length >= 3;
+    usableTransitions.length >= 8 &&
+    Object.keys(transitionBatches).length >= 4;
 
   return {
     ready: ready,
     usableSampleCount: usable.length,
     distinctBatchCount: Object.keys(batchIds).length,
-    equilibriumPointCount: goodEquilibrium.length
+    equilibriumPointCount: goodEquilibrium.length,
+    usableTransitionCount: usableTransitions.length,
+    distinctTransitionBatchCount: Object.keys(transitionBatches).length
   };
 }
 
@@ -1120,6 +1154,7 @@ function pressurePredictionV4BackfillStep_() {
 
     const byStyle = {};
     const passiveByStyle = {};
+    const transitionsByStyle = {};
     const pointsByStyle = {};
     const bottomByStyle = {};
     let processedThisPage = 0;
@@ -1136,6 +1171,10 @@ function pressurePredictionV4BackfillStep_() {
 
         const samples = pressureV4BuildSamples_(measurements, batchId);
         const passiveSamples = pressureV4BuildPassiveSamples_(
+          measurements,
+          batchId
+        );
+        const transitions = pressureV4BuildTransitions_(
           measurements,
           batchId
         );
@@ -1165,6 +1204,12 @@ function pressurePredictionV4BackfillStep_() {
           passiveSamples
         );
 
+        if (!transitionsByStyle[styleKey]) transitionsByStyle[styleKey] = [];
+        Array.prototype.push.apply(
+          transitionsByStyle[styleKey],
+          transitions
+        );
+
         if (!pointsByStyle[styleKey]) pointsByStyle[styleKey] = [];
         if (point) pointsByStyle[styleKey].push(point);
 
@@ -1180,6 +1225,7 @@ function pressurePredictionV4BackfillStep_() {
     const touchedStyles = {};
     Object.keys(byStyle)
       .concat(Object.keys(passiveByStyle))
+      .concat(Object.keys(transitionsByStyle))
       .concat(Object.keys(pointsByStyle))
       .concat(Object.keys(bottomByStyle))
       .forEach(function (styleKey) {
@@ -1193,6 +1239,7 @@ function pressurePredictionV4BackfillStep_() {
         styleKey,
         byStyle[styleKey] || [],
         passiveByStyle[styleKey] || [],
+        transitionsByStyle[styleKey] || [],
         pointsByStyle[styleKey] || []
       );
       styleReadiness[styleKey] = writeResult.readiness;
