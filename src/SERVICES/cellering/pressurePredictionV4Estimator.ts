@@ -57,6 +57,20 @@ function exposureRate(exposure: PressureV4Exposure): number | null {
   return exposure.equilibriumDeltaBarHours / exposure.hoursSinceT0;
 }
 
+function coolingExposureRate(
+  cooling: PressureV4DecisionState["cooling"],
+): number | null {
+  if (
+    !cooling ||
+    cooling.equilibriumDeltaBarHoursSinceCooling === null ||
+    cooling.hoursSinceCooling <= 0
+  ) return null;
+  return (
+    cooling.equilibriumDeltaBarHoursSinceCooling /
+    cooling.hoursSinceCooling
+  );
+}
+
 function transitionDistance(
   sample: PressureV4TransitionSample,
   state: PressureV4DecisionState,
@@ -84,6 +98,39 @@ function transitionDistance(
     exposureRate(state.exposure),
     0.2,
   ) * 1.8;
+
+  if (sample.cooling && state.cooling) {
+    score += normalizedDifference(
+      sample.cooling.hoursSinceCooling,
+      state.cooling.hoursSinceCooling,
+      36,
+    ) * 1.8;
+    score += normalizedDifference(
+      sample.cooling.tempDropSinceCooling,
+      state.cooling.tempDropSinceCooling,
+      4,
+    ) * 1.1;
+    score += normalizedDifference(
+      sample.cooling.tempChange24h,
+      state.cooling.tempChange24h,
+      2,
+    ) * 1.8;
+    score += normalizedDifference(
+      sample.cooling.pressureMeanSinceCooling,
+      state.cooling.pressureMeanSinceCooling,
+      0.3,
+    ) * 1.7;
+    score += normalizedDifference(
+      coolingExposureRate(sample.cooling),
+      coolingExposureRate(state.cooling),
+      0.2,
+    ) * 1.8;
+    if (sample.cooling.stillCooling !== state.cooling.stillCooling) {
+      score += 1.5;
+    }
+  } else if (Boolean(sample.cooling) !== Boolean(state.cooling)) {
+    score += 2.5;
+  }
 
   if (sample.quality === "low") score += 1.25;
   else if (sample.quality === "medium") score += 0.25;
@@ -190,6 +237,74 @@ function accuracyPercent(
   return Math.max(0, Math.min(100, Math.round(hitWeight / totalWeight * 100)));
 }
 
+function forecastTemperatureAtHour(args: {
+  state: PressureV4DecisionState;
+  coldReferenceTemperature: number | null;
+  hour: number;
+}): number | null {
+  const currentTemp = finite(args.state.currentTemp);
+  if (currentTemp === null) return null;
+
+  const cooling = args.state.cooling;
+  const floor = finite(args.coldReferenceTemperature);
+  if (
+    !cooling ||
+    !cooling.stillCooling ||
+    floor === null ||
+    cooling.startTemp === null ||
+    cooling.hoursSinceCooling <= 0 ||
+    cooling.startTemp <= floor + 0.2 ||
+    currentTemp <= floor + 0.2
+  ) {
+    return currentTemp;
+  }
+
+  const startGap = cooling.startTemp - floor;
+  const currentGap = Math.max(0.05, currentTemp - floor);
+  if (startGap <= currentGap) return currentTemp;
+
+  const lambda =
+    -Math.log(currentGap / startGap) / cooling.hoursSinceCooling;
+  if (!Number.isFinite(lambda) || lambda <= 0) return currentTemp;
+
+  return floor + currentGap * Math.exp(-lambda * args.hour);
+}
+
+function simulateForward(args: {
+  carbonation: number;
+  pressureBar: number;
+  state: PressureV4DecisionState;
+  coldReferenceTemperature: number | null;
+  kPerHour: number;
+  hours: number;
+}): number | null {
+  let carbonation = args.carbonation;
+  const stepHours = 6;
+
+  for (let elapsed = 0; elapsed < args.hours; elapsed += stepHours) {
+    const hours = Math.min(stepHours, args.hours - elapsed);
+    const midpoint = elapsed + hours / 2;
+    const temp = forecastTemperatureAtHour({
+      state: args.state,
+      coldReferenceTemperature: args.coldReferenceTemperature,
+      hour: midpoint,
+    });
+    if (temp === null) return null;
+
+    const next = evolveCarbonation({
+      carbonation,
+      pressureBar: args.pressureBar,
+      temperatureC: temp,
+      kPerHour: args.kPerHour,
+      hours,
+    });
+    if (next === null) return null;
+    carbonation = next;
+  }
+
+  return carbonation;
+}
+
 export function estimatePressureTargetV4(args: {
   // Legacy arrays remain in the model document during migration. The kinetic
   // calculator intentionally learns from full carbonation-to-carbonation
@@ -204,6 +319,7 @@ export function estimatePressureTargetV4(args: {
   step?: number;
   firstCarbonation?: boolean;
   equilibriumPressure?: number | null;
+  coldReferenceTemperature?: number | null;
   horizonHours?: number;
 }): PressureV4Estimate | null {
   const minPressure = finite(args.minPressure) ?? 0;
@@ -245,10 +361,11 @@ export function estimatePressureTargetV4(args: {
 
   for (let index = 0; index <= count; index += 1) {
     const targetPressure = Number((minPressure + index * step).toFixed(2));
-    const predicted = evolveCarbonation({
+    const predicted = simulateForward({
       carbonation: args.state.carbonation,
       pressureBar: targetPressure - equilibriumPressureOffset,
-      temperatureC: currentTemp,
+      state: args.state,
+      coldReferenceTemperature: finite(args.coldReferenceTemperature),
       kPerHour,
       hours: horizonHours,
     });
@@ -265,10 +382,11 @@ export function estimatePressureTargetV4(args: {
 
   if (!candidates.length) return null;
 
-  const noChange = evolveCarbonation({
+  const noChange = simulateForward({
     carbonation: args.state.carbonation,
     pressureBar: args.state.currentPressure - equilibriumPressureOffset,
-    temperatureC: currentTemp,
+    state: args.state,
+    coldReferenceTemperature: finite(args.coldReferenceTemperature),
     kPerHour,
     hours: horizonHours,
   });
