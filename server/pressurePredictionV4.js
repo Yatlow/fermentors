@@ -651,6 +651,8 @@ function pressurePredictionV4BackfillStep_() {
   const targets = pressureV4ReadCarbonationTargets_(projectId);
 
   let readsThisRun = 1; // specs collection/list request
+  const scannedAtStart = Number(state.scannedBrews || 0);
+  const processedAtStart = Number(state.processedBrews || 0);
   let totalProcessedThisRun = 0;
   let totalScannedThisRun = 0;
   let pageToken = String(state.pageToken || "");
@@ -741,8 +743,8 @@ function pressurePredictionV4BackfillStep_() {
       active: Boolean(nextPageToken),
       completed: !nextPageToken,
       pageToken: nextPageToken,
-      scannedBrews: Number(state.scannedBrews || 0) + totalScannedThisRun,
-      processedBrews: Number(state.processedBrews || 0) + totalProcessedThisRun,
+      scannedBrews: scannedAtStart + totalScannedThisRun,
+      processedBrews: processedAtStart + totalProcessedThisRun,
       quotaWindowKey: quota.key,
       readsInWindow: readsInWindow + readsThisRun,
       initialQuotaWindowKey: state.initialQuotaWindowKey || (isPreResetWindow ? quota.key : ""),
