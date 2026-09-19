@@ -517,3 +517,131 @@ test("forecast may fine-tune equilibrium-headroom target, but only modestly", ()
     "raising pressure should improve the two-day forecast",
   );
 });
+
+
+test("tank 2 style demo: 0.12 vol deficit gets a substantial raise when 48h forecast is still short", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.38,
+    currentPressure: 0.8,
+    currentTemp: 1.7,
+    hoursSinceT0: 320,
+    exposure: exposure(0.8, 320),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 1.7,
+      pressure: 0.8,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00159),
+    state,
+    targetCarbonation: 2.5,
+    equilibriumPressure: 0.86,
+    coldReferenceTemperature: 1.7,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure >= 1.3 && estimate.targetPressure <= 1.55,
+    `expected a substantial raise around 1.4-1.5 bar, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.predictedCarbonation > estimate.predictedCarbonationWithoutChange,
+  );
+});
+
+test("tank 6 style demo: forecast-short recommendation is raised beyond the old 0.95 bar result", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.36,
+    currentPressure: 0.61,
+    currentTemp: 0.4,
+    hoursSinceT0: 1300,
+    exposure: exposure(0.61, 1300),
+    cooling: cooling({
+      hours: 1240,
+      currentTemp: 0.4,
+      pressure: 0.61,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00237),
+    state,
+    targetCarbonation: 2.5,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure > 0.95,
+    `old 0.95 bar target was knowingly short; got ${estimate.targetPressure}`,
+  );
+});
+
+test("tank 15 style demo: slow historical k still allows a useful moderate pressure raise", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.36,
+    currentPressure: 0.4,
+    currentTemp: 0.4,
+    hoursSinceT0: 420,
+    exposure: exposure(0.4, 420),
+    cooling: cooling({
+      hours: 372,
+      currentTemp: 0.4,
+      pressure: 0.4,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00038),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.49,
+    coldReferenceTemperature: 0.4,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure >= 0.7 && estimate.targetPressure <= 0.85,
+    `expected a moderate raise near 0.75-0.8 bar, got ${estimate.targetPressure}`,
+  );
+});
+
+test("tank 17 style demo: low carbonation cannot be HOLD while no-change stays below target", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.37,
+    currentPressure: 0.83,
+    currentTemp: 0.6,
+    hoursSinceT0: 300,
+    exposure: exposure(0.83, 300),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 0.6,
+      pressure: 0.83,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00076),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.6,
+    coldReferenceTemperature: 0.6,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure > state.currentPressure,
+    `low carbonation with short forecast must not hold at ${estimate.targetPressure}`,
+  );
+});
