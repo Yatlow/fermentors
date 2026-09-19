@@ -271,3 +271,110 @@ test("V5 falls back transparently to the operational 0.67 vol/bar heuristic", ()
   assert.equal(estimate.responseSource, "heuristic");
   assert.equal(estimate.volPerBar, 0.67);
 });
+
+
+test("V5 rejects an implausibly low learned response and falls back to 0.67 vol/bar", () => {
+  const s = state(2.26, 1.44, 6.8);
+  const currentTemp = 1;
+  const carbonationBefore = 2.3;
+  const eq = equilibriumPressureBar(currentTemp, carbonationBefore);
+  if (eq === null) throw new Error("invalid equilibrium");
+
+  const samples: PressureV4Sample[] = Array.from({ length: 16 }, (_, index) => {
+    const currentPressure = 0.7;
+    const targetPressure = 0.85 + (index % 4) * 0.1;
+    const pressureDistance = targetPressure - eq;
+    const carbonationDelta = 0.178 * pressureDistance;
+    return {
+      batchId: `low-response-${index}`,
+      style: "test",
+      t0: {
+        index: 0,
+        dateTimeMs: 0,
+        source: "explicit_close",
+        pressure: currentPressure,
+        previousPressure: 0,
+      },
+      actionDateTimeMs: index * 100000,
+      actionDate: "2026-09-01",
+      carbonationBefore,
+      currentPressure,
+      targetPressure,
+      currentTemp,
+      hoursSinceT0: 300,
+      exposure: exposure(currentPressure),
+      intermediateDay1: null,
+      primaryOutcome: {
+        carbonation: carbonationBefore + carbonationDelta,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta,
+      actionPressureDelta: targetPressure - currentPressure,
+      quality: "high",
+    };
+  });
+
+  const learned = learnPressureResponseV5({
+    samples,
+    state: s,
+  });
+
+  assert.equal(learned.source, "guarded");
+  assert.equal(learned.volPerBar, 0.67);
+  assert.ok(
+    learned.rawLearnedVolPerBar !== null &&
+      Math.abs(learned.rawLearnedVolPerBar - 0.178) <= 0.01,
+  );
+
+  const estimate = estimatePressureTargetV5({
+    samples,
+    state: s,
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+    learnedTargetEquilibriumPressure: 0.62,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.responseSource, "guarded");
+  assert.equal(estimate.volPerBar, 0.67);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure !== null &&
+      estimate.targetPressure < 1.44,
+    `expected a lower setpoint than stored 1.44 bar, got ${estimate.targetPressure}`,
+  );
+});
+
+test("V5 uses the local learned equilibrium curve as a calibration anchor", () => {
+  const s = state(2.26, 1.44, 6.8);
+
+  const physicsOnly = estimatePressureTargetV5({
+    state: s,
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+  const locallyCalibrated = estimatePressureTargetV5({
+    state: s,
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+    learnedTargetEquilibriumPressure: 0.65,
+  });
+
+  assert.ok(physicsOnly);
+  assert.ok(locallyCalibrated);
+  assert.ok(
+    locallyCalibrated.equilibriumPressureForCurrentCarb >
+      physicsOnly.equilibriumPressureForCurrentCarb,
+    "a higher local target-equilibrium curve should raise the current-carb equilibrium anchor by the same calibration offset",
+  );
+  assert.ok(
+    locallyCalibrated.targetPressure !== null &&
+      physicsOnly.targetPressure !== null &&
+      locallyCalibrated.targetPressure >
+        physicsOnly.targetPressure,
+  );
+});
