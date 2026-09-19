@@ -10,6 +10,7 @@
 // ================================================================
 
 const PRESSURE_BACKFILL_STATE_KEY = "pressure_model_backfill_v3_turbo";
+const PRESSURE_BACKFILL_PREVIOUS_STATE_KEY = "pressure_model_backfill_v2_turbo";
 const PRESSURE_BACKFILL_PAGE_SIZE = 20;
 const PRESSURE_BACKFILL_DAILY_READ_BUDGET = 8000;
 const PRESSURE_BACKFILL_READ_HEADROOM = 1000;
@@ -26,7 +27,29 @@ function pressureBackfillDayKey_(date) {
   );
 }
 
+function pressureBackfillExistingReadsForDay_(dayKey) {
+  const props = PropertiesService.getScriptProperties();
+  let maxReads = 0;
+
+  [PRESSURE_BACKFILL_STATE_KEY, PRESSURE_BACKFILL_PREVIOUS_STATE_KEY]
+    .forEach(function (key) {
+      const raw = props.getProperty(key);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (String(parsed.dailyReadDate || "") !== String(dayKey || "")) return;
+        maxReads = Math.max(maxReads, Number(parsed.readsToday || 0));
+      } catch (error) {
+        // Ignore malformed historical state; the active V3 state will be
+        // rewritten safely below.
+      }
+    });
+
+  return maxReads;
+}
+
 function startPressureResponseBackfill_() {
+  const dayKey = pressureBackfillDayKey_(new Date());
   PropertiesService.getScriptProperties().setProperty(
     PRESSURE_BACKFILL_STATE_KEY,
     JSON.stringify({
@@ -34,8 +57,8 @@ function startPressureResponseBackfill_() {
       pageToken: "",
       processedBrews: 0,
       scannedBrews: 0,
-      dailyReadDate: pressureBackfillDayKey_(new Date()),
-      readsToday: 0,
+      dailyReadDate: dayKey,
+      readsToday: pressureBackfillExistingReadsForDay_(dayKey),
       styleBrewCounts: {},
       styleSampleCounts: {},
       bottomStyleSampleCounts: {},
@@ -86,7 +109,9 @@ function pressureResponseBackfillStep_() {
       processedBrews: 0,
       scannedBrews: 0,
       dailyReadDate: pressureBackfillDayKey_(new Date()),
-      readsToday: 0,
+      readsToday: pressureBackfillExistingReadsForDay_(
+        pressureBackfillDayKey_(new Date())
+      ),
       styleBrewCounts: {},
       styleSampleCounts: {},
       bottomStyleSampleCounts: {},
