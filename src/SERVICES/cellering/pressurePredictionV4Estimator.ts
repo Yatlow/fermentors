@@ -745,7 +745,13 @@ function refinePressureWithForecast(args: {
     0.12 +
       1.6 * currentCarbError +
       6 * Math.max(0, currentCarbError - 0.10),
-    0.15,
+    // Stable cold beer is allowed enough room to actually enter the ±0.02
+    // target window. A 0.15-0.20 bar cap was too restrictive for ordinary
+    // cases such as 2.38 -> 2.45, where ~1.1 bar is still a perfectly
+    // reasonable correction. We still hard-cap forecast refinement at 0.50 bar
+    // from the operational baseline so the model cannot chase the target with
+    // absurd 1.8/1.9 bar recommendations.
+    0.35,
     0.50,
   );
   let bestPressure = args.baselinePressure;
