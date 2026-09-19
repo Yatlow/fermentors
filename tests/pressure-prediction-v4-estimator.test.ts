@@ -1045,3 +1045,37 @@ test("timed venting rejects long weak low-pressure estimates", () => {
     "a multi-hour estimate should not become an automatic timed vent instruction",
   );
 });
+
+
+test("overcarbonation that still misses target at 0 bar becomes atmospheric venting, never negative pressure", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.65,
+    currentPressure: 0.15,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.15, 300),
+    cooling: cooling({
+      hours: 240,
+      currentTemp: 1,
+      pressure: 0.15,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.001),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.targetPressure, 0);
+  assert.equal(estimate.requiresAtmosphericVenting, true);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.predictedCarbonation > estimate.targetWindowMax,
+    "0 bar still leaves the 48h forecast above target, so the next operation must be venting",
+  );
+});
