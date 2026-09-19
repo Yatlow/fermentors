@@ -1,4 +1,4 @@
-const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_models_last_run_v2";
+const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_models_last_run_v3";
 const WEEKLY_STYLE_MODEL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function calculateWeeklyStyleAverages(force) {
@@ -40,6 +40,8 @@ function calculateWeeklyStyleAverages(force) {
   const batchTracker = {};
   // normalized style -> historical pressure correction outcomes
   const pressureSamplesByStyle = {};
+  // normalized style -> historical bottom-carbonation sessions
+  const bottomCarbonationSamplesByStyle = {};
   allBrews.forEach(function (brew) {
 
     const data = brew.data || {};
@@ -93,6 +95,14 @@ function calculateWeeklyStyleAverages(force) {
     Array.prototype.push.apply(
       pressureSamplesByStyle[pressureStyle],
       buildPressureResponseSamplesForBrew_(measurements, brewDate, brew.id)
+    );
+
+    if (!bottomCarbonationSamplesByStyle[pressureStyle]) {
+      bottomCarbonationSamplesByStyle[pressureStyle] = [];
+    }
+    Array.prototype.push.apply(
+      bottomCarbonationSamplesByStyle[pressureStyle],
+      buildBottomCarbonationSamplesForBrew_(measurements, brewDate, brew.id)
     );
 
     measurements.forEach(function (measurement) {
@@ -304,7 +314,23 @@ function calculateWeeklyStyleAverages(force) {
     pressureModelsUpdated++;
   });
 
+  let bottomCarbonationModelsUpdated = 0;
+  Object.keys(bottomCarbonationSamplesByStyle).forEach(function (styleKey) {
+    const samples = bottomCarbonationSamplesByStyle[styleKey]
+      .filter(function (sample) { return Boolean(sample); });
+
+    if (samples.length === 0) return;
+
+    writeMergedBottomCarbonationModel_(
+      projectId,
+      styleKey,
+      samples
+    );
+    bottomCarbonationModelsUpdated++;
+  });
+
   Logger.log("Pressure response models updated: " + pressureModelsUpdated);
+  Logger.log("Bottom carbonation models updated: " + bottomCarbonationModelsUpdated);
 
   Logger.log(
     "WEEKLY STYLE AVERAGES FINISHED"
@@ -316,7 +342,8 @@ function calculateWeeklyStyleAverages(force) {
   return {
     skipped: false,
     stylesUpdated: stylesUpdated,
-    pressureModelsUpdated: pressureModelsUpdated
+    pressureModelsUpdated: pressureModelsUpdated,
+    bottomCarbonationModelsUpdated: bottomCarbonationModelsUpdated
   };
 }
 
@@ -399,34 +426,54 @@ function pressureCalibrationDistance_(a, b) {
 
 function buildPressureCalibration_(samples) {
   const rows = (samples || []).filter(function (sample) {
-    const pressureDelta = pressureCalibrationNumber_(sample && sample.pressureDelta);
+    const targetPressure = pressureCalibrationNumber_(sample && sample.targetPressure);
+    const pressureAfter = pressureCalibrationNumber_(sample && sample.pressureAfter);
     const carbonationDelta = pressureCalibrationNumber_(sample && sample.carbonationDelta);
     const elapsedDays = pressureCalibrationNumber_(sample && sample.elapsedDays);
     return (
-      pressureDelta !== null &&
+      targetPressure !== null &&
+      pressureAfter !== null &&
       carbonationDelta !== null &&
       elapsedDays !== null &&
-      Math.abs(pressureDelta) >= 0.02 &&
+      Math.abs(carbonationDelta) >= 0.01 &&
       elapsedDays >= 1 &&
       elapsedDays <= 5
     );
   });
 
+  const equilibrium = pressureCalibrationMedian_(
+    rows.map(function (sample) { return Number(sample.pressureAfter); })
+  );
+
+  if (equilibrium === null) {
+    return {
+      responseMultiplier: 1,
+      evaluatedSamples: 0,
+      directionSuccessRate: null,
+      within005Rate: null,
+      meanAbsoluteError: null,
+      equilibriumPressure: null,
+      equilibriumSampleCount: 0,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
   const evaluated = [];
 
   rows.forEach(function (sample) {
-    const pressureDelta = Number(sample.pressureDelta);
-    const direction = Math.sign(pressureDelta);
-    if (direction === 0) return;
+    const pressureDose = Number(sample.targetPressure) - equilibrium;
+    const direction = Math.sign(pressureDose);
+    if (direction === 0 || Math.abs(pressureDose) < 0.02) return;
 
     const peers = rows
       .filter(function (candidate) {
         if (candidate === sample || candidate.success === false) return false;
-        const candidatePressureDelta = Number(candidate.pressureDelta);
+        const candidateDose = Number(candidate.targetPressure) - equilibrium;
         const candidateCarbDelta = Number(candidate.carbonationDelta);
         return (
-          Math.sign(candidatePressureDelta) === direction &&
+          Math.sign(candidateDose) === direction &&
           Math.sign(candidateCarbDelta) === direction &&
+          Math.abs(candidateDose) >= 0.02 &&
           Math.abs(candidateCarbDelta) >= 0.01
         );
       })
@@ -440,14 +487,15 @@ function buildPressureCalibration_(samples) {
 
     const peerRate = pressureCalibrationMedian_(
       peers.map(function (peer) {
-        return Math.abs(Number(peer.carbonationDelta) / Number(peer.pressureDelta));
+        const dose = Math.abs(Number(peer.targetPressure) - equilibrium);
+        return dose >= 0.02 ? Math.abs(Number(peer.carbonationDelta) / dose) : NaN;
       }).filter(function (rate) {
         return Number.isFinite(rate) && rate >= 0.05 && rate <= 4;
       })
     );
     if (peerRate === null) return;
 
-    const predictedMagnitude = peerRate * Math.abs(pressureDelta);
+    const predictedMagnitude = peerRate * Math.abs(pressureDose);
     if (!Number.isFinite(predictedMagnitude) || predictedMagnitude <= 0) return;
 
     const directedActual = direction * Number(sample.carbonationDelta);
@@ -472,6 +520,8 @@ function buildPressureCalibration_(samples) {
       directionSuccessRate: null,
       within005Rate: null,
       meanAbsoluteError: null,
+      equilibriumPressure: Math.round(equilibrium * 100) / 100,
+      equilibriumSampleCount: rows.length,
       updatedAt: new Date().toISOString()
     };
   }
@@ -508,6 +558,8 @@ function buildPressureCalibration_(samples) {
         (errors.reduce(function (sum, error) { return sum + error; }, 0) /
           errors.length) * 1000
       ) / 1000,
+    equilibriumPressure: Math.round(equilibrium * 100) / 100,
+    equilibriumSampleCount: rows.length,
     updatedAt: new Date().toISOString()
   };
 }
@@ -517,7 +569,7 @@ function getPressureResponseModel_(projectId, styleKey) {
   const url =
     "https://firestore.googleapis.com/v1/projects/" +
     encodeURIComponent(projectId) +
-    "/databases/(default)/documents/pressureResponseModels/" +
+    "/databases/(default)/documents/pressureResponseModelsV3/" +
     encodeURIComponent(styleKey);
 
   const response = UrlFetchApp.fetch(url, {
@@ -552,11 +604,13 @@ function writeMergedPressureResponseModel_(projectId, styleKey, incomingSamples)
 
   return setFirestoreDocument(
     projectId,
-    "pressureResponseModels/" + encodeURIComponent(styleKey),
+    "pressureResponseModelsV3/" + encodeURIComponent(styleKey),
     {
       style: styleKey,
       samples: samples,
       sampleCount: samples.length,
+      equilibriumPressure: calibration.equilibriumPressure,
+      equilibriumSampleCount: calibration.equilibriumSampleCount,
       calibration: calibration,
       updatedAt: new Date().toISOString()
     }
@@ -1026,7 +1080,12 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
     // compound notes such as 0 -> 0.2 -> 1.4 learn the actual correction.
     const beforePressure = latestPressure !== null ? latestPressure : currentPressure;
     const temp = currentTemp !== null ? currentTemp : latestTemp;
-    const targetPressure = pressureTargetFromNote_(measurement.notes);
+    const noteText = String(measurement.notes || "");
+    const isBottomCarbonation =
+      noteText.indexOf("גיזוז מלמטה") !== -1;
+    const targetPressure = isBottomCarbonation
+      ? null
+      : pressureTargetFromNote_(measurement.notes);
 
     if (
       targetPressure !== null &&
@@ -1045,6 +1104,15 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
           const elapsedDays = differenceInDays(eventDate, nextDate);
           if (elapsedDays < 1) continue;
           if (elapsedDays > 5) break;
+
+          let pressureAfter = pressureModelNumber_(next.pressure);
+          if (pressureAfter === null) {
+            for (let pressureIndex = nextIndex - 1; pressureIndex > index; pressureIndex--) {
+              pressureAfter = pressureModelNumber_(rows[pressureIndex].pressure);
+              if (pressureAfter !== null) break;
+            }
+          }
+          if (pressureAfter === null) pressureAfter = targetPressure;
 
           const pressureDelta = targetPressure - beforePressure;
           const carbonationDelta = afterCarb - beforeCarb;
@@ -1070,6 +1138,7 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
             pressureMeanLast7Days: pressureHistory.pressureMeanLast7Days,
             targetPressure: targetPressure,
             pressureDelta: pressureDelta,
+            pressureAfter: pressureAfter,
             carbonationAfter: afterCarb,
             carbonationDelta: carbonationDelta,
             elapsedDays: elapsedDays,
@@ -1089,6 +1158,208 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
   });
 
   return samples;
+}
+
+
+function bottomCarbonationTimeMinutes_(note, marker) {
+  const text = String(note || "");
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const nearby = text.slice(markerIndex, markerIndex + 140);
+  const match = nearby.match(/(?:בשעה\s*)?(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function bottomCarbonationPressure_(note, type) {
+  const text = String(note || "");
+  const pattern = type === "start"
+    ? /הורדת\s+לחץ\s+ל\s*:?-?\s*(\d+(?:[.,]\d+)?)/i
+    : /סגירת\s+גיזוז\s+מלמטה[^|]*?על\s+(\d+(?:[.,]\d+)?)\s*bar/i;
+  const match = text.match(pattern);
+  return match ? pressureModelNumber_(match[1]) : null;
+}
+
+function bottomCarbonationDurationMinutes_(startMinutes, closeMinutes) {
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(closeMinutes)) return null;
+  let duration = closeMinutes - startMinutes;
+  if (duration < 0) duration += 24 * 60;
+  if (duration < 1 || duration > 12 * 60) return null;
+  return duration;
+}
+
+function buildBottomCarbonationSamplesForBrew_(measurements, brewDate, batchId) {
+  const rows = (measurements || []).slice().sort(function (a, b) {
+    return measurementSortTime_(a) - measurementSortTime_(b);
+  });
+  const samples = [];
+  let latestCarb = null;
+  let latestTemp = null;
+  let latestPressure = null;
+  let open = null;
+
+  rows.forEach(function (measurement, index) {
+    const currentCarb = pressureModelNumber_(measurement.carbonation);
+    const currentTemp = pressureModelNumber_(measurement.temp);
+    const currentPressure = pressureModelNumber_(measurement.pressure);
+    const note = String(measurement.notes || "");
+
+    const hasStart = note.indexOf("תחילת גיזוז מלמטה") !== -1;
+    const hasClose = note.indexOf("סגירת גיזוז מלמטה") !== -1;
+
+    if (hasStart) {
+      const eventDate = parseDateOnly(measurement.date);
+      const carbonationBefore = currentCarb !== null ? currentCarb : latestCarb;
+      const startPressure = bottomCarbonationPressure_(note, "start");
+      const startMinutes = bottomCarbonationTimeMinutes_(note, "תחילת גיזוז מלמטה");
+
+      if (
+        eventDate &&
+        carbonationBefore !== null &&
+        startPressure !== null &&
+        startMinutes !== null
+      ) {
+        open = {
+          index: index,
+          eventDate: eventDate,
+          eventDateText: String(measurement.date || ""),
+          carbonationBefore: carbonationBefore,
+          temp: currentTemp !== null ? currentTemp : latestTemp,
+          pressureBefore: latestPressure !== null ? latestPressure : currentPressure,
+          startPressure: startPressure,
+          startMinutes: startMinutes,
+          brewDay: differenceInDays(brewDate, eventDate)
+        };
+      }
+    }
+
+    if (hasClose && open) {
+      const closePressure = bottomCarbonationPressure_(note, "close");
+      const closeMinutes = bottomCarbonationTimeMinutes_(note, "סגירת גיזוז מלמטה");
+      const durationMinutes = bottomCarbonationDurationMinutes_(
+        open.startMinutes,
+        closeMinutes
+      );
+
+      if (closePressure !== null && durationMinutes !== null) {
+        for (let nextIndex = index + 1; nextIndex < rows.length; nextIndex++) {
+          const next = rows[nextIndex];
+          const afterCarb = pressureModelNumber_(next.carbonation);
+          const nextDate = parseDateOnly(next.date);
+          if (afterCarb === null || !nextDate) continue;
+
+          const elapsedDays = differenceInDays(open.eventDate, nextDate);
+          if (elapsedDays < 1) continue;
+          if (elapsedDays > 4) break;
+
+          const carbonationDelta = afterCarb - open.carbonationBefore;
+          samples.push({
+            batchId: String(batchId),
+            eventDate: open.eventDateText,
+            brewDay: open.brewDay,
+            temp: open.temp,
+            carbonationBefore: open.carbonationBefore,
+            pressureBefore: open.pressureBefore,
+            startPressure: open.startPressure,
+            closePressure: closePressure,
+            durationMinutes: durationMinutes,
+            carbonationAfter: afterCarb,
+            carbonationDelta: carbonationDelta,
+            elapsedDays: elapsedDays,
+            success: carbonationDelta > 0.01
+          });
+          break;
+        }
+      }
+
+      open = null;
+    }
+
+    if (currentCarb !== null) latestCarb = currentCarb;
+    if (currentTemp !== null) latestTemp = currentTemp;
+    if (currentPressure !== null) latestPressure = currentPressure;
+  });
+
+  return samples;
+}
+
+function bottomCarbonationSampleKey_(sample) {
+  return [
+    String(sample && sample.batchId || ""),
+    String(sample && sample.eventDate || ""),
+    String(sample && sample.startPressure || ""),
+    String(sample && sample.durationMinutes || "")
+  ].join("|");
+}
+
+function mergeBottomCarbonationSamples_(existingSamples, incomingSamples, maxSamples) {
+  const merged = new Map();
+
+  (existingSamples || []).forEach(function (sample) {
+    if (!sample) return;
+    merged.set(bottomCarbonationSampleKey_(sample), sample);
+  });
+  (incomingSamples || []).forEach(function (sample) {
+    if (!sample) return;
+    merged.set(bottomCarbonationSampleKey_(sample), sample);
+  });
+
+  return Array.from(merged.values())
+    .sort(function (a, b) {
+      const aDate = parseDateOnly(a && a.eventDate);
+      const bDate = parseDateOnly(b && b.eventDate);
+      const aTime = aDate ? aDate.getTime() : 0;
+      const bTime = bDate ? bDate.getTime() : 0;
+      return aTime - bTime;
+    })
+    .slice(-400);
+}
+
+function getBottomCarbonationModel_(projectId, styleKey) {
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    encodeURIComponent(projectId) +
+    "/databases/(default)/documents/bottomCarbonationModels/" +
+    encodeURIComponent(styleKey);
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() === 404) return null;
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(
+      "Bottom carbonation model read failed (" + response.getResponseCode() + "): " +
+      response.getContentText()
+    );
+  }
+
+  const parsed = JSON.parse(response.getContentText() || "{}");
+  return firestoreFieldsToObject_(parsed.fields || {});
+}
+
+function writeMergedBottomCarbonationModel_(projectId, styleKey, incomingSamples) {
+  const existing = getBottomCarbonationModel_(projectId, styleKey);
+  const samples = mergeBottomCarbonationSamples_(
+    existing && Array.isArray(existing.samples) ? existing.samples : [],
+    incomingSamples,
+    400
+  );
+
+  if (samples.length === 0) return null;
+
+  return setFirestoreDocument(
+    projectId,
+    "bottomCarbonationModels/" + encodeURIComponent(styleKey),
+    {
+      style: styleKey,
+      samples: samples,
+      sampleCount: samples.length,
+      updatedAt: new Date().toISOString()
+    }
+  );
 }
 
 
