@@ -180,7 +180,6 @@ test("later carbonation tests use the same calculator and do not need passive sa
     samples: [],
     state,
     targetCarbonation: 2.45,
-    firstCarbonation: false,
   });
 
   assert.ok(estimate);
