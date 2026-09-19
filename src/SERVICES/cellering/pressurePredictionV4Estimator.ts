@@ -207,6 +207,8 @@ export function estimatePressureTargetV4(args: {
   minPressure?: number;
   maxPressure?: number;
   step?: number;
+  firstCarbonation?: boolean;
+  equilibriumPressure?: number | null;
 }): PressureV4Estimate | null {
   const minPressure = finite(args.minPressure) ?? 0;
   const maxPressure = finite(args.maxPressure) ?? 1.9;
@@ -220,11 +222,37 @@ export function estimatePressureTargetV4(args: {
     maxPressure < minPressure
   ) return null;
 
-  const passive = passiveDriftPrediction(
+  const learnedPassive = passiveDriftPrediction(
     args.passiveSamples ?? [],
     args.state,
   );
+
+  const equilibriumPressure = finite(args.equilibriumPressure);
+  const firstCarbonationHighPressure =
+    args.firstCarbonation === true &&
+    equilibriumPressure !== null &&
+    args.state.currentPressure >= equilibriumPressure + 0.15;
+
+  // Operational prior from the first carbonation test: while head pressure is
+  // still materially above equilibrium, a meaningful amount of CO2 is already
+  // in the process of dissolving. Until enough passive-history exists, use the
+  // brewery's observed ~0.35 vol two-day rise as the conservative baseline.
+  const passive = learnedPassive ?? (
+    firstCarbonationHighPressure
+      ? {
+          delta: 0.35,
+          supportCount: 0,
+          effectiveWeight: 0,
+          meanDistance: 0,
+        }
+      : null
+  );
   if (!passive) return null;
+
+  const baselineDelta =
+    firstCarbonationHighPressure
+      ? Math.max(passive.delta, 0.35)
+      : passive.delta;
 
   const usable = args.samples
     .filter((sample) =>
@@ -243,8 +271,13 @@ export function estimatePressureTargetV4(args: {
 
   if (usable.length < 5) return null;
 
+  const effectiveMaxPressure =
+    firstCarbonationHighPressure
+      ? Math.min(maxPressure, args.state.currentPressure)
+      : maxPressure;
+
   const candidates: PressureV4Candidate[] = [];
-  const count = Math.round((maxPressure - minPressure) / step);
+  const count = Math.round((effectiveMaxPressure - minPressure) / step);
 
   for (let index = 0; index <= count; index += 1) {
     const targetPressure = Number((minPressure + index * step).toFixed(2));
@@ -252,7 +285,7 @@ export function estimatePressureTargetV4(args: {
       rows: usable,
       candidatePressure: targetPressure,
       currentPressure: args.state.currentPressure,
-      baselineDelta: passive.delta,
+      baselineDelta,
     });
     if (!predicted) continue;
 
@@ -268,10 +301,10 @@ export function estimatePressureTargetV4(args: {
     rows: usable,
     candidatePressure: args.state.currentPressure,
     currentPressure: args.state.currentPressure,
-    baselineDelta: passive.delta,
+    baselineDelta,
   });
   const predictedCarbonationWithoutChange = Number(
-    (args.state.carbonation + passive.delta).toFixed(3),
+    (args.state.carbonation + baselineDelta).toFixed(3),
   );
 
   const ranked = [...candidates].sort((a, b) => {
@@ -297,15 +330,15 @@ export function estimatePressureTargetV4(args: {
 
   const confidence: PressureV4Estimate["confidence"] =
     best.supportCount >= 12 &&
-    passive.supportCount >= 10 &&
+    (passive.supportCount >= 10 || firstCarbonationHighPressure) &&
     highQualityCount >= 5 &&
     meanDistance <= 2.5 &&
-    passive.meanDistance <= 2.5
+    (passive.supportCount === 0 || passive.meanDistance <= 2.5)
       ? "high"
       : best.supportCount >= 7 &&
-        passive.supportCount >= 5 &&
+        (passive.supportCount >= 5 || firstCarbonationHighPressure) &&
         meanDistance <= 4 &&
-        passive.meanDistance <= 4
+        (passive.supportCount === 0 || passive.meanDistance <= 4)
         ? "medium"
         : "low";
 
