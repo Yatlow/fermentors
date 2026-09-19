@@ -81,6 +81,16 @@
     height: 18px;
 }
 
+.cellar-simulator-check select {
+    min-height: 38px;
+    padding: 7px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--text-main);
+    font: inherit;
+}
+
 .cellar-simulator-actions {
     display: flex;
     align-items: center;
