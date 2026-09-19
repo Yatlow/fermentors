@@ -32,12 +32,22 @@ export type PressureV4Estimate = {
   candidates: PressureV4Candidate[];
   kPerHour: number;
   targetEquilibriumPressure: number | null;
+  referenceTemperature: number | null;
+  equilibriumSource: "local_stable" | "learned_curve" | "physics";
+  headroomBar: number;
+  headroomSupport: number;
+  action: "hold" | "raise" | "lower";
+  pressureOnlyLikelyInsufficient: boolean;
 };
 
 function finite(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function normalizedDifference(
@@ -81,8 +91,6 @@ function transitionDistance(
   score += normalizedDifference(sample.currentTemp, state.currentTemp, 2.5) * 0.9;
   score += normalizedDifference(sample.hoursSinceT0, state.hoursSinceT0, 72) * 0.9;
 
-  // History matters explicitly: identical age at different sustained pressure
-  // is not the same physical state.
   score += normalizedDifference(
     sample.exposure.pressureMean24h,
     state.exposure.pressureMean24h,
@@ -209,8 +217,6 @@ function accuracyPercent(
       .filter((_, otherIndex) => otherIndex !== index)
       .map((other) => ({
         ...other,
-        // For this lightweight leave-one-out check, closeness in fitted k is
-        // deliberately not used; only state similarity determines the model.
         weight: 1 / (0.25 + other.distance * other.distance),
       }));
     const k = estimateK(others) ?? fallbackK;
@@ -273,6 +279,7 @@ function forecastTemperatureAtHour(args: {
 function simulateForward(args: {
   carbonation: number;
   pressureBar: number;
+  pressureCalibrationOffset: number;
   state: PressureV4DecisionState;
   coldReferenceTemperature: number | null;
   kPerHour: number;
@@ -293,7 +300,7 @@ function simulateForward(args: {
 
     const next = evolveCarbonation({
       carbonation,
-      pressureBar: args.pressureBar,
+      pressureBar: args.pressureBar - args.pressureCalibrationOffset,
       temperatureC: temp,
       kPerHour: args.kPerHour,
       hours,
@@ -305,10 +312,230 @@ function simulateForward(args: {
   return carbonation;
 }
 
+function referenceTemperature(
+  state: PressureV4DecisionState,
+  coldReferenceTemperature: number | null,
+): number | null {
+  const currentTemp = finite(state.currentTemp);
+  if (currentTemp === null) return null;
+
+  const cold = finite(coldReferenceTemperature);
+  if (
+    state.cooling?.stillCooling &&
+    cold !== null &&
+    cold < currentTemp
+  ) {
+    return cold;
+  }
+
+  return currentTemp;
+}
+
+function localStableTargetEquilibrium(args: {
+  state: PressureV4DecisionState;
+  targetCarbonation: number;
+}): number | null {
+  const temp = finite(args.state.currentTemp);
+  const trend = args.state.carbonationTrend;
+  if (
+    temp === null ||
+    temp > 5 ||
+    args.state.cooling?.stillCooling ||
+    !trend ||
+    trend.ratePerDay === null ||
+    trend.hoursSincePrevious === null ||
+    trend.hoursSincePrevious < 18 ||
+    Math.abs(trend.ratePerDay) > 0.04 ||
+    Math.abs(args.state.carbonation - args.targetCarbonation) > 0.12
+  ) {
+    return null;
+  }
+
+  const mean24 = finite(args.state.exposure.pressureMean24h);
+  if (
+    mean24 !== null &&
+    Math.abs(mean24 - args.state.currentPressure) > 0.12
+  ) {
+    return null;
+  }
+
+  const physicalCurrent = equilibriumPressureBar(
+    temp,
+    args.state.carbonation,
+  );
+  const physicalTarget = equilibriumPressureBar(
+    temp,
+    args.targetCarbonation,
+  );
+  if (physicalCurrent === null || physicalTarget === null) return null;
+
+  return args.state.currentPressure + (physicalTarget - physicalCurrent);
+}
+
+function headroomPrior(args: {
+  carbonationError: number;
+  state: PressureV4DecisionState;
+  coldReferenceTemperature: number | null;
+  hasLocalEquilibrium: boolean;
+}): number {
+  if (Math.abs(args.carbonationError) <= 0.04) return 0;
+
+  if (args.carbonationError > 0) {
+    let headroom = clamp(
+      0.10 + 1.1 * args.carbonationError,
+      0.15,
+      0.35,
+    );
+
+    if (args.hasLocalEquilibrium) {
+      headroom = Math.max(0.12, headroom - 0.05);
+    }
+
+    const currentTemp = finite(args.state.currentTemp);
+    const coldTemp = finite(args.coldReferenceTemperature);
+    if (
+      args.state.cooling?.stillCooling &&
+      currentTemp !== null &&
+      coldTemp !== null &&
+      currentTemp > coldTemp + 1
+    ) {
+      const gapFactor = clamp((currentTemp - coldTemp) / 6, 0, 1);
+      headroom += 0.14 + 0.04 * gapFactor;
+    } else if (
+      args.state.cooling &&
+      !args.state.cooling.stillCooling &&
+      args.state.cooling.hoursSinceCooling > 120 &&
+      !args.hasLocalEquilibrium
+    ) {
+      headroom += Math.min(
+        0.10,
+        (args.state.cooling.hoursSinceCooling - 120) / 240 * 0.10,
+      );
+    }
+
+    return clamp(headroom, 0.12, 0.50);
+  }
+
+  const excess = Math.abs(args.carbonationError);
+  return -clamp(0.12 + 4.5 * excess, 0.15, 0.55);
+}
+
+function learnedHeadroom(args: {
+  rows: WeightedTransition[];
+  targetCarbonation: number;
+  carbonationError: number;
+  coldReferenceTemperature: number | null;
+  equilibriumPressureAtTemperature?: (temperature: number | null) => number | null;
+}): { value: number; support: number } | null {
+  if (
+    !args.equilibriumPressureAtTemperature ||
+    Math.abs(args.carbonationError) <= 0.04
+  ) {
+    return null;
+  }
+
+  const sameDirection = args.rows
+    .map((row) => {
+      const sampleError =
+        args.targetCarbonation - row.sample.startCarbonation;
+      if (
+        Math.abs(sampleError) <= 0.04 ||
+        Math.sign(sampleError) !== Math.sign(args.carbonationError) ||
+        Math.abs(row.sample.endCarbonation - args.targetCarbonation) > 0.06
+      ) {
+        return null;
+      }
+
+      const pressure = finite(row.sample.pressureMeanDuring);
+      const sampleTemp = finite(row.sample.currentTemp);
+      const referenceTemp =
+        row.sample.cooling?.stillCooling &&
+        args.coldReferenceTemperature !== null
+          ? args.coldReferenceTemperature
+          : sampleTemp;
+      const equilibrium =
+        args.equilibriumPressureAtTemperature(referenceTemp);
+      if (pressure === null || equilibrium === null) return null;
+
+      const deficitDistance =
+        Math.abs(sampleError - args.carbonationError) / 0.08;
+      const weight =
+        row.weight / (1 + deficitDistance * deficitDistance);
+
+      return {
+        headroom: pressure - equilibrium,
+        weight,
+      };
+    })
+    .filter((row): row is { headroom: number; weight: number } =>
+      row !== null &&
+      Number.isFinite(row.headroom) &&
+      Number.isFinite(row.weight) &&
+      row.weight > 0
+    )
+    .sort((a, b) => a.headroom - b.headroom);
+
+  if (sameDirection.length < 4) return null;
+
+  const totalWeight = sameDirection.reduce((sum, row) => sum + row.weight, 0);
+  if (totalWeight <= 0) return null;
+
+  let running = 0;
+  const targetWeight = totalWeight / 2;
+  let median = sameDirection[sameDirection.length - 1].headroom;
+  for (const row of sameDirection) {
+    running += row.weight;
+    if (running >= targetWeight) {
+      median = row.headroom;
+      break;
+    }
+  }
+
+  return {
+    value: median,
+    support: sameDirection.length,
+  };
+}
+
+function blendHeadroom(
+  prior: number,
+  learned: { value: number; support: number } | null,
+): { value: number; support: number } {
+  if (!learned) return { value: prior, support: 0 };
+  if (Math.sign(learned.value) !== Math.sign(prior)) {
+    return { value: prior, support: learned.support };
+  }
+
+  const learnedWeight =
+    learned.support >= 12
+      ? 0.50
+      : learned.support >= 8
+        ? 0.40
+        : 0.25;
+
+  const blended =
+    prior * (1 - learnedWeight) +
+    learned.value * learnedWeight;
+
+  return {
+    value: clamp(blended, prior - 0.12, prior + 0.12),
+    support: learned.support,
+  };
+}
+
+function snapPressure(
+  pressure: number,
+  minPressure: number,
+  maxPressure: number,
+  step: number,
+): number {
+  const clamped = clamp(pressure, minPressure, maxPressure);
+  return Number(
+    (Math.round(clamped / step) * step).toFixed(2),
+  );
+}
+
 export function estimatePressureTargetV4(args: {
-  // Legacy arrays remain in the model document during migration. The kinetic
-  // calculator intentionally learns from full carbonation-to-carbonation
-  // transitions instead.
   samples?: PressureV4Sample[];
   passiveSamples?: PressureV4PassiveSample[];
   transitions?: PressureV4TransitionSample[];
@@ -318,6 +545,7 @@ export function estimatePressureTargetV4(args: {
   maxPressure?: number;
   step?: number;
   equilibriumPressure?: number | null;
+  equilibriumPressureAtTemperature?: (temperature: number | null) => number | null;
   coldReferenceTemperature?: number | null;
   horizonHours?: number;
 }): PressureV4Estimate | null {
@@ -326,9 +554,11 @@ export function estimatePressureTargetV4(args: {
   const step = finite(args.step) ?? 0.05;
   const horizonHours = finite(args.horizonHours) ?? 48;
   const currentTemp = finite(args.state.currentTemp);
+  const coldReferenceTemperature = finite(args.coldReferenceTemperature);
 
   if (
     currentTemp === null ||
+    currentTemp > 9 ||
     !Number.isFinite(args.state.carbonation) ||
     !Number.isFinite(args.state.currentPressure) ||
     !Number.isFinite(args.targetCarbonation) ||
@@ -337,76 +567,154 @@ export function estimatePressureTargetV4(args: {
     maxPressure < minPressure
   ) return null;
 
-  const standardTargetEquilibrium = equilibriumPressureBar(
-    currentTemp,
-    args.targetCarbonation,
-  );
-  const learnedTargetEquilibrium = finite(args.equilibriumPressure);
-  const equilibriumPressureOffset =
-    learnedTargetEquilibrium !== null &&
-    standardTargetEquilibrium !== null
-      ? learnedTargetEquilibrium - standardTargetEquilibrium
-      : 0;
-
   const rows = localTransitions(args.transitions ?? [], args.state);
   if (rows.length < 4) return null;
 
   const kPerHour = estimateK(rows);
   if (kPerHour === null) return null;
 
+  const refTemp = referenceTemperature(
+    args.state,
+    coldReferenceTemperature,
+  );
+  if (refTemp === null) return null;
+
+  const standardTargetEquilibrium = equilibriumPressureBar(
+    refTemp,
+    args.targetCarbonation,
+  );
+  if (standardTargetEquilibrium === null) return null;
+
+  const localEquilibrium = localStableTargetEquilibrium({
+    state: args.state,
+    targetCarbonation: args.targetCarbonation,
+  });
+  const learnedEquilibrium = finite(args.equilibriumPressure);
+
+  let targetEquilibriumPressure = standardTargetEquilibrium;
+  let equilibriumSource: PressureV4Estimate["equilibriumSource"] = "physics";
+
+  if (localEquilibrium !== null) {
+    targetEquilibriumPressure = localEquilibrium;
+    equilibriumSource = "local_stable";
+  } else if (learnedEquilibrium !== null) {
+    targetEquilibriumPressure = learnedEquilibrium;
+    equilibriumSource = "learned_curve";
+  }
+
+  // Keep historical calibration physically plausible. It may correct local
+  // gauge/system bias, but it must not turn a cold equilibrium curve into an
+  // arbitrary extrapolation several tenths of a bar away.
+  targetEquilibriumPressure = clamp(
+    targetEquilibriumPressure,
+    Math.max(minPressure, standardTargetEquilibrium - 0.35),
+    Math.min(maxPressure, standardTargetEquilibrium + 0.35),
+  );
+
+  const pressureCalibrationOffset =
+    targetEquilibriumPressure - standardTargetEquilibrium;
+
+  const predictedCarbonationWithoutChangeRaw = simulateForward({
+    carbonation: args.state.carbonation,
+    pressureBar: args.state.currentPressure,
+    pressureCalibrationOffset,
+    state: args.state,
+    coldReferenceTemperature,
+    kPerHour,
+    hours: horizonHours,
+  });
+  if (predictedCarbonationWithoutChangeRaw === null) return null;
+
+  const carbonationError =
+    args.targetCarbonation - args.state.carbonation;
+  const withinTargetNow = Math.abs(carbonationError) <= 0.04;
+  const staysWithinTarget =
+    Math.abs(
+      predictedCarbonationWithoutChangeRaw - args.targetCarbonation,
+    ) <= 0.04;
+
+  let headroomBar = 0;
+  let headroomSupport = 0;
+  let targetPressure = args.state.currentPressure;
+
+  if (!(withinTargetNow && staysWithinTarget)) {
+    const prior = headroomPrior({
+      carbonationError,
+      state: args.state,
+      coldReferenceTemperature,
+      hasLocalEquilibrium: localEquilibrium !== null,
+    });
+    const learned = learnedHeadroom({
+      rows,
+      targetCarbonation: args.targetCarbonation,
+      carbonationError,
+      coldReferenceTemperature,
+      equilibriumPressureAtTemperature:
+        args.equilibriumPressureAtTemperature,
+    });
+    const blended = blendHeadroom(prior, learned);
+    headroomBar = blended.value;
+    headroomSupport = blended.support;
+
+    targetPressure = snapPressure(
+      targetEquilibriumPressure + headroomBar,
+      minPressure,
+      maxPressure,
+      step,
+    );
+
+    // Avoid meaningless 0.05-bar oscillations. If the newly calculated target
+    // is practically the current setting, leave the regulator alone.
+    if (Math.abs(targetPressure - args.state.currentPressure) < 0.075) {
+      targetPressure = args.state.currentPressure;
+    }
+  }
+
+  const action: PressureV4Estimate["action"] =
+    Math.abs(targetPressure - args.state.currentPressure) < 0.025
+      ? "hold"
+      : targetPressure > args.state.currentPressure
+        ? "raise"
+        : "lower";
+
+  const predictedRaw = simulateForward({
+    carbonation: args.state.carbonation,
+    pressureBar: targetPressure,
+    pressureCalibrationOffset,
+    state: args.state,
+    coldReferenceTemperature,
+    kPerHour,
+    hours: horizonHours,
+  });
+  if (predictedRaw === null) return null;
+
   const candidates: PressureV4Candidate[] = [];
   const count = Math.round((maxPressure - minPressure) / step);
   const effectiveWeight = rows.reduce((sum, row) => sum + row.weight, 0);
 
   for (let index = 0; index <= count; index += 1) {
-    const targetPressure = Number((minPressure + index * step).toFixed(2));
+    const pressure = Number((minPressure + index * step).toFixed(2));
     const predicted = simulateForward({
       carbonation: args.state.carbonation,
-      pressureBar: targetPressure - equilibriumPressureOffset,
+      pressureBar: pressure,
+      pressureCalibrationOffset,
       state: args.state,
-      coldReferenceTemperature: finite(args.coldReferenceTemperature),
+      coldReferenceTemperature,
       kPerHour,
       hours: horizonHours,
     });
     if (predicted === null) continue;
 
     candidates.push({
-      targetPressure,
+      targetPressure: pressure,
       predictedCarbonation: Number(predicted.toFixed(3)),
-      predictedDelta: Number((predicted - args.state.carbonation).toFixed(3)),
+      predictedDelta: Number(
+        (predicted - args.state.carbonation).toFixed(3),
+      ),
       supportCount: rows.length,
       effectiveWeight,
     });
   }
-
-  if (!candidates.length) return null;
-
-  const noChange = simulateForward({
-    carbonation: args.state.carbonation,
-    pressureBar: args.state.currentPressure - equilibriumPressureOffset,
-    state: args.state,
-    coldReferenceTemperature: finite(args.coldReferenceTemperature),
-    kPerHour,
-    hours: horizonHours,
-  });
-  if (noChange === null) return null;
-
-  const ranked = [...candidates].sort((a, b) => {
-    const aError = Math.abs(a.predictedCarbonation - args.targetCarbonation);
-    const bError = Math.abs(b.predictedCarbonation - args.targetCarbonation);
-    if (Math.abs(aError - bError) > 0.002) return aError - bError;
-    return (
-      Math.abs(a.targetPressure - args.state.currentPressure) -
-      Math.abs(b.targetPressure - args.state.currentPressure)
-    );
-  });
-
-  const best = ranked[0];
-  const error = Math.abs(best.predictedCarbonation - args.targetCarbonation);
-
-  // Do not present an operational boundary as a precise recommendation when
-  // the physical model still cannot reach the target over the requested horizon.
-  if (error > 0.06) return null;
 
   const meanDistance =
     rows.reduce((sum, row) => sum + row.distance, 0) / rows.length;
@@ -424,18 +732,36 @@ export function estimatePressureTargetV4(args: {
         ? "medium"
         : "low";
 
+  const pressureOnlyLikelyInsufficient =
+    carbonationError > 0.15 &&
+    Boolean(args.state.cooling) &&
+    args.state.cooling!.stillCooling === false &&
+    args.state.cooling!.hoursSinceCooling >= 120 &&
+    kPerHour < 0.003;
+
   return {
-    targetPressure: best.targetPressure,
-    predictedCarbonation: best.predictedCarbonation,
-    predictedCarbonationWithoutChange: Number(noChange.toFixed(3)),
+    targetPressure: Number(targetPressure.toFixed(2)),
+    predictedCarbonation: Number(predictedRaw.toFixed(3)),
+    predictedCarbonationWithoutChange: Number(
+      predictedCarbonationWithoutChangeRaw.toFixed(3),
+    ),
     targetCarbonation: args.targetCarbonation,
-    error: Number(error.toFixed(3)),
+    error: Number(
+      Math.abs(predictedRaw - args.targetCarbonation).toFixed(3),
+    ),
     supportCount: rows.length,
     confidence,
     accuracyPercent: accuracyPercent(rows, kPerHour),
     candidates,
     kPerHour: Number(kPerHour.toFixed(5)),
-    targetEquilibriumPressure:
-      learnedTargetEquilibrium ?? standardTargetEquilibrium,
+    targetEquilibriumPressure: Number(
+      targetEquilibriumPressure.toFixed(2),
+    ),
+    referenceTemperature: Number(refTemp.toFixed(1)),
+    equilibriumSource,
+    headroomBar: Number(headroomBar.toFixed(2)),
+    headroomSupport,
+    action,
+    pressureOnlyLikelyInsufficient,
   };
 }
