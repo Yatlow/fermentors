@@ -355,41 +355,44 @@ function localStableTargetEquilibrium(args: {
   state: PressureV4DecisionState;
   targetCarbonation: number;
 }): number | null {
-  const temp = finite(args.state.currentTemp);
   const trend = args.state.carbonationTrend;
+  const previousTemp = finite(trend?.previousTemp);
+  const previousPressure = finite(trend?.previousPressure);
+  const previousCarbonation = finite(trend?.previousCarbonation);
+  const previousHistoricalRate =
+    finite(trend?.previousHistoricalRatePerDay);
+  const hoursBetweenPreviousChecks =
+    finite(trend?.hoursBetweenPreviousChecks);
+
   if (
-    temp === null ||
-    temp > 5 ||
-    args.state.cooling?.stillCooling ||
     !trend ||
-    trend.ratePerDay === null ||
-    trend.hoursSincePrevious === null ||
-    trend.hoursSincePrevious < 18 ||
-    Math.abs(trend.ratePerDay) > 0.015 ||
-    Math.abs(args.state.carbonation - args.targetCarbonation) > 0.12
+    previousTemp === null ||
+    previousPressure === null ||
+    previousCarbonation === null ||
+    previousHistoricalRate === null ||
+    hoursBetweenPreviousChecks === null ||
+    previousTemp > 5 ||
+    hoursBetweenPreviousChecks < 18 ||
+    Math.abs(previousHistoricalRate) > 0.015 ||
+    Math.abs(previousCarbonation - args.targetCarbonation) > 0.15
   ) {
     return null;
   }
 
-  const mean24 = finite(args.state.exposure.pressureMean24h);
-  if (
-    mean24 !== null &&
-    Math.abs(mean24 - args.state.currentPressure) > 0.12
-  ) {
-    return null;
-  }
-
-  const physicalCurrent = equilibriumPressureBar(
-    temp,
-    args.state.carbonation,
+  const physicalPrevious = equilibriumPressureBar(
+    previousTemp,
+    previousCarbonation,
   );
   const physicalTarget = equilibriumPressureBar(
-    temp,
+    previousTemp,
     args.targetCarbonation,
   );
-  if (physicalCurrent === null || physicalTarget === null) return null;
+  if (physicalPrevious === null || physicalTarget === null) return null;
 
-  return args.state.currentPressure + (physicalTarget - physicalCurrent);
+  // Crucially, this anchor comes only from historical readings that precede
+  // the simulated/current test. Changing the hypothetical carbonation input
+  // therefore cannot move the equilibrium baseline.
+  return previousPressure + (physicalTarget - physicalPrevious);
 }
 
 function headroomPrior(args: {
@@ -695,15 +698,22 @@ export function estimatePressureTargetV4(args: {
   );
   if (standardTargetEquilibrium === null) return null;
 
+  const localEquilibrium = localStableTargetEquilibrium({
+    state: args.state,
+    targetCarbonation: args.targetCarbonation,
+  });
   const learnedEquilibrium = finite(args.equilibriumPressure);
 
-  // Equilibrium for the target must not move when the operator changes only
-  // the hypothetical carbonation reading in the simulator. Use the historical
-  // style curve (or physics fallback), never the simulated current reading.
+  // The target equilibrium may be anchored by a genuinely stable historical
+  // pair that predates the simulated/current reading. Otherwise use the style
+  // curve, then physics as fallback.
   let targetEquilibriumPressure = standardTargetEquilibrium;
   let equilibriumSource: PressureV4Estimate["equilibriumSource"] = "physics";
 
-  if (learnedEquilibrium !== null) {
+  if (localEquilibrium !== null) {
+    targetEquilibriumPressure = localEquilibrium;
+    equilibriumSource = "local_stable";
+  } else if (learnedEquilibrium !== null) {
     targetEquilibriumPressure = learnedEquilibrium;
     equilibriumSource = "learned_curve";
   }
@@ -748,7 +758,7 @@ export function estimatePressureTargetV4(args: {
       carbonationError,
       state: args.state,
       coldReferenceTemperature,
-      hasLocalEquilibrium: false,
+      hasLocalEquilibrium: localEquilibrium !== null,
     });
     const learned = learnedHeadroom({
       rows,
