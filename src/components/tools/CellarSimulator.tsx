@@ -315,6 +315,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             passiveSamples: v4Model.passiveSamples,
                             state,
                             targetCarbonation: Number(carbonationTarget),
+                            firstCarbonation,
+                            equilibriumPressure: equilibriumForTemp(state.currentTemp),
                         });
                         if (estimate) {
                             setV4Result(estimate);
