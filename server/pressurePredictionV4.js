@@ -513,16 +513,12 @@ function pressureV4QuotaWindow_(now) {
   const hour = Number(Utilities.formatDate(current, PRESSURE_V4_TIMEZONE, "H"));
 
   if (hour >= PRESSURE_V4_RESET_HOUR) {
-    return {
-      key: dateText + "@10",
-      budget: PRESSURE_V4_DAILY_READ_BUDGET
-    };
+    return { key: dateText + "@10" };
   }
 
   const previous = new Date(current.getTime() - 24 * 60 * 60 * 1000);
   return {
-    key: Utilities.formatDate(previous, PRESSURE_V4_TIMEZONE, "yyyy-MM-dd") + "@10",
-    budget: PRESSURE_V4_INITIAL_PRE_RESET_BUDGET
+    key: Utilities.formatDate(previous, PRESSURE_V4_TIMEZONE, "yyyy-MM-dd") + "@10"
   };
 }
 
@@ -557,6 +553,14 @@ function pressureV4ModelReadiness_(samples, equilibriumPoints) {
 }
 
 function startPressurePredictionV4Backfill_() {
+  const now = new Date();
+  const quota = pressureV4QuotaWindow_(now);
+  const hour = Number(Utilities.formatDate(now, PRESSURE_V4_TIMEZONE, "H"));
+  const initialWindowBudget =
+    hour < PRESSURE_V4_RESET_HOUR
+      ? PRESSURE_V4_INITIAL_PRE_RESET_BUDGET
+      : PRESSURE_V4_DAILY_READ_BUDGET;
+
   PropertiesService.getScriptProperties().setProperty(
     PRESSURE_V4_BACKFILL_STATE_KEY,
     JSON.stringify({
@@ -564,12 +568,19 @@ function startPressurePredictionV4Backfill_() {
       pageToken: "",
       scannedBrews: 0,
       processedBrews: 0,
-      quotaWindowKey: "",
+      quotaWindowKey: quota.key,
       readsInWindow: 0,
-      startedAt: new Date().toISOString()
+      initialQuotaWindowKey: quota.key,
+      initialQuotaWindowBudget: initialWindowBudget,
+      startedAt: now.toISOString()
     })
   );
-  return { started: true, automatic: true };
+  return {
+    started: true,
+    automatic: true,
+    quotaWindowKey: quota.key,
+    budget: initialWindowBudget
+  };
 }
 
 function pressurePredictionV4BackfillState_() {
@@ -597,14 +608,19 @@ function pressurePredictionV4BackfillStep_() {
     state.readsInWindow = 0;
   }
 
+  const budget =
+    String(state.initialQuotaWindowKey || "") === quota.key
+      ? Number(state.initialQuotaWindowBudget || PRESSURE_V4_INITIAL_PRE_RESET_BUDGET)
+      : PRESSURE_V4_DAILY_READ_BUDGET;
+
   const readsInWindow = Number(state.readsInWindow || 0);
-  if (readsInWindow >= quota.budget) {
+  if (readsInWindow >= budget) {
     return {
       skipped: true,
       reason: "quota_window_budget_reached",
       quotaWindowKey: quota.key,
       readsInWindow: readsInWindow,
-      budget: quota.budget
+      budget: budget
     };
   }
 
@@ -699,7 +715,7 @@ function pressurePredictionV4BackfillStep_() {
     processedThisStep: processed,
     readsThisStep: readsThisStep,
     readsInWindow: nextState.readsInWindow,
-    budget: quota.budget,
+    budget: budget,
     quotaWindowKey: quota.key,
     touchedStyles: Object.keys(touchedStyles),
     state: nextState
