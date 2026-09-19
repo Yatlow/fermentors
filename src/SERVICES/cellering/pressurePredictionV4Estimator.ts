@@ -317,7 +317,6 @@ export function estimatePressureTargetV4(args: {
   minPressure?: number;
   maxPressure?: number;
   step?: number;
-  firstCarbonation?: boolean;
   equilibriumPressure?: number | null;
   coldReferenceTemperature?: number | null;
   horizonHours?: number;
