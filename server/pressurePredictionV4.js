@@ -18,6 +18,7 @@ const PRESSURE_V4_RESET_HOUR = 10;
 const PRESSURE_V4_MAX_RUN_MS = 120000;
 const PRESSURE_V4_FINAL_PRE_RESET_RUN_MS = 285000;
 const PRESSURE_V4_MAX_SAMPLES_PER_STYLE = 600;
+const PRESSURE_V4_MAX_TRANSITIONS_PER_STYLE = 800;
 const PRESSURE_V4_MAX_EQUILIBRIUM_POINTS_PER_STYLE = 200;
 
 function pressureV4Number_(value) {
@@ -187,6 +188,262 @@ function pressureV4Exposure_(rows, t0Ms, endMs) {
     coveredHours: coveredHours,
     coverageRatio: hoursSinceT0 > 0 ? Math.min(1, coveredHours / hoursSinceT0) : 0
   };
+}
+
+function pressureV4EquilibriumCarbonation_(temperatureC, gaugePressureBar) {
+  if (!Number.isFinite(temperatureC) || !Number.isFinite(gaugePressureBar)) {
+    return null;
+  }
+
+  const tF = temperatureC * 9 / 5 + 32;
+  const psi = gaugePressureBar * 14.5037738;
+  const a = -0.0684226;
+  const b = 0.173354 * tF + 4.24267;
+  const cc =
+    -16.6999 -
+    0.0101059 * tF +
+    0.00116512 * tF * tF -
+    psi;
+  const discriminant = b * b - 4 * a * cc;
+  if (discriminant < 0) return null;
+
+  const root = Math.sqrt(discriminant);
+  const candidates = [
+    (-b + root) / (2 * a),
+    (-b - root) / (2 * a)
+  ].filter(function (value) {
+    return Number.isFinite(value) && value > 0 && value < 10;
+  });
+  if (!candidates.length) return null;
+  return Math.min.apply(null, candidates);
+}
+
+function pressureV4TransitionPath_(rows, startMs, endMs) {
+  const ordered = (rows || []).map(function (row) {
+    return {
+      row: row,
+      time: pressureV4DateTime_(row),
+      pressure: pressureV4Number_(row && row.pressure),
+      temp: pressureV4Number_(row && row.temp)
+    };
+  }).filter(function (item) {
+    return item.time !== null && item.time <= endMs;
+  }).sort(function (a, b) {
+    return a.time - b.time;
+  });
+
+  let pressure = null;
+  let temp = null;
+  ordered.forEach(function (item) {
+    if (item.time > startMs) return;
+    if (item.pressure !== null) pressure = item.pressure;
+    if (item.temp !== null) temp = item.temp;
+  });
+  if (pressure === null || temp === null) return null;
+
+  const segments = [];
+  let cursor = startMs;
+  let weightedPressure = 0;
+  let weightedTemp = 0;
+  let totalHours = 0;
+  let maxTemp = temp;
+
+  ordered.forEach(function (item) {
+    if (item.time <= startMs || item.time > endMs) return;
+    const hours = Math.max(0, (item.time - cursor) / 3600000);
+    if (hours > 0) {
+      segments.push({
+        hours: hours,
+        pressure: pressure,
+        temp: temp
+      });
+      weightedPressure += pressure * hours;
+      weightedTemp += temp * hours;
+      totalHours += hours;
+      cursor = item.time;
+    }
+    if (item.pressure !== null) pressure = item.pressure;
+    if (item.temp !== null) {
+      temp = item.temp;
+      maxTemp = Math.max(maxTemp, temp);
+    }
+  });
+
+  const tailHours = Math.max(0, (endMs - cursor) / 3600000);
+  if (tailHours > 0) {
+    segments.push({
+      hours: tailHours,
+      pressure: pressure,
+      temp: temp
+    });
+    weightedPressure += pressure * tailHours;
+    weightedTemp += temp * tailHours;
+    totalHours += tailHours;
+  }
+
+  if (totalHours <= 0) return null;
+
+  return {
+    segments: segments,
+    currentPressure: segments.length ? segments[0].pressure : pressure,
+    currentTemp: segments.length ? segments[0].temp : temp,
+    pressureMean: weightedPressure / totalHours,
+    tempMean: weightedTemp / totalHours,
+    maxTemp: maxTemp,
+    totalHours: totalHours
+  };
+}
+
+function pressureV4SimulatePath_(startCarbonation, segments, kPerHour) {
+  let carbonation = startCarbonation;
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index];
+    const equilibrium = pressureV4EquilibriumCarbonation_(
+      segment.temp,
+      segment.pressure
+    );
+    if (equilibrium === null) return null;
+    const decay = Math.exp(-kPerHour * segment.hours);
+    carbonation =
+      equilibrium - (equilibrium - carbonation) * decay;
+  }
+  return carbonation;
+}
+
+function pressureV4FitK_(startCarbonation, endCarbonation, segments) {
+  let bestK = null;
+  let bestError = Infinity;
+
+  // Log grid covers time constants from roughly 2h to >400 days.
+  for (let index = 0; index <= 100; index++) {
+    const exponent = -4 + index * (Math.log10(0.5) + 4) / 100;
+    const k = Math.pow(10, exponent);
+    const predicted = pressureV4SimulatePath_(
+      startCarbonation,
+      segments,
+      k
+    );
+    if (predicted === null) continue;
+    const error = Math.abs(predicted - endCarbonation);
+    if (error < bestError) {
+      bestError = error;
+      bestK = k;
+    }
+  }
+
+  if (bestK === null) return null;
+
+  // Refine locally around the best logarithmic candidate.
+  const low = Math.max(0.00005, bestK / 1.5);
+  const high = Math.min(0.8, bestK * 1.5);
+  for (let index = 0; index <= 60; index++) {
+    const k = low + (high - low) * index / 60;
+    const predicted = pressureV4SimulatePath_(
+      startCarbonation,
+      segments,
+      k
+    );
+    if (predicted === null) continue;
+    const error = Math.abs(predicted - endCarbonation);
+    if (error < bestError) {
+      bestError = error;
+      bestK = k;
+    }
+  }
+
+  return {
+    kPerHour: bestK,
+    error: bestError
+  };
+}
+
+function pressureV4BuildTransitions_(measurements, batchId) {
+  const rows = (measurements || []).slice().sort(function (a, b) {
+    return pressureV4DateTime_(a) - pressureV4DateTime_(b);
+  });
+  const t0 = pressureV4DetectT0_(rows);
+  if (!t0) return [];
+
+  const checks = rows.map(function (row) {
+    return {
+      row: row,
+      time: pressureV4DateTime_(row),
+      carbonation: pressureV4Number_(row && row.carbonation)
+    };
+  }).filter(function (item) {
+    return item.time !== null &&
+      item.time >= t0.dateTimeMs &&
+      item.carbonation !== null;
+  });
+
+  const transitions = [];
+
+  for (let index = 0; index < checks.length - 1; index++) {
+    const start = checks[index];
+    const end = checks[index + 1];
+    const durationHours = (end.time - start.time) / 3600000;
+    if (durationHours < 8 || durationHours > 120) continue;
+
+    const contaminated = rows.some(function (row) {
+      const time = pressureV4DateTime_(row);
+      return time !== null &&
+        time > start.time &&
+        time <= end.time &&
+        pressureV4IsBottomCarbonation_(row);
+    });
+    if (contaminated) continue;
+
+    const path = pressureV4TransitionPath_(rows, start.time, end.time);
+    if (!path || path.maxTemp > 9) continue;
+
+    const fit = pressureV4FitK_(
+      start.carbonation,
+      end.carbonation,
+      path.segments
+    );
+    if (!fit || fit.error > 0.06) continue;
+
+    const exposure = pressureV4Exposure_(
+      rows,
+      t0.dateTimeMs,
+      start.time
+    );
+
+    let quality = "low";
+    if (
+      fit.error <= 0.02 &&
+      durationHours >= 18 &&
+      durationHours <= 72
+    ) {
+      quality = "high";
+    } else if (fit.error <= 0.04) {
+      quality = "medium";
+    }
+
+    transitions.push({
+      batchId: String(batchId || ""),
+      startDateTimeMs: start.time,
+      endDateTimeMs: end.time,
+      durationHours: Math.round(durationHours * 100) / 100,
+      startCarbonation: start.carbonation,
+      endCarbonation: end.carbonation,
+      currentPressure: path.currentPressure,
+      currentTemp: path.currentTemp,
+      hoursSinceT0: Math.max(
+        0,
+        (start.time - t0.dateTimeMs) / 3600000
+      ),
+      exposure: exposure,
+      pressureMeanDuring:
+        Math.round(path.pressureMean * 1000) / 1000,
+      temperatureMeanDuring:
+        Math.round(path.tempMean * 100) / 100,
+      kPerHour: Math.round(fit.kPerHour * 1000000) / 1000000,
+      quality: quality
+    });
+  }
+
+  return transitions;
 }
 
 function pressureV4Quality_(exposure) {
