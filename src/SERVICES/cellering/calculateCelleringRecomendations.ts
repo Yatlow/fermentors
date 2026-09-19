@@ -1363,6 +1363,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 pressureMeanLast7Days: pressureContext.pressureMeanLast7Days,
                 carbAgeAtAdjustment: 0,
                 calibration: model.calibration ?? null,
+                equilibriumObservations: model.equilibriumObservations ?? [],
             })
             : null;
 
