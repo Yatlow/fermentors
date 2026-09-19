@@ -78,6 +78,19 @@ function roundToStep(value: number, step: number): number {
   return Math.round(value / step) * step;
 }
 
+function dateOnlySerial(value: string): number | null {
+  const text = String(value ?? "").trim();
+  let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (match) {
+    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86400000;
+  }
+  match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) {
+    return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1])) / 86400000;
+  }
+  return null;
+}
+
 export function estimatePressureTarget(args: {
   samples: PressureResponseSample[];
   currentCarbonation: number;
@@ -164,19 +177,46 @@ export function estimatePressureTarget(args: {
 
   const stableBatchEquilibria: number[] = [];
   equilibriumByBatch.forEach((rows) => {
-    const ordered = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+    // Collapse multiple readings from the same calendar date. Equilibrium must
+    // represent stability across days, not repeated checks within one shift.
+    const byDate = new Map<string, typeof rows>();
+    rows.forEach((row) => {
+      const dayRows = byDate.get(row.date) ?? [];
+      dayRows.push(row);
+      byDate.set(row.date, dayRows);
+    });
+
+    const ordered = Array.from(byDate.entries())
+      .map(([date, dayRows]) => ({
+        batchId: dayRows[0].batchId,
+        date,
+        pressure: median(dayRows.map((row) => row.pressure!)),
+        carbonation: median(dayRows.map((row) => row.carbonation!)),
+        temp: median(dayRows
+          .map((row) => row.temp)
+          .filter((value): value is number => value !== null)),
+        serial: dateOnlySerial(date),
+      }))
+      .filter((row) => row.pressure !== null && row.serial !== null)
+      .sort((a, b) => a.serial! - b.serial!);
+
     if (ordered.length < 3) return;
 
-    // Any 3+ observation window with <=0.10 bar total spread is treated as a
-    // stable period. We use the longest qualifying tail ending at each point,
-    // then contribute only one median for the batch.
+    // Any 3+ distinct-day window spanning at least two calendar days with
+    // <=0.10 bar total pressure spread is treated as a stable equilibrium
+    // period. Each batch contributes only one median to the style model.
     let bestWindow: typeof ordered = [];
     for (let end = 0; end < ordered.length; end += 1) {
       for (let start = 0; start <= end - 2; start += 1) {
         const window = ordered.slice(start, end + 1);
         const pressures = window.map((row) => row.pressure!);
         const spread = Math.max(...pressures) - Math.min(...pressures);
-        if (spread <= 0.10 && window.length > bestWindow.length) {
+        const daySpan = window[window.length - 1].serial! - window[0].serial!;
+        if (
+          spread <= 0.10 &&
+          daySpan >= 2 &&
+          window.length > bestWindow.length
+        ) {
           bestWindow = window;
         }
       }
