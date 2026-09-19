@@ -520,7 +520,6 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             const v5Estimate = estimatePressureTargetV5({
                                 samples: v4Model.samples,
                                 passiveSamples: v4Model.passiveSamples,
-                                transitions: v4Model.transitions,
                                 state,
                                 targetCarbonation: Number(carbonationTarget),
                                 coldReferenceTemperature,
@@ -725,20 +724,17 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                                     : `להוריד לחץ ל-${v5Result.targetPressure?.toFixed(2)} bar`}
                             </strong>
                             <p>
-                                מצב: {v5Result.mode === "first_cooling" ? "בדיקת גיזוז ראשונה / המשך קירור" : "מיכל קר יציב"} ·
-                                α ל-48 שעות: {v5Result.alpha48.toFixed(3)}
-                                {" "}({v5Result.alphaSource === "learned" ? "נלמד מההיסטוריה המתאימה למצב" : "heuristic זמני"}) ·
-                                תמיכה: {v5Result.supportCount} דוגמאות ·
+                                מצב: {v5Result.mode === "first_cooling" ? "בדיקת גיזוז ראשונה — חישוב לפי טמפרטורת הקור" : "מיכל קר יציב"} ·
+                                תגובת לחץ: {v5Result.volPerBar.toFixed(3)} vol/bar
+                                {" "}({v5Result.responseSource === "learned" ? "נלמד מהיסטוריית שינויי לחץ" : "heuristic זמני: 0.67 vol/bar"}) ·
+                                תמיכה: {v5Result.supportCount} זוגות היסטוריים ·
                                 ביטחון: {v5Result.confidence} ·
-                                טמפרטורת חיזוי: {v5Result.forecastTemperature.toFixed(1)}°C ·
-                                שיווי־משקל בלחץ הנוכחי: {v5Result.currentEquilibriumCarbonation.toFixed(3)} vol ·
-                                מרחק משיווי־משקל: {v5Result.drivingForceVol >= 0 ? "+" : ""}{v5Result.drivingForceVol.toFixed(3)} vol ·
-                                ללא שינוי לחץ בעוד יומיים: {v5Result.predictedWithoutChange.toFixed(3)} vol
-                                {v5Result.targetEquilibriumCarbonation !== null
-                                    ? ` · שיווי־המשקל הדרוש כדי להגיע ליעד: ${v5Result.targetEquilibriumCarbonation.toFixed(3)} vol`
-                                    : ""}
+                                טמפרטורת חישוב: {v5Result.forecastTemperature.toFixed(1)}°C ·
+                                לחץ שיווי־משקל של הגיזוז הנוכחי: {v5Result.equilibriumPressureForCurrentCarb.toFixed(2)} bar ·
+                                מרחק הלחץ משיווי־משקל: {v5Result.pressureDistanceFromEquilibrium >= 0 ? "+" : ""}{v5Result.pressureDistanceFromEquilibrium.toFixed(2)} bar ·
+                                תחזית ללא שינוי לחץ: {v5Result.predictedWithoutChange.toFixed(3)} vol
                                 {v5Result.rawTargetPressure !== null
-                                    ? ` · לחץ מתמטי: ${v5Result.rawTargetPressure.toFixed(2)} bar`
+                                    ? ` · לחץ מתמטי ליעד: ${v5Result.rawTargetPressure.toFixed(2)} bar`
                                     : ""}
                                 {v5Result.predictedAtTarget !== null
                                     ? ` · תחזית בלחץ היעד: ${v5Result.predictedAtTarget.toFixed(3)} vol`
