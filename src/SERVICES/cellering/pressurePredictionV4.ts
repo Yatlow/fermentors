@@ -274,6 +274,29 @@ export function buildPressureV4Exposure(args: {
   const hoursSinceT0 = Math.max(0, (args.endMs - args.t0Ms) / 3600000);
   let lastPressure: number | null = null;
   let lastTemp: number | null = null;
+
+  // Carry the last known state into the integration window. Cooling/action
+  // rows are often notes-only, so starting from null would throw away the
+  // pressure and temperature that were actually present at that moment.
+  const priorRows = args.measurements
+    .map((measurement) => ({
+      time: measurementDateTimeMs(measurement),
+      pressure: finiteNumber(measurement.pressure),
+      temp: finiteNumber(measurement.temp),
+    }))
+    .filter((row) => row.time !== null && row.time! <= args.t0Ms)
+    .sort((a, b) => a.time! - b.time!);
+
+  for (let index = priorRows.length - 1; index >= 0; index -= 1) {
+    if (lastPressure === null && priorRows[index].pressure !== null) {
+      lastPressure = priorRows[index].pressure;
+    }
+    if (lastTemp === null && priorRows[index].temp !== null) {
+      lastTemp = priorRows[index].temp;
+    }
+    if (lastPressure !== null && lastTemp !== null) break;
+  }
+
   let cursor = args.t0Ms;
 
   const pressureSegments: Array<{ value: number; hours: number; end: number }> = [];
