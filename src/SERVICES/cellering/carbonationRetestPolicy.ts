@@ -54,7 +54,8 @@ function hasOrdinaryPressureAdjustment(note: unknown): boolean {
 
 /**
  * Operational retest cadence after an out-of-spec carbonation reading:
- * - ordinary pressure correction: wait 2 full calendar days;
+ * - ordinary pressure correction: retest once the calendar-date difference is 2
+ *   (for example 01/01 23:59 -> 03/01 00:00 is already due);
  * - completed bottom carbonation: retest from the next day;
  * - no treatment recorded: retest once the carbonation reading is 2 days old.
  *
