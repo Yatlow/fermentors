@@ -6,7 +6,7 @@ import type {
 } from "./pressurePredictionV4";
 
 const DEFAULT_VOL_PER_BAR = 0.67;
-const MIN_ACTION_DELTA_BAR = 0.08;
+const MIN_PRESSURE_DISTANCE_BAR = 0.10;
 const MIN_VOL_PER_BAR = 0.05;
 const MAX_VOL_PER_BAR = 2.0;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
@@ -14,8 +14,10 @@ const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 type Quality = "low" | "medium" | "high";
 
 type ResponseRow = {
-  x: number; // pressure action delta; passive = 0
-  y: number; // observed carbonation delta after 2 calendar days
+  volPerBar: number;
+  pressureDistanceBar: number;
+  observedDeltaVol: number;
+  source: "action" | "passive";
   quality: Quality;
   distance: number;
 };
@@ -119,25 +121,82 @@ function buildResponseRows(args: {
 }): ResponseRow[] {
   const rows: ResponseRow[] = [];
 
+  const addRow = (input: {
+    source: "action" | "passive";
+    carbonationBefore: number;
+    pressureDuring: number;
+    currentPressure: number;
+    temp: number | null;
+    hoursSinceT0: number;
+    carbonationDelta: number;
+    quality: Quality;
+  }) => {
+    if (
+      input.temp === null ||
+      !Number.isFinite(input.carbonationBefore) ||
+      !Number.isFinite(input.pressureDuring) ||
+      !Number.isFinite(input.carbonationDelta)
+    ) return;
+
+    const equilibriumPressure = equilibriumPressureBar(
+      input.temp,
+      input.carbonationBefore,
+    );
+    if (equilibriumPressure === null) return;
+
+    const pressureDistance =
+      input.pressureDuring - equilibriumPressure;
+
+    if (Math.abs(pressureDistance) < MIN_PRESSURE_DISTANCE_BAR) {
+      return;
+    }
+
+    // A sample is useful for this model only when CO2 actually moved in the
+    // direction implied by the pressure distance from equilibrium.
+    if (input.carbonationDelta * pressureDistance <= 0) {
+      return;
+    }
+
+    const volPerBar =
+      input.carbonationDelta / pressureDistance;
+    if (
+      !Number.isFinite(volPerBar) ||
+      volPerBar < MIN_VOL_PER_BAR ||
+      volPerBar > MAX_VOL_PER_BAR
+    ) return;
+
+    rows.push({
+      volPerBar,
+      pressureDistanceBar: pressureDistance,
+      observedDeltaVol: input.carbonationDelta,
+      source: input.source,
+      quality: input.quality,
+      distance: rowDistance({
+        carbonation: input.carbonationBefore,
+        pressure: input.currentPressure,
+        temp: input.temp,
+        hoursSinceT0: input.hoursSinceT0,
+        state: args.state,
+        quality: input.quality,
+      }),
+    });
+  };
+
   for (const sample of args.samples ?? []) {
     if (
       sample.primaryOutcome?.calendarDaysAfterAction !== 2 ||
-      !Number.isFinite(sample.actionPressureDelta) ||
       !Number.isFinite(sample.carbonationDelta)
     ) continue;
 
-    rows.push({
-      x: sample.actionPressureDelta,
-      y: sample.carbonationDelta,
+    addRow({
+      source: "action",
+      carbonationBefore: sample.carbonationBefore,
+      pressureDuring: sample.targetPressure,
+      currentPressure: sample.currentPressure,
+      temp: finite(sample.currentTemp),
+      hoursSinceT0: sample.hoursSinceT0,
+      carbonationDelta: sample.carbonationDelta,
       quality: sample.quality,
-      distance: rowDistance({
-        carbonation: sample.carbonationBefore,
-        pressure: sample.currentPressure,
-        temp: finite(sample.currentTemp),
-        hoursSinceT0: sample.hoursSinceT0,
-        state: args.state,
-        quality: sample.quality,
-      }),
     });
   }
 
@@ -147,18 +206,15 @@ function buildResponseRows(args: {
       !Number.isFinite(sample.carbonationDelta)
     ) continue;
 
-    rows.push({
-      x: 0,
-      y: sample.carbonationDelta,
+    addRow({
+      source: "passive",
+      carbonationBefore: sample.carbonationBefore,
+      pressureDuring: sample.currentPressure,
+      currentPressure: sample.currentPressure,
+      temp: finite(sample.currentTemp),
+      hoursSinceT0: sample.hoursSinceT0,
+      carbonationDelta: sample.carbonationDelta,
       quality: sample.quality,
-      distance: rowDistance({
-        carbonation: sample.carbonationBefore,
-        pressure: sample.currentPressure,
-        temp: finite(sample.currentTemp),
-        hoursSinceT0: sample.hoursSinceT0,
-        state: args.state,
-        quality: sample.quality,
-      }),
     });
   }
 
@@ -178,66 +234,75 @@ export function learnPressureResponseV5(args: {
   confidence: "low" | "medium" | "high";
 } {
   const rows = buildResponseRows(args);
-  const slopes: Array<{ value: number; weight: number }> = [];
-
-  // Robust Theil-Sen style estimate. By differencing two historical rows,
-  // passive drift / background carbonation cancels out. What remains is the
-  // empirical effect of pressure change in vol/bar.
-  for (let i = 0; i < rows.length; i += 1) {
-    for (let j = i + 1; j < rows.length; j += 1) {
-      const dx = rows[i].x - rows[j].x;
-      if (Math.abs(dx) < MIN_ACTION_DELTA_BAR) continue;
-
-      const slope = (rows[i].y - rows[j].y) / dx;
-      if (
-        !Number.isFinite(slope) ||
-        slope < MIN_VOL_PER_BAR ||
-        slope > MAX_VOL_PER_BAR
-      ) continue;
-
-      const weight =
-        Math.sqrt(
-          qualityWeight(rows[i].quality) *
-          qualityWeight(rows[j].quality),
-        ) /
-        (0.4 + rows[i].distance + rows[j].distance);
-
-      slopes.push({ value: slope, weight });
-    }
-  }
-
-  const learned = weightedMedian(slopes);
-  if (learned === null || slopes.length < 4) {
+  if (rows.length < 4) {
     return {
       volPerBar: DEFAULT_VOL_PER_BAR,
       source: "heuristic",
-      supportCount: slopes.length,
+      supportCount: rows.length,
       confidence: "low",
     };
   }
 
-  const median = learned;
-  const deviations = slopes
-    .map((row) => Math.abs(row.value - median))
+  const weighted = rows.map((row) => ({
+    value: row.volPerBar,
+    weight:
+      qualityWeight(row.quality) /
+      (0.35 + row.distance * row.distance),
+  }));
+
+  const rawMedian = weightedMedian(weighted);
+  if (rawMedian === null) {
+    return {
+      volPerBar: DEFAULT_VOL_PER_BAR,
+      source: "heuristic",
+      supportCount: rows.length,
+      confidence: "low",
+    };
+  }
+
+  const deviations = rows
+    .map((row) => Math.abs(row.volPerBar - rawMedian))
     .sort((a, b) => a - b);
   const mad = deviations[Math.floor(deviations.length / 2)] ?? 0;
-  const tolerance = Math.max(0.12, mad * 3.5);
-  const robust = slopes.filter(
-    (row) => Math.abs(row.value - median) <= tolerance,
+  const tolerance = Math.max(0.15, mad * 3.5);
+  const robustRows = rows.filter(
+    (row) => Math.abs(row.volPerBar - rawMedian) <= tolerance,
   );
-  const robustMedian = weightedMedian(robust) ?? median;
+
+  if (robustRows.length < 4) {
+    return {
+      volPerBar: DEFAULT_VOL_PER_BAR,
+      source: "heuristic",
+      supportCount: robustRows.length,
+      confidence: "low",
+    };
+  }
+
+  const robustMedian =
+    weightedMedian(
+      robustRows.map((row) => ({
+        value: row.volPerBar,
+        weight:
+          qualityWeight(row.quality) /
+          (0.35 + row.distance * row.distance),
+      })),
+    ) ?? rawMedian;
 
   const confidence: "low" | "medium" | "high" =
-    robust.length >= 20
+    robustRows.length >= 12
       ? "high"
-      : robust.length >= 8
+      : robustRows.length >= 6
         ? "medium"
         : "low";
 
   return {
-    volPerBar: clamp(robustMedian, MIN_VOL_PER_BAR, MAX_VOL_PER_BAR),
+    volPerBar: clamp(
+      robustMedian,
+      MIN_VOL_PER_BAR,
+      MAX_VOL_PER_BAR,
+    ),
     source: "learned",
-    supportCount: robust.length,
+    supportCount: robustRows.length,
     confidence,
   };
 }
