@@ -561,6 +561,21 @@ function refinePressureWithForecast(args: {
   maxPressure: number;
   step: number;
 }): number {
+  // On the first/early cold check, if the operational calculation already
+  // says to vent from a high closing pressure, do not let a slow fitted k undo
+  // that decision. The stored head pressure plus continuing cooling are the
+  // dominant information in this phase.
+  if (
+    isEffectivelyStillCooling(
+      args.state,
+      args.coldReferenceTemperature,
+    ) &&
+    args.state.carbonation < args.targetCarbonation &&
+    args.baselinePressure < args.state.currentPressure
+  ) {
+    return args.baselinePressure;
+  }
+
   const currentAtBaseline = simulateForward({
     carbonation: args.state.carbonation,
     pressureBar: args.baselinePressure,
