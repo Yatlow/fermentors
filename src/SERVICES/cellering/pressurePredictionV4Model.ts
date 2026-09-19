@@ -155,7 +155,32 @@ export async function getPressurePredictionModelV4(
         passiveSampleCount: Number(
           raw.passiveSampleCount ?? passiveSamples.length,
         ),
-        transitions,
+        transitions: transitions.map((sample) => {
+          if (sample.exposure.equilibriumDeltaBarHours !== null) return sample;
+          const temp =
+            sample.exposure.temperatureMean ??
+            sample.currentTemp ??
+            null;
+          const equilibrium = estimateEquilibriumPressureV4(
+            { style: key, points },
+            temp,
+          );
+          const pressureMean = sample.exposure.pressureMean;
+          if (
+            equilibrium === null ||
+            pressureMean === null ||
+            sample.exposure.hoursSinceT0 <= 0
+          ) return sample;
+
+          return {
+            ...sample,
+            exposure: {
+              ...sample.exposure,
+              equilibriumDeltaBarHours:
+                (pressureMean - equilibrium) * sample.exposure.hoursSinceT0,
+            },
+          };
+        }),
         transitionCount: Number(raw.transitionCount ?? transitions.length),
         equilibriumPoints: points,
         equilibriumPointCount: Number(
