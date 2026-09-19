@@ -167,36 +167,44 @@ test("V5 first carbonation with stored head pressure recommends lower pressure",
   );
 });
 
-test("V5 anchors the reserve above TARGET equilibrium, not current-carbonation equilibrium", () => {
+test("V5 first-cooling setpoint uses the learned 48h response above TARGET equilibrium", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.00097),
+  );
+
   const estimate = estimatePressureTargetV5({
-    state: state(2.26, 1.44, 6.8),
-    targetCarbonation: 2.45,
-    coldReferenceTemperature: 0.5,
+    transitions,
+    state: state(2.25, 1.37, 4.5),
+    targetCarbonation: 2.4,
+    coldReferenceTemperature: 0.7,
     firstCarbonation: true,
   });
 
   assert.ok(estimate);
+  assert.equal(estimate.setpointBasis, "first_cooling_kinetic");
   assert.ok(
     estimate.targetEquilibriumPressure >
       estimate.equilibriumPressureForCurrentCarb,
     "target carbonation must have a higher equilibrium-pressure anchor than current carbonation",
   );
 
-  const expectedConservative =
+  const expected =
     estimate.targetEquilibriumPressure +
-    (2.45 - estimate.estimatedCurrentCarbonation) / 0.5;
+    (2.4 - estimate.estimatedCurrentCarbonation) /
+      estimate.setpointResponseVolPerBar;
 
   assert.ok(
     estimate.rawTargetPressure !== null &&
-      Math.abs(estimate.rawTargetPressure - expectedConservative) <= 0.02,
-    `expected conservative target-equilibrium reserve near ${expectedConservative.toFixed(2)} bar, got ${estimate.rawTargetPressure}`,
+      Math.abs(estimate.rawTargetPressure - expected) <= 0.02,
+    `expected kinetic target-equilibrium reserve near ${expected.toFixed(2)} bar, got ${estimate.rawTargetPressure}`,
   );
 
   assert.ok(
-    estimate.targetPressureRangeLow !== null &&
-      estimate.targetPressureRangeHigh !== null &&
-      estimate.targetPressureRangeHigh > estimate.targetPressureRangeLow,
-    "simulator should expose the 0.5–1.0 vol/bar target-pressure range",
+    estimate.targetPressure !== null &&
+      estimate.targetPressure >= 0.85 &&
+      estimate.targetPressure <= 1.0,
+    `expected a less aggressive first-cooling correction around 0.9 bar, got ${estimate.targetPressure}`,
   );
 });
 
