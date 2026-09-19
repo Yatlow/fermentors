@@ -9,9 +9,13 @@ import type {
   PressureV4TransitionSample,
 } from "./pressurePredictionV4";
 
-const OPERATIONAL_VOL_PER_BAR_48H = 0.67;
+const OPERATIONAL_VOL_PER_BAR_MIN = 0.50;
+const OPERATIONAL_VOL_PER_BAR_MAX = 1.00;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
-const MIN_K_PER_HOUR = 0.002;
+// k is used only to advance an old measurement to "now". A slow but real
+// historical rate such as ~0.0015/h is valid for that purpose; only nearly
+// frozen fits are rejected.
+const MIN_K_PER_HOUR = 0.0005;
 const MAX_K_PER_HOUR = 0.04;
 
 export type PressureV5Estimate = {
@@ -31,6 +35,11 @@ export type PressureV5Estimate = {
   kSource: "learned" | "heuristic" | "guarded";
   rawLearnedKPerHour: number | null;
   effectiveVolPerBar48h: number;
+  operationalVolPerBarMin: number;
+  operationalVolPerBarMax: number;
+  targetEquilibriumPressure: number;
+  targetPressureRangeLow: number | null;
+  targetPressureRangeHigh: number | null;
   supportCount: number;
   confidence: "low" | "medium" | "high";
 
@@ -201,11 +210,13 @@ function defaultKPerHour(args: {
 }): number {
   const equilibriumSlope = equilibriumSlopeVolPerBar(args);
 
-  // Translate the brewery's practical rule (~0.67 vol/bar over a normal
-  // two-day response window) into a first-order fraction of equilibrium.
+  // k is only a fallback for advancing stale measurements to the present.
+  // Use the midpoint of the observed operational range for that projection.
+  const operationalMidpoint =
+    (OPERATIONAL_VOL_PER_BAR_MIN + OPERATIONAL_VOL_PER_BAR_MAX) / 2;
   const alpha48 = clamp(
-    OPERATIONAL_VOL_PER_BAR_48H / equilibriumSlope,
-    0.25,
+    operationalMidpoint / equilibriumSlope,
+    0.20,
     0.75,
   );
   return -Math.log(1 - alpha48) / 48;
@@ -499,7 +510,17 @@ export function estimatePressureTargetV5(args: {
     equilibriumPressureAtTemperature:
       args.equilibriumPressureAtTemperature,
   });
-  if (equilibriumPressure === null) return null;
+  const targetEquilibriumPressure = calibratedEquilibriumPressure({
+    temperature: forecastTemperature,
+    carbonation: args.targetCarbonation,
+    targetCarbonation: args.targetCarbonation,
+    equilibriumPressureAtTemperature:
+      args.equilibriumPressureAtTemperature,
+  });
+  if (
+    equilibriumPressure === null ||
+    targetEquilibriumPressure === null
+  ) return null;
 
   const coolingHours =
     firstCoolingMode && coldReference !== null
@@ -566,6 +587,12 @@ export function estimatePressureTargetV5(args: {
     rawLearnedKPerHour: learned.rawLearnedKPerHour,
     effectiveVolPerBar48h:
       Number(effectiveVolPerBar48h.toFixed(3)),
+    operationalVolPerBarMin: OPERATIONAL_VOL_PER_BAR_MIN,
+    operationalVolPerBarMax: OPERATIONAL_VOL_PER_BAR_MAX,
+    targetEquilibriumPressure:
+      Number(targetEquilibriumPressure.toFixed(2)),
+    targetPressureRangeLow: null,
+    targetPressureRangeHigh: null,
     supportCount: learned.supportCount,
     confidence: learned.confidence,
     equilibriumPressureForCurrentCarb:
@@ -587,50 +614,59 @@ export function estimatePressureTargetV5(args: {
     };
   }
 
-  const atZero = forecast(0);
-  const atMax = forecast(MAX_OPERATIONAL_PRESSURE_BAR);
-  if (atZero === null || atMax === null) return null;
+  // The setpoint is a closed-headspace mass-balance estimate:
+  // finish at the equilibrium pressure of the TARGET carbonation, plus enough
+  // head-pressure reserve to supply the remaining carbonation gap.
+  //
+  // Brewery practice says ~0.1 vol per 0.1-0.2 bar => 0.5-1.0 vol/bar.
+  // Use the conservative 0.5 vol/bar edge for the actual recommendation so we
+  // do not vent too aggressively. The full range is exposed in the simulator.
+  const carbonationGap =
+    args.targetCarbonation - estimatedCurrentCarbonation;
 
-  if (atZero > args.targetCarbonation) {
+  const candidateA =
+    targetEquilibriumPressure +
+    carbonationGap / OPERATIONAL_VOL_PER_BAR_MAX;
+  const candidateB =
+    targetEquilibriumPressure +
+    carbonationGap / OPERATIONAL_VOL_PER_BAR_MIN;
+  const targetPressureRangeLow = Math.min(candidateA, candidateB);
+  const targetPressureRangeHigh = Math.max(candidateA, candidateB);
+
+  // Conservative recommendation = higher retained pressure.
+  const rawTargetPressure = targetPressureRangeHigh;
+
+  if (rawTargetPressure < 0) {
     return {
       ...base,
-      rawTargetPressure: -0.01,
+      targetPressureRangeLow:
+        Number(targetPressureRangeLow.toFixed(2)),
+      targetPressureRangeHigh:
+        Number(targetPressureRangeHigh.toFixed(2)),
+      rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
       targetPressure: null,
-      predictedAtTarget: Number(atZero.toFixed(3)),
+      predictedAtTarget: null,
       action: "edge_case",
       edgeCase: "venting_below_zero",
     };
   }
 
-  if (atMax < args.targetCarbonation) {
+  if (rawTargetPressure > MAX_OPERATIONAL_PRESSURE_BAR) {
     return {
       ...base,
-      rawTargetPressure: MAX_OPERATIONAL_PRESSURE_BAR + 0.01,
+      targetPressureRangeLow:
+        Number(targetPressureRangeLow.toFixed(2)),
+      targetPressureRangeHigh:
+        Number(targetPressureRangeHigh.toFixed(2)),
+      rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
       targetPressure: null,
-      predictedAtTarget: Number(atMax.toFixed(3)),
+      predictedAtTarget: null,
       action: "edge_case",
       edgeCase: "head_pressure_insufficient",
     };
   }
 
-  let low = 0;
-  let high = MAX_OPERATIONAL_PRESSURE_BAR;
-  for (let i = 0; i < 45; i += 1) {
-    const mid = (low + high) / 2;
-    const predicted = forecast(mid);
-    if (predicted === null) return null;
-    if (predicted < args.targetCarbonation) {
-      low = mid;
-    } else {
-      high = mid;
-    }
-  }
-
-  const rawTargetPressure = (low + high) / 2;
   const targetPressure = roundPressure(rawTargetPressure);
-  const predictedAtTarget = forecast(targetPressure);
-  if (predictedAtTarget === null) return null;
-
   const pressureDelta = targetPressure - currentPressure;
   const action: PressureV5Estimate["action"] =
     Math.abs(pressureDelta) < 0.075
@@ -641,9 +677,15 @@ export function estimatePressureTargetV5(args: {
 
   return {
     ...base,
+    targetPressureRangeLow:
+      Number(targetPressureRangeLow.toFixed(2)),
+    targetPressureRangeHigh:
+      Number(targetPressureRangeHigh.toFixed(2)),
     rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
     targetPressure,
-    predictedAtTarget: Number(predictedAtTarget.toFixed(3)),
+    // This is the mass-balance target by construction, not a promise that the
+    // beer reaches it in exactly 48 hours.
+    predictedAtTarget: Number(args.targetCarbonation.toFixed(3)),
     action,
     edgeCase: null,
   };
