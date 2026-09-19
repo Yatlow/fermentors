@@ -683,6 +683,12 @@ test("stable V4 uses a ±0.02 vol target window, not ±0.04", () => {
     forecastError <= 0.02 || estimate.pressureOnlyLikelyInsufficient,
     `stable V4 must either land within ±0.02 or flag pressure-only as insufficient; got ${estimate.predictedCarbonation}`,
   );
+  assert.equal(
+    estimate.decisionStatus,
+    forecastError <= 0.02
+      ? "within_window"
+      : "pressure_only_insufficient",
+  );
 });
 
 test("early cooling keeps operational pressure logic even if forecast is outside ±0.02", () => {
@@ -717,6 +723,9 @@ test("early cooling keeps operational pressure logic even if forecast is outside
     estimate.targetPressure < state.currentPressure,
     "early cooling may recommend venting based on stored pressure/headroom",
   );
+  if (!estimate.forecastInTargetWindow) {
+    assert.equal(estimate.decisionStatus, "early_cooling_exception");
+  }
 });
 
 
