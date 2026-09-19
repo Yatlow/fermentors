@@ -1160,6 +1160,101 @@ function snapPressure(
   );
 }
 
+function selectStablePressureByForecast(args: {
+  state: PressureV4DecisionState;
+  targetCarbonation: number;
+  forecastAtPressure: (pressure: number) => number | null;
+  minPressure: number;
+  maxPressure: number;
+  step: number;
+}): number {
+  const currentPressure = snapPressure(
+    args.state.currentPressure,
+    args.minPressure,
+    args.maxPressure,
+    args.step,
+  );
+  const currentForecast = args.forecastAtPressure(currentPressure);
+  if (currentForecast === null) return currentPressure;
+
+  const lower = args.targetCarbonation - TARGET_TOLERANCE_VOL;
+  const upper = args.targetCarbonation + TARGET_TOLERANCE_VOL;
+  if (currentForecast >= lower && currentForecast <= upper) {
+    return currentPressure;
+  }
+
+  const direction = currentForecast < lower ? 1 : -1;
+  const candidates: Array<{
+    pressure: number;
+    predicted: number;
+    error: number;
+  }> = [];
+
+  if (direction > 0) {
+    for (
+      let pressure = currentPressure;
+      pressure <= args.maxPressure + 0.001;
+      pressure += args.step
+    ) {
+      const candidate = snapPressure(
+        pressure,
+        args.minPressure,
+        args.maxPressure,
+        args.step,
+      );
+      const predicted = args.forecastAtPressure(candidate);
+      if (predicted === null) continue;
+      candidates.push({
+        pressure: candidate,
+        predicted,
+        error: Math.abs(predicted - args.targetCarbonation),
+      });
+      if (predicted >= lower && predicted <= upper) {
+        // First hit is the smallest pressure increase that reaches the band.
+        return candidate;
+      }
+    }
+  } else {
+    for (
+      let pressure = currentPressure;
+      pressure >= args.minPressure - 0.001;
+      pressure -= args.step
+    ) {
+      const candidate = snapPressure(
+        pressure,
+        args.minPressure,
+        args.maxPressure,
+        args.step,
+      );
+      const predicted = args.forecastAtPressure(candidate);
+      if (predicted === null) continue;
+      candidates.push({
+        pressure: candidate,
+        predicted,
+        error: Math.abs(predicted - args.targetCarbonation),
+      });
+      if (predicted >= lower && predicted <= upper) {
+        // First hit is the smallest pressure reduction that reaches the band.
+        return candidate;
+      }
+    }
+  }
+
+  if (!candidates.length) return currentPressure;
+
+  candidates.sort((a, b) => {
+    if (Math.abs(a.error - b.error) > 0.0005) {
+      return a.error - b.error;
+    }
+    return (
+      Math.abs(a.pressure - currentPressure) -
+      Math.abs(b.pressure - currentPressure)
+    );
+  });
+  return candidates[0].pressure;
+}
+
+
 export function estimatePressureTargetV4(args: {
   samples?: PressureV4Sample[];
   passiveSamples?: PressureV4PassiveSample[];
@@ -1366,36 +1461,45 @@ export function estimatePressureTargetV4(args: {
         args.equilibriumPressureAtTemperature,
     });
     const blended = blendHeadroom(prior, learned);
-    headroomBar = blended.value;
     headroomSupport = blended.support;
 
-    targetPressure = snapPressure(
-      targetEquilibriumPressure + headroomBar,
-      minPressure,
-      maxPressure,
-      step,
-    );
-
-    // Avoid meaningless 0.05-bar oscillations. If the newly calculated target
-    // is practically the current setting, leave the regulator alone.
-    if (
-      Math.abs(targetPressure - args.state.currentPressure) < 0.075 &&
-      staysWithinTarget
-    ) {
-      targetPressure = args.state.currentPressure;
+    if (activeCooling) {
+      // During active cooling, stored head pressure and the moving equilibrium
+      // are the primary operational problem. Keep the dedicated cooling logic.
+      headroomBar = blended.value;
+      targetPressure = snapPressure(
+        targetEquilibriumPressure + headroomBar,
+        minPressure,
+        maxPressure,
+        step,
+      );
+      targetPressure = refinePressureWithForecast({
+        baselinePressure: targetPressure,
+        state: args.state,
+        targetCarbonation: args.targetCarbonation,
+        forecastAtPressure: (pressure) =>
+          forecastAtPressure(pressure)?.predicted ?? null,
+        coldReferenceTemperature,
+        minPressure,
+        maxPressure,
+        step,
+      });
+    } else {
+      // Stable cold beer is selected directly from the forecast surface. The
+      // prior no longer forces a setpoint before historical action evidence is
+      // considered: choose the smallest change that reaches the target band.
+      targetPressure = selectStablePressureByForecast({
+        state: args.state,
+        targetCarbonation: args.targetCarbonation,
+        forecastAtPressure: (pressure) =>
+          forecastAtPressure(pressure)?.predicted ?? null,
+        minPressure,
+        maxPressure,
+        step,
+      });
+      headroomBar =
+        targetPressure - targetEquilibriumPressure;
     }
-
-    targetPressure = refinePressureWithForecast({
-      baselinePressure: targetPressure,
-      state: args.state,
-      targetCarbonation: args.targetCarbonation,
-      forecastAtPressure: (pressure) =>
-        forecastAtPressure(pressure)?.predicted ?? null,
-      coldReferenceTemperature,
-      minPressure,
-      maxPressure,
-      step,
-    });
   }
 
   const action: PressureV4Estimate["action"] =
