@@ -333,7 +333,6 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         if (estimate) {
                             setV4Result(estimate);
                             setV4Status("");
-        setV4CoolingStatus("");
                         } else {
                             setV4Status("אין מספיק מצבים היסטוריים דומים להמלצת V4");
                         }
