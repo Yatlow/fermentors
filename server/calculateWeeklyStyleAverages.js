@@ -1282,16 +1282,39 @@ function buildBottomCarbonationSamplesForBrew_(measurements, brewDate, batchId) 
         startPressure !== null &&
         startMinutes !== null
       ) {
+        let v4State = null;
+        const t0 = pressureV4DetectT0_(rows);
+        const eventMs = pressureV4DateTime_(measurement);
+        const pressureBefore = latestPressure !== null ? latestPressure : currentPressure;
+        const stateTemp = currentTemp !== null ? currentTemp : latestTemp;
+
+        if (
+          t0 &&
+          eventMs !== null &&
+          eventMs >= t0.dateTimeMs &&
+          pressureBefore !== null
+        ) {
+          const exposure = pressureV4Exposure_(rows, t0.dateTimeMs, eventMs);
+          v4State = {
+            hoursSinceT0: Math.max(0, (eventMs - t0.dateTimeMs) / 3600000),
+            currentPressure: pressureBefore,
+            currentTemp: stateTemp,
+            exposure: exposure,
+            quality: pressureV4Quality_(exposure)
+          };
+        }
+
         open = {
           index: index,
           eventDate: eventDate,
           eventDateText: String(measurement.date || ""),
           carbonationBefore: carbonationBefore,
-          temp: currentTemp !== null ? currentTemp : latestTemp,
-          pressureBefore: latestPressure !== null ? latestPressure : currentPressure,
+          temp: stateTemp,
+          pressureBefore: pressureBefore,
           startPressure: startPressure,
           startMinutes: startMinutes,
-          brewDay: differenceInDays(brewDate, eventDate)
+          brewDay: differenceInDays(brewDate, eventDate),
+          state: v4State
         };
       }
     }
@@ -1329,7 +1352,8 @@ function buildBottomCarbonationSamplesForBrew_(measurements, brewDate, batchId) 
             carbonationAfter: afterCarb,
             carbonationDelta: carbonationDelta,
             elapsedDays: elapsedDays,
-            success: carbonationDelta > 0.01
+            success: carbonationDelta > 0.01,
+            state: open.state || null
           });
           break;
         }
