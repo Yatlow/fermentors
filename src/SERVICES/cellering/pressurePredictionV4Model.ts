@@ -16,6 +16,8 @@ export type PressurePredictionModelV4Readiness = {
   usableSampleCount: number;
   distinctBatchCount: number;
   equilibriumPointCount: number;
+  usableTransitionCount?: number;
+  distinctTransitionBatchCount?: number;
 };
 
 export type PressurePredictionModelV4 = {
@@ -203,25 +205,18 @@ export function isPressurePredictionV4Ready(
   model: PressurePredictionModelV4 | null | undefined,
 ): boolean {
   if (!model) return false;
-  if (model.readiness) return model.readiness.ready === true;
+  if (model.readiness?.ready === true) return true;
 
-  const usable = model.samples.filter((sample) =>
+  const usableTransitions = model.transitions.filter((sample) =>
     sample?.quality !== "low" &&
-    sample?.primaryOutcome?.calendarDaysAfterAction === 2 &&
-    Number.isFinite(Number(sample.carbonationDelta))
+    Number.isFinite(Number(sample.kPerHour)) &&
+    Number(sample.kPerHour) > 0
   );
   const batches = new Set(
-    usable
+    usableTransitions
       .map((sample) => String(sample.batchId ?? ""))
       .filter(Boolean),
   );
-  const equilibriumPoints = model.equilibriumPoints.filter(
-    (point) => Boolean(point),
-  );
 
-  return (
-    usable.length >= 12 &&
-    batches.size >= 4 &&
-    equilibriumPoints.length >= 3
-  );
+  return usableTransitions.length >= 8 && batches.size >= 4;
 }
