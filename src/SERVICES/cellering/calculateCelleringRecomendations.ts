@@ -1332,13 +1332,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             currentCarbonation! <= bottomActivationThreshold;
 
         let bottomState = null;
+        let bottomEquilibriumForTemp:
+            ((temperature: number | null) => number | null) | undefined;
         const v4ModelForBottom = await getPressurePredictionModelV4(style);
         if (v4ModelForBottom) {
-            const equilibriumForTemp = (temperature: number | null) =>
+            bottomEquilibriumForTemp = (temperature: number | null) =>
                 getEquilibriumPressureForV4(v4ModelForBottom, temperature);
             bottomState = buildPressureV4DecisionState({
                 measurements: sortedMeasurements,
-                equilibriumPressure: equilibriumForTemp,
+                equilibriumPressure: bottomEquilibriumForTemp,
             });
         }
 
@@ -1354,6 +1356,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                         ? Number(lastMeasurement.temp)
                         : null,
                     state: bottomState,
+                    equilibriumPressure: bottomEquilibriumForTemp,
                 })
                 : null;
 
