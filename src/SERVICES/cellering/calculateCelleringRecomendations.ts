@@ -7,6 +7,11 @@ import {
     estimatePressureTarget,
     getPressureResponseModel,
 } from "./pressureRecommendationModel";
+import {
+    estimateBottomCarbonation,
+    getBottomCarbonationModel,
+} from "./bottomCarbonationRecommendationModel";
+import { findOpenBottomCarbonation } from "./bottomCarbonation";
 
 
 
@@ -1225,12 +1230,82 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const hasLatestCarb = lastMeasurement?.carbonation !== null &&
         lastMeasurement?.carbonation !== undefined &&
         Number.isFinite(Number(lastMeasurement.carbonation));
-    const coldCarbNeedsPressureAdjustment =
+    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
+    const currentCarbonation = hasLatestCarb ? Number(lastMeasurement.carbonation) : null;
+    const currentPressure = Number.isFinite(Number(lastMeasurement?.pressure))
+        ? Number(lastMeasurement.pressure)
+        : null;
+    const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
+
+    const coldCarbOutOfSpecToday =
         stage.name === "קר" &&
         lastMeasurementDate === todayDate &&
         hasLatestCarb &&
         latestCarbSpec.outOfSpec &&
         !pressureHandledToday;
+
+    // Bottom carbonation is a different intervention from ordinary pressure
+    // correction. Operationally it is considered only for clearly low
+    // carbonation; the learned model can tighten that threshold below 2.20.
+    const bottomCarbonationCandidate =
+        coldCarbOutOfSpecToday &&
+        currentCarbonation !== null &&
+        Number.isFinite(Number(carbonationTarget)) &&
+        currentCarbonation < Number(carbonationTarget) &&
+        currentCarbonation <= 2.2 &&
+        !openBottomCarbonation;
+
+    let bottomCarbonationReason: string | null = null;
+    let bottomCarbonationModelSampleCount: number | null = null;
+    let shouldUseBottomCarbonation = false;
+
+    if (bottomCarbonationCandidate) {
+        const bottomModel = await getBottomCarbonationModel(style);
+        bottomCarbonationModelSampleCount = bottomModel?.samples?.length ?? 0;
+        const bottomEstimate = bottomModel
+            ? estimateBottomCarbonation({
+                samples: bottomModel.samples,
+                currentCarbonation: currentCarbonation!,
+                targetCarbonation: Number(carbonationTarget),
+                currentPressure,
+                brewDay: brewAge,
+                temp: Number.isFinite(Number(lastMeasurement.temp))
+                    ? Number(lastMeasurement.temp)
+                    : null,
+            })
+            : null;
+
+        shouldUseBottomCarbonation = true;
+
+        if (bottomEstimate) {
+            const confidenceText = bottomEstimate.confidence === "high"
+                ? "ביטחון גבוה"
+                : "ביטחון בינוני";
+            const fromPressureText = currentPressure !== null
+                ? `מומלץ להוריד לחץ מ-${currentPressure} ל-${bottomEstimate.startPressure} bar, `
+                : `מומלץ להתחיל ב-${bottomEstimate.startPressure} bar, `;
+
+            bottomCarbonationReason =
+                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתאים לגיזוז מלמטה. ` +
+                `לפי ${bottomEstimate.sampleCount} פעולות דומות בסגנון הזה (${confidenceText}), ` +
+                fromPressureText +
+                `להתחיל גיזוז מלמטה, לסגור אחרי כ-${bottomEstimate.durationMinutes} דקות ` +
+                `בסביבות ${bottomEstimate.closePressure} bar, ולבצע בדיקת גיזוז חוזרת בעוד כ-${bottomEstimate.expectedDays} ימים.`;
+        } else {
+            bottomCarbonationReason =
+                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתחת לסף התפעולי 2.20. ` +
+                (
+                    bottomCarbonationModelSampleCount && bottomCarbonationModelSampleCount > 0
+                        ? `יש כרגע ${bottomCarbonationModelSampleCount} דוגמאות גיזוז מלמטה, אך עדיין אין לפחות 5 דוגמאות דומות מספיק כדי להמליץ בבטחה על משך ולחצי התחלה/סגירה.`
+                        : "מחשבון הגיזוז מלמטה עדיין ללא מספיק היסטוריה כדי להמליץ על משך ולחצי התחלה/סגירה."
+                );
+        }
+    }
+
+    const coldCarbNeedsPressureAdjustment =
+        coldCarbOutOfSpecToday &&
+        !shouldUseBottomCarbonation;
+
     const warmPressureNeedsAdjustment =
         stage.name === "בתסיסה" &&
         !prvHandledToday &&
@@ -1238,14 +1313,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
 
-    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
     let learnedPressureReason: string | null = null;
     let pressureModelSampleCount: number | null = null;
 
     if (
         coldCarbNeedsPressureAdjustment &&
         Number.isFinite(Number(carbonationTarget)) &&
-        Number.isFinite(Number(lastMeasurement?.pressure))
+        currentPressure !== null
     ) {
         const model = await getPressureResponseModel(style);
         pressureModelSampleCount = model?.samples?.length ?? 0;
@@ -1258,7 +1332,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 samples: model.samples,
                 currentCarbonation: Number(lastMeasurement.carbonation),
                 targetCarbonation: Number(carbonationTarget),
-                currentPressure: Number(lastMeasurement.pressure),
+                currentPressure,
                 brewDay: brewAge,
                 temp: Number.isFinite(Number(lastMeasurement.temp))
                     ? Number(lastMeasurement.temp)
@@ -1266,27 +1340,44 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 pressureMeanToDate: pressureContext.pressureMeanToDate,
                 pressureMeanLast3Days: pressureContext.pressureMeanLast3Days,
                 pressureMeanLast7Days: pressureContext.pressureMeanLast7Days,
+                carbAgeAtAdjustment: 0,
                 calibration: model.calibration ?? null,
             })
             : null;
 
         if (estimate) {
-            const directionText = estimate.pressureDelta > 0 ? "להעלות" : "להוריד";
             const confidenceText = estimate.confidence === "high" ? "ביטחון גבוה" : "ביטחון בינוני";
+            const offsetDirection = estimate.pressureDelta > 0 ? "מעל" : "מתחת";
+            const physicalAction =
+                estimate.currentPressureChange > 0.025
+                    ? `בפועל יש להעלות את הלחץ הנוכחי מ-${currentPressure} ל-${estimate.targetPressure} bar.`
+                    : estimate.currentPressureChange < -0.025
+                        ? `בפועל יש להוריד את הלחץ הנוכחי מ-${currentPressure} ל-${estimate.targetPressure} bar.`
+                        : `הלחץ הנוכחי כבר קרוב ליעד; מומלץ לכוון ל-${estimate.targetPressure} bar.`;
             const calibrationText =
                 estimate.calibrationEvaluatedSamples >= 8 &&
                 estimate.calibrationWithin005Rate !== null
                     ? ` המחשבון כייל את עצמו על ${estimate.calibrationEvaluatedSamples} מקרי אימות; ` +
                       `${Math.round(estimate.calibrationWithin005Rate * 100)}% היו בטווח ±0.05 בגיזוז.`
                     : "";
+
             learnedPressureReason =
                 `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
-                `לפי ${estimate.sampleCount} תיקוני לחץ דומים בסגנון הזה (${confidenceText}), ` +
-                `מומלץ ${directionText} לחץ מ-${Number(lastMeasurement.pressure)} ל-${estimate.targetPressure} bar ` +
-                `ולבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים.` +
+                `נקודת האיזון הנלמדת לסגנון/יעד הזה היא כ-${estimate.equilibriumPressure} bar ` +
+                `(${estimate.equilibriumSampleCount} דוגמאות). לפי ${estimate.sampleCount} תיקוני לחץ דומים (${confidenceText}), ` +
+                `נדרש יעד של ${estimate.targetPressure} bar — ${Math.abs(estimate.pressureDelta).toFixed(2)} bar ${offsetDirection} נקודת האיזון. ` +
+                physicalAction +
+                ` מומלץ לבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים.` +
                 calibrationText;
         }
     }
+
+    const requiredBottomCarbonation = {
+        display: bottomCarbonationCandidate,
+        req: bottomCarbonationCandidate,
+        reason: bottomCarbonationReason ?? "",
+        importance: bottomCarbonationCandidate ? latestCarbSpec.importance : 0,
+    };
 
     const pressureAdjustmentHandledToday = {
         completed: Boolean(
@@ -1624,6 +1715,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresColdYeastDropCompletion,
         requiiersWedYeastDropOnThus,
         requiresCarbTest,
+        requiredBottomCarbonation,
         requiersDiacytelRest,
         neglectedStatus,
         requiresToCoolDown,
