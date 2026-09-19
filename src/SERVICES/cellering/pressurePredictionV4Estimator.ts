@@ -813,7 +813,8 @@ function refinePressureWithForecast(args: {
 
     if (
       direction > 0 &&
-      predicted >= args.targetCarbonation - TARGET_TOLERANCE_VOL &&
+      predicted >=
+        args.targetCarbonation - TARGET_TOLERANCE_VOL / 2 &&
       predicted <= args.targetCarbonation + TARGET_TOLERANCE_VOL
     ) {
       // For under-carbonation, choose the first (lowest) pressure that actually
