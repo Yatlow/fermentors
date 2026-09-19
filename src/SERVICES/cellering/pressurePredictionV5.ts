@@ -646,8 +646,21 @@ export function estimatePressureTargetV5(args: {
   const targetPressureRangeLow = Math.min(candidateA, candidateB);
   const targetPressureRangeHigh = Math.max(candidateA, candidateB);
 
-  // Conservative recommendation = higher retained pressure.
-  const rawTargetPressure = targetPressureRangeHigh;
+  // First carbonation / cooling: prefer the state-specific 48h kinetic
+  // response that V5 has already learned, but keep it inside a broad
+  // operational guardrail so a pathological k cannot dominate.
+  //
+  // Subsequent stable checks remain incremental from the current pressure.
+  const firstCoolingResponse = clamp(
+    effectiveVolPerBar48h,
+    0.25,
+    OPERATIONAL_VOL_PER_BAR_MAX,
+  );
+
+  const rawTargetPressure = firstCoolingMode
+    ? targetEquilibriumPressure +
+      carbonationGap / firstCoolingResponse
+    : targetPressureRangeHigh;
 
   if (rawTargetPressure < 0) {
     return {
