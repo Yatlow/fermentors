@@ -43,6 +43,21 @@ export type PressureV4Outcome = {
   calendarDaysAfterAction: number;
 };
 
+export type PressureV4PassiveSample = {
+  batchId?: string;
+  style?: string;
+  sampleDateTimeMs: number;
+  sampleDate: string;
+  carbonationBefore: number;
+  currentPressure: number;
+  currentTemp: number | null;
+  hoursSinceT0: number;
+  exposure: PressureV4Exposure;
+  primaryOutcome: PressureV4Outcome;
+  carbonationDelta: number;
+  quality: "low" | "medium" | "high";
+};
+
 export type PressureV4Sample = {
   batchId?: string;
   style?: string;
@@ -417,6 +432,106 @@ export function buildPressureV4Samples(args: {
       },
       carbonationDelta: outcomeCarb - currentCarb,
       actionPressureDelta: targetPressure - currentPressure,
+      quality: sampleQuality(exposure),
+    });
+  });
+
+  return samples;
+}
+
+
+export function buildPressureV4PassiveSamples(args: {
+  measurements: PressureV4Measurement[];
+  batchId?: string;
+  style?: string;
+  equilibriumPressure?: EquilibriumPressureFn;
+  positivePressureThreshold?: number;
+}): PressureV4PassiveSample[] {
+  const rows = args.measurements
+    .map((measurement) => ({
+      measurement,
+      time: measurementDateTimeMs(measurement),
+    }))
+    .filter((row): row is { measurement: PressureV4Measurement; time: number } =>
+      row.time !== null
+    )
+    .sort((a, b) => a.time - b.time);
+
+  const t0 = detectPressureV4T0(
+    args.measurements,
+    args.positivePressureThreshold ?? 0.1,
+  );
+  if (!t0) return [];
+
+  const samples: PressureV4PassiveSample[] = [];
+
+  rows.forEach((row, startIndex) => {
+    if (row.time < t0.dateTimeMs) return;
+    if (
+      isBottomCarbonation(row.measurement) ||
+      ordinaryPressureTarget(row.measurement) !== null
+    ) return;
+
+    const carbonationBefore = finiteNumber(row.measurement.carbonation);
+    if (carbonationBefore === null) return;
+
+    let currentPressure: number | null = finiteNumber(row.measurement.pressure);
+    let currentTemp: number | null = finiteNumber(row.measurement.temp);
+
+    for (let index = startIndex - 1; index >= 0; index -= 1) {
+      if (currentPressure === null) {
+        currentPressure = finiteNumber(rows[index].measurement.pressure);
+      }
+      if (currentTemp === null) {
+        currentTemp = finiteNumber(rows[index].measurement.temp);
+      }
+      if (currentPressure !== null && currentTemp !== null) break;
+    }
+    if (currentPressure === null) return;
+
+    const outcome = rows.find((candidate, index) => {
+      if (index <= startIndex) return false;
+      const dayDiff = calendarDayDiff(row.time, candidate.time);
+      if (dayDiff !== 2) return false;
+      return finiteNumber(candidate.measurement.carbonation) !== null;
+    });
+    if (!outcome) return;
+
+    const invalidatingRows = rows.filter((candidate, index) => {
+      if (index <= startIndex || candidate.time >= outcome.time) return false;
+      return (
+        isBottomCarbonation(candidate.measurement) ||
+        ordinaryPressureTarget(candidate.measurement) !== null
+      );
+    });
+    if (invalidatingRows.length > 0) return;
+
+    const exposure = buildPressureV4Exposure({
+      measurements: args.measurements,
+      t0Ms: t0.dateTimeMs,
+      endMs: row.time,
+      equilibriumPressure: args.equilibriumPressure,
+    });
+
+    const outcomeCarb = finiteNumber(outcome.measurement.carbonation);
+    if (outcomeCarb === null) return;
+
+    samples.push({
+      batchId: args.batchId,
+      style: args.style,
+      sampleDateTimeMs: row.time,
+      sampleDate: dateOnly(row.measurement.id) ?? "",
+      carbonationBefore,
+      currentPressure,
+      currentTemp,
+      hoursSinceT0: Math.max(0, (row.time - t0.dateTimeMs) / 3600000),
+      exposure,
+      primaryOutcome: {
+        carbonation: outcomeCarb,
+        dateTimeMs: outcome.time,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: outcomeCarb - carbonationBefore,
       quality: sampleQuality(exposure),
     });
   });
