@@ -5,7 +5,7 @@ import {
   buildPressureV4Samples,
   detectPressureV4T0,
 } from "../src/SERVICES/cellering/pressurePredictionV4";
-import type { Measurement } from "../src/SERVICES/cellering/calculateCelleringRecomendations";
+import type { PressureV4Measurement as Measurement } from "../src/SERVICES/cellering/pressurePredictionV4";
 
 function row(
   id: string,
