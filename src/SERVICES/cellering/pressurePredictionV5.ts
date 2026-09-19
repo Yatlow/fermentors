@@ -31,6 +31,7 @@ export type PressureV5TrainingPoint = {
 
 export type PressureV5Estimate = {
   version: 5;
+  mode: "stable" | "first_cooling";
   targetCarbonation: number;
   currentCarbonation: number;
   currentPressure: number;
@@ -469,6 +470,7 @@ export function estimatePressureTargetV5(args: {
     | "edgeCase"
   > = {
     version: 5,
+    mode: args.firstCarbonation ? "first_cooling" : "stable",
     targetCarbonation: args.targetCarbonation,
     currentCarbonation: args.state.carbonation,
     currentPressure: args.state.currentPressure,
