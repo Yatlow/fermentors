@@ -616,9 +616,11 @@ export function estimatePressureTargetV5(args: {
     };
   }
 
-  // The setpoint is a closed-headspace mass-balance estimate:
-  // finish at the equilibrium pressure of the TARGET carbonation, plus enough
-  // head-pressure reserve to supply the remaining carbonation gap.
+  // Setpoint policy:
+  // - first carbonation / cooling: absolute closed-headspace balance anchored
+  //   at the equilibrium pressure of the TARGET carbonation;
+  // - subsequent stable check: incremental correction from the pressure that
+  //   is actually on the tank now.
   //
   // Brewery practice says ~0.1 vol per 0.1-0.2 bar => 0.5-1.0 vol/bar.
   // Use the conservative 0.5 vol/bar edge for the actual recommendation so we
@@ -626,11 +628,20 @@ export function estimatePressureTargetV5(args: {
   const carbonationGap =
     args.targetCarbonation - estimatedCurrentCarbonation;
 
+  // First carbonation / active cooling must account for stored headspace
+  // pressure, so use the absolute equilibrium anchor. On a subsequent stable
+  // check, the current pressure is already the observed operating baseline:
+  // correct incrementally from it by the measured carbonation error.
+  const correctionBasePressure =
+    firstCoolingMode
+      ? targetEquilibriumPressure
+      : currentPressure;
+
   const candidateA =
-    targetEquilibriumPressure +
+    correctionBasePressure +
     carbonationGap / OPERATIONAL_VOL_PER_BAR_MAX;
   const candidateB =
-    targetEquilibriumPressure +
+    correctionBasePressure +
     carbonationGap / OPERATIONAL_VOL_PER_BAR_MIN;
   const targetPressureRangeLow = Math.min(candidateA, candidateB);
   const targetPressureRangeHigh = Math.max(candidateA, candidateB);
