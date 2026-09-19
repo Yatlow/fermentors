@@ -710,6 +710,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 שיווי־משקל תפעולי: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar
                                 ({v4Result.referenceTemperature?.toFixed(1) ?? "—"}°C) ·
                                 headroom: {v4Result.headroomBar >= 0 ? "+" : ""}{v4Result.headroomBar} bar ·
+                                תיקון היסטורי לתחזית: {v4Result.empiricalCorrectionVol >= 0 ? "+" : ""}{v4Result.empiricalCorrectionVol} vol
+                                {v4Result.empiricalSupport > 0 ? ` (${v4Result.empiricalSupport} דוגמאות action/passive)` : " (אין מספיק דוגמאות דומות)"} ·
                                 ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
                                 יעד גיזוז: {v4Result.targetCarbonation}
