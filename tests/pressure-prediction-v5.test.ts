@@ -453,7 +453,7 @@ test("V5 stable setpoints are monotonic as carbonation moves away from target", 
 
 
 
-test("V5 does not force a 0.10 bar step for an exact 0.02 vol miss", () => {
+test("V5 keeps an exact 0.02 vol miss inside the quiet band", () => {
   const estimate = estimatePressureTargetV5({
     state: state(2.52, 0.61, 0.4),
     targetCarbonation: 2.50,
@@ -463,10 +463,26 @@ test("V5 does not force a 0.10 bar step for an exact 0.02 vol miss", () => {
   assert.ok(estimate);
   assert.ok(
     estimate.targetPressure !== null &&
-      Math.abs(estimate.targetPressure - 0.61) < 0.075,
-    `2.52 vs 2.50 should be HOLD / tiny correction, got ${estimate.targetPressure}`,
+      Math.abs(estimate.targetPressure - 0.61) < 0.05,
+    `2.52 vs 2.50 should stay effectively HOLD, got ${estimate.targetPressure}`,
   );
   assert.equal(estimate.action, "hold");
+});
+
+test("V5 first correction step just outside the quiet band is 0.05 bar", () => {
+  const estimate = estimatePressureTargetV5({
+    state: state(2.55, 0.80, 0.5),
+    targetCarbonation: 2.50,
+    firstCarbonation: false,
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.targetPressure !== null &&
+      estimate.targetPressure <= 0.75 &&
+      estimate.targetPressure >= 0.70,
+    `expected first operational drop around 0.05 bar, got ${estimate.targetPressure}`,
+  );
 });
 
 test("V5 first-carbonation checks on tanks 18 and 16 stay near 1.1 bar without nonlinear gain", () => {
