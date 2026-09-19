@@ -1,6 +1,7 @@
 import type {
   PressureV4DecisionState,
   PressureV4Exposure,
+  PressureV4PassiveSample,
   PressureV4Sample,
 } from "./pressurePredictionV4";
 
@@ -84,6 +85,48 @@ function sampleStateDistance(
   return score;
 }
 
+function passiveDriftPrediction(
+  samples: PressureV4PassiveSample[],
+  state: PressureV4DecisionState,
+): { delta: number; supportCount: number; effectiveWeight: number; meanDistance: number } | null {
+  const rows = samples
+    .filter((sample) =>
+      sample.primaryOutcome?.calendarDaysAfterAction === 2 &&
+      Number.isFinite(sample.carbonationDelta)
+    )
+    .map((sample) => ({
+      sample,
+      stateDistance: sampleStateDistance(sample as unknown as PressureV4Sample, state),
+    }))
+    .sort((a, b) => a.stateDistance - b.stateDistance)
+    .slice(0, 30);
+
+  if (rows.length < 5) return null;
+
+  const weighted = rows.map(({ sample, stateDistance }) => {
+    const weight = 1 / (0.2 + stateDistance * stateDistance);
+    return { delta: sample.carbonationDelta, weight, stateDistance };
+  });
+  const weightSum = weighted.reduce((sum, row) => sum + row.weight, 0);
+  if (weightSum <= 0) return null;
+
+  const delta = weighted.reduce(
+    (sum, row) => sum + row.delta * row.weight,
+    0,
+  ) / weightSum;
+  const meanDistance = weighted.reduce(
+    (sum, row) => sum + row.stateDistance,
+    0,
+  ) / Math.max(1, weighted.length);
+
+  return {
+    delta,
+    supportCount: weighted.length,
+    effectiveWeight: weightSum,
+    meanDistance,
+  };
+}
+
 function weightedLinearPrediction(args: {
   rows: Array<{
     sample: PressureV4Sample;
@@ -91,6 +134,7 @@ function weightedLinearPrediction(args: {
   }>;
   candidatePressure: number;
   currentPressure: number;
+  baselineDelta: number;
 }): PressureV4Candidate | null {
   const weighted = args.rows
     .map(({ sample, stateDistance }) => {
@@ -124,29 +168,27 @@ function weightedLinearPrediction(args: {
   const weightSum = weighted.reduce((sum, row) => sum + row.weight, 0);
   if (weightSum <= 0) return null;
 
-  const meanX = weighted.reduce((sum, row) => sum + row.x * row.weight, 0) / weightSum;
-  const meanY = weighted.reduce((sum, row) => sum + row.y * row.weight, 0) / weightSum;
-
+  // Passive samples teach the no-action 48h drift. Ordinary-pressure
+  // samples only teach the *additional* effect of changing head pressure.
+  // Fit that intervention effect through the passive baseline so x=0 always
+  // means "do nothing" rather than inventing a second intercept.
   const denominator = weighted.reduce(
-    (sum, row) => sum + row.weight * (row.x - meanX) ** 2,
+    (sum, row) => sum + row.weight * row.x ** 2,
     0,
   );
   const numerator = weighted.reduce(
-    (sum, row) => sum + row.weight * (row.x - meanX) * (row.y - meanY),
+    (sum, row) =>
+      sum + row.weight * row.x * (row.y - args.baselineDelta),
     0,
   );
 
-  // Ordinary head-space pressure should not learn an inverse physical response.
-  // When local data are too narrow/noisy to identify a positive slope, use the
-  // local weighted mean delta rather than inventing a negative slope.
   const slope = denominator >= 0.002
     ? Math.max(0, numerator / denominator)
     : 0;
-  const intercept = meanY - slope * meanX;
   const candidateActionDelta =
     args.candidatePressure - args.currentPressure;
   const predictedDelta =
-    intercept + slope * candidateActionDelta;
+    args.baselineDelta + slope * candidateActionDelta;
 
   return {
     targetPressure: args.candidatePressure,
@@ -159,6 +201,7 @@ function weightedLinearPrediction(args: {
 
 export function estimatePressureTargetV4(args: {
   samples: PressureV4Sample[];
+  passiveSamples?: PressureV4PassiveSample[];
   state: PressureV4DecisionState;
   targetCarbonation: number;
   minPressure?: number;
@@ -176,6 +219,12 @@ export function estimatePressureTargetV4(args: {
     step <= 0 ||
     maxPressure < minPressure
   ) return null;
+
+  const passive = passiveDriftPrediction(
+    args.passiveSamples ?? [],
+    args.state,
+  );
+  if (!passive) return null;
 
   const usable = args.samples
     .filter((sample) =>
@@ -203,6 +252,7 @@ export function estimatePressureTargetV4(args: {
       rows: usable,
       candidatePressure: targetPressure,
       currentPressure: args.state.currentPressure,
+      baselineDelta: passive.delta,
     });
     if (!predicted) continue;
 
@@ -218,10 +268,11 @@ export function estimatePressureTargetV4(args: {
     rows: usable,
     candidatePressure: args.state.currentPressure,
     currentPressure: args.state.currentPressure,
+    baselineDelta: passive.delta,
   });
-  const predictedCarbonationWithoutChange = noChangePrediction
-    ? Number((args.state.carbonation + noChangePrediction.predictedDelta).toFixed(3))
-    : args.state.carbonation;
+  const predictedCarbonationWithoutChange = Number(
+    (args.state.carbonation + passive.delta).toFixed(3),
+  );
 
   const ranked = [...candidates].sort((a, b) => {
     const aError = Math.abs(a.predictedCarbonation - args.targetCarbonation);
@@ -245,11 +296,22 @@ export function estimatePressureTargetV4(args: {
     Math.max(1, nearest.length);
 
   const confidence: PressureV4Estimate["confidence"] =
-    best.supportCount >= 12 && highQualityCount >= 5 && meanDistance <= 2.5
+    best.supportCount >= 12 &&
+    passive.supportCount >= 10 &&
+    highQualityCount >= 5 &&
+    meanDistance <= 2.5 &&
+    passive.meanDistance <= 2.5
       ? "high"
-      : best.supportCount >= 7 && meanDistance <= 4
+      : best.supportCount >= 7 &&
+        passive.supportCount >= 5 &&
+        meanDistance <= 4 &&
+        passive.meanDistance <= 4
         ? "medium"
         : "low";
+
+  // Do not call an operational boundary a recommendation when the model itself
+  // predicts that even its best candidate remains materially off target.
+  if (error > 0.06) return null;
 
   return {
     targetPressure: best.targetPressure,
