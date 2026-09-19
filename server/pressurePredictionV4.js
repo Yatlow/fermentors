@@ -1,14 +1,18 @@
 // ================================================================
-// PRESSURE PREDICTION MODEL V4 — MANUAL HISTORICAL BACKFILL
+// PRESSURE PREDICTION MODEL V4 — RESUMABLE HISTORICAL BACKFILL
 // ================================================================
-// IMPORTANT: this file is intentionally NOT called from runAsyncMaintenance_.
-// V4 is experimental and must not consume historical reads automatically.
-// Use startPressurePredictionV4Backfill_() once, then call
-// pressurePredictionV4BackfillStep_() manually while validating read usage.
+// The maintenance trigger advances this backfill within a strict Firestore-read
+// allowance. Before the 10:00 Asia/Jerusalem quota reset on the first day it
+// uses at most 3k reads; each quota day beginning at 10:00 receives 15k reads.
+// Progress is durable and the scan stops permanently when history is complete.
 // ================================================================
 
-const PRESSURE_V4_BACKFILL_STATE_KEY = "pressure_prediction_v4_backfill_manual";
-const PRESSURE_V4_BACKFILL_PAGE_SIZE = 10;
+const PRESSURE_V4_BACKFILL_STATE_KEY = "pressure_prediction_v4_backfill_v1";
+const PRESSURE_V4_BACKFILL_PAGE_SIZE = 8;
+const PRESSURE_V4_INITIAL_PRE_RESET_BUDGET = 3000;
+const PRESSURE_V4_DAILY_READ_BUDGET = 15000;
+const PRESSURE_V4_TIMEZONE = "Asia/Jerusalem";
+const PRESSURE_V4_RESET_HOUR = 10;
 const PRESSURE_V4_MAX_SAMPLES_PER_STYLE = 600;
 const PRESSURE_V4_MAX_EQUILIBRIUM_POINTS_PER_STYLE = 200;
 
@@ -497,9 +501,59 @@ function pressureV4WriteModel_(projectId, styleKey, incomingSamples, incomingPoi
       sampleCount: samples.length,
       equilibriumPoints: points,
       equilibriumPointCount: points.length,
+      readiness: pressureV4ModelReadiness_(samples, points),
       updatedAt: new Date().toISOString()
     }
   );
+}
+
+function pressureV4QuotaWindow_(now) {
+  const current = now || new Date();
+  const dateText = Utilities.formatDate(current, PRESSURE_V4_TIMEZONE, "yyyy-MM-dd");
+  const hour = Number(Utilities.formatDate(current, PRESSURE_V4_TIMEZONE, "H"));
+
+  if (hour >= PRESSURE_V4_RESET_HOUR) {
+    return {
+      key: dateText + "@10",
+      budget: PRESSURE_V4_DAILY_READ_BUDGET
+    };
+  }
+
+  const previous = new Date(current.getTime() - 24 * 60 * 60 * 1000);
+  return {
+    key: Utilities.formatDate(previous, PRESSURE_V4_TIMEZONE, "yyyy-MM-dd") + "@10",
+    budget: PRESSURE_V4_INITIAL_PRE_RESET_BUDGET
+  };
+}
+
+function pressureV4ModelReadiness_(samples, equilibriumPoints) {
+  const usable = (samples || []).filter(function (sample) {
+    return sample &&
+      sample.primaryOutcome &&
+      Number(sample.primaryOutcome.calendarDaysAfterAction) === 2 &&
+      Number.isFinite(Number(sample.carbonationDelta)) &&
+      sample.quality !== "low";
+  });
+  const batchIds = {};
+  usable.forEach(function (sample) {
+    if (sample.batchId) batchIds[String(sample.batchId)] = true;
+  });
+
+  const goodEquilibrium = (equilibriumPoints || []).filter(function (point) {
+    return point && point.quality !== "low";
+  });
+
+  const ready =
+    usable.length >= 12 &&
+    Object.keys(batchIds).length >= 4 &&
+    goodEquilibrium.length >= 3;
+
+  return {
+    ready: ready,
+    usableSampleCount: usable.length,
+    distinctBatchCount: Object.keys(batchIds).length,
+    equilibriumPointCount: goodEquilibrium.length
+  };
 }
 
 function startPressurePredictionV4Backfill_() {
@@ -510,10 +564,12 @@ function startPressurePredictionV4Backfill_() {
       pageToken: "",
       scannedBrews: 0,
       processedBrews: 0,
+      quotaWindowKey: "",
+      readsInWindow: 0,
       startedAt: new Date().toISOString()
     })
   );
-  return { started: true, automatic: false };
+  return { started: true, automatic: true };
 }
 
 function pressurePredictionV4BackfillState_() {
@@ -535,8 +591,26 @@ function pressurePredictionV4BackfillStep_() {
     return { skipped: true, reason: "not_started_or_completed" };
   }
 
+  const quota = pressureV4QuotaWindow_(new Date());
+  if (String(state.quotaWindowKey || "") !== quota.key) {
+    state.quotaWindowKey = quota.key;
+    state.readsInWindow = 0;
+  }
+
+  const readsInWindow = Number(state.readsInWindow || 0);
+  if (readsInWindow >= quota.budget) {
+    return {
+      skipped: true,
+      reason: "quota_window_budget_reached",
+      quotaWindowKey: quota.key,
+      readsInWindow: readsInWindow,
+      budget: quota.budget
+    };
+  }
+
   const projectId = FIREBASE_PROJECT_ID;
   const targets = pressureV4ReadCarbonationTargets_(projectId);
+  let readsThisStep = 1; // specs collection/list request
 
   let url =
     "https://firestore.googleapis.com/v1/projects/" +
@@ -550,6 +624,7 @@ function pressurePredictionV4BackfillStep_() {
 
   const page = firestoreRequest_(url);
   const documents = page.documents || [];
+  readsThisStep += documents.length;
   const byStyle = {};
   const pointsByStyle = {};
 
@@ -563,6 +638,7 @@ function pressurePredictionV4BackfillStep_() {
 
     try {
       const measurements = getMeasurementsForBrew(projectId, batchId);
+      readsThisStep += measurements.length;
       const samples = pressureV4BuildSamples_(measurements, batchId);
       const target = pressureV4Number_(targets[styleKey] != null
         ? targets[styleKey]
@@ -590,6 +666,7 @@ function pressurePredictionV4BackfillStep_() {
   });
 
   Object.keys(touchedStyles).forEach(function (styleKey) {
+    readsThisStep++;
     pressureV4WriteModel_(
       projectId,
       styleKey,
@@ -605,6 +682,8 @@ function pressurePredictionV4BackfillStep_() {
     pageToken: nextPageToken,
     scannedBrews: Number(state.scannedBrews || 0) + documents.length,
     processedBrews: Number(state.processedBrews || 0) + processed,
+    quotaWindowKey: quota.key,
+    readsInWindow: readsInWindow + readsThisStep,
     startedAt: state.startedAt || null,
     updatedAt: new Date().toISOString()
   };
@@ -614,10 +693,14 @@ function pressurePredictionV4BackfillStep_() {
 
   return {
     skipped: false,
-    automatic: false,
+    automatic: true,
     completed: !nextPageToken,
     scannedThisStep: documents.length,
     processedThisStep: processed,
+    readsThisStep: readsThisStep,
+    readsInWindow: nextState.readsInWindow,
+    budget: quota.budget,
+    quotaWindowKey: quota.key,
     touchedStyles: Object.keys(touchedStyles),
     state: nextState
   };
