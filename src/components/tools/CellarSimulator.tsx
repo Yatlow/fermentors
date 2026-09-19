@@ -161,6 +161,15 @@ function buildHypotheticalProductionPressureText(
         );
     }
 
+    if (estimate.decisionStatus === "insufficient_response_evidence") {
+        return (
+            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+            "ההיסטוריה הזמינה אינה מזהה כרגע תגובת CO₂ אמינה מספיק לשינוי לחץ, ולכן לא מוצגת המלצת setpoint אוטומטית. " +
+            `תחזית ללא שינוי: ${estimate.predictedCarbonationWithoutChange.toFixed(3)}; תחזית ליעד הלחץ הניסיוני: ${estimate.predictedCarbonation.toFixed(3)}. ` +
+            "יש לבצע בדיקת גיזוז חוזרת או להשתמש במסלול טיפול אחר לפי מצב המיכל."
+        );
+    }
+
     if (estimate.decisionStatus === "pressure_only_insufficient") {
         const directionText =
             currentCarbonation < estimate.targetCarbonation
@@ -716,8 +725,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 שיווי־משקל תפעולי: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar
                                 ({v4Result.referenceTemperature?.toFixed(1) ?? "—"}°C) ·
                                 headroom: {v4Result.headroomBar >= 0 ? "+" : ""}{v4Result.headroomBar} bar ·
-                                תיקון היסטורי לתחזית: {v4Result.empiricalCorrectionVol >= 0 ? "+" : ""}{v4Result.empiricalCorrectionVol} vol
-                                {v4Result.empiricalSupport > 0 ? ` (${v4Result.empiricalSupport} דוגמאות action/passive)` : " (אין מספיק דוגמאות דומות)"} ·
+                                תיקון היסטורי מול physics: {v4Result.empiricalCorrectionVol >= 0 ? "+" : ""}{v4Result.empiricalCorrectionVol} vol ·
+                                תגובת לחץ נלמדת: {v4Result.empiricalSlopeVolPerBar} vol/bar ל-48ש׳ ·
+                                drift ללא פעולה: {v4Result.empiricalDriftVol48h >= 0 ? "+" : ""}{v4Result.empiricalDriftVol48h} vol ·
+                                evidence: {v4Result.empiricalActionSupport} פעולות + {v4Result.empiricalPassiveSupport} passive
+                                {v4Result.empiricalModelUsed ? " · empirical מוביל" : " · empirical לא מספיק חזק"} ·
                                 ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
                                 יעד גיזוז: {v4Result.targetCarbonation}
@@ -742,7 +754,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                             ? "חריג קירור פעיל — התחזית יכולה להיות מחוץ לחלון"
                                             : v4Result.decisionStatus === "pressure_adjust_and_recheck"
                                                 ? "שינוי לחץ ובדיקה חוזרת — התחזית עדיין מחוץ לחלון"
-                                                : "אין פתרון מספק בלחץ ראש בלבד"
+                                                : v4Result.decisionStatus === "insufficient_response_evidence"
+                                                    ? "אין evidence מספק לתגובת לחץ — אין המלצת setpoint אוטומטית"
+                                                    : "אין פתרון מספק בלחץ ראש בלבד"
                                 }
                                 {v4Result.pressureOnlyLikelyInsufficient
                                     ? " · לחץ ראש בלבד לא צפוי להספיק"
