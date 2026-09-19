@@ -137,6 +137,31 @@ function pressureV4Exposure_(rows, t0Ms, endMs) {
 
   let lastPressure = null;
   let lastTemp = null;
+
+  // Seed the integration window with the last known state before the window.
+  // Cooling/action notes are often written without repeating numeric readings.
+  const prior = (rows || []).map(function (row) {
+    return {
+      time: pressureV4DateTime_(row),
+      pressure: pressureV4Number_(row && row.pressure),
+      temp: pressureV4Number_(row && row.temp)
+    };
+  }).filter(function (row) {
+    return row.time !== null && row.time <= t0Ms;
+  }).sort(function (a, b) {
+    return a.time - b.time;
+  });
+
+  for (let index = prior.length - 1; index >= 0; index--) {
+    if (lastPressure === null && prior[index].pressure !== null) {
+      lastPressure = prior[index].pressure;
+    }
+    if (lastTemp === null && prior[index].temp !== null) {
+      lastTemp = prior[index].temp;
+    }
+    if (lastPressure !== null && lastTemp !== null) break;
+  }
+
   let cursor = t0Ms;
   const pressureSegments = [];
   const tempSegments = [];
