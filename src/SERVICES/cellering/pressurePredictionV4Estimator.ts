@@ -427,8 +427,11 @@ function learnedHeadroom(args: {
   coldReferenceTemperature: number | null;
   equilibriumPressureAtTemperature?: (temperature: number | null) => number | null;
 }): { value: number; support: number } | null {
+  const equilibriumForTemperature =
+    args.equilibriumPressureAtTemperature;
+
   if (
-    !args.equilibriumPressureAtTemperature ||
+    !equilibriumForTemperature ||
     Math.abs(args.carbonationError) <= 0.04
   ) {
     return null;
@@ -454,7 +457,7 @@ function learnedHeadroom(args: {
           ? args.coldReferenceTemperature
           : sampleTemp;
       const equilibrium =
-        args.equilibriumPressureAtTemperature(referenceTemp);
+        equilibriumForTemperature(referenceTemp);
       if (pressure === null || equilibrium === null) return null;
 
       const deficitDistance =
