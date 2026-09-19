@@ -461,8 +461,13 @@ function carbonationErrorGain(args: {
     return 1;
   }
 
-  // Stable tanks: progressively stronger correction as the carbonation error
-  // grows. Around 0.13 vol this is ~1.6x; around 0.20 vol ~2.3x.
+  // Stable tanks: under-carbonation already tracks cellar practice well.
+  // Over-carbonation needs a steeper release curve once we are clearly outside
+  // the near-target band, while exact/near-target readings should stay quiet.
+  const overCarbonated = args.carbonationGap < 0;
+  if (overCarbonated) {
+    return clamp(1 + 18 * excess, 1, 3.2);
+  }
   return clamp(1 + 10 * excess, 1, 2.6);
 }
 
@@ -759,7 +764,7 @@ export function estimatePressureTargetV5(args: {
   const carbonationError =
     args.targetCarbonation - estimatedCurrentCarbonation;
   const outsideTargetWindow =
-    Math.abs(carbonationError) > TARGET_TOLERANCE_VOL;
+    Math.abs(carbonationError) > TARGET_TOLERANCE_VOL + 1e-6;
 
   // Do not let the old 0.075-bar deadband hide a real off-spec carbonation
   // correction. If the math asks for a change but rounding/deadband would turn
