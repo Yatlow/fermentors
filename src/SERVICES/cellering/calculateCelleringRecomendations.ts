@@ -685,7 +685,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // ============================================================
     if (
         isHoppy &&
-        dryHopAge === 5 &&
+        dryHopAge !== null &&
+        dryHopAge >= 5 &&
         dryhopped &&
         !yeastDroppedOnce &&
         !requiresDryHop.req &&
@@ -695,7 +696,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresWarmYeastDrop = {
             display: true,
             req: true,
-            reason: "מומלץ לבצע הוצאת שמרים- 5 ימים אחרי דרייהופ",
+            reason: dryHopAge > 5
+                ? `המלצת הורדת השמרים 5 ימים אחרי הדרייהופ התפספסה לפני ${dryHopAge - 5} ימים- מומלץ לבצע היום`
+                : "מומלץ לבצע הוצאת שמרים- 5 ימים אחרי דרייהופ",
             importance: 1
         };
     }
@@ -763,7 +766,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const lastTemp = lastMeasurement?.temp;
     const oldTemp = toDaysAgoMeasurement?.temp;
     const lastNote = lastMeasurement?.notes?.toString();
-    const belatedColdDrop = CoolAge === 3 && corrected === 1;
     const coolingIndex = sortedMeasurements.findLastIndex(
         m => m.notes?.toString().includes("קירור")
     );
@@ -773,24 +775,41 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             ? sortedMeasurements.slice(coolingIndex + 1)
             : [];
 
-    const firstYeastDropWasSunday = measurementsAfterCooling[1]?.notes?.toString().includes("שמרים") && CoolAge === 5 && corrected === 3;
+    const yeastMeasurementsAfterCooling = measurementsAfterCooling.filter(
+        (measurement) => /שמרים|שמרי/.test(String(measurement.notes ?? ""))
+    );
+    const firstColdYeastMeasurement = yeastMeasurementsAfterCooling[0];
+    const firstColdYeastDate = getMeasurementDate(firstColdYeastMeasurement?.id);
+    const firstColdYeastAge = firstColdYeastDate
+        ? getDaysSinceDate(firstColdYeastDate)
+        : null;
+    const firstColdYeastWasSunday = firstColdYeastDate
+        ? new Date(`${firstColdYeastDate}T12:00:00`).getDay() === 0
+        : false;
+    const needsFirstColdYeastDrop =
+        stage.name === "קר" &&
+        CoolAge !== null &&
+        CoolAge >= 2 &&
+        yeastMeasurementsAfterCooling.length === 0 &&
+        lastTemp != null &&
+        oldTemp != null;
+    const needsSecondDropAfterSunday =
+        stage.name === "קר" &&
+        firstColdYeastWasSunday &&
+        firstColdYeastAge !== null &&
+        firstColdYeastAge >= 2 &&
+        yeastMeasurementsAfterCooling.length === 1;
+
     const requiersYeastDropAfterCooling = {
         display: true,
-        req:
-            ((CoolAge === 2 &&
-                lastTemp != null &&
-                oldTemp != null &&
-                !lastNote?.includes("שמרים") &&
-                // lastTemp > oldTemp &&
-                stage.name === "קר") ||
-                belatedColdDrop &&
-                !lastNote?.includes("שמרים") ||
-                firstYeastDropWasSunday &&
-                !lastNote?.includes("שמרים")
-            ),
-        reason: firstYeastDropWasSunday ? "מומלץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי" :
-            belatedColdDrop ? "מומלץ לבצע הורדת שמרים- (שלושה ימים אחרי קירור- אתמול היה שבת)" :
-                "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
+        req: needsFirstColdYeastDrop || needsSecondDropAfterSunday,
+        reason: needsSecondDropAfterSunday
+            ? firstColdYeastAge! > 2
+                ? `הורדת השמרים הנוספת שהומלצה יומיים אחרי הורדת יום ראשון התפספסה לפני ${firstColdYeastAge! - 2} ימים- מומלץ לבצע היום`
+                : "מומלץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת היום"
+            : needsFirstColdYeastDrop && CoolAge! > 2
+                ? `הורדת השמרים שהומלצה יומיים אחרי הקירור התפספסה לפני ${CoolAge! - 2} ימים- מומלץ לבצע היום`
+                : "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
         importance: 1
     }
 
@@ -827,17 +846,33 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         importance: 1
     };
 
+    const hasCarbonationAfterCooling =
+        CooldDate !== null &&
+        sortedMeasurements.some((measurement) => {
+            const date = getMeasurementDate(measurement.id);
+            const carbonation = measurement.carbonation;
+            return (
+                date !== null &&
+                date >= CooldDate &&
+                carbonation !== null &&
+                carbonation !== undefined &&
+                carbonation !== "" &&
+                Number.isFinite(Number(carbonation))
+            );
+        });
+
     if (
-        CoolAge === 1 &&
-        yesterdayMeasurement?.temp != null &&
-        lastMeasurement?.temp != null &&
-        !lastMeasurement?.carbonation &&
+        CoolAge !== null &&
+        CoolAge >= 1 &&
+        !hasCarbonationAfterCooling &&
         stage.name === "קר"
     ) {
         requiresCarbTest.display = true;
         requiresCarbTest.req = true;
-        requiresCarbTest.reason = "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)",
-            requiresCarbTest.importance = 1;
+        requiresCarbTest.reason = CoolAge > 1
+            ? `בדיקת הגיזוז הראשונה שהומלצה יום אחרי הקירור התפספסה לפני ${CoolAge - 1} ימים- מומלץ לבצע היום ולפתוח ברזי גליקול`
+            : "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)";
+        requiresCarbTest.importance = CoolAge > 1 ? 2 : 1;
     }
     const YeastDroppedToday = lastNote?.includes("שמרים");
     const requiiersWedYeastDropOnThus = {
@@ -1658,23 +1693,23 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     /**
      * האם ההוצאה החמה הייתה אתמול?
      */
-    const yesterdayWarmYeastDrop =
-        warmYeastDrops.find(
-            drop =>
-                getDaysSinceDate(drop.date) === 1
-        );
+    const latestWarmYeastDrop =
+        warmYeastDrops.length > 0
+            ? warmYeastDrops[warmYeastDrops.length - 1]
+            : undefined;
+    const latestWarmYeastDropAge =
+        latestWarmYeastDrop
+            ? getDaysSinceDate(latestWarmYeastDrop.date)
+            : null;
 
 
     /**
      * האם ההוצאה הקרה הראשונה הייתה לפני יומיים?
      */
-    const twoDaysAgoColdYeastDrop =
-        firstColdYeastDropAfterCooling &&
-            getDaysSinceDate(
-                firstColdYeastDropAfterCooling.date
-            ) === 2
-            ? firstColdYeastDropAfterCooling
-            : undefined;
+    const firstColdYeastDropAge =
+        firstColdYeastDropAfterCooling
+            ? getDaysSinceDate(firstColdYeastDropAfterCooling.date)
+            : null;
 
 
     /**
@@ -1735,7 +1770,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     );
 
     if (
-        yesterdayWarmYeastDrop &&
+        latestWarmYeastDrop &&
+        latestWarmYeastDropAge !== null &&
+        latestWarmYeastDropAge >= 1 &&
         warmYeastDropTarget !== null
     ) {
 
@@ -1751,7 +1788,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 reason:
                     `סה"כ בהוצאות חמות עד כה הוצאו ${formatYeastAmount(totalWarmYeastDropped)} דליים. ` +
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(warmYeastDropTarget)} דליים - ` +
-                    `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`,
+                    (latestWarmYeastDropAge > 1
+                        ? `השלמת ההוצאה התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
+                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`),
                 importance: 2,
             };
         }
@@ -1763,13 +1802,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // ============================================================
 
     if (
-        twoDaysAgoColdYeastDrop &&
+        firstColdYeastDropAfterCooling &&
+        firstColdYeastDropAge !== null &&
+        firstColdYeastDropAge >= 2 &&
         coldYeastDropTarget !== null
     ) {
 
         const missing =
             coldYeastDropTarget -
-            twoDaysAgoColdYeastDrop.amount;
+            firstColdYeastDropAfterCooling.amount;
 
         if (missing > 0) {
 
@@ -1777,9 +1818,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 display: true,
                 req: true,
                 reason:
-                    `בהוצאה קרה לפני יומיים הוצאו ${formatYeastAmount(twoDaysAgoColdYeastDrop.amount)} דליים. ` +
+                    `בהוצאה הקרה הראשונה הוצאו ${formatYeastAmount(firstColdYeastDropAfterCooling.amount)} דליים. ` +
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(coldYeastDropTarget)} דליים - ` +
-                    `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`,
+                    (firstColdYeastDropAge > 2
+                        ? `השלמת ההוצאה התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
+                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`),
                 importance: 2,
             };
         }
