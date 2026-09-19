@@ -1385,3 +1385,108 @@ test("tiny k without identifiable action slope suppresses automatic pressure set
     estimate.predictedCarbonation - estimate.predictedCarbonationWithoutChange < 0.008,
   );
 });
+
+
+test("2.15 -> 2.40 must not present a pressure setpoint when it closes only a small fraction of the gap", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.15,
+    currentPressure: 0.51,
+    currentTemp: 1,
+    hoursSinceT0: 450,
+    exposure: exposure(0.51, 450),
+    cooling: cooling({
+      hours: 450,
+      currentTemp: 1,
+      pressure: 0.51,
+    }),
+    carbonationTrend: null,
+  };
+
+  const transitions = transitionsFor(state, 0.00007).slice(0, 4);
+
+  const passiveSamples: PressureV4PassiveSample[] = Array.from(
+    { length: 12 },
+    (_, index) => ({
+      batchId: `passive-weak-${index}`,
+      style: "test",
+      sampleDateTimeMs: index * 100000,
+      sampleDate: "2026-09-01",
+      carbonationBefore: 2.15,
+      currentPressure: 0.51,
+      currentTemp: 1,
+      hoursSinceT0: 450,
+      exposure: exposure(0.51, 450),
+      primaryOutcome: {
+        carbonation: 2.153,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0.003,
+      quality: "high",
+    }),
+  );
+
+  const actionDeltas = [0.15, 0.30, 0.45, 0.60];
+  const samples: PressureV4Sample[] = Array.from(
+    { length: 12 },
+    (_, index) => {
+      const actionPressureDelta = actionDeltas[index % actionDeltas.length];
+      const carbonationDelta = 0.003 + actionPressureDelta * 0.025;
+      return {
+        batchId: `action-weak-${index}`,
+        style: "test",
+        t0: {
+          index: 0,
+          dateTimeMs: 0,
+          source: "explicit_close",
+          pressure: 0.51,
+          previousPressure: 0,
+        },
+        actionDateTimeMs: index * 100000,
+        actionDate: "2026-09-01",
+        carbonationBefore: 2.15,
+        currentPressure: 0.51,
+        targetPressure: 0.51 + actionPressureDelta,
+        currentTemp: 1,
+        hoursSinceT0: 450,
+        exposure: exposure(0.51, 450),
+        intermediateDay1: null,
+        primaryOutcome: {
+          carbonation: 2.15 + carbonationDelta,
+          dateTimeMs: index * 100000 + 48 * 3600000,
+          calendarDaysAfterAction: 2,
+        },
+        carbonationDelta,
+        actionPressureDelta,
+        quality: "high",
+      };
+    },
+  );
+
+  const estimate = estimatePressureTargetV4({
+    samples,
+    passiveSamples,
+    transitions,
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.empiricalModelUsed, true);
+  assert.ok(estimate.empiricalSlopeVolPerBar > 0);
+  assert.ok(
+    estimate.pressureActionEffectVol < 0.03,
+    `expected the proposed pressure move to add only a few hundredths, got ${estimate.pressureActionEffectVol}`,
+  );
+  assert.ok(
+    estimate.pressureGapClosedFraction < 0.2,
+    `expected less than 20% of the remaining gap to close, got ${estimate.pressureGapClosedFraction}`,
+  );
+  assert.equal(
+    estimate.decisionStatus,
+    "pressure_only_insufficient",
+    "a setpoint that leaves the forecast far from target must not be presented as a normal pressure recommendation",
+  );
+});
