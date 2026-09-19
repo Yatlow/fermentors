@@ -290,3 +290,28 @@ test("V5 recognizes when even zero pressure is not enough", () => {
   assert.equal(estimate.edgeCase, "venting_below_zero");
   assert.equal(estimate.targetPressure, null);
 });
+
+
+test("V5 subsequent stable check corrects from current pressure instead of restarting from equilibrium", () => {
+  const estimate = estimatePressureTargetV5({
+    state: state(2.45, 0.8, 1.7),
+    targetCarbonation: 2.5,
+    firstCarbonation: false,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.mode, "stable");
+  assert.equal(estimate.action, "raise");
+  assert.equal(
+    estimate.targetPressure,
+    0.9,
+    `2.45 -> 2.50 from 0.80 bar should produce one 0.10-bar operational increase, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.targetPressureRangeLow !== null &&
+      estimate.targetPressureRangeHigh !== null &&
+      estimate.targetPressureRangeLow >= 0.84 &&
+      estimate.targetPressureRangeHigh <= 0.91,
+    `unexpected stable correction range ${estimate.targetPressureRangeLow}-${estimate.targetPressureRangeHigh}`,
+  );
+});
