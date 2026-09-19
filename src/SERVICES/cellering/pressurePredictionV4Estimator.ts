@@ -40,6 +40,11 @@ export type PressureV4Estimate = {
   headroomSupport: number;
   empiricalCorrectionVol: number;
   empiricalSupport: number;
+  empiricalSlopeVolPerBar: number;
+  empiricalDriftVol48h: number;
+  empiricalActionSupport: number;
+  empiricalPassiveSupport: number;
+  empiricalModelUsed: boolean;
   action: "hold" | "raise" | "lower";
   pressureOnlyLikelyInsufficient: boolean;
   requiresAtmosphericVenting: boolean;
@@ -598,10 +603,26 @@ function blendHeadroom(
 }
 
 
-type EmpiricalCalibration = {
-  correction: number;
+type EmpiricalTrainingRow = {
+  x: number; // pressure change in bar; 0 = passive/no intervention
+  y: number; // observed carbonation change after two calendar days
+  stateDistance: number;
+  quality: "low" | "medium" | "high";
+  kind: "action" | "passive";
+};
+
+type EmpiricalResponse = {
+  intercept: number;
+  slope: number;
+  predictedDelta: number;
   support: number;
+  actionSupport: number;
+  passiveSupport: number;
+  effectiveWeight: number;
   meanDistance: number;
+  slopeIdentified: boolean;
+  actionMin: number;
+  actionMax: number;
 };
 
 function calibrationStateDistance(
@@ -634,123 +655,150 @@ function calibrationStateDistance(
   return score;
 }
 
-function empiricalCalibrationForPressure(args: {
+function buildEmpiricalTrainingRows(args: {
   samples: PressureV4Sample[];
   passiveSamples: PressureV4PassiveSample[];
   state: PressureV4DecisionState;
-  candidatePressure: number;
-  kPerHour: number;
-  horizonHours: number;
-}): EmpiricalCalibration | null {
-  // Historical action/passive outcomes are defined on the two-calendar-day
-  // horizon. Do not stretch them into a different forecast horizon.
-  if (Math.abs(args.horizonHours - 48) > 12) return null;
-
-  const candidateActionDelta =
-    args.candidatePressure - args.state.currentPressure;
-  const rows: Array<{
-    residual: number;
-    distance: number;
-    weight: number;
-  }> = [];
-
-  const addRow = (
-    sample: PressureV4Sample | PressureV4PassiveSample,
-    pressureDuring: number,
-    actionDelta: number,
-  ) => {
-    const start = finite(sample.carbonationBefore);
-    const temp = finite(sample.currentTemp);
-    const outcome = finite(sample.primaryOutcome?.carbonation);
-    if (start === null || temp === null || outcome === null) return;
-
-    const physical = evolveCarbonation({
-      carbonation: start,
-      pressureBar: pressureDuring,
-      temperatureC: temp,
-      kPerHour: args.kPerHour,
-      hours: 48,
-    });
-    if (physical === null) return;
-
-    const stateDistance =
-      calibrationStateDistance(sample, args.state);
-    const actionDistance =
-      Math.abs(actionDelta - candidateActionDelta) / 0.25;
-    const distance = stateDistance + actionDistance * 1.2;
-    const weight = 1 / (0.25 + distance * distance);
-    rows.push({
-      residual: outcome - physical,
-      distance,
-      weight,
-    });
-  };
-
-  for (const sample of args.samples) {
-    const currentPressure = finite(sample.currentPressure);
-    const targetPressure = finite(sample.targetPressure);
-    if (
-      currentPressure === null ||
-      targetPressure === null ||
-      sample.primaryOutcome?.calendarDaysAfterAction !== 2
-    ) continue;
-    addRow(
-      sample,
-      targetPressure,
-      targetPressure - currentPressure,
-    );
-  }
-
-  for (const sample of args.passiveSamples) {
-    const pressure = finite(sample.currentPressure);
-    if (
-      pressure === null ||
-      sample.primaryOutcome?.calendarDaysAfterAction !== 2
-    ) continue;
-    addRow(sample, pressure, 0);
-  }
-
-  const local = rows
-    .filter((row) =>
-      Number.isFinite(row.residual) &&
-      Number.isFinite(row.weight) &&
-      row.weight > 0
+}): EmpiricalTrainingRow[] {
+  const actions: EmpiricalTrainingRow[] = args.samples
+    .filter((sample) =>
+      Number.isFinite(sample.carbonationDelta) &&
+      Number.isFinite(sample.currentPressure) &&
+      Number.isFinite(sample.targetPressure) &&
+      sample.primaryOutcome?.calendarDaysAfterAction === 2
     )
-    .sort((a, b) => a.distance - b.distance)
-    .slice(0, 24);
+    .map((sample) => ({
+      x: Number.isFinite(sample.actionPressureDelta)
+        ? sample.actionPressureDelta
+        : sample.targetPressure - sample.currentPressure,
+      y: sample.carbonationDelta,
+      stateDistance: calibrationStateDistance(sample, args.state),
+      quality: sample.quality,
+      kind: "action" as const,
+    }));
 
-  if (local.length < 5) return null;
+  const passive: EmpiricalTrainingRow[] = args.passiveSamples
+    .filter((sample) =>
+      Number.isFinite(sample.carbonationDelta) &&
+      sample.primaryOutcome?.calendarDaysAfterAction === 2
+    )
+    .map((sample) => ({
+      x: 0,
+      y: sample.carbonationDelta,
+      stateDistance: calibrationStateDistance(sample, args.state),
+      quality: sample.quality,
+      kind: "passive" as const,
+    }));
 
-  const sortedByResidual = local
-    .slice()
-    .sort((a, b) => a.residual - b.residual);
-  const totalWeight = sortedByResidual.reduce(
-    (sum, row) => sum + row.weight,
+  return [...actions, ...passive]
+    .sort((a, b) => a.stateDistance - b.stateDistance)
+    .slice(0, 40);
+}
+
+function fitEmpiricalResponse(
+  rows: EmpiricalTrainingRow[],
+  candidateActionDelta: number,
+): EmpiricalResponse | null {
+  if (rows.length < 5) return null;
+
+  const weighted = rows
+    .map((row) => {
+      const actionDistance = Math.abs(row.x - candidateActionDelta) / 0.25;
+      const weight =
+        1 /
+        (
+          0.2 +
+          row.stateDistance * row.stateDistance +
+          actionDistance * actionDistance * 1.5
+        );
+      return { ...row, weight };
+    })
+    .filter((row) => Number.isFinite(row.weight) && row.weight > 0);
+
+  if (weighted.length < 5) return null;
+
+  const weightSum = weighted.reduce((sum, row) => sum + row.weight, 0);
+  if (weightSum <= 0) return null;
+
+  const meanX =
+    weighted.reduce((sum, row) => sum + row.x * row.weight, 0) /
+    weightSum;
+  const meanY =
+    weighted.reduce((sum, row) => sum + row.y * row.weight, 0) /
+    weightSum;
+  const denominator = weighted.reduce(
+    (sum, row) => sum + row.weight * (row.x - meanX) ** 2,
     0,
   );
-  if (totalWeight <= 0) return null;
-
-  let running = 0;
-  let medianResidual =
-    sortedByResidual[sortedByResidual.length - 1].residual;
-  for (const row of sortedByResidual) {
-    running += row.weight;
-    if (running >= totalWeight / 2) {
-      medianResidual = row.residual;
-      break;
-    }
-  }
-
-  const meanDistance = local.reduce(
-    (sum, row) => sum + row.distance,
+  const numerator = weighted.reduce(
+    (sum, row) =>
+      sum + row.weight * (row.x - meanX) * (row.y - meanY),
     0,
-  ) / local.length;
+  );
+
+  const actionValues = weighted
+    .filter((row) => row.kind === "action")
+    .map((row) => row.x);
+  const actionMin = actionValues.length ? Math.min(...actionValues) : 0;
+  const actionMax = actionValues.length ? Math.max(...actionValues) : 0;
+  const actionSupport = weighted.filter((row) => row.kind === "action").length;
+  const passiveSupport = weighted.length - actionSupport;
+
+  const rawSlope =
+    denominator >= 0.002 ? numerator / denominator : 0;
+  const slopeIdentified =
+    denominator >= 0.002 &&
+    actionSupport >= 3 &&
+    actionMax - actionMin >= 0.08 &&
+    Number.isFinite(rawSlope) &&
+    rawSlope > 0;
+
+  // More head pressure must not learn a negative CO2 response. Cap only truly
+  // implausible extrapolation; the historical slope remains the primary signal.
+  const slope = slopeIdentified
+    ? clamp(rawSlope, 0, 0.8)
+    : 0;
+  const intercept = meanY - slope * meanX;
+  const predictedDelta = intercept + slope * candidateActionDelta;
+  const meanDistance =
+    weighted.reduce((sum, row) => sum + row.stateDistance, 0) /
+    weighted.length;
 
   return {
-    correction: clamp(medianResidual, -0.12, 0.12),
-    support: local.length,
+    intercept,
+    slope,
+    predictedDelta,
+    support: weighted.length,
+    actionSupport,
+    passiveSupport,
+    effectiveWeight: weightSum,
     meanDistance,
+    slopeIdentified,
+    actionMin,
+    actionMax,
   };
+}
+
+function empiricalWeight(response: EmpiricalResponse | null): number {
+  if (!response) return 0;
+
+  if (response.slopeIdentified) {
+    if (
+      response.support >= 12 &&
+      response.actionSupport >= 5 &&
+      response.meanDistance <= 3
+    ) return 0.9;
+    if (
+      response.support >= 7 &&
+      response.actionSupport >= 3 &&
+      response.meanDistance <= 4.5
+    ) return 0.8;
+    return 0.65;
+  }
+
+  // Without an identifiable pressure-response slope, history may still inform
+  // passive two-day drift, but it must not fabricate the effect of a pressure change.
+  return response.support >= 7 ? 0.35 : 0.2;
 }
 
 function refinePressureWithForecast(args: {
@@ -1064,11 +1112,20 @@ export function estimatePressureTargetV4(args: {
   // physical equilibrium equation. Applying the learned equilibrium offset
   // again inside the kinetic simulation would double-calibrate the forecast.
   // The learned/local equilibrium remains the operational setpoint anchor only.
+  const empiricalRows = buildEmpiricalTrainingRows({
+    samples: args.samples ?? [],
+    passiveSamples: args.passiveSamples ?? [],
+    state: args.state,
+  });
+
   const forecastAtPressure = (pressureBar: number): {
     predicted: number;
-    calibration: EmpiricalCalibration | null;
+    physicalPredicted: number;
+    empiricalPredicted: number | null;
+    response: EmpiricalResponse | null;
+    empiricalWeight: number;
   } | null => {
-    const physical = simulateForward({
+    const physicalPredicted = simulateForward({
       carbonation: args.state.carbonation,
       pressureBar,
       pressureCalibrationOffset: 0,
@@ -1077,20 +1134,29 @@ export function estimatePressureTargetV4(args: {
       kPerHour,
       hours: horizonHours,
     });
-    if (physical === null) return null;
+    if (physicalPredicted === null) return null;
 
-    const calibration = empiricalCalibrationForPressure({
-      samples: args.samples ?? [],
-      passiveSamples: args.passiveSamples ?? [],
-      state: args.state,
-      candidatePressure: pressureBar,
-      kPerHour,
-      horizonHours,
-    });
+    const candidateActionDelta =
+      pressureBar - args.state.currentPressure;
+    const response =
+      Math.abs(horizonHours - 48) <= 12
+        ? fitEmpiricalResponse(empiricalRows, candidateActionDelta)
+        : null;
+    const empiricalPredicted = response
+      ? args.state.carbonation + response.predictedDelta
+      : null;
+    const weight = empiricalWeight(response);
 
     return {
-      predicted: physical + (calibration?.correction ?? 0),
-      calibration,
+      predicted:
+        empiricalPredicted === null
+          ? physicalPredicted
+          : physicalPredicted * (1 - weight) +
+            empiricalPredicted * weight,
+      physicalPredicted,
+      empiricalPredicted,
+      response,
+      empiricalWeight: weight,
     };
   };
 
@@ -1286,9 +1352,23 @@ export function estimatePressureTargetV4(args: {
     headroomBar: Number(headroomBar.toFixed(2)),
     headroomSupport,
     empiricalCorrectionVol: Number(
-      (targetForecast.calibration?.correction ?? 0).toFixed(3),
+      (
+        targetForecast.predicted -
+        targetForecast.physicalPredicted
+      ).toFixed(3),
     ),
-    empiricalSupport: targetForecast.calibration?.support ?? 0,
+    empiricalSupport: targetForecast.response?.support ?? 0,
+    empiricalSlopeVolPerBar: Number(
+      (targetForecast.response?.slope ?? 0).toFixed(3),
+    ),
+    empiricalDriftVol48h: Number(
+      (targetForecast.response?.intercept ?? 0).toFixed(3),
+    ),
+    empiricalActionSupport:
+      targetForecast.response?.actionSupport ?? 0,
+    empiricalPassiveSupport:
+      targetForecast.response?.passiveSupport ?? 0,
+    empiricalModelUsed: targetForecast.empiricalWeight >= 0.65,
     action,
     pressureOnlyLikelyInsufficient,
     requiresAtmosphericVenting,
