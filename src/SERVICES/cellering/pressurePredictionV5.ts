@@ -249,34 +249,10 @@ export function buildPressureV5TrainingPoints(args: {
 }): PressureV5TrainingPoint[] {
   const points: PressureV5TrainingPoint[] = [];
 
-  if (args.firstCarbonation) {
-    const coldReference = finite(args.coldReferenceTemperature);
-    const earlyCoolingTransitions = (args.transitions ?? []).filter((sample) => {
-      const cooling = sample.cooling;
-      if (!cooling) return false;
-      if (cooling.stillCooling) return true;
-      if (cooling.hoursSinceCooling <= 120) return true;
-      const sampleTemp = finite(sample.currentTemp);
-      return (
-        coldReference !== null &&
-        sampleTemp !== null &&
-        sampleTemp >= coldReference + 1.5
-      );
-    });
-
-    for (const sample of earlyCoolingTransitions) {
-      const point = pointFromTransition(
-        sample,
-        args.state,
-      );
-      if (point) points.push(point);
-    }
-
-    return points
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 24);
-  }
-
+  // Alpha describes the speed of approach to equilibrium, not whether this is
+  // the first carbonation check. Therefore first/subsequent checks learn from
+  // the same good historical evidence. The first-check distinction belongs in
+  // the forward temperature trajectory, not in the kinetic parameter.
   for (const sample of args.samples ?? []) {
     const point = pointFromOutcome({
       source: "action",
@@ -305,9 +281,9 @@ export function buildPressureV5TrainingPoints(args: {
     if (point) points.push(point);
   }
 
-  // Action/passive samples are closest to the exact 48h decision problem.
-  // Only supplement with transitions when there are too few valid 48h points.
-  if (points.length < 6) {
+  // Transitions are valid extra evidence for the same alpha. Prefer direct
+  // two-day samples when abundant; otherwise supplement with transitions.
+  if (points.length < 12) {
     for (const sample of args.transitions ?? []) {
       const point = pointFromTransition(sample, args.state);
       if (point) points.push(point);
