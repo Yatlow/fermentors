@@ -645,3 +645,75 @@ test("tank 17 style demo: low carbonation cannot be HOLD while no-change stays b
     `low carbonation with short forecast must not hold at ${estimate.targetPressure}`,
   );
 });
+
+
+test("stable V4 uses a ±0.02 vol target window, not ±0.04", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.47,
+    currentPressure: 0.7,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.7, 300),
+    cooling: cooling({
+      hours: 240,
+      currentTemp: 1,
+      pressure: 0.7,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.004),
+    state,
+    targetCarbonation: 2.5,
+    equilibriumPressure: 0.65,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.notEqual(
+    estimate.action,
+    "hold",
+    "0.03 vol below target is outside the new ±0.02 window",
+  );
+  assert.ok(
+    Math.abs(
+      estimate.predictedCarbonation - estimate.targetCarbonation,
+    ) <= 0.02,
+    `stable forecast should land within ±0.02 vol; got ${estimate.predictedCarbonation}`,
+  );
+});
+
+test("early cooling keeps operational pressure logic even if forecast is outside ±0.02", () => {
+  const earlyCooling = cooling({
+    hours: 48,
+    currentTemp: 6.8,
+    pressure: 1.35,
+    stillCooling: true,
+    tempChange24h: -3,
+  });
+  const state: PressureV4DecisionState = {
+    carbonation: 2.26,
+    currentPressure: 1.44,
+    currentTemp: 6.8,
+    hoursSinceT0: 80,
+    exposure: exposure(1.35, 80, 0.4),
+    cooling: earlyCooling,
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.0015),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.6,
+    coldReferenceTemperature: 0.6,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure < state.currentPressure,
+    "early cooling may recommend venting based on stored pressure/headroom",
+  );
+});
