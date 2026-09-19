@@ -1490,3 +1490,256 @@ test("2.15 -> 2.40 must not present a pressure setpoint when it closes only a sm
     "a setpoint that leaves the forecast far from target must not be presented as a normal pressure recommendation",
   );
 });
+
+
+test("passive baseline stays robust when pressure-action outcomes are extreme", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.35,
+    currentPressure: 0.61,
+    currentTemp: 0.4,
+    hoursSinceT0: 450,
+    exposure: exposure(0.61, 450),
+    cooling: cooling({
+      hours: 450,
+      currentTemp: 0.4,
+      pressure: 0.61,
+    }),
+    carbonationTrend: null,
+  };
+
+  const passiveSamples: PressureV4PassiveSample[] = Array.from(
+    { length: 12 },
+    (_, index) => ({
+      batchId: `passive-robust-${index}`,
+      style: "test",
+      sampleDateTimeMs: index * 100000,
+      sampleDate: "2026-09-01",
+      carbonationBefore: 2.35,
+      currentPressure: 0.61,
+      currentTemp: 0.4,
+      hoursSinceT0: 450,
+      exposure: exposure(0.61, 450),
+      primaryOutcome: {
+        carbonation: 2.37 + (index % 3) * 0.005,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0.02 + (index % 3) * 0.005,
+      quality: "high",
+    }),
+  );
+
+  const samples: PressureV4Sample[] = Array.from(
+    { length: 12 },
+    (_, index) => {
+      const actionPressureDelta = [0.2, 0.35, 0.5][index % 3];
+      return {
+        batchId: `action-extreme-${index}`,
+        style: "test",
+        t0: {
+          index: 0,
+          dateTimeMs: 0,
+          source: "explicit_close",
+          pressure: 0.61,
+          previousPressure: 0,
+        },
+        actionDateTimeMs: index * 100000,
+        actionDate: "2026-09-01",
+        carbonationBefore: 2.35,
+        currentPressure: 0.61,
+        targetPressure: 0.61 + actionPressureDelta,
+        currentTemp: 0.4,
+        hoursSinceT0: 450,
+        exposure: exposure(0.61, 450),
+        intermediateDay1: null,
+        primaryOutcome: {
+          carbonation: 3.5,
+          dateTimeMs: index * 100000 + 48 * 3600000,
+          calendarDaysAfterAction: 2,
+        },
+        carbonationDelta: 1.15,
+        actionPressureDelta,
+        quality: "high",
+      };
+    },
+  );
+
+  const estimate = estimatePressureTargetV4({
+    samples,
+    passiveSamples,
+    transitions: transitionsFor(state, 0.00007).slice(0, 4),
+    state,
+    targetCarbonation: 2.5,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.predictedCarbonationWithoutChange >= 2.36 &&
+      estimate.predictedCarbonationWithoutChange <= 2.39,
+    `passive no-change forecast must remain near robust passive drift, got ${estimate.predictedCarbonationWithoutChange}`,
+  );
+  assert.ok(
+    estimate.predictedCarbonationWithoutChange < 2.6,
+    "action outcomes must never drag the no-change baseline into an absurd whole-volume jump",
+  );
+});
+
+test("2.27 -> 2.45 does not advertise a setpoint when the best forecast remains far short", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.27,
+    currentPressure: 0.83,
+    currentTemp: 0.6,
+    hoursSinceT0: 450,
+    exposure: exposure(0.83, 450),
+    cooling: cooling({
+      hours: 450,
+      currentTemp: 0.6,
+      pressure: 0.83,
+    }),
+    carbonationTrend: null,
+  };
+
+  const passiveSamples: PressureV4PassiveSample[] = Array.from(
+    { length: 8 },
+    (_, index) => ({
+      batchId: `passive-227-${index}`,
+      style: "test",
+      sampleDateTimeMs: index * 100000,
+      sampleDate: "2026-09-01",
+      carbonationBefore: 2.27,
+      currentPressure: 0.83,
+      currentTemp: 0.6,
+      hoursSinceT0: 450,
+      exposure: exposure(0.83, 450),
+      primaryOutcome: {
+        carbonation: 2.29,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0.02,
+      quality: "high",
+    }),
+  );
+
+  const actionDeltas = [0.2, 0.35, 0.5, 0.65];
+  const samples: PressureV4Sample[] = Array.from(
+    { length: 12 },
+    (_, index) => {
+      const actionPressureDelta = actionDeltas[index % actionDeltas.length];
+      const carbonationDelta = 0.02 + actionPressureDelta * 0.10;
+      return {
+        batchId: `action-227-${index}`,
+        style: "test",
+        t0: {
+          index: 0,
+          dateTimeMs: 0,
+          source: "explicit_close",
+          pressure: 0.83,
+          previousPressure: 0,
+        },
+        actionDateTimeMs: index * 100000,
+        actionDate: "2026-09-01",
+        carbonationBefore: 2.27,
+        currentPressure: 0.83,
+        targetPressure: 0.83 + actionPressureDelta,
+        currentTemp: 0.6,
+        hoursSinceT0: 450,
+        exposure: exposure(0.83, 450),
+        intermediateDay1: null,
+        primaryOutcome: {
+          carbonation: 2.27 + carbonationDelta,
+          dateTimeMs: index * 100000 + 48 * 3600000,
+          calendarDaysAfterAction: 2,
+        },
+        carbonationDelta,
+        actionPressureDelta,
+        quality: "high",
+      };
+    },
+  );
+
+  const estimate = estimatePressureTargetV4({
+    samples,
+    passiveSamples,
+    transitions: transitionsFor(state, 0.0004).slice(0, 4),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.6,
+    coldReferenceTemperature: 0.6,
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.predictedCarbonation < 2.41,
+    `synthetic weak-response case should remain materially short, got ${estimate.predictedCarbonation}`,
+  );
+  assert.equal(
+    estimate.decisionStatus,
+    "pressure_only_insufficient",
+    "a far-short forecast must not be presented as an ordinary pressure setpoint",
+  );
+});
+
+test("active cooling keeps the stored-pressure decision separate from stable 48h empirical learning", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.26,
+    currentPressure: 1.44,
+    currentTemp: 6.8,
+    hoursSinceT0: 80,
+    exposure: exposure(1.35, 80, 0.4),
+    cooling: cooling({
+      hours: 48,
+      currentTemp: 6.8,
+      pressure: 1.35,
+      stillCooling: true,
+      tempChange24h: -3,
+    }),
+    carbonationTrend: null,
+  };
+
+  const misleadingPassive: PressureV4PassiveSample[] = Array.from(
+    { length: 12 },
+    (_, index) => ({
+      batchId: `passive-wrong-phase-${index}`,
+      style: "test",
+      sampleDateTimeMs: index * 100000,
+      sampleDate: "2026-09-01",
+      carbonationBefore: 2.26,
+      currentPressure: 1.44,
+      currentTemp: 1,
+      hoursSinceT0: 400,
+      exposure: exposure(1.44, 400),
+      primaryOutcome: {
+        carbonation: 3.2,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0.94,
+      quality: "high",
+    }),
+  );
+
+  const estimate = estimatePressureTargetV4({
+    passiveSamples: misleadingPassive,
+    transitions: transitionsFor(state, 0.0015),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.6,
+    coldReferenceTemperature: 0.6,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.decisionStatus, "early_cooling_exception");
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure >= 1.0 && estimate.targetPressure <= 1.15,
+    `expected early-cooling stored-pressure target near 1.1 bar, got ${estimate.targetPressure}`,
+  );
+  assert.equal(
+    estimate.empiricalPassiveSupport,
+    0,
+    "stable passive history must not drive an active-cooling decision",
+  );
+});
