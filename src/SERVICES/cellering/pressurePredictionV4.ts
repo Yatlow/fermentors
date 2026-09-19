@@ -44,6 +44,15 @@ export type PressureV4CoolingState = {
   stillCooling: boolean;
 };
 
+export type PressureV4CarbonationTrend = {
+  checksInPhase: number;
+  previousCarbonation: number | null;
+  previousDateTimeMs: number | null;
+  hoursSincePrevious: number | null;
+  deltaFromPrevious: number | null;
+  ratePerDay: number | null;
+};
+
 export type PressureV4DecisionState = {
   carbonation: number;
   currentPressure: number;
@@ -51,6 +60,7 @@ export type PressureV4DecisionState = {
   hoursSinceT0: number;
   exposure: PressureV4Exposure;
   cooling: PressureV4CoolingState | null;
+  carbonationTrend?: PressureV4CarbonationTrend | null;
 };
 
 export type PressureV4Outcome = {
@@ -772,6 +782,44 @@ export function buildPressureV4DecisionState(args: {
     equilibriumPressure: args.equilibriumPressure,
   });
 
+  const phaseStartMs = cooling?.startDateTimeMs ?? t0.dateTimeMs;
+  const carbonationChecks = rows
+    .map((entry) => ({
+      time: entry.time,
+      carbonation: finiteNumber(entry.measurement.carbonation),
+    }))
+    .filter((entry): entry is { time: number; carbonation: number } =>
+      entry.time >= phaseStartMs &&
+      entry.carbonation !== null
+    );
+
+  const currentCheck = carbonationChecks[carbonationChecks.length - 1] ?? null;
+  const previousCheck =
+    carbonationChecks.length >= 2
+      ? carbonationChecks[carbonationChecks.length - 2]
+      : null;
+  const hoursSincePrevious =
+    currentCheck && previousCheck
+      ? Math.max(0, (currentCheck.time - previousCheck.time) / 3600000)
+      : null;
+  const deltaFromPrevious =
+    currentCheck && previousCheck
+      ? currentCheck.carbonation - previousCheck.carbonation
+      : null;
+  const carbonationTrend: PressureV4CarbonationTrend = {
+    checksInPhase: carbonationChecks.length,
+    previousCarbonation: previousCheck?.carbonation ?? null,
+    previousDateTimeMs: previousCheck?.time ?? null,
+    hoursSincePrevious,
+    deltaFromPrevious,
+    ratePerDay:
+      deltaFromPrevious !== null &&
+      hoursSincePrevious !== null &&
+      hoursSincePrevious > 0
+        ? deltaFromPrevious * 24 / hoursSincePrevious
+        : null,
+  };
+
   return {
     carbonation,
     currentPressure,
@@ -779,5 +827,6 @@ export function buildPressureV4DecisionState(args: {
     hoursSinceT0: Math.max(0, (latest.time - t0.dateTimeMs) / 3600000),
     exposure,
     cooling,
+    carbonationTrend,
   };
 }
