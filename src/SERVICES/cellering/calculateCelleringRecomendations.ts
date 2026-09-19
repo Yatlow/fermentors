@@ -1469,28 +1469,28 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             : null;
 
         if (estimate) {
-            const confidenceText = estimate.confidence === "high" ? "ביטחון גבוה" : "ביטחון בינוני";
-            const offsetDirection = estimate.pressureDelta > 0 ? "מעל" : "מתחת";
-            const physicalAction =
+            const actionText =
                 estimate.currentPressureChange > 0.025
-                    ? `בפועל יש להעלות את הלחץ הנוכחי מ-${currentPressure} ל-${estimate.targetPressure} bar.`
+                    ? `מומלץ להעלות את הלחץ ל-${estimate.targetPressure} bar.`
                     : estimate.currentPressureChange < -0.025
-                        ? `בפועל יש להוריד את הלחץ הנוכחי מ-${currentPressure} ל-${estimate.targetPressure} bar.`
-                        : `הלחץ הנוכחי כבר קרוב ליעד; מומלץ לכוון ל-${estimate.targetPressure} bar.`;
+                        ? `מומלץ להוריד את הלחץ ל-${estimate.targetPressure} bar.`
+                        : `מומלץ לכוון את הלחץ ל-${estimate.targetPressure} bar.`;
+            const retestText =
+                estimate.expectedDays === 1
+                    ? "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יום."
+                    : estimate.expectedDays === 2
+                        ? "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
+                        : `מומלץ לבצע בדיקת גיזוז חוזרת בעוד ${estimate.expectedDays} ימים.`;
             const calibrationText =
                 estimate.calibrationEvaluatedSamples >= 8 &&
                 estimate.calibrationWithin005Rate !== null
-                    ? ` המחשבון כייל את עצמו על ${estimate.calibrationEvaluatedSamples} מקרי אימות; ` +
-                      `${Math.round(estimate.calibrationWithin005Rate * 100)}% היו בטווח ±0.05 בגיזוז.`
+                    ? ` ${Math.round(estimate.calibrationWithin005Rate * 100)}% דיוק לפי מודל סטטיסטי.`
                     : "";
 
             learnedPressureReason =
                 `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
-                `נקודת האיזון הנלמדת לסגנון/יעד הזה היא כ-${estimate.equilibriumPressure} bar ` +
-                `(${estimate.equilibriumSampleCount} דוגמאות). לפי ${estimate.sampleCount} תיקוני לחץ דומים (${confidenceText}), ` +
-                `נדרש יעד של ${estimate.targetPressure} bar — ${Math.abs(estimate.pressureDelta).toFixed(2)} bar ${offsetDirection} נקודת האיזון. ` +
-                physicalAction +
-                ` מומלץ לבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים.` +
+                actionText +
+                ` ${retestText}` +
                 calibrationText;
         }
     }
@@ -1522,12 +1522,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         reason: coldCarbNeedsPressureAdjustment
             ? learnedPressureReason ??
                 (
-                    `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם. ` +
-                    (
-                        pressureModelSampleCount === null || pressureModelSampleCount === 0
-                            ? "מחשבון שינוי הלחץ עדיין ללא היסטוריה זמינה"
-                            : `מחשבון שינוי הלחץ מכיל ${pressureModelSampleCount} דוגמאות, אך עדיין אין לפחות 5 דוגמאות דומות מספיק למצב הנוכחי`
-                    )
+                    `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם. אין המלצה זמינה ללחץ רצוי.`
                 )
             : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
