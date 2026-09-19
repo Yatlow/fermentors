@@ -1790,7 +1790,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(warmYeastDropTarget)} דליים - ` +
                     (latestWarmYeastDropAge > 1
                         ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
-                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`),
+                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים של שמרים.`),
                 importance: 2,
             };
         }
@@ -1818,11 +1818,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 display: true,
                 req: true,
                 reason:
-                    `בהוצאה הקרה הראשונה הוצאו ${formatYeastAmount(firstColdYeastDropAfterCooling.amount)} דליים. ` +
+                    `בהוצאת השמרים הקרה הראשונה הוצאו ${formatYeastAmount(firstColdYeastDropAfterCooling.amount)} דליים. ` +
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(coldYeastDropTarget)} דליים - ` +
                     (firstColdYeastDropAge > 2
-                        ? `השלמת ההוצאה התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
-                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`),
+                        ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
+                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים של שמרים.`),
                 importance: 2,
             };
         }
