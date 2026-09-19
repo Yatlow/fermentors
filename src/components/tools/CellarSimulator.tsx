@@ -15,6 +15,10 @@ import {
     type PressureV4Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV4Estimator";
 import {
+    estimatePressureTargetV5,
+    type PressureV5Estimate,
+} from "../../SERVICES/cellering/pressurePredictionV5";
+import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
@@ -28,6 +32,7 @@ import "./CellarSimulator.css";
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
 type StageMode = "actual" | "cold" | "warm";
 type CarbonationScenarioMode = "auto" | "first" | "subsequent";
+type EvaluationTimeMode = "now" | "atMeasurement";
 
 type Props = {
     brews: Fermentor[];
@@ -136,72 +141,83 @@ function resolveFirstCarbonation(args: {
     return { first: priorChecks === 0, priorChecks };
 }
 
-function buildHypotheticalProductionPressureText(
-    estimate: PressureV4Estimate,
-    currentCarbonation: number,
-    venting: VentingEstimate | null,
+function carbonationMeasurementDayText(daysAgo: number): string {
+    if (daysAgo <= 0) return "היום";
+    if (daysAgo === 1) return "אתמול";
+    if (daysAgo === 2) return "לפני יומיים";
+    return `לפני ${daysAgo} ימים`;
+}
+
+function buildHypotheticalProductionPressureTextV5(
+    estimate: PressureV5Estimate,
+    carbAgeDays: number,
 ): string {
-    const targetRange =
-        `${estimate.targetWindowMin.toFixed(2)}–${estimate.targetWindowMax.toFixed(2)}`;
+    const measured = estimate.measuredCarbonation;
+    const target = estimate.targetCarbonation;
+    const measurementDay = carbonationMeasurementDayText(carbAgeDays);
+    const relation =
+        measured < target ? "נמוך" : measured > target ? "גבוה" : "תקין";
 
-    if (estimate.decisionStatus === "pressure_only_insufficient") {
-        const directionText =
-            currentCarbonation < estimate.targetCarbonation
-                ? "הגיזוז נמוך"
-                : "הגיזוז גבוה";
-        if (
-            currentCarbonation > estimate.targetCarbonation &&
-            venting
-        ) {
-            return (
-                `${directionText} (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
-                `לפי מודל V4 שינוי לחץ ראש בלבד לא צפוי להביא את הגיזוז לטווח ${targetRange} בתוך יומיים. ` +
-                `מומלץ לפתוח ל-${venting.ventPressureBar.toFixed(2)} bar למשך כ-${venting.durationMinutes} דקות, ` +
-                `ואז לסגור מחדש ולבצע בדיקת גיזוז חוזרת. התחזית בסיום האוורור: ${venting.predictedCarbonationAtClose.toFixed(3)}.`
-            );
-        }
+    const intro =
+        `הגיזוז בבדיקה שנלקחה ${measurementDay} ${relation} ` +
+        `(${measured.toFixed(2)}, גיזוז תקין ${target.toFixed(2)}). `;
 
-        const nextAction =
-            currentCarbonation < estimate.targetCarbonation
-                ? "מומלץ לשקול גיזוז מלמטה"
-                : "מומלץ לבצע הורדת לחץ/שחרור בהתאם";
-
+    if (estimate.edgeCase === "bottom_carbonation") {
         return (
-            `${directionText} (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
-            `לפי מודל V4 שינוי לחץ ראש בלבד לא צפוי להביא את הגיזוז לטווח ${targetRange} בתוך יומיים. ` +
-            `${nextAction} ולבצע בדיקת גיזוז חוזרת.`
+            intro +
+            "לחץ ראש אינו מסלול הטיפול המתאים במקרה הזה. מומלץ לעבור למסלול גיזוז מלמטה ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
         );
     }
 
-    const actionText =
-        estimate.action === "hold"
-            ? `להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar`
-            : estimate.action === "raise"
-                ? `להעלות את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar`
-                : `להוריד את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar`;
-
-    if (estimate.decisionStatus === "pressure_adjust_and_recheck") {
+    if (estimate.edgeCase === "venting_below_zero") {
         return (
-            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
-            `מומלץ ${actionText} ולבצע בדיקת גיזוז חוזרת. ` +
-            `תחזית V4 לעוד יומיים היא ${estimate.predictedCarbonation.toFixed(3)}, עדיין מחוץ לטווח ${targetRange}; ` +
-            "בביטחון הנוכחי המודל לא מפרש זאת כהוכחה שלחץ ראש אינו מספיק."
+            intro +
+            "גם הורדת לחץ הראש ל-0 bar אינה צפויה להספיק. מומלץ לעבור למסלול פריקה מבוקר ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
         );
     }
 
-    if (estimate.decisionStatus === "early_cooling_exception") {
+    if (estimate.edgeCase === "head_pressure_insufficient") {
         return (
-            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
-            `המיכל עדיין בתהליך קירור; מומלץ ${actionText}. ` +
-            `תחזית הגיזוז לעוד יומיים היא ${estimate.predictedCarbonation.toFixed(3)}, מחוץ לטווח ${targetRange}, ` +
-            "ולכן מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
+            intro +
+            "גם בלחץ הראש המקסימלי המותר לא צפוי להגיע לגיזוז התקין. מומלץ לעבור לגיזוז מלמטה ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
+        );
+    }
+
+    if (estimate.targetPressure === null) {
+        return (
+            intro +
+            "אין כרגע יעד לחץ אוטומטי אמין. מומלץ לבצע בדיקת גיזוז חוזרת."
+        );
+    }
+
+    if (estimate.action === "raise") {
+        return (
+            intro +
+            `מומלץ להעלות את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar ` +
+            "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
+        );
+    }
+
+    if (estimate.action === "lower") {
+        return (
+            intro +
+            `מומלץ להוריד את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar ` +
+            "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
+        );
+    }
+
+    if (Math.abs(measured - target) <= 0.02) {
+        return (
+            `הגיזוז בבדיקה שנלקחה ${measurementDay} תקין ` +
+            `(${measured.toFixed(2)}, גיזוז תקין ${target.toFixed(2)}). ` +
+            `מומלץ להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar.`
         );
     }
 
     return (
-        `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
-        `מומלץ ${actionText} ולבצע בדיקת גיזוז חוזרת בעוד יומיים. ` +
-        `תחזית V4 לאחר הפעולה: ${estimate.predictedCarbonation.toFixed(3)}.`
+        intro +
+        `מומלץ להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar ` +
+        "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
     );
 }
 
@@ -220,6 +236,7 @@ function scenarioMeasurements(args: {
     plato?: number;
     firstCarbonation: boolean;
     treatment: Treatment;
+    evaluationTimeMode: EvaluationTimeMode;
 }): Measurement[] {
     const carbDate = dateKey(args.carbAgeDays);
     const today = dateKey(0);
@@ -259,7 +276,13 @@ function scenarioMeasurements(args: {
         notes: treatmentNote,
     };
 
-    if (args.carbAgeDays === 0) {
+    // Historical replay: stop the timeline at the carbonation measurement.
+    // This answers "what would the engine have recommended then?" instead of
+    // projecting that old measurement forward to today.
+    if (
+        args.evaluationTimeMode === "atMeasurement" ||
+        args.carbAgeDays === 0
+    ) {
         return [...base, carbRow];
     }
 
@@ -291,6 +314,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v4Result, setV4Result] = useState<PressureV4Estimate | null>(null);
     const [v4Status, setV4Status] = useState("");
     const [v4CoolingStatus, setV4CoolingStatus] = useState("");
+    const [v5Result, setV5Result] = useState<PressureV5Estimate | null>(null);
+    const [v5Status, setV5Status] = useState("");
     const [ventingResult, setVentingResult] = useState<VentingEstimate | null>(null);
 
     const [carbonation, setCarbonation] = useState("2.10");
@@ -302,6 +327,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [carbonationScenarioMode, setCarbonationScenarioMode] =
         useState<CarbonationScenarioMode>("auto");
     const [stageMode, setStageMode] = useState<StageMode>("actual");
+    const [evaluationTimeMode, setEvaluationTimeMode] =
+        useState<EvaluationTimeMode>("now");
 
     const tank = tanks.find((item) => item.id === tankId) ?? null;
 
@@ -310,6 +337,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4Result(null);
         setV4Status("");
         setV4CoolingStatus("");
+        setV5Result(null);
+        setV5Status("");
         setVentingResult(null);
         setError("");
         if (!tank?.batchNumber) {
@@ -385,6 +414,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4Result(null);
         setV4Status("");
         setV4CoolingStatus("");
+        setV5Result(null);
+        setV5Status("");
         setVentingResult(null);
 
         try {
@@ -403,6 +434,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 plato: numericOrUndefined(plato),
                 firstCarbonation: carbonationScenario.first,
                 treatment,
+                evaluationTimeMode,
             });
 
             const stage =
@@ -437,11 +469,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 setV4Status("אין יעד גיזוז זמין לסגנון");
             } else {
                 const v4Model = await getPressurePredictionModelV4(tank.beerStyle);
-                if (!v4Model || v4Model.transitions.length < 4) {
-                    const count = v4Model?.transitions.length ?? 0;
-                    setV4Status(
-                        `נמצאו ${count} מעברים קינטיים; נדרשים לפחות 4. המודל עדיין ממתין לסריקת ההיסטוריה.`
-                    );
+                if (!v4Model) {
+                    setV4Status("אין מסמך מודל לחץ היסטורי לסגנון");
+                    setV5Status("אין מסמך מודל לחץ היסטורי לסגנון");
                 } else {
                     const equilibriumForTemp = (temperature: number | null) =>
                         getEquilibriumPressureForV4(v4Model, temperature);
@@ -453,6 +483,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
                     if (!state) {
                         setV4Status("אין מספיק היסטוריית לחץ/גיזוז לבניית מצב V4");
+                        setV5Status("אין מספיק נתוני מצב נוכחי לחישוב V5");
                     } else {
                         setV4CoolingStatus(
                             state.cooling
@@ -476,42 +507,68 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             setV4Status(
                                 "המיכל עדיין חם מדי לחישוב לחץ גיזוז קר"
                             );
+                            setV5Status(
+                                "המיכל עדיין חם מדי לחישוב לחץ גיזוז קר"
+                            );
                         } else {
-                            const estimate = estimatePressureTargetV4({
+                            const v5Estimate = estimatePressureTargetV5({
                                 samples: v4Model.samples,
                                 passiveSamples: v4Model.passiveSamples,
                                 transitions: v4Model.transitions,
                                 state,
                                 targetCarbonation: Number(carbonationTarget),
-                                equilibriumPressure:
-                                    equilibriumForTemp(referenceTemperature),
+                                coldReferenceTemperature,
+                                firstCarbonation: carbonationScenario.first,
                                 equilibriumPressureAtTemperature:
                                     equilibriumForTemp,
-                                coldReferenceTemperature,
                             });
-                            if (estimate) {
-                                setV4Result(estimate);
-                                setV4Status("");
-
-                                const venting =
-                                    estimate.decisionStatus ===
-                                        "pressure_only_insufficient" &&
-                                    carbonationValue >
-                                        estimate.targetWindowMax
-                                        ? estimateVentingDuration({
-                                            transitions:
-                                                v4Model.transitions,
-                                            state,
-                                            targetCarbonation:
-                                                Number(carbonationTarget),
-                                            ventPressureBar: 0,
-                                        })
-                                        : null;
-                                setVentingResult(venting);
+                            if (v5Estimate) {
+                                setV5Result(v5Estimate);
+                                setV5Status("");
                             } else {
+                                setV5Status("לא ניתן לבנות חישוב V5 מהמצב הנוכחי");
+                            }
+
+                            if (v4Model.transitions.length < 4) {
                                 setV4Status(
-                                    "אין מספיק מצבים היסטוריים דומים להמלצת V4"
+                                    `נמצאו ${v4Model.transitions.length} מעברים קינטיים; V4 דורש לפחות 4.`
                                 );
+                            } else {
+                                const estimate = estimatePressureTargetV4({
+                                    samples: v4Model.samples,
+                                    passiveSamples: v4Model.passiveSamples,
+                                    transitions: v4Model.transitions,
+                                    state,
+                                    targetCarbonation: Number(carbonationTarget),
+                                    equilibriumPressure:
+                                        equilibriumForTemp(referenceTemperature),
+                                    equilibriumPressureAtTemperature:
+                                        equilibriumForTemp,
+                                    coldReferenceTemperature,
+                                });
+                                if (estimate) {
+                                    setV4Result(estimate);
+                                    setV4Status("");
+
+                                    const venting =
+                                        estimate.requiresAtmosphericVenting &&
+                                        carbonationValue >
+                                            estimate.targetWindowMax
+                                            ? estimateVentingDuration({
+                                                transitions:
+                                                    v4Model.transitions,
+                                                state,
+                                                targetCarbonation:
+                                                    Number(carbonationTarget),
+                                                ventPressureBar: 0,
+                                            })
+                                            : null;
+                                    setVentingResult(venting);
+                                } else {
+                                    setV4Status(
+                                        "אין מספיק מצבים היסטוריים דומים להמלצת V4"
+                                    );
+                                }
                             }
                         }
                     }
@@ -572,6 +629,25 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 </label>
 
                 <label>
+                    <span>מתי לחשב את ההמלצה</span>
+                    <select
+                        value={evaluationTimeMode}
+                        onChange={(event) =>
+                            setEvaluationTimeMode(
+                                event.target.value as EvaluationTimeMode
+                            )
+                        }
+                    >
+                        <option value="now">
+                            עכשיו — לקדם מדידה ישנה עד היום
+                        </option>
+                        <option value="atMeasurement">
+                            בזמן המדידה — מה היה מומלץ אז
+                        </option>
+                    </select>
+                </label>
+
+                <label>
                     <span>לחץ</span>
                     <input type="number" step="0.01" value={pressure} onChange={(event) => setPressure(event.target.value)} placeholder="bar" />
                 </label>
@@ -613,6 +689,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
             </label>
 
             <div className="cellar-simulator-v4-status">
+                {evaluationTimeMode === "atMeasurement" && carbAgeDays > 0
+                    ? `Replay היסטורי: המנוע נעצר בזמן בדיקת הגיזוז מלפני ${carbAgeDays === 1 ? "יום" : `${carbAgeDays} ימים`} ולא רואה שום נתון מאוחר יותר. · `
+                    : evaluationTimeMode === "now" && carbAgeDays > 0
+                        ? "חישוב להיום: המדידה הישנה מקודמת קדימה לפי הזמן והחשיפה מאז. · "
+                        : ""}
                 {(() => {
                     const resolved = resolveFirstCarbonation({
                         source,
@@ -624,7 +705,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         : `זיהוי: בדיקה חוזרת · ${resolved.priorChecks} בדיקות גיזוז קודמות אחרי קירור`;
                 })()}
                 {" · "}
-                הזיהוי משנה רק את ההיסטוריה המדומה; מנוע V4 עצמו לא מקבל כלל מיוחד ל"גיזוז ראשון".
+                הזיהוי משנה רק את ההיסטוריה המדומה; V4 ו-V5 לא מקבלים כלל קסם מיוחד ל"גיזוז ראשון".
             </div>
 
             <div className="cellar-simulator-actions">
@@ -645,16 +726,88 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
             {error && <div className="cellar-simulator-error">{error}</div>}
 
-            {v4Result && (
+            {(v5Result || v5Status) && (
+                <div className="cellar-simulator-results">
+                    <h3>V5 — מרחק משיווי־משקל</h3>
+                    {v5Result ? (
+                        <article className="cellar-simulator-result level-1">
+                            <strong>
+                                {v5Result.edgeCase === "bottom_carbonation"
+                                    ? "מקרה קצה: גיזוז מלמטה"
+                                    : v5Result.edgeCase === "venting_below_zero"
+                                        ? "מקרה קצה: נדרשת פריקה"
+                                        : v5Result.edgeCase === "head_pressure_insufficient"
+                                            ? "מקרה קצה: גיזוז מלמטה — לחץ ראש לא מספיק"
+                                            : v5Result.action === "hold"
+                                                ? "להשאיר לחץ"
+                                                : v5Result.action === "raise"
+                                                    ? `להעלות לחץ ל-${v5Result.targetPressure?.toFixed(2)} bar`
+                                                    : `להוריד לחץ ל-${v5Result.targetPressure?.toFixed(2)} bar`}
+                            </strong>
+                            <p>
+                                מצב: {v5Result.mode === "first_cooling" ? "בדיקת גיזוז ראשונה / המשך קירור" : "מיכל קר יציב"} ·
+                                נמדד: {v5Result.measuredCarbonation.toFixed(3)} vol ·
+                                עברו {v5Result.hoursSinceCarbonationMeasurement.toFixed(1)} שעות מאז הבדיקה ·
+                                גיזוז משוער עכשיו: {v5Result.estimatedCurrentCarbonation.toFixed(3)} vol ·
+                                קצב מעבר: k={v5Result.kPerHour.toFixed(5)}/שעה
+                                {" "}({
+                                    v5Result.kSource === "learned"
+                                        ? `נלמד מהמעברים${v5Result.rawLearnedKPerHour !== null ? ` · raw ${v5Result.rawLearnedKPerHour.toFixed(5)}` : ""}`
+                                        : v5Result.kSource === "guarded"
+                                            ? `k היסטורי נפסל${v5Result.rawLearnedKPerHour !== null ? ` (raw ${v5Result.rawLearnedKPerHour.toFixed(5)})` : ""}; משתמשים בכלל התפעולי`
+                                            : "נגזר מכלל העבודה התפעולי"
+                                }) ·
+                                אפקט קינטי משוער ל-48 שעות: {v5Result.effectiveVolPerBar48h.toFixed(3)} vol/bar ·
+                                תמיכה: {v5Result.supportCount} מעברים ·
+                                ביטחון: {v5Result.confidence} ·
+                                טמפרטורת חישוב: {v5Result.forecastTemperature.toFixed(1)}°C ·
+                                לחץ שיווי־משקל של הגיזוז המשוער עכשיו: {v5Result.equilibriumPressureForCurrentCarb.toFixed(2)} bar ·
+                                לחץ שיווי־משקל של יעד {v5Result.targetCarbonation.toFixed(2)}: {v5Result.targetEquilibriumPressure.toFixed(2)} bar ·
+                                מרחק הלחץ הנוכחי משיווי־משקל: {v5Result.pressureDistanceFromEquilibrium >= 0 ? "+" : ""}{v5Result.pressureDistanceFromEquilibrium.toFixed(2)} bar ·
+                                בעוד 48 שעות בלי שינוי לחץ: {v5Result.predictedWithoutChange.toFixed(3)} vol
+                                {v5Result.setpointBasis === "first_cooling_kinetic"
+                                    ? ` · בסיס setpoint: אפקט קינטי 48h ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`
+                                    : ` · בסיס setpoint: תיקון אינקרמנטלי מהלחץ הנוכחי לפי ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`}
+                                {v5Result.targetPressureRangeLow !== null && v5Result.targetPressureRangeHigh !== null
+                                    ? ` · טווח הגנה ${v5Result.operationalVolPerBarMin.toFixed(2)}–${v5Result.operationalVolPerBarMax.toFixed(2)} vol/bar: ${v5Result.targetPressureRangeLow.toFixed(2)}–${v5Result.targetPressureRangeHigh.toFixed(2)} bar`
+                                    : ""}
+                                {v5Result.rawTargetPressure !== null
+                                    ? ` · לחץ יעד: ${v5Result.rawTargetPressure.toFixed(2)} bar`
+                                    : ""}
+                                {v5Result.predictedAtTarget !== null
+                                    ? ` · יעד גיזוז בחישוב: ${v5Result.predictedAtTarget.toFixed(3)} vol`
+                                    : ""}
+                                {v5Result.edgeCase === "bottom_carbonation"
+                                    ? " · מתחת 2.15: V5 רק מזהה את המסלול ולא מחשב טיפול."
+                                    : ""}
+                                {v5Result.edgeCase === "venting_below_zero"
+                                    ? " · הפתרון המתמטי דורש לחץ gauge שלילי; V5 רק מזהה שנדרשת פריקה ולא מחשב זמן."
+                                    : ""}
+                                {v5Result.edgeCase === "head_pressure_insufficient"
+                                    ? " · הפתרון המתמטי דורש מעל 1.9 bar; V5 רק מסמן שלחץ ראש אינו פתרון מתאים."
+                                    : ""}
+                            </p>
+                        </article>
+                    ) : (
+                        <div className="cellar-simulator-empty">{v5Status}</div>
+                    )}
+                </div>
+            )}
+
+            {v5Result && (
                 <div className="cellar-simulator-results">
                     <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
                     <article className="cellar-simulator-result level-1">
-                        <strong>שינוי לחץ</strong>
+                        <strong>
+                            {v5Result.edgeCase === "bottom_carbonation" ||
+                            v5Result.edgeCase === "head_pressure_insufficient"
+                                ? "גיזוז מלמטה"
+                                : "שינוי לחץ"}
+                        </strong>
                         <p>
-                            {buildHypotheticalProductionPressureText(
-                                v4Result,
-                                Number(carbonation),
-                                ventingResult,
+                            {buildHypotheticalProductionPressureTextV5(
+                                v5Result,
+                                carbAgeDays,
                             )}
                         </p>
                     </article>
@@ -694,6 +847,13 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 שיווי־משקל תפעולי: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar
                                 ({v4Result.referenceTemperature?.toFixed(1) ?? "—"}°C) ·
                                 headroom: {v4Result.headroomBar >= 0 ? "+" : ""}{v4Result.headroomBar} bar ·
+                                תיקון היסטורי מול physics: {v4Result.empiricalCorrectionVol >= 0 ? "+" : ""}{v4Result.empiricalCorrectionVol} vol ·
+                                תגובת לחץ נלמדת: {v4Result.empiricalSlopeVolPerBar} vol/bar ל-48ש׳ ·
+                                drift ללא פעולה: {v4Result.empiricalDriftVol48h >= 0 ? "+" : ""}{v4Result.empiricalDriftVol48h} vol ·
+                                evidence: {v4Result.empiricalActionSupport} פעולות + {v4Result.empiricalPassiveSupport} passive
+                                {v4Result.empiricalModelUsed ? " · empirical מוביל" : " · empirical לא מספיק חזק"} ·
+                                השפעת שינוי הלחץ: {v4Result.pressureActionEffectVol >= 0 ? "+" : ""}{v4Result.pressureActionEffectVol} vol ·
+                                נסגרו {(v4Result.pressureGapClosedFraction * 100).toFixed(0)}% מהפער ·
                                 ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
                                 יעד גיזוז: {v4Result.targetCarbonation}
@@ -718,10 +878,15 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                             ? "חריג קירור פעיל — התחזית יכולה להיות מחוץ לחלון"
                                             : v4Result.decisionStatus === "pressure_adjust_and_recheck"
                                                 ? "שינוי לחץ ובדיקה חוזרת — התחזית עדיין מחוץ לחלון"
-                                                : "אין פתרון מספק בלחץ ראש בלבד"
+                                                : v4Result.decisionStatus === "insufficient_response_evidence"
+                                                    ? "אין evidence מספק לתגובת לחץ — אין המלצת setpoint אוטומטית"
+                                                    : "אין פתרון מספק בלחץ ראש בלבד"
                                 }
                                 {v4Result.pressureOnlyLikelyInsufficient
                                     ? " · לחץ ראש בלבד לא צפוי להספיק"
+                                    : ""}
+                                {v4Result.requiresAtmosphericVenting
+                                    ? " · מסלול: פריקה ל-0 bar (לעולם לא לחץ שלילי)"
                                     : ""}
                             </p>
                         </article>
