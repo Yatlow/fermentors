@@ -222,6 +222,17 @@ export function estimatePressureTargetV4(args: {
     maxPressure < minPressure
   ) return null;
 
+  const standardTargetEquilibrium = equilibriumPressureBar(
+    currentTemp,
+    args.targetCarbonation,
+  );
+  const learnedTargetEquilibrium = finite(args.equilibriumPressure);
+  const equilibriumPressureOffset =
+    learnedTargetEquilibrium !== null &&
+    standardTargetEquilibrium !== null
+      ? learnedTargetEquilibrium - standardTargetEquilibrium
+      : 0;
+
   const rows = localTransitions(args.transitions ?? [], args.state);
   if (rows.length < 4) return null;
 
@@ -236,7 +247,7 @@ export function estimatePressureTargetV4(args: {
     const targetPressure = Number((minPressure + index * step).toFixed(2));
     const predicted = evolveCarbonation({
       carbonation: args.state.carbonation,
-      pressureBar: targetPressure,
+      pressureBar: targetPressure - equilibriumPressureOffset,
       temperatureC: currentTemp,
       kPerHour,
       hours: horizonHours,
@@ -256,7 +267,7 @@ export function estimatePressureTargetV4(args: {
 
   const noChange = evolveCarbonation({
     carbonation: args.state.carbonation,
-    pressureBar: args.state.currentPressure,
+    pressureBar: args.state.currentPressure - equilibriumPressureOffset,
     temperatureC: currentTemp,
     kPerHour,
     hours: horizonHours,
@@ -307,9 +318,7 @@ export function estimatePressureTargetV4(args: {
     accuracyPercent: accuracyPercent(rows, kPerHour),
     candidates,
     kPerHour: Number(kPerHour.toFixed(5)),
-    targetEquilibriumPressure: equilibriumPressureBar(
-      currentTemp,
-      args.targetCarbonation,
-    ),
+    targetEquilibriumPressure:
+      learnedTargetEquilibrium ?? standardTargetEquilibrium,
   };
 }
