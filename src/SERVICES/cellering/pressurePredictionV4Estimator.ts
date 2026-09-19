@@ -45,6 +45,8 @@ export type PressureV4Estimate = {
   empiricalActionSupport: number;
   empiricalPassiveSupport: number;
   empiricalModelUsed: boolean;
+  pressureActionEffectVol: number;
+  pressureGapClosedFraction: number;
   action: "hold" | "raise" | "lower";
   pressureOnlyLikelyInsufficient: boolean;
   requiresAtmosphericVenting: boolean;
@@ -1373,13 +1375,26 @@ export function estimatePressureTargetV4(args: {
           predictedCarbonationWithoutChangeRaw -
             (args.targetCarbonation + TARGET_TOLERANCE_VOL),
         );
-  const minimumUsefulEffect = Math.max(
-    0.008,
-    Math.min(0.02, neededEffect * 0.2),
-  );
+  const gapClosedFraction =
+    neededEffect <= 0.001
+      ? 1
+      : clamp(actionEffect / neededEffect, 0, 1);
+
+  // A pressure change is not an operational solution merely because it moves
+  // carbonation by a few thousandths. For a stable cold tank, if the forecast
+  // remains outside the target band, the proposed setpoint must close a
+  // substantial share of the remaining gap. Otherwise classify pressure-only
+  // as insufficient instead of presenting the headroom prior as a recommendation.
+  const closeEnoughForRecheck =
+    Math.abs(predictedRaw - args.targetCarbonation) <= 0.04;
   const responseTooSmall =
     action !== "hold" &&
-    actionEffect < minimumUsefulEffect;
+    !forecastInTargetWindow &&
+    !closeEnoughForRecheck &&
+    (
+      actionEffect < 0.015 ||
+      gapClosedFraction < 0.5
+    );
 
   const responseEvidenceMissing =
     !empiricalResponse?.slopeIdentified &&
@@ -1440,6 +1455,8 @@ export function estimatePressureTargetV4(args: {
     empiricalPassiveSupport:
       targetForecast.response?.passiveSupport ?? 0,
     empiricalModelUsed: targetForecast.empiricalWeight >= 0.65,
+    pressureActionEffectVol: Number(actionEffect.toFixed(3)),
+    pressureGapClosedFraction: Number(gapClosedFraction.toFixed(2)),
     action,
     pressureOnlyLikelyInsufficient,
     requiresAtmosphericVenting,
