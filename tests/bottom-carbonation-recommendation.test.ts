@@ -51,7 +51,7 @@ test("bottom carbonation recommends learned pressures and duration below thresho
   assert.equal(estimate.confidence, "high");
 });
 
-test("bottom carbonation does not trigger above learned/capped threshold", () => {
+test("bottom carbonation does not trigger at or above the hard 2.15 cutoff", () => {
   const samples = Array.from({ length: 12 }, () => bottomSample());
 
   const estimate = estimateBottomCarbonation({
@@ -77,7 +77,7 @@ test("bottom carbonation requires at least five useful historical sessions", () 
 });
 
 
-test("bottom carbonation learns a stricter trigger than the 2.15 ceiling", () => {
+test("historical sessions do not move the hard 2.15 routing cutoff", () => {
   const samples = Array.from({ length: 12 }, (_, index) =>
     bottomSample({
       carbonationBefore: 1.98 + (index % 3) * 0.02,
@@ -91,10 +91,9 @@ test("bottom carbonation learns a stricter trigger than the 2.15 ceiling", () =>
     currentPressure: 0.9,
   });
 
-  assert.equal(
+  assert.ok(
     estimate,
-    null,
-    "once history is sufficient, a style-specific threshold should replace the broad 2.20 fallback",
+    "history should tune duration/pressures, not make the <2.15 routing threshold stricter",
   );
 });
 
