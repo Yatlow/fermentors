@@ -362,7 +362,10 @@ export default function CellarSimulator({ brews, specs }: Props) {
             } else {
                 const v4Model = await getPressurePredictionModelV4(tank.beerStyle);
                 if (!v4Model || v4Model.transitions.length < 4) {
-                    setV4Status("המודל הקינטי עדיין ללא מספיק מעברים בין בדיקות גיזוז");
+                    const count = v4Model?.transitions.length ?? 0;
+                    setV4Status(
+                        `נמצאו ${count} מעברים קינטיים; נדרשים לפחות 4. המודל עדיין ממתין לסריקת ההיסטוריה.`
+                    );
                 } else {
                     const equilibriumForTemp = (temperature: number | null) =>
                         getEquilibriumPressureForV4(v4Model, temperature);
@@ -380,21 +383,44 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 ? `${Math.round(state.cooling.hoursSinceCooling)} שעות מאז קירור${state.cooling.stillCooling ? " · עדיין מתקרר" : ""}`
                                 : "אין אירוע קירור מזוהה"
                         );
-                        const estimate = estimatePressureTargetV4({
-                            samples: v4Model.samples,
-                            passiveSamples: v4Model.passiveSamples,
-                            transitions: v4Model.transitions,
-                            state,
-                            targetCarbonation: Number(carbonationTarget),
-                            equilibriumPressure: equilibriumForTemp(state.currentTemp),
-                            coldReferenceTemperature:
-                                getColdReferenceTemperatureV4(v4Model),
-                        });
-                        if (estimate) {
-                            setV4Result(estimate);
-                            setV4Status("");
+                        const coldReferenceTemperature =
+                            getColdReferenceTemperatureV4(v4Model);
+                        const referenceTemperature =
+                            state.cooling?.stillCooling &&
+                            coldReferenceTemperature !== null &&
+                            state.currentTemp !== null &&
+                            coldReferenceTemperature < state.currentTemp
+                                ? coldReferenceTemperature
+                                : state.currentTemp;
+
+                        if (
+                            state.currentTemp !== null &&
+                            state.currentTemp > 9
+                        ) {
+                            setV4Status(
+                                "המיכל עדיין חם מדי לחישוב לחץ גיזוז קר"
+                            );
                         } else {
-                            setV4Status("אין מספיק מצבים היסטוריים דומים להמלצת V4");
+                            const estimate = estimatePressureTargetV4({
+                                samples: v4Model.samples,
+                                passiveSamples: v4Model.passiveSamples,
+                                transitions: v4Model.transitions,
+                                state,
+                                targetCarbonation: Number(carbonationTarget),
+                                equilibriumPressure:
+                                    equilibriumForTemp(referenceTemperature),
+                                equilibriumPressureAtTemperature:
+                                    equilibriumForTemp,
+                                coldReferenceTemperature,
+                            });
+                            if (estimate) {
+                                setV4Result(estimate);
+                                setV4Status("");
+                            } else {
+                                setV4Status(
+                                    "אין מספיק מצבים היסטוריים דומים להמלצת V4"
+                                );
+                            }
                         }
                     }
                 }
@@ -534,16 +560,31 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         <article className="cellar-simulator-result level-1">
                             <strong>מודל לחץ V4</strong>
                             <p>
-                                יעד לחץ מומלץ: {v4Result.targetPressure} bar ·
+                                פעולה: {
+                                    v4Result.action === "hold"
+                                        ? "להשאיר לחץ"
+                                        : v4Result.action === "raise"
+                                            ? "להעלות לחץ"
+                                            : "להוריד לחץ"
+                                } ·
+                                יעד לחץ: {v4Result.targetPressure} bar ·
+                                שיווי־משקל תפעולי: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar
+                                ({v4Result.referenceTemperature?.toFixed(1) ?? "—"}°C) ·
+                                headroom: {v4Result.headroomBar >= 0 ? "+" : ""}{v4Result.headroomBar} bar ·
                                 ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
-                                יעד: {v4Result.targetCarbonation} ·
+                                יעד גיזוז: {v4Result.targetCarbonation} ·
                                 ביטחון: {v4Result.confidence} ·
                                 דיוק היסטורי: {v4Result.accuracyPercent}% ·
-                                k: {v4Result.kPerHour}/שעה ·
+                                k לחיזוי בלבד: {v4Result.kPerHour}/שעה ·
                                 {v4CoolingStatus} ·
-                                לחץ שיווי־משקל ליעד: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar ·
                                 תמיכה: {v4Result.supportCount} מעברים
+                                {v4Result.headroomSupport > 0
+                                    ? ` · headroom היסטורי: ${v4Result.headroomSupport} דוגמאות`
+                                    : ""}
+                                {v4Result.pressureOnlyLikelyInsufficient
+                                    ? " · לחץ ראש בלבד כנראה לא יספיק — לשקול גיזוז מלמטה"
+                                    : ""}
                             </p>
                         </article>
                     ) : (
