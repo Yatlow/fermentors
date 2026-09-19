@@ -40,6 +40,17 @@ function calculateWeeklyStyleAverages(force) {
   const batchTracker = {};
   // normalized style -> historical bottom-carbonation sessions
   const bottomCarbonationSamplesByStyle = {};
+
+  // Reuse the exact same weekly brew/measurement scan to keep V4 current.
+  // This adds no measurement rereads: only one specs lookup plus one existing
+  // V4 model read/write per touched style.
+  const pressureV4Targets =
+    pressureV4ReadCarbonationTargets_(projectId);
+  const pressureV4SamplesByStyle = {};
+  const pressureV4PassiveByStyle = {};
+  const pressureV4TransitionsByStyle = {};
+  const pressureV4PointsByStyle = {};
+
   allBrews.forEach(function (brew) {
 
     const data = brew.data || {};
@@ -87,6 +98,41 @@ function calculateWeeklyStyleAverages(force) {
       );
 
     const pressureStyle = normalizePressureModelStyle_(style);
+
+    if (!pressureV4SamplesByStyle[pressureStyle]) {
+      pressureV4SamplesByStyle[pressureStyle] = [];
+      pressureV4PassiveByStyle[pressureStyle] = [];
+      pressureV4TransitionsByStyle[pressureStyle] = [];
+      pressureV4PointsByStyle[pressureStyle] = [];
+    }
+
+    Array.prototype.push.apply(
+      pressureV4SamplesByStyle[pressureStyle],
+      pressureV4BuildSamples_(measurements, brew.id)
+    );
+    Array.prototype.push.apply(
+      pressureV4PassiveByStyle[pressureStyle],
+      pressureV4BuildPassiveSamples_(measurements, brew.id)
+    );
+    Array.prototype.push.apply(
+      pressureV4TransitionsByStyle[pressureStyle],
+      pressureV4BuildTransitions_(measurements, brew.id)
+    );
+
+    const pressureV4Target = pressureV4Number_(
+      pressureV4Targets[pressureStyle] != null
+        ? pressureV4Targets[pressureStyle]
+        : pressureV4Targets.other
+    );
+    const pressureV4Point = pressureV4BuildEquilibriumPoint_(
+      measurements,
+      brew.id,
+      pressureV4Target
+    );
+    if (pressureV4Point) {
+      pressureV4PointsByStyle[pressureStyle].push(pressureV4Point);
+    }
+
     if (!bottomCarbonationSamplesByStyle[pressureStyle]) {
       bottomCarbonationSamplesByStyle[pressureStyle] = [];
     }
@@ -306,6 +352,30 @@ function calculateWeeklyStyleAverages(force) {
 
   Logger.log("Bottom carbonation models updated: " + bottomCarbonationModelsUpdated);
 
+  let pressureV4ModelsUpdated = 0;
+  const pressureV4TouchedStyles = {};
+  Object.keys(pressureV4SamplesByStyle)
+    .concat(Object.keys(pressureV4PassiveByStyle))
+    .concat(Object.keys(pressureV4TransitionsByStyle))
+    .concat(Object.keys(pressureV4PointsByStyle))
+    .forEach(function (styleKey) {
+      pressureV4TouchedStyles[styleKey] = true;
+    });
+
+  Object.keys(pressureV4TouchedStyles).forEach(function (styleKey) {
+    pressureV4WriteModel_(
+      projectId,
+      styleKey,
+      pressureV4SamplesByStyle[styleKey] || [],
+      pressureV4PassiveByStyle[styleKey] || [],
+      pressureV4TransitionsByStyle[styleKey] || [],
+      pressureV4PointsByStyle[styleKey] || []
+    );
+    pressureV4ModelsUpdated++;
+  });
+
+  Logger.log("V4 pressure models updated: " + pressureV4ModelsUpdated);
+
   Logger.log(
     "WEEKLY STYLE AVERAGES FINISHED"
   );
@@ -316,7 +386,8 @@ function calculateWeeklyStyleAverages(force) {
   return {
     skipped: false,
     stylesUpdated: stylesUpdated,
-    bottomCarbonationModelsUpdated: bottomCarbonationModelsUpdated
+    bottomCarbonationModelsUpdated: bottomCarbonationModelsUpdated,
+    pressureV4ModelsUpdated: pressureV4ModelsUpdated
   };
 }
 
