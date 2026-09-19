@@ -97,3 +97,78 @@ test("bottom carbonation learns a stricter trigger than the 2.20 fallback", () =
     "once history is sufficient, a style-specific threshold should replace the broad 2.20 fallback",
   );
 });
+
+
+function v4State(
+  pressureMean24h: number,
+  equilibriumDeltaBarHours: number,
+) {
+  return {
+    hoursSinceT0: 96,
+    currentPressure: pressureMean24h,
+    currentTemp: 2,
+    exposure: {
+      hoursSinceT0: 96,
+      pressureHours: pressureMean24h * 96,
+      temperatureHours: 2 * 96,
+      equilibriumDeltaBarHours,
+      pressureMean: pressureMean24h,
+      pressureMean24h,
+      pressureMean48h: pressureMean24h,
+      temperatureMean: 2,
+      pressurePoints: 6,
+      temperaturePoints: 6,
+      coveredHours: 96,
+      coverageRatio: 1,
+    },
+  };
+}
+
+test("bottom carbonation uses the same V4 tank state to choose historical response", () => {
+  const highExposure = Array.from({ length: 20 }, (_, index) =>
+    bottomSample({
+      batchId: `high-${index}`,
+      durationMinutes: 30,
+      carbonationDelta: 0.18,
+      state: {
+        ...v4State(1.35, 55),
+        quality: "high",
+      },
+    })
+  );
+  const lowExposure = Array.from({ length: 20 }, (_, index) =>
+    bottomSample({
+      batchId: `low-${index}`,
+      durationMinutes: 90,
+      carbonationDelta: 0.18,
+      state: {
+        ...v4State(0.75, -5),
+        quality: "high",
+      },
+    })
+  );
+
+  const high = estimateBottomCarbonation({
+    samples: [...highExposure, ...lowExposure],
+    currentCarbonation: 2.05,
+    targetCarbonation: 2.25,
+    currentPressure: 1.35,
+    temp: 2,
+    state: v4State(1.35, 55),
+  });
+  const low = estimateBottomCarbonation({
+    samples: [...highExposure, ...lowExposure],
+    currentCarbonation: 2.05,
+    targetCarbonation: 2.25,
+    currentPressure: 0.75,
+    temp: 2,
+    state: v4State(0.75, -5),
+  });
+
+  assert.ok(high);
+  assert.ok(low);
+  assert.ok(
+    high.durationMinutes < low.durationMinutes,
+    "the same carbonation deficit should use different bottom-carbonation duration when V4 exposure differs",
+  );
+});
