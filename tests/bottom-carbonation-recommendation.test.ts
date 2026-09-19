@@ -122,6 +122,7 @@ function v4State(
       coveredHours: 96,
       coverageRatio: 1,
     },
+    cooling: null,
   };
 }
 
