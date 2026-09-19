@@ -584,20 +584,13 @@ function refinePressureWithForecast(args: {
   maxPressure: number;
   step: number;
 }): number {
-  // On the first/early cold check, if the operational calculation already
-  // says to vent from a high closing pressure, do not let a slow fitted k undo
-  // that decision. The stored head pressure plus continuing cooling are the
-  // dominant information in this phase.
-  if (
+  const earlyCoolingVent =
     isEffectivelyStillCooling(
       args.state,
       args.coldReferenceTemperature,
     ) &&
     args.state.carbonation < args.targetCarbonation &&
-    args.baselinePressure < args.state.currentPressure
-  ) {
-    return args.baselinePressure;
-  }
+    args.baselinePressure < args.state.currentPressure;
 
   const currentAtBaseline = simulateForward({
     carbonation: args.state.carbonation,
@@ -613,6 +606,38 @@ function refinePressureWithForecast(args: {
   const baselineError =
     Math.abs(currentAtBaseline - args.targetCarbonation);
   if (baselineError <= TARGET_TOLERANCE_VOL) return args.baselinePressure;
+
+  if (earlyCoolingVent) {
+    const lowerTargetBound =
+      args.targetCarbonation - TARGET_TOLERANCE_VOL;
+
+    // During the first/active cooling phase, equilibrium + headroom remains
+    // the primary decision. But if its own 48h forecast is still materially
+    // below the target window, do not vent all the way to that baseline.
+    // Keep a small amount of the already-stored head pressure as a safety
+    // margin. The correction is intentionally bounded to 0.20 bar and can
+    // never exceed the pressure that is already in the tank.
+    if (currentAtBaseline < lowerTargetBound) {
+      const forecastShortfall =
+        lowerTargetBound - currentAtBaseline;
+      const correctionBar = clamp(
+        0.05 + forecastShortfall,
+        0.05,
+        0.20,
+      );
+      return snapPressure(
+        Math.min(
+          args.state.currentPressure,
+          args.baselinePressure + correctionBar,
+        ),
+        args.minPressure,
+        args.maxPressure,
+        args.step,
+      );
+    }
+
+    return args.baselinePressure;
+  }
 
   // k is a bounded fine-tuner, not the primary decision-maker. The allowed
   // correction grows with the actual carbonation deficit/excess: tiny misses
