@@ -1,30 +1,21 @@
-import {
-  equilibriumCarbonationVolumes,
-  equilibriumPressureBar,
-} from "./pressureCarbonationPhysics";
+import { equilibriumPressureBar } from "./pressureCarbonationPhysics";
 import type {
   PressureV4DecisionState,
   PressureV4PassiveSample,
   PressureV4Sample,
-  PressureV4TransitionSample,
 } from "./pressurePredictionV4";
 
-const DEFAULT_ALPHA_48H = 0.45;
-const MIN_DRIVING_GAP_VOL = 0.04;
+const DEFAULT_VOL_PER_BAR = 0.67;
+const MIN_ACTION_DELTA_BAR = 0.08;
+const MIN_VOL_PER_BAR = 0.05;
+const MAX_VOL_PER_BAR = 2.0;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 
 type Quality = "low" | "medium" | "high";
 
-export type PressureV5TrainingPoint = {
-  source: "action" | "passive" | "transition";
-  batchId?: string;
-  alpha48: number;
-  startCarbonation: number;
-  pressureBar: number;
-  temperatureC: number;
-  drivingGapVol: number;
-  observedDeltaVol: number;
-  durationHours: number;
+type ResponseRow = {
+  x: number; // pressure action delta; passive = 0
+  y: number; // observed carbonation delta after 2 calendar days
   quality: Quality;
   distance: number;
 };
@@ -37,24 +28,26 @@ export type PressureV5Estimate = {
   currentPressure: number;
   currentTemperature: number;
   forecastTemperature: number;
-  alpha48: number;
-  alphaSource: "learned" | "heuristic";
+
+  volPerBar: number;
+  responseSource: "learned" | "heuristic";
   supportCount: number;
   confidence: "low" | "medium" | "high";
-  currentEquilibriumCarbonation: number;
-  drivingForceVol: number;
+
+  equilibriumPressureForCurrentCarb: number;
+  pressureDistanceFromEquilibrium: number;
   predictedWithoutChange: number;
-  targetEquilibriumCarbonation: number | null;
+
   rawTargetPressure: number | null;
   targetPressure: number | null;
   predictedAtTarget: number | null;
+
   action: "hold" | "raise" | "lower" | "edge_case";
   edgeCase:
     | null
     | "bottom_carbonation"
     | "venting_below_zero"
     | "head_pressure_insufficient";
-  trainingPoints: PressureV5TrainingPoint[];
 };
 
 function finite(value: unknown): number | null {
@@ -66,10 +59,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function qualityWeight(quality: Quality): number {
+  return quality === "high" ? 1 : quality === "medium" ? 0.7 : 0.35;
+}
+
 function weightedMedian(
-  rows: Array<{ value: number; weight: number }>,
+  values: Array<{ value: number; weight: number }>,
 ): number | null {
-  const sorted = rows
+  const rows = values
     .filter((row) =>
       Number.isFinite(row.value) &&
       Number.isFinite(row.weight) &&
@@ -78,469 +75,180 @@ function weightedMedian(
     .slice()
     .sort((a, b) => a.value - b.value);
 
-  if (!sorted.length) return null;
-  const total = sorted.reduce((sum, row) => sum + row.weight, 0);
+  if (!rows.length) return null;
+  const total = rows.reduce((sum, row) => sum + row.weight, 0);
   if (total <= 0) return null;
 
   let running = 0;
-  for (const row of sorted) {
+  for (const row of rows) {
     running += row.weight;
     if (running >= total / 2) return row.value;
   }
-  return sorted[sorted.length - 1].value;
+  return rows[rows.length - 1].value;
 }
 
-function qualityWeight(quality: Quality): number {
-  return quality === "high" ? 1 : quality === "medium" ? 0.7 : 0.35;
-}
-
-function toAlpha48(
-  observedDelta: number,
-  drivingGap: number,
-  durationHours: number,
-): number | null {
-  if (
-    !Number.isFinite(observedDelta) ||
-    !Number.isFinite(drivingGap) ||
-    !Number.isFinite(durationHours) ||
-    durationHours <= 0 ||
-    Math.abs(drivingGap) < MIN_DRIVING_GAP_VOL
-  ) return null;
-
-  // The observed CO2 change must move toward equilibrium, not away from it.
-  if (observedDelta * drivingGap <= 0) return null;
-
-  const alphaDuration = observedDelta / drivingGap;
-  if (!Number.isFinite(alphaDuration) || alphaDuration <= 0 || alphaDuration > 1.05) {
-    return null;
-  }
-
-  // Samples/passive outcomes are normally exactly two calendar days. For
-  // transitions of another duration, convert the same first-order approach to
-  // its equivalent 48h fraction.
-  const bounded = clamp(alphaDuration, 0.001, 0.98);
-  const kPerHour = -Math.log(1 - bounded) / durationHours;
-  const alpha48 = 1 - Math.exp(-kPerHour * 48);
-  return Number.isFinite(alpha48) ? clamp(alpha48, 0.02, 0.98) : null;
-}
-
-function pointDistance(args: {
-  sampleCarbonation: number;
-  samplePressure: number;
-  sampleTemp: number;
-  currentCarbonation: number;
-  currentPressure: number;
-  currentTemp: number;
+function rowDistance(args: {
+  carbonation: number;
+  pressure: number;
+  temp: number | null;
+  hoursSinceT0: number;
+  state: PressureV4DecisionState;
   quality: Quality;
 }): number {
   let distance = 0;
-  distance += Math.abs(args.sampleCarbonation - args.currentCarbonation) / 0.18;
-  distance += Math.abs(args.samplePressure - args.currentPressure) / 0.45;
-  distance += Math.abs(args.sampleTemp - args.currentTemp) / 3;
+  distance += Math.abs(args.carbonation - args.state.carbonation) / 0.25;
+  distance += Math.abs(args.pressure - args.state.currentPressure) / 0.6;
+
+  const stateTemp = finite(args.state.currentTemp);
+  if (args.temp !== null && stateTemp !== null) {
+    distance += Math.abs(args.temp - stateTemp) / 5;
+  }
+
+  distance +=
+    Math.abs(args.hoursSinceT0 - args.state.hoursSinceT0) / 160;
+
   if (args.quality === "medium") distance += 0.25;
-  if (args.quality === "low") distance += 0.9;
+  if (args.quality === "low") distance += 0.8;
   return distance;
 }
 
-function pointFromOutcome(args: {
-  source: "action" | "passive";
-  batchId?: string;
-  startCarbonation: number;
-  pressureBar: number;
-  temperatureC: number | null;
-  observedDelta: number;
-  quality: Quality;
-  state: PressureV4DecisionState;
-}): PressureV5TrainingPoint | null {
-  if (args.temperatureC === null || !Number.isFinite(args.temperatureC)) return null;
-
-  const equilibrium = equilibriumCarbonationVolumes(
-    args.temperatureC,
-    args.pressureBar,
-  );
-  if (equilibrium === null) return null;
-
-  const drivingGap = equilibrium - args.startCarbonation;
-  const alpha48 = toAlpha48(args.observedDelta, drivingGap, 48);
-  if (alpha48 === null) return null;
-
-  return {
-    source: args.source,
-    batchId: args.batchId,
-    alpha48,
-    startCarbonation: args.startCarbonation,
-    pressureBar: args.pressureBar,
-    temperatureC: args.temperatureC,
-    drivingGapVol: drivingGap,
-    observedDeltaVol: args.observedDelta,
-    durationHours: 48,
-    quality: args.quality,
-    distance: pointDistance({
-      sampleCarbonation: args.startCarbonation,
-      samplePressure: args.pressureBar,
-      sampleTemp: args.temperatureC,
-      currentCarbonation: args.state.carbonation,
-      currentPressure: args.state.currentPressure,
-      currentTemp: args.state.currentTemp ?? args.temperatureC,
-      quality: args.quality,
-    }),
-  };
-}
-
-function pointFromTransition(
-  sample: PressureV4TransitionSample,
-  state: PressureV4DecisionState,
-): PressureV5TrainingPoint | null {
-  const pressure = finite(sample.pressureMeanDuring) ?? finite(sample.currentPressure);
-  const observedTemp = finite(sample.currentTemp) ?? finite(sample.temperatureMeanDuring);
-  // Training must use the temperature the beer actually experienced during
-  // the historical transition. Using the future cold endpoint here makes the
-  // historical driving gap artificially huge and therefore alpha artificially tiny.
-  const equilibriumTemp =
-    finite(sample.temperatureMeanDuring) ??
-    observedTemp;
-  if (pressure === null || observedTemp === null || equilibriumTemp === null) return null;
-
-  const equilibrium = equilibriumCarbonationVolumes(
-    equilibriumTemp,
-    pressure,
-  );
-  if (equilibrium === null) return null;
-
-  const observedDelta = sample.endCarbonation - sample.startCarbonation;
-  const drivingGap = equilibrium - sample.startCarbonation;
-  const alpha48 = toAlpha48(
-    observedDelta,
-    drivingGap,
-    sample.durationHours,
-  );
-  if (alpha48 === null) return null;
-
-  return {
-    source: "transition",
-    batchId: sample.batchId,
-    alpha48,
-    startCarbonation: sample.startCarbonation,
-    pressureBar: pressure,
-    temperatureC: equilibriumTemp,
-    drivingGapVol: drivingGap,
-    observedDeltaVol: observedDelta,
-    durationHours: sample.durationHours,
-    quality: sample.quality,
-    distance: pointDistance({
-      sampleCarbonation: sample.startCarbonation,
-      samplePressure: pressure,
-      sampleTemp: observedTemp,
-      currentCarbonation: state.carbonation,
-      currentPressure: state.currentPressure,
-      currentTemp: state.currentTemp ?? observedTemp,
-      quality: sample.quality,
-    }),
-  };
-}
-
-export function buildPressureV5TrainingPoints(args: {
+function buildResponseRows(args: {
   samples?: PressureV4Sample[];
   passiveSamples?: PressureV4PassiveSample[];
-  transitions?: PressureV4TransitionSample[];
   state: PressureV4DecisionState;
-  firstCarbonation?: boolean;
-  coldReferenceTemperature?: number | null;
-}): PressureV5TrainingPoint[] {
-  const points: PressureV5TrainingPoint[] = [];
+}): ResponseRow[] {
+  const rows: ResponseRow[] = [];
 
-  // Alpha describes the speed of approach to equilibrium, not whether this is
-  // the first carbonation check. Therefore first/subsequent checks learn from
-  // the same good historical evidence. The first-check distinction belongs in
-  // the forward temperature trajectory, not in the kinetic parameter.
   for (const sample of args.samples ?? []) {
-    const point = pointFromOutcome({
-      source: "action",
-      batchId: sample.batchId,
-      startCarbonation: sample.carbonationBefore,
-      pressureBar: sample.targetPressure,
-      temperatureC: sample.currentTemp,
-      observedDelta: sample.carbonationDelta,
+    if (
+      sample.primaryOutcome?.calendarDaysAfterAction !== 2 ||
+      !Number.isFinite(sample.actionPressureDelta) ||
+      !Number.isFinite(sample.carbonationDelta)
+    ) continue;
+
+    rows.push({
+      x: sample.actionPressureDelta,
+      y: sample.carbonationDelta,
       quality: sample.quality,
-      state: args.state,
+      distance: rowDistance({
+        carbonation: sample.carbonationBefore,
+        pressure: sample.currentPressure,
+        temp: finite(sample.currentTemp),
+        hoursSinceT0: sample.hoursSinceT0,
+        state: args.state,
+        quality: sample.quality,
+      }),
     });
-    if (point) points.push(point);
   }
 
   for (const sample of args.passiveSamples ?? []) {
-    const point = pointFromOutcome({
-      source: "passive",
-      batchId: sample.batchId,
-      startCarbonation: sample.carbonationBefore,
-      pressureBar: sample.currentPressure,
-      temperatureC: sample.currentTemp,
-      observedDelta: sample.carbonationDelta,
+    if (
+      sample.primaryOutcome?.calendarDaysAfterAction !== 2 ||
+      !Number.isFinite(sample.carbonationDelta)
+    ) continue;
+
+    rows.push({
+      x: 0,
+      y: sample.carbonationDelta,
       quality: sample.quality,
-      state: args.state,
+      distance: rowDistance({
+        carbonation: sample.carbonationBefore,
+        pressure: sample.currentPressure,
+        temp: finite(sample.currentTemp),
+        hoursSinceT0: sample.hoursSinceT0,
+        state: args.state,
+        quality: sample.quality,
+      }),
     });
-    if (point) points.push(point);
   }
 
-  // Transitions are valid extra evidence for the same alpha. Prefer direct
-  // two-day samples when abundant; otherwise supplement with transitions.
-  if (points.length < 12) {
-    for (const sample of args.transitions ?? []) {
-      const point = pointFromTransition(sample, args.state);
-      if (point) points.push(point);
-    }
-  }
-
-  return points
+  return rows
     .sort((a, b) => a.distance - b.distance)
-    .slice(0, 24);
+    .slice(0, 32);
 }
 
-export function learnPressureV5Alpha(
-  points: PressureV5TrainingPoint[],
-): {
-  alpha48: number;
+export function learnPressureResponseV5(args: {
+  samples?: PressureV4Sample[];
+  passiveSamples?: PressureV4PassiveSample[];
+  state: PressureV4DecisionState;
+}): {
+  volPerBar: number;
   source: "learned" | "heuristic";
   supportCount: number;
   confidence: "low" | "medium" | "high";
-  retainedPoints: PressureV5TrainingPoint[];
 } {
-  if (points.length < 4) {
+  const rows = buildResponseRows(args);
+  const slopes: Array<{ value: number; weight: number }> = [];
+
+  // Robust Theil-Sen style estimate. By differencing two historical rows,
+  // passive drift / background carbonation cancels out. What remains is the
+  // empirical effect of pressure change in vol/bar.
+  for (let i = 0; i < rows.length; i += 1) {
+    for (let j = i + 1; j < rows.length; j += 1) {
+      const dx = rows[i].x - rows[j].x;
+      if (Math.abs(dx) < MIN_ACTION_DELTA_BAR) continue;
+
+      const slope = (rows[i].y - rows[j].y) / dx;
+      if (
+        !Number.isFinite(slope) ||
+        slope < MIN_VOL_PER_BAR ||
+        slope > MAX_VOL_PER_BAR
+      ) continue;
+
+      const weight =
+        Math.sqrt(
+          qualityWeight(rows[i].quality) *
+          qualityWeight(rows[j].quality),
+        ) /
+        (0.4 + rows[i].distance + rows[j].distance);
+
+      slopes.push({ value: slope, weight });
+    }
+  }
+
+  const learned = weightedMedian(slopes);
+  if (learned === null || slopes.length < 4) {
     return {
-      alpha48: DEFAULT_ALPHA_48H,
+      volPerBar: DEFAULT_VOL_PER_BAR,
       source: "heuristic",
-      supportCount: points.length,
+      supportCount: slopes.length,
       confidence: "low",
-      retainedPoints: points,
     };
   }
 
-  const rawMedian = weightedMedian(
-    points.map((point) => ({
-      value: point.alpha48,
-      weight: qualityWeight(point.quality) / (0.3 + point.distance ** 2),
-    })),
-  );
-
-  if (rawMedian === null) {
-    return {
-      alpha48: DEFAULT_ALPHA_48H,
-      source: "heuristic",
-      supportCount: points.length,
-      confidence: "low",
-      retainedPoints: points,
-    };
-  }
-
-  const deviations = points
-    .map((point) => Math.abs(point.alpha48 - rawMedian))
+  const median = learned;
+  const deviations = slopes
+    .map((row) => Math.abs(row.value - median))
     .sort((a, b) => a - b);
   const mad = deviations[Math.floor(deviations.length / 2)] ?? 0;
   const tolerance = Math.max(0.12, mad * 3.5);
-  const retained = points.filter(
-    (point) => Math.abs(point.alpha48 - rawMedian) <= tolerance,
+  const robust = slopes.filter(
+    (row) => Math.abs(row.value - median) <= tolerance,
   );
+  const robustMedian = weightedMedian(robust) ?? median;
 
-  if (retained.length < 4) {
-    return {
-      alpha48: DEFAULT_ALPHA_48H,
-      source: "heuristic",
-      supportCount: retained.length,
-      confidence: "low",
-      retainedPoints: retained,
-    };
-  }
-
-  const learned = weightedMedian(
-    retained.map((point) => ({
-      value: point.alpha48,
-      weight: qualityWeight(point.quality) / (0.3 + point.distance ** 2),
-    })),
-  );
-
-  if (learned === null) {
-    return {
-      alpha48: DEFAULT_ALPHA_48H,
-      source: "heuristic",
-      supportCount: retained.length,
-      confidence: "low",
-      retainedPoints: retained,
-    };
-  }
-
-  const meanDistance =
-    retained.reduce((sum, point) => sum + point.distance, 0) /
-    retained.length;
   const confidence: "low" | "medium" | "high" =
-    retained.length >= 12 && meanDistance <= 2.5
+    robust.length >= 20
       ? "high"
-      : retained.length >= 6 && meanDistance <= 4
+      : robust.length >= 8
         ? "medium"
         : "low";
 
   return {
-    alpha48: clamp(learned, 0.08, 0.9),
+    volPerBar: clamp(robustMedian, MIN_VOL_PER_BAR, MAX_VOL_PER_BAR),
     source: "learned",
-    supportCount: retained.length,
+    supportCount: robust.length,
     confidence,
-    retainedPoints: retained,
   };
 }
 
-function alpha48ToKPerHour(alpha48: number): number {
-  const bounded = clamp(alpha48, 0.001, 0.98);
-  return -Math.log(1 - bounded) / 48;
-}
-
-function estimateCoolingHoursToReference(args: {
-  state: PressureV4DecisionState;
-  currentTemp: number;
-  coldReference: number;
-}): number {
-  const remainingDrop = Math.max(
-    0,
-    args.currentTemp - args.coldReference,
-  );
-  if (remainingDrop <= 0.05) return 0;
-
-  const recentDrop24h = finite(args.state.cooling?.tempChange24h);
-  if (recentDrop24h !== null && recentDrop24h < -0.2) {
-    const ratePerHour = Math.abs(recentDrop24h) / 24;
-    return clamp(remainingDrop / ratePerHour, 4, 48);
-  }
-
-  const totalDrop = finite(args.state.cooling?.tempDropSinceCooling);
-  const hoursSinceCooling = finite(args.state.cooling?.hoursSinceCooling);
-  if (
-    totalDrop !== null &&
-    totalDrop > 0.5 &&
-    hoursSinceCooling !== null &&
-    hoursSinceCooling > 1
-  ) {
-    const ratePerHour = totalDrop / hoursSinceCooling;
-    return clamp(remainingDrop / ratePerHour, 4, 48);
-  }
-
-  // When the trajectory is missing, assume the remaining cooling occupies
-  // roughly the next day rather than pretending the beer is instantly cold.
-  return 24;
-}
-
-function forecastThroughCooling(args: {
-  carbonation: number;
-  pressureBar: number;
-  currentTemp: number;
-  coldReference: number;
-  alpha48: number;
-  coolingHours: number;
-  horizonHours?: number;
-}): number | null {
-  const horizonHours = args.horizonHours ?? 48;
-  const kPerHour = alpha48ToKPerHour(args.alpha48);
-  let carbonation = args.carbonation;
-
-  for (let hour = 0; hour < horizonHours; hour += 1) {
-    const midpoint = hour + 0.5;
-    const progress =
-      args.coolingHours <= 0
-        ? 1
-        : clamp(midpoint / args.coolingHours, 0, 1);
-    const temp =
-      args.currentTemp +
-      (args.coldReference - args.currentTemp) * progress;
-    const equilibrium = equilibriumCarbonationVolumes(
-      temp,
-      args.pressureBar,
-    );
-    if (equilibrium === null) return null;
-
-    const fractionThisHour = 1 - Math.exp(-kPerHour);
-    carbonation +=
-      fractionThisHour * (equilibrium - carbonation);
-  }
-
-  return carbonation;
-}
-
-function solvePressureForCoolingTarget(args: {
-  carbonation: number;
-  targetCarbonation: number;
-  currentTemp: number;
-  coldReference: number;
-  alpha48: number;
-  coolingHours: number;
-}): {
-  edgeCase: null | "venting_below_zero" | "head_pressure_insufficient";
-  rawPressure: number | null;
-  targetPressure: number | null;
-  predicted: number | null;
-} {
-  const forecast = (pressureBar: number) =>
-    forecastThroughCooling({
-      carbonation: args.carbonation,
-      pressureBar,
-      currentTemp: args.currentTemp,
-      coldReference: args.coldReference,
-      alpha48: args.alpha48,
-      coolingHours: args.coolingHours,
-    });
-
-  const atZero = forecast(0);
-  const atMax = forecast(MAX_OPERATIONAL_PRESSURE_BAR);
-  if (atZero === null || atMax === null) {
-    return {
-      edgeCase: null,
-      rawPressure: null,
-      targetPressure: null,
-      predicted: null,
-    };
-  }
-
-  if (atZero > args.targetCarbonation) {
-    return {
-      edgeCase: "venting_below_zero",
-      rawPressure: -0.01,
-      targetPressure: null,
-      predicted: atZero,
-    };
-  }
-
-  if (atMax < args.targetCarbonation) {
-    return {
-      edgeCase: "head_pressure_insufficient",
-      rawPressure: MAX_OPERATIONAL_PRESSURE_BAR + 0.01,
-      targetPressure: null,
-      predicted: atMax,
-    };
-  }
-
-  let low = 0;
-  let high = MAX_OPERATIONAL_PRESSURE_BAR;
-  for (let i = 0; i < 40; i += 1) {
-    const mid = (low + high) / 2;
-    const predicted = forecast(mid);
-    if (predicted === null) break;
-    if (predicted < args.targetCarbonation) {
-      low = mid;
-    } else {
-      high = mid;
-    }
-  }
-
-  const rawPressure = (low + high) / 2;
-  const targetPressure = Math.round(rawPressure * 20) / 20;
-  const predicted = forecast(targetPressure);
-  return {
-    edgeCase: null,
-    rawPressure,
-    targetPressure,
-    predicted,
-  };
+function roundPressure(pressure: number): number {
+  return Math.round(pressure * 20) / 20;
 }
 
 export function estimatePressureTargetV5(args: {
   samples?: PressureV4Sample[];
   passiveSamples?: PressureV4PassiveSample[];
-  transitions?: PressureV4TransitionSample[];
   state: PressureV4DecisionState;
   targetCarbonation: number;
   coldReferenceTemperature?: number | null;
@@ -559,52 +267,32 @@ export function estimatePressureTargetV5(args: {
     args.firstCarbonation === true &&
     coldReference !== null &&
     coldReference < currentTemp - 0.05;
-  const forecastTemperature = firstCoolingMode
-    ? coldReference
-    : currentTemp;
 
-  const points = buildPressureV5TrainingPoints({
+  const forecastTemperature =
+    firstCoolingMode && coldReference !== null
+      ? coldReference
+      : currentTemp;
+
+  const learned = learnPressureResponseV5({
     samples: args.samples,
     passiveSamples: args.passiveSamples,
-    transitions: args.transitions,
     state: args.state,
-    firstCarbonation: args.firstCarbonation,
-    coldReferenceTemperature: coldReference,
   });
-  const learned = learnPressureV5Alpha(points);
-  const alpha = learned.alpha48;
 
-  const coolingHours =
-    firstCoolingMode && coldReference !== null
-      ? estimateCoolingHoursToReference({
-          state: args.state,
-          currentTemp,
-          coldReference,
-        })
-      : 0;
-
-  const currentEquilibrium = equilibriumCarbonationVolumes(
+  const equilibriumPressure = equilibriumPressureBar(
     forecastTemperature,
-    args.state.currentPressure,
+    args.state.carbonation,
   );
-  if (currentEquilibrium === null) return null;
+  if (equilibriumPressure === null) return null;
 
-  const predictedWithoutChange = firstCoolingMode && coldReference !== null
-    ? forecastThroughCooling({
-        carbonation: args.state.carbonation,
-        pressureBar: args.state.currentPressure,
-        currentTemp,
-        coldReference,
-        alpha48: alpha,
-        coolingHours,
-      })
-    : args.state.carbonation +
-      alpha * (currentEquilibrium - args.state.carbonation);
-  if (predictedWithoutChange === null) return null;
+  const pressureDistance =
+    args.state.currentPressure - equilibriumPressure;
+  const predictedWithoutChange =
+    args.state.carbonation +
+    learned.volPerBar * pressureDistance;
 
   const base: Omit<
     PressureV5Estimate,
-    | "targetEquilibriumCarbonation"
     | "rawTargetPressure"
     | "targetPressure"
     | "predictedAtTarget"
@@ -618,22 +306,21 @@ export function estimatePressureTargetV5(args: {
     currentPressure: args.state.currentPressure,
     currentTemperature: currentTemp,
     forecastTemperature,
-    alpha48: Number(alpha.toFixed(3)),
-    alphaSource: learned.source,
+    volPerBar: Number(learned.volPerBar.toFixed(3)),
+    responseSource: learned.source,
     supportCount: learned.supportCount,
     confidence: learned.confidence,
-    currentEquilibriumCarbonation: Number(currentEquilibrium.toFixed(3)),
-    drivingForceVol: Number(
-      (currentEquilibrium - args.state.carbonation).toFixed(3),
-    ),
-    predictedWithoutChange: Number(predictedWithoutChange.toFixed(3)),
-    trainingPoints: learned.retainedPoints,
+    equilibriumPressureForCurrentCarb:
+      Number(equilibriumPressure.toFixed(2)),
+    pressureDistanceFromEquilibrium:
+      Number(pressureDistance.toFixed(2)),
+    predictedWithoutChange:
+      Number(predictedWithoutChange.toFixed(3)),
   };
 
   if (args.state.carbonation < 2.15) {
     return {
       ...base,
-      targetEquilibriumCarbonation: null,
       rawTargetPressure: null,
       targetPressure: null,
       predictedAtTarget: null,
@@ -642,88 +329,15 @@ export function estimatePressureTargetV5(args: {
     };
   }
 
-  if (firstCoolingMode && coldReference !== null) {
-    const solved = solvePressureForCoolingTarget({
-      carbonation: args.state.carbonation,
-      targetCarbonation: args.targetCarbonation,
-      currentTemp,
-      coldReference,
-      alpha48: alpha,
-      coolingHours,
-    });
-
-    const targetEquilibrium =
-      solved.targetPressure === null
-        ? null
-        : equilibriumCarbonationVolumes(
-            coldReference,
-            solved.targetPressure,
-          );
-
-    if (solved.edgeCase) {
-      return {
-        ...base,
-        targetEquilibriumCarbonation:
-          targetEquilibrium === null
-            ? null
-            : Number(targetEquilibrium.toFixed(3)),
-        rawTargetPressure:
-          solved.rawPressure === null
-            ? null
-            : Number(solved.rawPressure.toFixed(2)),
-        targetPressure: null,
-        predictedAtTarget:
-          solved.predicted === null
-            ? null
-            : Number(solved.predicted.toFixed(3)),
-        action: "edge_case",
-        edgeCase: solved.edgeCase,
-      };
-    }
-
-    if (
-      solved.targetPressure === null ||
-      solved.predicted === null ||
-      solved.rawPressure === null
-    ) return null;
-
-    const deltaPressure =
-      solved.targetPressure - args.state.currentPressure;
-    const action: PressureV5Estimate["action"] =
-      Math.abs(deltaPressure) < 0.075
-        ? "hold"
-        : deltaPressure > 0
-          ? "raise"
-          : "lower";
-
-    return {
-      ...base,
-      targetEquilibriumCarbonation:
-        targetEquilibrium === null
-          ? null
-          : Number(targetEquilibrium.toFixed(3)),
-      rawTargetPressure: Number(solved.rawPressure.toFixed(2)),
-      targetPressure: solved.targetPressure,
-      predictedAtTarget: Number(solved.predicted.toFixed(3)),
-      action,
-      edgeCase: null,
-    };
-  }
-
-  const targetEquilibrium =
-    args.state.carbonation +
-    (args.targetCarbonation - args.state.carbonation) / alpha;
-  const rawTargetPressure = equilibriumPressureBar(
-    forecastTemperature,
-    targetEquilibrium,
-  );
-
-  if (rawTargetPressure === null) return null;
+  const carbonationGap =
+    args.targetCarbonation - args.state.carbonation;
+  const rawTargetPressure =
+    equilibriumPressure +
+    carbonationGap / learned.volPerBar;
 
   if (rawTargetPressure < 0) {
     return {
       ...base,
-      targetEquilibriumCarbonation: Number(targetEquilibrium.toFixed(3)),
       rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
       targetPressure: null,
       predictedAtTarget: null,
@@ -735,7 +349,6 @@ export function estimatePressureTargetV5(args: {
   if (rawTargetPressure > MAX_OPERATIONAL_PRESSURE_BAR) {
     return {
       ...base,
-      targetEquilibriumCarbonation: Number(targetEquilibrium.toFixed(3)),
       rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
       targetPressure: null,
       predictedAtTarget: null,
@@ -744,34 +357,26 @@ export function estimatePressureTargetV5(args: {
     };
   }
 
-  const targetPressure = Math.round(rawTargetPressure * 20) / 20;
-  const targetEqRounded = equilibriumCarbonationVolumes(
-    forecastTemperature,
-    targetPressure,
-  );
+  const targetPressure = roundPressure(rawTargetPressure);
   const predictedAtTarget =
-    targetEqRounded === null
-      ? null
-      : args.state.carbonation +
-        alpha * (targetEqRounded - args.state.carbonation);
+    args.state.carbonation +
+    learned.volPerBar *
+      (targetPressure - equilibriumPressure);
 
-  const deltaPressure = targetPressure - args.state.currentPressure;
+  const pressureDelta =
+    targetPressure - args.state.currentPressure;
   const action: PressureV5Estimate["action"] =
-    Math.abs(deltaPressure) < 0.075
+    Math.abs(pressureDelta) < 0.075
       ? "hold"
-      : deltaPressure > 0
+      : pressureDelta > 0
         ? "raise"
         : "lower";
 
   return {
     ...base,
-    targetEquilibriumCarbonation: Number(targetEquilibrium.toFixed(3)),
     rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
     targetPressure,
-    predictedAtTarget:
-      predictedAtTarget === null
-        ? null
-        : Number(predictedAtTarget.toFixed(3)),
+    predictedAtTarget: Number(predictedAtTarget.toFixed(3)),
     action,
     edgeCase: null,
   };
