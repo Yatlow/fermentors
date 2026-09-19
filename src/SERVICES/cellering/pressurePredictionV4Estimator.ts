@@ -53,6 +53,7 @@ export type PressureV4Estimate = {
     | "within_window"
     | "early_cooling_exception"
     | "pressure_adjust_and_recheck"
+    | "insufficient_response_evidence"
     | "pressure_only_insufficient";
   targetWindowMin: number;
   targetWindowMax: number;
@@ -1277,12 +1278,32 @@ export function estimatePressureTargetV4(args: {
       ? k75 / k25
       : Infinity;
 
-  const confidence: PressureV4Estimate["confidence"] =
+  const kineticConfidence: PressureV4Estimate["confidence"] =
     kineticRows.length >= 12 && meanDistance <= 2.5 && spread <= 2.5
       ? "high"
       : kineticRows.length >= 6 && meanDistance <= 4 && spread <= 4
         ? "medium"
         : "low";
+
+  const empiricalResponse = targetForecast.response;
+  const empiricalConfidence: PressureV4Estimate["confidence"] =
+    empiricalResponse?.slopeIdentified &&
+    empiricalResponse.support >= 12 &&
+    empiricalResponse.actionSupport >= 5 &&
+    empiricalResponse.meanDistance <= 3
+      ? "high"
+      : empiricalResponse?.slopeIdentified &&
+          empiricalResponse.support >= 7 &&
+          empiricalResponse.actionSupport >= 3 &&
+          empiricalResponse.meanDistance <= 4.5
+        ? "medium"
+        : "low";
+
+  const confidenceRank = { low: 0, medium: 1, high: 2 } as const;
+  const confidence: PressureV4Estimate["confidence"] =
+    confidenceRank[empiricalConfidence] >= confidenceRank[kineticConfidence]
+      ? empiricalConfidence
+      : kineticConfidence;
 
   const forecastInTargetWindow =
     Math.abs(predictedRaw - args.targetCarbonation) <=
@@ -1300,8 +1321,6 @@ export function estimatePressureTargetV4(args: {
     targetPressure <= minPressure + Math.max(step, 0.05);
   const nearUpperPressureLimit =
     targetPressure >= maxPressure - Math.max(step, 0.05);
-  const lowConfidence = confidence === "low";
-
   const requiresAtmosphericVenting =
     carbonationError < 0 &&
     !effectivelyStillCooling &&
@@ -1317,14 +1336,48 @@ export function estimatePressureTargetV4(args: {
     ) ||
     requiresAtmosphericVenting;
 
+  const actionEffect =
+    action === "raise"
+      ? predictedRaw - predictedCarbonationWithoutChangeRaw
+      : action === "lower"
+        ? predictedCarbonationWithoutChangeRaw - predictedRaw
+        : 0;
+  const neededEffect =
+    carbonationError > 0
+      ? Math.max(
+          0,
+          args.targetCarbonation -
+            TARGET_TOLERANCE_VOL -
+            predictedCarbonationWithoutChangeRaw,
+        )
+      : Math.max(
+          0,
+          predictedCarbonationWithoutChangeRaw -
+            (args.targetCarbonation + TARGET_TOLERANCE_VOL),
+        );
+  const minimumUsefulEffect = Math.max(
+    0.008,
+    Math.min(0.02, neededEffect * 0.2),
+  );
+  const responseTooSmall =
+    action !== "hold" &&
+    actionEffect < minimumUsefulEffect;
+
+  const responseEvidenceMissing =
+    !empiricalResponse?.slopeIdentified &&
+    kineticConfidence === "low";
+
   const decisionStatus: PressureV4Estimate["decisionStatus"] =
     forecastInTargetWindow
       ? "within_window"
       : effectivelyStillCooling
         ? "early_cooling_exception"
-        : trulyPressureLimited && !lowConfidence
-          ? "pressure_only_insufficient"
-          : "pressure_adjust_and_recheck";
+        : responseEvidenceMissing ||
+            (responseTooSmall && confidence === "low")
+          ? "insufficient_response_evidence"
+          : trulyPressureLimited || responseTooSmall
+            ? "pressure_only_insufficient"
+            : "pressure_adjust_and_recheck";
 
   const pressureOnlyLikelyInsufficient =
     decisionStatus === "pressure_only_insufficient";
