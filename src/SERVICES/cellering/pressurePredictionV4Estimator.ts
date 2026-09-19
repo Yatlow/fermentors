@@ -345,7 +345,7 @@ function localStableTargetEquilibrium(args: {
     trend.ratePerDay === null ||
     trend.hoursSincePrevious === null ||
     trend.hoursSincePrevious < 18 ||
-    Math.abs(trend.ratePerDay) > 0.04 ||
+    Math.abs(trend.ratePerDay) > 0.015 ||
     Math.abs(args.state.carbonation - args.targetCarbonation) > 0.12
   ) {
     return null;
