@@ -171,7 +171,7 @@ export function isPressurePredictionV4Ready(
       .filter(Boolean),
   );
   const equilibriumPoints = model.equilibriumPoints.filter(
-    (point) => point?.quality !== "low",
+    (point) => Boolean(point),
   );
 
   return (
