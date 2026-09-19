@@ -59,9 +59,17 @@ function pressureV4OrdinaryTarget_(measurement) {
 }
 
 function pressureV4IsExplicitClose_(measurement) {
-  return /סגירת\s+(?:לחץ|מיכל)|סגירה\s+(?:לחץ|מיכל)|סגירת/i.test(
+  if (pressureV4IsBottomCarbonation_(measurement)) return false;
+  return /סגירת\s+(?:לחץ|מיכל)|סגירה\s+(?:לחץ|מיכל)/i.test(
     pressureV4Note_(measurement)
   );
+}
+
+function pressureV4IsCoolingAction_(measurement) {
+  const note = pressureV4Note_(measurement);
+  if (note.indexOf("קירור") === -1) return false;
+  if (/אחרי\s+קירור|לאחר\s+קירור/.test(note)) return false;
+  return /(?:^|\||\s)קירור(?:$|\||\s|[-–—])/.test(note);
 }
 
 function pressureV4DetectT0_(measurements) {
@@ -187,6 +195,88 @@ function pressureV4Exposure_(rows, t0Ms, endMs) {
     temperaturePoints: ordered.filter(function (row) { return row.temp !== null; }).length,
     coveredHours: coveredHours,
     coverageRatio: hoursSinceT0 > 0 ? Math.min(1, coveredHours / hoursSinceT0) : 0
+  };
+}
+
+function pressureV4ValueAtOrBefore_(rows, endMs, field) {
+  const ordered = (rows || []).slice().sort(function (a, b) {
+    return pressureV4DateTime_(a) - pressureV4DateTime_(b);
+  });
+  for (let index = ordered.length - 1; index >= 0; index--) {
+    const time = pressureV4DateTime_(ordered[index]);
+    if (time === null || time > endMs) continue;
+    const value = pressureV4Number_(ordered[index] && ordered[index][field]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function pressureV4CoolingStartMs_(rows, t0Ms) {
+  const ordered = (rows || []).slice().sort(function (a, b) {
+    return pressureV4DateTime_(a) - pressureV4DateTime_(b);
+  });
+
+  for (let index = 0; index < ordered.length; index++) {
+    const time = pressureV4DateTime_(ordered[index]);
+    if (time === null || time < t0Ms) continue;
+    if (pressureV4IsCoolingAction_(ordered[index])) return time;
+  }
+
+  let previousTemp = null;
+  for (let index = 0; index < ordered.length; index++) {
+    const time = pressureV4DateTime_(ordered[index]);
+    if (time === null || time < t0Ms) continue;
+    const temp = pressureV4Number_(ordered[index] && ordered[index].temp);
+    if (temp === null) continue;
+    if (previousTemp !== null && previousTemp > 9 && temp <= 9) return time;
+    previousTemp = temp;
+  }
+  return null;
+}
+
+function pressureV4CoolingState_(rows, t0Ms, endMs) {
+  const startMs = pressureV4CoolingStartMs_(rows, t0Ms);
+  if (startMs === null || startMs > endMs) return null;
+
+  const startTemp = pressureV4ValueAtOrBefore_(rows, startMs, "temp");
+  const currentTemp = pressureV4ValueAtOrBefore_(rows, endMs, "temp");
+  const temp24hAgo = pressureV4ValueAtOrBefore_(
+    rows,
+    Math.max(startMs, endMs - 24 * 3600000),
+    "temp"
+  );
+  const exposure = pressureV4Exposure_(rows, startMs, endMs);
+
+  const tempDrop =
+    startTemp !== null && currentTemp !== null
+      ? startTemp - currentTemp
+      : null;
+  const tempChange24h =
+    temp24hAgo !== null && currentTemp !== null
+      ? currentTemp - temp24hAgo
+      : null;
+
+  return {
+    startDateTimeMs: startMs,
+    hoursSinceCooling: Math.max(0, (endMs - startMs) / 3600000),
+    startTemp: startTemp,
+    currentTemp: currentTemp,
+    tempDropSinceCooling: tempDrop,
+    tempChange24h: tempChange24h,
+    pressureMeanSinceCooling: exposure.pressureMean,
+    pressureMean24h: exposure.pressureMean24h,
+    pressureHoursSinceCooling: exposure.pressureHours,
+    equilibriumDeltaBarHoursSinceCooling: null,
+    coverageRatio: exposure.coverageRatio,
+    stillCooling:
+      tempChange24h !== null
+        ? tempChange24h <= -0.5
+        : (
+            startTemp !== null &&
+            currentTemp !== null &&
+            startTemp - currentTemp >= 2 &&
+            currentTemp > 2
+          )
   };
 }
 
@@ -408,6 +498,11 @@ function pressureV4BuildTransitions_(measurements, batchId) {
       t0.dateTimeMs,
       start.time
     );
+    const cooling = pressureV4CoolingState_(
+      rows,
+      t0.dateTimeMs,
+      start.time
+    );
 
     let quality = "low";
     if (
@@ -434,6 +529,7 @@ function pressureV4BuildTransitions_(measurements, batchId) {
         (start.time - t0.dateTimeMs) / 3600000
       ),
       exposure: exposure,
+      cooling: cooling,
       pressureMeanDuring:
         Math.round(path.pressureMean * 1000) / 1000,
       temperatureMeanDuring:
