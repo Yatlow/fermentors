@@ -9,8 +9,8 @@ import type {
   PressureV4TransitionSample,
 } from "./pressurePredictionV4";
 
-const OPERATIONAL_VOL_PER_BAR_MIN = 0.50;
-const OPERATIONAL_VOL_PER_BAR_MAX = 1.00;
+const OPERATIONAL_VOL_PER_BAR_MIN = 0.25;
+const OPERATIONAL_VOL_PER_BAR_MAX = 2.00;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 const TARGET_TOLERANCE_VOL = 0.02;
 const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.10;
@@ -598,14 +598,10 @@ export function estimatePressureTargetV5(args: {
     targetPressureRangeLow: null,
     targetPressureRangeHigh: null,
     setpointResponseVolPerBar: Number(
-      (
-        firstCoolingMode
-          ? clamp(
-              effectiveVolPerBar48h,
-              0.25,
-              OPERATIONAL_VOL_PER_BAR_MAX,
-            )
-          : OPERATIONAL_VOL_PER_BAR_MIN
+      clamp(
+        effectiveVolPerBar48h,
+        OPERATIONAL_VOL_PER_BAR_MIN,
+        OPERATIONAL_VOL_PER_BAR_MAX,
       ).toFixed(3),
     ),
     setpointBasis:
@@ -639,9 +635,8 @@ export function estimatePressureTargetV5(args: {
   // - subsequent stable check: incremental correction from the pressure that
   //   is actually on the tank now.
   //
-  // Brewery practice says ~0.1 vol per 0.1-0.2 bar => 0.5-1.0 vol/bar.
-  // Use the conservative 0.5 vol/bar edge for the actual recommendation so we
-  // do not vent too aggressively. The full range is exposed in the simulator.
+  // Historical response drives the recommendation. The 0.25-2.0 vol/bar range
+  // is only a broad safety guardrail against pathological learned values.
   const carbonationGap =
     args.targetCarbonation - estimatedCurrentCarbonation;
 
@@ -668,16 +663,15 @@ export function estimatePressureTargetV5(args: {
   // operational guardrail so a pathological k cannot dominate.
   //
   // Subsequent stable checks remain incremental from the current pressure.
-  const firstCoolingResponse = clamp(
+  const learnedSetpointResponse = clamp(
     effectiveVolPerBar48h,
-    0.25,
+    OPERATIONAL_VOL_PER_BAR_MIN,
     OPERATIONAL_VOL_PER_BAR_MAX,
   );
 
-  const rawTargetPressure = firstCoolingMode
-    ? targetEquilibriumPressure +
-      carbonationGap / firstCoolingResponse
-    : targetPressureRangeHigh;
+  const rawTargetPressure =
+    correctionBasePressure +
+    carbonationGap / learnedSetpointResponse;
 
   if (rawTargetPressure < 0) {
     return {
