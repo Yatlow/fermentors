@@ -726,8 +726,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             <p>
                                 מצב: {v5Result.mode === "first_cooling" ? "בדיקת גיזוז ראשונה — חישוב לפי טמפרטורת הקור" : "מיכל קר יציב"} ·
                                 תגובת לחץ: {v5Result.volPerBar.toFixed(3)} vol/bar
-                                {" "}({v5Result.responseSource === "learned" ? "נלמד מהיסטוריית שינויי לחץ" : "heuristic זמני: 0.67 vol/bar"}) ·
-                                תמיכה: {v5Result.supportCount} זוגות היסטוריים ·
+                                {" "}({v5Result.responseSource === "learned" ? "נלמד ישירות ממרחק לחץ משיווי־משקל" : "heuristic זמני: 0.67 vol/bar"}) ·
+                                תמיכה: {v5Result.supportCount} דוגמאות היסטוריות תקינות ·
                                 ביטחון: {v5Result.confidence} ·
                                 טמפרטורת חישוב: {v5Result.forecastTemperature.toFixed(1)}°C ·
                                 לחץ שיווי־משקל של הגיזוז הנוכחי: {v5Result.equilibriumPressureForCurrentCarb.toFixed(2)} bar ·
