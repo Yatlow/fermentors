@@ -471,7 +471,21 @@ function headroomPrior(args: {
   }
 
   const excess = Math.abs(args.carbonationError);
-  return -clamp(0.12 + 4.5 * excess, 0.15, 0.55);
+
+  // A small over-carbonation should first be corrected by moving the regulator
+  // toward the equilibrium pressure, not by treating it like an emergency vent.
+  // Example: 2.45 vs 2.40 at ~1°C should land near the ~0.5 bar equilibrium area.
+  if (excess <= 0.055) {
+    return -clamp((excess - TARGET_TOLERANCE_VOL) * 0.6, 0, 0.03);
+  }
+
+  // Once the excess is materially larger, venting pressure can fall much more
+  // sharply. This preserves the aggressive response for genuinely high CO2.
+  return -clamp(
+    0.15 + 15 * (excess - 0.055),
+    0.15,
+    0.55,
+  );
 }
 
 function learnedHeadroom(args: {
@@ -783,7 +797,19 @@ function refinePressureWithForecast(args: {
     if (predicted === null) continue;
 
     const error = Math.abs(predicted - args.targetCarbonation);
-    if (error + 0.0005 < bestError) {
+
+    if (
+      direction > 0 &&
+      predicted >= args.targetCarbonation - TARGET_TOLERANCE_VOL &&
+      predicted <= args.targetCarbonation + TARGET_TOLERANCE_VOL
+    ) {
+      // For under-carbonation, choose the first (lowest) pressure that actually
+      // enters the requested window rather than continuing to chase the exact
+      // midpoint with unnecessary pressure.
+      return candidate;
+    }
+
+    if (error + 0.0001 < bestError) {
       bestError = error;
       bestPressure = candidate;
     }
