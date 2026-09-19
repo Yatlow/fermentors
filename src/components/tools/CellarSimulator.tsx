@@ -141,6 +141,86 @@ function resolveFirstCarbonation(args: {
     return { first: priorChecks === 0, priorChecks };
 }
 
+function carbonationMeasurementDayText(daysAgo: number): string {
+    if (daysAgo <= 0) return "היום";
+    if (daysAgo === 1) return "אתמול";
+    if (daysAgo === 2) return "לפני יומיים";
+    return `לפני ${daysAgo} ימים`;
+}
+
+function buildHypotheticalProductionPressureTextV5(
+    estimate: PressureV5Estimate,
+    carbAgeDays: number,
+): string {
+    const measured = estimate.measuredCarbonation;
+    const target = estimate.targetCarbonation;
+    const measurementDay = carbonationMeasurementDayText(carbAgeDays);
+    const relation =
+        measured < target ? "נמוך" : measured > target ? "גבוה" : "תקין";
+
+    const intro =
+        `הגיזוז בבדיקה שנלקחה ${measurementDay} ${relation} ` +
+        `(${measured.toFixed(2)}, גיזוז תקין ${target.toFixed(2)}). `;
+
+    if (estimate.edgeCase === "bottom_carbonation") {
+        return (
+            intro +
+            "לחץ ראש אינו מסלול הטיפול המתאים במקרה הזה. מומלץ לעבור למסלול גיזוז מלמטה ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
+        );
+    }
+
+    if (estimate.edgeCase === "venting_below_zero") {
+        return (
+            intro +
+            "גם הורדת לחץ הראש ל-0 bar אינה צפויה להספיק. מומלץ לעבור למסלול פריקה מבוקר ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
+        );
+    }
+
+    if (estimate.edgeCase === "head_pressure_insufficient") {
+        return (
+            intro +
+            "לחץ ראש בלבד אינו צפוי להספיק כדי להגיע לגיזוז התקין. מומלץ לעבור למסלול הטיפול המתאים ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
+        );
+    }
+
+    if (estimate.targetPressure === null) {
+        return (
+            intro +
+            "אין כרגע יעד לחץ אוטומטי אמין. מומלץ לבצע בדיקת גיזוז חוזרת."
+        );
+    }
+
+    if (estimate.action === "raise") {
+        return (
+            intro +
+            `מומלץ להעלות את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar ` +
+            "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
+        );
+    }
+
+    if (estimate.action === "lower") {
+        return (
+            intro +
+            `מומלץ להוריד את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar ` +
+            "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
+        );
+    }
+
+    if (Math.abs(measured - target) <= 0.02) {
+        return (
+            `הגיזוז בבדיקה שנלקחה ${measurementDay} תקין ` +
+            `(${measured.toFixed(2)}, גיזוז תקין ${target.toFixed(2)}). ` +
+            `מומלץ להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar.`
+        );
+    }
+
+    return (
+        intro +
+        `מומלץ להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar ` +
+        "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
+    );
+}
+
 function buildHypotheticalProductionPressureText(
     estimate: PressureV4Estimate,
     currentCarbonation: number,
@@ -811,23 +891,20 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 </div>
             )}
 
-            {v4Result && (
+            {v5Result && (
                 <div className="cellar-simulator-results">
                     <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
                     <article className="cellar-simulator-result level-1">
                         <strong>
-                            {Number(carbonation) < 2.15
+                            {v5Result.edgeCase === "bottom_carbonation"
                                 ? "גיזוז מלמטה"
                                 : "שינוי לחץ"}
                         </strong>
                         <p>
-                            {Number(carbonation) < 2.15
-                                ? `הגיזוז המדומה הוא ${Number(carbonation).toFixed(2)} vol — מתחת לסף הקשיח 2.15. בפרודקשיין מסלול שינוי לחץ ראש לא יוצג; ההמלצה עוברת לגיזוז מלמטה. תוצאת V4 נשארת מוצגת למטה לצורכי debug בלבד.`
-                                : buildHypotheticalProductionPressureText(
-                                    v4Result,
-                                    Number(carbonation),
-                                    ventingResult,
-                                )}
+                            {buildHypotheticalProductionPressureTextV5(
+                                v5Result,
+                                carbAgeDays,
+                            )}
                         </p>
                     </article>
                 </div>
