@@ -180,6 +180,15 @@ function buildHypotheticalProductionPressureText(
                 ? `להעלות את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar`
                 : `להוריד את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar`;
 
+    if (estimate.decisionStatus === "pressure_adjust_and_recheck") {
+        return (
+            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+            `מומלץ ${actionText} ולבצע בדיקת גיזוז חוזרת. ` +
+            `תחזית V4 לעוד יומיים היא ${estimate.predictedCarbonation.toFixed(3)}, עדיין מחוץ לטווח ${targetRange}; ` +
+            "בביטחון הנוכחי המודל לא מפרש זאת כהוכחה שלחץ ראש אינו מספיק."
+        );
+    }
+
     if (estimate.decisionStatus === "early_cooling_exception") {
         return (
             `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
@@ -485,8 +494,10 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 setV4Status("");
 
                                 const venting =
+                                    estimate.decisionStatus ===
+                                        "pressure_only_insufficient" &&
                                     carbonationValue >
-                                    estimate.targetWindowMax
+                                        estimate.targetWindowMax
                                         ? estimateVentingDuration({
                                             transitions:
                                                 v4Model.transitions,
@@ -705,7 +716,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                         ? "תחזית בתוך חלון היעד"
                                         : v4Result.decisionStatus === "early_cooling_exception"
                                             ? "חריג קירור פעיל — התחזית יכולה להיות מחוץ לחלון"
-                                            : "אין פתרון מספק בלחץ ראש בלבד"
+                                            : v4Result.decisionStatus === "pressure_adjust_and_recheck"
+                                                ? "שינוי לחץ ובדיקה חוזרת — התחזית עדיין מחוץ לחלון"
+                                                : "אין פתרון מספק בלחץ ראש בלבד"
                                 }
                                 {v4Result.pressureOnlyLikelyInsufficient
                                     ? " · לחץ ראש בלבד לא צפוי להספיק"
