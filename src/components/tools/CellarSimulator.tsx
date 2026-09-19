@@ -188,14 +188,16 @@ function buildHypotheticalProductionPressureText(
         }
 
         const nextAction =
-            currentCarbonation < estimate.targetCarbonation
-                ? "מומלץ לשקול גיזוז מלמטה"
-                : "מומלץ לבצע הורדת לחץ/שחרור בהתאם";
+            currentCarbonation < 2.15
+                ? "מסלול הגיזוז מלמטה רלוונטי לפי כלל <2.15"
+                : currentCarbonation < estimate.targetCarbonation
+                    ? "אין המלצת setpoint אוטומטית; יש לבצע בדיקת גיזוז חוזרת ולהחליט על המשך טיפול"
+                    : "מומלץ לבצע הורדת לחץ/שחרור בהתאם";
 
         return (
             `${directionText} (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
             `לפי מודל V4 שינוי לחץ ראש בלבד לא צפוי להביא את הגיזוז לטווח ${targetRange} בתוך יומיים. ` +
-            `${nextAction} ולבצע בדיקת גיזוז חוזרת.`
+            `${nextAction}.`
         );
     }
 
@@ -730,6 +732,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 drift ללא פעולה: {v4Result.empiricalDriftVol48h >= 0 ? "+" : ""}{v4Result.empiricalDriftVol48h} vol ·
                                 evidence: {v4Result.empiricalActionSupport} פעולות + {v4Result.empiricalPassiveSupport} passive
                                 {v4Result.empiricalModelUsed ? " · empirical מוביל" : " · empirical לא מספיק חזק"} ·
+                                השפעת שינוי הלחץ: {v4Result.pressureActionEffectVol >= 0 ? "+" : ""}{v4Result.pressureActionEffectVol} vol ·
+                                נסגרו {(v4Result.pressureGapClosedFraction * 100).toFixed(0)}% מהפער ·
                                 ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
                                 יעד גיזוז: {v4Result.targetCarbonation}
