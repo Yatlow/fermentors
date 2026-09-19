@@ -1,4 +1,10 @@
-import type { Measurement } from "./calculateCelleringRecomendations";
+export type PressureV4Measurement = {
+  id?: string | number | null;
+  temp?: string | number | null;
+  pressure?: string | number | null;
+  carbonation?: string | number | null;
+  notes?: string | number | null;
+};
 
 export type PressureV4T0 = {
   index: number;
@@ -76,7 +82,7 @@ function dateOnly(value: unknown): string | null {
   return `${match[3]}-${String(match[2]).padStart(2, "0")}-${String(match[1]).padStart(2, "0")}`;
 }
 
-function measurementDateTimeMs(measurement: Measurement): number | null {
+function measurementDateTimeMs(measurement: PressureV4Measurement): number | null {
   const id = String(measurement.id ?? "");
   const idMatch = id.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})$/);
   if (idMatch) {
@@ -106,20 +112,20 @@ function calendarDayDiff(fromMs: number, toMs: number): number {
   return calendarDaySerial(toMs) - calendarDaySerial(fromMs);
 }
 
-function noteText(measurement: Measurement): string {
+function noteText(measurement: PressureV4Measurement): string {
   return String(measurement.notes ?? "");
 }
 
-function isBottomCarbonation(measurement: Measurement): boolean {
+function isBottomCarbonation(measurement: PressureV4Measurement): boolean {
   return noteText(measurement).includes("גיזוז מלמטה");
 }
 
-function isExplicitPressureClose(measurement: Measurement): boolean {
+function isExplicitPressureClose(measurement: PressureV4Measurement): boolean {
   const note = noteText(measurement);
   return /סגירת\s+(?:לחץ|מיכל)|סגירה\s+(?:לחץ|מיכל)|סגירת/i.test(note);
 }
 
-function ordinaryPressureTarget(measurement: Measurement): number | null {
+function ordinaryPressureTarget(measurement: PressureV4Measurement): number | null {
   if (isBottomCarbonation(measurement)) return null;
   const matches = Array.from(
     noteText(measurement).matchAll(
@@ -131,7 +137,7 @@ function ordinaryPressureTarget(measurement: Measurement): number | null {
 }
 
 export function detectPressureV4T0(
-  measurements: Measurement[],
+  measurements: PressureV4Measurement[],
   positivePressureThreshold = 0.1,
 ): PressureV4T0 | null {
   const rows = measurements
@@ -189,7 +195,7 @@ function weightedMean(
 }
 
 export function buildPressureV4Exposure(args: {
-  measurements: Measurement[];
+  measurements: PressureV4Measurement[];
   t0Ms: number;
   endMs: number;
   equilibriumPressure?: EquilibriumPressureFn;
@@ -300,7 +306,7 @@ function sampleQuality(exposure: PressureV4Exposure): "low" | "medium" | "high" 
 }
 
 export function buildPressureV4Samples(args: {
-  measurements: Measurement[];
+  measurements: PressureV4Measurement[];
   batchId?: string;
   style?: string;
   equilibriumPressure?: EquilibriumPressureFn;
@@ -311,7 +317,7 @@ export function buildPressureV4Samples(args: {
       measurement,
       time: measurementDateTimeMs(measurement),
     }))
-    .filter((row): row is { measurement: Measurement; time: number } =>
+    .filter((row): row is { measurement: PressureV4Measurement; time: number } =>
       row.time !== null
     )
     .sort((a, b) => a.time - b.time);
@@ -420,7 +426,7 @@ export function buildPressureV4Samples(args: {
 
 
 export function buildPressureV4DecisionState(args: {
-  measurements: Measurement[];
+  measurements: PressureV4Measurement[];
   equilibriumPressure?: EquilibriumPressureFn;
 }): PressureV4DecisionState | null {
   const rows = args.measurements
@@ -428,7 +434,7 @@ export function buildPressureV4DecisionState(args: {
       measurement,
       time: measurementDateTimeMs(measurement),
     }))
-    .filter((row): row is { measurement: Measurement; time: number } =>
+    .filter((row): row is { measurement: PressureV4Measurement; time: number } =>
       row.time !== null
     )
     .sort((a, b) => a.time - b.time);
