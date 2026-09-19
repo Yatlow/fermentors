@@ -5,7 +5,7 @@ import {
   estimateEquilibriumPressureV4,
   type PressureEquilibriumV4Curve,
 } from "../src/SERVICES/cellering/pressureEquilibriumV4";
-import type { Measurement } from "../src/SERVICES/cellering/calculateCelleringRecomendations";
+import type { PressureV4Measurement as Measurement } from "../src/SERVICES/cellering/pressureEquilibriumV4";
 
 function row(
   id: string,
