@@ -75,3 +75,25 @@ test("bottom carbonation requires at least five useful historical sessions", () 
 
   assert.equal(estimate, null);
 });
+
+
+test("bottom carbonation learns a stricter trigger than the 2.20 fallback", () => {
+  const samples = Array.from({ length: 12 }, (_, index) =>
+    bottomSample({
+      carbonationBefore: 1.98 + (index % 3) * 0.02,
+    })
+  );
+
+  const estimate = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.12,
+    targetCarbonation: 2.45,
+    currentPressure: 0.9,
+  });
+
+  assert.equal(
+    estimate,
+    null,
+    "once history is sufficient, a style-specific threshold should replace the broad 2.20 fallback",
+  );
+});
