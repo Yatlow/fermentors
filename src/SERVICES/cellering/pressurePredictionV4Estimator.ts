@@ -764,13 +764,26 @@ function refinePressureWithForecast(args: {
   const currentCarbError = Math.abs(
     args.targetCarbonation - args.state.carbonation,
   );
-  const maxRefinement = clamp(
-    0.12 +
-      1.6 * currentCarbError +
-      6 * Math.max(0, currentCarbError - 0.10),
-    0.15,
-    0.50,
+  const maxRaiseFromCurrent = clamp(
+    0.15 + 4 * currentCarbError,
+    0.25,
+    0.75,
   );
+  const maxOperationalPressure =
+    direction > 0
+      ? Math.min(
+          args.maxPressure,
+          args.state.currentPressure + maxRaiseFromCurrent,
+        )
+      : args.maxPressure;
+  const maxRefinement =
+    direction > 0
+      ? Math.max(
+          0,
+          maxOperationalPressure - args.baselinePressure,
+        )
+      : 0;
+
   let bestPressure = args.baselinePressure;
   let bestError = baselineError;
 
