@@ -302,7 +302,6 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4Status("");
         setV4CoolingStatus("");
         setVentingResult(null);
-        setVentingResult(null);
         setError("");
         if (!tank?.batchNumber) {
             setSource([]);
