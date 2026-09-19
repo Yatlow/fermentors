@@ -97,6 +97,14 @@ test("V4 can recommend lowering pressure while carbonation is still below target
     estimate.targetPressure < state.currentPressure,
     "existing CO2 exposure can make a lower pressure target appropriate",
   );
+  assert.ok(
+    estimate.targetPressure >= 1.0 && estimate.targetPressure <= 1.2,
+    "the operator-like case should land near the expected ~1.1 bar range",
+  );
+  assert.ok(
+    estimate.predictedCarbonationWithoutChange > state.carbonation,
+    "the model should explicitly represent continued absorption even with no pressure change",
+  );
   assert.ok(Math.abs(estimate.predictedCarbonation - 2.45) <= 0.03);
 });
 
