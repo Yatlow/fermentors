@@ -179,7 +179,7 @@ function buildHypotheticalProductionPressureTextV5(
     if (estimate.edgeCase === "head_pressure_insufficient") {
         return (
             intro +
-            "לחץ ראש בלבד אינו צפוי להספיק כדי להגיע לגיזוז התקין. מומלץ לעבור למסלול הטיפול המתאים ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
+            "גם בלחץ הראש המקסימלי המותר לא צפוי להגיע לגיזוז התקין. מומלץ לעבור לגיזוז מלמטה ולבצע בדיקת גיזוז חוזרת לאחר הטיפול."
         );
     }
 
@@ -737,7 +737,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                     : v5Result.edgeCase === "venting_below_zero"
                                         ? "מקרה קצה: נדרשת פריקה"
                                         : v5Result.edgeCase === "head_pressure_insufficient"
-                                            ? "מקרה קצה: לחץ ראש לא מספיק"
+                                            ? "מקרה קצה: גיזוז מלמטה — לחץ ראש לא מספיק"
                                             : v5Result.action === "hold"
                                                 ? "להשאיר לחץ"
                                                 : v5Result.action === "raise"
@@ -769,7 +769,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                     ? ` · בסיס setpoint: אפקט קינטי 48h ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`
                                     : ` · בסיס setpoint: תיקון אינקרמנטלי מהלחץ הנוכחי לפי ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`}
                                 {v5Result.targetPressureRangeLow !== null && v5Result.targetPressureRangeHigh !== null
-                                    ? ` · טווח כלל העבודה 0.5–1.0 vol/bar: ${v5Result.targetPressureRangeLow.toFixed(2)}–${v5Result.targetPressureRangeHigh.toFixed(2)} bar`
+                                    ? ` · טווח הגנה ${v5Result.operationalVolPerBarMin.toFixed(2)}–${v5Result.operationalVolPerBarMax.toFixed(2)} vol/bar: ${v5Result.targetPressureRangeLow.toFixed(2)}–${v5Result.targetPressureRangeHigh.toFixed(2)} bar`
                                     : ""}
                                 {v5Result.rawTargetPressure !== null
                                     ? ` · לחץ יעד: ${v5Result.rawTargetPressure.toFixed(2)} bar`
@@ -799,7 +799,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
                     <article className="cellar-simulator-result level-1">
                         <strong>
-                            {v5Result.edgeCase === "bottom_carbonation"
+                            {v5Result.edgeCase === "bottom_carbonation" ||
+                            v5Result.edgeCase === "head_pressure_insufficient"
                                 ? "גיזוז מלמטה"
                                 : "שינוי לחץ"}
                         </strong>
