@@ -143,7 +143,10 @@ function weightedLinearPrediction(args: {
     ? Math.max(0, numerator / denominator)
     : 0;
   const intercept = meanY - slope * meanX;
-  const predictedDelta = intercept + slope * args.candidatePressure;
+  const candidateActionDelta =
+    args.candidatePressure - args.currentPressure;
+  const predictedDelta =
+    intercept + slope * candidateActionDelta;
 
   return {
     targetPressure: args.candidatePressure,
