@@ -77,7 +77,7 @@ test("bottom carbonation requires at least five useful historical sessions", () 
 });
 
 
-test("bottom carbonation learns a stricter trigger than the 2.20 fallback", () => {
+test("bottom carbonation learns a stricter trigger than the 2.15 ceiling", () => {
   const samples = Array.from({ length: 12 }, (_, index) =>
     bottomSample({
       carbonationBefore: 1.98 + (index % 3) * 0.02,
@@ -173,4 +173,33 @@ test("bottom carbonation uses the same V4 tank state to choose historical respon
     high.durationMinutes < low.durationMinutes,
     "the same carbonation deficit should use different bottom-carbonation duration when V4 exposure differs",
   );
+});
+
+
+test("bottom carbonation cutoff is strict: 2.14 may route, 2.15 may not", () => {
+  const samples = Array.from({ length: 12 }, () =>
+    bottomSample({
+      carbonationBefore: 2.10,
+      carbonationDelta: 0.20,
+      durationMinutes: 45,
+    })
+  );
+
+  const below = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.14,
+    targetCarbonation: 2.45,
+    currentPressure: 0.8,
+    temp: 1.5,
+  });
+  const boundary = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.15,
+    targetCarbonation: 2.45,
+    currentPressure: 0.8,
+    temp: 1.5,
+  });
+
+  assert.ok(below, "2.14 vol should remain eligible for bottom carbonation");
+  assert.equal(boundary, null, "2.15 vol must not enter the <2.15 bottom-carbonation route");
 });
