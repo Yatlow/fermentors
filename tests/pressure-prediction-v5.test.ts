@@ -167,7 +167,7 @@ test("V5 first carbonation with stored head pressure recommends lower pressure",
   );
 });
 
-test("V5 first-cooling setpoint uses the learned 48h response above TARGET equilibrium", () => {
+test("V5 first-cooling setpoint keeps the cooling anchor but strengthens a large miss", () => {
   const transitions = Array.from(
     { length: 24 },
     (_, index) => transition(index, 0.00097),
@@ -188,23 +188,11 @@ test("V5 first-cooling setpoint uses the learned 48h response above TARGET equil
       estimate.equilibriumPressureForCurrentCarb,
     "target carbonation must have a higher equilibrium-pressure anchor than current carbonation",
   );
-
-  const expected =
-    estimate.targetEquilibriumPressure +
-    (2.4 - estimate.estimatedCurrentCarbonation) /
-      estimate.setpointResponseVolPerBar;
-
-  assert.ok(
-    estimate.rawTargetPressure !== null &&
-      Math.abs(estimate.rawTargetPressure - expected) <= 0.02,
-    `expected kinetic target-equilibrium reserve near ${expected.toFixed(2)} bar, got ${estimate.rawTargetPressure}`,
-  );
-
   assert.ok(
     estimate.targetPressure !== null &&
-      estimate.targetPressure >= 0.85 &&
-      estimate.targetPressure <= 1.0,
-    `expected a less aggressive first-cooling correction around 0.9 bar, got ${estimate.targetPressure}`,
+      estimate.targetPressure >= 0.95 &&
+      estimate.targetPressure <= 1.15,
+    `expected first-cooling correction around 1.0 bar, got ${estimate.targetPressure}`,
   );
 });
 
@@ -388,5 +376,116 @@ test("V5 first-cooling miss gets nonlinear correction without losing cooling anc
       estimate.targetPressure >= 0.9 &&
       estimate.targetPressure <= 1.1,
     `expected first-cooling correction near 1.0 bar, got ${estimate.targetPressure}`,
+  );
+});
+
+
+test("V5 learned response does not change when only hypothetical carbonation changes", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.0027 + (index % 3) * 0.0002),
+  );
+  const values = [2.52, 2.58, 2.66].map((carbonation) =>
+    estimatePressureTargetV5({
+      transitions,
+      state: state(carbonation, 0.77, 0.3),
+      targetCarbonation: 2.45,
+      firstCarbonation: false,
+    })
+  );
+
+  values.forEach((estimate) => assert.ok(estimate));
+  const responses = values.map((estimate) => estimate!.setpointResponseVolPerBar);
+  assert.ok(
+    Math.max(...responses) - Math.min(...responses) < 0.001,
+    `changing only carbonation must not re-learn a different response: ${responses.join(", ")}`,
+  );
+});
+
+test("V5 stable setpoints are monotonic as carbonation moves away from target", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.0027 + (index % 3) * 0.0002),
+  );
+  const estimate = (carbonation: number) =>
+    estimatePressureTargetV5({
+      transitions,
+      state: state(carbonation, 0.77, 0.3),
+      targetCarbonation: 2.45,
+      firstCarbonation: false,
+    });
+
+  const c252 = estimate(2.52);
+  const c258 = estimate(2.58);
+  const c266 = estimate(2.66);
+  const c240 = estimate(2.40);
+  const c232 = estimate(2.32);
+  const c225 = estimate(2.25);
+
+  [c252, c258, c266, c240, c232, c225].forEach((row) => assert.ok(row));
+
+  const pressureOrBelowZero = (row: NonNullable<typeof c252>) =>
+    row.targetPressure ?? (row.edgeCase === "venting_below_zero" ? -0.01 : 99);
+
+  assert.ok(
+    pressureOrBelowZero(c252!) > pressureOrBelowZero(c258!) &&
+      pressureOrBelowZero(c258!) > pressureOrBelowZero(c266!),
+    `over-carbonation targets must fall monotonically: ${pressureOrBelowZero(c252!)}, ${pressureOrBelowZero(c258!)}, ${pressureOrBelowZero(c266!)}`,
+  );
+  assert.ok(
+    c240!.targetPressure !== null &&
+      c232!.targetPressure !== null &&
+      c225!.targetPressure !== null &&
+      c240!.targetPressure < c232!.targetPressure &&
+      c232!.targetPressure < c225!.targetPressure,
+    `under-carbonation targets must rise monotonically: ${c240!.targetPressure}, ${c232!.targetPressure}, ${c225!.targetPressure}`,
+  );
+
+  assert.ok(c252!.targetPressure !== null && c252!.targetPressure >= 0.6);
+  assert.ok(c258!.targetPressure !== null && c258!.targetPressure <= 0.5);
+  assert.ok(
+    c266!.edgeCase === "venting_below_zero" ||
+      (c266!.targetPressure !== null && c266!.targetPressure <= 0.1),
+  );
+  assert.ok(c232!.targetPressure !== null && c232!.targetPressure >= 1.05);
+  assert.ok(c225!.targetPressure !== null && c225!.targetPressure >= 1.35);
+});
+
+test("V5 first-carbonation extremes keep cooling context", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.00097),
+  );
+
+  const tank18 = estimatePressureTargetV5({
+    transitions,
+    state: state(2.26, 1.37, 4.5),
+    targetCarbonation: 2.4,
+    coldReferenceTemperature: 0.7,
+    firstCarbonation: true,
+  });
+
+  const tank16 = estimatePressureTargetV5({
+    transitions,
+    state: state(2.68, 1.44, 6.8),
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+
+  assert.ok(tank18);
+  assert.ok(tank16);
+  assert.equal(tank18.mode, "first_cooling");
+  assert.equal(tank16.mode, "first_cooling");
+  assert.ok(
+    tank18.targetPressure !== null &&
+      tank18.targetPressure >= 0.9 &&
+      tank18.targetPressure <= 1.1,
+    `tank 18 first check should stay near 1.0 bar, got ${tank18.targetPressure}`,
+  );
+  assert.ok(
+    tank16.edgeCase === "venting_below_zero" ||
+      (tank16.targetPressure !== null && tank16.targetPressure <= 0.15),
+    `tank 16 high first check should reach atmospheric territory, got ${tank16.targetPressure} / ${tank16.edgeCase}`,
   );
 });
