@@ -887,9 +887,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             if (carbonationSpecToDay.outOfSpec) {
                 if (lastMeasurementDate === todayDate) {
                     // Today's carbonation test has already been performed. The
-                    // actionable item is the dedicated pressure adjustment
-                    // recommendation below, not a second duplicate "carb test"
-                    // recommendation for the same result.
+                    // actionable item is the dedicated carbonation treatment
+                    // (ordinary pressure or bottom carbonation) below, not a
+                    // second duplicate "carb test" recommendation.
                     requiresCarbTest.display = false;
                     requiresCarbTest.req = false;
                     requiresCarbTest.reason =
@@ -1242,13 +1242,17 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         ? Number(lastMeasurement.pressure)
         : null;
     const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
+    const bottomCarbonationCompletedToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(lastNote?.includes("סגירת גיזוז מלמטה"));
 
     const coldCarbOutOfSpecToday =
         stage.name === "קר" &&
         lastMeasurementDate === todayDate &&
         hasLatestCarb &&
         latestCarbSpec.outOfSpec &&
-        !pressureHandledToday;
+        !pressureHandledToday &&
+        !bottomCarbonationCompletedToday;
 
     // Bottom carbonation is a different intervention from ordinary pressure
     // correction. 2.20 is only the safe fallback until enough historical
