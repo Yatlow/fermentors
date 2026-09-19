@@ -323,3 +323,70 @@ test("V5 subsequent stable check corrects from current pressure instead of resta
     `unexpected stable correction range ${estimate.targetPressureRangeLow}-${estimate.targetPressureRangeHigh}`,
   );
 });
+
+
+test("V5 stable correction becomes progressively stronger away from target", () => {
+  const pressure = 0.77;
+  const target = 2.45;
+
+  const near = estimatePressureTargetV5({
+    state: state(2.52, pressure, 0.3),
+    targetCarbonation: target,
+    firstCarbonation: false,
+  });
+  const high = estimatePressureTargetV5({
+    state: state(2.58, pressure, 0.3),
+    targetCarbonation: target,
+    firstCarbonation: false,
+  });
+  const veryHigh = estimatePressureTargetV5({
+    state: state(2.66, pressure, 0.3),
+    targetCarbonation: target,
+    firstCarbonation: false,
+  });
+  const low = estimatePressureTargetV5({
+    state: state(2.32, pressure, 0.3),
+    targetCarbonation: target,
+    firstCarbonation: false,
+  });
+  const veryLow = estimatePressureTargetV5({
+    state: state(2.25, pressure, 0.3),
+    targetCarbonation: target,
+    firstCarbonation: false,
+  });
+
+  assert.ok(near && high && veryHigh && low && veryLow);
+  assert.ok(near.targetPressure !== null && near.targetPressure >= 0.6);
+  assert.ok(high.targetPressure !== null && high.targetPressure <= 0.5);
+  assert.ok(
+    veryHigh.targetPressure === null ||
+      (veryHigh.targetPressure !== null && veryHigh.targetPressure <= 0.15),
+    `large over-carbonation should drive pressure to atmospheric/venting territory, got ${veryHigh.targetPressure}`,
+  );
+  assert.ok(low.targetPressure !== null && low.targetPressure >= 1.05);
+  assert.ok(veryLow.targetPressure !== null && veryLow.targetPressure >= 1.35);
+});
+
+test("V5 first-cooling miss gets nonlinear correction without losing cooling anchor", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.00097),
+  );
+
+  const estimate = estimatePressureTargetV5({
+    transitions,
+    state: state(2.26, 1.37, 4.5),
+    targetCarbonation: 2.4,
+    coldReferenceTemperature: 0.7,
+    firstCarbonation: true,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.mode, "first_cooling");
+  assert.ok(
+    estimate.targetPressure !== null &&
+      estimate.targetPressure >= 0.9 &&
+      estimate.targetPressure <= 1.1,
+    `expected first-cooling correction near 1.0 bar, got ${estimate.targetPressure}`,
+  );
+});
