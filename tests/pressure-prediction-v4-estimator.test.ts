@@ -372,15 +372,25 @@ test("k changes the forecast but does not force an extreme pressure target", () 
     carbonationTrend: null,
   };
 
+  const baseTransitions = transitionsFor(state, 0.002);
+  const slowTransitions = baseTransitions.map((sample) => ({
+    ...sample,
+    kPerHour: 0.0002,
+  }));
+  const fastTransitions = baseTransitions.map((sample) => ({
+    ...sample,
+    kPerHour: 0.005,
+  }));
+
   const slow = estimatePressureTargetV4({
-    transitions: transitionsFor(state, 0.0002),
+    transitions: slowTransitions,
     state,
     targetCarbonation: 2.4,
     equilibriumPressure: 0.5,
     coldReferenceTemperature: 0.4,
   });
   const faster = estimatePressureTargetV4({
-    transitions: transitionsFor(state, 0.005),
+    transitions: fastTransitions,
     state,
     targetCarbonation: 2.4,
     equilibriumPressure: 0.5,
