@@ -1385,27 +1385,24 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         shouldUseBottomCarbonation = bottomCarbonationCandidate;
 
         if (bottomEstimate) {
-            const confidenceText = bottomEstimate.confidence === "high"
-                ? "ביטחון גבוה"
-                : "ביטחון בינוני";
-            const fromPressureText = currentPressure !== null
-                ? `מומלץ להוריד לחץ מ-${currentPressure} ל-${bottomEstimate.startPressure} bar, `
-                : `מומלץ להתחיל ב-${bottomEstimate.startPressure} bar, `;
+            const startText = currentPressure !== null
+                ? `מומלץ להוריד את הלחץ ל-${bottomEstimate.startPressure} bar`
+                : `מומלץ להתחיל ב-${bottomEstimate.startPressure} bar`;
+            const retestText =
+                bottomEstimate.expectedDays === 1
+                    ? "ולבצע בדיקת גיזוז חוזרת מחר."
+                    : bottomEstimate.expectedDays === 2
+                        ? "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
+                        : `ולבצע בדיקת גיזוז חוזרת בעוד ${bottomEstimate.expectedDays} ימים.`;
 
             bottomCarbonationReason =
-                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתאים לגיזוז מלמטה. ` +
-                `לפי ${bottomEstimate.sampleCount} פעולות דומות בסגנון הזה (${confidenceText}), ` +
-                fromPressureText +
-                `להתחיל גיזוז מלמטה, לסגור אחרי כ-${bottomEstimate.durationMinutes} דקות ` +
-                `בסביבות ${bottomEstimate.closePressure} bar, ולבצע בדיקת גיזוז חוזרת בעוד כ-${bottomEstimate.expectedDays} ימים.`;
+                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}). ` +
+                `${startText}, לגזז מלמטה כ-${bottomEstimate.durationMinutes} דקות ולסגור על ${bottomEstimate.closePressure} bar. ` +
+                retestText;
         } else {
             bottomCarbonationReason =
-                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתחת לסף לגיזוז מלמטה (${bottomActivationThreshold.toFixed(2)}). ` +
-                (
-                    bottomCarbonationModelSampleCount && bottomCarbonationModelSampleCount > 0
-                        ? `יש כרגע ${bottomCarbonationModelSampleCount} דוגמאות גיזוז מלמטה, אך עדיין אין לפחות 5 דוגמאות דומות מספיק כדי להמליץ בבטחה על משך ולחצי התחלה/סגירה.`
-                        : "מחשבון הגיזוז מלמטה עדיין ללא מספיק היסטוריה כדי להמליץ על משך ולחצי התחלה/סגירה."
-                );
+                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתאים לגיזוז מלמטה. ` +
+                "עדיין אין מספיק מידע להמלצה על משך ולחצים.";
         }
     }
 
@@ -1765,6 +1762,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         latestWarmYeastDrop &&
         latestWarmYeastDropAge !== null &&
         latestWarmYeastDropAge >= 1 &&
+        latestWarmYeastDropAge <= 2 &&
         warmYeastDropTarget !== null
     ) {
 
@@ -1797,6 +1795,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         firstColdYeastDropAfterCooling &&
         firstColdYeastDropAge !== null &&
         firstColdYeastDropAge >= 2 &&
+        firstColdYeastDropAge <= 3 &&
         coldYeastDropTarget !== null
     ) {
 
