@@ -325,15 +325,20 @@ export function buildPressureV4Samples(args: {
     const currentCarb = finiteNumber(row.measurement.carbonation);
     if (currentCarb === null) return;
 
-    let currentPressure = finiteNumber(row.measurement.pressure);
-    if (currentPressure === null) {
-      for (let index = actionIndex - 1; index >= 0; index -= 1) {
-        const candidate = finiteNumber(rows[index].measurement.pressure);
-        if (candidate !== null) {
-          currentPressure = candidate;
-          break;
-        }
+    // The pressure recorded on an action row is usually the post-action
+    // target. Learn the physical change from the most recent pressure observed
+    // before the action; only fall back to the action row when no prior
+    // pressure exists.
+    let currentPressure: number | null = null;
+    for (let index = actionIndex - 1; index >= 0; index -= 1) {
+      const candidate = finiteNumber(rows[index].measurement.pressure);
+      if (candidate !== null) {
+        currentPressure = candidate;
+        break;
       }
+    }
+    if (currentPressure === null) {
+      currentPressure = finiteNumber(row.measurement.pressure);
     }
     if (currentPressure === null) return;
 
