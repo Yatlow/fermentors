@@ -7,6 +7,13 @@ import {
 } from "./pressureEquilibriumV4";
 import type { PressureV4Sample } from "./pressurePredictionV4";
 
+export type PressurePredictionModelV4Readiness = {
+  ready: boolean;
+  usableSampleCount: number;
+  distinctBatchCount: number;
+  equilibriumPointCount: number;
+};
+
 export type PressurePredictionModelV4 = {
   version: 4;
   style: string;
@@ -14,6 +21,7 @@ export type PressurePredictionModelV4 = {
   sampleCount: number;
   equilibriumPoints: PressureEquilibriumV4Point[];
   equilibriumPointCount: number;
+  readiness?: PressurePredictionModelV4Readiness;
   updatedAt?: string;
 };
 
@@ -106,6 +114,10 @@ export async function getPressurePredictionModelV4(
         equilibriumPointCount: Number(
           raw.equilibriumPointCount ?? points.length,
         ),
+        readiness:
+          raw.readiness && typeof raw.readiness === "object"
+            ? raw.readiness as PressurePredictionModelV4Readiness
+            : undefined,
         updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
       } satisfies PressurePredictionModelV4;
     })
@@ -138,5 +150,33 @@ export function getEquilibriumPressureForV4(
       points: model.equilibriumPoints,
     },
     temperature,
+  );
+}
+
+
+export function isPressurePredictionV4Ready(
+  model: PressurePredictionModelV4 | null | undefined,
+): boolean {
+  if (!model) return false;
+  if (model.readiness) return model.readiness.ready === true;
+
+  const usable = model.samples.filter((sample) =>
+    sample?.quality !== "low" &&
+    sample?.primaryOutcome?.calendarDaysAfterAction === 2 &&
+    Number.isFinite(Number(sample.carbonationDelta))
+  );
+  const batches = new Set(
+    usable
+      .map((sample) => String(sample.batchId ?? ""))
+      .filter(Boolean),
+  );
+  const equilibriumPoints = model.equilibriumPoints.filter(
+    (point) => point?.quality !== "low",
+  );
+
+  return (
+    usable.length >= 12 &&
+    batches.size >= 4 &&
+    equilibriumPoints.length >= 3
   );
 }
