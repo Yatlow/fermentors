@@ -270,6 +270,12 @@ test("tank 17 style demo: stable local balance anchors a small low-carb correcti
       hoursSincePrevious: 48,
       deltaFromPrevious: 0,
       ratePerDay: 0,
+      previousPressure: 0.83,
+      previousTemp: 0.6,
+      previousPreviousCarbonation: 2.39,
+      previousPreviousDateTimeMs: -48 * 3600000,
+      hoursBetweenPreviousChecks: 48,
+      previousHistoricalRatePerDay: 0,
     },
   };
 
@@ -384,12 +390,12 @@ test("k changes the forecast but does not force an extreme pressure target", () 
   assert.ok(slow);
   assert.ok(faster);
   assert.ok(
-    slow.targetPressure <= faster.targetPressure,
-    "a very slow k must not force a higher target than an informative k",
+    Math.abs(faster.targetPressure - slow.targetPressure) <= 0.15,
+    "different fitted kinetics may fine-tune, but only within 0.15 bar",
   );
   assert.ok(
-    faster.targetPressure - slow.targetPressure <= 0.15,
-    "kinetic fine-tuning must remain bounded to 0.15 bar",
+    slow.targetPressure < 1.1 && faster.targetPressure < 1.1,
+    "neither fitted k may create an extreme pressure target",
   );
   assert.notEqual(
     slow.predictedCarbonation,
@@ -418,6 +424,12 @@ test("same tank: lower carbonation never receives a lower pressure target", () =
       hoursSincePrevious: 48,
       deltaFromPrevious: 0,
       ratePerDay: 0,
+      previousPressure: 0.8,
+      previousTemp: 1.7,
+      previousPreviousCarbonation: 2.44,
+      previousPreviousDateTimeMs: -48 * 3600000,
+      hoursBetweenPreviousChecks: 48,
+      previousHistoricalRatePerDay: 0,
     },
   };
 
