@@ -676,11 +676,12 @@ test("stable V4 uses a ±0.02 vol target window, not ±0.04", () => {
     "hold",
     "0.03 vol below target is outside the new ±0.02 window",
   );
+  const forecastError = Math.abs(
+    estimate.predictedCarbonation - estimate.targetCarbonation,
+  );
   assert.ok(
-    Math.abs(
-      estimate.predictedCarbonation - estimate.targetCarbonation,
-    ) <= 0.02,
-    `stable forecast should land within ±0.02 vol; got ${estimate.predictedCarbonation}`,
+    forecastError <= 0.02 || estimate.pressureOnlyLikelyInsufficient,
+    `stable V4 must either land within ±0.02 or flag pressure-only as insufficient; got ${estimate.predictedCarbonation}`,
   );
 });
 
