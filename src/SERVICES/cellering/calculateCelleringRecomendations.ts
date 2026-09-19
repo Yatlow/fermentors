@@ -370,48 +370,6 @@ function getMeasurementDate(id: string | number | null | undefined): string | nu
     return match[1];
 }
 
-function pressureHistoryContext(
-    measurements: Measurement[],
-    referenceDateKey: string | null
-): {
-    pressureMeanToDate: number | null;
-    pressureMeanLast3Days: number | null;
-    pressureMeanLast7Days: number | null;
-} {
-    if (!referenceDateKey) {
-        return {
-            pressureMeanToDate: null,
-            pressureMeanLast3Days: null,
-            pressureMeanLast7Days: null,
-        };
-    }
-
-    const reference = new Date(`${referenceDateKey}T12:00:00`);
-    const values = measurements.flatMap((measurement) => {
-        const dateKey = getMeasurementDate(measurement.id);
-        const pressure = Number(measurement.pressure);
-        if (!dateKey || !Number.isFinite(pressure)) return [];
-
-        const date = new Date(`${dateKey}T12:00:00`);
-        const daysAgo = Math.round(
-            (reference.getTime() - date.getTime()) / (24 * 60 * 60 * 1000)
-        );
-        if (daysAgo < 0) return [];
-        return [{ pressure, daysAgo }];
-    });
-
-    const mean = (items: typeof values): number | null => {
-        if (!items.length) return null;
-        return items.reduce((sum, item) => sum + item.pressure, 0) / items.length;
-    };
-
-    return {
-        pressureMeanToDate: mean(values),
-        pressureMeanLast3Days: mean(values.filter((item) => item.daysAgo <= 3)),
-        pressureMeanLast7Days: mean(values.filter((item) => item.daysAgo <= 7)),
-    };
-}
-
 function measurementIdSortKey(id: string | number | null | undefined): string {
     const text = String(id ?? "").trim();
     const match = text.match(/^(\d{4}-\d{2}-\d{2})_(\d{3,4})$/);
