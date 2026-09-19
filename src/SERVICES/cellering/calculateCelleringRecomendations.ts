@@ -7,6 +7,13 @@ import {
     estimatePressureTarget,
     getPressureResponseModel,
 } from "./pressureRecommendationModel";
+import {
+    estimateBottomCarbonation,
+    getBottomCarbonationActivationThreshold,
+    getBottomCarbonationModel,
+} from "./bottomCarbonationRecommendationModel";
+import { findOpenBottomCarbonation } from "./bottomCarbonation";
+import { carbonationRetestPolicy } from "./carbonationRetestPolicy";
 
 
 
@@ -678,7 +685,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // ============================================================
     if (
         isHoppy &&
-        dryHopAge === 5 &&
+        dryHopAge !== null &&
+        dryHopAge >= 5 &&
         dryhopped &&
         !yeastDroppedOnce &&
         !requiresDryHop.req &&
@@ -688,7 +696,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresWarmYeastDrop = {
             display: true,
             req: true,
-            reason: "מומלץ לבצע הוצאת שמרים- 5 ימים אחרי דרייהופ",
+            reason: dryHopAge > 5
+                ? `המלצת הורדת השמרים 5 ימים אחרי הדרייהופ התפספסה לפני ${dryHopAge - 5} ימים- מומלץ לבצע היום`
+                : "מומלץ לבצע הוצאת שמרים- 5 ימים אחרי דרייהופ",
             importance: 1
         };
     }
@@ -756,7 +766,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const lastTemp = lastMeasurement?.temp;
     const oldTemp = toDaysAgoMeasurement?.temp;
     const lastNote = lastMeasurement?.notes?.toString();
-    const belatedColdDrop = CoolAge === 3 && corrected === 1;
     const coolingIndex = sortedMeasurements.findLastIndex(
         m => m.notes?.toString().includes("קירור")
     );
@@ -766,33 +775,55 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             ? sortedMeasurements.slice(coolingIndex + 1)
             : [];
 
-    const firstYeastDropWasSunday = measurementsAfterCooling[1]?.notes?.toString().includes("שמרים") && CoolAge === 5 && corrected === 3;
+    const yeastMeasurementsAfterCooling = measurementsAfterCooling.filter(
+        (measurement) => /שמרים|שמרי/.test(String(measurement.notes ?? ""))
+    );
+    const firstColdYeastMeasurement = yeastMeasurementsAfterCooling[0];
+    const firstColdYeastDate = getMeasurementDate(firstColdYeastMeasurement?.id);
+    const firstColdYeastAge = firstColdYeastDate
+        ? getDaysSinceDate(firstColdYeastDate)
+        : null;
+    const firstColdYeastWasSunday = firstColdYeastDate
+        ? new Date(`${firstColdYeastDate}T12:00:00`).getDay() === 0
+        : false;
+    const needsFirstColdYeastDrop =
+        stage.name === "קר" &&
+        CoolAge !== null &&
+        CoolAge >= 2 &&
+        yeastMeasurementsAfterCooling.length === 0 &&
+        lastTemp != null &&
+        oldTemp != null;
+    const needsSecondDropAfterSunday =
+        stage.name === "קר" &&
+        firstColdYeastWasSunday &&
+        firstColdYeastAge !== null &&
+        firstColdYeastAge >= 2 &&
+        yeastMeasurementsAfterCooling.length === 1;
+
     const requiersYeastDropAfterCooling = {
         display: true,
-        req:
-            ((CoolAge === 2 &&
-                lastTemp != null &&
-                oldTemp != null &&
-                !lastNote?.includes("שמרים") &&
-                // lastTemp > oldTemp &&
-                stage.name === "קר") ||
-                belatedColdDrop &&
-                !lastNote?.includes("שמרים") ||
-                firstYeastDropWasSunday &&
-                !lastNote?.includes("שמרים")
-            ),
-        reason: firstYeastDropWasSunday ? "מומלץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת ביום שלישי" :
-            belatedColdDrop ? "מומלץ לבצע הורדת שמרים- (שלושה ימים אחרי קירור- אתמול היה שבת)" :
-                "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
+        req: needsFirstColdYeastDrop || needsSecondDropAfterSunday,
+        reason: needsSecondDropAfterSunday
+            ? firstColdYeastAge! > 2
+                ? `הורדת השמרים הנוספת שהומלצה יומיים אחרי הורדת יום ראשון התפספסה לפני ${firstColdYeastAge! - 2} ימים- מומלץ לבצע היום`
+                : "מומלץ לבצע הורדת שמרים אחרי קירור- הורדת שמרים ראשונה אחרי קירור היתה ביום ראשון, מומלצת הורדה נוספת היום"
+            : needsFirstColdYeastDrop && CoolAge! > 2
+                ? `הורדת השמרים שהומלצה יומיים אחרי הקירור התפספסה לפני ${CoolAge! - 2} ימים- מומלץ לבצע היום`
+                : "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
         importance: 1
     }
 
     const carbRes = lastMeasurement.carbonation;
+    const noteIsBottomCarbonation =
+        lastNote?.includes("גיזוז מלמטה");
     const noteAdjustedPressureToday =
-        lastNote?.includes("הורדת לחץ") ||
-        lastNote?.includes("העלאת לחץ") ||
-        lastNote?.includes("להוריד לחץ") ||
-        lastNote?.includes("להעלות לחץ");
+        !noteIsBottomCarbonation &&
+        (
+            lastNote?.includes("הורדת לחץ") ||
+            lastNote?.includes("העלאת לחץ") ||
+            lastNote?.includes("להוריד לחץ") ||
+            lastNote?.includes("להעלות לחץ")
+        );
     const noteAdjustedPrvToday =
         lastNote?.includes("כיוון פורק") ||
         lastNote?.includes("לכוון פורק");
@@ -815,17 +846,33 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         importance: 1
     };
 
+    const hasCarbonationAfterCooling =
+        CooldDate !== null &&
+        sortedMeasurements.some((measurement) => {
+            const date = getMeasurementDate(measurement.id);
+            const carbonation = measurement.carbonation;
+            return (
+                date !== null &&
+                date >= CooldDate &&
+                carbonation !== null &&
+                carbonation !== undefined &&
+                carbonation !== "" &&
+                Number.isFinite(Number(carbonation))
+            );
+        });
+
     if (
-        CoolAge === 1 &&
-        yesterdayMeasurement?.temp != null &&
-        lastMeasurement?.temp != null &&
-        !lastMeasurement?.carbonation &&
+        CoolAge !== null &&
+        CoolAge >= 1 &&
+        !hasCarbonationAfterCooling &&
         stage.name === "קר"
     ) {
         requiresCarbTest.display = true;
         requiresCarbTest.req = true;
-        requiresCarbTest.reason = "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)",
-            requiresCarbTest.importance = 1;
+        requiresCarbTest.reason = CoolAge > 1
+            ? `בדיקת הגיזוז הראשונה שהומלצה יום אחרי הקירור התפספסה לפני ${CoolAge - 1} ימים- מומלץ לבצע היום ולפתוח ברזי גליקול`
+            : "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)";
+        requiresCarbTest.importance = CoolAge > 1 ? 2 : 1;
     }
     const YeastDroppedToday = lastNote?.includes("שמרים");
     const requiiersWedYeastDropOnThus = {
@@ -876,9 +923,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             if (carbonationSpecToDay.outOfSpec) {
                 if (lastMeasurementDate === todayDate) {
                     // Today's carbonation test has already been performed. The
-                    // actionable item is the dedicated pressure adjustment
-                    // recommendation below, not a second duplicate "carb test"
-                    // recommendation for the same result.
+                    // actionable item is the dedicated carbonation treatment
+                    // (ordinary pressure or bottom carbonation) below, not a
+                    // second duplicate "carb test" recommendation.
                     requiresCarbTest.display = false;
                     requiresCarbTest.req = false;
                     requiresCarbTest.reason =
@@ -971,7 +1018,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
                 if (
                     carbonationAge !== null &&
-                    carbonationAge > 2 &&
+                    carbonationAge >= 2 &&
                     lastCarbonationSpec.outOfSpec
                 ) {
                     requiresCarbTest.req = true;
@@ -981,6 +1028,57 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
                     requiresCarbTest.importance =
                         lastCarbonationSpec.importance;
+                }
+            }
+        }
+
+        // Final authority for repeat-carbonation timing. Positional checks such
+        // as "yesterdayMeasurement" are useful for copy, but they become wrong
+        // when multiple reports exist on the same day. Use the actual dated
+        // carbonation/treatment history to decide whether a repeat test is due.
+        const retestPolicy = carbonationRetestPolicy(
+            sortedMeasurements,
+            todayDate
+        );
+
+        if (
+            retestPolicy.hasCarbonation &&
+            retestPolicy.lastCarbonation !== null
+        ) {
+            const lastCarbSpec = isCarbonationOutOfRange(
+                retestPolicy.lastCarbonation,
+                style,
+                givenSpecs
+            );
+
+            if (lastCarbSpec.outOfSpec) {
+                if (retestPolicy.due) {
+                    requiresCarbTest.req = true;
+                    requiresCarbTest.display = true;
+                    requiresCarbTest.importance = lastCarbSpec.importance;
+
+                    if (retestPolicy.waitReason === "bottom_carbonation") {
+                        requiresCarbTest.reason =
+                            `אתמול בוצע גיזוז מלמטה לאחר בדיקת גיזוז לא תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
+                    } else if (retestPolicy.waitReason === "ordinary_pressure") {
+                        requiresCarbTest.reason =
+                            `עברו יומיים משינוי הלחץ שבוצע בעקבות בדיקת גיזוז לא תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
+                    } else {
+                        requiresCarbTest.reason =
+                            `בדיקת הגיזוז האחרונה היתה לפני יומיים או יותר ולא היתה תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
+                    }
+                } else if (
+                    retestPolicy.waitReason === "ordinary_pressure" ||
+                    retestPolicy.waitReason === "bottom_carbonation" ||
+                    retestPolicy.waitReason === "tested_today" ||
+                    retestPolicy.waitReason === "cadence"
+                ) {
+                    // A pressure correction needs two full days to equilibrate.
+                    // Bottom carbonation is the exception: it may be re-tested
+                    // the next day. In either case do not let Sunday/Wednesday
+                    // routine rules create an earlier duplicate test.
+                    requiresCarbTest.req = false;
+                    requiresCarbTest.display = false;
                 }
             }
         }
@@ -1225,27 +1323,125 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const hasLatestCarb = lastMeasurement?.carbonation !== null &&
         lastMeasurement?.carbonation !== undefined &&
         Number.isFinite(Number(lastMeasurement.carbonation));
-    const coldCarbNeedsPressureAdjustment =
+    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
+    const currentCarbonation = hasLatestCarb ? Number(lastMeasurement.carbonation) : null;
+    const currentPressure = Number.isFinite(Number(lastMeasurement?.pressure))
+        ? Number(lastMeasurement.pressure)
+        : null;
+    const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
+    const bottomCarbonationCompletedToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(lastNote?.includes("סגירת גיזוז מלמטה"));
+
+    const coldCarbOutOfSpecToday =
         stage.name === "קר" &&
         lastMeasurementDate === todayDate &&
         hasLatestCarb &&
         latestCarbSpec.outOfSpec &&
-        !pressureHandledToday;
+        !pressureHandledToday &&
+        !bottomCarbonationCompletedToday;
+
+    // Bottom carbonation is a different intervention from ordinary pressure
+    // correction. 2.20 is only the safe fallback until enough historical
+    // sessions exist; after that, each style learns its own trigger threshold.
+    const bottomCarbonationPotential =
+        coldCarbOutOfSpecToday &&
+        currentCarbonation !== null &&
+        Number.isFinite(Number(carbonationTarget)) &&
+        currentCarbonation < Number(carbonationTarget) &&
+        currentCarbonation <= 2.2 &&
+        !openBottomCarbonation;
+
+    let bottomCarbonationCandidate = false;
+    let bottomCarbonationReason: string | null = null;
+    let bottomCarbonationModelSampleCount: number | null = null;
+    let bottomActivationThreshold = 2.2;
+    let shouldUseBottomCarbonation = false;
+
+    if (bottomCarbonationPotential) {
+        const bottomModel = await getBottomCarbonationModel(style);
+        bottomCarbonationModelSampleCount = bottomModel?.samples?.length ?? 0;
+        const learnedActivation = bottomModel
+            ? getBottomCarbonationActivationThreshold(bottomModel.samples)
+            : null;
+        bottomActivationThreshold = learnedActivation?.threshold ?? 2.2;
+        bottomCarbonationCandidate =
+            currentCarbonation! <= bottomActivationThreshold;
+
+        const bottomEstimate =
+            bottomCarbonationCandidate && bottomModel
+                ? estimateBottomCarbonation({
+                    samples: bottomModel.samples,
+                    currentCarbonation: currentCarbonation!,
+                    targetCarbonation: Number(carbonationTarget),
+                    currentPressure,
+                    brewDay: brewAge,
+                    temp: Number.isFinite(Number(lastMeasurement.temp))
+                        ? Number(lastMeasurement.temp)
+                        : null,
+                })
+                : null;
+
+        shouldUseBottomCarbonation = bottomCarbonationCandidate;
+
+        if (bottomEstimate) {
+            const confidenceText = bottomEstimate.confidence === "high"
+                ? "ביטחון גבוה"
+                : "ביטחון בינוני";
+            const fromPressureText = currentPressure !== null
+                ? `מומלץ להוריד לחץ מ-${currentPressure} ל-${bottomEstimate.startPressure} bar, `
+                : `מומלץ להתחיל ב-${bottomEstimate.startPressure} bar, `;
+
+            bottomCarbonationReason =
+                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתאים לגיזוז מלמטה. ` +
+                `לפי ${bottomEstimate.sampleCount} פעולות דומות בסגנון הזה (${confidenceText}), ` +
+                fromPressureText +
+                `להתחיל גיזוז מלמטה, לסגור אחרי כ-${bottomEstimate.durationMinutes} דקות ` +
+                `בסביבות ${bottomEstimate.closePressure} bar, ולבצע בדיקת גיזוז חוזרת בעוד כ-${bottomEstimate.expectedDays} ימים.`;
+        } else {
+            bottomCarbonationReason =
+                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתחת לסף לגיזוז מלמטה (${bottomActivationThreshold.toFixed(2)}). ` +
+                (
+                    bottomCarbonationModelSampleCount && bottomCarbonationModelSampleCount > 0
+                        ? `יש כרגע ${bottomCarbonationModelSampleCount} דוגמאות גיזוז מלמטה, אך עדיין אין לפחות 5 דוגמאות דומות מספיק כדי להמליץ בבטחה על משך ולחצי התחלה/סגירה.`
+                        : "מחשבון הגיזוז מלמטה עדיין ללא מספיק היסטוריה כדי להמליץ על משך ולחצי התחלה/סגירה."
+                );
+        }
+    }
+
+    const coldCarbNeedsPressureAdjustment =
+        coldCarbOutOfSpecToday &&
+        !shouldUseBottomCarbonation &&
+        !openBottomCarbonation;
+
+    const hasPressureMeasurementToday = sortedMeasurements.some((measurement) => {
+        const measurementDate = getMeasurementDate(measurement.id);
+        const pressure = measurement.pressure;
+        return (
+            measurementDate === todayDate &&
+            pressure !== null &&
+            pressure !== undefined &&
+            pressure !== "" &&
+            Number.isFinite(Number(pressure))
+        );
+    });
+
     const warmPressureNeedsAdjustment =
         stage.name === "בתסיסה" &&
+        hasPressureMeasurementToday &&
+        lastMeasurementDate === todayDate &&
         !prvHandledToday &&
         Number(lastMeasurement?.pressure) > 0 &&
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
 
-    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
     let learnedPressureReason: string | null = null;
     let pressureModelSampleCount: number | null = null;
 
     if (
         coldCarbNeedsPressureAdjustment &&
         Number.isFinite(Number(carbonationTarget)) &&
-        Number.isFinite(Number(lastMeasurement?.pressure))
+        currentPressure !== null
     ) {
         const model = await getPressureResponseModel(style);
         pressureModelSampleCount = model?.samples?.length ?? 0;
@@ -1258,7 +1454,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 samples: model.samples,
                 currentCarbonation: Number(lastMeasurement.carbonation),
                 targetCarbonation: Number(carbonationTarget),
-                currentPressure: Number(lastMeasurement.pressure),
+                currentPressure,
                 brewDay: brewAge,
                 temp: Number.isFinite(Number(lastMeasurement.temp))
                     ? Number(lastMeasurement.temp)
@@ -1266,27 +1462,45 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 pressureMeanToDate: pressureContext.pressureMeanToDate,
                 pressureMeanLast3Days: pressureContext.pressureMeanLast3Days,
                 pressureMeanLast7Days: pressureContext.pressureMeanLast7Days,
+                carbAgeAtAdjustment: 0,
                 calibration: model.calibration ?? null,
+                equilibriumObservations: model.equilibriumObservations ?? [],
             })
             : null;
 
         if (estimate) {
-            const directionText = estimate.pressureDelta > 0 ? "להעלות" : "להוריד";
             const confidenceText = estimate.confidence === "high" ? "ביטחון גבוה" : "ביטחון בינוני";
+            const offsetDirection = estimate.pressureDelta > 0 ? "מעל" : "מתחת";
+            const physicalAction =
+                estimate.currentPressureChange > 0.025
+                    ? `בפועל יש להעלות את הלחץ הנוכחי מ-${currentPressure} ל-${estimate.targetPressure} bar.`
+                    : estimate.currentPressureChange < -0.025
+                        ? `בפועל יש להוריד את הלחץ הנוכחי מ-${currentPressure} ל-${estimate.targetPressure} bar.`
+                        : `הלחץ הנוכחי כבר קרוב ליעד; מומלץ לכוון ל-${estimate.targetPressure} bar.`;
             const calibrationText =
                 estimate.calibrationEvaluatedSamples >= 8 &&
                 estimate.calibrationWithin005Rate !== null
                     ? ` המחשבון כייל את עצמו על ${estimate.calibrationEvaluatedSamples} מקרי אימות; ` +
                       `${Math.round(estimate.calibrationWithin005Rate * 100)}% היו בטווח ±0.05 בגיזוז.`
                     : "";
+
             learnedPressureReason =
                 `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
-                `לפי ${estimate.sampleCount} תיקוני לחץ דומים בסגנון הזה (${confidenceText}), ` +
-                `מומלץ ${directionText} לחץ מ-${Number(lastMeasurement.pressure)} ל-${estimate.targetPressure} bar ` +
-                `ולבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים.` +
+                `נקודת האיזון הנלמדת לסגנון/יעד הזה היא כ-${estimate.equilibriumPressure} bar ` +
+                `(${estimate.equilibriumSampleCount} דוגמאות). לפי ${estimate.sampleCount} תיקוני לחץ דומים (${confidenceText}), ` +
+                `נדרש יעד של ${estimate.targetPressure} bar — ${Math.abs(estimate.pressureDelta).toFixed(2)} bar ${offsetDirection} נקודת האיזון. ` +
+                physicalAction +
+                ` מומלץ לבצע בדיקת גיזוז חוזרת בעוד כ-${estimate.expectedDays} ימים.` +
                 calibrationText;
         }
     }
+
+    const requiredBottomCarbonation = {
+        display: bottomCarbonationCandidate,
+        req: bottomCarbonationCandidate,
+        reason: bottomCarbonationReason ?? "",
+        importance: bottomCarbonationCandidate ? latestCarbSpec.importance : 0,
+    };
 
     const pressureAdjustmentHandledToday = {
         completed: Boolean(
@@ -1479,23 +1693,23 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     /**
      * האם ההוצאה החמה הייתה אתמול?
      */
-    const yesterdayWarmYeastDrop =
-        warmYeastDrops.find(
-            drop =>
-                getDaysSinceDate(drop.date) === 1
-        );
+    const latestWarmYeastDrop =
+        warmYeastDrops.length > 0
+            ? warmYeastDrops[warmYeastDrops.length - 1]
+            : undefined;
+    const latestWarmYeastDropAge =
+        latestWarmYeastDrop
+            ? getDaysSinceDate(latestWarmYeastDrop.date)
+            : null;
 
 
     /**
      * האם ההוצאה הקרה הראשונה הייתה לפני יומיים?
      */
-    const twoDaysAgoColdYeastDrop =
-        firstColdYeastDropAfterCooling &&
-            getDaysSinceDate(
-                firstColdYeastDropAfterCooling.date
-            ) === 2
-            ? firstColdYeastDropAfterCooling
-            : undefined;
+    const firstColdYeastDropAge =
+        firstColdYeastDropAfterCooling
+            ? getDaysSinceDate(firstColdYeastDropAfterCooling.date)
+            : null;
 
 
     /**
@@ -1556,7 +1770,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     );
 
     if (
-        yesterdayWarmYeastDrop &&
+        latestWarmYeastDrop &&
+        latestWarmYeastDropAge !== null &&
+        latestWarmYeastDropAge >= 1 &&
         warmYeastDropTarget !== null
     ) {
 
@@ -1570,9 +1786,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 display: true,
                 req: true,
                 reason:
-                    `סה"כ בהוצאות חמות עד כה הוצאו ${formatYeastAmount(totalWarmYeastDropped)} דליים. ` +
+                    `סה"כ בהוצאות שמרים חמות עד כה הוצאו ${formatYeastAmount(totalWarmYeastDropped)} דליים. ` +
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(warmYeastDropTarget)} דליים - ` +
-                    `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`,
+                    (latestWarmYeastDropAge > 1
+                        ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
+                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`),
                 importance: 2,
             };
         }
@@ -1584,13 +1802,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // ============================================================
 
     if (
-        twoDaysAgoColdYeastDrop &&
+        firstColdYeastDropAfterCooling &&
+        firstColdYeastDropAge !== null &&
+        firstColdYeastDropAge >= 2 &&
         coldYeastDropTarget !== null
     ) {
 
         const missing =
             coldYeastDropTarget -
-            twoDaysAgoColdYeastDrop.amount;
+            firstColdYeastDropAfterCooling.amount;
 
         if (missing > 0) {
 
@@ -1598,9 +1818,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 display: true,
                 req: true,
                 reason:
-                    `בהוצאה קרה לפני יומיים הוצאו ${formatYeastAmount(twoDaysAgoColdYeastDrop.amount)} דליים. ` +
+                    `בהוצאה הקרה הראשונה הוצאו ${formatYeastAmount(firstColdYeastDropAfterCooling.amount)} דליים. ` +
                     `הכמות המומלצת למיכל זה היא לפחות ${formatYeastAmount(coldYeastDropTarget)} דליים - ` +
-                    `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`,
+                    (firstColdYeastDropAge > 2
+                        ? `השלמת ההוצאה התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
+                        : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים.`),
                 importance: 2,
             };
         }
@@ -1624,6 +1846,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresColdYeastDropCompletion,
         requiiersWedYeastDropOnThus,
         requiresCarbTest,
+        requiredBottomCarbonation,
         requiersDiacytelRest,
         neglectedStatus,
         requiresToCoolDown,

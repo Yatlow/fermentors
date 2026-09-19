@@ -826,6 +826,7 @@ export default function SendMessurmentsHeader({
             rec.requiresWarmYeastDrop,
             rec.requiersYeastDropAfterCooling,
             rec.requiresCarbTest,
+            rec.requiredBottomCarbonation,
             rec.requiersDiacytelRest,
             rec.neglectedStatus,
             rec.requiresToCoolDown,

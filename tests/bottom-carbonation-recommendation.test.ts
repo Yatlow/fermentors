@@ -1,0 +1,99 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  estimateBottomCarbonation,
+  type BottomCarbonationSample,
+} from "../src/SERVICES/cellering/bottomCarbonationEstimator";
+
+function bottomSample(
+  overrides: Partial<BottomCarbonationSample> = {},
+): BottomCarbonationSample {
+  return {
+    carbonationBefore: 2.05,
+    pressureBefore: 0.8,
+    startPressure: 0.2,
+    closePressure: 0.75,
+    durationMinutes: 45,
+    carbonationAfter: 2.28,
+    carbonationDelta: 0.23,
+    elapsedDays: 1,
+    brewDay: 20,
+    temp: 1.5,
+    success: true,
+    ...overrides,
+  };
+}
+
+test("bottom carbonation recommends learned pressures and duration below threshold", () => {
+  const samples = Array.from({ length: 12 }, (_, index) =>
+    bottomSample({
+      carbonationBefore: 2.02 + (index % 3) * 0.02,
+      durationMinutes: 40 + (index % 3) * 5,
+      carbonationDelta: 0.20 + (index % 2) * 0.02,
+    })
+  );
+
+  const estimate = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.04,
+    targetCarbonation: 2.45,
+    currentPressure: 0.9,
+    brewDay: 20,
+    temp: 1.5,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.startPressure, 0.2);
+  assert.equal(estimate.closePressure, 0.75);
+  assert.ok(estimate.durationMinutes >= 40);
+  assert.ok(estimate.durationMinutes <= 50);
+  assert.equal(estimate.sampleCount, 12);
+  assert.equal(estimate.confidence, "high");
+});
+
+test("bottom carbonation does not trigger above learned/capped threshold", () => {
+  const samples = Array.from({ length: 12 }, () => bottomSample());
+
+  const estimate = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.25,
+    targetCarbonation: 2.45,
+    currentPressure: 0.9,
+  });
+
+  assert.equal(estimate, null);
+});
+
+test("bottom carbonation requires at least five useful historical sessions", () => {
+  const samples = Array.from({ length: 4 }, () => bottomSample());
+
+  const estimate = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.05,
+    targetCarbonation: 2.45,
+  });
+
+  assert.equal(estimate, null);
+});
+
+
+test("bottom carbonation learns a stricter trigger than the 2.20 fallback", () => {
+  const samples = Array.from({ length: 12 }, (_, index) =>
+    bottomSample({
+      carbonationBefore: 1.98 + (index % 3) * 0.02,
+    })
+  );
+
+  const estimate = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.12,
+    targetCarbonation: 2.45,
+    currentPressure: 0.9,
+  });
+
+  assert.equal(
+    estimate,
+    null,
+    "once history is sufficient, a style-specific threshold should replace the broad 2.20 fallback",
+  );
+});

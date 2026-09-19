@@ -158,6 +158,7 @@ function activeRecommendations(
         result.requiresColdYeastDropCompletion,
         result.requiiersWedYeastDropOnThus,
         result.requiresCarbTest,
+        result.requiredBottomCarbonation,
         result.requiersDiacytelRest,
         result.neglectedStatus,
         result.requiresToCoolDown,

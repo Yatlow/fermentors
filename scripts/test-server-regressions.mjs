@@ -244,7 +244,70 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal(samples.length, 1);
   assert.equal(samples[0].pressureBefore, 1.1);
   assert.equal(samples[0].targetPressure, 1.4);
+  assert.equal(samples[0].pressureAfter, 1.4);
   assert.ok(samples[0].carbonationDelta > 0);
+
+  const contaminatedByBottomCarbonation = weekly.buildPressureResponseSamplesForBrew_(
+    [
+      { date: "16/09/2026", time: "08:00", pressure: 1.1, carbonation: 2.05, temp: 1.5 },
+      {
+        date: "18/09/2026",
+        time: "09:00",
+        pressure: 0.8,
+        carbonation: 2.05,
+        temp: 1.5,
+        notes: "הורדת לחץ ל0.2 bar. תחילת גיזוז מלמטה בשעה 09:00 | סגירת גיזוז מלמטה בשעה 09:45 על 0.8 bar."
+      },
+      { date: "19/09/2026", time: "09:00", pressure: 0.8, carbonation: 2.3, temp: 1.5 },
+    ],
+    new Date(2026, 8, 1),
+    "1594",
+  );
+  assert.equal(
+    contaminatedByBottomCarbonation.length,
+    0,
+    "bottom carbonation must never be learned as an ordinary pressure adjustment",
+  );
+
+  const bottomSamples = weekly.buildBottomCarbonationSamplesForBrew_(
+    [
+      { date: "16/09/2026", time: "08:00", pressure: 0.8, carbonation: 2.05, temp: 1.5 },
+      {
+        date: "18/09/2026",
+        time: "09:00",
+        pressure: 0.8,
+        carbonation: 2.05,
+        temp: 1.5,
+        notes: "הורדת לחץ ל0.2 bar. תחילת גיזוז מלמטה בשעה 09:00 | סגירת גיזוז מלמטה בשעה 09:45 על 0.8 bar."
+      },
+      { date: "19/09/2026", time: "09:00", pressure: 0.8, carbonation: 2.3, temp: 1.5 },
+    ],
+    new Date(2026, 8, 1),
+    "1594",
+  );
+  assert.equal(bottomSamples.length, 1);
+  assert.equal(bottomSamples[0].startPressure, 0.2);
+  assert.equal(bottomSamples[0].closePressure, 0.8);
+  assert.equal(bottomSamples[0].durationMinutes, 45);
+  assert.ok(bottomSamples[0].carbonationDelta > 0);
+
+  const equilibriumObservations = weekly.buildPressureEquilibriumObservationsForBrew_(
+    [
+      { date: "17/09/2026", pressure: 0.75, carbonation: 2.44, temp: 1.4 },
+      { date: "18/09/2026", pressure: 1.1, carbonation: 2.43, temp: 1.5, notes: "העלאת לחץ ל: 1.1 bar" },
+      { date: "19/09/2026", pressure: 0.8, carbonation: 2.45, temp: 1.5, notes: "תחילת גיזוז מלמטה בשעה 09:00" },
+      { date: "20/09/2026", pressure: 1.2, carbonation: 2.44, temp: 12 },
+    ],
+    new Date(2026, 8, 1),
+    "1595",
+  );
+  assert.equal(equilibriumObservations.length, 1);
+  assert.equal(equilibriumObservations[0].pressure, 0.75);
+  assert.equal(
+    weekly.pressureCalibrationNumber_(null),
+    null,
+    "missing observed pressure must never become a zero-bar equilibrium sample",
+  );
 
   const calibrationSamples = Array.from({ length: 12 }, (_, index) => ({
     batchId: String(1600 + index),
@@ -257,8 +320,9 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
     pressureMeanToDate: 1.0,
     pressureMeanLast3Days: 1.15,
     pressureMeanLast7Days: 1.1,
-    targetPressure: 1.4,
+    targetPressure: 1.1,
     pressureDelta: 0.2,
+    pressureAfter: 0.8,
     carbonationAfter: 2.4,
     carbonationDelta: 0.1,
     elapsedDays: 2,
