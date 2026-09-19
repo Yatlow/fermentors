@@ -104,6 +104,7 @@ function v4State(
   equilibriumDeltaBarHours: number,
 ) {
   return {
+    carbonation: 2.05,
     hoursSinceT0: 96,
     currentPressure: pressureMean24h,
     currentTemp: 2,
