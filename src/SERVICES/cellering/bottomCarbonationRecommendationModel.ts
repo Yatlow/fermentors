@@ -69,6 +69,31 @@ function roundToStep(value: number, step: number): number {
   return Math.round(value / step) * step;
 }
 
+export function getBottomCarbonationActivationThreshold(
+  samples: BottomCarbonationSample[],
+): { threshold: number; sampleCount: number } | null {
+  const values = samples
+    .filter((sample) => sample?.success !== false)
+    .filter((sample) => {
+      const duration = finiteNumber(sample.durationMinutes);
+      const delta = finiteNumber(sample.carbonationDelta);
+      return duration !== null && duration >= 5 && duration <= 360 &&
+        delta !== null && delta >= 0.02;
+    })
+    .map((sample) => finiteNumber(sample.carbonationBefore))
+    .filter((value): value is number => value !== null);
+
+  if (values.length < 5) return null;
+
+  const learned = percentile(values, 0.75);
+  if (learned === null) return null;
+
+  return {
+    threshold: Math.min(2.2, Number((learned + 0.05).toFixed(2))),
+    sampleCount: values.length,
+  };
+}
+
 export function estimateBottomCarbonation(args: {
   samples: BottomCarbonationSample[];
   currentCarbonation: number;
@@ -110,14 +135,8 @@ export function estimateBottomCarbonation(args: {
 
   if (usable.length < 5) return null;
 
-  const learnedThreshold = percentile(
-    usable.map((sample) => sample.carbonationBefore!),
-    0.75,
-  );
-  const activationThreshold = Math.min(
-    2.2,
-    Number(((learnedThreshold ?? 2.15) + 0.05).toFixed(2)),
-  );
+  const activation = getBottomCarbonationActivationThreshold(args.samples);
+  const activationThreshold = activation?.threshold ?? 2.2;
 
   if (args.currentCarbonation > activationThreshold) return null;
 
