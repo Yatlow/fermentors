@@ -780,8 +780,25 @@ function fitEmpiricalResponse(
   };
 }
 
-function empiricalWeight(response: EmpiricalResponse | null): number {
+function empiricalWeight(
+  response: EmpiricalResponse | null,
+  candidateActionDelta: number,
+): number {
   if (!response) return 0;
+
+  // At action=0, passive observations are direct evidence for the exact thing
+  // being forecast: two-day drift with no pressure intervention. They may lead
+  // the no-change forecast even when they cannot identify a pressure slope.
+  if (
+    Math.abs(candidateActionDelta) < 0.025 &&
+    response.passiveSupport >= 5
+  ) {
+    if (response.passiveSupport >= 12 && response.meanDistance <= 3) {
+      return 0.9;
+    }
+    if (response.meanDistance <= 4.5) return 0.8;
+    return 0.65;
+  }
 
   if (response.slopeIdentified) {
     if (
@@ -797,9 +814,10 @@ function empiricalWeight(response: EmpiricalResponse | null): number {
     return 0.65;
   }
 
-  // Without an identifiable pressure-response slope, history may still inform
-  // passive two-day drift, but it must not fabricate the effect of a pressure change.
-  return response.support >= 7 ? 0.35 : 0.2;
+  // Away from action=0, passive history alone must not fabricate the effect of
+  // changing pressure. Keep physics as the weak fallback until actions span
+  // enough pressure deltas to identify a slope.
+  return response.support >= 7 ? 0.2 : 0.1;
 }
 
 function refinePressureWithForecast(args: {
@@ -1146,7 +1164,7 @@ export function estimatePressureTargetV4(args: {
     const empiricalPredicted = response
       ? args.state.carbonation + response.predictedDelta
       : null;
-    const weight = empiricalWeight(response);
+    const weight = empiricalWeight(response, candidateActionDelta);
 
     return {
       predicted:
