@@ -1,3 +1,11 @@
+export type PressureV4Measurement = {
+  id?: string | number | null;
+  temp?: string | number | null;
+  pressure?: string | number | null;
+  carbonation?: string | number | null;
+  notes?: string | number | null;
+};
+
 import type { Measurement } from "./calculateCelleringRecomendations";
 import { detectPressureV4T0 } from "./pressurePredictionV4";
 
@@ -30,17 +38,17 @@ function median(values: number[]): number | null {
     : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function dayKey(measurement: Measurement): string | null {
+function dayKey(measurement: PressureV4Measurement): string | null {
   const text = String(measurement.id ?? "");
   const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
   return match?.[1] ?? null;
 }
 
-function note(measurement: Measurement): string {
+function note(measurement: PressureV4Measurement): string {
   return String(measurement.notes ?? "");
 }
 
-function hasPressureIntervention(measurement: Measurement): boolean {
+function hasPressureIntervention(measurement: PressureV4Measurement): boolean {
   const text = note(measurement);
   return (
     text.includes("גיזוז מלמטה") ||
@@ -49,7 +57,7 @@ function hasPressureIntervention(measurement: Measurement): boolean {
 }
 
 export function buildEquilibriumV4PointForBatch(args: {
-  measurements: Measurement[];
+  measurements: PressureV4Measurement[];
   batchId: string;
   targetCarbonation: number;
   carbonationTolerance?: number;
@@ -63,7 +71,7 @@ export function buildEquilibriumV4PointForBatch(args: {
   const t0 = detectPressureV4T0(args.measurements);
   if (!t0) return null;
 
-  const daily = new Map<string, Measurement[]>();
+  const daily = new Map<string, PressureV4Measurement[]>();
   args.measurements.forEach((measurement) => {
     const key = dayKey(measurement);
     if (!key) return;
