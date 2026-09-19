@@ -9,7 +9,7 @@
 // manual re-run/reset.
 // ================================================================
 
-const PRESSURE_BACKFILL_STATE_KEY = "pressure_model_backfill_v2_turbo";
+const PRESSURE_BACKFILL_STATE_KEY = "pressure_model_backfill_v3_turbo";
 const PRESSURE_BACKFILL_PAGE_SIZE = 20;
 const PRESSURE_BACKFILL_DAILY_READ_BUDGET = 8000;
 const PRESSURE_BACKFILL_READ_HEADROOM = 1000;
@@ -38,6 +38,7 @@ function startPressureResponseBackfill_() {
       readsToday: 0,
       styleBrewCounts: {},
       styleSampleCounts: {},
+      bottomStyleSampleCounts: {},
       startedAt: new Date().toISOString()
     })
   );
@@ -88,6 +89,7 @@ function pressureResponseBackfillStep_() {
       readsToday: 0,
       styleBrewCounts: {},
       styleSampleCounts: {},
+      bottomStyleSampleCounts: {},
       startedAt: new Date().toISOString()
     };
     props.setProperty(PRESSURE_BACKFILL_STATE_KEY, JSON.stringify(state));
@@ -116,6 +118,10 @@ function pressureResponseBackfillStep_() {
   let readsToday = Number(state.readsToday || 0);
   const styleBrewCounts = Object.assign({}, state.styleBrewCounts || {});
   const styleSampleCounts = Object.assign({}, state.styleSampleCounts || {});
+  const bottomStyleSampleCounts = Object.assign(
+    {},
+    state.bottomStyleSampleCounts || {}
+  );
   const readsAtStart = readsToday;
   let pagesProcessed = 0;
   let processedThisRun = 0;
@@ -129,6 +135,7 @@ function pressureResponseBackfillStep_() {
     scannedBrews += page.documents.length;
 
     const samplesByStyle = {};
+    const bottomSamplesByStyle = {};
     let processedThisPage = 0;
 
     page.documents.forEach(function (document) {
@@ -147,33 +154,56 @@ function pressureResponseBackfillStep_() {
 
         const styleKey = normalizePressureModelStyle_(style);
         if (!samplesByStyle[styleKey]) samplesByStyle[styleKey] = [];
+        if (!bottomSamplesByStyle[styleKey]) bottomSamplesByStyle[styleKey] = [];
 
         const brewSamples = buildPressureResponseSamplesForBrew_(
           measurements,
           brewDate,
           id
         );
+        const bottomSamples = buildBottomCarbonationSamplesForBrew_(
+          measurements,
+          brewDate,
+          id
+        );
+
         Array.prototype.push.apply(samplesByStyle[styleKey], brewSamples);
+        Array.prototype.push.apply(bottomSamplesByStyle[styleKey], bottomSamples);
 
         styleBrewCounts[styleKey] = Number(styleBrewCounts[styleKey] || 0) + 1;
         styleSampleCounts[styleKey] =
           Number(styleSampleCounts[styleKey] || 0) + brewSamples.length;
+        bottomStyleSampleCounts[styleKey] =
+          Number(bottomStyleSampleCounts[styleKey] || 0) + bottomSamples.length;
         processedThisPage++;
       } catch (error) {
         console.log("Pressure backfill skipped brew " + id + ": " + error.message);
       }
     });
 
-    // Each style write performs one model-document read before merging. Count
-    // those reads too. Writes are only one document per touched style/page and
-    // are orders of magnitude below the separate 10k/day write allowance.
+    // Each model write performs one model-document read before merging. Count
+    // those reads too. Writes remain only one document per touched style/model.
     Object.keys(samplesByStyle).forEach(function (styleKey) {
-      readsToday++;
-      writeMergedPressureResponseModel_(
-        projectId,
-        styleKey,
-        samplesByStyle[styleKey]
-      );
+      if (samplesByStyle[styleKey].length > 0) {
+        readsToday++;
+        writeMergedPressureResponseModel_(
+          projectId,
+          styleKey,
+          samplesByStyle[styleKey]
+        );
+      }
+
+      if (
+        bottomSamplesByStyle[styleKey] &&
+        bottomSamplesByStyle[styleKey].length > 0
+      ) {
+        readsToday++;
+        writeMergedBottomCarbonationModel_(
+          projectId,
+          styleKey,
+          bottomSamplesByStyle[styleKey]
+        );
+      }
     });
 
     processedBrews += processedThisPage;
@@ -190,6 +220,7 @@ function pressureResponseBackfillStep_() {
         readsToday: readsToday,
         styleBrewCounts: styleBrewCounts,
         styleSampleCounts: styleSampleCounts,
+        bottomStyleSampleCounts: bottomStyleSampleCounts,
         startedAt: state.startedAt || null,
         completedAt: new Date().toISOString()
       };
@@ -202,7 +233,8 @@ function pressureResponseBackfillStep_() {
         "Brews processed: " + processedBrews +
         " | reads today: " + readsToday +
         " | brewsByStyle=" + JSON.stringify(styleBrewCounts) +
-        " | samplesByStyle=" + JSON.stringify(styleSampleCounts)
+        " | pressureSamplesByStyle=" + JSON.stringify(styleSampleCounts) +
+        " | bottomSamplesByStyle=" + JSON.stringify(bottomStyleSampleCounts)
       );
       return {
         skipped: false,
@@ -230,6 +262,7 @@ function pressureResponseBackfillStep_() {
       readsToday: readsToday,
       styleBrewCounts: styleBrewCounts,
       styleSampleCounts: styleSampleCounts,
+      bottomStyleSampleCounts: bottomStyleSampleCounts,
       startedAt: state.startedAt || new Date().toISOString()
     };
     props.setProperty(PRESSURE_BACKFILL_STATE_KEY, JSON.stringify(state));
@@ -245,7 +278,8 @@ function pressureResponseBackfillStep_() {
     " | readsThisRun=" + (readsToday - readsAtStart) +
     " | readsToday=" + readsToday +
     " | brewsByStyle=" + JSON.stringify(styleBrewCounts) +
-    " | samplesByStyle=" + JSON.stringify(styleSampleCounts)
+    " | pressureSamplesByStyle=" + JSON.stringify(styleSampleCounts) +
+    " | bottomSamplesByStyle=" + JSON.stringify(bottomStyleSampleCounts)
   );
 
   return {
