@@ -107,6 +107,7 @@ export function estimateBottomCarbonation(args: {
   brewDay?: number | null;
   temp?: number | null;
   state?: PressureV4DecisionState | null;
+  equilibriumPressure?: (temperature: number | null) => number | null;
 }): BottomCarbonationEstimate | null {
   const desiredGain = args.targetCarbonation - args.currentCarbonation;
   if (!Number.isFinite(desiredGain) || desiredGain <= 0.04) return null;
@@ -185,7 +186,26 @@ export function estimateBottomCarbonation(args: {
       }
 
       const currentExposure = currentState.exposure.equilibriumDeltaBarHours;
-      const sampleExposure = historicalState.exposure.equilibriumDeltaBarHours;
+      let sampleExposure = historicalState.exposure.equilibriumDeltaBarHours;
+
+      if (
+        sampleExposure === null &&
+        args.equilibriumPressure &&
+        historicalState.exposure.hoursSinceT0 > 0
+      ) {
+        const sampleTemp =
+          historicalState.exposure.temperatureMean ??
+          historicalState.currentTemp ??
+          null;
+        const equilibrium = args.equilibriumPressure(sampleTemp);
+        const pressureMean = historicalState.exposure.pressureMean;
+        if (equilibrium !== null && pressureMean !== null) {
+          sampleExposure =
+            (pressureMean - equilibrium) *
+            historicalState.exposure.hoursSinceT0;
+        }
+      }
+
       if (currentExposure !== null && sampleExposure !== null) {
         score += Math.min(2.5, Math.abs(sampleExposure - currentExposure) / 24);
       }
