@@ -1390,10 +1390,16 @@ export function estimatePressureTargetV4(args: {
   const responseTooSmall =
     action !== "hold" &&
     !forecastInTargetWindow &&
-    !closeEnoughForRecheck &&
     (
-      actionEffect < 0.015 ||
-      gapClosedFraction < 0.5
+      carbonationError > 0
+        ? (
+            !closeEnoughForRecheck &&
+            (
+              actionEffect < 0.015 ||
+              gapClosedFraction < 0.5
+            )
+          )
+        : actionEffect < 0.008
     );
 
   const responseEvidenceMissing =
