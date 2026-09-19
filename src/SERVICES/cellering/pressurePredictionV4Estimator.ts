@@ -40,6 +40,13 @@ export type PressureV4Estimate = {
   headroomSupport: number;
   action: "hold" | "raise" | "lower";
   pressureOnlyLikelyInsufficient: boolean;
+  forecastInTargetWindow: boolean;
+  decisionStatus:
+    | "within_window"
+    | "early_cooling_exception"
+    | "pressure_only_insufficient";
+  targetWindowMin: number;
+  targetWindowMax: number;
 };
 
 function finite(value: unknown): number | null {
@@ -950,22 +957,27 @@ export function estimatePressureTargetV4(args: {
         ? "medium"
         : "low";
 
-  const forecastOutsideTolerance =
-    Math.abs(predictedRaw - args.targetCarbonation) >
+  const forecastInTargetWindow =
+    Math.abs(predictedRaw - args.targetCarbonation) <=
     TARGET_TOLERANCE_VOL;
   const effectivelyStillCooling = isEffectivelyStillCooling(
     args.state,
     coldReferenceTemperature,
   );
+
+  // Stable cold beer has a strict contract: either the 48h forecast lands
+  // inside ±0.02 vol, or pressure-only is explicitly declared insufficient.
+  // The only allowed forecast miss is while the beer is still in the active
+  // cooling phase, where equilibrium/head-pressure history remains primary.
+  const decisionStatus: PressureV4Estimate["decisionStatus"] =
+    forecastInTargetWindow
+      ? "within_window"
+      : effectivelyStillCooling
+        ? "early_cooling_exception"
+        : "pressure_only_insufficient";
+
   const pressureOnlyLikelyInsufficient =
-    (!effectivelyStillCooling && forecastOutsideTolerance) ||
-    (
-      carbonationError > 0.15 &&
-      Boolean(args.state.cooling) &&
-      effectivelyStillCooling === false &&
-      args.state.cooling!.hoursSinceCooling >= 120 &&
-      kPerHour < 0.003
-    );
+    decisionStatus === "pressure_only_insufficient";
 
   return {
     targetPressure: Number(targetPressure.toFixed(2)),
@@ -991,5 +1003,13 @@ export function estimatePressureTargetV4(args: {
     headroomSupport,
     action,
     pressureOnlyLikelyInsufficient,
+    forecastInTargetWindow,
+    decisionStatus,
+    targetWindowMin: Number(
+      (args.targetCarbonation - TARGET_TOLERANCE_VOL).toFixed(2),
+    ),
+    targetWindowMax: Number(
+      (args.targetCarbonation + TARGET_TOLERANCE_VOL).toFixed(2),
+    ),
   };
 }
