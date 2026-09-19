@@ -145,6 +145,7 @@ function scenarioMeasurements(args: {
     return [...base, carbRow, currentRow];
 }
 
+// Preview-only refresh marker for first-carbonation V4 guard.
 export default function CellarSimulator({ brews, specs }: Props) {
     const tanks = useMemo(
         () => brews
