@@ -40,6 +40,7 @@ export type PressureV4Estimate = {
   headroomSupport: number;
   action: "hold" | "raise" | "lower";
   pressureOnlyLikelyInsufficient: boolean;
+  requiresAtmosphericVenting: boolean;
   forecastInTargetWindow: boolean;
   decisionStatus:
     | "within_window"
@@ -1091,17 +1092,20 @@ export function estimatePressureTargetV4(args: {
     targetPressure >= maxPressure - Math.max(step, 0.05);
   const lowConfidence = confidence === "low";
 
+  const requiresAtmosphericVenting =
+    carbonationError < 0 &&
+    !effectivelyStillCooling &&
+    nearLowerPressureLimit &&
+    minPressure >= 0 &&
+    predictedRaw > args.targetCarbonation + TARGET_TOLERANCE_VOL;
+
   const trulyPressureLimited =
     (
       carbonationError > 0 &&
       nearUpperPressureLimit &&
       predictedRaw < args.targetCarbonation - TARGET_TOLERANCE_VOL
     ) ||
-    (
-      carbonationError < 0 &&
-      nearLowerPressureLimit &&
-      predictedRaw > args.targetCarbonation + TARGET_TOLERANCE_VOL
-    );
+    requiresAtmosphericVenting;
 
   const decisionStatus: PressureV4Estimate["decisionStatus"] =
     forecastInTargetWindow
@@ -1139,6 +1143,7 @@ export function estimatePressureTargetV4(args: {
     headroomSupport,
     action,
     pressureOnlyLikelyInsufficient,
+    requiresAtmosphericVenting,
     forecastInTargetWindow,
     decisionStatus,
     targetWindowMin: Number(
