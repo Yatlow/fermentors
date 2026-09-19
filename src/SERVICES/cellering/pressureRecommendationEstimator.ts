@@ -134,38 +134,61 @@ export function estimatePressureTarget(args: {
   const currentTemp = finiteNumber(temp);
   const currentBrewDay = finiteNumber(brewDay);
 
-  const observationCandidates = (args.equilibriumObservations ?? [])
+  // Equilibrium is a style/target property, not a property of the current tank.
+  // Learn it only from batches that show a genuinely stable cold period:
+  // carbonation close to target for several observations and pressure staying
+  // within a narrow band. Each batch contributes one median so long batches
+  // cannot dominate the style-level equilibrium.
+  const equilibriumRows = (args.equilibriumObservations ?? [])
     .map((observation) => ({
+      batchId: String(observation.batchId ?? ""),
+      date: String(observation.date ?? ""),
       pressure: finiteNumber(observation.pressure),
       carbonation: finiteNumber(observation.carbonation),
       temp: finiteNumber(observation.temp),
-      brewDay: finiteNumber(observation.brewDay),
     }))
     .filter((observation) =>
+      observation.batchId &&
       observation.pressure !== null &&
       observation.carbonation !== null &&
-      Math.abs(observation.carbonation - targetCarbonation) <= 0.1 &&
-      (
-        currentTemp === null ||
-        observation.temp === null ||
-        Math.abs(observation.temp - currentTemp) <= 2.5
-      )
-    )
-    .sort((a, b) => {
-      const distance = (observation: typeof a) => {
-        let score = Math.abs(observation.carbonation! - targetCarbonation) * 5;
-        if (currentTemp !== null && observation.temp !== null) {
-          score += Math.abs(observation.temp - currentTemp) * 0.8;
+      (observation.temp === null || observation.temp <= 9) &&
+      Math.abs(observation.carbonation - targetCarbonation) <= 0.05
+    );
+
+  const equilibriumByBatch = new Map<string, typeof equilibriumRows>();
+  equilibriumRows.forEach((row) => {
+    const rows = equilibriumByBatch.get(row.batchId) ?? [];
+    rows.push(row);
+    equilibriumByBatch.set(row.batchId, rows);
+  });
+
+  const stableBatchEquilibria: number[] = [];
+  equilibriumByBatch.forEach((rows) => {
+    const ordered = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+    if (ordered.length < 3) return;
+
+    // Any 3+ observation window with <=0.10 bar total spread is treated as a
+    // stable period. We use the longest qualifying tail ending at each point,
+    // then contribute only one median for the batch.
+    let bestWindow: typeof ordered = [];
+    for (let end = 0; end < ordered.length; end += 1) {
+      for (let start = 0; start <= end - 2; start += 1) {
+        const window = ordered.slice(start, end + 1);
+        const pressures = window.map((row) => row.pressure!);
+        const spread = Math.max(...pressures) - Math.min(...pressures);
+        if (spread <= 0.10 && window.length > bestWindow.length) {
+          bestWindow = window;
         }
-        if (currentBrewDay !== null && observation.brewDay !== null) {
-          score += Math.abs(observation.brewDay - currentBrewDay) * 0.08;
-        }
-        return score;
-      };
-      return distance(a) - distance(b);
-    })
-    .slice(0, 60)
-    .map((observation) => observation.pressure!);
+      }
+    }
+
+    if (bestWindow.length >= 3) {
+      const batchMedian = median(bestWindow.map((row) => row.pressure!));
+      if (batchMedian !== null) stableBatchEquilibria.push(batchMedian);
+    }
+  });
+
+  const observationCandidates = stableBatchEquilibria;
 
   const responseOutcomeCandidates = mapped
     .filter((sample) =>
