@@ -628,6 +628,20 @@ type EmpiricalResponse = {
   actionMax: number;
 };
 
+type PassiveDriftEstimate = {
+  delta: number;
+  support: number;
+  meanDistance: number;
+};
+
+type PressureSlopeEstimate = {
+  slope: number;
+  support: number;
+  meanDistance: number;
+  actionMin: number;
+  actionMax: number;
+};
+
 function calibrationStateDistance(
   sample: PressureV4Sample | PressureV4PassiveSample,
   state: PressureV4DecisionState,
@@ -656,6 +670,34 @@ function calibrationStateDistance(
   if (sample.quality === "low") score += 1.25;
   else if (sample.quality === "medium") score += 0.25;
   return score;
+}
+
+function empiricalRowWeight(row: EmpiricalTrainingRow): number {
+  const qualityWeight =
+    row.quality === "high" ? 1 : row.quality === "medium" ? 0.7 : 0.35;
+  return qualityWeight / (0.25 + row.stateDistance * row.stateDistance);
+}
+
+function weightedMedianNumber(
+  rows: Array<{ value: number; weight: number }>,
+): number | null {
+  const sorted = rows
+    .filter((row) =>
+      Number.isFinite(row.value) &&
+      Number.isFinite(row.weight) &&
+      row.weight > 0
+    )
+    .slice()
+    .sort((a, b) => a.value - b.value);
+  const total = sorted.reduce((sum, row) => sum + row.weight, 0);
+  if (!sorted.length || total <= 0) return null;
+
+  let running = 0;
+  for (const row of sorted) {
+    running += row.weight;
+    if (running >= total / 2) return row.value;
+  }
+  return sorted[sorted.length - 1].value;
 }
 
 function buildEmpiricalTrainingRows(args: {
@@ -698,128 +740,151 @@ function buildEmpiricalTrainingRows(args: {
     .slice(0, 40);
 }
 
-function fitEmpiricalResponse(
+function estimatePassiveDrift(
   rows: EmpiricalTrainingRow[],
-  candidateActionDelta: number,
-): EmpiricalResponse | null {
-  if (rows.length < 5) return null;
+): PassiveDriftEstimate | null {
+  const passive = rows
+    .filter((row) => row.kind === "passive")
+    .slice(0, 24);
 
-  const weighted = rows
-    .map((row) => {
-      const actionDistance = Math.abs(row.x - candidateActionDelta) / 0.25;
-      const weight =
-        1 /
-        (
-          0.2 +
-          row.stateDistance * row.stateDistance +
-          actionDistance * actionDistance * 1.5
-        );
-      return { ...row, weight };
-    })
-    .filter((row) => Number.isFinite(row.weight) && row.weight > 0);
+  if (passive.length < 5) return null;
 
-  if (weighted.length < 5) return null;
-
-  const weightSum = weighted.reduce((sum, row) => sum + row.weight, 0);
-  if (weightSum <= 0) return null;
-
-  const meanX =
-    weighted.reduce((sum, row) => sum + row.x * row.weight, 0) /
-    weightSum;
-  const meanY =
-    weighted.reduce((sum, row) => sum + row.y * row.weight, 0) /
-    weightSum;
-  const denominator = weighted.reduce(
-    (sum, row) => sum + row.weight * (row.x - meanX) ** 2,
-    0,
+  const median = weightedMedianNumber(
+    passive.map((row) => ({
+      value: row.y,
+      weight: empiricalRowWeight(row),
+    })),
   );
-  const numerator = weighted.reduce(
-    (sum, row) =>
-      sum + row.weight * (row.x - meanX) * (row.y - meanY),
-    0,
+  if (median === null) return null;
+
+  // A second robust pass removes rows that are extreme relative to the local
+  // passive median. This prevents one corrupted two-day outcome from moving the
+  // no-action baseline by whole volumes of CO2.
+  const deviations = passive
+    .map((row) => Math.abs(row.y - median))
+    .sort((a, b) => a - b);
+  const mad = deviations[Math.floor(deviations.length / 2)] ?? 0;
+  const tolerance = Math.max(0.03, mad * 4);
+  const robust = passive.filter(
+    (row) => Math.abs(row.y - median) <= tolerance,
   );
+  if (robust.length < 5) return null;
 
-  const actionValues = weighted
-    .filter((row) => row.kind === "action")
-    .map((row) => row.x);
-  const actionMin = actionValues.length ? Math.min(...actionValues) : 0;
-  const actionMax = actionValues.length ? Math.max(...actionValues) : 0;
-  const actionSupport = weighted.filter((row) => row.kind === "action").length;
-  const passiveSupport = weighted.length - actionSupport;
-
-  const rawSlope =
-    denominator >= 0.002 ? numerator / denominator : 0;
-  const slopeIdentified =
-    denominator >= 0.002 &&
-    actionSupport >= 3 &&
-    actionMax - actionMin >= 0.08 &&
-    Number.isFinite(rawSlope) &&
-    rawSlope > 0;
-
-  // More head pressure must not learn a negative CO2 response. Cap only truly
-  // implausible extrapolation; the historical slope remains the primary signal.
-  const slope = slopeIdentified
-    ? clamp(rawSlope, 0, 0.8)
-    : 0;
-  const intercept = meanY - slope * meanX;
-  const predictedDelta = intercept + slope * candidateActionDelta;
-  const meanDistance =
-    weighted.reduce((sum, row) => sum + row.stateDistance, 0) /
-    weighted.length;
+  const robustMedian = weightedMedianNumber(
+    robust.map((row) => ({
+      value: row.y,
+      weight: empiricalRowWeight(row),
+    })),
+  );
+  if (robustMedian === null) return null;
 
   return {
-    intercept,
-    slope,
-    predictedDelta,
-    support: weighted.length,
-    actionSupport,
-    passiveSupport,
-    effectiveWeight: weightSum,
-    meanDistance,
-    slopeIdentified,
-    actionMin,
-    actionMax,
+    delta: robustMedian,
+    support: robust.length,
+    meanDistance:
+      robust.reduce((sum, row) => sum + row.stateDistance, 0) /
+      robust.length,
   };
 }
 
-function empiricalWeight(
-  response: EmpiricalResponse | null,
-  candidateActionDelta: number,
-): number {
-  if (!response) return 0;
+function estimatePressureSlope(
+  rows: EmpiricalTrainingRow[],
+  passive: PassiveDriftEstimate | null,
+): PressureSlopeEstimate | null {
+  const actions = rows
+    .filter((row) => row.kind === "action" && Math.abs(row.x) >= 0.08)
+    .slice(0, 24);
 
-  // At action=0, passive observations are direct evidence for the exact thing
-  // being forecast: two-day drift with no pressure intervention. They may lead
-  // the no-change forecast even when they cannot identify a pressure slope.
-  if (
-    Math.abs(candidateActionDelta) < 0.025 &&
-    response.passiveSupport >= 5
-  ) {
-    if (response.passiveSupport >= 12 && response.meanDistance <= 3) {
-      return 0.9;
+  if (actions.length < 3) return null;
+
+  let slopeRows: Array<{ value: number; weight: number }> = [];
+
+  if (passive) {
+    slopeRows = actions
+      .map((row) => ({
+        value: (row.y - passive.delta) / row.x,
+        weight: empiricalRowWeight(row),
+      }))
+      .filter((row) =>
+        Number.isFinite(row.value) &&
+        row.value > 0 &&
+        row.value <= 1
+      );
+  } else {
+    // Without passive baseline, use pairwise action differences so the unknown
+    // intercept cancels out. This avoids extrapolating a regression intercept
+    // from pressure actions back to action=0.
+    for (let i = 0; i < actions.length; i += 1) {
+      for (let j = i + 1; j < actions.length; j += 1) {
+        const dx = actions[i].x - actions[j].x;
+        if (Math.abs(dx) < 0.08) continue;
+        const slope = (actions[i].y - actions[j].y) / dx;
+        if (!Number.isFinite(slope) || slope <= 0 || slope > 1) continue;
+        slopeRows.push({
+          value: slope,
+          weight:
+            Math.sqrt(
+              empiricalRowWeight(actions[i]) *
+              empiricalRowWeight(actions[j]),
+            ),
+        });
+      }
     }
-    if (response.meanDistance <= 4.5) return 0.8;
-    return 0.65;
   }
 
-  if (response.slopeIdentified) {
-    if (
-      response.support >= 12 &&
-      response.actionSupport >= 5 &&
-      response.meanDistance <= 3
-    ) return 0.9;
-    if (
-      response.support >= 7 &&
-      response.actionSupport >= 3 &&
-      response.meanDistance <= 4.5
-    ) return 0.8;
-    return 0.65;
-  }
+  if (slopeRows.length < 3) return null;
 
-  // Away from action=0, passive history alone must not fabricate the effect of
-  // changing pressure. Keep physics as the weak fallback until actions span
-  // enough pressure deltas to identify a slope.
-  return response.support >= 7 ? 0.2 : 0.1;
+  const slope = weightedMedianNumber(slopeRows);
+  if (slope === null || slope <= 0) return null;
+
+  const actionValues = actions.map((row) => row.x);
+  return {
+    slope,
+    support: actions.length,
+    meanDistance:
+      actions.reduce((sum, row) => sum + row.stateDistance, 0) /
+      actions.length,
+    actionMin: Math.min(...actionValues),
+    actionMax: Math.max(...actionValues),
+  };
+}
+
+function buildEmpiricalResponse(args: {
+  rows: EmpiricalTrainingRow[];
+  candidateActionDelta: number;
+  physicalNoChangeDelta: number;
+  activeCooling: boolean;
+}): EmpiricalResponse | null {
+  if (args.activeCooling) return null;
+
+  const passive = estimatePassiveDrift(args.rows);
+  const slope = estimatePressureSlope(args.rows, passive);
+  if (!passive && !slope) return null;
+
+  const intercept = passive?.delta ?? args.physicalNoChangeDelta;
+  const learnedSlope = slope?.slope ?? 0;
+  const predictedDelta =
+    intercept + learnedSlope * args.candidateActionDelta;
+
+  return {
+    intercept,
+    slope: learnedSlope,
+    predictedDelta,
+    support: Math.max(passive?.support ?? 0, slope?.support ?? 0),
+    actionSupport: slope?.support ?? 0,
+    passiveSupport: passive?.support ?? 0,
+    effectiveWeight: args.rows.reduce(
+      (sum, row) => sum + empiricalRowWeight(row),
+      0,
+    ),
+    meanDistance:
+      slope?.meanDistance ??
+      passive?.meanDistance ??
+      Infinity,
+    slopeIdentified: Boolean(slope),
+    actionMin: slope?.actionMin ?? 0,
+    actionMax: slope?.actionMax ?? 0,
+  };
 }
 
 function refinePressureWithForecast(args: {
@@ -1133,11 +1198,28 @@ export function estimatePressureTargetV4(args: {
   // physical equilibrium equation. Applying the learned equilibrium offset
   // again inside the kinetic simulation would double-calibrate the forecast.
   // The learned/local equilibrium remains the operational setpoint anchor only.
+  const activeCooling = isEffectivelyStillCooling(
+    args.state,
+    coldReferenceTemperature,
+  );
   const empiricalRows = buildEmpiricalTrainingRows({
     samples: args.samples ?? [],
     passiveSamples: args.passiveSamples ?? [],
     state: args.state,
   });
+
+  const physicalNoChange = simulateForward({
+    carbonation: args.state.carbonation,
+    pressureBar: args.state.currentPressure,
+    pressureCalibrationOffset: 0,
+    state: args.state,
+    coldReferenceTemperature,
+    kPerHour,
+    hours: horizonHours,
+  });
+  if (physicalNoChange === null) return null;
+  const physicalNoChangeDelta =
+    physicalNoChange - args.state.carbonation;
 
   const forecastAtPressure = (pressureBar: number): {
     predicted: number;
@@ -1161,23 +1243,43 @@ export function estimatePressureTargetV4(args: {
       pressureBar - args.state.currentPressure;
     const response =
       Math.abs(horizonHours - 48) <= 12
-        ? fitEmpiricalResponse(empiricalRows, candidateActionDelta)
+        ? buildEmpiricalResponse({
+            rows: empiricalRows,
+            candidateActionDelta,
+            physicalNoChangeDelta,
+            activeCooling,
+          })
         : null;
-    const empiricalPredicted = response
-      ? args.state.carbonation + response.predictedDelta
-      : null;
-    const weight = empiricalWeight(response, candidateActionDelta);
+
+    if (!response) {
+      return {
+        predicted: physicalPredicted,
+        physicalPredicted,
+        empiricalPredicted: null,
+        response: null,
+        empiricalWeight: 0,
+      };
+    }
+
+    const empiricalNoChange =
+      args.state.carbonation + response.intercept;
+    const physicalActionEffect =
+      physicalPredicted - physicalNoChange;
+    const actionEffect = response.slopeIdentified
+      ? response.slope * candidateActionDelta
+      : physicalActionEffect;
+    const predicted =
+      empiricalNoChange + actionEffect;
 
     return {
-      predicted:
-        empiricalPredicted === null
-          ? physicalPredicted
-          : physicalPredicted * (1 - weight) +
-            empiricalPredicted * weight,
+      predicted,
       physicalPredicted,
-      empiricalPredicted,
+      empiricalPredicted: predicted,
       response,
-      empiricalWeight: weight,
+      empiricalWeight:
+        response.slopeIdentified || response.passiveSupport >= 5
+          ? 1
+          : 0,
     };
   };
 
