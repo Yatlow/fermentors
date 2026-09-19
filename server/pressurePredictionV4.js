@@ -10,10 +10,13 @@
 const PRESSURE_V4_BACKFILL_STATE_KEY = "pressure_prediction_v4_backfill_v1";
 const PRESSURE_V4_BACKFILL_PAGE_SIZE = 1; // keep quota overshoot bounded to one brew
 const PRESSURE_V4_INITIAL_PRE_RESET_BUDGET = 3000;
+const PRESSURE_V4_PRE_RESET_FINAL_BUDGET = 5000;
 const PRESSURE_V4_DAILY_READ_BUDGET = 15000;
+const PRESSURE_V4_2026_09_19_POST_RESET_BUDGET = 10000;
 const PRESSURE_V4_TIMEZONE = "Asia/Jerusalem";
 const PRESSURE_V4_RESET_HOUR = 10;
 const PRESSURE_V4_MAX_RUN_MS = 120000;
+const PRESSURE_V4_FINAL_PRE_RESET_RUN_MS = 285000;
 const PRESSURE_V4_MAX_SAMPLES_PER_STYLE = 600;
 const PRESSURE_V4_MAX_EQUILIBRIUM_POINTS_PER_STYLE = 200;
 
@@ -644,6 +647,57 @@ function pressureV4QuotaWindow_(now) {
   };
 }
 
+function pressureV4BackfillPolicy_(now, state, quotaKey) {
+  const current = now || new Date();
+  const dateText = Utilities.formatDate(
+    current,
+    PRESSURE_V4_TIMEZONE,
+    "yyyy-MM-dd"
+  );
+  const hour = Number(
+    Utilities.formatDate(current, PRESSURE_V4_TIMEZONE, "H")
+  );
+  const minute = Number(
+    Utilities.formatDate(current, PRESSURE_V4_TIMEZONE, "m")
+  );
+
+  const finalPreResetBurst =
+    dateText === "2026-09-19" &&
+    hour === 9 &&
+    minute >= 50;
+
+  if (finalPreResetBurst) {
+    return {
+      budget: PRESSURE_V4_PRE_RESET_FINAL_BUDGET,
+      maxRunMs: PRESSURE_V4_FINAL_PRE_RESET_RUN_MS,
+      restartForPassive: !state.passiveRescanStartedAt
+    };
+  }
+
+  if (quotaKey === "2026-09-19@10") {
+    return {
+      budget: PRESSURE_V4_2026_09_19_POST_RESET_BUDGET,
+      maxRunMs: PRESSURE_V4_MAX_RUN_MS,
+      restartForPassive: false
+    };
+  }
+
+  const isInitialWindow =
+    String(state.initialQuotaWindowKey || "") === quotaKey;
+  const budget = isInitialWindow
+    ? Number(
+        state.initialQuotaWindowBudget ||
+        PRESSURE_V4_INITIAL_PRE_RESET_BUDGET
+      )
+    : PRESSURE_V4_DAILY_READ_BUDGET;
+
+  return {
+    budget: budget,
+    maxRunMs: PRESSURE_V4_MAX_RUN_MS,
+    restartForPassive: false
+  };
+}
+
 function pressureV4ModelReadiness_(samples, equilibriumPoints) {
   const usable = (samples || []).filter(function (sample) {
     return sample &&
@@ -730,19 +784,28 @@ function pressurePredictionV4BackfillStep_() {
     state.readsInWindow = 0;
   }
 
+  const now = new Date();
   const currentHour = Number(
-    Utilities.formatDate(new Date(), PRESSURE_V4_TIMEZONE, "H")
+    Utilities.formatDate(now, PRESSURE_V4_TIMEZONE, "H")
   );
   const isPreResetWindow = currentHour < PRESSURE_V4_RESET_HOUR;
-  const budget =
-    String(state.initialQuotaWindowKey || "") === quota.key
-      ? Number(state.initialQuotaWindowBudget || PRESSURE_V4_INITIAL_PRE_RESET_BUDGET)
-      : (
-          isPreResetWindow &&
-          !state.initialQuotaWindowKey
-            ? PRESSURE_V4_INITIAL_PRE_RESET_BUDGET
-            : PRESSURE_V4_DAILY_READ_BUDGET
-        );
+  const policy = pressureV4BackfillPolicy_(now, state, quota.key);
+  const budget = policy.budget;
+
+  if (policy.restartForPassive) {
+    state.pageToken = "";
+    state.active = true;
+    state.completed = false;
+    state.passiveRescanStartedAt = now.toISOString();
+    props.setProperty(
+      PRESSURE_V4_BACKFILL_STATE_KEY,
+      JSON.stringify(state)
+    );
+    Logger.log(
+      "V4 BACKFILL | 09:50 passive rescan started | budget " +
+      budget
+    );
+  }
 
   const readsInWindow = Number(state.readsInWindow || 0);
   if (readsInWindow >= budget) {
@@ -774,7 +837,7 @@ function pressurePredictionV4BackfillStep_() {
   const styleReadiness = {};
 
   while (
-    Date.now() - startedAtMs < PRESSURE_V4_MAX_RUN_MS &&
+    Date.now() - startedAtMs < policy.maxRunMs &&
     readsInWindow + readsThisRun < budget
   ) {
     let url =
@@ -904,6 +967,7 @@ function pressurePredictionV4BackfillStep_() {
       initialQuotaWindowBudget:
         Number(state.initialQuotaWindowBudget || 0) ||
         (isPreResetWindow ? PRESSURE_V4_INITIAL_PRE_RESET_BUDGET : PRESSURE_V4_DAILY_READ_BUDGET),
+      passiveRescanStartedAt: state.passiveRescanStartedAt || null,
       startedAt: state.startedAt || null,
       updatedAt: new Date().toISOString()
     };
