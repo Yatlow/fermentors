@@ -296,8 +296,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 setV4Status("אין יעד גיזוז זמין לסגנון");
             } else {
                 const v4Model = await getPressurePredictionModelV4(tank.beerStyle);
-                if (!v4Model || v4Model.samples.length < 5) {
-                    setV4Status("מודל V4 עדיין ללא מספיק דוגמאות");
+                if (!v4Model || v4Model.transitions.length < 4) {
+                    setV4Status("המודל הקינטי עדיין ללא מספיק מעברים בין בדיקות גיזוז");
                 } else {
                     const equilibriumForTemp = (temperature: number | null) =>
                         getEquilibriumPressureForV4(v4Model, temperature);
@@ -313,6 +313,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         const estimate = estimatePressureTargetV4({
                             samples: v4Model.samples,
                             passiveSamples: v4Model.passiveSamples,
+                            transitions: v4Model.transitions,
                             state,
                             targetCarbonation: Number(carbonationTarget),
                             firstCarbonation,
@@ -446,7 +447,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 יעד: {v4Result.targetCarbonation} ·
                                 ביטחון: {v4Result.confidence} ·
                                 דיוק היסטורי: {v4Result.accuracyPercent}% ·
-                                תמיכה: {v4Result.supportCount} דוגמאות
+                                k: {v4Result.kPerHour}/שעה ·
+                                לחץ שיווי־משקל ליעד: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar ·
+                                תמיכה: {v4Result.supportCount} מעברים
                             </p>
                         </article>
                     ) : (
