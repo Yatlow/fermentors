@@ -101,6 +101,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /pressureResponseModelsV3/{document} {
+      allow read: if isApprovedUser();
+      allow write: if false;
+    }
+
+    match /bottomCarbonationModels/{document} {
+      allow read: if isApprovedUser();
+      allow write: if false;
+    }
+
     match /sheetSyncJobs/{requestId} {
       allow read: if isApprovedUser();
       allow create: if isApprovedUser()
