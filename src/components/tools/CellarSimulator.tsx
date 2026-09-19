@@ -132,6 +132,53 @@ function resolveFirstCarbonation(args: {
     return { first: priorChecks === 0, priorChecks };
 }
 
+function buildHypotheticalProductionPressureText(
+    estimate: PressureV4Estimate,
+    currentCarbonation: number,
+): string {
+    const targetRange =
+        `${estimate.targetWindowMin.toFixed(2)}–${estimate.targetWindowMax.toFixed(2)}`;
+
+    if (estimate.decisionStatus === "pressure_only_insufficient") {
+        const directionText =
+            currentCarbonation < estimate.targetCarbonation
+                ? "הגיזוז נמוך"
+                : "הגיזוז גבוה";
+        const nextAction =
+            currentCarbonation < estimate.targetCarbonation
+                ? "מומלץ לשקול גיזוז מלמטה"
+                : "מומלץ לבצע הורדת לחץ/שחרור בהתאם";
+
+        return (
+            `${directionText} (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+            `לפי מודל V4 שינוי לחץ ראש בלבד לא צפוי להביא את הגיזוז לטווח ${targetRange} בתוך יומיים. ` +
+            `${nextAction} ולבצע בדיקת גיזוז חוזרת.`
+        );
+    }
+
+    const actionText =
+        estimate.action === "hold"
+            ? `להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar`
+            : estimate.action === "raise"
+                ? `להעלות את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar`
+                : `להוריד את הלחץ ל-${estimate.targetPressure.toFixed(2)} bar`;
+
+    if (estimate.decisionStatus === "early_cooling_exception") {
+        return (
+            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+            `המיכל עדיין בתהליך קירור; מומלץ ${actionText}. ` +
+            `תחזית הגיזוז לעוד יומיים היא ${estimate.predictedCarbonation.toFixed(3)}, מחוץ לטווח ${targetRange}, ` +
+            "ולכן מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
+        );
+    }
+
+    return (
+        `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+        `מומלץ ${actionText} ולבצע בדיקת גיזוז חוזרת בעוד יומיים. ` +
+        `תחזית V4 לאחר הפעולה: ${estimate.predictedCarbonation.toFixed(3)}.`
+    );
+}
+
 function numericOrUndefined(value: string): number | undefined {
     if (value.trim() === "") return undefined;
     const number = Number(value);
@@ -553,6 +600,21 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
             {error && <div className="cellar-simulator-error">{error}</div>}
 
+            {v4Result && (
+                <div className="cellar-simulator-results">
+                    <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
+                    <article className="cellar-simulator-result level-1">
+                        <strong>שינוי לחץ</strong>
+                        <p>
+                            {buildHypotheticalProductionPressureText(
+                                v4Result,
+                                Number(carbonation),
+                            )}
+                        </p>
+                    </article>
+                </div>
+            )}
+
             {(v4Result || v4Status) && (
                 <div className="cellar-simulator-results">
                     <h3>V4 ניסיוני</h3>
@@ -587,8 +649,16 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 {v4Result.headroomSupport > 0
                                     ? ` · headroom היסטורי: ${v4Result.headroomSupport} דוגמאות`
                                     : ""}
+                                {" · "}
+                                סטטוס החלטה: {
+                                    v4Result.decisionStatus === "within_window"
+                                        ? "תחזית בתוך חלון היעד"
+                                        : v4Result.decisionStatus === "early_cooling_exception"
+                                            ? "חריג קירור פעיל — התחזית יכולה להיות מחוץ לחלון"
+                                            : "אין פתרון מספק בלחץ ראש בלבד"
+                                }
                                 {v4Result.pressureOnlyLikelyInsufficient
-                                    ? " · לחץ ראש בלבד כנראה לא יספיק — לשקול גיזוז מלמטה"
+                                    ? " · לחץ ראש בלבד לא צפוי להספיק"
                                     : ""}
                             </p>
                         </article>
