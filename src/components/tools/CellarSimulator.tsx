@@ -524,6 +524,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 state,
                                 targetCarbonation: Number(carbonationTarget),
                                 coldReferenceTemperature,
+                                firstCarbonation: carbonationScenario.first,
                             });
                             if (v5Estimate) {
                                 setV5Result(v5Estimate);
@@ -724,8 +725,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                                     : `להוריד לחץ ל-${v5Result.targetPressure?.toFixed(2)} bar`}
                             </strong>
                             <p>
+                                מצב: {v5Result.mode === "first_cooling" ? "בדיקת גיזוז ראשונה / המשך קירור" : "מיכל קר יציב"} ·
                                 α ל-48 שעות: {v5Result.alpha48.toFixed(3)}
-                                {" "}({v5Result.alphaSource === "learned" ? "נלמד מההיסטוריה" : "heuristic זמני"}) ·
+                                {" "}({v5Result.alphaSource === "learned" ? "נלמד מההיסטוריה המתאימה למצב" : "heuristic זמני"}) ·
                                 תמיכה: {v5Result.supportCount} דוגמאות ·
                                 ביטחון: {v5Result.confidence} ·
                                 טמפרטורת חיזוי: {v5Result.forecastTemperature.toFixed(1)}°C ·
