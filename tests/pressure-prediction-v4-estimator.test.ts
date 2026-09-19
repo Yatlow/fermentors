@@ -114,7 +114,7 @@ test("V4 can recommend lowering pressure while carbonation is still below target
 
   const estimate = estimatePressureTargetV4({
     samples,
-    passiveSamples: Array.from({ length: 12 }, () => passiveSample(0.19)),
+    passiveSamples: Array.from({ length: 12 }, () => passiveSample(0.27)),
     state,
     targetCarbonation: 2.45,
   });
@@ -193,9 +193,11 @@ test("V4 stays within absolute operational pressure bounds", () => {
     targetCarbonation: 2.45,
   });
 
-  assert.ok(estimate);
-  assert.ok(estimate.targetPressure >= 0);
-  assert.ok(estimate.targetPressure <= 1.9);
+  assert.equal(
+    estimate,
+    null,
+    "when even the 1.9 bar operational boundary stays materially below target, V4 should abstain instead of calling the boundary a recommendation",
+  );
 });
 
 
