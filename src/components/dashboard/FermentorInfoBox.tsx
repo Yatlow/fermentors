@@ -315,6 +315,7 @@ export default function FermentorInfoBox({
                 recomendations.requiresWarmYeastDrop,
                 recomendations.requiersYeastDropAfterCooling,
                 recomendations.requiresCarbTest,
+                recomendations.requiredBottomCarbonation,
                 recomendations.requiersDiacytelRest,
                 recomendations.neglectedStatus,
                 recomendations.requiresToCoolDown,
