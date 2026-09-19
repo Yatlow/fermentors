@@ -665,13 +665,19 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 <div className="cellar-simulator-results">
                     <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
                     <article className="cellar-simulator-result level-1">
-                        <strong>שינוי לחץ</strong>
+                        <strong>
+                            {Number(carbonation) < 2.15
+                                ? "גיזוז מלמטה"
+                                : "שינוי לחץ"}
+                        </strong>
                         <p>
-                            {buildHypotheticalProductionPressureText(
-                                v4Result,
-                                Number(carbonation),
-                                ventingResult,
-                            )}
+                            {Number(carbonation) < 2.15
+                                ? `הגיזוז המדומה הוא ${Number(carbonation).toFixed(2)} vol — מתחת לסף הקשיח 2.15. בפרודקשיין מסלול שינוי לחץ ראש לא יוצג; ההמלצה עוברת לגיזוז מלמטה. תוצאת V4 נשארת מוצגת למטה לצורכי debug בלבד.`
+                                : buildHypotheticalProductionPressureText(
+                                    v4Result,
+                                    Number(carbonation),
+                                    ventingResult,
+                                )}
                         </p>
                     </article>
                 </div>
