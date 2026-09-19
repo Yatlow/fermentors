@@ -13,6 +13,7 @@ const PRESSURE_V4_INITIAL_PRE_RESET_BUDGET = 3000;
 const PRESSURE_V4_DAILY_READ_BUDGET = 15000;
 const PRESSURE_V4_TIMEZONE = "Asia/Jerusalem";
 const PRESSURE_V4_RESET_HOUR = 10;
+const PRESSURE_V4_MAX_RUN_MS = 120000;
 const PRESSURE_V4_MAX_SAMPLES_PER_STYLE = 600;
 const PRESSURE_V4_MAX_EQUILIBRIUM_POINTS_PER_STYLE = 200;
 
@@ -615,10 +616,19 @@ function pressurePredictionV4BackfillStep_() {
     state.readsInWindow = 0;
   }
 
+  const currentHour = Number(
+    Utilities.formatDate(new Date(), PRESSURE_V4_TIMEZONE, "H")
+  );
+  const isPreResetWindow = currentHour < PRESSURE_V4_RESET_HOUR;
   const budget =
     String(state.initialQuotaWindowKey || "") === quota.key
       ? Number(state.initialQuotaWindowBudget || PRESSURE_V4_INITIAL_PRE_RESET_BUDGET)
-      : PRESSURE_V4_DAILY_READ_BUDGET;
+      : (
+          isPreResetWindow &&
+          !state.initialQuotaWindowKey
+            ? PRESSURE_V4_INITIAL_PRE_RESET_BUDGET
+            : PRESSURE_V4_DAILY_READ_BUDGET
+        );
 
   const readsInWindow = Number(state.readsInWindow || 0);
   if (readsInWindow >= budget) {
@@ -637,90 +647,136 @@ function pressurePredictionV4BackfillStep_() {
   }
 
   const projectId = FIREBASE_PROJECT_ID;
+  const startedAtMs = Date.now();
   const targets = pressureV4ReadCarbonationTargets_(projectId);
-  let readsThisStep = 1; // specs collection/list request
 
-  let url =
-    "https://firestore.googleapis.com/v1/projects/" +
-    encodeURIComponent(projectId) +
-    "/databases/(default)/documents/brews?pageSize=" +
-    PRESSURE_V4_BACKFILL_PAGE_SIZE;
+  let readsThisRun = 1; // specs collection/list request
+  let totalProcessedThisRun = 0;
+  let totalScannedThisRun = 0;
+  let pageToken = String(state.pageToken || "");
+  let completed = false;
+  const styleReadiness = {};
 
-  if (state.pageToken) {
-    url += "&pageToken=" + encodeURIComponent(state.pageToken);
+  while (
+    Date.now() - startedAtMs < PRESSURE_V4_MAX_RUN_MS &&
+    readsInWindow + readsThisRun < budget
+  ) {
+    let url =
+      "https://firestore.googleapis.com/v1/projects/" +
+      encodeURIComponent(projectId) +
+      "/databases/(default)/documents/brews?pageSize=" +
+      PRESSURE_V4_BACKFILL_PAGE_SIZE;
+
+    if (pageToken) {
+      url += "&pageToken=" + encodeURIComponent(pageToken);
+    }
+
+    const page = firestoreRequest_(url);
+    const documents = page.documents || [];
+    readsThisRun += documents.length;
+    totalScannedThisRun += documents.length;
+
+    if (documents.length === 0) {
+      completed = true;
+      pageToken = "";
+      break;
+    }
+
+    const byStyle = {};
+    const pointsByStyle = {};
+    let processedThisPage = 0;
+
+    documents.forEach(function (document) {
+      const batchId = String(document.name || "").split("/").pop();
+      const data = firestoreFieldsToObject_(document.fields || {});
+      const styleKey = normalizePressureModelStyle_(data.beerStyle);
+      if (!batchId || !styleKey) return;
+
+      try {
+        const measurements = getMeasurementsForBrew(projectId, batchId);
+        readsThisRun += measurements.length;
+
+        const samples = pressureV4BuildSamples_(measurements, batchId);
+        const target = pressureV4Number_(targets[styleKey] != null
+          ? targets[styleKey]
+          : targets.other);
+        const point = pressureV4BuildEquilibriumPoint_(
+          measurements,
+          batchId,
+          target
+        );
+
+        if (!byStyle[styleKey]) byStyle[styleKey] = [];
+        Array.prototype.push.apply(byStyle[styleKey], samples);
+
+        if (!pointsByStyle[styleKey]) pointsByStyle[styleKey] = [];
+        if (point) pointsByStyle[styleKey].push(point);
+
+        processedThisPage++;
+      } catch (error) {
+        console.log("V4 backfill skipped batch " + batchId + ": " + error.message);
+      }
+    });
+
+    const touchedStyles = {};
+    Object.keys(byStyle).concat(Object.keys(pointsByStyle)).forEach(function (styleKey) {
+      touchedStyles[styleKey] = true;
+    });
+
+    Object.keys(touchedStyles).forEach(function (styleKey) {
+      readsThisRun++;
+      const writeResult = pressureV4WriteModel_(
+        projectId,
+        styleKey,
+        byStyle[styleKey] || [],
+        pointsByStyle[styleKey] || []
+      );
+      styleReadiness[styleKey] = writeResult.readiness;
+    });
+
+    totalProcessedThisRun += processedThisPage;
+
+    const nextPageToken = page.nextPageToken || "";
+    const nextState = {
+      active: Boolean(nextPageToken),
+      completed: !nextPageToken,
+      pageToken: nextPageToken,
+      scannedBrews: Number(state.scannedBrews || 0) + totalScannedThisRun,
+      processedBrews: Number(state.processedBrews || 0) + totalProcessedThisRun,
+      quotaWindowKey: quota.key,
+      readsInWindow: readsInWindow + readsThisRun,
+      initialQuotaWindowKey: state.initialQuotaWindowKey || (isPreResetWindow ? quota.key : ""),
+      initialQuotaWindowBudget:
+        Number(state.initialQuotaWindowBudget || 0) ||
+        (isPreResetWindow ? PRESSURE_V4_INITIAL_PRE_RESET_BUDGET : PRESSURE_V4_DAILY_READ_BUDGET),
+      startedAt: state.startedAt || null,
+      updatedAt: new Date().toISOString()
+    };
+    if (!nextPageToken) nextState.completedAt = new Date().toISOString();
+
+    props.setProperty(PRESSURE_V4_BACKFILL_STATE_KEY, JSON.stringify(nextState));
+
+    // Keep local state aligned with persisted progress before continuing.
+    state.pageToken = nextPageToken;
+    state.scannedBrews = nextState.scannedBrews;
+    state.processedBrews = nextState.processedBrews;
+    state.readsInWindow = nextState.readsInWindow;
+    state.initialQuotaWindowKey = nextState.initialQuotaWindowKey;
+    state.initialQuotaWindowBudget = nextState.initialQuotaWindowBudget;
+
+    pageToken = nextPageToken;
+    if (!nextPageToken) {
+      completed = true;
+      break;
+    }
+
+    // We only know a brew's measurement count after reading it, so allow at
+    // most the current brew to push slightly over the budget, then stop.
+    if (readsInWindow + readsThisRun >= budget) break;
   }
 
-  const page = firestoreRequest_(url);
-  const documents = page.documents || [];
-  readsThisStep += documents.length;
-  const byStyle = {};
-  const pointsByStyle = {};
-
-  let processed = 0;
-
-  documents.forEach(function (document) {
-    const batchId = String(document.name || "").split("/").pop();
-    const data = firestoreFieldsToObject_(document.fields || {});
-    const styleKey = normalizePressureModelStyle_(data.beerStyle);
-    if (!batchId || !styleKey) return;
-
-    try {
-      const measurements = getMeasurementsForBrew(projectId, batchId);
-      readsThisStep += measurements.length;
-      const samples = pressureV4BuildSamples_(measurements, batchId);
-      const target = pressureV4Number_(targets[styleKey] != null
-        ? targets[styleKey]
-        : targets.other);
-      const point = pressureV4BuildEquilibriumPoint_(
-        measurements,
-        batchId,
-        target
-      );
-
-      if (!byStyle[styleKey]) byStyle[styleKey] = [];
-      Array.prototype.push.apply(byStyle[styleKey], samples);
-
-      if (!pointsByStyle[styleKey]) pointsByStyle[styleKey] = [];
-      if (point) pointsByStyle[styleKey].push(point);
-      processed++;
-    } catch (error) {
-      console.log("V4 backfill skipped batch " + batchId + ": " + error.message);
-    }
-  });
-
-  const touchedStyles = {};
-  const styleReadiness = {};
-  Object.keys(byStyle).concat(Object.keys(pointsByStyle)).forEach(function (styleKey) {
-    touchedStyles[styleKey] = true;
-  });
-
-  Object.keys(touchedStyles).forEach(function (styleKey) {
-    readsThisStep++;
-    const writeResult = pressureV4WriteModel_(
-      projectId,
-      styleKey,
-      byStyle[styleKey] || [],
-      pointsByStyle[styleKey] || []
-    );
-    styleReadiness[styleKey] = writeResult.readiness;
-  });
-
-  const nextPageToken = page.nextPageToken || "";
-  const nextState = {
-    active: Boolean(nextPageToken),
-    completed: !nextPageToken,
-    pageToken: nextPageToken,
-    scannedBrews: Number(state.scannedBrews || 0) + documents.length,
-    processedBrews: Number(state.processedBrews || 0) + processed,
-    quotaWindowKey: quota.key,
-    readsInWindow: readsInWindow + readsThisStep,
-    startedAt: state.startedAt || null,
-    updatedAt: new Date().toISOString()
-  };
-  if (!nextPageToken) nextState.completedAt = new Date().toISOString();
-
-  props.setProperty(PRESSURE_V4_BACKFILL_STATE_KEY, JSON.stringify(nextState));
-
+  const finalReadsInWindow = readsInWindow + readsThisRun;
+  const finalState = pressurePredictionV4BackfillState_() || state;
   const readinessText = Object.keys(styleReadiness).map(function (styleKey) {
     const readiness = styleReadiness[styleKey];
     return styleKey + "=" +
@@ -731,24 +787,23 @@ function pressurePredictionV4BackfillStep_() {
   }).join(" | ");
 
   Logger.log(
-    "V4 BACKFILL | reads " + nextState.readsInWindow + "/" + budget +
-    " | this run " + readsThisStep +
-    " | brews " + nextState.processedBrews +
+    "V4 BACKFILL | reads " + finalReadsInWindow + "/" + budget +
+    " | this run " + readsThisRun +
+    " | brews " + Number(finalState.processedBrews || 0) +
     (readinessText ? " | " + readinessText : "")
   );
 
   return {
     skipped: false,
     automatic: true,
-    completed: !nextPageToken,
-    scannedThisStep: documents.length,
-    processedThisStep: processed,
-    readsThisStep: readsThisStep,
-    readsInWindow: nextState.readsInWindow,
+    completed: completed,
+    scannedThisRun: totalScannedThisRun,
+    processedThisRun: totalProcessedThisRun,
+    readsThisRun: readsThisRun,
+    readsInWindow: finalReadsInWindow,
     budget: budget,
     quotaWindowKey: quota.key,
-    touchedStyles: Object.keys(touchedStyles),
     styleReadiness: styleReadiness,
-    state: nextState
+    state: finalState
   };
-}
+}}
