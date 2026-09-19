@@ -1451,22 +1451,21 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 })
                 : null;
 
-            // Do not surface a low-confidence V4 target to workers. A style can
-            // be globally ready while the current tank is unlike its history.
-            if (v4Estimate && v4Estimate.confidence !== "low") {
+            if (v4Estimate) {
                 const change =
                     v4Estimate.targetPressure - currentPressure;
                 const actionText =
                     change > 0.025
-                        ? `מומלץ להעלות את הלחץ ל-${v4Estimate.targetPressure} bar.`
+                        ? `מומלץ לבצע העלאת לחץ ל-${v4Estimate.targetPressure} bar.`
                         : change < -0.025
-                            ? `מומלץ להוריד את הלחץ ל-${v4Estimate.targetPressure} bar.`
+                            ? `מומלץ לבצע הורדת לחץ ל-${v4Estimate.targetPressure} bar.`
                             : `מומלץ לכוון את הלחץ ל-${v4Estimate.targetPressure} bar.`;
 
                 learnedPressureReason =
                     `הגיזוז היום לא תקין (${lastMeasurement.carbonation}, יעד ${carbonationTarget}). ` +
                     actionText +
-                    " מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים.";
+                    ` לפי מודל סטטיסטי בדיוק היסטורי של ${v4Estimate.accuracyPercent}%. ` +
+                    "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים.";
             }
         }
 
