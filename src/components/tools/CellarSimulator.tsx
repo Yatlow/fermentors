@@ -524,6 +524,13 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 targetCarbonation: Number(carbonationTarget),
                                 coldReferenceTemperature,
                                 firstCarbonation: carbonationScenario.first,
+                                learnedTargetEquilibriumPressure:
+                                    equilibriumForTemp(
+                                        carbonationScenario.first &&
+                                        coldReferenceTemperature !== null
+                                            ? coldReferenceTemperature
+                                            : state.currentTemp
+                                    ),
                             });
                             if (v5Estimate) {
                                 setV5Result(v5Estimate);
@@ -726,7 +733,13 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             <p>
                                 מצב: {v5Result.mode === "first_cooling" ? "בדיקת גיזוז ראשונה — חישוב לפי טמפרטורת הקור" : "מיכל קר יציב"} ·
                                 תגובת לחץ: {v5Result.volPerBar.toFixed(3)} vol/bar
-                                {" "}({v5Result.responseSource === "learned" ? "נלמד ישירות ממרחק לחץ משיווי־משקל" : "heuristic זמני: 0.67 vol/bar"}) ·
+                                {" "}({
+                                    v5Result.responseSource === "learned"
+                                        ? `למידה היסטורית מכוילת${v5Result.rawLearnedVolPerBar !== null ? ` · raw ${v5Result.rawLearnedVolPerBar.toFixed(3)}` : ""}`
+                                        : v5Result.responseSource === "guarded"
+                                            ? `היסטוריה נפסלה כלא סבירה${v5Result.rawLearnedVolPerBar !== null ? ` (raw ${v5Result.rawLearnedVolPerBar.toFixed(3)})` : ""}; משתמשים ב-0.67`
+                                            : "heuristic זמני: 0.67 vol/bar"
+                                }) ·
                                 תמיכה: {v5Result.supportCount} דוגמאות היסטוריות תקינות ·
                                 ביטחון: {v5Result.confidence} ·
                                 טמפרטורת חישוב: {v5Result.forecastTemperature.toFixed(1)}°C ·
