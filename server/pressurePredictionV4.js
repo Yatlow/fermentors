@@ -686,6 +686,7 @@ function pressurePredictionV4BackfillStep_() {
 
     const byStyle = {};
     const pointsByStyle = {};
+    const bottomByStyle = {};
     let processedThisPage = 0;
 
     documents.forEach(function (document) {
@@ -707,12 +708,23 @@ function pressurePredictionV4BackfillStep_() {
           batchId,
           target
         );
+        const brewDate = parseDateOnly(data.brewDate);
+        const bottomSamples = brewDate
+          ? buildBottomCarbonationSamplesForBrew_(
+              measurements,
+              brewDate,
+              batchId
+            )
+          : [];
 
         if (!byStyle[styleKey]) byStyle[styleKey] = [];
         Array.prototype.push.apply(byStyle[styleKey], samples);
 
         if (!pointsByStyle[styleKey]) pointsByStyle[styleKey] = [];
         if (point) pointsByStyle[styleKey].push(point);
+
+        if (!bottomByStyle[styleKey]) bottomByStyle[styleKey] = [];
+        Array.prototype.push.apply(bottomByStyle[styleKey], bottomSamples);
 
         processedThisPage++;
       } catch (error) {
@@ -721,9 +733,12 @@ function pressurePredictionV4BackfillStep_() {
     });
 
     const touchedStyles = {};
-    Object.keys(byStyle).concat(Object.keys(pointsByStyle)).forEach(function (styleKey) {
-      touchedStyles[styleKey] = true;
-    });
+    Object.keys(byStyle)
+      .concat(Object.keys(pointsByStyle))
+      .concat(Object.keys(bottomByStyle))
+      .forEach(function (styleKey) {
+        touchedStyles[styleKey] = true;
+      });
 
     Object.keys(touchedStyles).forEach(function (styleKey) {
       readsThisRun++;
@@ -734,6 +749,17 @@ function pressurePredictionV4BackfillStep_() {
         pointsByStyle[styleKey] || []
       );
       styleReadiness[styleKey] = writeResult.readiness;
+
+      if (bottomByStyle[styleKey] && bottomByStyle[styleKey].length > 0) {
+        // Reuse the measurements already read for V4. Only the existing
+        // bottom-model document read is additional; no measurement reread.
+        readsThisRun++;
+        writeMergedBottomCarbonationModel_(
+          projectId,
+          styleKey,
+          bottomByStyle[styleKey]
+        );
+      }
     });
 
     totalProcessedThisRun += processedThisPage;
