@@ -793,11 +793,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
+    const noteIsBottomCarbonation =
+        lastNote?.includes("גיזוז מלמטה");
     const noteAdjustedPressureToday =
-        lastNote?.includes("הורדת לחץ") ||
-        lastNote?.includes("העלאת לחץ") ||
-        lastNote?.includes("להוריד לחץ") ||
-        lastNote?.includes("להעלות לחץ");
+        !noteIsBottomCarbonation &&
+        (
+            lastNote?.includes("הורדת לחץ") ||
+            lastNote?.includes("העלאת לחץ") ||
+            lastNote?.includes("להוריד לחץ") ||
+            lastNote?.includes("להעלות לחץ")
+        );
     const noteAdjustedPrvToday =
         lastNote?.includes("כיוון פורק") ||
         lastNote?.includes("לכוון פורק");
@@ -1304,7 +1309,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const coldCarbNeedsPressureAdjustment =
         coldCarbOutOfSpecToday &&
-        !shouldUseBottomCarbonation;
+        !shouldUseBottomCarbonation &&
+        !openBottomCarbonation;
 
     const warmPressureNeedsAdjustment =
         stage.name === "בתסיסה" &&
