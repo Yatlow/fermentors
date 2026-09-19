@@ -7,7 +7,7 @@
 // bottomCarbonationModels.
 // ================================================================
 
-const PRESSURE_V3_CLEANUP_DONE_KEY = "pressure_v3_cleanup_done_v1";
+const PRESSURE_V3_CLEANUP_DONE_KEY = "pressure_v3_cleanup_done_v2";
 
 function cleanupPressureV3Artifacts_() {
   const props = PropertiesService.getScriptProperties();
@@ -17,54 +17,69 @@ function cleanupPressureV3Artifacts_() {
   }
 
   const projectId = FIREBASE_PROJECT_ID;
-  const baseUrl =
-    "https://firestore.googleapis.com/v1/projects/" +
-    encodeURIComponent(projectId) +
-    "/databases/(default)/documents/pressureResponseModels?pageSize=100";
+  const collections = [
+    "pressureResponseModels",
+    "pressureResponseModelsV3"
+  ];
 
-  let pageToken = "";
   let reads = 0;
   let deletes = 0;
+  const deletedByCollection = {};
 
-  do {
-    const url = pageToken
-      ? baseUrl + "&pageToken=" + encodeURIComponent(pageToken)
-      : baseUrl;
-    const page = firestoreRequest_(url);
-    const documents = page.documents || [];
-    reads += documents.length;
+  collections.forEach(function (collectionId) {
+    let pageToken = "";
+    let collectionDeletes = 0;
 
-    documents.forEach(function (document) {
-      const name = String(document && document.name || "");
-      if (!name) return;
+    do {
+      const baseUrl =
+        "https://firestore.googleapis.com/v1/projects/" +
+        encodeURIComponent(projectId) +
+        "/databases/(default)/documents/" +
+        encodeURIComponent(collectionId) +
+        "?pageSize=100";
 
-      const response = UrlFetchApp.fetch(
-        "https://firestore.googleapis.com/v1/" + name,
-        {
-          method: "delete",
-          headers: {
-            Authorization: "Bearer " + ScriptApp.getOAuthToken()
-          },
-          muteHttpExceptions: true
-        }
-      );
+      const url = pageToken
+        ? baseUrl + "&pageToken=" + encodeURIComponent(pageToken)
+        : baseUrl;
+      const page = firestoreRequest_(url);
+      const documents = page.documents || [];
+      reads += documents.length;
 
-      const code = response.getResponseCode();
-      if (code >= 200 && code < 300) {
-        deletes++;
-        return;
-      }
+      documents.forEach(function (document) {
+        const name = String(document && document.name || "");
+        if (!name) return;
 
-      if (code !== 404) {
-        throw new Error(
-          "V3 pressure model delete failed (" + code + "): " +
-          response.getContentText()
+        const response = UrlFetchApp.fetch(
+          "https://firestore.googleapis.com/v1/" + name,
+          {
+            method: "delete",
+            headers: {
+              Authorization: "Bearer " + ScriptApp.getOAuthToken()
+            },
+            muteHttpExceptions: true
+          }
         );
-      }
-    });
 
-    pageToken = page.nextPageToken || "";
-  } while (pageToken);
+        const code = response.getResponseCode();
+        if (code >= 200 && code < 300) {
+          deletes++;
+          collectionDeletes++;
+          return;
+        }
+
+        if (code !== 404) {
+          throw new Error(
+            "V3 pressure model delete failed for " + collectionId +
+            " (" + code + "): " + response.getContentText()
+          );
+        }
+      });
+
+      pageToken = page.nextPageToken || "";
+    } while (pageToken);
+
+    deletedByCollection[collectionId] = collectionDeletes;
+  });
 
   [
     "pressure_model_backfill_v3_turbo",
@@ -78,12 +93,14 @@ function cleanupPressureV3Artifacts_() {
   Logger.log(
     "V3 PRESSURE CLEANUP | deleted " + deletes +
     " model docs | reads " + reads +
+    " | by collection=" + JSON.stringify(deletedByCollection) +
     " | old backfill state removed"
   );
 
   return {
     skipped: false,
     deletedModelDocuments: deletes,
+    deletedByCollection: deletedByCollection,
     reads: reads,
     oldBackfillStateRemoved: true
   };
