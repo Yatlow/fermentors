@@ -13,7 +13,7 @@ const OPERATIONAL_VOL_PER_BAR_MIN = 0.25;
 const OPERATIONAL_VOL_PER_BAR_MAX = 2.00;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 const TARGET_TOLERANCE_VOL = 0.04;
-const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.10;
+const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.05;
 // k is used only to advance an old measurement to "now". A slow but real
 // historical rate such as ~0.0015/h is valid for that purpose; only nearly
 // frozen fits are rejected.
