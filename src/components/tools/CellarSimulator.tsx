@@ -15,6 +15,10 @@ import {
     type PressureV4Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV4Estimator";
 import {
+    estimatePressureTargetV5,
+    type PressureV5Estimate,
+} from "../../SERVICES/cellering/pressurePredictionV5";
+import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
@@ -319,6 +323,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v4Result, setV4Result] = useState<PressureV4Estimate | null>(null);
     const [v4Status, setV4Status] = useState("");
     const [v4CoolingStatus, setV4CoolingStatus] = useState("");
+    const [v5Result, setV5Result] = useState<PressureV5Estimate | null>(null);
+    const [v5Status, setV5Status] = useState("");
     const [ventingResult, setVentingResult] = useState<VentingEstimate | null>(null);
 
     const [carbonation, setCarbonation] = useState("2.10");
@@ -338,6 +344,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4Result(null);
         setV4Status("");
         setV4CoolingStatus("");
+        setV5Result(null);
+        setV5Status("");
         setVentingResult(null);
         setError("");
         if (!tank?.batchNumber) {
@@ -413,6 +421,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4Result(null);
         setV4Status("");
         setV4CoolingStatus("");
+        setV5Result(null);
+        setV5Status("");
         setVentingResult(null);
 
         try {
@@ -465,11 +475,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 setV4Status("אין יעד גיזוז זמין לסגנון");
             } else {
                 const v4Model = await getPressurePredictionModelV4(tank.beerStyle);
-                if (!v4Model || v4Model.transitions.length < 4) {
-                    const count = v4Model?.transitions.length ?? 0;
-                    setV4Status(
-                        `נמצאו ${count} מעברים קינטיים; נדרשים לפחות 4. המודל עדיין ממתין לסריקת ההיסטוריה.`
-                    );
+                if (!v4Model) {
+                    setV4Status("אין מסמך מודל לחץ היסטורי לסגנון");
+                    setV5Status("אין מסמך מודל לחץ היסטורי לסגנון");
                 } else {
                     const equilibriumForTemp = (temperature: number | null) =>
                         getEquilibriumPressureForV4(v4Model, temperature);
@@ -481,6 +489,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
                     if (!state) {
                         setV4Status("אין מספיק היסטוריית לחץ/גיזוז לבניית מצב V4");
+                        setV5Status("אין מספיק נתוני מצב נוכחי לחישוב V5");
                     } else {
                         setV4CoolingStatus(
                             state.cooling
@@ -504,41 +513,65 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             setV4Status(
                                 "המיכל עדיין חם מדי לחישוב לחץ גיזוז קר"
                             );
+                            setV5Status(
+                                "המיכל עדיין חם מדי לחישוב לחץ גיזוז קר"
+                            );
                         } else {
-                            const estimate = estimatePressureTargetV4({
+                            const v5Estimate = estimatePressureTargetV5({
                                 samples: v4Model.samples,
                                 passiveSamples: v4Model.passiveSamples,
                                 transitions: v4Model.transitions,
                                 state,
                                 targetCarbonation: Number(carbonationTarget),
-                                equilibriumPressure:
-                                    equilibriumForTemp(referenceTemperature),
-                                equilibriumPressureAtTemperature:
-                                    equilibriumForTemp,
                                 coldReferenceTemperature,
                             });
-                            if (estimate) {
-                                setV4Result(estimate);
-                                setV4Status("");
-
-                                const venting =
-                                    estimate.requiresAtmosphericVenting &&
-                                    carbonationValue >
-                                        estimate.targetWindowMax
-                                        ? estimateVentingDuration({
-                                            transitions:
-                                                v4Model.transitions,
-                                            state,
-                                            targetCarbonation:
-                                                Number(carbonationTarget),
-                                            ventPressureBar: 0,
-                                        })
-                                        : null;
-                                setVentingResult(venting);
+                            if (v5Estimate) {
+                                setV5Result(v5Estimate);
+                                setV5Status("");
                             } else {
+                                setV5Status("לא ניתן לבנות חישוב V5 מהמצב הנוכחי");
+                            }
+
+                            if (v4Model.transitions.length < 4) {
                                 setV4Status(
-                                    "אין מספיק מצבים היסטוריים דומים להמלצת V4"
+                                    `נמצאו ${v4Model.transitions.length} מעברים קינטיים; V4 דורש לפחות 4.`
                                 );
+                            } else {
+                                const estimate = estimatePressureTargetV4({
+                                    samples: v4Model.samples,
+                                    passiveSamples: v4Model.passiveSamples,
+                                    transitions: v4Model.transitions,
+                                    state,
+                                    targetCarbonation: Number(carbonationTarget),
+                                    equilibriumPressure:
+                                        equilibriumForTemp(referenceTemperature),
+                                    equilibriumPressureAtTemperature:
+                                        equilibriumForTemp,
+                                    coldReferenceTemperature,
+                                });
+                                if (estimate) {
+                                    setV4Result(estimate);
+                                    setV4Status("");
+
+                                    const venting =
+                                        estimate.requiresAtmosphericVenting &&
+                                        carbonationValue >
+                                            estimate.targetWindowMax
+                                            ? estimateVentingDuration({
+                                                transitions:
+                                                    v4Model.transitions,
+                                                state,
+                                                targetCarbonation:
+                                                    Number(carbonationTarget),
+                                                ventPressureBar: 0,
+                                            })
+                                            : null;
+                                    setVentingResult(venting);
+                                } else {
+                                    setV4Status(
+                                        "אין מספיק מצבים היסטוריים דומים להמלצת V4"
+                                    );
+                                }
                             }
                         }
                     }
