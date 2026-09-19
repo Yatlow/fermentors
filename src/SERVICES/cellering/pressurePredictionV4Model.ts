@@ -8,6 +8,7 @@ import {
 import type {
   PressureV4PassiveSample,
   PressureV4Sample,
+  PressureV4TransitionSample,
 } from "./pressurePredictionV4";
 
 export type PressurePredictionModelV4Readiness = {
@@ -24,6 +25,8 @@ export type PressurePredictionModelV4 = {
   sampleCount: number;
   passiveSamples: PressureV4PassiveSample[];
   passiveSampleCount: number;
+  transitions: PressureV4TransitionSample[];
+  transitionCount: number;
   equilibriumPoints: PressureEquilibriumV4Point[];
   equilibriumPointCount: number;
   readiness?: PressurePredictionModelV4Readiness;
@@ -112,6 +115,9 @@ export async function getPressurePredictionModelV4(
       const passiveSamples = Array.isArray(raw.passiveSamples)
         ? raw.passiveSamples
         : [];
+      const transitions = Array.isArray(raw.transitions)
+        ? raw.transitions
+        : [];
 
       return {
         version: 4,
@@ -147,6 +153,8 @@ export async function getPressurePredictionModelV4(
         passiveSampleCount: Number(
           raw.passiveSampleCount ?? passiveSamples.length,
         ),
+        transitions,
+        transitionCount: Number(raw.transitionCount ?? transitions.length),
         equilibriumPoints: points,
         equilibriumPointCount: Number(
           raw.equilibriumPointCount ?? points.length,
