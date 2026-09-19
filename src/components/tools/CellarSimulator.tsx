@@ -684,7 +684,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         : `זיהוי: בדיקה חוזרת · ${resolved.priorChecks} בדיקות גיזוז קודמות אחרי קירור`;
                 })()}
                 {" · "}
-                הזיהוי משנה רק את ההיסטוריה המדומה; מנוע V4 עצמו לא מקבל כלל מיוחד ל"גיזוז ראשון".
+                הזיהוי משנה רק את ההיסטוריה המדומה; V4 ו-V5 לא מקבלים כלל קסם מיוחד ל"גיזוז ראשון".
             </div>
 
             <div className="cellar-simulator-actions">
@@ -704,6 +704,59 @@ export default function CellarSimulator({ brews, specs }: Props) {
             </div>
 
             {error && <div className="cellar-simulator-error">{error}</div>}
+
+            {(v5Result || v5Status) && (
+                <div className="cellar-simulator-results">
+                    <h3>V5 — מרחק משיווי־משקל</h3>
+                    {v5Result ? (
+                        <article className="cellar-simulator-result level-1">
+                            <strong>
+                                {v5Result.edgeCase === "bottom_carbonation"
+                                    ? "מקרה קצה: גיזוז מלמטה"
+                                    : v5Result.edgeCase === "venting_below_zero"
+                                        ? "מקרה קצה: נדרשת פריקה"
+                                        : v5Result.edgeCase === "head_pressure_insufficient"
+                                            ? "מקרה קצה: לחץ ראש לא מספיק"
+                                            : v5Result.action === "hold"
+                                                ? "להשאיר לחץ"
+                                                : v5Result.action === "raise"
+                                                    ? `להעלות לחץ ל-${v5Result.targetPressure?.toFixed(2)} bar`
+                                                    : `להוריד לחץ ל-${v5Result.targetPressure?.toFixed(2)} bar`}
+                            </strong>
+                            <p>
+                                α ל-48 שעות: {v5Result.alpha48.toFixed(3)}
+                                {" "}({v5Result.alphaSource === "learned" ? "נלמד מההיסטוריה" : "heuristic זמני"}) ·
+                                תמיכה: {v5Result.supportCount} דוגמאות ·
+                                ביטחון: {v5Result.confidence} ·
+                                טמפרטורת חיזוי: {v5Result.forecastTemperature.toFixed(1)}°C ·
+                                שיווי־משקל בלחץ הנוכחי: {v5Result.currentEquilibriumCarbonation.toFixed(3)} vol ·
+                                מרחק משיווי־משקל: {v5Result.drivingForceVol >= 0 ? "+" : ""}{v5Result.drivingForceVol.toFixed(3)} vol ·
+                                ללא שינוי לחץ בעוד יומיים: {v5Result.predictedWithoutChange.toFixed(3)} vol
+                                {v5Result.targetEquilibriumCarbonation !== null
+                                    ? ` · שיווי־המשקל הדרוש כדי להגיע ליעד: ${v5Result.targetEquilibriumCarbonation.toFixed(3)} vol`
+                                    : ""}
+                                {v5Result.rawTargetPressure !== null
+                                    ? ` · לחץ מתמטי: ${v5Result.rawTargetPressure.toFixed(2)} bar`
+                                    : ""}
+                                {v5Result.predictedAtTarget !== null
+                                    ? ` · תחזית בלחץ היעד: ${v5Result.predictedAtTarget.toFixed(3)} vol`
+                                    : ""}
+                                {v5Result.edgeCase === "bottom_carbonation"
+                                    ? " · מתחת 2.15: V5 רק מזהה את המסלול ולא מחשב טיפול."
+                                    : ""}
+                                {v5Result.edgeCase === "venting_below_zero"
+                                    ? " · הפתרון המתמטי דורש לחץ gauge שלילי; V5 רק מזהה שנדרשת פריקה ולא מחשב זמן."
+                                    : ""}
+                                {v5Result.edgeCase === "head_pressure_insufficient"
+                                    ? " · הפתרון המתמטי דורש מעל 1.9 bar; V5 רק מסמן שלחץ ראש אינו פתרון מתאים."
+                                    : ""}
+                            </p>
+                        </article>
+                    ) : (
+                        <div className="cellar-simulator-empty">{v5Status}</div>
+                    )}
+                </div>
+            )}
 
             {v4Result && (
                 <div className="cellar-simulator-results">
