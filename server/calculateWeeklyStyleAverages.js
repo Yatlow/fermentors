@@ -1112,8 +1112,9 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
               if (pressureAfter !== null) break;
             }
           }
-          if (pressureAfter === null) pressureAfter = targetPressure;
-
+          // Only an actually observed later pressure is allowed to teach the
+          // equilibrium baseline. Falling back to the action target would
+          // circularly make the requested pressure look like equilibrium.
           const pressureDelta = targetPressure - beforePressure;
           const carbonationDelta = afterCarb - beforeCarb;
           const brewDay = differenceInDays(brewDate, eventDate);
@@ -1142,7 +1143,10 @@ function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
             carbonationAfter: afterCarb,
             carbonationDelta: carbonationDelta,
             elapsedDays: elapsedDays,
-            success: pressureDelta * carbonationDelta > 0
+            // V3 decides success relative to the learned equilibrium, not
+            // relative to the transient pressureBefore. Keep meaningful
+            // outcomes here; direction is evaluated later by the estimator.
+            success: Math.abs(carbonationDelta) >= 0.01
           });
           break;
         }
