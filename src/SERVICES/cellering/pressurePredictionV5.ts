@@ -708,7 +708,17 @@ export function estimatePressureTargetV5(args: {
     correctionBasePressure +
     (carbonationGap / learnedSetpointResponse) * correctionGain;
 
-  if (rawTargetPressure < 0) {
+  // Edge cases are determined by what the physical forecast can do at the
+  // operational pressure bounds, not merely by the nonlinear setpoint formula
+  // crossing those bounds.
+  const predictedAtZero = forecast(0);
+  const predictedAtMax = forecast(MAX_OPERATIONAL_PRESSURE_BAR);
+
+  if (
+    rawTargetPressure < 0 &&
+    predictedAtZero !== null &&
+    predictedAtZero > args.targetCarbonation + TARGET_TOLERANCE_VOL
+  ) {
     return {
       ...base,
       targetPressureRangeLow:
@@ -717,13 +727,17 @@ export function estimatePressureTargetV5(args: {
         Number(targetPressureRangeHigh.toFixed(2)),
       rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
       targetPressure: null,
-      predictedAtTarget: null,
+      predictedAtTarget: Number(predictedAtZero.toFixed(3)),
       action: "edge_case",
       edgeCase: "venting_below_zero",
     };
   }
 
-  if (rawTargetPressure > MAX_OPERATIONAL_PRESSURE_BAR) {
+  if (
+    rawTargetPressure > MAX_OPERATIONAL_PRESSURE_BAR &&
+    predictedAtMax !== null &&
+    predictedAtMax < args.targetCarbonation - TARGET_TOLERANCE_VOL
+  ) {
     return {
       ...base,
       targetPressureRangeLow:
@@ -732,13 +746,15 @@ export function estimatePressureTargetV5(args: {
         Number(targetPressureRangeHigh.toFixed(2)),
       rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
       targetPressure: null,
-      predictedAtTarget: null,
+      predictedAtTarget: Number(predictedAtMax.toFixed(3)),
       action: "edge_case",
       edgeCase: "head_pressure_insufficient",
     };
   }
 
-  let targetPressure = roundPressure(rawTargetPressure);
+  let targetPressure = roundPressure(
+    clamp(rawTargetPressure, 0, MAX_OPERATIONAL_PRESSURE_BAR),
+  );
   const carbonationError =
     args.targetCarbonation - estimatedCurrentCarbonation;
   const outsideTargetWindow =
