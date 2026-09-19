@@ -1332,8 +1332,9 @@ function pressurePredictionV4BackfillStep_() {
     const readiness = styleReadiness[styleKey];
     return styleKey + "=" +
       (readiness.ready ? "READY" : "collecting") +
-      "(" + readiness.usableSampleCount + " samples," +
-      readiness.distinctBatchCount + " batches," +
+      "(" + Number(readiness.usableTransitionCount || 0) + " transitions," +
+      Number(readiness.distinctTransitionBatchCount || 0) + " transition-batches," +
+      readiness.usableSampleCount + " legacy-samples," +
       readiness.equilibriumPointCount + " eq)";
   }).join(" | ");
 
