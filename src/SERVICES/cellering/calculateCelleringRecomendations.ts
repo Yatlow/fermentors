@@ -1290,6 +1290,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number.isFinite(Number(lastMeasurement.carbonation));
     const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
     const currentCarbonation = hasLatestCarb ? Number(lastMeasurement.carbonation) : null;
+    const isFirstCarbonationMeasurement =
+        hasLatestCarb &&
+        !sortedMeasurements
+            .slice(0, -1)
+            .some((measurement) =>
+                measurement.carbonation !== null &&
+                measurement.carbonation !== undefined &&
+                measurement.carbonation !== "" &&
+                Number.isFinite(Number(measurement.carbonation))
+            );
     const currentPressure = Number.isFinite(Number(lastMeasurement?.pressure))
         ? Number(lastMeasurement.pressure)
         : null;
@@ -1436,6 +1446,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     passiveSamples: v4Model.passiveSamples,
                     state: v4State,
                     targetCarbonation: Number(carbonationTarget),
+                    firstCarbonation: isFirstCarbonationMeasurement,
+                    equilibriumPressure: equilibriumForTemp(v4State.currentTemp),
                 })
                 : null;
 
