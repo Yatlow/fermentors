@@ -2,7 +2,6 @@ import type {
   PressureV4DecisionState,
   PressureV4TransitionSample,
 } from "./pressurePredictionV4";
-import { evolveCarbonation } from "./pressureCarbonationPhysics";
 
 export type VentingEstimate = {
   ventPressureBar: number;
@@ -12,7 +11,7 @@ export type VentingEstimate = {
   targetWindowMin: number;
   targetWindowMax: number;
   supportCount: number;
-  kPerHour: number;
+  dropPerHour: number;
   confidence: "low" | "medium" | "high";
 };
 
@@ -203,7 +202,7 @@ export function estimateVentingDuration(args: {
     targetWindowMin: Number(targetWindowMin.toFixed(2)),
     targetWindowMax: Number(targetWindowMax.toFixed(2)),
     supportCount: downward.length,
-    kPerHour: Number(dropPerHour.toFixed(5)),
+    dropPerHour: Number(dropPerHour.toFixed(5)),
     confidence,
   };
 }
