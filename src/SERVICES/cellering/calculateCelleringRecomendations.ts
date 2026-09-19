@@ -771,10 +771,13 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             : needsFirstColdYeastDrop && CoolAge! > 2
                 ? `הורדת השמרים שהומלצה יומיים אחרי הקירור התפספסה לפני ${CoolAge! - 2} ימים- מומלץ לבצע היום`
                 : "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
-        // First/extra yeast drop after cooling is a real cellar action,
-        // not an informational hint. Keep it at importance 2 even on the
-        // exact due day so recommendations and the health score agree.
-        importance: 2
+        // Due on time = importance 2. Once the action has been missed,
+        // escalate to 3 and keep it visible until it is actually performed.
+        importance:
+            (needsSecondDropAfterSunday && firstColdYeastAge! > 2) ||
+            (needsFirstColdYeastDrop && CoolAge! > 2)
+                ? 3
+                : 2
     }
 
     const carbRes = lastMeasurement.carbonation;
@@ -836,10 +839,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresCarbTest.reason = CoolAge > 1
             ? `בדיקת הגיזוז הראשונה שהומלצה יום אחרי הקירור התפספסה לפני ${CoolAge - 1} ימים- מומלץ לבצע היום ולפתוח ברזי גליקול`
             : "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)";
-        // The first carbonation test after cooling is importance 2 on
-        // the due day as well as when overdue. HealthDashboard consumes this
-        // same importance for the cellar score.
-        requiresCarbTest.importance = 2;
+        // First test after cooling is importance 2 on its due day.
+        // If it was missed, escalate to 3 until the test is performed.
+        requiresCarbTest.importance = CoolAge > 1 ? 3 : 2;
     }
     const YeastDroppedToday = lastNote?.includes("שמרים");
     const requiiersWedYeastDropOnThus = {
@@ -1682,7 +1684,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         latestWarmYeastDrop &&
         latestWarmYeastDropAge !== null &&
         latestWarmYeastDropAge >= 1 &&
-        latestWarmYeastDropAge <= 2 &&
         warmYeastDropTarget !== null
     ) {
 
@@ -1701,7 +1702,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     (latestWarmYeastDropAge > 1
                         ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
                         : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים של שמרים.`),
-                importance: 2,
+                importance: latestWarmYeastDropAge > 1 ? 3 : 2,
             };
         }
     }
@@ -1715,7 +1716,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         firstColdYeastDropAfterCooling &&
         firstColdYeastDropAge !== null &&
         firstColdYeastDropAge >= 2 &&
-        firstColdYeastDropAge <= 3 &&
         coldYeastDropTarget !== null
     ) {
 
@@ -1734,7 +1734,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     (firstColdYeastDropAge > 2
                         ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
                         : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים של שמרים.`),
-                importance: 2,
+                importance: firstColdYeastDropAge > 2 ? 3 : 2,
             };
         }
     }
