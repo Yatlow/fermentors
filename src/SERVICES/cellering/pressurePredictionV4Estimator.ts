@@ -663,57 +663,6 @@ function refinePressureWithForecast(args: {
     }
   }
 
-  if (
-    !isEffectivelyStillCooling(
-      args.state,
-      args.coldReferenceTemperature,
-    )
-  ) {
-    const inTolerance: Array<{
-      pressure: number;
-      error: number;
-    }> = [];
-
-    const count = Math.round(
-      (args.maxPressure - args.minPressure) / args.step,
-    );
-    for (let index = 0; index <= count; index += 1) {
-      const candidate = Number(
-        (args.minPressure + index * args.step).toFixed(2),
-      );
-      const predicted = simulateForward({
-        carbonation: args.state.carbonation,
-        pressureBar: candidate,
-        pressureCalibrationOffset: args.pressureCalibrationOffset,
-        state: args.state,
-        coldReferenceTemperature: args.coldReferenceTemperature,
-        kPerHour: args.kPerHour,
-        hours: args.horizonHours,
-      });
-      if (predicted === null) continue;
-
-      const error = Math.abs(
-        predicted - args.targetCarbonation,
-      );
-      if (error <= TARGET_TOLERANCE_VOL) {
-        inTolerance.push({ pressure: candidate, error });
-      }
-    }
-
-    if (inTolerance.length) {
-      inTolerance.sort((a, b) => {
-        const baselineDistance =
-          Math.abs(a.pressure - args.baselinePressure) -
-          Math.abs(b.pressure - args.baselinePressure);
-        if (Math.abs(baselineDistance) > 0.001) {
-          return baselineDistance;
-        }
-        return a.error - b.error;
-      });
-      return inTolerance[0].pressure;
-    }
-  }
-
   return bestPressure;
 }
 
@@ -958,12 +907,22 @@ export function estimatePressureTargetV4(args: {
         ? "medium"
         : "low";
 
+  const forecastOutsideTolerance =
+    Math.abs(predictedRaw - args.targetCarbonation) >
+    TARGET_TOLERANCE_VOL;
+  const effectivelyStillCooling = isEffectivelyStillCooling(
+    args.state,
+    coldReferenceTemperature,
+  );
   const pressureOnlyLikelyInsufficient =
-    carbonationError > 0.15 &&
-    Boolean(args.state.cooling) &&
-    args.state.cooling!.stillCooling === false &&
-    args.state.cooling!.hoursSinceCooling >= 120 &&
-    kPerHour < 0.003;
+    (!effectivelyStillCooling && forecastOutsideTolerance) ||
+    (
+      carbonationError > 0.15 &&
+      Boolean(args.state.cooling) &&
+      effectivelyStillCooling === false &&
+      args.state.cooling!.hoursSinceCooling >= 120 &&
+      kPerHour < 0.003
+    );
 
   return {
     targetPressure: Number(targetPressure.toFixed(2)),
