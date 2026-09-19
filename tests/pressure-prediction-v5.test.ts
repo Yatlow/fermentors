@@ -271,7 +271,7 @@ test("V5 can learn alpha from existing transitions when 48h samples are sparse",
 });
 
 
-test("V5 first carbonation uses cold destination temperature and lowers stored head pressure", () => {
+test("V5 first carbonation uses cold destination temperature and solves the required lower pressure", () => {
   const s: PressureV4DecisionState = {
     carbonation: 2.26,
     currentPressure: 1.44,
@@ -316,8 +316,13 @@ test("V5 first carbonation uses cold destination temperature and lowers stored h
   assert.equal(estimate.action, "lower");
   assert.ok(
     estimate.targetPressure !== null &&
-      estimate.targetPressure < 1.0,
-    `stored 1.44 bar during cooling should be reduced, got ${estimate.targetPressure}`,
+      estimate.targetPressure < s.currentPressure,
+    `stored 1.44 bar during cooling should be reduced to the pressure solved by V5, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.predictedAtTarget !== null &&
+      Math.abs(estimate.predictedAtTarget - 2.45) <= 0.015,
+    `the solved pressure should land near the carbonation target, got ${estimate.predictedAtTarget}`,
   );
   assert.ok(
     estimate.predictedWithoutChange > 2.45,
