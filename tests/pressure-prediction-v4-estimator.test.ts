@@ -5,6 +5,7 @@ import {
   type PressureV4DecisionState,
 } from "../src/SERVICES/cellering/pressurePredictionV4Estimator";
 import type {
+  PressureV4CoolingState,
   PressureV4Exposure,
   PressureV4TransitionSample,
 } from "../src/SERVICES/cellering/pressurePredictionV4";
@@ -65,6 +66,7 @@ function transition(
     currentTemp: overrides.currentTemp ?? temperatureMeanDuring,
     hoursSinceT0: overrides.hoursSinceT0 ?? 72,
     exposure: overrides.exposure ?? exposure(1.3, 1.25, 0.4),
+    cooling: overrides.cooling ?? null,
     pressureMeanDuring,
     temperatureMeanDuring,
     kPerHour,
@@ -99,6 +101,7 @@ test("kinetic V4 recommends about 1.1 bar from 2.25 at 1.44 bar with active abso
     currentTemp: 6.8,
     hoursSinceT0: 72,
     exposure: exposure(1.36, 1.31, 0.46),
+    cooling: null,
   };
 
   const estimate = estimatePressureTargetV4({
@@ -133,6 +136,7 @@ test("kinetic V4 raises roughly toward equilibrium from 2.38 at 0.8 bar", () => 
     currentTemp: 6.8,
     hoursSinceT0: 96,
     exposure: exposure(0.82, 0.8, 0.01, 96),
+    cooling: null,
   };
 
   const estimate = estimatePressureTargetV4({
@@ -167,6 +171,7 @@ test("later carbonation tests use the same calculator and do not need passive sa
     currentTemp: 5,
     hoursSinceT0: 144,
     exposure: exposure(0.95, 0.9, 0.08, 144),
+    cooling: null,
   };
 
   const estimate = estimatePressureTargetV4({
@@ -201,6 +206,7 @@ test("V4 abstains when the allowed pressure range cannot reach target in 48h", (
     currentTemp: 6.8,
     hoursSinceT0: 72,
     exposure: exposure(1.0, 1.0, 0.1),
+    cooling: null,
   };
 
   const estimate = estimatePressureTargetV4({
@@ -211,4 +217,94 @@ test("V4 abstains when the allowed pressure range cannot reach target in 48h", (
   });
 
   assert.equal(estimate, null);
+});
+
+
+test("cooling trajectory selects different kinetics for early and late cold beer", () => {
+  const earlyCooling: PressureV4CoolingState = {
+    startDateTimeMs: 0,
+    hoursSinceCooling: 24,
+    startTemp: 14,
+    currentTemp: 6.8,
+    tempDropSinceCooling: 7.2,
+    tempChange24h: -7.2,
+    pressureMeanSinceCooling: 1.3,
+    pressureMean24h: 1.3,
+    pressureHoursSinceCooling: 31.2,
+    equilibriumDeltaBarHoursSinceCooling: 12,
+    coverageRatio: 1,
+    stillCooling: true,
+  };
+  const lateCooling: PressureV4CoolingState = {
+    startDateTimeMs: 0,
+    hoursSinceCooling: 144,
+    startTemp: 14,
+    currentTemp: 1.5,
+    tempDropSinceCooling: 12.5,
+    tempChange24h: -0.1,
+    pressureMeanSinceCooling: 0.95,
+    pressureMean24h: 0.95,
+    pressureHoursSinceCooling: 136.8,
+    equilibriumDeltaBarHoursSinceCooling: 4,
+    coverageRatio: 1,
+    stillCooling: false,
+  };
+
+  const transitions = [
+    ...Array.from({ length: 8 }, (_, index) =>
+      transition(index, {
+        kPerHour: 0.02,
+        currentTemp: 6.8,
+        temperatureMeanDuring: 5.5,
+        exposure: exposure(1.3, 1.25, 0.4, 72),
+        cooling: earlyCooling,
+      }),
+    ),
+    ...Array.from({ length: 8 }, (_, index) =>
+      transition(index + 20, {
+        kPerHour: 0.006,
+        currentTemp: 1.5,
+        temperatureMeanDuring: 1.5,
+        exposure: exposure(0.95, 0.95, 0.05, 180),
+        cooling: lateCooling,
+      }),
+    ),
+  ];
+
+  const earlyState: PressureV4DecisionState = {
+    carbonation: 2.3,
+    currentPressure: 1.25,
+    currentTemp: 6.8,
+    hoursSinceT0: 72,
+    exposure: exposure(1.3, 1.25, 0.4, 72),
+    cooling: earlyCooling,
+  };
+  const lateState: PressureV4DecisionState = {
+    carbonation: 2.3,
+    currentPressure: 0.95,
+    currentTemp: 1.5,
+    hoursSinceT0: 180,
+    exposure: exposure(0.95, 0.95, 0.05, 180),
+    cooling: lateCooling,
+  };
+
+  const early = estimatePressureTargetV4({
+    transitions,
+    state: earlyState,
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 1.5,
+  });
+  const late = estimatePressureTargetV4({
+    transitions,
+    state: lateState,
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 1.5,
+  });
+
+  assert.ok(early);
+  assert.ok(late);
+  assert.ok(
+    early.kPerHour > late.kPerHour,
+    "early cooling should select faster historical absorption than late cold beer",
+  );
 });
