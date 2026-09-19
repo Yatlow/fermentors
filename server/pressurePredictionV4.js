@@ -302,6 +302,98 @@ function pressureV4BuildSamples_(measurements, batchId) {
   return samples;
 }
 
+function pressureV4BuildPassiveSamples_(measurements, batchId) {
+  const rows = (measurements || []).slice().sort(function (a, b) {
+    return pressureV4DateTime_(a) - pressureV4DateTime_(b);
+  });
+  const t0 = pressureV4DetectT0_(rows);
+  if (!t0) return [];
+
+  const samples = [];
+
+  rows.forEach(function (row, startIndex) {
+    const startTime = pressureV4DateTime_(row);
+    if (startTime === null || startTime < t0.dateTimeMs) return;
+    if (
+      pressureV4IsBottomCarbonation_(row) ||
+      pressureV4OrdinaryTarget_(row) !== null
+    ) return;
+
+    const carbonationBefore = pressureV4Number_(row && row.carbonation);
+    if (carbonationBefore === null) return;
+
+    let currentPressure = pressureV4Number_(row && row.pressure);
+    let currentTemp = pressureV4Number_(row && row.temp);
+
+    for (let index = startIndex - 1; index >= 0; index--) {
+      if (currentPressure === null) {
+        currentPressure = pressureV4Number_(rows[index] && rows[index].pressure);
+      }
+      if (currentTemp === null) {
+        currentTemp = pressureV4Number_(rows[index] && rows[index].temp);
+      }
+      if (currentPressure !== null && currentTemp !== null) break;
+    }
+    if (currentPressure === null) return;
+
+    let outcome = null;
+    for (let nextIndex = startIndex + 1; nextIndex < rows.length; nextIndex++) {
+      const candidate = rows[nextIndex];
+      const serial = pressureV4DaySerial_(candidate);
+      const startSerial = pressureV4DaySerial_(row);
+      if (serial === null || startSerial === null) continue;
+
+      const diff = serial - startSerial;
+      if (diff > 2) break;
+
+      if (
+        diff > 0 &&
+        (
+          pressureV4IsBottomCarbonation_(candidate) ||
+          pressureV4OrdinaryTarget_(candidate) !== null
+        )
+      ) {
+        return;
+      }
+
+      const carb = pressureV4Number_(candidate && candidate.carbonation);
+      if (carb !== null && diff === 2) {
+        outcome = {
+          carbonation: carb,
+          dateTimeMs: pressureV4DateTime_(candidate)
+        };
+        break;
+      }
+    }
+
+    if (!outcome) return;
+
+    const exposure = pressureV4Exposure_(rows, t0.dateTimeMs, startTime);
+
+    samples.push({
+      batchId: String(batchId || ""),
+      sampleDateTimeMs: startTime,
+      sampleDate: String(row.date || ""),
+      carbonationBefore: carbonationBefore,
+      currentPressure: currentPressure,
+      currentTemp: currentTemp,
+      hoursSinceT0: Math.max(0, (startTime - t0.dateTimeMs) / 3600000),
+      exposure: exposure,
+      primaryOutcome: {
+        carbonation: outcome.carbonation,
+        dateTimeMs: outcome.dateTimeMs !== null
+          ? outcome.dateTimeMs
+          : startTime + 2 * 24 * 3600000,
+        calendarDaysAfterAction: 2
+      },
+      carbonationDelta: outcome.carbonation - carbonationBefore,
+      quality: pressureV4Quality_(exposure)
+    });
+  });
+
+  return samples;
+}
+
 function pressureV4Median_(values) {
   const sorted = (values || []).filter(function (value) {
     return Number.isFinite(value);
@@ -458,6 +550,13 @@ function pressureV4GetModel_(projectId, styleKey) {
   return firestoreFieldsToObject_(parsed.fields || {});
 }
 
+function pressureV4PassiveSampleKey_(sample) {
+  return [
+    String(sample && sample.batchId || ""),
+    String(sample && sample.sampleDate || "")
+  ].join("|");
+}
+
 function pressureV4SampleKey_(sample) {
   return [
     String(sample && sample.batchId || ""),
@@ -477,12 +576,24 @@ function pressureV4MergeByKey_(existing, incoming, keyFn, maxItems) {
   return Array.from(map.values()).slice(-maxItems);
 }
 
-function pressureV4WriteModel_(projectId, styleKey, incomingSamples, incomingPoints) {
+function pressureV4WriteModel_(
+  projectId,
+  styleKey,
+  incomingSamples,
+  incomingPassiveSamples,
+  incomingPoints
+) {
   const existing = pressureV4GetModel_(projectId, styleKey) || {};
   const samples = pressureV4MergeByKey_(
     Array.isArray(existing.samples) ? existing.samples : [],
     incomingSamples || [],
     pressureV4SampleKey_,
+    PRESSURE_V4_MAX_SAMPLES_PER_STYLE
+  );
+  const passiveSamples = pressureV4MergeByKey_(
+    Array.isArray(existing.passiveSamples) ? existing.passiveSamples : [],
+    incomingPassiveSamples || [],
+    pressureV4PassiveSampleKey_,
     PRESSURE_V4_MAX_SAMPLES_PER_STYLE
   );
   const points = pressureV4MergeByKey_(
@@ -501,6 +612,8 @@ function pressureV4WriteModel_(projectId, styleKey, incomingSamples, incomingPoi
       style: styleKey,
       samples: samples,
       sampleCount: samples.length,
+      passiveSamples: passiveSamples,
+      passiveSampleCount: passiveSamples.length,
       equilibriumPoints: points,
       equilibriumPointCount: points.length,
       readiness: readiness,
@@ -510,6 +623,7 @@ function pressureV4WriteModel_(projectId, styleKey, incomingSamples, incomingPoi
 
   return {
     sampleCount: samples.length,
+    passiveSampleCount: passiveSamples.length,
     equilibriumPointCount: points.length,
     readiness: readiness
   };
@@ -685,6 +799,7 @@ function pressurePredictionV4BackfillStep_() {
     }
 
     const byStyle = {};
+    const passiveByStyle = {};
     const pointsByStyle = {};
     const bottomByStyle = {};
     let processedThisPage = 0;
@@ -700,6 +815,10 @@ function pressurePredictionV4BackfillStep_() {
         readsThisRun += measurements.length;
 
         const samples = pressureV4BuildSamples_(measurements, batchId);
+        const passiveSamples = pressureV4BuildPassiveSamples_(
+          measurements,
+          batchId
+        );
         const target = pressureV4Number_(targets[styleKey] != null
           ? targets[styleKey]
           : targets.other);
@@ -720,6 +839,12 @@ function pressurePredictionV4BackfillStep_() {
         if (!byStyle[styleKey]) byStyle[styleKey] = [];
         Array.prototype.push.apply(byStyle[styleKey], samples);
 
+        if (!passiveByStyle[styleKey]) passiveByStyle[styleKey] = [];
+        Array.prototype.push.apply(
+          passiveByStyle[styleKey],
+          passiveSamples
+        );
+
         if (!pointsByStyle[styleKey]) pointsByStyle[styleKey] = [];
         if (point) pointsByStyle[styleKey].push(point);
 
@@ -734,6 +859,7 @@ function pressurePredictionV4BackfillStep_() {
 
     const touchedStyles = {};
     Object.keys(byStyle)
+      .concat(Object.keys(passiveByStyle))
       .concat(Object.keys(pointsByStyle))
       .concat(Object.keys(bottomByStyle))
       .forEach(function (styleKey) {
@@ -746,6 +872,7 @@ function pressurePredictionV4BackfillStep_() {
         projectId,
         styleKey,
         byStyle[styleKey] || [],
+        passiveByStyle[styleKey] || [],
         pointsByStyle[styleKey] || []
       );
       styleReadiness[styleKey] = writeResult.readiness;
