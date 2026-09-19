@@ -359,15 +359,18 @@ test("V5 first-carbonation alpha is learned only from early-cooling transitions"
     Array.from({ length: 8 }, (_, index) => {
       const pressure = 1.1 + (index % 4) * 0.1;
       const startCarbonation = 2.2 + (index % 3) * 0.03;
-      const eqCold = equilibriumCarbonationVolumes(
-        coldReference,
+      const meanTransitionTemp = 3.5;
+      const eqDuringTransition = equilibriumCarbonationVolumes(
+        meanTransitionTemp,
         pressure,
       );
-      if (eqCold === null) throw new Error("invalid cold equilibrium");
+      if (eqDuringTransition === null) {
+        throw new Error("invalid transition equilibrium");
+      }
       const alpha48 = 0.32;
       const endCarbonation =
         startCarbonation +
-        alpha48 * (eqCold - startCarbonation);
+        alpha48 * (eqDuringTransition - startCarbonation);
 
       return {
         batchId: `early-${index}`,
