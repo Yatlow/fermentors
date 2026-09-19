@@ -561,6 +561,13 @@ function refinePressureWithForecast(args: {
   maxPressure: number;
   step: number;
 }): number {
+  // A near-zero fitted k means the kinetic model has little leverage over a
+  // 48h forecast. In that case it may describe the forecast, but it must not
+  // inflate the pressure target merely to compensate for slow historical uptake.
+  if (args.kPerHour < 0.001) {
+    return args.baselinePressure;
+  }
+
   // On the first/early cold check, if the operational calculation already
   // says to vent from a high closing pressure, do not let a slow fitted k undo
   // that decision. The stored head pressure plus continuing cooling are the
