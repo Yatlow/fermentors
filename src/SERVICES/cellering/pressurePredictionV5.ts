@@ -7,8 +7,15 @@ import type {
 
 const DEFAULT_VOL_PER_BAR = 0.67;
 const MIN_PRESSURE_DISTANCE_BAR = 0.10;
-const MIN_VOL_PER_BAR = 0.05;
-const MAX_VOL_PER_BAR = 2.0;
+
+// Operational guardrail from brewery practice: roughly 0.1 vol for every
+// 0.1-0.2 bar. History may refine inside this band, but values far outside it
+// indicate that the historical window is contaminated by temperature/pressure
+// changes and must not control the recommendation.
+const OPERATIONAL_MIN_VOL_PER_BAR = 0.50;
+const OPERATIONAL_MAX_VOL_PER_BAR = 1.00;
+const RAW_MIN_VOL_PER_BAR = 0.05;
+const RAW_MAX_VOL_PER_BAR = 2.0;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 
 type Quality = "low" | "medium" | "high";
@@ -32,7 +39,8 @@ export type PressureV5Estimate = {
   forecastTemperature: number;
 
   volPerBar: number;
-  responseSource: "learned" | "heuristic";
+  responseSource: "learned" | "heuristic" | "guarded";
+  rawLearnedVolPerBar: number | null;
   supportCount: number;
   confidence: "low" | "medium" | "high";
 
@@ -161,8 +169,8 @@ function buildResponseRows(args: {
       input.carbonationDelta / pressureDistance;
     if (
       !Number.isFinite(volPerBar) ||
-      volPerBar < MIN_VOL_PER_BAR ||
-      volPerBar > MAX_VOL_PER_BAR
+      volPerBar < RAW_MIN_VOL_PER_BAR ||
+      volPerBar > RAW_MAX_VOL_PER_BAR
     ) return;
 
     rows.push({
@@ -229,7 +237,8 @@ export function learnPressureResponseV5(args: {
   state: PressureV4DecisionState;
 }): {
   volPerBar: number;
-  source: "learned" | "heuristic";
+  rawLearnedVolPerBar: number | null;
+  source: "learned" | "heuristic" | "guarded";
   supportCount: number;
   confidence: "low" | "medium" | "high";
 } {
@@ -237,6 +246,7 @@ export function learnPressureResponseV5(args: {
   if (rows.length < 4) {
     return {
       volPerBar: DEFAULT_VOL_PER_BAR,
+      rawLearnedVolPerBar: null,
       source: "heuristic",
       supportCount: rows.length,
       confidence: "low",
@@ -254,6 +264,7 @@ export function learnPressureResponseV5(args: {
   if (rawMedian === null) {
     return {
       volPerBar: DEFAULT_VOL_PER_BAR,
+      rawLearnedVolPerBar: null,
       source: "heuristic",
       supportCount: rows.length,
       confidence: "low",
@@ -272,6 +283,7 @@ export function learnPressureResponseV5(args: {
   if (robustRows.length < 4) {
     return {
       volPerBar: DEFAULT_VOL_PER_BAR,
+      rawLearnedVolPerBar: null,
       source: "heuristic",
       supportCount: robustRows.length,
       confidence: "low",
@@ -295,12 +307,35 @@ export function learnPressureResponseV5(args: {
         ? "medium"
         : "low";
 
+  const rawLearnedVolPerBar = robustMedian;
+
+  if (
+    rawLearnedVolPerBar < OPERATIONAL_MIN_VOL_PER_BAR ||
+    rawLearnedVolPerBar > OPERATIONAL_MAX_VOL_PER_BAR
+  ) {
+    return {
+      volPerBar: DEFAULT_VOL_PER_BAR,
+      rawLearnedVolPerBar: Number(rawLearnedVolPerBar.toFixed(3)),
+      source: "guarded",
+      supportCount: robustRows.length,
+      confidence,
+    };
+  }
+
+  // Keep the field calibration anchored to the operational prior while still
+  // allowing real history to refine it. This prevents a noisy data set from
+  // overpowering a rule that is already known to work on the floor.
+  const refined =
+    DEFAULT_VOL_PER_BAR * 0.35 +
+    rawLearnedVolPerBar * 0.65;
+
   return {
     volPerBar: clamp(
-      robustMedian,
-      MIN_VOL_PER_BAR,
-      MAX_VOL_PER_BAR,
+      refined,
+      OPERATIONAL_MIN_VOL_PER_BAR,
+      OPERATIONAL_MAX_VOL_PER_BAR,
     ),
+    rawLearnedVolPerBar: Number(rawLearnedVolPerBar.toFixed(3)),
     source: "learned",
     supportCount: robustRows.length,
     confidence,
@@ -318,6 +353,7 @@ export function estimatePressureTargetV5(args: {
   targetCarbonation: number;
   coldReferenceTemperature?: number | null;
   firstCarbonation?: boolean;
+  learnedTargetEquilibriumPressure?: number | null;
 }): PressureV5Estimate | null {
   const currentTemp = finite(args.state.currentTemp);
   if (
@@ -344,11 +380,32 @@ export function estimatePressureTargetV5(args: {
     state: args.state,
   });
 
-  const equilibriumPressure = equilibriumPressureBar(
+  const standardCurrentEquilibrium = equilibriumPressureBar(
     forecastTemperature,
     args.state.carbonation,
   );
-  if (equilibriumPressure === null) return null;
+  const standardTargetEquilibrium = equilibriumPressureBar(
+    forecastTemperature,
+    args.targetCarbonation,
+  );
+  if (
+    standardCurrentEquilibrium === null ||
+    standardTargetEquilibrium === null
+  ) return null;
+
+  const learnedTargetEquilibrium =
+    finite(args.learnedTargetEquilibriumPressure);
+  const equilibriumCalibration =
+    learnedTargetEquilibrium === null
+      ? 0
+      : clamp(
+          learnedTargetEquilibrium - standardTargetEquilibrium,
+          -0.35,
+          0.35,
+        );
+
+  const equilibriumPressure =
+    standardCurrentEquilibrium + equilibriumCalibration;
 
   const pressureDistance =
     args.state.currentPressure - equilibriumPressure;
@@ -373,6 +430,7 @@ export function estimatePressureTargetV5(args: {
     forecastTemperature,
     volPerBar: Number(learned.volPerBar.toFixed(3)),
     responseSource: learned.source,
+    rawLearnedVolPerBar: learned.rawLearnedVolPerBar,
     supportCount: learned.supportCount,
     confidence: learned.confidence,
     equilibriumPressureForCurrentCarb:
