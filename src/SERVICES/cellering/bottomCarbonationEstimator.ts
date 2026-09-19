@@ -1,3 +1,5 @@
+import type { PressureV4Exposure, PressureV4DecisionState } from "./pressurePredictionV4";
+
 export type BottomCarbonationSample = {
   batchId?: string;
   brewDay?: number | null;
@@ -11,6 +13,13 @@ export type BottomCarbonationSample = {
   carbonationDelta: number;
   elapsedDays: number;
   success?: boolean;
+  state?: {
+    hoursSinceT0: number;
+    currentPressure: number;
+    currentTemp: number | null;
+    exposure: PressureV4Exposure;
+    quality: "low" | "medium" | "high";
+  } | null;
 };
 
 export type BottomCarbonationEstimate = {
@@ -97,6 +106,7 @@ export function estimateBottomCarbonation(args: {
   currentPressure?: number | null;
   brewDay?: number | null;
   temp?: number | null;
+  state?: PressureV4DecisionState | null;
 }): BottomCarbonationEstimate | null {
   const desiredGain = args.targetCarbonation - args.currentCarbonation;
   if (!Number.isFinite(desiredGain) || desiredGain <= 0.04) return null;
@@ -140,23 +150,58 @@ export function estimateBottomCarbonation(args: {
   const brewDay = finiteNumber(args.brewDay);
   const temp = finiteNumber(args.temp);
 
+  const currentState = args.state ?? null;
+
+  const stateDistance = (sample: typeof usable[number]): number => {
+    let score = Math.abs(sample.carbonationBefore! - args.currentCarbonation) * 5;
+
+    if (brewDay !== null && sample.brewDay !== null) {
+      score += Math.abs(sample.brewDay - brewDay) * 0.08;
+    }
+    if (temp !== null && sample.temp !== null) {
+      score += Math.abs(sample.temp - temp) * 0.25;
+    }
+    if (currentPressure !== null && sample.pressureBefore !== null) {
+      score += Math.abs(sample.pressureBefore - currentPressure) * 0.3;
+    }
+
+    const historicalState = sample.state;
+    if (currentState && historicalState) {
+      score += Math.min(
+        2,
+        Math.abs(historicalState.hoursSinceT0 - currentState.hoursSinceT0) / 48,
+      );
+
+      const currentMean24 = currentState.exposure.pressureMean24h;
+      const sampleMean24 = historicalState.exposure.pressureMean24h;
+      if (currentMean24 !== null && sampleMean24 !== null) {
+        score += Math.abs(sampleMean24 - currentMean24) * 1.2;
+      }
+
+      const currentMean48 = currentState.exposure.pressureMean48h;
+      const sampleMean48 = historicalState.exposure.pressureMean48h;
+      if (currentMean48 !== null && sampleMean48 !== null) {
+        score += Math.abs(sampleMean48 - currentMean48) * 0.8;
+      }
+
+      const currentExposure = currentState.exposure.equilibriumDeltaBarHours;
+      const sampleExposure = historicalState.exposure.equilibriumDeltaBarHours;
+      if (currentExposure !== null && sampleExposure !== null) {
+        score += Math.min(2.5, Math.abs(sampleExposure - currentExposure) / 24);
+      }
+
+      if (historicalState.quality === "low") score += 1.5;
+    } else if (currentState) {
+      // Legacy samples remain usable while the V4 backfill replaces them,
+      // but prefer samples carrying the full tank state.
+      score += 1.25;
+    }
+
+    return score;
+  };
+
   const similar = usable
-    .sort((a, b) => {
-      const distance = (sample: typeof a) => {
-        let score = Math.abs(sample.carbonationBefore! - args.currentCarbonation) * 5;
-        if (brewDay !== null && sample.brewDay !== null) {
-          score += Math.abs(sample.brewDay - brewDay) * 0.12;
-        }
-        if (temp !== null && sample.temp !== null) {
-          score += Math.abs(sample.temp - temp) * 0.5;
-        }
-        if (currentPressure !== null && sample.pressureBefore !== null) {
-          score += Math.abs(sample.pressureBefore - currentPressure) * 0.5;
-        }
-        return score;
-      };
-      return distance(a) - distance(b);
-    })
+    .sort((a, b) => stateDistance(a) - stateDistance(b))
     .slice(0, 30);
 
   if (similar.length < 5) return null;
