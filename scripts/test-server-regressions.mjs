@@ -291,6 +291,24 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal(bottomSamples[0].durationMinutes, 45);
   assert.ok(bottomSamples[0].carbonationDelta > 0);
 
+  const equilibriumObservations = weekly.buildPressureEquilibriumObservationsForBrew_(
+    [
+      { date: "17/09/2026", pressure: 0.75, carbonation: 2.44, temp: 1.4 },
+      { date: "18/09/2026", pressure: 1.1, carbonation: 2.43, temp: 1.5, notes: "העלאת לחץ ל: 1.1 bar" },
+      { date: "19/09/2026", pressure: 0.8, carbonation: 2.45, temp: 1.5, notes: "תחילת גיזוז מלמטה בשעה 09:00" },
+      { date: "20/09/2026", pressure: 1.2, carbonation: 2.44, temp: 12 },
+    ],
+    new Date(2026, 8, 1),
+    "1595",
+  );
+  assert.equal(equilibriumObservations.length, 1);
+  assert.equal(equilibriumObservations[0].pressure, 0.75);
+  assert.equal(
+    weekly.pressureCalibrationNumber_(null),
+    null,
+    "missing observed pressure must never become a zero-bar equilibrium sample",
+  );
+
   const calibrationSamples = Array.from({ length: 12 }, (_, index) => ({
     batchId: String(1600 + index),
     eventDate: `${String((index % 9) + 1).padStart(2, "0")}/09/2026`,
