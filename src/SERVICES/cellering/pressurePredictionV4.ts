@@ -43,6 +43,24 @@ export type PressureV4Outcome = {
   calendarDaysAfterAction: number;
 };
 
+export type PressureV4TransitionSample = {
+  batchId?: string;
+  style?: string;
+  startDateTimeMs: number;
+  endDateTimeMs: number;
+  durationHours: number;
+  startCarbonation: number;
+  endCarbonation: number;
+  currentPressure: number;
+  currentTemp: number | null;
+  hoursSinceT0: number;
+  exposure: PressureV4Exposure;
+  pressureMeanDuring: number | null;
+  temperatureMeanDuring: number | null;
+  kPerHour: number;
+  quality: "low" | "medium" | "high";
+};
+
 export type PressureV4PassiveSample = {
   batchId?: string;
   style?: string;
