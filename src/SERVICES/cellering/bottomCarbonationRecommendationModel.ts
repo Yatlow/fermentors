@@ -26,6 +26,7 @@ export type BottomCarbonationEstimate = {
   activationThreshold: number;
   expectedCarbGain: number;
   responsePerMinute: number;
+  expectedDays: number;
 };
 
 export type BottomCarbonationModel = {
@@ -167,6 +168,11 @@ export function estimateBottomCarbonation(args: {
     clamp(rawDuration, lowDuration, Math.max(lowDuration, highDuration)),
   );
 
+  const expectedDays = Math.max(
+    1,
+    Math.round(median(similar.map((sample) => sample.elapsedDays!)) ?? 1),
+  );
+
   return {
     startPressure: Number(roundToStep(startPressure, 0.05).toFixed(2)),
     closePressure: Number(roundToStep(closePressure, 0.05).toFixed(2)),
@@ -176,6 +182,7 @@ export function estimateBottomCarbonation(args: {
     activationThreshold,
     expectedCarbGain: Number((responsePerMinute * durationMinutes).toFixed(2)),
     responsePerMinute: Number(responsePerMinute.toFixed(5)),
+    expectedDays,
   };
 }
 
