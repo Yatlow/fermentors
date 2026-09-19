@@ -930,3 +930,120 @@ test("tank 17 2.38->2.45 may refine to about 1.1 bar instead of declaring pressu
     `expected forecast to reach the target window edge, got ${estimate.predictedCarbonation}`,
   );
 });
+
+
+test("mild overcarbonation prefers a lower pressure setpoint, not timed venting semantics", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.45,
+    currentPressure: 0.82,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.82, 300),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 1,
+      pressure: 0.82,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.001),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.52,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure >= 0.45 && estimate.targetPressure <= 0.6,
+    `expected about 0.5 bar for a mild excess, got ${estimate.targetPressure}`,
+  );
+  assert.notEqual(
+    estimate.decisionStatus,
+    "pressure_only_insufficient",
+    "a mild excess should be handled as a pressure adjustment + recheck",
+  );
+});
+
+test("mild undercarbonation may raise to about 1.1 bar instead of stopping at 0.95", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.35,
+    currentPressure: 0.82,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.82, 300),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 1,
+      pressure: 0.82,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00089),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.52,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure >= 1.05 && estimate.targetPressure <= 1.15,
+    `expected about 1.1 bar, got ${estimate.targetPressure}`,
+  );
+  assert.notEqual(
+    estimate.decisionStatus,
+    "pressure_only_insufficient",
+  );
+});
+
+test("timed venting rejects long weak low-pressure estimates", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.45,
+    currentPressure: 0.82,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.82, 300),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 1,
+      pressure: 0.82,
+    }),
+    carbonationTrend: null,
+  };
+
+  const weakLowPressure = Array.from({ length: 8 }, (_, index) => {
+    const sample = transition(index, {
+      k: 0.001,
+      currentTemp: 1,
+      pressure: 0.05,
+      hoursSinceT0: 280 + index,
+      startCarbonation: 2.45,
+    });
+    return {
+      ...sample,
+      durationHours: 4,
+      pressureMeanDuring: 0.05,
+      endCarbonation: 2.44,
+    };
+  });
+
+  const venting = estimateVentingDuration({
+    transitions: weakLowPressure,
+    state,
+    targetCarbonation: 2.4,
+    ventPressureBar: 0,
+  });
+
+  assert.equal(
+    venting,
+    null,
+    "a multi-hour estimate should not become an automatic timed vent instruction",
+  );
+});
