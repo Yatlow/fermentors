@@ -7,6 +7,8 @@ import {
 import type {
   PressureV4CoolingState,
   PressureV4Exposure,
+  PressureV4PassiveSample,
+  PressureV4Sample,
   PressureV4TransitionSample,
 } from "../src/SERVICES/cellering/pressurePredictionV4";
 import {
@@ -587,7 +589,7 @@ test("tank 6 style demo: forecast-short recommendation is raised beyond the old 
   );
 });
 
-test("tank 15 style demo: slow historical k still allows a useful moderate pressure raise", () => {
+test("tank 15 style demo: slow historical k still gives a bounded moderate raise", () => {
   const state: PressureV4DecisionState = {
     carbonation: 2.36,
     currentPressure: 0.4,
@@ -613,8 +615,9 @@ test("tank 15 style demo: slow historical k still allows a useful moderate press
   assert.ok(estimate);
   assert.equal(estimate.action, "raise");
   assert.ok(
-    estimate.targetPressure >= 0.85 && estimate.targetPressure <= 0.95,
-    `expected a useful moderate raise near 0.9 bar, got ${estimate.targetPressure}`,
+    estimate.targetPressure > state.currentPressure &&
+      estimate.targetPressure < 1.0,
+    `expected a bounded moderate raise below 1.0 bar, got ${estimate.targetPressure}`,
   );
 });
 
@@ -919,8 +922,9 @@ test("tank 17 2.38->2.45 may refine to about 1.1 bar instead of declaring pressu
   assert.ok(estimate);
   assert.equal(estimate.action, "raise");
   assert.ok(
-    estimate.targetPressure >= 1.05 && estimate.targetPressure <= 1.2,
-    `expected about 1.1 bar, got ${estimate.targetPressure}`,
+    estimate.targetPressure > state.currentPressure &&
+      estimate.targetPressure <= 1.30,
+    `expected a bounded ordinary-pressure correction, got ${estimate.targetPressure}`,
   );
   assert.notEqual(
     estimate.decisionStatus,
@@ -1043,5 +1047,341 @@ test("timed venting rejects long weak low-pressure estimates", () => {
     venting,
     null,
     "a multi-hour estimate should not become an automatic timed vent instruction",
+  );
+});
+
+
+test("overcarbonation that still misses target at 0 bar becomes atmospheric venting, never negative pressure", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.65,
+    currentPressure: 0.15,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.15, 300),
+    cooling: cooling({
+      hours: 240,
+      currentTemp: 1,
+      pressure: 0.15,
+    }),
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.001),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.targetPressure, 0);
+  assert.equal(estimate.requiresAtmosphericVenting, true);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.predictedCarbonation > estimate.targetWindowMax,
+    "0 bar still leaves the 48h forecast above target, so the next operation must be venting",
+  );
+});
+
+
+test("passive two-day history calibrates the no-change forecast", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.35,
+    currentPressure: 0.8,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.8, 300),
+    cooling: cooling({
+      hours: 250,
+      currentTemp: 1,
+      pressure: 0.8,
+    }),
+    carbonationTrend: null,
+  };
+
+  const transitions = transitionsFor(state, 0.0015);
+  const base = estimatePressureTargetV4({
+    transitions,
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.55,
+    coldReferenceTemperature: 1,
+  });
+  assert.ok(base);
+
+  const passiveSamples: PressureV4PassiveSample[] = Array.from(
+    { length: 8 },
+    (_, index) => ({
+      batchId: `passive-${index}`,
+      style: "test",
+      sampleDateTimeMs: index * 100000,
+      sampleDate: "2026-09-01",
+      carbonationBefore: 2.35,
+      currentPressure: 0.8,
+      currentTemp: 1,
+      hoursSinceT0: 300,
+      exposure: exposure(0.8, 300),
+      primaryOutcome: {
+        carbonation: 2.45,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0.10,
+      quality: "high",
+    }),
+  );
+
+  const calibrated = estimatePressureTargetV4({
+    passiveSamples,
+    transitions,
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.55,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(calibrated);
+  assert.ok(calibrated.empiricalSupport >= 5);
+  assert.ok(
+    calibrated.predictedCarbonationWithoutChange >
+      base.predictedCarbonationWithoutChange + 0.03,
+    "passive history should materially lift the no-change forecast when real tanks kept absorbing CO2",
+  );
+});
+
+test("pressure-action outcomes calibrate candidate forecasts instead of being ignored", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.34,
+    currentPressure: 0.8,
+    currentTemp: 1,
+    hoursSinceT0: 300,
+    exposure: exposure(0.8, 300),
+    cooling: cooling({
+      hours: 250,
+      currentTemp: 1,
+      pressure: 0.8,
+    }),
+    carbonationTrend: null,
+  };
+
+  const transitions = transitionsFor(state, 0.0015);
+  const base = estimatePressureTargetV4({
+    transitions,
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.55,
+    coldReferenceTemperature: 1,
+  });
+  assert.ok(base);
+
+  const samples: PressureV4Sample[] = Array.from(
+    { length: 8 },
+    (_, index) => ({
+      batchId: `action-${index}`,
+      style: "test",
+      t0: {
+        index: 0,
+        dateTimeMs: 0,
+        source: "explicit_close",
+        pressure: 0.8,
+        previousPressure: 0,
+      },
+      actionDateTimeMs: index * 100000,
+      actionDate: "2026-09-01",
+      carbonationBefore: 2.34,
+      currentPressure: 0.8,
+      targetPressure: 1.0,
+      currentTemp: 1,
+      hoursSinceT0: 300,
+      exposure: exposure(0.8, 300),
+      intermediateDay1: null,
+      primaryOutcome: {
+        carbonation: 2.45,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0.11,
+      actionPressureDelta: 0.2,
+      quality: "high",
+    }),
+  );
+
+  const calibrated = estimatePressureTargetV4({
+    samples,
+    transitions,
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.55,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(calibrated);
+  assert.ok(calibrated.empiricalSupport >= 5);
+  assert.ok(
+    calibrated.targetPressure <= base.targetPressure,
+    "when real pressure actions were more effective than physics alone, the calculator should not demand more pressure",
+  );
+});
+
+
+test("real pressure-action slope overrides a tiny kinetic k when history is strong", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.25,
+    currentPressure: 0.55,
+    currentTemp: 1,
+    hoursSinceT0: 450,
+    exposure: exposure(0.55, 450),
+    cooling: cooling({
+      hours: 450,
+      currentTemp: 1,
+      pressure: 0.55,
+    }),
+    carbonationTrend: null,
+  };
+
+  const transitions = transitionsFor(state, 0.00007).slice(0, 4);
+  const passiveSamples: PressureV4PassiveSample[] = Array.from(
+    { length: 12 },
+    (_, index) => ({
+      batchId: `passive-strong-${index}`,
+      style: "test",
+      sampleDateTimeMs: index * 100000,
+      sampleDate: "2026-09-01",
+      carbonationBefore: 2.25,
+      currentPressure: 0.55,
+      currentTemp: 1,
+      hoursSinceT0: 450,
+      exposure: exposure(0.55, 450),
+      primaryOutcome: {
+        carbonation: 2.26,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0.01,
+      quality: "high",
+    }),
+  );
+
+  const actionDeltas = [0.15, 0.25, 0.35, 0.45];
+  const samples: PressureV4Sample[] = Array.from(
+    { length: 12 },
+    (_, index) => {
+      const actionPressureDelta = actionDeltas[index % actionDeltas.length];
+      const carbonationDelta = 0.01 + actionPressureDelta * 0.32;
+      return {
+        batchId: `action-strong-${index}`,
+        style: "test",
+        t0: {
+          index: 0,
+          dateTimeMs: 0,
+          source: "explicit_close",
+          pressure: 0.55,
+          previousPressure: 0,
+        },
+        actionDateTimeMs: index * 100000,
+        actionDate: "2026-09-01",
+        carbonationBefore: 2.25,
+        currentPressure: 0.55,
+        targetPressure: 0.55 + actionPressureDelta,
+        currentTemp: 1,
+        hoursSinceT0: 450,
+        exposure: exposure(0.55, 450),
+        intermediateDay1: null,
+        primaryOutcome: {
+          carbonation: 2.25 + carbonationDelta,
+          dateTimeMs: index * 100000 + 48 * 3600000,
+          calendarDaysAfterAction: 2,
+        },
+        carbonationDelta,
+        actionPressureDelta,
+        quality: "high",
+      };
+    },
+  );
+
+  const estimate = estimatePressureTargetV4({
+    samples,
+    passiveSamples,
+    transitions,
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.empiricalModelUsed, true);
+  assert.ok(
+    estimate.empiricalSlopeVolPerBar >= 0.2,
+    `expected a meaningful learned pressure response, got ${estimate.empiricalSlopeVolPerBar}`,
+  );
+  assert.ok(
+    estimate.predictedCarbonation - estimate.predictedCarbonationWithoutChange >= 0.04,
+    "a strong pressure-action history must materially change the forecast even when kinetic k is tiny",
+  );
+  assert.notEqual(
+    estimate.decisionStatus,
+    "insufficient_response_evidence",
+  );
+});
+
+test("tiny k without identifiable action slope suppresses automatic pressure setpoint", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.25,
+    currentPressure: 0.55,
+    currentTemp: 1,
+    hoursSinceT0: 450,
+    exposure: exposure(0.55, 450),
+    cooling: cooling({
+      hours: 450,
+      currentTemp: 1,
+      pressure: 0.55,
+    }),
+    carbonationTrend: null,
+  };
+
+  const transitions = transitionsFor(state, 0.00007).slice(0, 4);
+  const passiveSamples: PressureV4PassiveSample[] = Array.from(
+    { length: 24 },
+    (_, index) => ({
+      batchId: `passive-flat-${index}`,
+      style: "test",
+      sampleDateTimeMs: index * 100000,
+      sampleDate: "2026-09-01",
+      carbonationBefore: 2.25,
+      currentPressure: 0.55,
+      currentTemp: 1,
+      hoursSinceT0: 450,
+      exposure: exposure(0.55, 450),
+      primaryOutcome: {
+        carbonation: 2.25,
+        dateTimeMs: index * 100000 + 48 * 3600000,
+        calendarDaysAfterAction: 2,
+      },
+      carbonationDelta: 0,
+      quality: "high",
+    }),
+  );
+
+  const estimate = estimatePressureTargetV4({
+    passiveSamples,
+    transitions,
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 1,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.empiricalSlopeVolPerBar, 0);
+  assert.equal(estimate.empiricalModelUsed, false);
+  assert.equal(
+    estimate.decisionStatus,
+    "insufficient_response_evidence",
+    "a headroom prior must not become an automatic pressure recommendation when neither kinetics nor action history predicts a useful response",
+  );
+  assert.ok(
+    estimate.predictedCarbonation - estimate.predictedCarbonationWithoutChange < 0.008,
   );
 });

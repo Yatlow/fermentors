@@ -51,7 +51,7 @@ test("bottom carbonation recommends learned pressures and duration below thresho
   assert.equal(estimate.confidence, "high");
 });
 
-test("bottom carbonation does not trigger above learned/capped threshold", () => {
+test("bottom carbonation does not trigger at or above the hard 2.15 cutoff", () => {
   const samples = Array.from({ length: 12 }, () => bottomSample());
 
   const estimate = estimateBottomCarbonation({
@@ -77,7 +77,7 @@ test("bottom carbonation requires at least five useful historical sessions", () 
 });
 
 
-test("bottom carbonation learns a stricter trigger than the 2.20 fallback", () => {
+test("historical sessions do not move the hard 2.15 routing cutoff", () => {
   const samples = Array.from({ length: 12 }, (_, index) =>
     bottomSample({
       carbonationBefore: 1.98 + (index % 3) * 0.02,
@@ -91,10 +91,9 @@ test("bottom carbonation learns a stricter trigger than the 2.20 fallback", () =
     currentPressure: 0.9,
   });
 
-  assert.equal(
+  assert.ok(
     estimate,
-    null,
-    "once history is sufficient, a style-specific threshold should replace the broad 2.20 fallback",
+    "history should tune duration/pressures, not make the <2.15 routing threshold stricter",
   );
 });
 
@@ -173,4 +172,33 @@ test("bottom carbonation uses the same V4 tank state to choose historical respon
     high.durationMinutes < low.durationMinutes,
     "the same carbonation deficit should use different bottom-carbonation duration when V4 exposure differs",
   );
+});
+
+
+test("bottom carbonation cutoff is strict: 2.14 may route, 2.15 may not", () => {
+  const samples = Array.from({ length: 12 }, () =>
+    bottomSample({
+      carbonationBefore: 2.10,
+      carbonationDelta: 0.20,
+      durationMinutes: 45,
+    })
+  );
+
+  const below = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.14,
+    targetCarbonation: 2.45,
+    currentPressure: 0.8,
+    temp: 1.5,
+  });
+  const boundary = estimateBottomCarbonation({
+    samples,
+    currentCarbonation: 2.15,
+    targetCarbonation: 2.45,
+    currentPressure: 0.8,
+    temp: 1.5,
+  });
+
+  assert.ok(below, "2.14 vol should remain eligible for bottom carbonation");
+  assert.equal(boundary, null, "2.15 vol must not enter the <2.15 bottom-carbonation route");
 });

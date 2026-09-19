@@ -144,6 +144,32 @@ function buildHypotheticalProductionPressureText(
     const targetRange =
         `${estimate.targetWindowMin.toFixed(2)}–${estimate.targetWindowMax.toFixed(2)}`;
 
+    if (estimate.requiresAtmosphericVenting) {
+        if (venting) {
+            return (
+                `הגיזוז גבוה (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+                `גם ב-0 bar תחזית V4 נשארת מעל הטווח ${targetRange}; לא מומלץ ולא מחושב לחץ שלילי. ` +
+                `מומלץ לפרוק ל-${venting.ventPressureBar.toFixed(2)} bar למשך כ-${venting.durationMinutes} דקות, ` +
+                `לסגור מחדש ולבצע בדיקת גיזוז חוזרת. התחזית בסיום הפריקה: ${venting.predictedCarbonationAtClose.toFixed(3)}.`
+            );
+        }
+
+        return (
+            `הגיזוז גבוה (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+            `גם ב-0 bar תחזית V4 נשארת מעל הטווח ${targetRange}; המיכל דורש פריקה ולא יעד לחץ שלילי. ` +
+            "אין מספיק היסטוריית פריקה בלחץ נמוך כדי לתת זמן אוטומטי בטוח — יש לפרוק ל-0, לסגור ולבדוק גיזוז מחדש."
+        );
+    }
+
+    if (estimate.decisionStatus === "insufficient_response_evidence") {
+        return (
+            `הגיזוז בבדיקה אינו בטווח היעד (${currentCarbonation.toFixed(2)}, יעד ${estimate.targetCarbonation.toFixed(2)}). ` +
+            "ההיסטוריה הזמינה אינה מזהה כרגע תגובת CO₂ אמינה מספיק לשינוי לחץ, ולכן לא מוצגת המלצת setpoint אוטומטית. " +
+            `תחזית ללא שינוי: ${estimate.predictedCarbonationWithoutChange.toFixed(3)}; תחזית ליעד הלחץ הניסיוני: ${estimate.predictedCarbonation.toFixed(3)}. ` +
+            "יש לבצע בדיקת גיזוז חוזרת או להשתמש במסלול טיפול אחר לפי מצב המיכל."
+        );
+    }
+
     if (estimate.decisionStatus === "pressure_only_insufficient") {
         const directionText =
             currentCarbonation < estimate.targetCarbonation
@@ -494,8 +520,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 setV4Status("");
 
                                 const venting =
-                                    estimate.decisionStatus ===
-                                        "pressure_only_insufficient" &&
+                                    estimate.requiresAtmosphericVenting &&
                                     carbonationValue >
                                         estimate.targetWindowMax
                                         ? estimateVentingDuration({
@@ -649,13 +674,19 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 <div className="cellar-simulator-results">
                     <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
                     <article className="cellar-simulator-result level-1">
-                        <strong>שינוי לחץ</strong>
+                        <strong>
+                            {Number(carbonation) < 2.15
+                                ? "גיזוז מלמטה"
+                                : "שינוי לחץ"}
+                        </strong>
                         <p>
-                            {buildHypotheticalProductionPressureText(
-                                v4Result,
-                                Number(carbonation),
-                                ventingResult,
-                            )}
+                            {Number(carbonation) < 2.15
+                                ? `הגיזוז המדומה הוא ${Number(carbonation).toFixed(2)} vol — מתחת לסף הקשיח 2.15. בפרודקשיין מסלול שינוי לחץ ראש לא יוצג; ההמלצה עוברת לגיזוז מלמטה. תוצאת V4 נשארת מוצגת למטה לצורכי debug בלבד.`
+                                : buildHypotheticalProductionPressureText(
+                                    v4Result,
+                                    Number(carbonation),
+                                    ventingResult,
+                                )}
                         </p>
                     </article>
                 </div>
@@ -694,6 +725,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 שיווי־משקל תפעולי: {v4Result.targetEquilibriumPressure?.toFixed(2) ?? "—"} bar
                                 ({v4Result.referenceTemperature?.toFixed(1) ?? "—"}°C) ·
                                 headroom: {v4Result.headroomBar >= 0 ? "+" : ""}{v4Result.headroomBar} bar ·
+                                תיקון היסטורי מול physics: {v4Result.empiricalCorrectionVol >= 0 ? "+" : ""}{v4Result.empiricalCorrectionVol} vol ·
+                                תגובת לחץ נלמדת: {v4Result.empiricalSlopeVolPerBar} vol/bar ל-48ש׳ ·
+                                drift ללא פעולה: {v4Result.empiricalDriftVol48h >= 0 ? "+" : ""}{v4Result.empiricalDriftVol48h} vol ·
+                                evidence: {v4Result.empiricalActionSupport} פעולות + {v4Result.empiricalPassiveSupport} passive
+                                {v4Result.empiricalModelUsed ? " · empirical מוביל" : " · empirical לא מספיק חזק"} ·
                                 ללא שינוי לחץ: {v4Result.predictedCarbonationWithoutChange} בעוד יומיים ·
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
                                 יעד גיזוז: {v4Result.targetCarbonation}
@@ -718,10 +754,15 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                             ? "חריג קירור פעיל — התחזית יכולה להיות מחוץ לחלון"
                                             : v4Result.decisionStatus === "pressure_adjust_and_recheck"
                                                 ? "שינוי לחץ ובדיקה חוזרת — התחזית עדיין מחוץ לחלון"
-                                                : "אין פתרון מספק בלחץ ראש בלבד"
+                                                : v4Result.decisionStatus === "insufficient_response_evidence"
+                                                    ? "אין evidence מספק לתגובת לחץ — אין המלצת setpoint אוטומטית"
+                                                    : "אין פתרון מספק בלחץ ראש בלבד"
                                 }
                                 {v4Result.pressureOnlyLikelyInsufficient
                                     ? " · לחץ ראש בלבד לא צפוי להספיק"
+                                    : ""}
+                                {v4Result.requiresAtmosphericVenting
+                                    ? " · מסלול: פריקה ל-0 bar (לעולם לא לחץ שלילי)"
                                     : ""}
                             </p>
                         </article>

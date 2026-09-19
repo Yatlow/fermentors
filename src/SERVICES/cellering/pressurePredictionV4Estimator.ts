@@ -38,13 +38,22 @@ export type PressureV4Estimate = {
   equilibriumSource: "local_stable" | "learned_curve" | "physics";
   headroomBar: number;
   headroomSupport: number;
+  empiricalCorrectionVol: number;
+  empiricalSupport: number;
+  empiricalSlopeVolPerBar: number;
+  empiricalDriftVol48h: number;
+  empiricalActionSupport: number;
+  empiricalPassiveSupport: number;
+  empiricalModelUsed: boolean;
   action: "hold" | "raise" | "lower";
   pressureOnlyLikelyInsufficient: boolean;
+  requiresAtmosphericVenting: boolean;
   forecastInTargetWindow: boolean;
   decisionStatus:
     | "within_window"
     | "early_cooling_exception"
     | "pressure_adjust_and_recheck"
+    | "insufficient_response_evidence"
     | "pressure_only_insufficient";
   targetWindowMin: number;
   targetWindowMax: number;
@@ -594,14 +603,229 @@ function blendHeadroom(
   };
 }
 
+
+type EmpiricalTrainingRow = {
+  x: number; // pressure change in bar; 0 = passive/no intervention
+  y: number; // observed carbonation change after two calendar days
+  stateDistance: number;
+  quality: "low" | "medium" | "high";
+  kind: "action" | "passive";
+};
+
+type EmpiricalResponse = {
+  intercept: number;
+  slope: number;
+  predictedDelta: number;
+  support: number;
+  actionSupport: number;
+  passiveSupport: number;
+  effectiveWeight: number;
+  meanDistance: number;
+  slopeIdentified: boolean;
+  actionMin: number;
+  actionMax: number;
+};
+
+function calibrationStateDistance(
+  sample: PressureV4Sample | PressureV4PassiveSample,
+  state: PressureV4DecisionState,
+): number {
+  let score = 0;
+  score += normalizedDifference(sample.carbonationBefore, state.carbonation, 0.15) * 2.0;
+  score += normalizedDifference(sample.currentPressure, state.currentPressure, 0.35) * 0.8;
+  score += normalizedDifference(sample.currentTemp, state.currentTemp, 3) * 0.8;
+  score += normalizedDifference(sample.hoursSinceT0, state.hoursSinceT0, 72) * 0.6;
+  score += normalizedDifference(
+    sample.exposure.pressureMean24h,
+    state.exposure.pressureMean24h,
+    0.3,
+  ) * 1.4;
+  score += normalizedDifference(
+    sample.exposure.pressureMean48h,
+    state.exposure.pressureMean48h,
+    0.35,
+  ) * 1.2;
+  score += normalizedDifference(
+    exposureRate(sample.exposure),
+    exposureRate(state.exposure),
+    0.2,
+  ) * 1.5;
+
+  if (sample.quality === "low") score += 1.25;
+  else if (sample.quality === "medium") score += 0.25;
+  return score;
+}
+
+function buildEmpiricalTrainingRows(args: {
+  samples: PressureV4Sample[];
+  passiveSamples: PressureV4PassiveSample[];
+  state: PressureV4DecisionState;
+}): EmpiricalTrainingRow[] {
+  const actions: EmpiricalTrainingRow[] = args.samples
+    .filter((sample) =>
+      Number.isFinite(sample.carbonationDelta) &&
+      Number.isFinite(sample.currentPressure) &&
+      Number.isFinite(sample.targetPressure) &&
+      sample.primaryOutcome?.calendarDaysAfterAction === 2
+    )
+    .map((sample) => ({
+      x: Number.isFinite(sample.actionPressureDelta)
+        ? sample.actionPressureDelta
+        : sample.targetPressure - sample.currentPressure,
+      y: sample.carbonationDelta,
+      stateDistance: calibrationStateDistance(sample, args.state),
+      quality: sample.quality,
+      kind: "action" as const,
+    }));
+
+  const passive: EmpiricalTrainingRow[] = args.passiveSamples
+    .filter((sample) =>
+      Number.isFinite(sample.carbonationDelta) &&
+      sample.primaryOutcome?.calendarDaysAfterAction === 2
+    )
+    .map((sample) => ({
+      x: 0,
+      y: sample.carbonationDelta,
+      stateDistance: calibrationStateDistance(sample, args.state),
+      quality: sample.quality,
+      kind: "passive" as const,
+    }));
+
+  return [...actions, ...passive]
+    .sort((a, b) => a.stateDistance - b.stateDistance)
+    .slice(0, 40);
+}
+
+function fitEmpiricalResponse(
+  rows: EmpiricalTrainingRow[],
+  candidateActionDelta: number,
+): EmpiricalResponse | null {
+  if (rows.length < 5) return null;
+
+  const weighted = rows
+    .map((row) => {
+      const actionDistance = Math.abs(row.x - candidateActionDelta) / 0.25;
+      const weight =
+        1 /
+        (
+          0.2 +
+          row.stateDistance * row.stateDistance +
+          actionDistance * actionDistance * 1.5
+        );
+      return { ...row, weight };
+    })
+    .filter((row) => Number.isFinite(row.weight) && row.weight > 0);
+
+  if (weighted.length < 5) return null;
+
+  const weightSum = weighted.reduce((sum, row) => sum + row.weight, 0);
+  if (weightSum <= 0) return null;
+
+  const meanX =
+    weighted.reduce((sum, row) => sum + row.x * row.weight, 0) /
+    weightSum;
+  const meanY =
+    weighted.reduce((sum, row) => sum + row.y * row.weight, 0) /
+    weightSum;
+  const denominator = weighted.reduce(
+    (sum, row) => sum + row.weight * (row.x - meanX) ** 2,
+    0,
+  );
+  const numerator = weighted.reduce(
+    (sum, row) =>
+      sum + row.weight * (row.x - meanX) * (row.y - meanY),
+    0,
+  );
+
+  const actionValues = weighted
+    .filter((row) => row.kind === "action")
+    .map((row) => row.x);
+  const actionMin = actionValues.length ? Math.min(...actionValues) : 0;
+  const actionMax = actionValues.length ? Math.max(...actionValues) : 0;
+  const actionSupport = weighted.filter((row) => row.kind === "action").length;
+  const passiveSupport = weighted.length - actionSupport;
+
+  const rawSlope =
+    denominator >= 0.002 ? numerator / denominator : 0;
+  const slopeIdentified =
+    denominator >= 0.002 &&
+    actionSupport >= 3 &&
+    actionMax - actionMin >= 0.08 &&
+    Number.isFinite(rawSlope) &&
+    rawSlope > 0;
+
+  // More head pressure must not learn a negative CO2 response. Cap only truly
+  // implausible extrapolation; the historical slope remains the primary signal.
+  const slope = slopeIdentified
+    ? clamp(rawSlope, 0, 0.8)
+    : 0;
+  const intercept = meanY - slope * meanX;
+  const predictedDelta = intercept + slope * candidateActionDelta;
+  const meanDistance =
+    weighted.reduce((sum, row) => sum + row.stateDistance, 0) /
+    weighted.length;
+
+  return {
+    intercept,
+    slope,
+    predictedDelta,
+    support: weighted.length,
+    actionSupport,
+    passiveSupport,
+    effectiveWeight: weightSum,
+    meanDistance,
+    slopeIdentified,
+    actionMin,
+    actionMax,
+  };
+}
+
+function empiricalWeight(
+  response: EmpiricalResponse | null,
+  candidateActionDelta: number,
+): number {
+  if (!response) return 0;
+
+  // At action=0, passive observations are direct evidence for the exact thing
+  // being forecast: two-day drift with no pressure intervention. They may lead
+  // the no-change forecast even when they cannot identify a pressure slope.
+  if (
+    Math.abs(candidateActionDelta) < 0.025 &&
+    response.passiveSupport >= 5
+  ) {
+    if (response.passiveSupport >= 12 && response.meanDistance <= 3) {
+      return 0.9;
+    }
+    if (response.meanDistance <= 4.5) return 0.8;
+    return 0.65;
+  }
+
+  if (response.slopeIdentified) {
+    if (
+      response.support >= 12 &&
+      response.actionSupport >= 5 &&
+      response.meanDistance <= 3
+    ) return 0.9;
+    if (
+      response.support >= 7 &&
+      response.actionSupport >= 3 &&
+      response.meanDistance <= 4.5
+    ) return 0.8;
+    return 0.65;
+  }
+
+  // Away from action=0, passive history alone must not fabricate the effect of
+  // changing pressure. Keep physics as the weak fallback until actions span
+  // enough pressure deltas to identify a slope.
+  return response.support >= 7 ? 0.2 : 0.1;
+}
+
 function refinePressureWithForecast(args: {
   baselinePressure: number;
   state: PressureV4DecisionState;
   targetCarbonation: number;
-  pressureCalibrationOffset: number;
+  forecastAtPressure: (pressure: number) => number | null;
   coldReferenceTemperature: number | null;
-  kPerHour: number;
-  horizonHours: number;
   minPressure: number;
   maxPressure: number;
   step: number;
@@ -614,15 +838,8 @@ function refinePressureWithForecast(args: {
     args.state.carbonation < args.targetCarbonation &&
     args.baselinePressure < args.state.currentPressure;
 
-  const currentAtBaseline = simulateForward({
-    carbonation: args.state.carbonation,
-    pressureBar: args.baselinePressure,
-    pressureCalibrationOffset: args.pressureCalibrationOffset,
-    state: args.state,
-    coldReferenceTemperature: args.coldReferenceTemperature,
-    kPerHour: args.kPerHour,
-    hours: args.horizonHours,
-  });
+  const currentAtBaseline =
+    args.forecastAtPressure(args.baselinePressure);
   if (currentAtBaseline === null) return args.baselinePressure;
 
   const baselineError =
@@ -665,15 +882,7 @@ function refinePressureWithForecast(args: {
         args.maxPressure,
         args.step,
       );
-      const predicted = simulateForward({
-        carbonation: args.state.carbonation,
-        pressureBar: candidate,
-        pressureCalibrationOffset: args.pressureCalibrationOffset,
-        state: args.state,
-        coldReferenceTemperature: args.coldReferenceTemperature,
-        kPerHour: args.kPerHour,
-        hours: args.horizonHours,
-      });
+      const predicted = args.forecastAtPressure(candidate);
       if (predicted === null) continue;
 
       if (
@@ -798,15 +1007,7 @@ function refinePressureWithForecast(args: {
       args.maxPressure,
       args.step,
     );
-    const predicted = simulateForward({
-      carbonation: args.state.carbonation,
-      pressureBar: candidate,
-      pressureCalibrationOffset: args.pressureCalibrationOffset,
-      state: args.state,
-      coldReferenceTemperature: args.coldReferenceTemperature,
-      kPerHour: args.kPerHour,
-      hours: args.horizonHours,
-    });
+    const predicted = args.forecastAtPressure(candidate);
     if (predicted === null) continue;
 
     const error = Math.abs(predicted - args.targetCarbonation);
@@ -926,19 +1127,63 @@ export function estimatePressureTargetV4(args: {
     Math.min(maxPressure, standardTargetEquilibrium + 0.35),
   );
 
-  const pressureCalibrationOffset =
-    targetEquilibriumPressure - standardTargetEquilibrium;
-
-  const predictedCarbonationWithoutChangeRaw = simulateForward({
-    carbonation: args.state.carbonation,
-    pressureBar: args.state.currentPressure,
-    pressureCalibrationOffset,
+  // k was fitted against the actual gauge pressure history using the same
+  // physical equilibrium equation. Applying the learned equilibrium offset
+  // again inside the kinetic simulation would double-calibrate the forecast.
+  // The learned/local equilibrium remains the operational setpoint anchor only.
+  const empiricalRows = buildEmpiricalTrainingRows({
+    samples: args.samples ?? [],
+    passiveSamples: args.passiveSamples ?? [],
     state: args.state,
-    coldReferenceTemperature,
-    kPerHour,
-    hours: horizonHours,
   });
-  if (predictedCarbonationWithoutChangeRaw === null) return null;
+
+  const forecastAtPressure = (pressureBar: number): {
+    predicted: number;
+    physicalPredicted: number;
+    empiricalPredicted: number | null;
+    response: EmpiricalResponse | null;
+    empiricalWeight: number;
+  } | null => {
+    const physicalPredicted = simulateForward({
+      carbonation: args.state.carbonation,
+      pressureBar,
+      pressureCalibrationOffset: 0,
+      state: args.state,
+      coldReferenceTemperature,
+      kPerHour,
+      hours: horizonHours,
+    });
+    if (physicalPredicted === null) return null;
+
+    const candidateActionDelta =
+      pressureBar - args.state.currentPressure;
+    const response =
+      Math.abs(horizonHours - 48) <= 12
+        ? fitEmpiricalResponse(empiricalRows, candidateActionDelta)
+        : null;
+    const empiricalPredicted = response
+      ? args.state.carbonation + response.predictedDelta
+      : null;
+    const weight = empiricalWeight(response, candidateActionDelta);
+
+    return {
+      predicted:
+        empiricalPredicted === null
+          ? physicalPredicted
+          : physicalPredicted * (1 - weight) +
+            empiricalPredicted * weight,
+      physicalPredicted,
+      empiricalPredicted,
+      response,
+      empiricalWeight: weight,
+    };
+  };
+
+  const noChangeForecast =
+    forecastAtPressure(args.state.currentPressure);
+  if (!noChangeForecast) return null;
+  const predictedCarbonationWithoutChangeRaw =
+    noChangeForecast.predicted;
 
   const withinTargetNow = Math.abs(carbonationError) <= TARGET_TOLERANCE_VOL;
   const staysWithinTarget =
@@ -989,10 +1234,9 @@ export function estimatePressureTargetV4(args: {
       baselinePressure: targetPressure,
       state: args.state,
       targetCarbonation: args.targetCarbonation,
-      pressureCalibrationOffset,
+      forecastAtPressure: (pressure) =>
+        forecastAtPressure(pressure)?.predicted ?? null,
       coldReferenceTemperature,
-      kPerHour,
-      horizonHours,
       minPressure,
       maxPressure,
       step,
@@ -1006,16 +1250,9 @@ export function estimatePressureTargetV4(args: {
         ? "raise"
         : "lower";
 
-  const predictedRaw = simulateForward({
-    carbonation: args.state.carbonation,
-    pressureBar: targetPressure,
-    pressureCalibrationOffset,
-    state: args.state,
-    coldReferenceTemperature,
-    kPerHour,
-    hours: horizonHours,
-  });
-  if (predictedRaw === null) return null;
+  const targetForecast = forecastAtPressure(targetPressure);
+  if (!targetForecast) return null;
+  const predictedRaw = targetForecast.predicted;
 
   const candidates: PressureV4Candidate[] = [];
   const count = Math.round((maxPressure - minPressure) / step);
@@ -1026,16 +1263,9 @@ export function estimatePressureTargetV4(args: {
 
   for (let index = 0; index <= count; index += 1) {
     const pressure = Number((minPressure + index * step).toFixed(2));
-    const predicted = simulateForward({
-      carbonation: args.state.carbonation,
-      pressureBar: pressure,
-      pressureCalibrationOffset,
-      state: args.state,
-      coldReferenceTemperature,
-      kPerHour,
-      hours: horizonHours,
-    });
-    if (predicted === null) continue;
+    const forecast = forecastAtPressure(pressure);
+    if (!forecast) continue;
+    const predicted = forecast.predicted;
 
     candidates.push({
       targetPressure: pressure,
@@ -1066,12 +1296,32 @@ export function estimatePressureTargetV4(args: {
       ? k75 / k25
       : Infinity;
 
-  const confidence: PressureV4Estimate["confidence"] =
+  const kineticConfidence: PressureV4Estimate["confidence"] =
     kineticRows.length >= 12 && meanDistance <= 2.5 && spread <= 2.5
       ? "high"
       : kineticRows.length >= 6 && meanDistance <= 4 && spread <= 4
         ? "medium"
         : "low";
+
+  const empiricalResponse = targetForecast.response;
+  const empiricalConfidence: PressureV4Estimate["confidence"] =
+    empiricalResponse?.slopeIdentified &&
+    empiricalResponse.support >= 12 &&
+    empiricalResponse.actionSupport >= 5 &&
+    empiricalResponse.meanDistance <= 3
+      ? "high"
+      : empiricalResponse?.slopeIdentified &&
+          empiricalResponse.support >= 7 &&
+          empiricalResponse.actionSupport >= 3 &&
+          empiricalResponse.meanDistance <= 4.5
+        ? "medium"
+        : "low";
+
+  const confidenceRank = { low: 0, medium: 1, high: 2 } as const;
+  const confidence: PressureV4Estimate["confidence"] =
+    confidenceRank[empiricalConfidence] >= confidenceRank[kineticConfidence]
+      ? empiricalConfidence
+      : kineticConfidence;
 
   const forecastInTargetWindow =
     Math.abs(predictedRaw - args.targetCarbonation) <=
@@ -1089,7 +1339,12 @@ export function estimatePressureTargetV4(args: {
     targetPressure <= minPressure + Math.max(step, 0.05);
   const nearUpperPressureLimit =
     targetPressure >= maxPressure - Math.max(step, 0.05);
-  const lowConfidence = confidence === "low";
+  const requiresAtmosphericVenting =
+    carbonationError < 0 &&
+    !effectivelyStillCooling &&
+    nearLowerPressureLimit &&
+    minPressure >= 0 &&
+    predictedRaw > args.targetCarbonation + TARGET_TOLERANCE_VOL;
 
   const trulyPressureLimited =
     (
@@ -1097,20 +1352,50 @@ export function estimatePressureTargetV4(args: {
       nearUpperPressureLimit &&
       predictedRaw < args.targetCarbonation - TARGET_TOLERANCE_VOL
     ) ||
-    (
-      carbonationError < 0 &&
-      nearLowerPressureLimit &&
-      predictedRaw > args.targetCarbonation + TARGET_TOLERANCE_VOL
-    );
+    requiresAtmosphericVenting;
+
+  const actionEffect =
+    action === "raise"
+      ? predictedRaw - predictedCarbonationWithoutChangeRaw
+      : action === "lower"
+        ? predictedCarbonationWithoutChangeRaw - predictedRaw
+        : 0;
+  const neededEffect =
+    carbonationError > 0
+      ? Math.max(
+          0,
+          args.targetCarbonation -
+            TARGET_TOLERANCE_VOL -
+            predictedCarbonationWithoutChangeRaw,
+        )
+      : Math.max(
+          0,
+          predictedCarbonationWithoutChangeRaw -
+            (args.targetCarbonation + TARGET_TOLERANCE_VOL),
+        );
+  const minimumUsefulEffect = Math.max(
+    0.008,
+    Math.min(0.02, neededEffect * 0.2),
+  );
+  const responseTooSmall =
+    action !== "hold" &&
+    actionEffect < minimumUsefulEffect;
+
+  const responseEvidenceMissing =
+    !empiricalResponse?.slopeIdentified &&
+    kineticConfidence === "low";
 
   const decisionStatus: PressureV4Estimate["decisionStatus"] =
     forecastInTargetWindow
       ? "within_window"
       : effectivelyStillCooling
         ? "early_cooling_exception"
-        : trulyPressureLimited && !lowConfidence
-          ? "pressure_only_insufficient"
-          : "pressure_adjust_and_recheck";
+        : responseEvidenceMissing ||
+            (responseTooSmall && confidence === "low")
+          ? "insufficient_response_evidence"
+          : trulyPressureLimited || responseTooSmall
+            ? "pressure_only_insufficient"
+            : "pressure_adjust_and_recheck";
 
   const pressureOnlyLikelyInsufficient =
     decisionStatus === "pressure_only_insufficient";
@@ -1137,8 +1422,27 @@ export function estimatePressureTargetV4(args: {
     equilibriumSource,
     headroomBar: Number(headroomBar.toFixed(2)),
     headroomSupport,
+    empiricalCorrectionVol: Number(
+      (
+        targetForecast.predicted -
+        targetForecast.physicalPredicted
+      ).toFixed(3),
+    ),
+    empiricalSupport: targetForecast.response?.support ?? 0,
+    empiricalSlopeVolPerBar: Number(
+      (targetForecast.response?.slope ?? 0).toFixed(3),
+    ),
+    empiricalDriftVol48h: Number(
+      (targetForecast.response?.intercept ?? 0).toFixed(3),
+    ),
+    empiricalActionSupport:
+      targetForecast.response?.actionSupport ?? 0,
+    empiricalPassiveSupport:
+      targetForecast.response?.passiveSupport ?? 0,
+    empiricalModelUsed: targetForecast.empiricalWeight >= 0.65,
     action,
     pressureOnlyLikelyInsufficient,
+    requiresAtmosphericVenting,
     forecastInTargetWindow,
     decisionStatus,
     targetWindowMin: Number(
