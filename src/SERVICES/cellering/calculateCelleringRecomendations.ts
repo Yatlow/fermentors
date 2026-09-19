@@ -770,7 +770,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             : needsFirstColdYeastDrop && CoolAge! > 2
                 ? `הורדת השמרים שהומלצה יומיים אחרי הקירור התפספסה לפני ${CoolAge! - 2} ימים- מומלץ לבצע היום`
                 : "מומלץ לבצע הורדת שמרים- (יומיים אחרי קירור)",
-        importance: 1
+        importance: 2
     }
 
     const carbRes = lastMeasurement.carbonation;
@@ -832,7 +832,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         requiresCarbTest.reason = CoolAge > 1
             ? `בדיקת הגיזוז הראשונה שהומלצה יום אחרי הקירור התפספסה לפני ${CoolAge - 1} ימים- מומלץ לבצע היום ולפתוח ברזי גליקול`
             : "מומלץ לבצע בדיקת גיזוז ולפתוח ברזי גליקול- (יום אחרי קירור)";
-        requiresCarbTest.importance = CoolAge > 1 ? 2 : 1;
+        requiresCarbTest.importance = 2;
     }
     const YeastDroppedToday = lastNote?.includes("שמרים");
     const requiiersWedYeastDropOnThus = {
