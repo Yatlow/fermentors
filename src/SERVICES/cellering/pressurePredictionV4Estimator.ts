@@ -38,6 +38,8 @@ export type PressureV4Estimate = {
   equilibriumSource: "local_stable" | "learned_curve" | "physics";
   headroomBar: number;
   headroomSupport: number;
+  empiricalCorrectionVol: number;
+  empiricalSupport: number;
   action: "hold" | "raise" | "lower";
   pressureOnlyLikelyInsufficient: boolean;
   requiresAtmosphericVenting: boolean;
@@ -595,14 +597,168 @@ function blendHeadroom(
   };
 }
 
+
+type EmpiricalCalibration = {
+  correction: number;
+  support: number;
+  meanDistance: number;
+};
+
+function calibrationStateDistance(
+  sample: PressureV4Sample | PressureV4PassiveSample,
+  state: PressureV4DecisionState,
+): number {
+  let score = 0;
+  score += normalizedDifference(sample.carbonationBefore, state.carbonation, 0.15) * 2.0;
+  score += normalizedDifference(sample.currentPressure, state.currentPressure, 0.35) * 0.8;
+  score += normalizedDifference(sample.currentTemp, state.currentTemp, 3) * 0.8;
+  score += normalizedDifference(sample.hoursSinceT0, state.hoursSinceT0, 72) * 0.6;
+  score += normalizedDifference(
+    sample.exposure.pressureMean24h,
+    state.exposure.pressureMean24h,
+    0.3,
+  ) * 1.4;
+  score += normalizedDifference(
+    sample.exposure.pressureMean48h,
+    state.exposure.pressureMean48h,
+    0.35,
+  ) * 1.2;
+  score += normalizedDifference(
+    exposureRate(sample.exposure),
+    exposureRate(state.exposure),
+    0.2,
+  ) * 1.5;
+
+  if (sample.quality === "low") score += 1.25;
+  else if (sample.quality === "medium") score += 0.25;
+  return score;
+}
+
+function empiricalCalibrationForPressure(args: {
+  samples: PressureV4Sample[];
+  passiveSamples: PressureV4PassiveSample[];
+  state: PressureV4DecisionState;
+  candidatePressure: number;
+  kPerHour: number;
+  horizonHours: number;
+}): EmpiricalCalibration | null {
+  // Historical action/passive outcomes are defined on the two-calendar-day
+  // horizon. Do not stretch them into a different forecast horizon.
+  if (Math.abs(args.horizonHours - 48) > 12) return null;
+
+  const candidateActionDelta =
+    args.candidatePressure - args.state.currentPressure;
+  const rows: Array<{
+    residual: number;
+    distance: number;
+    weight: number;
+  }> = [];
+
+  const addRow = (
+    sample: PressureV4Sample | PressureV4PassiveSample,
+    pressureDuring: number,
+    actionDelta: number,
+  ) => {
+    const start = finite(sample.carbonationBefore);
+    const temp = finite(sample.currentTemp);
+    const outcome = finite(sample.primaryOutcome?.carbonation);
+    if (start === null || temp === null || outcome === null) return;
+
+    const physical = evolveCarbonation({
+      carbonation: start,
+      pressureBar: pressureDuring,
+      temperatureC: temp,
+      kPerHour: args.kPerHour,
+      hours: 48,
+    });
+    if (physical === null) return;
+
+    const stateDistance =
+      calibrationStateDistance(sample, args.state);
+    const actionDistance =
+      Math.abs(actionDelta - candidateActionDelta) / 0.25;
+    const distance = stateDistance + actionDistance * 1.2;
+    const weight = 1 / (0.25 + distance * distance);
+    rows.push({
+      residual: outcome - physical,
+      distance,
+      weight,
+    });
+  };
+
+  for (const sample of args.samples) {
+    const currentPressure = finite(sample.currentPressure);
+    const targetPressure = finite(sample.targetPressure);
+    if (
+      currentPressure === null ||
+      targetPressure === null ||
+      sample.primaryOutcome?.calendarDaysAfterAction !== 2
+    ) continue;
+    addRow(
+      sample,
+      targetPressure,
+      targetPressure - currentPressure,
+    );
+  }
+
+  for (const sample of args.passiveSamples) {
+    const pressure = finite(sample.currentPressure);
+    if (
+      pressure === null ||
+      sample.primaryOutcome?.calendarDaysAfterAction !== 2
+    ) continue;
+    addRow(sample, pressure, 0);
+  }
+
+  const local = rows
+    .filter((row) =>
+      Number.isFinite(row.residual) &&
+      Number.isFinite(row.weight) &&
+      row.weight > 0
+    )
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 24);
+
+  if (local.length < 5) return null;
+
+  const sortedByResidual = local
+    .slice()
+    .sort((a, b) => a.residual - b.residual);
+  const totalWeight = sortedByResidual.reduce(
+    (sum, row) => sum + row.weight,
+    0,
+  );
+  if (totalWeight <= 0) return null;
+
+  let running = 0;
+  let medianResidual =
+    sortedByResidual[sortedByResidual.length - 1].residual;
+  for (const row of sortedByResidual) {
+    running += row.weight;
+    if (running >= totalWeight / 2) {
+      medianResidual = row.residual;
+      break;
+    }
+  }
+
+  const meanDistance = local.reduce(
+    (sum, row) => sum + row.distance,
+    0,
+  ) / local.length;
+
+  return {
+    correction: clamp(medianResidual, -0.12, 0.12),
+    support: local.length,
+    meanDistance,
+  };
+}
+
 function refinePressureWithForecast(args: {
   baselinePressure: number;
   state: PressureV4DecisionState;
   targetCarbonation: number;
-  pressureCalibrationOffset: number;
+  forecastAtPressure: (pressure: number) => number | null;
   coldReferenceTemperature: number | null;
-  kPerHour: number;
-  horizonHours: number;
   minPressure: number;
   maxPressure: number;
   step: number;
@@ -615,15 +771,8 @@ function refinePressureWithForecast(args: {
     args.state.carbonation < args.targetCarbonation &&
     args.baselinePressure < args.state.currentPressure;
 
-  const currentAtBaseline = simulateForward({
-    carbonation: args.state.carbonation,
-    pressureBar: args.baselinePressure,
-    pressureCalibrationOffset: args.pressureCalibrationOffset,
-    state: args.state,
-    coldReferenceTemperature: args.coldReferenceTemperature,
-    kPerHour: args.kPerHour,
-    hours: args.horizonHours,
-  });
+  const currentAtBaseline =
+    args.forecastAtPressure(args.baselinePressure);
   if (currentAtBaseline === null) return args.baselinePressure;
 
   const baselineError =
@@ -666,15 +815,7 @@ function refinePressureWithForecast(args: {
         args.maxPressure,
         args.step,
       );
-      const predicted = simulateForward({
-        carbonation: args.state.carbonation,
-        pressureBar: candidate,
-        pressureCalibrationOffset: args.pressureCalibrationOffset,
-        state: args.state,
-        coldReferenceTemperature: args.coldReferenceTemperature,
-        kPerHour: args.kPerHour,
-        hours: args.horizonHours,
-      });
+      const predicted = args.forecastAtPressure(candidate);
       if (predicted === null) continue;
 
       if (
@@ -799,15 +940,7 @@ function refinePressureWithForecast(args: {
       args.maxPressure,
       args.step,
     );
-    const predicted = simulateForward({
-      carbonation: args.state.carbonation,
-      pressureBar: candidate,
-      pressureCalibrationOffset: args.pressureCalibrationOffset,
-      state: args.state,
-      coldReferenceTemperature: args.coldReferenceTemperature,
-      kPerHour: args.kPerHour,
-      hours: args.horizonHours,
-    });
+    const predicted = args.forecastAtPressure(candidate);
     if (predicted === null) continue;
 
     const error = Math.abs(predicted - args.targetCarbonation);
@@ -927,19 +1060,45 @@ export function estimatePressureTargetV4(args: {
     Math.min(maxPressure, standardTargetEquilibrium + 0.35),
   );
 
-  const pressureCalibrationOffset =
-    targetEquilibriumPressure - standardTargetEquilibrium;
+  // k was fitted against the actual gauge pressure history using the same
+  // physical equilibrium equation. Applying the learned equilibrium offset
+  // again inside the kinetic simulation would double-calibrate the forecast.
+  // The learned/local equilibrium remains the operational setpoint anchor only.
+  const forecastAtPressure = (pressureBar: number): {
+    predicted: number;
+    calibration: EmpiricalCalibration | null;
+  } | null => {
+    const physical = simulateForward({
+      carbonation: args.state.carbonation,
+      pressureBar,
+      pressureCalibrationOffset: 0,
+      state: args.state,
+      coldReferenceTemperature,
+      kPerHour,
+      hours: horizonHours,
+    });
+    if (physical === null) return null;
 
-  const predictedCarbonationWithoutChangeRaw = simulateForward({
-    carbonation: args.state.carbonation,
-    pressureBar: args.state.currentPressure,
-    pressureCalibrationOffset,
-    state: args.state,
-    coldReferenceTemperature,
-    kPerHour,
-    hours: horizonHours,
-  });
-  if (predictedCarbonationWithoutChangeRaw === null) return null;
+    const calibration = empiricalCalibrationForPressure({
+      samples: args.samples ?? [],
+      passiveSamples: args.passiveSamples ?? [],
+      state: args.state,
+      candidatePressure: pressureBar,
+      kPerHour,
+      horizonHours,
+    });
+
+    return {
+      predicted: physical + (calibration?.correction ?? 0),
+      calibration,
+    };
+  };
+
+  const noChangeForecast =
+    forecastAtPressure(args.state.currentPressure);
+  if (!noChangeForecast) return null;
+  const predictedCarbonationWithoutChangeRaw =
+    noChangeForecast.predicted;
 
   const withinTargetNow = Math.abs(carbonationError) <= TARGET_TOLERANCE_VOL;
   const staysWithinTarget =
@@ -990,10 +1149,9 @@ export function estimatePressureTargetV4(args: {
       baselinePressure: targetPressure,
       state: args.state,
       targetCarbonation: args.targetCarbonation,
-      pressureCalibrationOffset,
+      forecastAtPressure: (pressure) =>
+        forecastAtPressure(pressure)?.predicted ?? null,
       coldReferenceTemperature,
-      kPerHour,
-      horizonHours,
       minPressure,
       maxPressure,
       step,
@@ -1007,16 +1165,9 @@ export function estimatePressureTargetV4(args: {
         ? "raise"
         : "lower";
 
-  const predictedRaw = simulateForward({
-    carbonation: args.state.carbonation,
-    pressureBar: targetPressure,
-    pressureCalibrationOffset,
-    state: args.state,
-    coldReferenceTemperature,
-    kPerHour,
-    hours: horizonHours,
-  });
-  if (predictedRaw === null) return null;
+  const targetForecast = forecastAtPressure(targetPressure);
+  if (!targetForecast) return null;
+  const predictedRaw = targetForecast.predicted;
 
   const candidates: PressureV4Candidate[] = [];
   const count = Math.round((maxPressure - minPressure) / step);
@@ -1027,16 +1178,9 @@ export function estimatePressureTargetV4(args: {
 
   for (let index = 0; index <= count; index += 1) {
     const pressure = Number((minPressure + index * step).toFixed(2));
-    const predicted = simulateForward({
-      carbonation: args.state.carbonation,
-      pressureBar: pressure,
-      pressureCalibrationOffset,
-      state: args.state,
-      coldReferenceTemperature,
-      kPerHour,
-      hours: horizonHours,
-    });
-    if (predicted === null) continue;
+    const forecast = forecastAtPressure(pressure);
+    if (!forecast) continue;
+    const predicted = forecast.predicted;
 
     candidates.push({
       targetPressure: pressure,
@@ -1141,6 +1285,10 @@ export function estimatePressureTargetV4(args: {
     equilibriumSource,
     headroomBar: Number(headroomBar.toFixed(2)),
     headroomSupport,
+    empiricalCorrectionVol: Number(
+      (targetForecast.calibration?.correction ?? 0).toFixed(3),
+    ),
+    empiricalSupport: targetForecast.calibration?.support ?? 0,
     action,
     pressureOnlyLikelyInsufficient,
     requiresAtmosphericVenting,
