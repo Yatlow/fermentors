@@ -23,6 +23,7 @@ import "./CellarSimulator.css";
 
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
 type StageMode = "actual" | "cold" | "warm";
+type CarbonationScenarioMode = "auto" | "first" | "subsequent";
 
 type Props = {
     brews: Fermentor[];
@@ -76,6 +77,59 @@ function removeBottomCarbonationNotes(note: unknown): string | undefined {
         .filter(Boolean)
         .filter((part) => !part.includes("גיזוז מלמטה"));
     return parts.length ? parts.join(" | ") : undefined;
+}
+
+function isCoolingStartNote(note: unknown): boolean {
+    const text = String(note ?? "");
+    if (!text.includes("קירור")) return false;
+    if (/אחרי\s+קירור|לאחר\s+קירור/.test(text)) return false;
+    return /(?:^|\||\s)קירור(?:$|\||\s|[-–—])/u.test(text);
+}
+
+function priorCarbonationChecksAfterCooling(
+    source: Measurement[],
+    carbDate: string,
+): number {
+    const previous = source
+        .filter((row) => {
+            const date = rowDate(row);
+            return !date || date < carbDate;
+        })
+        .slice()
+        .sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+
+    const coolingIndex = previous.findLastIndex((row) =>
+        isCoolingStartNote(row.notes)
+    );
+    const relevant = coolingIndex >= 0
+        ? previous.slice(coolingIndex + 1)
+        : previous;
+
+    return relevant.filter((row) =>
+        row.carbonation !== null &&
+        row.carbonation !== undefined &&
+        row.carbonation !== "" &&
+        Number.isFinite(Number(row.carbonation))
+    ).length;
+}
+
+function resolveFirstCarbonation(args: {
+    source: Measurement[];
+    carbAgeDays: number;
+    mode: CarbonationScenarioMode;
+}): {
+    first: boolean;
+    priorChecks: number;
+} {
+    const carbDate = dateKey(args.carbAgeDays);
+    const priorChecks = priorCarbonationChecksAfterCooling(
+        args.source,
+        carbDate,
+    );
+
+    if (args.mode === "first") return { first: true, priorChecks };
+    if (args.mode === "subsequent") return { first: false, priorChecks };
+    return { first: priorChecks === 0, priorChecks };
 }
 
 function numericOrUndefined(value: string): number | undefined {
@@ -171,7 +225,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [plato, setPlato] = useState("");
     const [carbAgeDays, setCarbAgeDays] = useState(0);
     const [treatment, setTreatment] = useState<Treatment>("none");
-    const [firstCarbonation, setFirstCarbonation] = useState(false);
+    const [carbonationScenarioMode, setCarbonationScenarioMode] =
+        useState<CarbonationScenarioMode>("auto");
     const [stageMode, setStageMode] = useState<StageMode>("actual");
 
     const tank = tanks.find((item) => item.id === tankId) ?? null;
@@ -257,6 +312,12 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV4CoolingStatus("");
 
         try {
+            const carbonationScenario = resolveFirstCarbonation({
+                source,
+                carbAgeDays,
+                mode: carbonationScenarioMode,
+            });
+
             const simulated = scenarioMeasurements({
                 source,
                 carbAgeDays,
@@ -264,7 +325,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 pressure: numericOrUndefined(pressure),
                 temp: numericOrUndefined(temp),
                 plato: numericOrUndefined(plato),
-                firstCarbonation,
+                firstCarbonation: carbonationScenario.first,
                 treatment,
             });
 
@@ -325,7 +386,6 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             transitions: v4Model.transitions,
                             state,
                             targetCarbonation: Number(carbonationTarget),
-                            firstCarbonation,
                             equilibriumPressure: equilibriumForTemp(state.currentTemp),
                             coldReferenceTemperature:
                                 getColdReferenceTemperatureV4(v4Model),
@@ -419,13 +479,35 @@ export default function CellarSimulator({ brews, specs }: Props) {
             </div>
 
             <label className="cellar-simulator-check">
-                <input
-                    type="checkbox"
-                    checked={firstCarbonation}
-                    onChange={(event) => setFirstCarbonation(event.target.checked)}
-                />
-                <span>להתייחס לבדיקה המדומה כאילו זו בדיקת הגיזוז הראשונה באצווה</span>
+                <span>סוג בדיקת הגיזוז</span>
+                <select
+                    value={carbonationScenarioMode}
+                    onChange={(event) =>
+                        setCarbonationScenarioMode(
+                            event.target.value as CarbonationScenarioMode
+                        )
+                    }
+                >
+                    <option value="auto">אוטומטי לפי ההיסטוריה</option>
+                    <option value="first">לכפות בדיקה ראשונה אחרי קירור</option>
+                    <option value="subsequent">לכפות בדיקה חוזרת</option>
+                </select>
             </label>
+
+            <div className="cellar-simulator-v4-status">
+                {(() => {
+                    const resolved = resolveFirstCarbonation({
+                        source,
+                        carbAgeDays,
+                        mode: carbonationScenarioMode,
+                    });
+                    return resolved.first
+                        ? `זיהוי: בדיקת גיזוז ראשונה אחרי קירור · ${resolved.priorChecks} בדיקות קודמות בהיסטוריה שנכללה`
+                        : `זיהוי: בדיקה חוזרת · ${resolved.priorChecks} בדיקות גיזוז קודמות אחרי קירור`;
+                })()}
+                {" · "}
+                הזיהוי משנה רק את ההיסטוריה המדומה; מנוע V4 עצמו לא מקבל כלל מיוחד ל"גיזוז ראשון".
+            </div>
 
             <div className="cellar-simulator-actions">
                 <button
