@@ -156,7 +156,6 @@ export async function getPressurePredictionModelV4(
           raw.passiveSampleCount ?? passiveSamples.length,
         ),
         transitions: transitions.map((sample) => {
-          if (sample.exposure.equilibriumDeltaBarHours !== null) return sample;
           const temp =
             sample.exposure.temperatureMean ??
             sample.currentTemp ??
@@ -166,19 +165,55 @@ export async function getPressurePredictionModelV4(
             temp,
           );
           const pressureMean = sample.exposure.pressureMean;
-          if (
-            equilibrium === null ||
-            pressureMean === null ||
-            sample.exposure.hoursSinceT0 <= 0
-          ) return sample;
+
+          const exposure =
+            sample.exposure.equilibriumDeltaBarHours === null &&
+            equilibrium !== null &&
+            pressureMean !== null &&
+            sample.exposure.hoursSinceT0 > 0
+              ? {
+                  ...sample.exposure,
+                  equilibriumDeltaBarHours:
+                    (pressureMean - equilibrium) * sample.exposure.hoursSinceT0,
+                }
+              : sample.exposure;
+
+          const cooling = sample.cooling
+            ? (() => {
+                if (
+                  sample.cooling.equilibriumDeltaBarHoursSinceCooling !== null
+                ) return sample.cooling;
+
+                const coolingTemp =
+                  sample.cooling.currentTemp ??
+                  sample.currentTemp ??
+                  null;
+                const coolingEquilibrium = estimateEquilibriumPressureV4(
+                  { style: key, points },
+                  coolingTemp,
+                );
+                const coolingPressure =
+                  sample.cooling.pressureMeanSinceCooling;
+
+                if (
+                  coolingEquilibrium === null ||
+                  coolingPressure === null ||
+                  sample.cooling.hoursSinceCooling <= 0
+                ) return sample.cooling;
+
+                return {
+                  ...sample.cooling,
+                  equilibriumDeltaBarHoursSinceCooling:
+                    (coolingPressure - coolingEquilibrium) *
+                    sample.cooling.hoursSinceCooling,
+                };
+              })()
+            : null;
 
           return {
             ...sample,
-            exposure: {
-              ...sample.exposure,
-              equilibriumDeltaBarHours:
-                (pressureMean - equilibrium) * sample.exposure.hoursSinceT0,
-            },
+            exposure,
+            cooling,
           };
         }),
         transitionCount: Number(raw.transitionCount ?? transitions.length),
@@ -223,6 +258,22 @@ export function getEquilibriumPressureForV4(
     },
     temperature,
   );
+}
+
+
+export function getColdReferenceTemperatureV4(
+  model: PressurePredictionModelV4,
+): number | null {
+  const values = model.equilibriumPoints
+    .map((point) => Number(point.temperature))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+
+  if (!values.length) return null;
+  const middle = Math.floor(values.length / 2);
+  return values.length % 2
+    ? values[middle]
+    : (values[middle - 1] + values[middle]) / 2;
 }
 
 
