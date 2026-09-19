@@ -40,6 +40,9 @@ function calculateWeeklyStyleAverages(force) {
   const batchTracker = {};
   // normalized style -> historical pressure correction outcomes
   const pressureSamplesByStyle = {};
+  // normalized style -> cold, no-action carbonation/pressure observations used
+  // to learn the style-specific equilibrium pressure.
+  const pressureEquilibriumByStyle = {};
   // normalized style -> historical bottom-carbonation sessions
   const bottomCarbonationSamplesByStyle = {};
   allBrews.forEach(function (brew) {
@@ -95,6 +98,14 @@ function calculateWeeklyStyleAverages(force) {
     Array.prototype.push.apply(
       pressureSamplesByStyle[pressureStyle],
       buildPressureResponseSamplesForBrew_(measurements, brewDate, brew.id)
+    );
+
+    if (!pressureEquilibriumByStyle[pressureStyle]) {
+      pressureEquilibriumByStyle[pressureStyle] = [];
+    }
+    Array.prototype.push.apply(
+      pressureEquilibriumByStyle[pressureStyle],
+      buildPressureEquilibriumObservationsForBrew_(measurements, brewDate, brew.id)
     );
 
     if (!bottomCarbonationSamplesByStyle[pressureStyle]) {
@@ -309,7 +320,8 @@ function calculateWeeklyStyleAverages(force) {
     writeMergedPressureResponseModel_(
       projectId,
       styleKey,
-      samples
+      samples,
+      pressureEquilibriumByStyle[styleKey] || []
     );
     pressureModelsUpdated++;
   });
@@ -371,6 +383,36 @@ function mergePressureSamples_(existingSamples, incomingSamples, maxSamples) {
     .sort(function (a, b) {
       const aDate = parseDateOnly(a && a.eventDate);
       const bDate = parseDateOnly(b && b.eventDate);
+      const aTime = aDate ? aDate.getTime() : 0;
+      const bTime = bDate ? bDate.getTime() : 0;
+      return aTime - bTime;
+    })
+    .slice(-Math.max(20, Number(maxSamples) || 600));
+}
+
+function pressureEquilibriumObservationKey_(observation) {
+  return [
+    String(observation && observation.batchId || ""),
+    String(observation && observation.date || "")
+  ].join("|");
+}
+
+function mergePressureEquilibriumObservations_(existing, incoming, maxSamples) {
+  const merged = new Map();
+
+  (existing || []).forEach(function (observation) {
+    if (!observation) return;
+    merged.set(pressureEquilibriumObservationKey_(observation), observation);
+  });
+  (incoming || []).forEach(function (observation) {
+    if (!observation) return;
+    merged.set(pressureEquilibriumObservationKey_(observation), observation);
+  });
+
+  return Array.from(merged.values())
+    .sort(function (a, b) {
+      const aDate = parseDateOnly(a && a.date);
+      const bDate = parseDateOnly(b && b.date);
       const aTime = aDate ? aDate.getTime() : 0;
       const bTime = bDate ? bDate.getTime() : 0;
       return aTime - bTime;
@@ -590,15 +632,27 @@ function getPressureResponseModel_(projectId, styleKey) {
   return firestoreFieldsToObject_(parsed.fields || {});
 }
 
-function writeMergedPressureResponseModel_(projectId, styleKey, incomingSamples) {
+function writeMergedPressureResponseModel_(
+  projectId,
+  styleKey,
+  incomingSamples,
+  incomingEquilibriumObservations
+) {
   const existing = getPressureResponseModel_(projectId, styleKey);
   const samples = mergePressureSamples_(
     existing && Array.isArray(existing.samples) ? existing.samples : [],
     incomingSamples,
     600
   );
+  const equilibriumObservations = mergePressureEquilibriumObservations_(
+    existing && Array.isArray(existing.equilibriumObservations)
+      ? existing.equilibriumObservations
+      : [],
+    incomingEquilibriumObservations || [],
+    600
+  );
 
-  if (samples.length === 0) return null;
+  if (samples.length === 0 && equilibriumObservations.length === 0) return null;
 
   const calibration = buildPressureCalibration_(samples);
 
@@ -609,6 +663,8 @@ function writeMergedPressureResponseModel_(projectId, styleKey, incomingSamples)
       style: styleKey,
       samples: samples,
       sampleCount: samples.length,
+      equilibriumObservations: equilibriumObservations,
+      equilibriumObservationCount: equilibriumObservations.length,
       equilibriumPressure: calibration.equilibriumPressure,
       equilibriumSampleCount: calibration.equilibriumSampleCount,
       calibration: calibration,
@@ -1059,6 +1115,47 @@ function pressureHistoryContext_(rows, endIndexExclusive, referenceDate) {
     pressureMeanLast7Days: mean(values.filter(function (item) { return item.daysAgo <= 7; }))
   };
 }
+
+function buildPressureEquilibriumObservationsForBrew_(
+  measurements,
+  brewDate,
+  batchId
+) {
+  return (measurements || []).map(function (measurement) {
+    const carbonation = pressureModelNumber_(measurement && measurement.carbonation);
+    const pressure = pressureModelNumber_(measurement && measurement.pressure);
+    const temp = pressureModelNumber_(measurement && measurement.temp);
+    const date = parseDateOnly(measurement && measurement.date);
+    const note = String(measurement && measurement.notes || "");
+
+    const hasPressureAction =
+      /(?:העלאת|הורדת|שינוי)\s+לחץ\s+ל/i.test(note) ||
+      note.indexOf("גיזוז מלמטה") !== -1;
+
+    if (
+      carbonation === null ||
+      pressure === null ||
+      temp === null ||
+      temp > 9 ||
+      !date ||
+      hasPressureAction
+    ) {
+      return null;
+    }
+
+    return {
+      batchId: String(batchId),
+      date: String(measurement.date || ""),
+      brewDay: differenceInDays(brewDate, date),
+      temp: temp,
+      carbonation: carbonation,
+      pressure: pressure
+    };
+  }).filter(function (observation) {
+    return observation !== null;
+  });
+}
+
 
 function buildPressureResponseSamplesForBrew_(measurements, brewDate, batchId) {
   const rows = (measurements || []).slice().sort(function (a, b) {
