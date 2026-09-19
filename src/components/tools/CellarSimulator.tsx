@@ -445,6 +445,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 אחרי הפעולה: {v4Result.predictedCarbonation} ·
                                 יעד: {v4Result.targetCarbonation} ·
                                 ביטחון: {v4Result.confidence} ·
+                                דיוק היסטורי: {v4Result.accuracyPercent}% ·
                                 תמיכה: {v4Result.supportCount} דוגמאות
                             </p>
                         </article>
