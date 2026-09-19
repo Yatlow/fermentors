@@ -5,7 +5,6 @@ import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
 import {
     estimateBottomCarbonation,
-    getBottomCarbonationActivationThreshold,
     getBottomCarbonationModel,
 } from "./bottomCarbonationRecommendationModel";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
@@ -1303,8 +1302,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !bottomCarbonationCompletedToday;
 
     // Bottom carbonation is a different intervention from ordinary pressure
-    // correction. Only carbonation strictly below 2.15 vol may enter this route;
-    // history may learn an even stricter style-specific threshold.
+    // correction. The operational routing rule is strict: < 2.15 vol.
     const bottomCarbonationPotential =
         coldCarbOutOfSpecToday &&
         currentCarbonation !== null &&
@@ -1320,10 +1318,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     if (bottomCarbonationPotential) {
         const bottomModel = await getBottomCarbonationModel(style);
-        const learnedActivation = bottomModel
-            ? getBottomCarbonationActivationThreshold(bottomModel.samples)
-            : null;
-        bottomActivationThreshold = learnedActivation?.threshold ?? 2.15;
+        bottomActivationThreshold = 2.15;
         bottomCarbonationCandidate =
             currentCarbonation! < bottomActivationThreshold;
 
