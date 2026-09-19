@@ -329,7 +329,11 @@ export function estimatePressureTarget(args: {
   const responsePerBar = baseResponsePerBar * calibrationMultiplier;
 
   const rawOffset = desiredCarbDelta / responsePerBar;
-  const boundedOffset = clamp(rawOffset, -0.35, 0.35);
+  // Keep a safety bound, but do not saturate ordinary first-cold-test
+  // scenarios so early that materially different carbonation readings collapse
+  // to the same recommendation. Absolute target pressure is still clamped
+  // separately below.
+  const boundedOffset = clamp(rawOffset, -0.8, 0.8);
   const roundedOffset = roundToStep(boundedOffset, 0.05);
   if (Math.abs(roundedOffset) < 0.05) return null;
 
