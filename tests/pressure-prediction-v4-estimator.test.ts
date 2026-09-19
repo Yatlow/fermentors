@@ -15,295 +15,379 @@ import {
 } from "../src/SERVICES/cellering/pressureCarbonationPhysics";
 
 function exposure(
-  mean24: number,
-  mean48: number,
-  eqRate: number,
-  hours = 72,
+  pressure: number,
+  hours = 144,
+  eqRate = 0.05,
 ): PressureV4Exposure {
   return {
     hoursSinceT0: hours,
-    pressureHours: mean48 * hours,
-    temperatureHours: 6 * hours,
+    pressureHours: pressure * hours,
+    temperatureHours: 2 * hours,
     equilibriumDeltaBarHours: eqRate * hours,
-    pressureMean: mean48,
-    pressureMean24h: mean24,
-    pressureMean48h: mean48,
-    temperatureMean: 6,
-    pressurePoints: 6,
-    temperaturePoints: 6,
+    pressureMean: pressure,
+    pressureMean24h: pressure,
+    pressureMean48h: pressure,
+    temperatureMean: 2,
+    pressurePoints: 8,
+    temperaturePoints: 8,
     coveredHours: hours,
     coverageRatio: 1,
   };
 }
 
-function transition(
-  index: number,
-  overrides: Partial<PressureV4TransitionSample> = {},
-): PressureV4TransitionSample {
-  const startCarbonation = overrides.startCarbonation ?? 2.3;
-  const pressureMeanDuring = overrides.pressureMeanDuring ?? 1.0;
-  const temperatureMeanDuring = overrides.temperatureMeanDuring ?? 6.8;
-  const durationHours = overrides.durationHours ?? 48;
-  const kPerHour = overrides.kPerHour ?? 0.015;
-  const predicted = evolveCarbonation({
-    carbonation: startCarbonation,
-    pressureBar: pressureMeanDuring,
-    temperatureC: temperatureMeanDuring,
-    kPerHour,
-    hours: durationHours,
-  });
-  if (predicted === null) throw new Error("invalid test transition");
-
+function cooling(args: {
+  hours: number;
+  currentTemp: number;
+  pressure: number;
+  stillCooling?: boolean;
+  startTemp?: number;
+  tempChange24h?: number;
+}): PressureV4CoolingState {
+  const startTemp = args.startTemp ?? 14;
   return {
-    batchId: `b-${index}`,
-    style: "ipa",
-    startDateTimeMs: index * 10_000_000,
-    endDateTimeMs: index * 10_000_000 + durationHours * 3600000,
-    durationHours,
-    startCarbonation,
-    endCarbonation: predicted,
-    currentPressure: overrides.currentPressure ?? pressureMeanDuring,
-    currentTemp: overrides.currentTemp ?? temperatureMeanDuring,
-    hoursSinceT0: overrides.hoursSinceT0 ?? 72,
-    exposure: overrides.exposure ?? exposure(1.3, 1.25, 0.4),
-    cooling: overrides.cooling ?? null,
-    pressureMeanDuring,
-    temperatureMeanDuring,
-    kPerHour,
-    quality: overrides.quality ?? "high",
-    ...overrides,
+    startDateTimeMs: 0,
+    hoursSinceCooling: args.hours,
+    startTemp,
+    currentTemp: args.currentTemp,
+    tempDropSinceCooling: startTemp - args.currentTemp,
+    tempChange24h:
+      args.tempChange24h ??
+      (args.stillCooling ? -3 : -0.1),
+    pressureMeanSinceCooling: args.pressure,
+    pressureMean24h: args.pressure,
+    pressureHoursSinceCooling: args.pressure * args.hours,
+    equilibriumDeltaBarHoursSinceCooling: 0.05 * args.hours,
+    coverageRatio: 1,
+    stillCooling: args.stillCooling ?? false,
   };
 }
 
-test("standard beer equilibrium is about 0.96 bar for 2.45 vol at 6.8C", () => {
+function transition(
+  index: number,
+  args: {
+    k?: number;
+    currentTemp?: number;
+    pressure?: number;
+    hoursSinceT0?: number;
+    cooling?: PressureV4CoolingState | null;
+    startCarbonation?: number;
+  } = {},
+): PressureV4TransitionSample {
+  const k = args.k ?? 0.004;
+  const currentTemp = args.currentTemp ?? 1;
+  const pressure = args.pressure ?? 0.8;
+  const startCarbonation = args.startCarbonation ?? 2.35;
+  const durationHours = 48;
+  const after = evolveCarbonation({
+    carbonation: startCarbonation,
+    pressureBar: pressure,
+    temperatureC: currentTemp,
+    kPerHour: k,
+    hours: durationHours,
+  });
+  if (after === null) throw new Error("invalid synthetic transition");
+
+  return {
+    batchId: `b-${index}`,
+    style: "test",
+    startDateTimeMs: index * 100_000_000,
+    endDateTimeMs: index * 100_000_000 + durationHours * 3600000,
+    durationHours,
+    startCarbonation,
+    endCarbonation: after,
+    currentPressure: pressure,
+    currentTemp,
+    hoursSinceT0: args.hoursSinceT0 ?? 144,
+    exposure: exposure(pressure, args.hoursSinceT0 ?? 144),
+    cooling: args.cooling ?? null,
+    pressureMeanDuring: pressure,
+    temperatureMeanDuring: currentTemp,
+    kPerHour: k,
+    quality: "high",
+  };
+}
+
+function transitionsFor(
+  state: PressureV4DecisionState,
+  k: number,
+): PressureV4TransitionSample[] {
+  return Array.from({ length: 16 }, (_, index) =>
+    transition(index, {
+      k: k * (0.9 + (index % 5) * 0.05),
+      currentTemp: state.currentTemp ?? 1,
+      pressure:
+        (state.exposure.pressureMean24h ?? state.currentPressure) +
+        ((index % 3) - 1) * 0.03,
+      hoursSinceT0:
+        state.hoursSinceT0 + ((index % 3) - 1) * 12,
+      cooling: state.cooling
+        ? {
+            ...state.cooling,
+            hoursSinceCooling:
+              state.cooling.hoursSinceCooling +
+              ((index % 3) - 1) * 12,
+          }
+        : null,
+      startCarbonation:
+        state.carbonation + ((index % 3) - 1) * 0.01,
+    }),
+  );
+}
+
+test("standard equilibrium remains the physical baseline", () => {
   const pressure = equilibriumPressureBar(6.8, 2.45);
   assert.ok(pressure !== null);
   assert.ok(pressure > 0.93 && pressure < 0.99);
 });
 
-test("kinetic V4 recommends about 1.1 bar from 2.25 at 1.44 bar with active absorption", () => {
-  const transitions = Array.from({ length: 12 }, (_, index) =>
-    transition(index, {
-      startCarbonation: 2.25 + (index % 3) * 0.01,
-      kPerHour: 0.014 + (index % 4) * 0.0005,
-      hoursSinceT0: 60 + (index % 4) * 12,
-      exposure: exposure(1.36, 1.31, 0.46),
-      currentPressure: 1.4,
-      currentTemp: 6.8,
-      pressureMeanDuring: 1.05 + (index % 3) * 0.05,
-      temperatureMeanDuring: 6.8,
-    }),
-  );
-
+test("tank 15 style demo: exact target holds current pressure", () => {
   const state: PressureV4DecisionState = {
-    carbonation: 2.25,
+    carbonation: 2.4,
+    currentPressure: 0.4,
+    currentTemp: 0.4,
+    hoursSinceT0: 420,
+    exposure: exposure(0.4, 420),
+    cooling: cooling({
+      hours: 372,
+      currentTemp: 0.4,
+      pressure: 0.4,
+    }),
+    carbonationTrend: {
+      checksInPhase: 6,
+      previousCarbonation: 2.4,
+      previousDateTimeMs: 0,
+      hoursSincePrevious: 48,
+      deltaFromPrevious: 0,
+      ratePerDay: 0,
+    },
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00038),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "hold");
+  assert.equal(estimate.targetPressure, 0.4);
+});
+
+test("tank 15 style demo: low carbonation makes a moderate raise, not 1.85 bar", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.33,
+    currentPressure: 0.4,
+    currentTemp: 0.4,
+    hoursSinceT0: 420,
+    exposure: exposure(0.4, 420),
+    cooling: cooling({
+      hours: 372,
+      currentTemp: 0.4,
+      pressure: 0.4,
+    }),
+    carbonationTrend: {
+      checksInPhase: 6,
+      previousCarbonation: 2.4,
+      previousDateTimeMs: 0,
+      hoursSincePrevious: 48,
+      deltaFromPrevious: -0.07,
+      ratePerDay: -0.035,
+    },
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00038),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure >= 0.75 && estimate.targetPressure <= 0.85,
+    `expected about 0.8 bar, got ${estimate.targetPressure}`,
+  );
+});
+
+test("tank 15 style demo: high carbonation vents aggressively", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.47,
+    currentPressure: 0.4,
+    currentTemp: 0.4,
+    hoursSinceT0: 420,
+    exposure: exposure(0.4, 420),
+    cooling: cooling({
+      hours: 372,
+      currentTemp: 0.4,
+      pressure: 0.4,
+    }),
+    carbonationTrend: {
+      checksInPhase: 6,
+      previousCarbonation: 2.4,
+      previousDateTimeMs: 0,
+      hoursSincePrevious: 48,
+      deltaFromPrevious: 0.07,
+      ratePerDay: 0.035,
+    },
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00038),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure >= 0 && estimate.targetPressure <= 0.15,
+    `expected strong venting, got ${estimate.targetPressure}`,
+  );
+});
+
+test("tank 17 style demo: stable local balance anchors a small low-carb correction near 1 bar", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.39,
+    currentPressure: 0.83,
+    currentTemp: 0.6,
+    hoursSinceT0: 300,
+    exposure: exposure(0.83, 300),
+    cooling: cooling({
+      hours: 255,
+      currentTemp: 0.6,
+      pressure: 0.83,
+    }),
+    carbonationTrend: {
+      checksInPhase: 4,
+      previousCarbonation: 2.39,
+      previousDateTimeMs: 0,
+      hoursSincePrevious: 48,
+      deltaFromPrevious: 0,
+      ratePerDay: 0,
+    },
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.0007),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.6,
+    coldReferenceTemperature: 0.6,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.equilibriumSource, "local_stable");
+  assert.equal(estimate.action, "raise");
+  assert.ok(
+    estimate.targetPressure >= 0.95 && estimate.targetPressure <= 1.05,
+    `expected roughly 0.95-1.0 bar, got ${estimate.targetPressure}`,
+  );
+});
+
+test("tank 16 style demo: first cold check uses stored pressure/cooling headroom and lowers 1.44 toward 1.1", () => {
+  const earlyCooling = cooling({
+    hours: 64,
+    currentTemp: 6.8,
+    pressure: 1.35,
+    stillCooling: true,
+    tempChange24h: -3.5,
+  });
+  const state: PressureV4DecisionState = {
+    carbonation: 2.26,
     currentPressure: 1.44,
     currentTemp: 6.8,
-    hoursSinceT0: 72,
-    exposure: exposure(1.36, 1.31, 0.46),
-    cooling: null,
-  };
-
-  const estimate = estimatePressureTargetV4({
-    transitions,
-    state,
-    targetCarbonation: 2.45,
-  });
-
-  assert.ok(estimate);
-  assert.ok(estimate.targetPressure >= 1.05 && estimate.targetPressure <= 1.15);
-  assert.ok(estimate.predictedCarbonationWithoutChange > 2.55);
-  assert.ok(Math.abs(estimate.predictedCarbonation - 2.45) <= 0.03);
-});
-
-test("kinetic V4 raises roughly toward equilibrium from 2.38 at 0.8 bar", () => {
-  const transitions = Array.from({ length: 12 }, (_, index) =>
-    transition(index, {
-      startCarbonation: 2.36 + (index % 4) * 0.01,
-      kPerHour: 0.014 + (index % 4) * 0.0005,
-      hoursSinceT0: 72 + (index % 4) * 12,
-      exposure: exposure(0.82, 0.8, 0.01, 96),
-      currentPressure: 0.8,
-      currentTemp: 6.8,
-      pressureMeanDuring: 0.9 + (index % 4) * 0.05,
-      temperatureMeanDuring: 6.8,
-    }),
-  );
-
-  const state: PressureV4DecisionState = {
-    carbonation: 2.38,
-    currentPressure: 0.8,
-    currentTemp: 6.8,
     hoursSinceT0: 96,
-    exposure: exposure(0.82, 0.8, 0.01, 96),
-    cooling: null,
+    exposure: exposure(1.35, 96, 0.45),
+    cooling: earlyCooling,
+    carbonationTrend: {
+      checksInPhase: 1,
+      previousCarbonation: null,
+      previousDateTimeMs: null,
+      hoursSincePrevious: null,
+      deltaFromPrevious: null,
+      ratePerDay: null,
+    },
   };
 
   const estimate = estimatePressureTargetV4({
-    transitions,
+    transitions: transitionsFor(state, 0.00144),
     state,
     targetCarbonation: 2.45,
+    equilibriumPressure: 0.6,
+    coldReferenceTemperature: 0.6,
   });
 
   assert.ok(estimate);
-  assert.ok(estimate.targetPressure > state.currentPressure);
-  assert.ok(estimate.targetPressure >= 0.95 && estimate.targetPressure <= 1.05);
-  assert.ok(Math.abs(estimate.predictedCarbonation - 2.45) <= 0.03);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure >= 1.05 && estimate.targetPressure <= 1.15,
+    `expected roughly 1.1 bar, got ${estimate.targetPressure}`,
+  );
 });
 
-test("later carbonation tests use the same calculator and do not need passive samples", () => {
-  const transitions = Array.from({ length: 10 }, (_, index) =>
-    transition(index, {
-      startCarbonation: 2.35 + (index % 4) * 0.015,
-      kPerHour: 0.012 + (index % 4) * 0.001,
-      hoursSinceT0: 120 + (index % 4) * 24,
-      exposure: exposure(0.95, 0.9, 0.08, 144),
-      currentPressure: 0.9,
-      currentTemp: 5,
-      pressureMeanDuring: 1.0,
-      temperatureMeanDuring: 5,
-    }),
-  );
-
+test("warm tank is outside the cold-carbonation calculator", () => {
   const state: PressureV4DecisionState = {
-    carbonation: 2.36,
-    currentPressure: 0.9,
-    currentTemp: 5,
-    hoursSinceT0: 144,
-    exposure: exposure(0.95, 0.9, 0.08, 144),
-    cooling: null,
-  };
-
-  const estimate = estimatePressureTargetV4({
-    transitions,
-    passiveSamples: [],
-    samples: [],
-    state,
-    targetCarbonation: 2.45,
-  });
-
-  assert.ok(estimate);
-  assert.ok(estimate.supportCount >= 4);
-});
-
-test("V4 abstains when the allowed pressure range cannot reach target in 48h", () => {
-  const transitions = Array.from({ length: 10 }, (_, index) =>
-    transition(index, {
-      startCarbonation: 2.0,
-      kPerHour: 0.001,
-      exposure: exposure(1.0, 1.0, 0.1),
-      currentPressure: 1.0,
-      currentTemp: 6.8,
-      pressureMeanDuring: 1.0,
-      temperatureMeanDuring: 6.8,
-    }),
-  );
-
-  const state: PressureV4DecisionState = {
-    carbonation: 2.0,
-    currentPressure: 1.0,
-    currentTemp: 6.8,
+    carbonation: 2.39,
+    currentPressure: 1.64,
+    currentTemp: 21.3,
     hoursSinceT0: 72,
-    exposure: exposure(1.0, 1.0, 0.1),
+    exposure: exposure(1.64, 72),
     cooling: null,
+    carbonationTrend: null,
   };
 
   const estimate = estimatePressureTargetV4({
-    transitions,
+    transitions: transitionsFor(state, 0.004),
     state,
-    targetCarbonation: 2.45,
-    maxPressure: 1.9,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 1.5,
   });
 
   assert.equal(estimate, null);
 });
 
-
-test("cooling trajectory selects different kinetics for early and late cold beer", () => {
-  const earlyCooling: PressureV4CoolingState = {
-    startDateTimeMs: 0,
-    hoursSinceCooling: 24,
-    startTemp: 14,
-    currentTemp: 6.8,
-    tempDropSinceCooling: 7.2,
-    tempChange24h: -7.2,
-    pressureMeanSinceCooling: 1.3,
-    pressureMean24h: 1.3,
-    pressureHoursSinceCooling: 31.2,
-    equilibriumDeltaBarHoursSinceCooling: 12,
-    coverageRatio: 1,
-    stillCooling: true,
-  };
-  const lateCooling: PressureV4CoolingState = {
-    startDateTimeMs: 0,
-    hoursSinceCooling: 144,
-    startTemp: 14,
-    currentTemp: 1.5,
-    tempDropSinceCooling: 12.5,
-    tempChange24h: -0.1,
-    pressureMeanSinceCooling: 0.95,
-    pressureMean24h: 0.95,
-    pressureHoursSinceCooling: 136.8,
-    equilibriumDeltaBarHoursSinceCooling: 4,
-    coverageRatio: 1,
-    stillCooling: false,
+test("k changes the forecast but does not force an extreme pressure target", () => {
+  const state: PressureV4DecisionState = {
+    carbonation: 2.33,
+    currentPressure: 0.4,
+    currentTemp: 0.4,
+    hoursSinceT0: 420,
+    exposure: exposure(0.4, 420),
+    cooling: cooling({
+      hours: 372,
+      currentTemp: 0.4,
+      pressure: 0.4,
+    }),
+    carbonationTrend: null,
   };
 
-  const transitions = [
-    ...Array.from({ length: 8 }, (_, index) =>
-      transition(index, {
-        kPerHour: 0.02,
-        currentTemp: 6.8,
-        temperatureMeanDuring: 5.5,
-        exposure: exposure(1.3, 1.25, 0.4, 72),
-        cooling: earlyCooling,
-      }),
-    ),
-    ...Array.from({ length: 8 }, (_, index) =>
-      transition(index + 20, {
-        kPerHour: 0.006,
-        currentTemp: 1.5,
-        temperatureMeanDuring: 1.5,
-        exposure: exposure(0.95, 0.95, 0.05, 180),
-        cooling: lateCooling,
-      }),
-    ),
-  ];
-
-  const earlyState: PressureV4DecisionState = {
-    carbonation: 2.3,
-    currentPressure: 1.25,
-    currentTemp: 6.8,
-    hoursSinceT0: 72,
-    exposure: exposure(1.3, 1.25, 0.4, 72),
-    cooling: earlyCooling,
-  };
-  const lateState: PressureV4DecisionState = {
-    carbonation: 2.3,
-    currentPressure: 0.95,
-    currentTemp: 1.5,
-    hoursSinceT0: 180,
-    exposure: exposure(0.95, 0.95, 0.05, 180),
-    cooling: lateCooling,
-  };
-
-  const early = estimatePressureTargetV4({
-    transitions,
-    state: earlyState,
-    targetCarbonation: 2.45,
-    coldReferenceTemperature: 1.5,
+  const slow = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.0002),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
   });
-  const late = estimatePressureTargetV4({
-    transitions,
-    state: lateState,
-    targetCarbonation: 2.45,
-    coldReferenceTemperature: 1.5,
+  const faster = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.005),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.5,
+    coldReferenceTemperature: 0.4,
   });
 
-  assert.ok(early);
-  assert.ok(late);
-  assert.ok(
-    early.kPerHour > late.kPerHour,
-    "early cooling should select faster historical absorption than late cold beer",
+  assert.ok(slow);
+  assert.ok(faster);
+  assert.equal(slow.targetPressure, faster.targetPressure);
+  assert.notEqual(
+    slow.predictedCarbonation,
+    faster.predictedCarbonation,
+    "k should affect forecast, not the operational pressure target",
   );
 });
