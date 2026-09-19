@@ -312,6 +312,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     } else {
                         const estimate = estimatePressureTargetV4({
                             samples: v4Model.samples,
+                            passiveSamples: v4Model.passiveSamples,
                             state,
                             targetCarbonation: Number(carbonationTarget),
                         });
