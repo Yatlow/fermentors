@@ -718,3 +718,79 @@ test("early cooling keeps operational pressure logic even if forecast is outside
     "early cooling may recommend venting based on stored pressure/headroom",
   );
 });
+
+
+test("early-cooling vent keeps extra head pressure when its own forecast is far below target", () => {
+  const earlyCooling = cooling({
+    hours: 64,
+    currentTemp: 6.8,
+    pressure: 1.35,
+    stillCooling: true,
+    tempChange24h: -3.5,
+  });
+
+  const state: PressureV4DecisionState = {
+    carbonation: 2.27,
+    currentPressure: 1.44,
+    currentTemp: 6.8,
+    hoursSinceT0: 96,
+    exposure: exposure(1.35, 96, 0.45),
+    cooling: earlyCooling,
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.00162),
+    state,
+    targetCarbonation: 2.45,
+    equilibriumPressure: 0.44,
+    coldReferenceTemperature: 0.5,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure >= 1.0 && estimate.targetPressure <= 1.15,
+    `expected early-cooling safety correction near 1.1 bar, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.targetPressure < state.currentPressure,
+    "the correction must still vent from the original closing pressure",
+  );
+});
+
+test("early-cooling safety correction is bounded and never exceeds current pressure", () => {
+  const earlyCooling = cooling({
+    hours: 64,
+    currentTemp: 4.5,
+    pressure: 1.3,
+    stillCooling: true,
+    tempChange24h: -2.5,
+  });
+
+  const state: PressureV4DecisionState = {
+    carbonation: 2.27,
+    currentPressure: 1.37,
+    currentTemp: 4.5,
+    hoursSinceT0: 96,
+    exposure: exposure(1.3, 96, 0.4),
+    cooling: earlyCooling,
+    carbonationTrend: null,
+  };
+
+  const estimate = estimatePressureTargetV4({
+    transitions: transitionsFor(state, 0.0012),
+    state,
+    targetCarbonation: 2.4,
+    equilibriumPressure: 0.49,
+    coldReferenceTemperature: 0.7,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure >= 1.0 && estimate.targetPressure <= 1.15,
+    `expected a less aggressive vent near 1.0-1.1 bar, got ${estimate.targetPressure}`,
+  );
+  assert.ok(estimate.targetPressure <= state.currentPressure);
+});
