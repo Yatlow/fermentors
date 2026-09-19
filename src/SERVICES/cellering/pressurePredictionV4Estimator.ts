@@ -51,34 +51,34 @@ function exposureRate(exposure: PressureV4Exposure): number | null {
 }
 
 function sampleStateDistance(
-  sample: PressureV4Sample,
+  sample: PressureV4Sample | PressureV4PassiveSample,
   state: PressureV4DecisionState,
 ): number {
   let score = 0;
 
-  // Current carbonation and the already accumulated pressure history are the
-  // most important descriptors. Temperature and age since pressure-close matter
-  // too, but less once exposure has already summarized the path.
+  // The pressure history matters at least as much as the clock. Two tanks that
+  // have both been closed for 72h are not equivalent if one spent that time at
+  // 1.5 bar and the other at 0.8 bar.
   score += normalizedDifference(sample.carbonationBefore, state.carbonation, 0.12) * 2.2;
   score += normalizedDifference(sample.currentPressure, state.currentPressure, 0.35) * 0.8;
   score += normalizedDifference(sample.currentTemp, state.currentTemp, 3) * 0.7;
-  score += normalizedDifference(sample.hoursSinceT0, state.hoursSinceT0, 48) * 0.8;
+  score += normalizedDifference(sample.hoursSinceT0, state.hoursSinceT0, 48) * 0.55;
 
   score += normalizedDifference(
     sample.exposure.pressureMean24h,
     state.exposure.pressureMean24h,
     0.3,
-  ) * 1.1;
+  ) * 1.45;
   score += normalizedDifference(
     sample.exposure.pressureMean48h,
     state.exposure.pressureMean48h,
     0.3,
-  ) * 1.0;
+  ) * 1.35;
   score += normalizedDifference(
     exposureRate(sample.exposure),
     exposureRate(state.exposure),
     0.2,
-  ) * 1.5;
+  ) * 1.9;
 
   if (sample.quality === "low") score += 1.5;
   else if (sample.quality === "medium") score += 0.35;
@@ -86,164 +86,127 @@ function sampleStateDistance(
   return score;
 }
 
-function passiveDriftPrediction(
-  samples: PressureV4PassiveSample[],
-  state: PressureV4DecisionState,
-): { delta: number; supportCount: number; effectiveWeight: number; meanDistance: number } | null {
-  const rows = samples
+type TrainingRow = {
+  x: number; // pressure change; 0 means no intervention
+  y: number; // observed two-day carbonation change
+  stateDistance: number;
+  quality: "low" | "medium" | "high";
+};
+
+function buildTrainingRows(args: {
+  samples: PressureV4Sample[];
+  passiveSamples: PressureV4PassiveSample[];
+  state: PressureV4DecisionState;
+}): TrainingRow[] {
+  const actionRows: TrainingRow[] = args.samples
     .filter((sample) =>
-      sample.primaryOutcome?.calendarDaysAfterAction === 2 &&
-      Number.isFinite(sample.carbonationDelta)
+      Number.isFinite(sample.carbonationBefore) &&
+      Number.isFinite(sample.currentPressure) &&
+      Number.isFinite(sample.targetPressure) &&
+      Number.isFinite(sample.carbonationDelta) &&
+      sample.primaryOutcome?.calendarDaysAfterAction === 2
     )
     .map((sample) => ({
-      sample,
-      stateDistance: sampleStateDistance(sample as unknown as PressureV4Sample, state),
-    }))
+      x: Number.isFinite(sample.actionPressureDelta)
+        ? sample.actionPressureDelta
+        : sample.targetPressure - sample.currentPressure,
+      y: sample.carbonationDelta,
+      stateDistance: sampleStateDistance(sample, args.state),
+      quality: sample.quality,
+    }));
+
+  // A carbonation test followed by two clean days with no ordinary pressure
+  // change and no bottom carbonation is simply action=0 in the same model.
+  const noActionRows: TrainingRow[] = args.passiveSamples
+    .filter((sample) =>
+      Number.isFinite(sample.carbonationDelta) &&
+      sample.primaryOutcome?.calendarDaysAfterAction === 2
+    )
+    .map((sample) => ({
+      x: 0,
+      y: sample.carbonationDelta,
+      stateDistance: sampleStateDistance(sample, args.state),
+      quality: sample.quality,
+    }));
+
+  return [...actionRows, ...noActionRows]
     .sort((a, b) => a.stateDistance - b.stateDistance)
-    .slice(0, 30);
-
-  if (rows.length < 5) return null;
-
-  const weighted = rows.map(({ sample, stateDistance }) => {
-    const weight = 1 / (0.2 + stateDistance * stateDistance);
-    return { delta: sample.carbonationDelta, weight, stateDistance };
-  });
-  const weightSum = weighted.reduce((sum, row) => sum + row.weight, 0);
-  if (weightSum <= 0) return null;
-
-  const delta = weighted.reduce(
-    (sum, row) => sum + row.delta * row.weight,
-    0,
-  ) / weightSum;
-  const meanDistance = weighted.reduce(
-    (sum, row) => sum + row.stateDistance,
-    0,
-  ) / Math.max(1, weighted.length);
-
-  return {
-    delta,
-    supportCount: weighted.length,
-    effectiveWeight: weightSum,
-    meanDistance,
-  };
+    .slice(0, 40);
 }
 
-function weightedLinearPrediction(args: {
-  rows: Array<{
-    sample: PressureV4Sample;
-    stateDistance: number;
-  }>;
-  candidatePressure: number;
-  currentPressure: number;
-  baselineDelta: number;
-}): PressureV4Candidate | null {
-  const weighted = args.rows
-    .map(({ sample, stateDistance }) => {
-      // Learn the intervention relative to the pressure that already existed.
-      // x=0 therefore means "do nothing". The intercept becomes the expected
-      // two-day carbonation drift from CO2 already in process before the action.
-      const sampleActionDelta = Number.isFinite(sample.actionPressureDelta)
-        ? sample.actionPressureDelta
-        : sample.targetPressure - sample.currentPressure;
-      const candidateActionDelta = args.candidatePressure - args.currentPressure;
-      const actionDistance = Math.abs(sampleActionDelta - candidateActionDelta);
-      const weight =
-        1 /
-        (0.2 + stateDistance * stateDistance + actionDistance * actionDistance * 4);
+function fitLocalResponse(
+  rows: TrainingRow[],
+  candidateActionDelta?: number,
+): {
+  intercept: number;
+  slope: number;
+  supportCount: number;
+  effectiveWeight: number;
+  meanDistance: number;
+} | null {
+  if (rows.length < 5) return null;
 
-      return {
-        x: sampleActionDelta,
-        y: sample.carbonationDelta,
-        weight,
-      };
-    })
-    .filter((row) =>
-      Number.isFinite(row.x) &&
-      Number.isFinite(row.y) &&
-      Number.isFinite(row.weight) &&
-      row.weight > 0
-    );
+  const weighted = rows.map((row) => {
+    const actionDistance = candidateActionDelta === undefined
+      ? 0
+      : Math.abs(row.x - candidateActionDelta);
+    const weight =
+      1 /
+      (0.2 + row.stateDistance * row.stateDistance + actionDistance * actionDistance * 4);
+    return { ...row, weight };
+  }).filter((row) => Number.isFinite(row.weight) && row.weight > 0);
 
   if (weighted.length < 5) return null;
 
   const weightSum = weighted.reduce((sum, row) => sum + row.weight, 0);
   if (weightSum <= 0) return null;
 
-  // Passive samples teach the no-action 48h drift. Ordinary-pressure
-  // samples only teach the *additional* effect of changing head pressure.
-  // Fit that intervention effect through the passive baseline so x=0 always
-  // means "do nothing" rather than inventing a second intercept.
+  const meanX = weighted.reduce((sum, row) => sum + row.x * row.weight, 0) / weightSum;
+  const meanY = weighted.reduce((sum, row) => sum + row.y * row.weight, 0) / weightSum;
   const denominator = weighted.reduce(
-    (sum, row) => sum + row.weight * row.x ** 2,
+    (sum, row) => sum + row.weight * (row.x - meanX) ** 2,
     0,
   );
   const numerator = weighted.reduce(
-    (sum, row) =>
-      sum + row.weight * row.x * (row.y - args.baselineDelta),
+    (sum, row) => sum + row.weight * (row.x - meanX) * (row.y - meanY),
     0,
   );
 
+  // More head pressure must not learn a negative causal response. If the local
+  // action range is too narrow to identify a slope, keep only the local drift.
   const slope = denominator >= 0.002
     ? Math.max(0, numerator / denominator)
     : 0;
-  const candidateActionDelta =
-    args.candidatePressure - args.currentPressure;
-  const predictedDelta =
-    args.baselineDelta + slope * candidateActionDelta;
+  const intercept = meanY - slope * meanX;
+  const meanDistance = weighted.reduce(
+    (sum, row) => sum + row.stateDistance,
+    0,
+  ) / weighted.length;
 
   return {
-    targetPressure: args.candidatePressure,
-    predictedCarbonation: 0, // filled by caller with current carbonation
-    predictedDelta,
+    intercept,
+    slope,
     supportCount: weighted.length,
     effectiveWeight: weightSum,
+    meanDistance,
   };
 }
 
 function historicalAccuracyPercent(
-  rows: Array<{
-    sample: PressureV4Sample;
-    stateDistance: number;
-  }>,
-  baselineDelta: number,
+  rows: TrainingRow[],
+  fit: { intercept: number; slope: number },
 ): number {
-  const weighted = rows.map(({ sample, stateDistance }) => {
-    const x = Number.isFinite(sample.actionPressureDelta)
-      ? sample.actionPressureDelta
-      : sample.targetPressure - sample.currentPressure;
-    const weight = 1 / (0.2 + stateDistance * stateDistance);
-    return {
-      x,
-      y: sample.carbonationDelta,
-      weight,
-    };
-  }).filter((row) =>
-    Number.isFinite(row.x) &&
-    Number.isFinite(row.y) &&
-    Number.isFinite(row.weight) &&
-    row.weight > 0
-  );
+  if (rows.length < 5) return 0;
 
-  if (weighted.length < 5) return 0;
-
-  const denominator = weighted.reduce(
-    (sum, row) => sum + row.weight * row.x ** 2,
-    0,
-  );
-  const numerator = weighted.reduce(
-    (sum, row) =>
-      sum + row.weight * row.x * (row.y - baselineDelta),
-    0,
-  );
-  const slope = denominator >= 0.002
-    ? Math.max(0, numerator / denominator)
-    : 0;
-
+  const weighted = rows.map((row) => ({
+    ...row,
+    weight: 1 / (0.2 + row.stateDistance * row.stateDistance),
+  }));
   const totalWeight = weighted.reduce((sum, row) => sum + row.weight, 0);
   if (totalWeight <= 0) return 0;
 
   const hitWeight = weighted.reduce((sum, row) => {
-    const predicted = baselineDelta + slope * row.x;
+    const predicted = fit.intercept + fit.slope * row.x;
     const hit = Math.abs(predicted - row.y) <= 0.05;
     return sum + (hit ? row.weight : 0);
   }, 0);
@@ -262,6 +225,8 @@ export function estimatePressureTargetV4(args: {
   minPressure?: number;
   maxPressure?: number;
   step?: number;
+  // Kept for caller compatibility/debugging; first-carbonation behavior is
+  // learned from state/exposure rather than a fixed prior.
   firstCarbonation?: boolean;
   equilibriumPressure?: number | null;
 }): PressureV4Estimate | null {
@@ -277,83 +242,43 @@ export function estimatePressureTargetV4(args: {
     maxPressure < minPressure
   ) return null;
 
-  const learnedPassive = passiveDriftPrediction(
-    args.passiveSamples ?? [],
-    args.state,
-  );
+  const trainingRows = buildTrainingRows({
+    samples: args.samples,
+    passiveSamples: args.passiveSamples ?? [],
+    state: args.state,
+  });
+  if (trainingRows.length < 5) return null;
 
-  const equilibriumPressure = finite(args.equilibriumPressure);
-  const firstCarbonationHighPressure =
-    args.firstCarbonation === true &&
-    equilibriumPressure !== null &&
-    args.state.currentPressure >= equilibriumPressure + 0.15;
-
-  // Operational prior from the first carbonation test: while head pressure is
-  // still materially above equilibrium, a meaningful amount of CO2 is already
-  // in the process of dissolving. Until enough passive-history exists, use the
-  // brewery's observed ~0.35 vol two-day rise as the conservative baseline.
-  const passive = learnedPassive ?? (
-    firstCarbonationHighPressure
-      ? {
-          delta: 0.35,
-          supportCount: 0,
-          effectiveWeight: 0,
-          meanDistance: 0,
-        }
-      : null
-  );
-  if (!passive) return null;
-
-  const baselineDelta =
-    firstCarbonationHighPressure
-      ? Math.max(passive.delta, 0.35)
-      : passive.delta;
-
-  const usable = args.samples
-    .filter((sample) =>
-      Number.isFinite(sample.carbonationBefore) &&
-      Number.isFinite(sample.currentPressure) &&
-      Number.isFinite(sample.targetPressure) &&
-      Number.isFinite(sample.carbonationDelta) &&
-      sample.primaryOutcome?.calendarDaysAfterAction === 2
-    )
-    .map((sample) => ({
-      sample,
-      stateDistance: sampleStateDistance(sample, args.state),
-    }))
-    .sort((a, b) => a.stateDistance - b.stateDistance)
-    .slice(0, 30);
-
-  if (usable.length < 5) return null;
-
-  const effectiveMaxPressure =
-    firstCarbonationHighPressure
-      ? Math.min(maxPressure, args.state.currentPressure)
-      : maxPressure;
+  // No special first-carbonation constant: the no-action forecast comes from
+  // the same local model, with pressure history/exposure carrying the context.
+  const noActionFit = fitLocalResponse(trainingRows, 0);
+  if (!noActionFit) return null;
 
   const candidates: PressureV4Candidate[] = [];
-  const count = Math.round((effectiveMaxPressure - minPressure) / step);
+  const count = Math.round((maxPressure - minPressure) / step);
 
   for (let index = 0; index <= count; index += 1) {
     const targetPressure = Number((minPressure + index * step).toFixed(2));
-    const predicted = weightedLinearPrediction({
-      rows: usable,
-      candidatePressure: targetPressure,
-      currentPressure: args.state.currentPressure,
-      baselineDelta,
-    });
-    if (!predicted) continue;
+    const actionDelta = targetPressure - args.state.currentPressure;
+    const fit = fitLocalResponse(trainingRows, actionDelta);
+    if (!fit) continue;
 
-    predicted.predictedCarbonation = Number(
-      (args.state.carbonation + predicted.predictedDelta).toFixed(3),
-    );
-    candidates.push(predicted);
+    const predictedDelta = fit.intercept + fit.slope * actionDelta;
+    candidates.push({
+      targetPressure,
+      predictedCarbonation: Number(
+        (args.state.carbonation + predictedDelta).toFixed(3),
+      ),
+      predictedDelta,
+      supportCount: fit.supportCount,
+      effectiveWeight: fit.effectiveWeight,
+    });
   }
 
   if (!candidates.length) return null;
 
   const predictedCarbonationWithoutChange = Number(
-    (args.state.carbonation + baselineDelta).toFixed(3),
+    (args.state.carbonation + noActionFit.intercept).toFixed(3),
   );
 
   const ranked = [...candidates].sort((a, b) => {
@@ -372,22 +297,15 @@ export function estimatePressureTargetV4(args: {
   const best = ranked[0];
   const error = Math.abs(best.predictedCarbonation - args.targetCarbonation);
 
-  const nearest = usable.slice(0, 12);
-  const highQualityCount = nearest.filter(({ sample }) => sample.quality === "high").length;
+  const nearest = trainingRows.slice(0, 12);
+  const highQualityCount = nearest.filter((row) => row.quality === "high").length;
   const meanDistance = nearest.reduce((sum, row) => sum + row.stateDistance, 0) /
     Math.max(1, nearest.length);
 
   const confidence: PressureV4Estimate["confidence"] =
-    best.supportCount >= 12 &&
-    (passive.supportCount >= 10 || firstCarbonationHighPressure) &&
-    highQualityCount >= 5 &&
-    meanDistance <= 2.5 &&
-    (passive.supportCount === 0 || passive.meanDistance <= 2.5)
+    best.supportCount >= 12 && highQualityCount >= 5 && meanDistance <= 2.5
       ? "high"
-      : best.supportCount >= 7 &&
-        (passive.supportCount >= 5 || firstCarbonationHighPressure) &&
-        meanDistance <= 4 &&
-        (passive.supportCount === 0 || passive.meanDistance <= 4)
+      : best.supportCount >= 7 && meanDistance <= 4
         ? "medium"
         : "low";
 
@@ -396,8 +314,8 @@ export function estimatePressureTargetV4(args: {
   if (error > 0.06) return null;
 
   const accuracyPercent = historicalAccuracyPercent(
-    usable,
-    baselineDelta,
+    trainingRows,
+    noActionFit,
   );
 
   return {
