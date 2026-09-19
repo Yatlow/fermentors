@@ -1361,13 +1361,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     let bottomCarbonationCandidate = false;
     let bottomCarbonationReason: string | null = null;
-    let bottomCarbonationModelSampleCount: number | null = null;
     let bottomActivationThreshold = 2.2;
     let shouldUseBottomCarbonation = false;
 
     if (bottomCarbonationPotential) {
         const bottomModel = await getBottomCarbonationModel(style);
-        bottomCarbonationModelSampleCount = bottomModel?.samples?.length ?? 0;
         const learnedActivation = bottomModel
             ? getBottomCarbonationActivationThreshold(bottomModel.samples)
             : null;
