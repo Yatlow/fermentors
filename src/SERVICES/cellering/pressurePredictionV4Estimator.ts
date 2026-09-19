@@ -624,6 +624,7 @@ type EmpiricalResponse = {
   effectiveWeight: number;
   meanDistance: number;
   slopeIdentified: boolean;
+  directActionMatched: boolean;
   actionMin: number;
   actionMax: number;
 };
@@ -849,6 +850,39 @@ function estimatePressureSlope(
   };
 }
 
+function estimateDirectActionOutcome(
+  rows: EmpiricalTrainingRow[],
+  candidateActionDelta: number,
+): { delta: number; support: number; meanDistance: number } | null {
+  if (Math.abs(candidateActionDelta) < 0.05) return null;
+
+  const matching = rows
+    .filter((row) =>
+      row.kind === "action" &&
+      Math.abs(row.x - candidateActionDelta) <= 0.075
+    )
+    .sort((a, b) => a.stateDistance - b.stateDistance)
+    .slice(0, 16);
+
+  if (matching.length < 4) return null;
+
+  const delta = weightedMedianNumber(
+    matching.map((row) => ({
+      value: row.y,
+      weight: empiricalRowWeight(row),
+    })),
+  );
+  if (delta === null) return null;
+
+  return {
+    delta,
+    support: matching.length,
+    meanDistance:
+      matching.reduce((sum, row) => sum + row.stateDistance, 0) /
+      matching.length,
+  };
+}
+
 function buildEmpiricalResponse(args: {
   rows: EmpiricalTrainingRow[];
   candidateActionDelta: number;
@@ -859,19 +893,31 @@ function buildEmpiricalResponse(args: {
 
   const passive = estimatePassiveDrift(args.rows);
   const slope = estimatePressureSlope(args.rows, passive);
-  if (!passive && !slope) return null;
+  const direct = estimateDirectActionOutcome(
+    args.rows,
+    args.candidateActionDelta,
+  );
+  if (!passive && !slope && !direct) return null;
 
   const intercept = passive?.delta ?? args.physicalNoChangeDelta;
   const learnedSlope = slope?.slope ?? 0;
-  const predictedDelta =
-    intercept + learnedSlope * args.candidateActionDelta;
+  const predictedDelta = slope
+    ? intercept + learnedSlope * args.candidateActionDelta
+    : direct
+      ? direct.delta
+      : intercept;
+
+  const actionSupport = Math.max(
+    slope?.support ?? 0,
+    direct?.support ?? 0,
+  );
 
   return {
     intercept,
     slope: learnedSlope,
     predictedDelta,
-    support: Math.max(passive?.support ?? 0, slope?.support ?? 0),
-    actionSupport: slope?.support ?? 0,
+    support: Math.max(passive?.support ?? 0, actionSupport),
+    actionSupport,
     passiveSupport: passive?.support ?? 0,
     effectiveWeight: args.rows.reduce(
       (sum, row) => sum + empiricalRowWeight(row),
@@ -879,9 +925,11 @@ function buildEmpiricalResponse(args: {
     ),
     meanDistance:
       slope?.meanDistance ??
+      direct?.meanDistance ??
       passive?.meanDistance ??
       Infinity,
     slopeIdentified: Boolean(slope),
+    directActionMatched: Boolean(direct),
     actionMin: slope?.actionMin ?? 0,
     actionMax: slope?.actionMax ?? 0,
   };
@@ -1265,11 +1313,12 @@ export function estimatePressureTargetV4(args: {
       args.state.carbonation + response.intercept;
     const physicalActionEffect =
       physicalPredicted - physicalNoChange;
-    const actionEffect = response.slopeIdentified
-      ? response.slope * candidateActionDelta
-      : physicalActionEffect;
-    const predicted =
-      empiricalNoChange + actionEffect;
+    const predicted = response.slopeIdentified
+      ? empiricalNoChange +
+        response.slope * candidateActionDelta
+      : response.directActionMatched
+        ? args.state.carbonation + response.predictedDelta
+        : empiricalNoChange + physicalActionEffect;
 
     return {
       predicted,
@@ -1277,7 +1326,9 @@ export function estimatePressureTargetV4(args: {
       empiricalPredicted: predicted,
       response,
       empiricalWeight:
-        response.slopeIdentified || response.passiveSupport >= 5
+        response.slopeIdentified ||
+        response.directActionMatched ||
+        response.passiveSupport >= 5
           ? 1
           : 0,
     };
@@ -1409,14 +1460,16 @@ export function estimatePressureTargetV4(args: {
 
   const empiricalResponse = targetForecast.response;
   const empiricalConfidence: PressureV4Estimate["confidence"] =
-    empiricalResponse?.slopeIdentified &&
+    (empiricalResponse?.slopeIdentified ||
+      empiricalResponse?.directActionMatched) &&
     empiricalResponse.support >= 12 &&
     empiricalResponse.actionSupport >= 5 &&
     empiricalResponse.meanDistance <= 3
       ? "high"
-      : empiricalResponse?.slopeIdentified &&
-          empiricalResponse.support >= 7 &&
-          empiricalResponse.actionSupport >= 3 &&
+      : (empiricalResponse?.slopeIdentified ||
+          empiricalResponse?.directActionMatched) &&
+          empiricalResponse.support >= 4 &&
+          empiricalResponse.actionSupport >= 4 &&
           empiricalResponse.meanDistance <= 4.5
         ? "medium"
         : "low";
@@ -1494,18 +1547,13 @@ export function estimatePressureTargetV4(args: {
     !forecastInTargetWindow &&
     (
       carbonationError > 0
-        ? (
-            !closeEnoughForRecheck &&
-            (
-              actionEffect < 0.015 ||
-              gapClosedFraction < 0.5
-            )
-          )
+        ? !closeEnoughForRecheck
         : actionEffect < 0.008
     );
 
   const responseEvidenceMissing =
     !empiricalResponse?.slopeIdentified &&
+    !empiricalResponse?.directActionMatched &&
     kineticConfidence === "low";
 
   const decisionStatus: PressureV4Estimate["decisionStatus"] =
@@ -1562,7 +1610,10 @@ export function estimatePressureTargetV4(args: {
       targetForecast.response?.actionSupport ?? 0,
     empiricalPassiveSupport:
       targetForecast.response?.passiveSupport ?? 0,
-    empiricalModelUsed: targetForecast.empiricalWeight >= 0.65,
+    empiricalModelUsed: Boolean(
+      targetForecast.response?.slopeIdentified ||
+      targetForecast.response?.directActionMatched
+    ),
     pressureActionEffectVol: Number(actionEffect.toFixed(3)),
     pressureGapClosedFraction: Number(gapClosedFraction.toFixed(2)),
     action,
