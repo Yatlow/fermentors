@@ -94,7 +94,7 @@ export function getBottomCarbonationActivationThreshold(
   if (learned === null) return null;
 
   return {
-    threshold: Math.min(2.2, Number((learned + 0.05).toFixed(2))),
+    threshold: Math.min(2.15, Number((learned + 0.05).toFixed(2))),
     sampleCount: values.length,
   };
 }
@@ -143,9 +143,9 @@ export function estimateBottomCarbonation(args: {
   if (usable.length < 5) return null;
 
   const activation = getBottomCarbonationActivationThreshold(args.samples);
-  const activationThreshold = activation?.threshold ?? 2.2;
+  const activationThreshold = activation?.threshold ?? 2.15;
 
-  if (args.currentCarbonation > activationThreshold) return null;
+  if (args.currentCarbonation >= activationThreshold) return null;
 
   const currentPressure = finiteNumber(args.currentPressure);
   const brewDay = finiteNumber(args.brewDay);
