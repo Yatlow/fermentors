@@ -12,6 +12,8 @@ import type {
 const OPERATIONAL_VOL_PER_BAR_MIN = 0.50;
 const OPERATIONAL_VOL_PER_BAR_MAX = 1.00;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
+const TARGET_TOLERANCE_VOL = 0.02;
+const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.10;
 // k is used only to advance an old measurement to "now". A slow but real
 // historical rate such as ~0.0015/h is valid for that purpose; only nearly
 // frozen fits are rejected.
@@ -666,7 +668,39 @@ export function estimatePressureTargetV5(args: {
     };
   }
 
-  const targetPressure = roundPressure(rawTargetPressure);
+  let targetPressure = roundPressure(rawTargetPressure);
+  const carbonationError =
+    args.targetCarbonation - estimatedCurrentCarbonation;
+  const outsideTargetWindow =
+    Math.abs(carbonationError) > TARGET_TOLERANCE_VOL;
+
+  // Do not let the old 0.075-bar deadband hide a real off-spec carbonation
+  // correction. If the math asks for a change but rounding/deadband would turn
+  // it into HOLD, make one minimum operational 0.10-bar step in that direction.
+  if (
+    outsideTargetWindow &&
+    rawTargetPressure > currentPressure + 0.005 &&
+    targetPressure < currentPressure + MIN_OPERATIONAL_PRESSURE_STEP_BAR
+  ) {
+    targetPressure = Math.min(
+      MAX_OPERATIONAL_PRESSURE_BAR,
+      Number(
+        (currentPressure + MIN_OPERATIONAL_PRESSURE_STEP_BAR).toFixed(2),
+      ),
+    );
+  } else if (
+    outsideTargetWindow &&
+    rawTargetPressure < currentPressure - 0.005 &&
+    targetPressure > currentPressure - MIN_OPERATIONAL_PRESSURE_STEP_BAR
+  ) {
+    targetPressure = Math.max(
+      0,
+      Number(
+        (currentPressure - MIN_OPERATIONAL_PRESSURE_STEP_BAR).toFixed(2),
+      ),
+    );
+  }
+
   const pressureDelta = targetPressure - currentPressure;
   const action: PressureV5Estimate["action"] =
     Math.abs(pressureDelta) < 0.075
