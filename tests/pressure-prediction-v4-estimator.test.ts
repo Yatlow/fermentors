@@ -6,6 +6,7 @@ import {
 } from "../src/SERVICES/cellering/pressurePredictionV4Estimator";
 import type {
   PressureV4Exposure,
+  PressureV4PassiveSample,
   PressureV4Sample,
 } from "../src/SERVICES/cellering/pressurePredictionV4";
 
@@ -27,6 +28,31 @@ function exposure(
     temperaturePoints: 6,
     coveredHours: 72,
     coverageRatio: 1,
+  };
+}
+
+function passiveSample(
+  delta: number,
+  overrides: Partial<PressureV4PassiveSample> = {},
+): PressureV4PassiveSample {
+  return {
+    batchId: "passive",
+    style: "ipa",
+    sampleDateTimeMs: 72 * 3600000,
+    sampleDate: "2026-09-10",
+    carbonationBefore: 2.26,
+    currentPressure: 1.4,
+    currentTemp: 6,
+    hoursSinceT0: 72,
+    exposure: exposure(1.35, 1.3, 0.45),
+    primaryOutcome: {
+      carbonation: 2.26 + delta,
+      dateTimeMs: 120 * 3600000,
+      calendarDaysAfterAction: 2,
+    },
+    carbonationDelta: delta,
+    quality: "high",
+    ...overrides,
   };
 }
 
@@ -88,6 +114,7 @@ test("V4 can recommend lowering pressure while carbonation is still below target
 
   const estimate = estimatePressureTargetV4({
     samples,
+    passiveSamples: Array.from({ length: 12 }, () => passiveSample(0.19)),
     state,
     targetCarbonation: 2.45,
   });
@@ -128,6 +155,7 @@ test("V4 predicts higher carbonation for higher ordinary pressure targets", () =
 
   const estimate = estimatePressureTargetV4({
     samples,
+    passiveSamples: Array.from({ length: 12 }, () => passiveSample(0.05)),
     state,
     targetCarbonation: 2.45,
   });
@@ -160,6 +188,7 @@ test("V4 stays within absolute operational pressure bounds", () => {
 
   const estimate = estimatePressureTargetV4({
     samples,
+    passiveSamples: Array.from({ length: 12 }, () => passiveSample(0.02)),
     state,
     targetCarbonation: 2.45,
   });
