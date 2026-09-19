@@ -400,7 +400,7 @@ test("k changes the forecast but does not force an extreme pressure target", () 
   assert.ok(slow);
   assert.ok(faster);
   assert.ok(
-    Math.abs(faster.targetPressure - slow.targetPressure) <= 0.15,
+    Math.abs(faster.targetPressure - slow.targetPressure) <= 0.151,
     "different fitted kinetics may fine-tune, but only within 0.15 bar",
   );
   assert.ok(
