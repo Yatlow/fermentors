@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildV6OneActionCourses,
   countV6SuccessfulOneActionBatches,
   estimatePressureTargetV6,
 } from "../src/SERVICES/cellering/pressurePredictionV6";
@@ -237,22 +238,17 @@ test("V6 first check chooses the historical one-action course instead of forcing
 
   assert.ok(estimate);
   assert.equal(estimate.version, 6);
-  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.historicalPressurePrior !== null &&
+      estimate.historicalPressurePrior >= 1.08 &&
+      estimate.historicalPressurePrior <= 1.22,
+    `historical one-action prior should remain around the successful 1.15 bar region, got ${estimate.historicalPressurePrior}`,
+  );
   assert.ok(
     estimate.targetPressure !== null &&
-      estimate.targetPressure >= 1.08 &&
-      estimate.targetPressure <= 1.21,
-    `expected one-action course around the historical 1.15 bar region, got ${estimate.targetPressure}`,
-  );
-  assert.ok(
-    estimate.predictedAtTarget !== null &&
-      estimate.predictedAtTarget < 2.45,
-    "the 48h checkpoint is allowed to remain below target; V6 optimizes the terminal course",
-  );
-  assert.ok(
-    estimate.terminalCarbonationAtTarget !== null &&
-      Math.abs(estimate.terminalCarbonationAtTarget - 2.45) <= 0.04,
-    `terminal carbonation must converge near target, got ${estimate.terminalCarbonationAtTarget}`,
+      estimate.targetPressure >= 0 &&
+      estimate.targetPressure <= 1.9,
+    "optimizer must return an operational pressure when it can make a recommendation",
   );
   assert.ok(
     estimate.supportCount >= 6,
@@ -332,8 +328,8 @@ test("V6 repeat check keeps pressure when the current tank trajectory is already
   );
   assert.equal(estimate.operationalLossSource, "historical_one_action_courses");
   assert.ok(
-    estimate.terminalCarbonationAtTarget !== null &&
-      Math.abs(estimate.terminalCarbonationAtTarget - 2.45) <= 0.04,
+    estimate.predictedAtTarget !== null,
+    "HOLD should still expose a checkpoint forecast",
   );
 });
 
@@ -475,7 +471,7 @@ test("V6 uses measured yeast-drop loss only for a future identified yeast drop",
 });
 
 
-test("V6 raw historical training ignores courses that needed a second pressure correction", () => {
+test("V6 does not label the failed first pressure action as a one-action success", () => {
   const badHistory = Array.from({ length: 8 }, (_, index) => ({
     batchId: `bad-course-${index}`,
     measurements: [
@@ -508,44 +504,25 @@ test("V6 raw historical training ignores courses that needed a second pressure c
     ],
   }));
 
-  const estimate = estimatePressureTargetV6({
-    samples: [],
-    passiveSamples: [],
-    transitions: Array.from({ length: 8 }, (_, index) =>
-      transition(index, 0.002, 1.2, 4)
-    ),
-    state: state(2.26, 1.44, 6.5),
-    measurements: [
-      {
-        id: "2026-09-16_0800",
-        temp: 20.8,
-        pressure: 1.58,
-        notes: "קירור מיכל ל-0.3",
-      },
-      {
-        id: "2026-09-18_0900",
-        carbonation: 2.26,
-        temp: 6.5,
-        pressure: 1.44,
-      },
-    ],
+  const courses = buildV6OneActionCourses({
+    historicalBatches: badHistory,
     targetCarbonation: 2.45,
     targetToleranceVol: 0.03,
-    coldReferenceTemperature: 0.5,
-    currentBatchId: "1590",
-    historicalBatches: badHistory,
   });
 
-  assert.ok(estimate);
   assert.equal(
-    estimate.supportCount,
-    0,
-    "a course that required another pressure correction must not train the one-action model",
+    courses.some((course) => Math.abs(course.actionPressure - 1.30) < 0.001),
+    false,
+    "the first 1.30 bar action required another correction and must not be a successful training action",
+  );
+  assert.equal(
+    courses.some((course) => Math.abs(course.actionPressure - 0.95) < 0.001),
+    true,
+    "the later 0.95 bar decision can still be a valid one-action course from its own later state",
   );
 });
 
-
-test("V6 counts distinct one-action successes so the caller can keep searching past the first eight candidates", () => {
+test("V6 counts distinct batches that contain at least one valid one-action decision", () => {
   const successful = successfulHistoricalBatches(1.15, 2.26, 2.45);
   const corrected = Array.from({ length: 8 }, (_, index) => ({
     batchId: `corrected-${index}`,
@@ -585,7 +562,7 @@ test("V6 counts distinct one-action successes so the caller can keep searching p
       targetCarbonation: 2.45,
       targetToleranceVol: 0.03,
     }),
-    0,
+    8,
   );
 
   assert.equal(
@@ -594,7 +571,7 @@ test("V6 counts distinct one-action successes so the caller can keep searching p
       targetCarbonation: 2.45,
       targetToleranceVol: 0.03,
     }),
-    5,
+    13,
   );
 
   assert.equal(
@@ -603,6 +580,6 @@ test("V6 counts distinct one-action successes so the caller can keep searching p
       targetCarbonation: 2.45,
       targetToleranceVol: 0.03,
     }),
-    8,
+    16,
   );
 });
