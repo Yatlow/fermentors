@@ -668,13 +668,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 לחץ שיווי־משקל פיזיקלי של היעד {v6Result.targetCarbonation.toFixed(2)}: {v6Result.targetEquilibriumPressure.toFixed(2)} bar ·
                                 אובדן לחץ תפעולי צפוי בדרך: {v6Result.expectedOperationalPressureLossBar.toFixed(2)} bar
                                 {" "}ב-{v6Result.expectedPressureLossEvents} אירועים ·
-                                מקור אובדן: {v6Result.operationalLossSource === "trajectory_blend"
-                                    ? "היסטוריה + המסלול של המיכל"
-                                    : v6Result.operationalLossSource === "historical_course"
-                                        ? "אצוות דומות"
-                                        : v6Result.operationalLossSource === "current_batch_fallback"
-                                            ? "הורדות שמרים באצווה"
-                                            : "fallback"} ·
+                                מקור אובדן: {v6Result.operationalLossSource === "observed_yeast_drops"
+                                    ? "הורדות שמרים שנמדדו באצווה"
+                                    : v6Result.operationalLossSource === "yeast_drop_fallback"
+                                        ? "הורדת שמרים קרה צפויה (fallback)"
+                                        : "אין אובדן תפעולי עתידי מזוהה"} ·
                                 בעוד 48 שעות בלי שינוי: {v6Result.predictedWithoutChange.toFixed(3)} vol ·
                                 בסוף ללא שינוי: {v6Result.terminalCarbonationWithoutChange.toFixed(3)} vol
                                 {" "}@ {v6Result.terminalPressureWithoutChange.toFixed(2)} bar ·
