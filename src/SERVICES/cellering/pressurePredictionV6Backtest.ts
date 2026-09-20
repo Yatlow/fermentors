@@ -85,6 +85,8 @@ export type PressureV6BacktestResult = {
 
   modelCoverage: number;
   counterfactualCoverage: number;
+  observedEvaluationRate?: number;
+  counterfactualEvaluationRate?: number;
 
   estimatedFirstShotSuccessRate: number | null;
   estimatedHumanSuccessRate: number | null;
