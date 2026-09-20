@@ -14,6 +14,7 @@ const OPERATIONAL_VOL_PER_BAR_MAX = 2.00;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 const TARGET_TOLERANCE_VOL = 0.04;
 const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.05;
+const FIRST_COOLING_SAFETY_BAR = 0.10;
 // k is used only to advance an old measurement to "now". A slow but real
 // historical rate such as ~0.0015/h is valid for that purpose; only nearly
 // frozen fits are rejected.
@@ -467,11 +468,12 @@ function firstCoolingPressureRetention(args: {
     0.75,
   );
 
-  // If the first check is already over target, retained head pressure becomes
-  // a liability rather than a reserve. Fade the retention out across ~0.12 vol.
-  const overTarget = Math.max(0, -args.carbonationGap);
+  // Stored head pressure is useful only while the first check is still
+  // under-carbonated. As the carbonation approaches target, fade that retention
+  // out; at/above target there is no reason to preserve extra head pressure.
+  const underTarget = Math.max(0, args.carbonationGap);
   const carbonationRetention = clamp(
-    1 - overTarget / 0.12,
+    underTarget / 0.15,
     0,
     1,
   );
@@ -756,6 +758,7 @@ export function estimatePressureTargetV5(args: {
 
   const absoluteCoolingTarget =
     targetEquilibriumPressure +
+    FIRST_COOLING_SAFETY_BAR +
     carbonationGap / learnedSetpointResponse;
 
   const firstCoolingRetention =
