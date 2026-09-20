@@ -183,7 +183,7 @@ function buildHypotheticalProductionPressureTextV5(
     }
 
     if (estimate.action === "hold") {
-        if (estimate.holdReason === "first_cooling_small_change") {
+        if (estimate.holdReason === "first_cooling_forecast_on_target") {
             return (
                 `הגיזוז בבדיקה שנלקחה ${measurementDay} צפוי להגיע לגיזוז תקין ללא שינוי לחץ (בדיקת גיזוז ראשונה). ` +
                 "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
