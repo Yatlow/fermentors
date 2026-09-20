@@ -34,6 +34,10 @@ import {
     type PressureV9ValidationResult,
 } from "../../SERVICES/cellering/pressurePredictionV9Validation";
 import {
+    calibratePressureV9,
+    type PressureV9CalibrationResult,
+} from "../../SERVICES/cellering/pressurePredictionV9Calibration";
+import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
@@ -454,6 +458,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v9ValidationProgress, setV9ValidationProgress] = useState("");
     const [v9ValidationResult, setV9ValidationResult] =
         useState<PressureV9ValidationResult | null>(null);
+    const [v9ValidationBatches, setV9ValidationBatches] =
+        useState<PressureV9ValidationBatch[]>([]);
+    const [v9CalibrationRunning, setV9CalibrationRunning] = useState(false);
+    const [v9CalibrationResult, setV9CalibrationResult] =
+        useState<PressureV9CalibrationResult | null>(null);
     const [v9ValidationMeta, setV9ValidationMeta] = useState<{
         seed: number;
         requested: number;
@@ -566,6 +575,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
         setV9ValidationRunning(true);
         setV9ValidationResult(null);
+        setV9ValidationBatches([]);
+        setV9CalibrationResult(null);
         setV9ValidationMeta(null);
         setV9ValidationProgress("טוען אינדקסים היסטוריים מכל סגנונות הבירה…");
         setError("");
@@ -733,6 +744,14 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         seed,
                     });
 
+            const selectedBatchIds = new Set(
+                limitedResult.cases.map((item) => item.batchId)
+            );
+            setV9ValidationBatches(
+                validationBatches.filter((batch) =>
+                    selectedBatchIds.has(batch.batchId)
+                )
+            );
             setV9ValidationResult(limitedResult);
             setV9ValidationMeta({
                 seed,
@@ -752,6 +771,48 @@ export default function CellarSimulator({ brews, specs }: Props) {
             setV9ValidationProgress("");
         } finally {
             setV9ValidationRunning(false);
+        }
+    }
+
+    async function runV9Calibration() {
+        if (!v9ValidationBatches.length || !v9ValidationMeta) {
+            setError("קודם צריך להריץ את בדיקת V9 ההיסטורית כדי לטעון את האצוות לזיכרון.");
+            return;
+        }
+
+        setV9CalibrationRunning(true);
+        setV9CalibrationResult(null);
+        setError("");
+
+        try {
+            // Different seed from the validation sampling seed so the
+            // train/calibration/locked-test partition is independent of which
+            // historical interval happened to be selected inside each batch.
+            const calibrationSeed =
+                (v9ValidationMeta.seed ^ 0x9e3779b9) >>> 0;
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const result = calibratePressureV9({
+                batches: v9ValidationBatches,
+                seed: calibrationSeed,
+            });
+
+            if (!result) {
+                throw new Error(
+                    "אין מספיק אצוות מתאימות כדי ליצור Train / Calibration / Locked Test אמינים."
+                );
+            }
+
+            setV9CalibrationResult(result);
+        } catch (reason) {
+            setError(
+                reason instanceof Error
+                    ? reason.message
+                    : String(reason)
+            );
+        } finally {
+            setV9CalibrationRunning(false);
         }
     }
 
@@ -1237,6 +1298,20 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         ? "בודק V9 על מאות אצוות…"
                         : "בדוק V9 על 500 אצוות אקראיות"}
                 </button>
+                <button
+                    type="button"
+                    className="status-filter-button"
+                    disabled={
+                        !v9ValidationBatches.length ||
+                        v9CalibrationRunning ||
+                        v9ValidationRunning
+                    }
+                    onClick={() => void runV9Calibration()}
+                >
+                    {v9CalibrationRunning
+                        ? "מכייל V9 בכמה סבבים…"
+                        : "כייל V9 על המדגם שטעון"}
+                </button>
                 {tank && (
                     <span>
                         בסיס: {source.length} מדידות אמיתיות · אין שמירה של התרחיש
@@ -1255,6 +1330,92 @@ export default function CellarSimulator({ brews, specs }: Props) {
             )}
 
             {error && <div className="cellar-simulator-error">{error}</div>}
+
+            {v9CalibrationResult && (
+                <div className="cellar-simulator-results cellar-simulator-backtest">
+                    <h3>V9 Calibration — כיול רב-סבבי עם Locked Test</h3>
+                    <article className="cellar-simulator-result level-1">
+                        <strong>
+                            {v9CalibrationResult.improvementOnLockedTest !== null &&
+                            v9CalibrationResult.improvementOnLockedTest > 0
+                                ? "הכיול שיפר גם אצוות שלא נגעו בהן בזמן הכיוון"
+                                : "הכיול לא הוכיח שיפור על ה-Locked Test"}
+                        </strong>
+
+                        <p>
+                            הכיול משתמש רק ב-IPA / פייל / חיטה ובסגנונות ותיקים דומים.
+                            לאגר והופי נשארים מחוץ לכיול כרגע בגלל שינוי פרוטוקול /
+                            מעט היסטוריה. הם לא משפיעים על הפרמטרים.
+                        </p>
+
+                        <div className="cellar-simulator-backtest-metrics">
+                            <div>
+                                <b>{Math.round(v9CalibrationResult.calibratedParams.vesselVolumeByTankClass.single)} ל׳</b>
+                                <span>נפח אפקטיבי — בודד</span>
+                            </div>
+                            <div>
+                                <b>{Math.round(v9CalibrationResult.calibratedParams.vesselVolumeByTankClass.double)} ל׳</b>
+                                <span>נפח אפקטיבי — כפול</span>
+                            </div>
+                            <div>
+                                <b>{Math.round(v9CalibrationResult.calibratedParams.vesselVolumeByTankClass.triple)} ל׳</b>
+                                <span>נפח אפקטיבי — משולש</span>
+                            </div>
+                            <div>
+                                <b>{v9CalibrationResult.calibratedParams.kPerHour.toFixed(6)}/h</b>
+                                <span>k כללי מכויל</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9CalibrationResult.currentV9LockedTest.carbonationMae)} vol</b>
+                                <span>Locked Test — V9 לפני כיול</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9CalibrationResult.calibratedLockedTest.carbonationMae)} vol</b>
+                                <span>Locked Test — אחרי כיול</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9CalibrationResult.calibratedLockedTest.carbonationP90AbsError)} vol</b>
+                                <span>P90 אחרי כיול</span>
+                            </div>
+                            <div>
+                                <b>{validationPercent(v9CalibrationResult.improvementOnLockedTest)}</b>
+                                <span>שיפור על Locked Test שלא שימש לכיול</span>
+                            </div>
+                        </div>
+
+                        <p>
+                            פיצול הנתונים: Train {v9CalibrationResult.trainBatchCount} אצוות ·
+                            Calibration {v9CalibrationResult.validationBatchCount} ·
+                            Locked Test {v9CalibrationResult.lockedTestBatchCount} ·
+                            Report-only {v9CalibrationResult.reportOnlyBatchCount}.
+                            {" "}ה-Locked Test נפתח רק אחרי שכל סבבי הגאומטריה וה-k הסתיימו.
+                        </p>
+
+                        <strong>סבבי הכיול</strong>
+                        <div className="cellar-simulator-backtest-cases">
+                            {v9CalibrationResult.rounds.map((round, index) => (
+                                <div key={`${round.name}-${index}`}>
+                                    <b>{index + 1}. {round.name}</b>
+                                    <span>
+                                        בודד {Math.round(round.params.vesselVolumeByTankClass.single)} ·
+                                        כפול {Math.round(round.params.vesselVolumeByTankClass.double)} ·
+                                        משולש {Math.round(round.params.vesselVolumeByTankClass.triple)} ל׳ ·
+                                        k {round.params.kPerHour.toFixed(6)} ·
+                                        Train MAE {validationNumber(round.trainMae)} ·
+                                        Calibration MAE {validationNumber(round.validationMae)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <p className="cellar-simulator-backtest-warning">
+                            הערכים כאן עדיין ניסיוניים ולא נכתבים ל-specs או לפרודקשן.
+                            אם הם יציבים בכמה seeds שונים וגם משפרים את ה-Locked Test,
+                            אז נעביר אותם למודל הפעיל.
+                        </p>
+                    </article>
+                </div>
+            )}
 
             {v9ValidationResult && v9ValidationMeta && (
                 <div className="cellar-simulator-results cellar-simulator-backtest">
