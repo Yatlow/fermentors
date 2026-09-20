@@ -31,6 +31,9 @@ export type PressureDecisionOutcome = {
   startPressure: number;
   startTemperature: number;
   hoursSinceCooling: number | null;
+  carbonationRatePerDay: number | null;
+  temperatureRatePerDay: number | null;
+  pressureRatePerDay: number | null;
   actionPressure: number;
   actionDelta: number;
   outcomeSuccess: boolean;
@@ -270,6 +273,27 @@ function actionPressureAtDecision(
   return startPressure;
 }
 
+function previousMeasurementRatePerDay(
+  rows: PressureV4Measurement[],
+  index: number,
+  field: "carbonation" | "temp" | "pressure",
+  currentValue: number,
+  currentMs: number,
+): number | null {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const previousValue = finite(rows[cursor]?.[field]);
+    const previousMs = measurementTimeMs(rows[cursor]);
+    if (previousValue === null || previousMs === null) continue;
+
+    const hours = (currentMs - previousMs) / 3600000;
+    if (hours < 6 || hours > 7 * 24) continue;
+
+    return (currentValue - previousValue) / (hours / 24);
+  }
+
+  return null;
+}
+
 export function buildPressureDecisionOutcomes(args: {
   historicalBatches: PressureV6HistoricalBatch[];
   targetCarbonation: number;
@@ -313,6 +337,30 @@ export function buildPressureDecisionOutcomes(args: {
         start,
         startPressure,
       );
+      const carbonationRatePerDay =
+        previousMeasurementRatePerDay(
+          rows,
+          startIndex,
+          "carbonation",
+          startCarbonation,
+          startMs,
+        );
+      const temperatureRatePerDay =
+        previousMeasurementRatePerDay(
+          rows,
+          startIndex,
+          "temp",
+          startTemperature,
+          startMs,
+        );
+      const pressureRatePerDay =
+        previousMeasurementRatePerDay(
+          rows,
+          startIndex,
+          "pressure",
+          startPressure,
+          startMs,
+        );
 
       let latestOutcomeCarbonation: number | null = null;
       let latestOutcomeHours = 0;
@@ -347,6 +395,9 @@ export function buildPressureDecisionOutcomes(args: {
               startTemperature,
               hoursSinceCooling:
                 hoursSinceCoolingAt(rows, startIndex),
+              carbonationRatePerDay,
+              temperatureRatePerDay,
+              pressureRatePerDay,
               actionPressure,
               actionDelta: actionPressure - startPressure,
               outcomeSuccess: true,
@@ -374,6 +425,9 @@ export function buildPressureDecisionOutcomes(args: {
               startTemperature,
               hoursSinceCooling:
                 hoursSinceCoolingAt(rows, startIndex),
+              carbonationRatePerDay,
+              temperatureRatePerDay,
+              pressureRatePerDay,
               actionPressure,
               actionDelta: actionPressure - startPressure,
               outcomeSuccess: false,
@@ -395,6 +449,9 @@ export function buildPressureDecisionOutcomes(args: {
             startTemperature,
             hoursSinceCooling:
               hoursSinceCoolingAt(rows, startIndex),
+            carbonationRatePerDay,
+            temperatureRatePerDay,
+            pressureRatePerDay,
             actionPressure,
             actionDelta: actionPressure - startPressure,
             outcomeSuccess: false,
@@ -416,6 +473,9 @@ export function buildPressureDecisionOutcomes(args: {
             startTemperature,
             hoursSinceCooling:
               hoursSinceCoolingAt(rows, startIndex),
+            carbonationRatePerDay,
+            temperatureRatePerDay,
+            pressureRatePerDay,
             actionPressure,
             actionDelta: actionPressure - startPressure,
             outcomeSuccess: false,
