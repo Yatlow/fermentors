@@ -57,6 +57,24 @@ type CandidateForecast = {
   score: number;
 };
 
+export type PressureV6HistoricalBatch = {
+  batchId: string;
+  measurements: PressureV4Measurement[];
+};
+
+type PressureV6OneActionCourse = {
+  batchId: string;
+  startCarbonation: number;
+  startPressure: number;
+  startTemperature: number;
+  startHoursSinceCooling: number | null;
+  actionPressure: number;
+  outcomeCarbonation: number;
+  outcomePressure: number | null;
+  hoursToTarget: number;
+  yeastLossBar: number;
+};
+
 export type PressureV6Estimate = {
   version: 6;
   mode: "trajectory";
@@ -165,6 +183,88 @@ function weightedMedian(
 
 function qualityWeight(quality: "low" | "medium" | "high"): number {
   return quality === "high" ? 1 : quality === "medium" ? 0.65 : 0.25;
+}
+
+export function selectV6HistoricalBatchIds(args: {
+  samples?: PressureV4Sample[];
+  passiveSamples?: PressureV4PassiveSample[];
+  state: PressureV4DecisionState;
+  currentBatchId?: string;
+  limit?: number;
+}): string[] {
+  const currentCarbonation = finite(args.state.carbonation);
+  const currentPressure = finite(args.state.currentPressure);
+  const currentTemp = finite(args.state.currentTemp);
+  const currentHours = finite(args.state.hoursSinceT0);
+  if (
+    currentCarbonation === null ||
+    currentPressure === null
+  ) return [];
+
+  const scores = new Map<string, number>();
+
+  const consider = (input: {
+    batchId?: string;
+    carbonation: number;
+    pressure: number;
+    temp: number | null;
+    hoursSinceT0: number;
+  }) => {
+    const batchId = String(input.batchId ?? "").replace("#", "").trim();
+    if (!batchId || batchId === String(args.currentBatchId ?? "").replace("#", "").trim()) {
+      return;
+    }
+
+    let distance = 0;
+    distance += Math.abs(input.carbonation - currentCarbonation) / 0.18;
+    distance += Math.abs(input.pressure - currentPressure) / 0.45;
+    if (currentTemp !== null && input.temp !== null) {
+      distance += Math.abs(input.temp - currentTemp) / 3;
+    }
+    if (currentHours !== null && Number.isFinite(input.hoursSinceT0)) {
+      distance += Math.abs(input.hoursSinceT0 - currentHours) / 120;
+    }
+
+    const previous = scores.get(batchId);
+    if (previous === undefined || distance < previous) {
+      scores.set(batchId, distance);
+    }
+  };
+
+  for (const sample of args.samples ?? []) {
+    if (
+      Number.isFinite(sample.carbonationBefore) &&
+      Number.isFinite(sample.currentPressure)
+    ) {
+      consider({
+        batchId: sample.batchId,
+        carbonation: sample.carbonationBefore,
+        pressure: sample.currentPressure,
+        temp: finite(sample.currentTemp),
+        hoursSinceT0: sample.hoursSinceT0,
+      });
+    }
+  }
+
+  for (const sample of args.passiveSamples ?? []) {
+    if (
+      Number.isFinite(sample.carbonationBefore) &&
+      Number.isFinite(sample.currentPressure)
+    ) {
+      consider({
+        batchId: sample.batchId,
+        carbonation: sample.carbonationBefore,
+        pressure: sample.currentPressure,
+        temp: finite(sample.currentTemp),
+        hoursSinceT0: sample.hoursSinceT0,
+      });
+    }
+  }
+
+  return Array.from(scores.entries())
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, clamp(args.limit ?? 10, 1, 16))
+    .map(([batchId]) => batchId);
 }
 
 function measurementDateTimeMs(
@@ -594,6 +694,348 @@ function chooseK(args: {
     currentBatchIntervals: 0,
     source: "fallback",
     confidence: "low",
+  };
+}
+
+function previousFiniteValue(
+  rows: PressureV4Measurement[],
+  index: number,
+  field: "pressure" | "temp",
+): number | null {
+  for (let cursor = index; cursor >= 0; cursor -= 1) {
+    const value = finite(rows[cursor]?.[field]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function hoursSinceCoolingAt(
+  rows: PressureV4Measurement[],
+  index: number,
+): number | null {
+  const currentMs = measurementDateTimeMs(rows[index]);
+  if (currentMs === null) return null;
+
+  for (let cursor = index; cursor >= 0; cursor -= 1) {
+    if (!isCoolingStartNote(rows[cursor])) continue;
+    const coolingMs = measurementDateTimeMs(rows[cursor]);
+    if (coolingMs === null) continue;
+    return Math.max(0, (currentMs - coolingMs) / 3600000);
+  }
+  return null;
+}
+
+function buildOneActionCourses(args: {
+  historicalBatches: PressureV6HistoricalBatch[];
+  targetCarbonation: number;
+  targetToleranceVol: number;
+}): PressureV6OneActionCourse[] {
+  const successTolerance = Math.max(args.targetToleranceVol, 0.05);
+  const courses: PressureV6OneActionCourse[] = [];
+
+  for (const batch of args.historicalBatches) {
+    const rows = batch.measurements
+      .slice()
+      .sort((a, b) =>
+        (measurementDateTimeMs(a) ?? 0) -
+        (measurementDateTimeMs(b) ?? 0)
+      );
+
+    for (let startIndex = 0; startIndex < rows.length; startIndex += 1) {
+      const start = rows[startIndex];
+      const startMs = measurementDateTimeMs(start);
+      const startCarbonation = finite(start.carbonation);
+      const startPressure = previousFiniteValue(rows, startIndex, "pressure");
+      const startTemperature = previousFiniteValue(rows, startIndex, "temp");
+
+      if (
+        startMs === null ||
+        startCarbonation === null ||
+        startPressure === null ||
+        startTemperature === null ||
+        startTemperature > 9 ||
+        Math.abs(startCarbonation - args.targetCarbonation) <= successTolerance
+      ) continue;
+
+      const initialDirection = Math.sign(
+        args.targetCarbonation - startCarbonation,
+      );
+      const actionPressure =
+        actionPressureFromNote(start) ?? startPressure;
+
+      let yeastLossBar = 0;
+      let previousPressure = startPressure;
+      let invalidated = false;
+
+      for (
+        let endIndex = startIndex + 1;
+        endIndex < rows.length;
+        endIndex += 1
+      ) {
+        const row = rows[endIndex];
+        const rowMs = measurementDateTimeMs(row);
+        if (rowMs === null) continue;
+
+        const elapsedHours = (rowMs - startMs) / 3600000;
+        if (elapsedHours <= 0) continue;
+        if (elapsedHours > 7 * 24) break;
+
+        if (isBottomCarbonationNote(row)) {
+          invalidated = true;
+          break;
+        }
+
+        // A second deliberate pressure setpoint means the first action did NOT
+        // put the tank on a one-action course, so it is not a V6 training case.
+        if (actionPressureFromNote(row) !== null) {
+          invalidated = true;
+          break;
+        }
+
+        const rowPressure = finite(row.pressure);
+        const afterYeast = yeastPressureAfterFromNote(row);
+        if (afterYeast !== null) {
+          const beforeYeast = rowPressure ?? previousPressure;
+          if (beforeYeast !== null) {
+            const loss = beforeYeast - afterYeast;
+            if (loss >= 0.02 && loss <= 0.6) {
+              yeastLossBar += loss;
+            }
+          }
+        }
+
+        previousPressure = effectivePressureAfterRow(
+          row,
+          rowPressure ?? previousPressure,
+        );
+
+        const outcomeCarbonation = finite(row.carbonation);
+        if (outcomeCarbonation === null) continue;
+
+        const outcomeDirection = Math.sign(
+          args.targetCarbonation - outcomeCarbonation,
+        );
+        const reachedTarget =
+          Math.abs(outcomeCarbonation - args.targetCarbonation) <=
+          successTolerance;
+        const crossedTarget =
+          initialDirection !== 0 &&
+          outcomeDirection !== initialDirection &&
+          Math.abs(outcomeCarbonation - args.targetCarbonation) <= 0.08;
+
+        if (!reachedTarget && !crossedTarget) continue;
+
+        courses.push({
+          batchId: String(batch.batchId),
+          startCarbonation,
+          startPressure,
+          startTemperature,
+          startHoursSinceCooling: hoursSinceCoolingAt(rows, startIndex),
+          actionPressure,
+          outcomeCarbonation,
+          outcomePressure:
+            rowPressure ?? previousPressure,
+          hoursToTarget: elapsedHours,
+          yeastLossBar,
+        });
+        break;
+      }
+
+      if (invalidated) continue;
+    }
+  }
+
+  return courses;
+}
+
+function oneActionCourseEstimate(args: {
+  courses: PressureV6OneActionCourse[];
+  state: PressureV4DecisionState;
+  targetCarbonation: number;
+}): {
+  pressure: number;
+  hoursToTarget: number;
+  yeastLossBar: number;
+  outcomePressure: number | null;
+  supportBatches: number;
+  supportCourses: number;
+  confidence: Confidence;
+} | null {
+  const currentCarbonation = finite(args.state.carbonation);
+  const currentPressure = finite(args.state.currentPressure);
+  const currentTemp = finite(args.state.currentTemp);
+  const currentCoolingHours = finite(args.state.cooling?.hoursSinceCooling);
+
+  if (
+    currentCarbonation === null ||
+    currentPressure === null ||
+    currentTemp === null
+  ) return null;
+
+  const currentGap = args.targetCarbonation - currentCarbonation;
+
+  const ranked = args.courses
+    .map((course) => {
+      const courseGap =
+        args.targetCarbonation - course.startCarbonation;
+      if (
+        Math.sign(courseGap) !== Math.sign(currentGap) &&
+        Math.abs(currentGap) > 0.03
+      ) {
+        return null;
+      }
+
+      let distance = 0;
+      distance += Math.abs(courseGap - currentGap) / 0.16;
+      distance += Math.abs(course.startPressure - currentPressure) / 0.45;
+      distance += Math.abs(course.startTemperature - currentTemp) / 2.5;
+
+      if (
+        currentCoolingHours !== null &&
+        course.startHoursSinceCooling !== null
+      ) {
+        distance +=
+          Math.abs(course.startHoursSinceCooling - currentCoolingHours) /
+          72;
+      }
+
+      return {
+        course,
+        weight: 1 / (0.35 + distance),
+      };
+    })
+    .filter((row): row is {
+      course: PressureV6OneActionCourse;
+      weight: number;
+    } => row !== null)
+    .sort((a, b) => b.weight - a.weight);
+
+  if (!ranked.length) return null;
+
+  const bestPerBatch = new Map<
+    string,
+    { course: PressureV6OneActionCourse; weight: number }
+  >();
+  for (const row of ranked) {
+    if (!bestPerBatch.has(row.course.batchId)) {
+      bestPerBatch.set(row.course.batchId, row);
+    }
+  }
+
+  const selected = Array.from(bestPerBatch.values())
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 12);
+
+  const pressure = weightedMedian(
+    selected.map((row) => ({
+      value: row.course.actionPressure,
+      weight: row.weight,
+    })),
+  );
+  const hoursToTarget = weightedMedian(
+    selected.map((row) => ({
+      value: row.course.hoursToTarget,
+      weight: row.weight,
+    })),
+  );
+  const yeastLossBar = weightedMedian(
+    selected.map((row) => ({
+      value: row.course.yeastLossBar,
+      weight: row.weight,
+    })),
+  );
+  const outcomePressureRows = selected
+    .filter((row) => row.course.outcomePressure !== null)
+    .map((row) => ({
+      value: row.course.outcomePressure!,
+      weight: row.weight,
+    }));
+  const outcomePressure = weightedMedian(outcomePressureRows);
+
+  if (
+    pressure === null ||
+    hoursToTarget === null ||
+    yeastLossBar === null
+  ) return null;
+
+  return {
+    pressure,
+    hoursToTarget: clamp(hoursToTarget, 24, 7 * 24),
+    yeastLossBar: clamp(yeastLossBar, 0, 0.8),
+    outcomePressure,
+    supportBatches: selected.length,
+    supportCourses: ranked.length,
+    confidence:
+      selected.length >= 8
+        ? "high"
+        : selected.length >= 4
+          ? "medium"
+          : "low",
+  };
+}
+
+function reliableCurrentTrend(args: {
+  state: PressureV4DecisionState;
+  currentCarbonation: number;
+  targetCarbonation: number;
+  targetToleranceVol: number;
+  historicalHoursToTarget: number | null;
+}): {
+  onCourse: boolean;
+  projected48: number | null;
+  hoursToTarget: number | null;
+} {
+  const trend = args.state.carbonationTrend;
+  const rate = finite(trend?.ratePerDay);
+  const hoursBetween = finite(trend?.hoursSincePrevious);
+  const checks = finite(trend?.checksInPhase) ?? 0;
+
+  if (
+    rate === null ||
+    hoursBetween === null ||
+    checks < 2 ||
+    hoursBetween < 12 ||
+    hoursBetween > 96 ||
+    Math.abs(rate) < 0.005
+  ) {
+    return {
+      onCourse: false,
+      projected48: null,
+      hoursToTarget: null,
+    };
+  }
+
+  const gap = args.targetCarbonation - args.currentCarbonation;
+  if (Math.sign(rate) !== Math.sign(gap)) {
+    return {
+      onCourse: false,
+      projected48: args.currentCarbonation + rate * 2,
+      hoursToTarget: null,
+    };
+  }
+
+  const daysToTarget = gap / rate;
+  const hoursToTarget = daysToTarget * 24;
+  const projected48 = args.currentCarbonation + rate * 2;
+  const allowedHorizon =
+    args.historicalHoursToTarget === null
+      ? 96
+      : clamp(args.historicalHoursToTarget * 1.5, 48, 120);
+
+  const noDangerousOvershoot =
+    gap > 0
+      ? projected48 <=
+        args.targetCarbonation + args.targetToleranceVol + 0.04
+      : projected48 >=
+        args.targetCarbonation - args.targetToleranceVol - 0.04;
+
+  return {
+    onCourse:
+      hoursToTarget >= 8 &&
+      hoursToTarget <= allowedHorizon &&
+      noDangerousOvershoot,
+    projected48,
+    hoursToTarget,
   };
 }
 
@@ -1153,6 +1595,7 @@ export function estimatePressureTargetV6(args: {
   targetToleranceVol?: number;
   coldReferenceTemperature?: number | null;
   currentBatchId?: string;
+  historicalBatches?: PressureV6HistoricalBatch[];
 }): PressureV6Estimate | null {
   const measuredCarbonation = finite(args.state.carbonation);
   const currentPressure = finite(args.state.currentPressure);
@@ -1201,6 +1644,195 @@ export function estimatePressureTargetV6(args: {
     targetEquilibriumPressure === null ||
     currentEquilibriumPressure === null
   ) return null;
+
+
+  const oneActionCourses = buildOneActionCourses({
+    historicalBatches: args.historicalBatches ?? [],
+    targetCarbonation: args.targetCarbonation,
+    targetToleranceVol,
+  });
+  const oneActionHistory = oneActionCourseEstimate({
+    courses: oneActionCourses,
+    state: {
+      ...args.state,
+      carbonation: estimatedCurrentCarbonation,
+    },
+    targetCarbonation: args.targetCarbonation,
+  });
+
+  if (oneActionHistory) {
+    const trend = reliableCurrentTrend({
+      state: args.state,
+      currentCarbonation: estimatedCurrentCarbonation,
+      targetCarbonation: args.targetCarbonation,
+      targetToleranceVol,
+      historicalHoursToTarget: oneActionHistory.hoursToTarget,
+    });
+
+    const currentGap =
+      args.targetCarbonation - estimatedCurrentCarbonation;
+    const historyPressure = clamp(
+      oneActionHistory.pressure,
+      0,
+      MAX_OPERATIONAL_PRESSURE_BAR,
+    );
+
+    // With direct evidence from the current tank, HOLD wins over changing to
+    // a population prior as long as the observed trajectory is already headed
+    // into the successful historical time window.
+    const targetPressure = trend.onCourse
+      ? currentPressure
+      : historyPressure;
+
+    const action: PressureV6Estimate["action"] =
+      Math.abs(targetPressure - currentPressure) < 0.025
+        ? "hold"
+        : targetPressure > currentPressure
+          ? "raise"
+          : "lower";
+
+    const projected48 =
+      trend.projected48 ??
+      (
+        estimatedCurrentCarbonation +
+        currentGap *
+          clamp(48 / oneActionHistory.hoursToTarget, 0, 1)
+      );
+
+    const predictedAtTarget =
+      action === "hold"
+        ? projected48
+        : (
+          estimatedCurrentCarbonation +
+          currentGap *
+            clamp(48 / oneActionHistory.hoursToTarget, 0, 1)
+        );
+
+    const terminalOutcomePressure =
+      oneActionHistory.outcomePressure ??
+      targetEquilibriumPressure;
+
+    return {
+      version: 6,
+      mode: "trajectory",
+
+      measuredCarbonation,
+      estimatedCurrentCarbonation:
+        Number(estimatedCurrentCarbonation.toFixed(3)),
+      hoursSinceCarbonationMeasurement:
+        Number(currentProjection.hoursSinceMeasurement.toFixed(1)),
+
+      currentPressure,
+      currentTemperature,
+      forecastTemperature: coldReferenceTemperature,
+      targetCarbonation: args.targetCarbonation,
+      targetToleranceVol,
+
+      kPerHour: Number(k.kPerHour.toFixed(6)),
+      kSource: k.source,
+      historicalKPerHour:
+        k.historicalKPerHour === null
+          ? null
+          : Number(k.historicalKPerHour.toFixed(6)),
+      currentBatchKPerHour:
+        k.currentBatchKPerHour === null
+          ? null
+          : Number(k.currentBatchKPerHour.toFixed(6)),
+      kHistoricalBatchCount: k.historicalBatches,
+      kCurrentBatchIntervalCount: k.currentBatchIntervals,
+
+      supportCount: oneActionHistory.supportBatches,
+      supportSampleCount: oneActionHistory.supportCourses,
+      confidence: oneActionHistory.confidence,
+      historicalPressurePrior:
+        Number(oneActionHistory.pressure.toFixed(2)),
+      historicalProgressFraction48h:
+        Number(
+          clamp(48 / oneActionHistory.hoursToTarget, 0, 1).toFixed(3),
+        ),
+
+      targetEquilibriumPressure:
+        Number(targetEquilibriumPressure.toFixed(2)),
+      equilibriumPressureForCurrentCarb:
+        Number(currentEquilibriumPressure.toFixed(2)),
+      pressureDistanceFromEquilibrium:
+        Number(
+          (currentPressure - currentEquilibriumPressure).toFixed(2),
+        ),
+
+      expectedOperationalPressureLossBar:
+        Number(oneActionHistory.yeastLossBar.toFixed(2)),
+      expectedPressureLossEvents:
+        oneActionHistory.yeastLossBar >= 0.03 ? 1 : 0,
+      operationalLossSource:
+        oneActionHistory.yeastLossBar >= 0.03
+          ? "observed_yeast_drops"
+          : "none",
+      observedYeastDropMedianBar:
+        Number(oneActionHistory.yeastLossBar.toFixed(3)),
+      observedYeastDropCount:
+        oneActionHistory.yeastLossBar >= 0.03 ? 1 : 0,
+
+      coolingHoursRemaining: Number(
+        estimateCoolingHours({
+          state: args.state,
+          currentTemperature,
+          coldReferenceTemperature,
+        }).toFixed(1),
+      ),
+
+      predictedWithoutChange:
+        Number(projected48.toFixed(3)),
+      predictedAtTarget:
+        Number(predictedAtTarget.toFixed(3)),
+      terminalCarbonationWithoutChange:
+        trend.onCourse
+          ? Number(args.targetCarbonation.toFixed(3))
+          : Number(projected48.toFixed(3)),
+      terminalCarbonationAtTarget:
+        Number(args.targetCarbonation.toFixed(3)),
+      terminalPressureWithoutChange:
+        trend.onCourse
+          ? Number(terminalOutcomePressure.toFixed(2))
+          : Number(currentPressure.toFixed(2)),
+      terminalPressureAtTarget:
+        Number(terminalOutcomePressure.toFixed(2)),
+      terminalHoursAtTarget:
+        trend.onCourse && trend.hoursToTarget !== null
+          ? Number(trend.hoursToTarget.toFixed(1))
+          : Number(oneActionHistory.hoursToTarget.toFixed(1)),
+
+      effectiveVolPerBar48h: 0,
+
+      rawTargetPressure:
+        Number(historyPressure.toFixed(2)),
+      targetPressure:
+        Number(targetPressure.toFixed(2)),
+      targetPressureRangeLow:
+        Number(Math.max(0, historyPressure - 0.08).toFixed(2)),
+      targetPressureRangeHigh:
+        Number(
+          Math.min(
+            MAX_OPERATIONAL_PRESSURE_BAR,
+            historyPressure + 0.08,
+          ).toFixed(2),
+        ),
+
+      action,
+      holdReason:
+        action === "hold"
+          ? Math.abs(
+              estimatedCurrentCarbonation -
+              args.targetCarbonation
+            ) <= targetToleranceVol
+            ? "already_in_tolerance"
+            : "trajectory_on_course"
+          : null,
+      recommendationVisibility:
+        action === "hold" ? "tank_only" : "global",
+      edgeCase: null,
+    };
+  }
 
   const historicalPrior = historicalCoursePrior({
     samples: args.samples ?? [],
