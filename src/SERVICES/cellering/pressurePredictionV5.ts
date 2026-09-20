@@ -13,7 +13,6 @@ const OPERATIONAL_VOL_PER_BAR_MIN = 0.25;
 const OPERATIONAL_VOL_PER_BAR_MAX = 2.00;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 const DEFAULT_TARGET_TOLERANCE_VOL = 0.04;
-const FIRST_COOLING_BOTTOM_CARBONATION_THRESHOLD_VOL = 1.95;
 const STABLE_BOTTOM_CARBONATION_THRESHOLD_VOL = 2.15;
 const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.05;
 const FIRST_COOLING_SAFETY_BAR = 0.10;
@@ -715,12 +714,15 @@ export function estimatePressureTargetV5(args: {
       Number(predictedWithoutChange.toFixed(3)),
   };
 
-  const bottomCarbonationThreshold =
-    firstCoolingMode
-      ? FIRST_COOLING_BOTTOM_CARBONATION_THRESHOLD_VOL
-      : STABLE_BOTTOM_CARBONATION_THRESHOLD_VOL;
-
-  if (measuredCarbonation < bottomCarbonationThreshold) {
+  // A stable cold tank below the direct-treatment cutoff goes straight to
+  // bottom carbonation. The FIRST check is different: stored head pressure and
+  // remaining cooling may still make an ordinary pressure increase sufficient,
+  // so first-cooling routing is decided later from the required pressure /
+  // max-pressure forecast instead of from carbonation alone.
+  if (
+    !firstCoolingMode &&
+    measuredCarbonation < STABLE_BOTTOM_CARBONATION_THRESHOLD_VOL
+  ) {
     return {
       ...base,
       rawTargetPressure: null,
