@@ -668,6 +668,8 @@ export function estimatePressureTargetV5(args: {
     | "predictedAtTarget"
     | "action"
     | "edgeCase"
+    | "holdReason"
+    | "recommendationVisibility"
   > = {
     version: 5,
     mode: firstCoolingMode ? "first_cooling" : "stable",
