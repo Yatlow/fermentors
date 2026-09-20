@@ -4,6 +4,7 @@ import type {
 import {
   simulateV9ObservedClosedInterval,
   type PressureV9TankClass,
+  type PressureV9TemperaturePathPoint,
 } from "./pressurePredictionV9Physics";
 
 const MIN_PLAUSIBLE_CARBONATION_VOL = 0.5;
@@ -38,6 +39,13 @@ export type PressureV9ValidationCase = {
   endTemperature: number;
   temperatureDrop: number;
   actualPressureChange: number | null;
+  pressureResidualBar: number | null;
+  suspectedPressureEvent:
+    | "possible_unrecorded_release"
+    | "possible_unrecorded_addition"
+    | "none"
+    | "unknown";
+  temperaturePathPointCount: number;
   estimatedHeadspaceFraction: number | null;
   kPerHour: number;
   startMeasurementId: string;
@@ -72,6 +80,7 @@ export type PressureV9ValidationResult = {
   byHorizon: PressureV9ValidationGroup[];
   byCoolingDrop: PressureV9ValidationGroup[];
   byActualPressureChange: PressureV9ValidationGroup[];
+  byPressureResidual: PressureV9ValidationGroup[];
   byHeadspaceFraction: PressureV9ValidationGroup[];
   byStartCarbonation: PressureV9ValidationGroup[];
   worstCases: PressureV9ValidationCase[];
@@ -142,27 +151,87 @@ function noteText(row: PressureV4Measurement): string {
   return String(row.notes ?? "");
 }
 
+function normalizedNote(
+  row: PressureV4Measurement,
+): string {
+  return noteText(row)
+    .replace(/[–—−]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikePressureInterventionNote(
+  row: PressureV4Measurement,
+): boolean {
+  const note = normalizedNote(row);
+  if (!note) return false;
+
+  if (note.includes("גיזוז מלמטה")) return true;
+
+  const actionWord =
+    /(?:העל(?:את|ה)|להעלות|הוספת|הורד(?:ת|ה)|להוריד|הנמכ(?:ת|ה)|שחרור|שחרר|פריק(?:ת|ה)|הוצאת|פתיחת|פתח|שינוי|שינה|כיוון|כוונון|ויסות|ווסת)/i;
+  const pressureWord = /(?:לחץ|bar|באר)/i;
+
+  if (actionWord.test(note) && pressureWord.test(note)) {
+    return true;
+  }
+
+  // Common shorthand: "לחץ ל 1.15", "לחץ -> 1.15", etc.
+  if (
+    /לחץ\s*(?:ל|על|עד|->|=|:)\s*-?\s*\d+(?:[.,]\d+)?/i.test(note)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function pressureTargetFromNote(
   row: PressureV4Measurement,
 ): number | null {
-  if (noteText(row).includes("גיזוז מלמטה")) return null;
+  const note = normalizedNote(row);
+  if (!note || note.includes("גיזוז מלמטה")) return null;
 
-  const matches = Array.from(
-    noteText(row).matchAll(
-      /(?:העלאת|הורדת|שינוי)\s+לחץ\s+ל\s*:?-?\s*(\d+(?:[.,]\d+)?)/gi,
-    ),
-  );
-  const match = matches[matches.length - 1];
-  return match ? finite(match[1]) : null;
+  // "לחץ אחרי" on a yeast-drop note is an observation after the drop,
+  // not a regulator/set-point action.
+  if (
+    /שמר(?:ים|י)/.test(note) &&
+    /לחץ\s+אחרי/i.test(note)
+  ) {
+    return null;
+  }
+
+  const patterns = [
+    /(?:העל(?:את|ה)|להעלות|הוספת|הורד(?:ת|ה)|להוריד|הנמכ(?:ת|ה)|שחרור|שחרר|פריק(?:ת|ה)|הוצאת|פתיחת|פתח|שינוי|שינה|כיוון|כוונון|ויסות|ווסת)[^\d]{0,24}(?:לחץ[^\d]{0,12})?(?:ל|על|עד|->|=|:)?\s*(-?\d+(?:[.,]\d+)?)/gi,
+    /לחץ\s*(?:ל|על|עד|->|=|:)\s*(-?\d+(?:[.,]\d+)?)/gi,
+  ];
+
+  const candidates: number[] = [];
+  for (const pattern of patterns) {
+    for (const match of note.matchAll(pattern)) {
+      const value = finite(match[1]);
+      if (
+        value !== null &&
+        value >= 0 &&
+        value <= 2.2
+      ) {
+        candidates.push(value);
+      }
+    }
+  }
+
+  return candidates.length
+    ? candidates[candidates.length - 1]
+    : null;
 }
 
 function isIntervention(
   row: PressureV4Measurement,
 ): boolean {
-  const note = noteText(row);
+  const note = normalizedNote(row);
   return (
     note.includes("גיזוז מלמטה") ||
-    pressureTargetFromNote(row) !== null ||
+    looksLikePressureInterventionNote(row) ||
     /שמר(?:ים|י)/.test(note)
   );
 }
@@ -178,10 +247,14 @@ function actualStartPressure(
   // previous day. If there was an explicit pressure action on this row, that
   // is the pressure actually set after the carbonation check. Otherwise the
   // numeric pressure must exist on this same measurement row.
-  return (
-    pressureTargetFromNote(row) ??
-    finite(row.pressure)
-  );
+  const noteTarget = pressureTargetFromNote(row);
+  if (noteTarget !== null) return noteTarget;
+
+  if (looksLikePressureInterventionNote(row)) {
+    return null;
+  }
+
+  return finite(row.pressure);
 }
 
 function tankClassForNumber(
@@ -219,6 +292,7 @@ function eligibleIntervals(
   startTemperature: number;
   endTemperature: number;
   durationHours: number;
+  temperaturePath: PressureV9TemperaturePathPoint[];
 }[] {
   const rows = batch.measurements
     .map((row, index) => ({
@@ -246,6 +320,7 @@ function eligibleIntervals(
     startTemperature: number;
     endTemperature: number;
     durationHours: number;
+    temperaturePath: PressureV9TemperaturePathPoint[];
   }[] = [];
 
   for (let checkIndex = 0; checkIndex < checks.length - 1; checkIndex += 1) {
@@ -301,6 +376,33 @@ function eligibleIntervals(
       startPressure > 2.2
     ) continue;
 
+    const temperaturePath = rows
+      .slice(startIndex, endIndex + 1)
+      .map((item) => {
+        const temperature = finite(item.row.temp);
+        if (temperature === null) return null;
+        return {
+          hour:
+            (item.timeMs - start.timeMs) /
+            3600000,
+          temperature,
+        };
+      })
+      .filter(
+        (item): item is PressureV9TemperaturePathPoint =>
+          item !== null &&
+          item.hour >= 0 &&
+          item.hour <= durationHours,
+      );
+
+    if (
+      temperaturePath.some(
+        (point) => point.temperature > 9.5,
+      )
+    ) {
+      continue;
+    }
+
     intervals.push({
       start,
       end,
@@ -308,6 +410,7 @@ function eligibleIntervals(
       startTemperature,
       endTemperature,
       durationHours,
+      temperaturePath,
     });
   }
 
@@ -405,6 +508,27 @@ function pressureChangeBucket(deltaBar: number | null): string {
   return "עלייה מעל 0.30 bar";
 }
 
+function pressureResidualBucket(
+  item: PressureV9ValidationCase,
+): string {
+  if (item.suspectedPressureEvent === "unknown") {
+    return "לחץ סופי חסר";
+  }
+  if (
+    item.suspectedPressureEvent ===
+    "possible_unrecorded_release"
+  ) {
+    return "חשד לשחרור/הורדת לחץ לא מתועדת";
+  }
+  if (
+    item.suspectedPressureEvent ===
+    "possible_unrecorded_addition"
+  ) {
+    return "חשד להוספת לחץ לא מתועדת";
+  }
+  return "ללא residual חריג (±0.18 bar)";
+}
+
 function headspaceBucket(fraction: number | null): string {
   if (fraction === null || !Number.isFinite(fraction)) return "headspace לא ידוע";
   if (fraction < 0.15) return "headspace <15%";
@@ -478,6 +602,8 @@ export function runPressureV9PhysicsValidation(args: {
           selected.endTemperature,
         durationHours:
           selected.durationHours,
+        temperaturePath:
+          selected.temperaturePath,
         kPerHour:
           finite(args.kPerHourOverride) ??
           batch.kPerHour,
@@ -505,6 +631,20 @@ export function runPressureV9PhysicsValidation(args: {
         ? null
         : actualEndPressure -
           selected.startPressure;
+    const pressureResidualBar =
+      actualEndPressure === null
+        ? null
+        : actualEndPressure -
+          prediction.predictedPressure;
+    const suspectedPressureEvent:
+      PressureV9ValidationCase["suspectedPressureEvent"] =
+      pressureResidualBar === null
+        ? "unknown"
+        : pressureResidualBar <= -0.18
+          ? "possible_unrecorded_release"
+          : pressureResidualBar >= 0.18
+            ? "possible_unrecorded_addition"
+            : "none";
     const nominalVolume =
       nominalVesselVolume(tankClass);
     const estimatedHeadspaceFraction =
@@ -549,6 +689,10 @@ export function runPressureV9PhysicsValidation(args: {
         selected.endTemperature,
       temperatureDrop,
       actualPressureChange,
+      pressureResidualBar,
+      suspectedPressureEvent,
+      temperaturePathPointCount:
+        selected.temperaturePath.length,
       estimatedHeadspaceFraction,
       kPerHour:
         finite(args.kPerHourOverride) ??
@@ -628,6 +772,10 @@ export function runPressureV9PhysicsValidation(args: {
     byActualPressureChange: grouped(
       cases,
       (item) => pressureChangeBucket(item.actualPressureChange),
+    ),
+    byPressureResidual: grouped(
+      cases,
+      (item) => pressureResidualBucket(item),
     ),
     byHeadspaceFraction: grouped(
       cases,
