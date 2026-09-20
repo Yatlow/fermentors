@@ -39,7 +39,11 @@ type KEstimate = {
 type FutureLossEstimate = {
   totalBar: number;
   eventCount: number;
-  source: "observed_yeast_drops" | "yeast_drop_fallback" | "none";
+  source:
+    | "historical_one_action_courses"
+    | "observed_yeast_drops"
+    | "yeast_drop_fallback"
+    | "none";
   observedDropMedianBar: number | null;
   observedDropCount: number;
 };
@@ -1766,7 +1770,7 @@ export function estimatePressureTargetV6(args: {
         oneActionHistory.yeastLossBar >= 0.03 ? 1 : 0,
       operationalLossSource:
         oneActionHistory.yeastLossBar >= 0.03
-          ? "observed_yeast_drops"
+          ? "historical_one_action_courses"
           : "none",
       observedYeastDropMedianBar:
         Number(oneActionHistory.yeastLossBar.toFixed(3)),
