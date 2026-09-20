@@ -36,6 +36,7 @@ const BrewCalc = lazy(() => import("./components/tools/BrewerCalc"));
 const ManualBatchAssignment = lazy(() => import("./components/tools/ManualBatchAssignment"));
 const ManualStatusAssignment = lazy(() => import("./components/tools/Manualstatusassignment "));
 const EditApprovedUsers = lazy(() => import("./components/tools/EditApprovedUsers"));
+const CellarSimulator = lazy(() => import("./components/tools/CellarSimulator"));
 const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));
 const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentReportsView"));
 const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
@@ -185,7 +186,7 @@ function App() {
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר">("אריזה");
-    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
+    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "cellarSimulator">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
     const [resetKey, setResetKey] = useState(0);
@@ -415,6 +416,7 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "cellarSimulator" ? "active" : ""}`} onClick={() => setSelectedAdminTools("cellarSimulator")}><span>סימולטור סלרינג V5</span></button>
                     </div>}
                     {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{PLANNING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
@@ -440,6 +442,7 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "cellarSimulator" && <CellarSimulator brews={brews} specs={specs} />}
                 {selectedView === "מקרר" && <CoolerMap brews={brews} />}
             </Suspense>
         </div>
