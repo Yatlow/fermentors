@@ -24,7 +24,7 @@ export type PressureV6BacktestModel = {
 
 export type PressureV6BacktestDirection = "raise" | "hold" | "lower";
 
-type PressureDecisionOutcome = {
+export type PressureDecisionOutcome = {
   batchId: string;
   decisionDateTimeMs: number;
   startCarbonation: number;
@@ -39,7 +39,7 @@ type PressureDecisionOutcome = {
   outcomeReason: "target_reached" | "overshoot" | "pressure_correction" | "bottom_carbonation";
 };
 
-type CounterfactualOutcomeEstimate = {
+export type CounterfactualOutcomeEstimate = {
   successProbability: number;
   expectedAbsCarbonationErrorVol: number | null;
   supportBatches: number;
@@ -110,7 +110,7 @@ export type PressureV6BacktestResult = {
   cases: PressureV6BacktestCase[];
 };
 
-function normalizeBatchId(value: unknown): string {
+export function normalizePressureBatchId(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
 }
 
@@ -147,7 +147,7 @@ function quantile(values: number[], q: number): number | null {
   return clean[lower] * (1 - fraction) + clean[upper] * fraction;
 }
 
-function coldReferenceTemperature(
+export function pressureBacktestColdReferenceTemperature(
   points: PressureEquilibriumV4Point[],
 ): number | null {
   const values = points
@@ -161,7 +161,7 @@ function coldReferenceTemperature(
     : (values[middle - 1] + values[middle]) / 2;
 }
 
-function directionForDelta(delta: number): PressureV6BacktestDirection {
+export function pressureDirectionForDelta(delta: number): PressureV6BacktestDirection {
   if (Math.abs(delta) < 0.05) return "hold";
   return delta > 0 ? "raise" : "lower";
 }
@@ -265,7 +265,7 @@ function actionPressureAtDecision(
   return startPressure;
 }
 
-function buildDecisionOutcomes(args: {
+export function buildPressureDecisionOutcomes(args: {
   historicalBatches: PressureV6HistoricalBatch[];
   targetCarbonation: number;
   targetToleranceVol: number;
@@ -274,7 +274,7 @@ function buildDecisionOutcomes(args: {
   const outcomes: PressureDecisionOutcome[] = [];
 
   for (const batch of args.historicalBatches) {
-    const batchId = normalizeBatchId(batch.batchId);
+    const batchId = normalizePressureBatchId(batch.batchId);
     if (!batchId) continue;
 
     const rows = batch.measurements
@@ -448,7 +448,7 @@ function stripHeldOutDecisionNote(note: unknown): string | undefined {
   return parts.length ? parts.join(" | ") : undefined;
 }
 
-function measurementsAtDecision(
+export function pressureMeasurementsAtDecision(
   batch: PressureV6HistoricalBatch,
   decision: PressureDecisionOutcome,
 ): PressureV4Measurement[] {
@@ -517,7 +517,7 @@ function outcomeDistance(args: {
   );
 }
 
-function estimateCounterfactualOutcome(args: {
+export function estimatePressureCounterfactualOutcome(args: {
   training: PressureDecisionOutcome[];
   query: PressureDecisionOutcome;
   candidatePressure: number;
@@ -590,7 +590,7 @@ function estimateCounterfactualOutcome(args: {
   };
 }
 
-function isCounterfactualSupported(
+export function isPressureCounterfactualSupported(
   estimate: CounterfactualOutcomeEstimate | null,
 ): estimate is CounterfactualOutcomeEstimate {
   return Boolean(
@@ -646,7 +646,7 @@ export function runPressureV6LeaveOneBatchOutBacktest(args: {
   targetToleranceVol: number;
   maxCases?: number;
 }): PressureV6BacktestResult {
-  const allOutcomes = buildDecisionOutcomes({
+  const allOutcomes = buildPressureDecisionOutcomes({
     historicalBatches: args.historicalBatches,
     targetCarbonation: args.targetCarbonation,
     targetToleranceVol: args.targetToleranceVol,
@@ -662,7 +662,7 @@ export function runPressureV6LeaveOneBatchOutBacktest(args: {
 
   const batchMap = new Map(
     args.historicalBatches.map((batch) => [
-      normalizeBatchId(batch.batchId),
+      normalizePressureBatchId(batch.batchId),
       batch,
     ]),
   );
@@ -671,7 +671,7 @@ export function runPressureV6LeaveOneBatchOutBacktest(args: {
   let failedPredictionCount = 0;
 
   for (const decision of testDecisions) {
-    const heldOutBatchId = normalizeBatchId(decision.batchId);
+    const heldOutBatchId = normalizePressureBatchId(decision.batchId);
     const heldOutBatch = batchMap.get(heldOutBatchId);
     if (!heldOutBatch) {
       failedPredictionCount += 1;
@@ -679,26 +679,26 @@ export function runPressureV6LeaveOneBatchOutBacktest(args: {
     }
 
     const trainingBatches = args.historicalBatches.filter(
-      (batch) => normalizeBatchId(batch.batchId) !== heldOutBatchId,
+      (batch) => normalizePressureBatchId(batch.batchId) !== heldOutBatchId,
     );
     const trainingOutcomes = allOutcomes.filter(
       (outcome) => outcome.batchId !== heldOutBatchId,
     );
 
     const samples = args.model.samples.filter(
-      (sample) => normalizeBatchId(sample.batchId) !== heldOutBatchId,
+      (sample) => normalizePressureBatchId(sample.batchId) !== heldOutBatchId,
     );
     const passiveSamples = args.model.passiveSamples.filter(
-      (sample) => normalizeBatchId(sample.batchId) !== heldOutBatchId,
+      (sample) => normalizePressureBatchId(sample.batchId) !== heldOutBatchId,
     );
     const transitions = args.model.transitions.filter(
-      (sample) => normalizeBatchId(sample.batchId) !== heldOutBatchId,
+      (sample) => normalizePressureBatchId(sample.batchId) !== heldOutBatchId,
     );
     const equilibriumPoints = args.model.equilibriumPoints.filter(
-      (point) => normalizeBatchId(point.batchId) !== heldOutBatchId,
+      (point) => normalizePressureBatchId(point.batchId) !== heldOutBatchId,
     );
 
-    const decisionMeasurements = measurementsAtDecision(
+    const decisionMeasurements = pressureMeasurementsAtDecision(
       heldOutBatch,
       decision,
     );
@@ -735,7 +735,7 @@ export function runPressureV6LeaveOneBatchOutBacktest(args: {
       targetCarbonation: args.targetCarbonation,
       targetToleranceVol: args.targetToleranceVol,
       coldReferenceTemperature:
-        coldReferenceTemperature(equilibriumPoints),
+        pressureBacktestColdReferenceTemperature(equilibriumPoints),
       currentBatchId: heldOutBatchId,
     });
 
@@ -745,21 +745,21 @@ export function runPressureV6LeaveOneBatchOutBacktest(args: {
     }
 
     const predictedPressure = estimate.targetPressure;
-    const modelOutcome = estimateCounterfactualOutcome({
+    const modelOutcome = estimatePressureCounterfactualOutcome({
       training: trainingOutcomes,
       query: decision,
       candidatePressure: predictedPressure,
       targetCarbonation: args.targetCarbonation,
     });
-    const humanOutcome = estimateCounterfactualOutcome({
+    const humanOutcome = estimatePressureCounterfactualOutcome({
       training: trainingOutcomes,
       query: decision,
       candidatePressure: decision.actionPressure,
       targetCarbonation: args.targetCarbonation,
     });
 
-    const modelSupported = isCounterfactualSupported(modelOutcome);
-    const humanSupported = isCounterfactualSupported(humanOutcome);
+    const modelSupported = isPressureCounterfactualSupported(modelOutcome);
+    const humanSupported = isPressureCounterfactualSupported(humanOutcome);
 
     cases.push({
       batchId: heldOutBatchId,
@@ -772,7 +772,7 @@ export function runPressureV6LeaveOneBatchOutBacktest(args: {
       humanActualSuccess: decision.outcomeSuccess,
 
       predictedPressure,
-      predictedDirection: directionForDelta(
+      predictedDirection: pressureDirectionForDelta(
         predictedPressure - decision.startPressure,
       ),
 
