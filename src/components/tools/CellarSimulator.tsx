@@ -857,77 +857,117 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
             {backtestResult && (
                 <div className="cellar-simulator-results cellar-simulator-backtest">
-                    <h3>Backtest — האם אפשר לסמוך על V6?</h3>
+                    <h3>Backtest — האם ההחלטה של V6 צפויה לעבוד?</h3>
                     <article className="cellar-simulator-result level-1">
                         <strong>
                             {backtestReadinessText(backtestResult.readiness)}
                         </strong>
                         <p>
-                            בדיקת Leave-One-Batch-Out: בכל פעם אצווה אחת מוסתרת
-                            לחלוטין מהאימון, והמודל מנסה לנחש את לחץ הפעולה שהכניס
-                            אותה בפועל למסלול מוצלח. כך אותה אצווה לא יכולה
-                            "ללמד את התשובה של עצמה".
+                            המבחן כבר לא בודק אם V6 ניחש את אותו לחץ שהעובד בחר.
+                            בכל נקודת החלטה אצווה אחת מוסתרת לחלוטין, V6 בוחר לחץ,
+                            ואז מודל outcome נפרד בודק — מתוך אצוות אחרות בלבד —
+                            מה קרה במצבים דומים כשנבחר לחץ דומה: האם הגיעו ליעד
+                            בלי תיקון לחץ נוסף או גיזוז מלמטה.
                         </p>
+
                         <div className="cellar-simulator-backtest-metrics">
                             <div>
-                                <b>{backtestResult.pressureMaeBar?.toFixed(2) ?? "—"} bar</b>
-                                <span>טעות ממוצעת בלחץ</span>
+                                <b>{percent(backtestResult.estimatedFirstShotSuccessRate)}</b>
+                                <span>הצלחה צפויה בפעולה אחת</span>
                             </div>
                             <div>
-                                <b>{backtestResult.pressureP90AbsErrorBar?.toFixed(2) ?? "—"} bar</b>
-                                <span>טעות ב-90% מהאצוות</span>
+                                <b>{percent(backtestResult.actualHumanFirstShotSuccessRate)}</b>
+                                <span>הצלחה בפועל של החלטות האדם</span>
                             </div>
                             <div>
-                                <b>{percent(backtestResult.directionAccuracy)}</b>
-                                <span>כיוון פעולה נכון</span>
+                                <b>
+                                    {backtestResult.estimatedSuccessLiftVsHuman === null
+                                        ? "—"
+                                        : `${backtestResult.estimatedSuccessLiftVsHuman >= 0 ? "+" : ""}${Math.round(backtestResult.estimatedSuccessLiftVsHuman * 100)}%`}
+                                </b>
+                                <span>יתרון צפוי מול לחץ האדם</span>
                             </div>
                             <div>
-                                <b>{percent(backtestResult.within010Bar)}</b>
-                                <span>בתוך ±0.10 bar</span>
+                                <b>
+                                    {backtestResult.expectedAbsCarbonationErrorVol === null
+                                        ? "—"
+                                        : `${backtestResult.expectedAbsCarbonationErrorVol.toFixed(3)} vol`}
+                                </b>
+                                <span>סטיית גיזוז צפויה מהיעד</span>
                             </div>
                             <div>
-                                <b>{percent(backtestResult.within015Bar)}</b>
-                                <span>בתוך ±0.15 bar</span>
+                                <b>{percent(backtestResult.dangerousMissRate)}</b>
+                                <span>מקרים עם סיכויי הצלחה מתחת ל-50%</span>
                             </div>
                             <div>
-                                <b>{percent(backtestResult.coverage)}</b>
-                                <span>מקרים שבהם המודל הצליח לתת תשובה</span>
+                                <b>{percent(backtestResult.counterfactualCoverage)}</b>
+                                <span>המלצות עם מספיק מקרים דומים להשוואה</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.successProbabilityP10)}</b>
+                                <span>סיכויי הצלחה בעשירון החלש</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.modelCoverage)}</b>
+                                <span>מקרים שבהם V6 הצליח לתת המלצה</span>
                             </div>
                         </div>
+
                         <p>
-                            נבדקו {backtestResult.predictedCaseCount} מקרים מתוך{" "}
-                            {backtestResult.eligibleCaseCount} מקרים מתאימים, על{" "}
-                            {backtestResult.distinctBatchCount} אצוות שונות.
-                            {" "}המדדים מאוזנים לפי אצווה, כדי שאצווה עם הרבה
-                            בדיקות לא תשתלט על התוצאה.
+                            בסיס ה-outcome כולל {backtestResult.labeledOutcomeCount} החלטות עם תוצאה ידועה
+                            על {backtestResult.labeledOutcomeBatchCount} אצוות:
+                            {" "}{backtestResult.successfulOutcomeCount} הגיעו ליעד בלי תיקון נוסף,
+                            {" "}{backtestResult.failedOutcomeCount} נזקקו לתיקון / גיזוז מלמטה / חצו את היעד.
+                            {" "}ב-Backtest עצמו V6 נתן תשובה ב-{backtestResult.predictedCaseCount}
+                            {" "}מתוך {backtestResult.eligibleCaseCount} נקודות החלטה, על
+                            {" "}{backtestResult.distinctBatchCount} אצוות שונות.
                         </p>
+
                         <p className="cellar-simulator-backtest-warning">
-                            חשוב: זה מבחן מחמיר נגד דליפת מידע, אבל הוא עדיין
-                            בודק בעיקר מקרים היסטוריים שבהם פעולה אחת הצליחה.
-                            לכן תוצאה טובה היא תנאי הכרחי לפרודקשן — לא הוכחה
-                            מוחלטת שהמודל בטוח.
+                            זה Counterfactual Backtest ולא ניסוי אקראי: כש-V6 בוחר לחץ שלא נוסה
+                            באותה אצווה, אנחנו מעריכים את התוצאה מאצוות אחרות עם מצב ולחץ פעולה
+                            דומים. לכן כיסוי נמוך אומר שאין לנו מספיק דאטה כדי לשפוט את ההמלצה —
+                            לא שהיא טובה או רעה. המדדים מאוזנים לפי אצווה.
                         </p>
-                        {backtestResult.cases.length > 0 && (
+
+                        {backtestResult.imitationPressureMaeBar !== null && (
+                            <p className="cellar-simulator-backtest-warning">
+                                להשוואה בלבד: V6 שונה מהלחץ שבני אדם בחרו בממוצע ב-
+                                {backtestResult.imitationPressureMaeBar.toFixed(2)} bar.
+                                המספר הזה אינו חלק מציון האיכות.
+                            </p>
+                        )}
+
+                        {backtestResult.cases.some(
+                            (item) => item.counterfactualSupported
+                        ) && (
                             <>
-                                <strong>המקרים עם הטעות הגדולה ביותר</strong>
+                                <strong>המקרים עם סיכויי ההצלחה הנמוכים ביותר</strong>
                                 <div className="cellar-simulator-backtest-cases">
                                     {backtestResult.cases
+                                        .filter(
+                                            (item) =>
+                                                item.counterfactualSupported &&
+                                                item.modelEstimatedSuccessProbability !== null
+                                        )
                                         .slice()
                                         .sort(
                                             (a, b) =>
-                                                b.pressureErrorBar -
-                                                a.pressureErrorBar
+                                                (a.modelEstimatedSuccessProbability ?? 1) -
+                                                (b.modelEstimatedSuccessProbability ?? 1)
                                         )
                                         .slice(0, 5)
                                         .map((item) => (
                                             <div
-                                                key={`${item.batchId}-${item.startDateTimeMs}`}
+                                                key={`${item.batchId}-${item.decisionDateTimeMs}`}
                                             >
                                                 <b>#{item.batchId}</b>
                                                 <span>
-                                                    בפועל {item.actualPressure.toFixed(2)} ·
-                                                    V6 {item.predictedPressure.toFixed(2)} ·
-                                                    טעות {item.pressureErrorBar.toFixed(2)} bar
+                                                    V6 {item.predictedPressure.toFixed(2)} bar ·
+                                                    הצלחה צפויה {percent(item.modelEstimatedSuccessProbability)} ·
+                                                    האדם {item.actualHumanPressure.toFixed(2)} bar
+                                                    {" "}({item.humanActualSuccess ? "הצליח בפועל" : "נדרש תיקון"}) ·
+                                                    תמיכה {item.counterfactualSupportBatches} אצוות
                                                 </span>
                                             </div>
                                         ))}
