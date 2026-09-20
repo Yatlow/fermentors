@@ -60,6 +60,8 @@ export type PressureV5Estimate = {
   predictedAtTarget: number | null;
 
   action: "hold" | "raise" | "lower" | "edge_case";
+  holdReason: "stable_in_tolerance" | "first_cooling_small_change" | null;
+  recommendationVisibility: "global" | "tank_only";
   edgeCase:
     | null
     | "bottom_carbonation"
@@ -723,6 +725,8 @@ export function estimatePressureTargetV5(args: {
       targetPressure: null,
       predictedAtTarget: null,
       action: "edge_case",
+      holdReason: null,
+      recommendationVisibility: "global",
       edgeCase: "bottom_carbonation",
     };
   }
@@ -816,6 +820,8 @@ export function estimatePressureTargetV5(args: {
       targetPressure: null,
       predictedAtTarget: Number(predictedAtZero.toFixed(3)),
       action: "edge_case",
+      holdReason: null,
+      recommendationVisibility: "global",
       edgeCase: "venting_below_zero",
     };
   }
@@ -835,6 +841,8 @@ export function estimatePressureTargetV5(args: {
       targetPressure: null,
       predictedAtTarget: Number(predictedAtMax.toFixed(3)),
       action: "edge_case",
+      holdReason: null,
+      recommendationVisibility: "global",
       edgeCase: "head_pressure_insufficient",
     };
   }
@@ -847,10 +855,15 @@ export function estimatePressureTargetV5(args: {
   const outsideTargetWindow =
     Math.abs(carbonationError) >= targetToleranceVol - 1e-6;
 
-  // Keep a real off-spec correction operationally meaningful. The calculated
-  // setpoint itself may move in 0.01-bar increments, but once we decide to act
-  // the first actual correction is at least 0.05 bar.
-  if (
+  const firstCoolingSmallChange =
+    firstCoolingMode &&
+    Math.abs(targetPressure - currentPressure) <= 0.07 + 1e-6;
+
+  if (firstCoolingSmallChange) {
+    // On the first check, a tiny calculated correction is operationally a
+    // deliberate "do not touch the pressure" instruction.
+    targetPressure = Number(currentPressure.toFixed(2));
+  } else if (
     outsideTargetWindow &&
     rawTargetPressure > currentPressure + 0.005 &&
     targetPressure < currentPressure + MIN_OPERATIONAL_PRESSURE_STEP_BAR
@@ -876,12 +889,25 @@ export function estimatePressureTargetV5(args: {
 
   const pressureDelta = targetPressure - currentPressure;
   const action: PressureV5Estimate["action"] =
+    firstCoolingSmallChange ||
     (!firstCoolingMode && !outsideTargetWindow) ||
     Math.abs(pressureDelta) < 0.025
       ? "hold"
       : pressureDelta > 0
         ? "raise"
         : "lower";
+
+  const holdReason: PressureV5Estimate["holdReason"] =
+    action !== "hold"
+      ? null
+      : firstCoolingSmallChange
+        ? "first_cooling_small_change"
+        : "stable_in_tolerance";
+
+  const recommendationVisibility: PressureV5Estimate["recommendationVisibility"] =
+    action === "hold" && holdReason === "stable_in_tolerance"
+      ? "tank_only"
+      : "global";
 
   return {
     ...base,
@@ -895,6 +921,8 @@ export function estimatePressureTargetV5(args: {
     // beer reaches it in exactly 48 hours.
     predictedAtTarget: Number(args.targetCarbonation.toFixed(3)),
     action,
+    holdReason,
+    recommendationVisibility,
     edgeCase: null,
   };
 }
