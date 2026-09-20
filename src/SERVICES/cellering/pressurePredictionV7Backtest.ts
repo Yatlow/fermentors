@@ -12,7 +12,6 @@ import {
   estimatePressureCounterfactualOutcome,
   isPressureCounterfactualSupported,
   normalizePressureBatchId,
-  pressureBacktestColdReferenceTemperature,
   pressureMeasurementsAtDecision,
   type PressureV6BacktestCase,
   type PressureV6BacktestModel,
