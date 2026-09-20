@@ -519,3 +519,78 @@ test("V5 first-carbonation checks on tanks 18 and 16 stay near 1.1 bar without n
     );
   }
 });
+
+
+test("V5 stable recommendations use fine-grained setpoints between 0.05-bar action steps", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.0027 + (index % 3) * 0.0002),
+  );
+
+  const pressures = [2.25, 2.26, 2.27, 2.28, 2.29, 2.30]
+    .map((carbonation) =>
+      estimatePressureTargetV5({
+        transitions,
+        state: state(carbonation, 0.80, 0.5),
+        targetCarbonation: 2.50,
+        firstCarbonation: false,
+      })
+    )
+    .map((estimate) => {
+      assert.ok(estimate);
+      assert.ok(estimate.targetPressure !== null);
+      return estimate.targetPressure!;
+    });
+
+  const distinct = new Set(pressures.map((value) => value.toFixed(2)));
+  assert.ok(
+    distinct.size >= 4,
+    `nearby carbonation values should grade pressure smoothly, got ${pressures.join(", ")}`,
+  );
+
+  assert.ok(
+    pressures.some((value) => Math.round(value * 100) % 5 !== 0),
+    `setpoints should not all be locked to 0.05-bar buckets: ${pressures.join(", ")}`,
+  );
+});
+
+test("V5 first cooling is solved from the moving-temperature forecast", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.00097),
+  );
+
+  const tank18 = estimatePressureTargetV5({
+    transitions,
+    state: state(2.26, 1.37, 4.5),
+    targetCarbonation: 2.40,
+    coldReferenceTemperature: 0.7,
+    firstCarbonation: true,
+  });
+
+  const tank16 = estimatePressureTargetV5({
+    transitions,
+    state: state(2.26, 1.44, 6.8),
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+
+  assert.ok(tank18);
+  assert.ok(tank16);
+  assert.equal(tank18.mode, "first_cooling");
+  assert.equal(tank16.mode, "first_cooling");
+
+  assert.ok(
+    tank18.targetPressure !== null &&
+      tank18.targetPressure >= 0.95 &&
+      tank18.targetPressure <= 1.20,
+    `tank18 first-cooling forecast should solve near 1.1 bar, got ${tank18.targetPressure}`,
+  );
+  assert.ok(
+    tank16.targetPressure !== null &&
+      tank16.targetPressure >= 0.95 &&
+      tank16.targetPressure <= 1.20,
+    `tank16 first-cooling forecast should solve near 1.1 bar, got ${tank16.targetPressure}`,
+  );
+});
