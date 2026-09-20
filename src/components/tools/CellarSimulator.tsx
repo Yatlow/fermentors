@@ -1524,6 +1524,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             {[
                                 ["קירור", v9ValidationResult.byCoolingDrop],
                                 ["שינוי לחץ בפועל", v9ValidationResult.byActualPressureChange],
+                                ["Residual לחץ — חשד לפעולה לא מתועדת", v9ValidationResult.byPressureResidual],
                                 ["Headspace משוער", v9ValidationResult.byHeadspaceFraction],
                                 ["גיזוז התחלתי", v9ValidationResult.byStartCarbonation],
                             ].map(([label, groups]) => (
@@ -1554,7 +1555,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                                 {" "}{item.actualEndCarbonation.toFixed(2)} ·
                                                 V9 {item.predictedEndCarbonation.toFixed(2)} ·
                                                 טעות {item.carbonationAbsError.toFixed(3)} vol ·
-                                                {Math.round(item.durationHours)}h
+                                                {Math.round(item.durationHours)}h ·
+                                                מסלול טמפ׳ {item.temperaturePathPointCount} נק׳
+                                                {item.pressureResidualBar !== null
+                                                    ? ` · residual לחץ ${item.pressureResidualBar >= 0 ? "+" : ""}${item.pressureResidualBar.toFixed(2)} bar`
+                                                    : ""}
                                             </span>
                                         </div>
                                     ))}
