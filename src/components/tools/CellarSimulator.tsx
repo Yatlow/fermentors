@@ -468,12 +468,27 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             limit: 8,
                         })
                         : [];
-                    const historicalBatches = await Promise.all(
-                        historicalBatchIds.map(async (batchId) => ({
-                            batchId,
-                            measurements: await getMeasurementsByBatch(batchId),
-                        }))
-                    );
+                    const historicalBatches = (
+                        await Promise.all(
+                            historicalBatchIds.map(async (batchId) => {
+                                try {
+                                    return {
+                                        batchId,
+                                        measurements: await getMeasurementsByBatch(batchId),
+                                    };
+                                } catch (historyError) {
+                                    console.warn("V6 historical batch unavailable", {
+                                        batchId,
+                                        historyError,
+                                    });
+                                    return null;
+                                }
+                            })
+                        )
+                    ).filter((item): item is {
+                        batchId: string;
+                        measurements: Measurement[];
+                    } => item !== null);
 
                     const v6Estimate = estimatePressureTargetV6({
                         samples: v4Model?.samples ?? [],
