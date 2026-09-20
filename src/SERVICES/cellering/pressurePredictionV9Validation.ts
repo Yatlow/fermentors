@@ -134,18 +134,6 @@ function pressureTargetFromNote(
   return match ? finite(match[1]) : null;
 }
 
-function pressureAfterYeastFromNote(
-  row: PressureV4Measurement,
-): number | null {
-  const note = noteText(row);
-  if (!/שמר(?:ים|י)/.test(note)) return null;
-
-  const match = note.match(
-    /לחץ\s+אחרי\s*:?-?\s*(\d+(?:[.,]\d+)?)\s*(?:bar|באר)?/i,
-  );
-  return match ? finite(match[1]) : null;
-}
-
 function isIntervention(
   row: PressureV4Measurement,
 ): boolean {
@@ -178,7 +166,6 @@ function actualStartPressure(
 
   return (
     pressureTargetFromNote(row) ??
-    pressureAfterYeastFromNote(row) ??
     previousFinite(rows, index, "pressure")
   );
 }
@@ -266,6 +253,15 @@ function eligibleIntervals(
     if (startIndex < 0 || endIndex <= startIndex) continue;
 
     if (noteText(start.row).includes("גיזוז מלמטה")) continue;
+
+    // A yeast-drop note can be appended later to the same daily row after the
+    // morning pressure/carbonation reading. The numeric pressure on that row
+    // therefore often describes the pre-drop state while "לחץ אחרי" in notes
+    // describes a later post-drop state. Mixing those timestamps creates a
+    // physically impossible validation start. Be strict: use such a row as an
+    // endpoint for the morning measurement, but never as the start of the next
+    // closed-tank interval.
+    if (/שמר(?:ים|י)/.test(noteText(start.row))) continue;
 
     const contaminated = rows
       .slice(startIndex + 1, endIndex)
