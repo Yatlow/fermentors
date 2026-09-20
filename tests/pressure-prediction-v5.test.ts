@@ -692,3 +692,40 @@ test("V5 uses a lower bottom-carbonation cutoff on the first cooling check", () 
   assert.equal(first194.edgeCase, "bottom_carbonation");
   assert.equal(stable214.edgeCase, "bottom_carbonation");
 });
+
+
+test("V5 stable hold is tank-only context, not a global recommendation", () => {
+  const estimate = estimatePressureTargetV5({
+    state: state(2.43, 0.86, 0.5),
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    firstCarbonation: false,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "hold");
+  assert.equal(estimate.holdReason, "stable_in_tolerance");
+  assert.equal(estimate.recommendationVisibility, "tank_only");
+});
+
+test("V5 first-cooling correction within 0.07 bar becomes an active global hold", () => {
+  const estimate = estimatePressureTargetV5({
+    state: state(2.40, 0.88, 6.8),
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.mode, "first_cooling");
+  assert.equal(estimate.action, "hold");
+  assert.equal(estimate.holdReason, "first_cooling_small_change");
+  assert.equal(estimate.recommendationVisibility, "global");
+  assert.equal(estimate.targetPressure, 0.88);
+  assert.ok(
+    estimate.rawTargetPressure !== null &&
+      Math.abs(estimate.rawTargetPressure - estimate.currentPressure) <= 0.07,
+    `expected raw first-cooling change within 0.07 bar, got current=${estimate.currentPressure}, raw=${estimate.rawTargetPressure}`,
+  );
+});
