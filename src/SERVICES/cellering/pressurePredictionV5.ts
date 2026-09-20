@@ -913,7 +913,9 @@ export function estimatePressureTargetV5(args: {
   const carbonationGap =
     args.targetCarbonation - estimatedCurrentCarbonation;
   const stableForecastError =
-    args.targetCarbonation - predictedWithoutChange;
+    recentTrendForecast !== null
+      ? args.targetCarbonation - predictedWithoutChange
+      : carbonationGap;
   const decisionError =
     firstCoolingMode
       ? carbonationGap
@@ -976,7 +978,8 @@ export function estimatePressureTargetV5(args: {
       ? absoluteCoolingTarget +
         (currentPressure - absoluteCoolingTarget) *
           firstCoolingRetention
-      : stableRawTargetPressure < currentPressure
+      : stableRawTargetPressure < currentPressure &&
+          estimatedCurrentCarbonation <= args.targetCarbonation
         ? Math.max(stableRawTargetPressure, operationalPressureFloor)
         : stableRawTargetPressure;
 
@@ -1053,7 +1056,9 @@ export function estimatePressureTargetV5(args: {
   const firstCoolingForecastOnTarget =
     firstCoolingMode && noChangeForecastOnTarget;
   const stableForecastOnTarget =
-    !firstCoolingMode && noChangeForecastOnTarget;
+    !firstCoolingMode &&
+    recentTrendForecast !== null &&
+    noChangeForecastOnTarget;
 
   if (firstCoolingForecastOnTarget || stableForecastOnTarget) {
     // First check HOLD is evidence-based: keep the current pressure only when
