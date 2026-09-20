@@ -24,6 +24,10 @@ import {
     type PressureV8Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV8";
 import {
+    estimatePressureTargetV9,
+    type PressureV9Estimate,
+} from "../../SERVICES/cellering/pressurePredictionV9Physics";
+import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
@@ -327,6 +331,30 @@ function scenarioMeasurements(args: {
     return [...base, carbRow, currentRow];
 }
 
+function medianTransitionK(model: PressurePredictionModelV4 | null): number {
+    const values = (model?.transitions ?? [])
+        .filter((item) =>
+            (item.quality === "high" || item.quality === "medium") &&
+            Number.isFinite(Number(item.kPerHour)) &&
+            Number(item.kPerHour) > 0
+        )
+        .map((item) => Number(item.kPerHour))
+        .sort((a, b) => a - b);
+
+    if (!values.length) return 0.0025;
+
+    const middle = Math.floor(values.length / 2);
+    return values.length % 2
+        ? values[middle]
+        : (values[middle - 1] + values[middle]) / 2;
+}
+
+function tankClassText(value: PressureV9Estimate["tankClass"]): string {
+    if (value === "single") return "בודד";
+    if (value === "double") return "כפול";
+    return "משולש";
+}
+
 export default function CellarSimulator({ brews, specs }: Props) {
     const tanks = useMemo(
         () => brews
@@ -348,6 +376,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v7Status, setV7Status] = useState("");
     const [v8Result, setV8Result] = useState<PressureV8Estimate | null>(null);
     const [v8Status, setV8Status] = useState("");
+    const [v9Result, setV9Result] = useState<PressureV9Estimate | null>(null);
+    const [v9Status, setV9Status] = useState("");
     const [backtestRunning, setBacktestRunning] = useState(false);
     const [backtestProgress, setBacktestProgress] = useState("");
     const [backtestResult, setBacktestResult] =
@@ -379,10 +409,14 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV7Status("");
         setV8Result(null);
         setV8Status("");
+        setV9Result(null);
+        setV9Status("");
         setV7Result(null);
         setV7Status("");
         setV8Result(null);
         setV8Status("");
+        setV9Result(null);
+        setV9Status("");
         setBacktestResult(null);
         setBacktestV6Result(null);
         setBacktestProgress("");
@@ -646,6 +680,38 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         ? getColdReferenceTemperatureV4(v4Model)
                         : null;
 
+                    const beerVolumeLiters = Number(tank.beerVolume);
+                    const v9FinalTemperature =
+                        coldReferenceTemperature !== null &&
+                        Number.isFinite(Number(coldReferenceTemperature))
+                            ? Number(coldReferenceTemperature)
+                            : 0.5;
+
+                    if (!Number.isFinite(beerVolumeLiters) || beerVolumeLiters <= 0) {
+                        setV9Status("אין beerVolume תקין במיכל — V9 לא יכול לחשב headspace.");
+                    } else {
+                        const v9Estimate = estimatePressureTargetV9({
+                            tankNumber: Number(tank.tankNumber),
+                            beerVolumeLiters,
+                            currentCarbonation: state.carbonation,
+                            currentPressure: state.currentPressure,
+                            currentTemperature: state.currentTemp ?? Number(temp),
+                            targetCarbonation: Number(carbonationTarget),
+                            targetToleranceVol,
+                            finalTemperature: v9FinalTemperature,
+                            kPerHour: medianTransitionK(v4Model),
+                            tempChange24h: state.cooling?.tempChange24h ?? null,
+                            measurements: simulated,
+                        });
+
+                        if (v9Estimate) {
+                            setV9Result(v9Estimate);
+                            setV9Status("");
+                        } else {
+                            setV9Status("לא ניתן לבנות חישוב V9 מהמצב הנוכחי.");
+                        }
+                    }
+
                     const currentBatchId =
                         String(tank.batchNumber).replace("#", "");
                     const historicalBatchIds = v4Model
@@ -746,7 +812,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
             <div className="cellar-simulator-header">
                 <div>
                     <h2>סימולטור סלרינג</h2>
-                    <p>כלי Preview/פיתוח של V8 causal matching מול V7/V6. V8 מנסה לאמוד את ההשפעה של שינוי הלחץ עצמו על מקרים דומים, ולא רק קורלציה. אין כתיבה ל-Firestore או ל-Sheets.</p>
+                    <p>כלי Preview/פיתוח של V9 פיזיקלי מול V8/V7/V6. V9 משתמש במאזן מסה אמיתי של CO₂ בין הבירה ל-headspace, בנפח הבירה מה-DB ובנפח מיכל כולל משוער. אין כתיבה ל-Firestore או ל-Sheets.</p>
                 </div>
                 <span className="cellar-simulator-badge">READ ONLY</span>
             </div>
@@ -1023,6 +1089,89 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             </>
                         )}
                     </article>
+                </div>
+            )}
+
+            {(v9Result || v9Status) && (
+                <div className="cellar-simulator-results">
+                    <h3>V9 — מאזן מסה פיזיקלי של CO₂</h3>
+                    {v9Result ? (
+                        <article className="cellar-simulator-result level-1">
+                            <strong>
+                                {v9Result.action === "insufficient_geometry"
+                                    ? "אין מספיק מידע גיאומטרי"
+                                    : v9Result.action === "outside_operational_range"
+                                        ? "יעד הלחץ מחוץ לטווח התפעולי"
+                                        : v9Result.action === "hold"
+                                            ? "להשאיר לחץ"
+                                            : v9Result.action === "raise"
+                                                ? `להעלות לחץ ל-${v9Result.targetPressure?.toFixed(2)} bar`
+                                                : `להוריד לחץ ל-${v9Result.targetPressure?.toFixed(2)} bar`}
+                            </strong>
+                            <p>
+                                גיזוז {v9Result.currentCarbonation.toFixed(2)} vol ·
+                                לחץ נוכחי {v9Result.currentPressure.toFixed(2)} bar ·
+                                טמפרטורה {v9Result.currentTemperature.toFixed(1)}°C ·
+                                יעד {v9Result.targetCarbonation.toFixed(2)} vol ·
+                                טמפרטורת שיווי־משקל {v9Result.finalTemperature.toFixed(1)}°C ·
+                                לחץ שיווי־משקל סופי של היעד {v9Result.targetFinalEquilibriumPressure.toFixed(2)} bar
+                            </p>
+                            <p>
+                                מיכל {tankClassText(v9Result.tankClass)} ·
+                                נפח כולל משוער {Math.round(v9Result.vesselVolumeLiters)} ל׳ ·
+                                נפח בירה מה-DB {Math.round(v9Result.beerVolumeLiters)} ל׳ ·
+                                headspace מחושב {Math.round(v9Result.headspaceLiters)} ל׳
+                                {" "}({Math.round(v9Result.headspaceFraction * 100)}%) ·
+                                k={v9Result.kPerHour.toFixed(5)}/שעה ·
+                                עוד קירור משוער {Math.round(v9Result.coolingHoursRemaining)} שעות
+                            </p>
+                            <p>
+                                אם לא נוגעים:
+                                {" "}{v9Result.holdFinalCarbonation !== null
+                                    ? `${v9Result.holdFinalCarbonation.toFixed(3)} vol @ ${v9Result.holdFinalPressure?.toFixed(2) ?? "—"} bar`
+                                    : "—"}
+                                {" "}· במסלול המומלץ:
+                                {" "}{v9Result.targetFinalCarbonation !== null
+                                    ? `${v9Result.targetFinalCarbonation.toFixed(3)} vol @ ${v9Result.targetFinalPressure?.toFixed(2) ?? "—"} bar`
+                                    : "—"}
+                            </p>
+                            <p>
+                                תחזית מסלול:
+                                {" "}48h {v9Result.target48hCarbonation?.toFixed(3) ?? "—"} vol / {v9Result.target48hPressure?.toFixed(2) ?? "—"} bar ·
+                                {" "}72h {v9Result.target72hCarbonation?.toFixed(3) ?? "—"} vol / {v9Result.target72hPressure?.toFixed(2) ?? "—"} bar ·
+                                {" "}96h {v9Result.target96hCarbonation?.toFixed(3) ?? "—"} vol / {v9Result.target96hPressure?.toFixed(2) ?? "—"} bar
+                            </p>
+                            <p>
+                                אובדן תפעולי עתידי שהמודל הכניס:
+                                {" "}{v9Result.expectedFutureOperationalLossBar.toFixed(2)} bar
+                                {" "}ב-{v9Result.expectedFutureYeastDrops} הורדות שמרים צפויות
+                                {" "}({v9Result.operationalLossSource === "observed_batch_yeast_drop"
+                                    ? "לפי הורדת שמרים שנמדדה באצווה"
+                                    : v9Result.operationalLossSource === "fallback_one_cold_drop"
+                                        ? "fallback של הורדת שמרים קרה אחת"
+                                        : "לא נותרה הורדת שמרים קרה מזוהה"}).
+                            </p>
+                            <p>
+                                רגישות להערכת נפח המיכל (±10%):
+                                {" "}{v9Result.geometrySensitivityLowBar !== null && v9Result.geometrySensitivityHighBar !== null
+                                    ? `${v9Result.geometrySensitivityLowBar.toFixed(2)}–${v9Result.geometrySensitivityHighBar.toFixed(2)} bar`
+                                    : "—"}
+                                {v9Result.geometrySensitivityWidthBar !== null &&
+                                v9Result.geometrySensitivityWidthBar > 0.25
+                                    ? " · ⚠️ ההמלצה רגישה מאוד להערכת נפח המיכל; כדאי להשיג נפח כולל אמיתי."
+                                    : ""}
+                            </p>
+                            <p>
+                                רגישות לאובדן לחץ מהורדות שמרים:
+                                {" "}{v9Result.operationalLossSensitivityLowBar !== null &&
+                                v9Result.operationalLossSensitivityHighBar !== null
+                                    ? `${v9Result.operationalLossSensitivityLowBar.toFixed(2)}–${v9Result.operationalLossSensitivityHighBar.toFixed(2)} bar`
+                                    : "—"}.
+                            </p>
+                        </article>
+                    ) : (
+                        <div className="cellar-simulator-empty">{v9Status}</div>
+                    )}
                 </div>
             )}
 
