@@ -594,3 +594,44 @@ test("V5 first cooling retains stored head pressure as cooling progresses", () =
     `tank16 2.32 first check should stay around 1.1 bar, got ${tank16.targetPressure}`,
   );
 });
+
+
+test("V5 first cooling at target converges to cold equilibrium plus small safety margin", () => {
+  const transitions = Array.from(
+    { length: 24 },
+    (_, index) => transition(index, 0.00097),
+  );
+
+  const tank18 = estimatePressureTargetV5({
+    transitions,
+    state: state(2.40, 1.37, 4.5),
+    targetCarbonation: 2.40,
+    coldReferenceTemperature: 0.7,
+    firstCarbonation: true,
+  });
+
+  const tank16 = estimatePressureTargetV5({
+    transitions,
+    state: state(2.45, 1.44, 6.8),
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+
+  assert.ok(tank18);
+  assert.ok(tank16);
+
+  assert.ok(
+    tank18.targetPressure !== null &&
+      tank18.targetPressure >= 0.50 &&
+      tank18.targetPressure <= 0.65,
+    `tank18 at target should settle near equilibrium + safety, got ${tank18.targetPressure}`,
+  );
+
+  assert.ok(
+    tank16.targetPressure !== null &&
+      tank16.targetPressure >= 0.68 &&
+      tank16.targetPressure <= 0.78,
+    `tank16 at target should settle near equilibrium + safety, got ${tank16.targetPressure}`,
+  );
+});
