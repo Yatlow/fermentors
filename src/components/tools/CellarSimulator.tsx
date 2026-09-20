@@ -20,7 +20,12 @@ import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
+    type PressurePredictionModelV4,
 } from "../../SERVICES/cellering/pressurePredictionV4Model";
+import {
+    runPressureV6LeaveOneBatchOutBacktest,
+    type PressureV6BacktestResult,
+} from "../../SERVICES/cellering/pressurePredictionV6Backtest";
 import "./CellarSimulator.css";
 
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
@@ -198,6 +203,42 @@ function buildHypotheticalProductionPressureTextV6(
     );
 }
 
+function historicalBatchIdsFromModel(
+    model: PressurePredictionModelV4,
+): string[] {
+    const ids = new Set<string>();
+    const add = (value: unknown) => {
+        const id = String(value ?? "").replace("#", "").trim();
+        if (id) ids.add(id);
+    };
+
+    model.samples.forEach((sample) => add(sample.batchId));
+    model.passiveSamples.forEach((sample) => add(sample.batchId));
+    model.transitions.forEach((sample) => add(sample.batchId));
+    model.equilibriumPoints.forEach((point) => add(point.batchId));
+
+    return Array.from(ids);
+}
+
+function percent(value: number | null): string {
+    return value === null ? "—" : `${Math.round(value * 100)}%`;
+}
+
+function backtestReadinessText(
+    readiness: PressureV6BacktestResult["readiness"],
+): string {
+    if (readiness === "passes_gate") {
+        return "עובר את סף האמון שהגדרנו לפרודקשן";
+    }
+    if (readiness === "promising") {
+        return "מבטיח, אבל עדיין לא מספיק חזק לפרודקשן";
+    }
+    if (readiness === "insufficient_data") {
+        return "אין עדיין מספיק אצוות כדי להסיק";
+    }
+    return "לא מספיק מדויק כרגע";
+}
+
 function numericOrUndefined(value: string): number | undefined {
     if (value.trim() === "") return undefined;
     const number = Number(value);
@@ -290,6 +331,10 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [result, setResult] = useState<Record<string, RecommendationLike> | null>(null);
     const [v6Result, setV6Result] = useState<PressureV6Estimate | null>(null);
     const [v6Status, setV6Status] = useState("");
+    const [backtestRunning, setBacktestRunning] = useState(false);
+    const [backtestProgress, setBacktestProgress] = useState("");
+    const [backtestResult, setBacktestResult] =
+        useState<PressureV6BacktestResult | null>(null);
 
     const [carbonation, setCarbonation] = useState("2.10");
     const [pressure, setPressure] = useState("");
@@ -309,6 +354,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setResult(null);
         setV6Result(null);
         setV6Status("");
+        setBacktestResult(null);
+        setBacktestProgress("");
         setError("");
         if (!tank?.batchNumber) {
             setSource([]);
@@ -367,6 +414,107 @@ export default function CellarSimulator({ brews, specs }: Props) {
             }))
             .sort((a, b) => b.importance - a.importance);
     }, [result]);
+
+    async function runBacktest() {
+        if (!tank?.beerStyle || !specs) return;
+
+        setBacktestRunning(true);
+        setBacktestResult(null);
+        setBacktestProgress("טוען מודל היסטורי…");
+        setError("");
+
+        try {
+            const normalizedStyle = String(tank.beerStyle ?? "")
+                .trim()
+                .toLowerCase()
+                .split(/\s+/)[0] || "other";
+            const targetCarbonation =
+                specs.carbonation?.[normalizedStyle] ??
+                specs.carbonation?.other;
+            if (!Number.isFinite(Number(targetCarbonation))) {
+                throw new Error("אין יעד גיזוז זמין לסגנון");
+            }
+
+            const model = await getPressurePredictionModelV4(tank.beerStyle);
+            if (!model) {
+                throw new Error("אין מודל היסטורי זמין לסגנון");
+            }
+
+            const allBatchIds = historicalBatchIdsFromModel(model);
+            const maxHistoricalBatches = 80;
+            const batchIds = allBatchIds.slice(0, maxHistoricalBatches);
+            const historicalBatches: {
+                batchId: string;
+                measurements: Measurement[];
+            }[] = [];
+            const chunkSize = 8;
+
+            for (
+                let startIndex = 0;
+                startIndex < batchIds.length;
+                startIndex += chunkSize
+            ) {
+                const chunk = batchIds.slice(
+                    startIndex,
+                    startIndex + chunkSize,
+                );
+                setBacktestProgress(
+                    `טוען היסטוריה: ${Math.min(startIndex + chunk.length, batchIds.length)}/${batchIds.length} אצוות…`
+                );
+
+                const loaded = (
+                    await Promise.all(
+                        chunk.map(async (batchId) => {
+                            try {
+                                return {
+                                    batchId,
+                                    measurements:
+                                        await getMeasurementsByBatch(batchId),
+                                };
+                            } catch (historyError) {
+                                console.warn(
+                                    "V6 backtest batch unavailable",
+                                    { batchId, historyError },
+                                );
+                                return null;
+                            }
+                        })
+                    )
+                ).filter((item): item is {
+                    batchId: string;
+                    measurements: Measurement[];
+                } => item !== null);
+
+                historicalBatches.push(...loaded);
+            }
+
+            setBacktestProgress("מריץ Leave-One-Batch-Out…");
+            const result = runPressureV6LeaveOneBatchOutBacktest({
+                model,
+                historicalBatches,
+                targetCarbonation: Number(targetCarbonation),
+                targetToleranceVol:
+                    specs.tolorances?.carbonation ?? 0.04,
+                maxCases: 120,
+            });
+
+            setBacktestResult(result);
+            setBacktestProgress(
+                allBatchIds.length > maxHistoricalBatches
+                    ? `נבדקו עד ${maxHistoricalBatches} אצוות מתוך ${allBatchIds.length} הזמינות במודל.`
+                    : ""
+            );
+        } catch (reason) {
+            setError(
+                reason instanceof Error
+                    ? reason.message
+                    : String(reason)
+            );
+            setBacktestProgress("");
+        } finally {
+            setBacktestRunning(false);
+        }
+    }
 
     async function runSimulation() {
         if (!tank || !tank.batchNumber || !tank.beerStyle || !tank.brewDate || !specs) return;
@@ -685,14 +833,110 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 >
                     {running ? "מחשב…" : "הרץ תרחיש"}
                 </button>
+                <button
+                    type="button"
+                    className="status-filter-button"
+                    disabled={!tank || !specs || backtestRunning}
+                    onClick={() => void runBacktest()}
+                >
+                    {backtestRunning ? "מריץ Backtest…" : "בדוק דיוק היסטורי"}
+                </button>
                 {tank && (
                     <span>
                         בסיס: {source.length} מדידות אמיתיות · אין שמירה של התרחיש
                     </span>
                 )}
             </div>
+            {backtestProgress && (
+                <div className="cellar-simulator-v4-status">
+                    {backtestProgress}
+                </div>
+            )}
 
             {error && <div className="cellar-simulator-error">{error}</div>}
+
+            {backtestResult && (
+                <div className="cellar-simulator-results cellar-simulator-backtest">
+                    <h3>Backtest — האם אפשר לסמוך על V6?</h3>
+                    <article className="cellar-simulator-result level-1">
+                        <strong>
+                            {backtestReadinessText(backtestResult.readiness)}
+                        </strong>
+                        <p>
+                            בדיקת Leave-One-Batch-Out: בכל פעם אצווה אחת מוסתרת
+                            לחלוטין מהאימון, והמודל מנסה לנחש את לחץ הפעולה שהכניס
+                            אותה בפועל למסלול מוצלח. כך אותה אצווה לא יכולה
+                            "ללמד את התשובה של עצמה".
+                        </p>
+                        <div className="cellar-simulator-backtest-metrics">
+                            <div>
+                                <b>{backtestResult.pressureMaeBar?.toFixed(2) ?? "—"} bar</b>
+                                <span>טעות ממוצעת בלחץ</span>
+                            </div>
+                            <div>
+                                <b>{backtestResult.pressureP90AbsErrorBar?.toFixed(2) ?? "—"} bar</b>
+                                <span>טעות ב-90% מהאצוות</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.directionAccuracy)}</b>
+                                <span>כיוון פעולה נכון</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.within010Bar)}</b>
+                                <span>בתוך ±0.10 bar</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.within015Bar)}</b>
+                                <span>בתוך ±0.15 bar</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.coverage)}</b>
+                                <span>מקרים שבהם המודל הצליח לתת תשובה</span>
+                            </div>
+                        </div>
+                        <p>
+                            נבדקו {backtestResult.predictedCaseCount} מקרים מתוך{" "}
+                            {backtestResult.eligibleCaseCount} מקרים מתאימים, על{" "}
+                            {backtestResult.distinctBatchCount} אצוות שונות.
+                            {" "}המדדים מאוזנים לפי אצווה, כדי שאצווה עם הרבה
+                            בדיקות לא תשתלט על התוצאה.
+                        </p>
+                        <p className="cellar-simulator-backtest-warning">
+                            חשוב: זה מבחן מחמיר נגד דליפת מידע, אבל הוא עדיין
+                            בודק בעיקר מקרים היסטוריים שבהם פעולה אחת הצליחה.
+                            לכן תוצאה טובה היא תנאי הכרחי לפרודקשן — לא הוכחה
+                            מוחלטת שהמודל בטוח.
+                        </p>
+                        {backtestResult.cases.length > 0 && (
+                            <>
+                                <strong>המקרים עם הטעות הגדולה ביותר</strong>
+                                <div className="cellar-simulator-backtest-cases">
+                                    {backtestResult.cases
+                                        .slice()
+                                        .sort(
+                                            (a, b) =>
+                                                b.pressureErrorBar -
+                                                a.pressureErrorBar
+                                        )
+                                        .slice(0, 5)
+                                        .map((item) => (
+                                            <div
+                                                key={`${item.batchId}-${item.startDateTimeMs}`}
+                                            >
+                                                <b>#{item.batchId}</b>
+                                                <span>
+                                                    בפועל {item.actualPressure.toFixed(2)} ·
+                                                    V6 {item.predictedPressure.toFixed(2)} ·
+                                                    טעות {item.pressureErrorBar.toFixed(2)} bar
+                                                </span>
+                                            </div>
+                                        ))}
+                                </div>
+                            </>
+                        )}
+                    </article>
+                </div>
+            )}
 
             {(v6Result || v6Status) && (
                 <div className="cellar-simulator-results">
