@@ -268,7 +268,7 @@ export function selectV6HistoricalBatchIds(args: {
 
   return Array.from(scores.entries())
     .sort((a, b) => a[1] - b[1])
-    .slice(0, clamp(args.limit ?? 10, 1, 16))
+    .slice(0, clamp(args.limit ?? 24, 1, 40))
     .map(([batchId]) => batchId);
 }
 
@@ -851,6 +851,19 @@ function buildOneActionCourses(args: {
   }
 
   return courses;
+}
+
+export function countV6SuccessfulOneActionBatches(args: {
+  historicalBatches: PressureV6HistoricalBatch[];
+  targetCarbonation: number;
+  targetToleranceVol: number;
+}): number {
+  const courses = buildOneActionCourses(args);
+  return new Set(
+    courses
+      .map((course) => String(course.batchId || "").trim())
+      .filter(Boolean),
+  ).size;
 }
 
 function oneActionCourseEstimate(args: {
