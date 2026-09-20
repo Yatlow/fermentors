@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  countV6SuccessfulOneActionBatches,
   estimatePressureTargetV6,
 } from "../src/SERVICES/cellering/pressurePredictionV6";
 import type {
@@ -540,5 +541,68 @@ test("V6 raw historical training ignores courses that needed a second pressure c
     estimate.supportCount,
     0,
     "a course that required another pressure correction must not train the one-action model",
+  );
+});
+
+
+test("V6 counts distinct one-action successes so the caller can keep searching past the first eight candidates", () => {
+  const successful = successfulHistoricalBatches(1.15, 2.26, 2.45);
+  const corrected = Array.from({ length: 8 }, (_, index) => ({
+    batchId: `corrected-${index}`,
+    measurements: [
+      {
+        id: `2026-06-${String(index + 1).padStart(2, "0")}_0800`,
+        temp: 20,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: `2026-06-${String(index + 2).padStart(2, "0")}_0900`,
+        carbonation: 2.26,
+        temp: 6.5,
+        pressure: 1.44,
+        notes: "הורדת לחץ ל1.30 bar",
+      },
+      {
+        id: `2026-06-${String(index + 3).padStart(2, "0")}_0900`,
+        carbonation: 2.35,
+        temp: 2,
+        pressure: 1.20,
+        notes: "הורדת לחץ ל0.95 bar",
+      },
+      {
+        id: `2026-06-${String(index + 5).padStart(2, "0")}_0900`,
+        carbonation: 2.45,
+        temp: 0.7,
+        pressure: 0.65,
+      },
+    ],
+  }));
+
+  assert.equal(
+    countV6SuccessfulOneActionBatches({
+      historicalBatches: corrected,
+      targetCarbonation: 2.45,
+      targetToleranceVol: 0.03,
+    }),
+    0,
+  );
+
+  assert.equal(
+    countV6SuccessfulOneActionBatches({
+      historicalBatches: [...corrected, ...successful.slice(0, 5)],
+      targetCarbonation: 2.45,
+      targetToleranceVol: 0.03,
+    }),
+    5,
+  );
+
+  assert.equal(
+    countV6SuccessfulOneActionBatches({
+      historicalBatches: [...corrected, ...successful],
+      targetCarbonation: 2.45,
+      targetToleranceVol: 0.03,
+    }),
+    8,
   );
 });
