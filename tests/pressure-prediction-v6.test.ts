@@ -1,0 +1,342 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  estimatePressureTargetV6,
+} from "../src/SERVICES/cellering/pressurePredictionV6";
+import type {
+  PressureV4DecisionState,
+  PressureV4Exposure,
+  PressureV4PassiveSample,
+  PressureV4Sample,
+  PressureV4TransitionSample,
+} from "../src/SERVICES/cellering/pressurePredictionV4";
+
+function exposure(
+  pressure: number,
+  hours: number,
+  temp: number,
+): PressureV4Exposure {
+  return {
+    hoursSinceT0: hours,
+    pressureHours: pressure * hours,
+    temperatureHours: temp * hours,
+    equilibriumDeltaBarHours: null,
+    pressureMean: pressure,
+    pressureMean24h: pressure,
+    pressureMean48h: pressure,
+    temperatureMean: temp,
+    pressurePoints: 6,
+    temperaturePoints: 6,
+    coveredHours: hours,
+    coverageRatio: 1,
+  };
+}
+
+function state(
+  carbonation: number,
+  pressure: number,
+  temp: number,
+  hoursSinceT0 = 220,
+): PressureV4DecisionState {
+  return {
+    carbonation,
+    currentPressure: pressure,
+    currentTemp: temp,
+    hoursSinceT0,
+    exposure: exposure(pressure, hoursSinceT0, temp),
+    cooling: {
+      startDateTimeMs: Date.now() - 72 * 3600000,
+      hoursSinceCooling: 72,
+      startTemp: 20,
+      currentTemp: temp,
+      tempDropSinceCooling: 20 - temp,
+      tempChange24h: temp > 1 ? -2 : -0.1,
+      pressureMeanSinceCooling: pressure,
+      pressureMean24h: pressure,
+      pressureHoursSinceCooling: pressure * 72,
+      equilibriumDeltaBarHoursSinceCooling: null,
+      coverageRatio: 1,
+      stillCooling: temp > 1,
+    },
+    carbonationTrend: null,
+    currentCarbonationDateTimeMs: Date.now(),
+    hoursSinceCurrentCarbonation: 0,
+    postCarbonationExposure: null,
+  };
+}
+
+function transition(
+  index: number,
+  kPerHour = 0.0015,
+  pressure = 1.15,
+  temp = 3,
+  hoursSinceT0 = 220,
+): PressureV4TransitionSample {
+  return {
+    batchId: `hist-k-${index}`,
+    style: "ipa",
+    startDateTimeMs: index * 100000,
+    endDateTimeMs: index * 100000 + 48 * 3600000,
+    durationHours: 48,
+    startCarbonation: 2.25,
+    endCarbonation: 2.36,
+    currentPressure: pressure,
+    currentTemp: temp,
+    hoursSinceT0,
+    exposure: exposure(pressure, hoursSinceT0, temp),
+    cooling: null,
+    pressureMeanDuring: pressure,
+    temperatureMeanDuring: temp,
+    kPerHour,
+    quality: "high",
+  };
+}
+
+function actionSample(
+  index: number,
+  before: number,
+  currentPressure: number,
+  targetPressure: number,
+  temp: number,
+  outcome: number,
+  hoursSinceT0 = 220,
+): PressureV4Sample {
+  return {
+    batchId: `hist-action-${index}`,
+    style: "ipa",
+    t0: {
+      index: 0,
+      dateTimeMs: 0,
+      source: "explicit_close",
+      pressure: 1.6,
+      previousPressure: 0,
+    },
+    actionDateTimeMs: index * 100000,
+    actionDate: `2026-08-${String(index + 1).padStart(2, "0")}`,
+    carbonationBefore: before,
+    currentPressure,
+    targetPressure,
+    currentTemp: temp,
+    hoursSinceT0,
+    exposure: exposure(currentPressure, hoursSinceT0, temp),
+    intermediateDay1: null,
+    primaryOutcome: {
+      carbonation: outcome,
+      dateTimeMs: index * 100000 + 48 * 3600000,
+      calendarDaysAfterAction: 2,
+    },
+    carbonationDelta: outcome - before,
+    actionPressureDelta: targetPressure - currentPressure,
+    quality: "high",
+  };
+}
+
+function passiveSample(
+  index: number,
+  before: number,
+  pressure: number,
+  temp: number,
+  outcome: number,
+  hoursSinceT0 = 300,
+): PressureV4PassiveSample {
+  return {
+    batchId: `hist-passive-${index}`,
+    style: "ipa",
+    sampleDateTimeMs: index * 100000,
+    sampleDate: `2026-07-${String(index + 1).padStart(2, "0")}`,
+    carbonationBefore: before,
+    currentPressure: pressure,
+    currentTemp: temp,
+    hoursSinceT0,
+    exposure: exposure(pressure, hoursSinceT0, temp),
+    primaryOutcome: {
+      carbonation: outcome,
+      dateTimeMs: index * 100000 + 48 * 3600000,
+      calendarDaysAfterAction: 2,
+    },
+    carbonationDelta: outcome - before,
+    quality: "high",
+  };
+}
+
+test("V6 first check chooses the historical one-action course instead of forcing the 48h target", () => {
+  const samples = Array.from({ length: 10 }, (_, index) =>
+    actionSample(
+      index,
+      2.24 + (index % 3) * 0.02,
+      1.40 + (index % 2) * 0.04,
+      1.12 + (index % 4) * 0.02,
+      5.5 + (index % 3) * 0.5,
+      2.34 + (index % 3) * 0.02,
+    )
+  );
+  const transitions = Array.from({ length: 10 }, (_, index) =>
+    transition(index, 0.0014 + (index % 3) * 0.0001, 1.15, 4)
+  );
+
+  const estimate = estimatePressureTargetV6({
+    samples,
+    passiveSamples: [],
+    transitions,
+    state: state(2.26, 1.44, 6.8),
+    measurements: [
+      {
+        id: "2026-09-16_0800",
+        temp: 20.8,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: "2026-09-18_0900",
+        carbonation: 2.26,
+        temp: 6.8,
+        pressure: 1.44,
+      },
+    ],
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    coldReferenceTemperature: 0.5,
+    currentBatchId: "1590",
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.version, 6);
+  assert.equal(estimate.action, "lower");
+  assert.ok(
+    estimate.targetPressure !== null &&
+      estimate.targetPressure >= 1.08 &&
+      estimate.targetPressure <= 1.21,
+    `expected one-action course around the historical 1.15 bar region, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.predictedAtTarget !== null &&
+      estimate.predictedAtTarget < 2.45,
+    "the 48h checkpoint is allowed to remain below target; V6 optimizes the terminal course",
+  );
+  assert.ok(
+    estimate.terminalCarbonationAtTarget !== null &&
+      Math.abs(estimate.terminalCarbonationAtTarget - 2.45) <= 0.04,
+    `terminal carbonation must converge near target, got ${estimate.terminalCarbonationAtTarget}`,
+  );
+  assert.ok(
+    estimate.supportCount >= 6,
+    "historical pressure prior should be supported by distinct batches",
+  );
+});
+
+test("V6 repeat check keeps pressure when the current tank trajectory is already on the terminal course", () => {
+  const currentState = state(2.37, 1.10, 1.6, 300);
+  currentState.carbonationTrend = {
+    checksInPhase: 2,
+    previousCarbonation: 2.26,
+    previousDateTimeMs: Date.now() - 48 * 3600000,
+    hoursSincePrevious: 48,
+    deltaFromPrevious: 0.11,
+    ratePerDay: 0.055,
+    previousPressure: 1.15,
+    previousTemp: 6.8,
+  };
+
+  const passive = Array.from({ length: 10 }, (_, index) =>
+    passiveSample(
+      index,
+      2.34 + (index % 3) * 0.015,
+      1.07 + (index % 4) * 0.02,
+      1.2 + (index % 3) * 0.3,
+      2.43 + (index % 3) * 0.01,
+      300,
+    )
+  );
+
+  const estimate = estimatePressureTargetV6({
+    samples: [],
+    passiveSamples: passive,
+    transitions: Array.from({ length: 10 }, (_, index) =>
+      transition(index, 0.0014 + (index % 3) * 0.0001, 1.1, 1.6, 300)
+    ),
+    state: currentState,
+    measurements: [
+      {
+        id: "2026-09-16_0800",
+        temp: 20.8,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: "2026-09-18_0900",
+        carbonation: 2.26,
+        temp: 6.8,
+        pressure: 1.44,
+        notes: "הורדת לחץ ל1.15 bar",
+      },
+      {
+        id: "2026-09-20_0900",
+        carbonation: 2.37,
+        temp: 1.6,
+        pressure: 1.10,
+      },
+    ],
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    coldReferenceTemperature: 0.5,
+    currentBatchId: "1590",
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "hold");
+  assert.ok(
+    estimate.targetPressure !== null &&
+      Math.abs(estimate.targetPressure - 1.10) < 0.001,
+    `expected HOLD at 1.10 bar, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.currentBatchKPerHour !== null,
+    "the second check should fit kinetics from the current batch interval",
+  );
+  assert.equal(estimate.operationalLossSource, "trajectory_blend");
+  assert.ok(
+    estimate.terminalCarbonationAtTarget !== null &&
+      Math.abs(estimate.terminalCarbonationAtTarget - 2.45) <= 0.04,
+  );
+});
+
+test("V6 excludes the current batch from historical priors during replay", () => {
+  const leakingSample = actionSample(
+    1,
+    2.26,
+    1.44,
+    1.40,
+    6.8,
+    2.45,
+  );
+  leakingSample.batchId = "1590";
+
+  const estimate = estimatePressureTargetV6({
+    samples: [leakingSample],
+    passiveSamples: [],
+    transitions: [],
+    state: state(2.26, 1.44, 6.8),
+    measurements: [
+      {
+        id: "2026-09-16_0800",
+        temp: 20.8,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: "2026-09-18_0900",
+        carbonation: 2.26,
+        temp: 6.8,
+        pressure: 1.44,
+      },
+    ],
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    coldReferenceTemperature: 0.5,
+    currentBatchId: "1590",
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.supportCount, 0);
+  assert.equal(estimate.historicalPressurePrior, null);
+});
