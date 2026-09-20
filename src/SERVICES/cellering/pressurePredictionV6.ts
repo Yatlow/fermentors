@@ -769,7 +769,7 @@ function buildOneActionCourses(args: {
         actionPressureFromNote(start) ?? startPressure;
 
       let yeastLossBar = 0;
-      let previousPressure = startPressure;
+      let previousPressure: number | null = startPressure;
       let invalidated = false;
 
       for (
