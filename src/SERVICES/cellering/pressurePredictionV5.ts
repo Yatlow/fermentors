@@ -59,7 +59,7 @@ export type PressureV5Estimate = {
   predictedAtTarget: number | null;
 
   action: "hold" | "raise" | "lower" | "edge_case";
-  holdReason: "stable_in_tolerance" | "first_cooling_small_change" | null;
+  holdReason: "stable_in_tolerance" | "first_cooling_forecast_on_target" | null;
   recommendationVisibility: "global" | "tank_only";
   edgeCase:
     | null
@@ -859,13 +859,16 @@ export function estimatePressureTargetV5(args: {
   const outsideTargetWindow =
     Math.abs(carbonationError) >= targetToleranceVol - 1e-6;
 
-  const firstCoolingSmallChange =
+  const firstCoolingForecastOnTarget =
     firstCoolingMode &&
-    Math.abs(targetPressure - currentPressure) <= 0.07 + 1e-6;
+    predictedWithoutChange >=
+      args.targetCarbonation - targetToleranceVol &&
+    predictedWithoutChange <=
+      args.targetCarbonation + targetToleranceVol;
 
-  if (firstCoolingSmallChange) {
-    // On the first check, a tiny calculated correction is operationally a
-    // deliberate "do not touch the pressure" instruction.
+  if (firstCoolingForecastOnTarget) {
+    // First check HOLD is evidence-based: keep the current pressure only when
+    // the no-change forecast itself is already expected to land in spec.
     targetPressure = Number(currentPressure.toFixed(2));
   } else if (
     outsideTargetWindow &&
@@ -893,7 +896,7 @@ export function estimatePressureTargetV5(args: {
 
   const pressureDelta = targetPressure - currentPressure;
   const action: PressureV5Estimate["action"] =
-    firstCoolingSmallChange ||
+    firstCoolingForecastOnTarget ||
     (!firstCoolingMode && !outsideTargetWindow) ||
     Math.abs(pressureDelta) < 0.025
       ? "hold"
@@ -904,8 +907,8 @@ export function estimatePressureTargetV5(args: {
   const holdReason: PressureV5Estimate["holdReason"] =
     action !== "hold"
       ? null
-      : firstCoolingSmallChange
-        ? "first_cooling_small_change"
+      : firstCoolingForecastOnTarget
+        ? "first_cooling_forecast_on_target"
         : "stable_in_tolerance";
 
   const recommendationVisibility: PressureV5Estimate["recommendationVisibility"] =
