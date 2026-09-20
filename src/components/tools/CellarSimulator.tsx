@@ -12,6 +12,7 @@ import {
 } from "../../SERVICES/cellering/pressurePredictionV4";
 import {
     estimatePressureTargetV6,
+    selectV6HistoricalBatchIds,
     type PressureV6Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV6";
 import {
@@ -456,17 +457,36 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         ? getColdReferenceTemperatureV4(v4Model)
                         : null;
 
+                    const currentBatchId =
+                        String(tank.batchNumber).replace("#", "");
+                    const historicalBatchIds = v4Model
+                        ? selectV6HistoricalBatchIds({
+                            samples: v4Model.samples,
+                            passiveSamples: v4Model.passiveSamples,
+                            state,
+                            currentBatchId,
+                            limit: 8,
+                        })
+                        : [];
+                    const historicalBatches = await Promise.all(
+                        historicalBatchIds.map(async (batchId) => ({
+                            batchId,
+                            measurements: await getMeasurementsByBatch(batchId),
+                        }))
+                    );
+
                     const v6Estimate = estimatePressureTargetV6({
                         samples: v4Model?.samples ?? [],
                         passiveSamples: v4Model?.passiveSamples ?? [],
                         transitions: v4Model?.transitions ?? [],
                         state,
                         measurements: simulated,
+                        historicalBatches,
                         targetCarbonation: Number(carbonationTarget),
                         targetToleranceVol:
                             specs.tolorances?.carbonation ?? 0.04,
                         coldReferenceTemperature,
-                        currentBatchId: String(tank.batchNumber).replace("#", ""),
+                        currentBatchId,
                     });
 
                     if (v6Estimate) {
@@ -668,11 +688,13 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 לחץ שיווי־משקל פיזיקלי של היעד {v6Result.targetCarbonation.toFixed(2)}: {v6Result.targetEquilibriumPressure.toFixed(2)} bar ·
                                 אובדן לחץ תפעולי צפוי בדרך: {v6Result.expectedOperationalPressureLossBar.toFixed(2)} bar
                                 {" "}ב-{v6Result.expectedPressureLossEvents} אירועים ·
-                                מקור אובדן: {v6Result.operationalLossSource === "observed_yeast_drops"
-                                    ? "הורדות שמרים שנמדדו באצווה"
-                                    : v6Result.operationalLossSource === "yeast_drop_fallback"
-                                        ? "הורדת שמרים קרה צפויה (fallback)"
-                                        : "אין אובדן תפעולי עתידי מזוהה"} ·
+                                מקור אובדן: {v6Result.operationalLossSource === "historical_one_action_courses"
+                                    ? "קורסים היסטוריים מוצלחים ללא תיקון לחץ נוסף"
+                                    : v6Result.operationalLossSource === "observed_yeast_drops"
+                                        ? "הורדות שמרים שנמדדו באצווה"
+                                        : v6Result.operationalLossSource === "yeast_drop_fallback"
+                                            ? "הורדת שמרים קרה צפויה (fallback)"
+                                            : "אין אובדן תפעולי עתידי מזוהה"} ·
                                 בעוד 48 שעות בלי שינוי: {v6Result.predictedWithoutChange.toFixed(3)} vol ·
                                 בסוף ללא שינוי: {v6Result.terminalCarbonationWithoutChange.toFixed(3)} vol
                                 {" "}@ {v6Result.terminalPressureWithoutChange.toFixed(2)} bar ·
