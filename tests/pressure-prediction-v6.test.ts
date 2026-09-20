@@ -293,7 +293,7 @@ test("V6 repeat check keeps pressure when the current tank trajectory is already
     estimate.currentBatchKPerHour !== null,
     "the second check should fit kinetics from the current batch interval",
   );
-  assert.equal(estimate.operationalLossSource, "trajectory_blend");
+  assert.equal(estimate.operationalLossSource, "yeast_drop_fallback");
   assert.ok(
     estimate.terminalCarbonationAtTarget !== null &&
       Math.abs(estimate.terminalCarbonationAtTarget - 2.45) <= 0.04,
@@ -339,4 +339,100 @@ test("V6 excludes the current batch from historical priors during replay", () =>
   assert.ok(estimate);
   assert.equal(estimate.supportCount, 0);
   assert.equal(estimate.historicalPressurePrior, null);
+});
+
+
+test("V6 never converts historical pressure actions into future operational loss", () => {
+  const samples = Array.from({ length: 10 }, (_, index) =>
+    actionSample(
+      index,
+      2.25,
+      1.44,
+      1.33,
+      6.5,
+      2.38,
+    )
+  );
+
+  const estimate = estimatePressureTargetV6({
+    samples,
+    passiveSamples: [],
+    transitions: Array.from({ length: 10 }, (_, index) =>
+      transition(index, 0.0025, 1.30, 5.5)
+    ),
+    state: state(2.26, 1.44, 6.5),
+    measurements: [
+      {
+        id: "2026-09-16_0800",
+        temp: 20.8,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: "2026-09-18_0900",
+        carbonation: 2.26,
+        temp: 6.5,
+        pressure: 1.44,
+        notes: "הורדת לחץ ל1.30 bar",
+      },
+    ],
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    coldReferenceTemperature: 0.5,
+    currentBatchId: "1590",
+  });
+
+  assert.ok(estimate);
+  assert.ok(
+    estimate.historicalPressurePrior !== null &&
+      estimate.historicalPressurePrior >= 1.30,
+    "the historical pressure-action prior should still exist as decision evidence",
+  );
+  assert.equal(estimate.expectedPressureLossEvents, 1);
+  assert.equal(estimate.operationalLossSource, "yeast_drop_fallback");
+  assert.equal(
+    estimate.expectedOperationalPressureLossBar,
+    0.15,
+    "historical setpoints such as 1.33 bar must not be reclassified as pressure loss",
+  );
+});
+
+test("V6 uses measured yeast-drop loss only for a future identified yeast drop", () => {
+  const estimate = estimatePressureTargetV6({
+    samples: [],
+    passiveSamples: [],
+    transitions: Array.from({ length: 8 }, (_, index) =>
+      transition(index, 0.002, 1.1, 3)
+    ),
+    state: state(2.30, 1.20, 3),
+    measurements: [
+      {
+        id: "2026-09-15_0800",
+        temp: 20,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: "2026-09-16_0900",
+        temp: 12,
+        pressure: 1.40,
+        notes: "הורדת שמרים חמה, לחץ אחרי 1.28 bar",
+      },
+      {
+        id: "2026-09-18_0900",
+        carbonation: 2.30,
+        temp: 3,
+        pressure: 1.20,
+      },
+    ],
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    coldReferenceTemperature: 0.5,
+    currentBatchId: "1590",
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.expectedPressureLossEvents, 1);
+  assert.equal(estimate.operationalLossSource, "observed_yeast_drops");
+  assert.equal(estimate.expectedOperationalPressureLossBar, 0.12);
 });
