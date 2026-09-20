@@ -20,6 +20,10 @@ import {
     type PressureV7Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV7";
 import {
+    estimatePressureTargetV8,
+    type PressureV8Estimate,
+} from "../../SERVICES/cellering/pressurePredictionV8";
+import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
@@ -32,6 +36,9 @@ import {
 import {
     runPressureV7LeaveOneBatchOutBacktest,
 } from "../../SERVICES/cellering/pressurePredictionV7Backtest";
+import {
+    runPressureV8LeaveOneBatchOutBacktest,
+} from "../../SERVICES/cellering/pressurePredictionV8Backtest";
 import "./CellarSimulator.css";
 
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
@@ -339,11 +346,15 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v6Status, setV6Status] = useState("");
     const [v7Result, setV7Result] = useState<PressureV7Estimate | null>(null);
     const [v7Status, setV7Status] = useState("");
+    const [v8Result, setV8Result] = useState<PressureV8Estimate | null>(null);
+    const [v8Status, setV8Status] = useState("");
     const [backtestRunning, setBacktestRunning] = useState(false);
     const [backtestProgress, setBacktestProgress] = useState("");
     const [backtestResult, setBacktestResult] =
         useState<PressureV6BacktestResult | null>(null);
     const [backtestV6Result, setBacktestV6Result] =
+        useState<PressureV6BacktestResult | null>(null);
+    const [backtestV7Result, setBacktestV7Result] =
         useState<PressureV6BacktestResult | null>(null);
 
     const [carbonation, setCarbonation] = useState("2.10");
@@ -366,8 +377,12 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV6Status("");
         setV7Result(null);
         setV7Status("");
+        setV8Result(null);
+        setV8Status("");
         setV7Result(null);
         setV7Status("");
+        setV8Result(null);
+        setV8Status("");
         setBacktestResult(null);
         setBacktestV6Result(null);
         setBacktestProgress("");
@@ -436,6 +451,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setBacktestRunning(true);
         setBacktestResult(null);
         setBacktestV6Result(null);
+        setBacktestV7Result(null);
         setBacktestProgress("טוען מודל היסטורי…");
         setError("");
 
@@ -504,7 +520,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 historicalBatches.push(...loaded);
             }
 
-            setBacktestProgress("מריץ Leave-One-Batch-Out ל-V6 ול-V7…");
+            setBacktestProgress("מריץ Cross-fit Backtest ל-V6 / V7 / V8…");
             const backtestArgs = {
                 model,
                 historicalBatches,
@@ -517,9 +533,12 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 runPressureV6LeaveOneBatchOutBacktest(backtestArgs);
             const v7Backtest =
                 runPressureV7LeaveOneBatchOutBacktest(backtestArgs);
+            const v8Backtest =
+                runPressureV8LeaveOneBatchOutBacktest(backtestArgs);
 
             setBacktestV6Result(v6Backtest);
-            setBacktestResult(v7Backtest);
+            setBacktestV7Result(v7Backtest);
+            setBacktestResult(v8Backtest);
             setBacktestProgress(
                 allBatchIds.length > maxHistoricalBatches
                     ? `נבדקו עד ${maxHistoricalBatches} אצוות מתוך ${allBatchIds.length} הזמינות במודל.`
@@ -666,6 +685,20 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         measurements: Measurement[];
                     } => item !== null);
 
+                    const v8Estimate = estimatePressureTargetV8({
+                        state,
+                        historicalBatches,
+                        targetCarbonation: Number(carbonationTarget),
+                        targetToleranceVol,
+                        currentBatchId,
+                    });
+                    if (v8Estimate) {
+                        setV8Result(v8Estimate);
+                        setV8Status("");
+                    } else {
+                        setV8Status("לא ניתן לבנות חישוב V8 מהמצב הנוכחי");
+                    }
+
                     const v7Estimate = estimatePressureTargetV7({
                         state,
                         historicalBatches,
@@ -713,7 +746,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
             <div className="cellar-simulator-header">
                 <div>
                     <h2>סימולטור סלרינג</h2>
-                    <p>כלי Preview/פיתוח של V7 מול V6. V7 בוחר לחץ לפי תוצאות היסטוריות של מצבים דומים; אין כתיבה ל-Firestore או ל-Sheets.</p>
+                    <p>כלי Preview/פיתוח של V8 causal matching מול V7/V6. V8 מנסה לאמוד את ההשפעה של שינוי הלחץ עצמו על מקרים דומים, ולא רק קורלציה. אין כתיבה ל-Firestore או ל-Sheets.</p>
                 </div>
                 <span className="cellar-simulator-badge">READ ONLY</span>
             </div>
