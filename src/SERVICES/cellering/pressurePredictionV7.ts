@@ -15,6 +15,8 @@ import {
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
 const CANDIDATE_STEP_BAR = 0.05;
 const MIN_RECOMMENDATION_SUCCESS_PROBABILITY = 0.55;
+const MIN_SUCCESS_LIFT_TO_CHANGE_PRESSURE = 0.07;
+const MAX_NEAR_OPTIMAL_RANGE_WIDTH_BAR = 0.30;
 
 export type PressureV7Confidence = "low" | "medium" | "high";
 
@@ -50,6 +52,14 @@ export type PressureV7Estimate = {
 
   currentPressureSuccessProbability: number | null;
   currentPressureSupported: boolean;
+  bestSuccessProbability: number | null;
+  successLiftVsHold: number | null;
+  nearOptimalRangeWidthBar: number | null;
+  abstentionReason:
+    | "no_supported_candidates"
+    | "weak_best_candidate"
+    | "flat_response_surface"
+    | null;
   candidateCount: number;
   labeledOutcomeCount: number;
   labeledOutcomeBatchCount: number;
@@ -315,14 +325,65 @@ export function estimatePressureTargetV7(args: {
       effectiveSupport: 0,
       nearestDistance: null,
       confidence: "low",
+      bestSuccessProbability: null,
+      successLiftVsHold: null,
+      nearOptimalRangeWidthBar: null,
+      abstentionReason: "no_supported_candidates",
       bestCandidates: [],
     };
   }
 
-  const chosen = chooseCandidate({
+  const bestSuccess = Math.max(
+    ...evaluated.map((candidate) =>
+      candidate.successProbability
+    ),
+  );
+
+  const rawBest = chooseCandidate({
     supported: evaluated,
     currentPressure: query.startPressure,
   });
+
+  const currentCandidate = evaluated.find(
+    (candidate) =>
+      Math.abs(candidate.pressure - query.startPressure) < 0.011,
+  ) ?? null;
+
+  const successLiftVsHold =
+    currentCandidate === null
+      ? null
+      : bestSuccess - currentCandidate.successProbability;
+
+  // First define the near-optimal region by outcome, not by pressure proximity.
+  const acceptable = evaluated.filter(
+    (candidate) =>
+      candidate.successProbability >= bestSuccess - 0.05 &&
+      (
+        rawBest.expectedAbsCarbonationErrorVol === null ||
+        candidate.expectedAbsCarbonationErrorVol === null ||
+        candidate.expectedAbsCarbonationErrorVol <=
+          rawBest.expectedAbsCarbonationErrorVol + 0.02
+      ),
+  );
+
+  const rangeLow = Math.min(
+    ...acceptable.map((candidate) => candidate.pressure),
+  );
+  const rangeHigh = Math.max(
+    ...acceptable.map((candidate) => candidate.pressure),
+  );
+  const nearOptimalRangeWidthBar = rangeHigh - rangeLow;
+
+  // A pressure change has to beat HOLD by a meaningful margin. Otherwise
+  // intervention is not justified by the historical evidence.
+  let chosen = rawBest;
+  if (
+    currentCandidate &&
+    successLiftVsHold !== null &&
+    successLiftVsHold < MIN_SUCCESS_LIFT_TO_CHANGE_PRESSURE
+  ) {
+    chosen = currentCandidate;
+  }
 
   if (
     chosen.successProbability <
@@ -331,8 +392,8 @@ export function estimatePressureTargetV7(args: {
     return {
       ...common,
       targetPressure: null,
-      targetPressureRangeLow: null,
-      targetPressureRangeHigh: null,
+      targetPressureRangeLow: rangeLow,
+      targetPressureRangeHigh: rangeHigh,
       action: "insufficient_data",
       estimatedSuccessProbability:
         chosen.successProbability,
@@ -342,6 +403,10 @@ export function estimatePressureTargetV7(args: {
       effectiveSupport: chosen.effectiveSupport,
       nearestDistance: chosen.nearestDistance,
       confidence: "low",
+      bestSuccessProbability: bestSuccess,
+      successLiftVsHold,
+      nearOptimalRangeWidthBar,
+      abstentionReason: "weak_best_candidate",
       bestCandidates: evaluated
         .slice()
         .sort(
@@ -353,28 +418,50 @@ export function estimatePressureTargetV7(args: {
     };
   }
 
-  const bestSuccess = Math.max(
-    ...evaluated.map((candidate) =>
-      candidate.successProbability
-    ),
-  );
-  const acceptable = evaluated.filter(
-    (candidate) =>
-      candidate.successProbability >= bestSuccess - 0.05 &&
-      (
-        chosen.expectedAbsCarbonationErrorVol === null ||
-        candidate.expectedAbsCarbonationErrorVol === null ||
-        candidate.expectedAbsCarbonationErrorVol <=
-          chosen.expectedAbsCarbonationErrorVol + 0.02
-      ),
-  );
-
-  const rangeLow = Math.min(
-    ...acceptable.map((candidate) => candidate.pressure),
-  );
-  const rangeHigh = Math.max(
-    ...acceptable.map((candidate) => candidate.pressure),
-  );
+  // If the response surface is essentially flat across a very wide pressure
+  // range, the data says "this state usually does fine", not "this exact
+  // pressure is correct". In that case HOLD is allowed only when it is already
+  // near-best; otherwise abstain rather than invent precision.
+  if (
+    nearOptimalRangeWidthBar >
+    MAX_NEAR_OPTIMAL_RANGE_WIDTH_BAR
+  ) {
+    if (
+      currentCandidate &&
+      successLiftVsHold !== null &&
+      successLiftVsHold < MIN_SUCCESS_LIFT_TO_CHANGE_PRESSURE
+    ) {
+      chosen = currentCandidate;
+    } else {
+      return {
+        ...common,
+        targetPressure: null,
+        targetPressureRangeLow: rangeLow,
+        targetPressureRangeHigh: rangeHigh,
+        action: "insufficient_data",
+        estimatedSuccessProbability:
+          rawBest.successProbability,
+        expectedAbsCarbonationErrorVol:
+          rawBest.expectedAbsCarbonationErrorVol,
+        supportBatches: rawBest.supportBatches,
+        effectiveSupport: rawBest.effectiveSupport,
+        nearestDistance: rawBest.nearestDistance,
+        confidence: "low",
+        bestSuccessProbability: bestSuccess,
+        successLiftVsHold,
+        nearOptimalRangeWidthBar,
+        abstentionReason: "flat_response_surface",
+        bestCandidates: evaluated
+          .slice()
+          .sort(
+            (a, b) =>
+              b.successProbability -
+              a.successProbability,
+          )
+          .slice(0, 5),
+      };
+    }
+  }
 
   const pressureDelta =
     chosen.pressure - query.startPressure;
@@ -402,6 +489,10 @@ export function estimatePressureTargetV7(args: {
     effectiveSupport: chosen.effectiveSupport,
     nearestDistance: chosen.nearestDistance,
     confidence: confidenceFor(chosen),
+    bestSuccessProbability: bestSuccess,
+    successLiftVsHold,
+    nearOptimalRangeWidthBar,
+    abstentionReason: null,
     bestCandidates: evaluated
       .slice()
       .sort(
