@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { carbonationRetestPolicy } from "../src/SERVICES/cellering/carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy } from "../src/SERVICES/cellering/carbonationRetestPolicy";
 
 test("out-of-spec carbonation from two days ago is due today when untreated", () => {
   const policy = carbonationRetestPolicy(
@@ -104,4 +104,57 @@ test("ordinary pressure retest uses calendar dates, not a 48-hour timer", () => 
   assert.equal(policy.waitReason, "ordinary_pressure");
   assert.equal(policy.daysSinceReference, 2);
   assert.equal(policy.due, true);
+});
+
+
+test("bottom-carbonation retest wording uses the actual treatment age", () => {
+  const nextDay = carbonationRetestPolicy(
+    [
+      {
+        id: "2026-09-18_1010",
+        carbonation: 2.01,
+        notes: "סגירת גיזוז מלמטה בשעה 10:55 על 0.8 bar",
+      },
+    ],
+    "2026-09-19",
+  );
+
+  const twoDaysLater = carbonationRetestPolicy(
+    [
+      {
+        id: "2026-09-17_1010",
+        carbonation: 2.01,
+        notes: "סגירת גיזוז מלמטה בשעה 10:55 על 0.8 bar",
+      },
+    ],
+    "2026-09-19",
+  );
+
+  assert.match(
+    carbonationRetestDueReason(nextDay) ?? "",
+    /^אתמול בוצע גיזוז מלמטה/,
+  );
+  assert.match(
+    carbonationRetestDueReason(twoDaysLater) ?? "",
+    /^לפני יומיים בוצע גיזוז מלמטה/,
+  );
+});
+
+test("ordinary-pressure retest wording does not hardcode two days", () => {
+  const policy = carbonationRetestPolicy(
+    [
+      {
+        id: "2026-09-16_1010",
+        carbonation: 2.26,
+        notes: "העלאת לחץ ל1.3 bar",
+      },
+    ],
+    "2026-09-19",
+  );
+
+  assert.equal(policy.daysSinceReference, 3);
+  assert.match(
+    carbonationRetestDueReason(policy) ?? "",
+    /^לפני 3 ימים בוצע שינוי לחץ/,
+  );
 });
