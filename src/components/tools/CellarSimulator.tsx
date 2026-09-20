@@ -185,8 +185,8 @@ function buildHypotheticalProductionPressureTextV5(
     if (estimate.action === "hold") {
         if (estimate.holdReason === "first_cooling_small_change") {
             return (
-                intro +
-                `שינוי הלחץ המחושב קטן מ-0.07 bar. מומלץ להשאיר את הלחץ על ${estimate.currentPressure.toFixed(2)} bar ולא לבצע שינוי לחץ כרגע.`
+                `הגיזוז בבדיקה שנלקחה ${measurementDay} צפוי להגיע לגיזוז תקין ללא שינוי לחץ (בדיקת גיזוז ראשונה). ` +
+                "מומלץ לבצע בדיקת גיזוז חוזרת בעוד יומיים."
             );
         }
 
@@ -705,7 +705,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                     ? ` · יעד גיזוז בחישוב: ${v5Result.predictedAtTarget.toFixed(3)} vol`
                                     : ""}
                                 {v5Result.edgeCase === "bottom_carbonation"
-                                    ? ` · סף גיזוז מלמטה במסלול הזה: מתחת ${v5Result.mode === "first_cooling" ? "1.95" : "2.15"} vol. V5 רק מזהה את המסלול ולא מחשב טיפול.`
+                                    ? v5Result.mode === "first_cooling"
+                                        ? " · בבדיקה ראשונה: לחץ ראש אינו מספיק להגיע ליעד; V5 מפנה לגיזוז מלמטה."
+                                        : " · בבדיקה חוזרת: מתחת 2.15 vol עוברים ישירות למסלול גיזוז מלמטה."
                                     : ""}
                                 {v5Result.edgeCase === "venting_below_zero"
                                     ? " · הפתרון המתמטי דורש לחץ gauge שלילי; V5 רק מזהה שנדרשת פריקה ולא מחשב זמן."
