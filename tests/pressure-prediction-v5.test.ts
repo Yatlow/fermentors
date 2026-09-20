@@ -161,9 +161,11 @@ test("V5 first carbonation with stored head pressure recommends lower pressure",
       estimate.targetPressure < 1.44,
     `expected lower than 1.44 bar, got ${estimate.targetPressure}`,
   );
+  assert.ok(estimate.predictedAtTarget !== null);
   assert.ok(
-    estimate.predictedAtTarget !== null &&
-      Math.abs(estimate.predictedAtTarget - 2.45) <= 0.02,
+    Math.abs(estimate.predictedAtTarget - 2.45) <=
+      Math.abs(estimate.predictedWithoutChange - 2.45) + 1e-6,
+    "recommended pressure should not forecast farther from target than doing nothing",
   );
 });
 
@@ -729,5 +731,110 @@ test("V5 first-cooling HOLD requires the no-change forecast itself to land in sp
     estimate.predictedWithoutChange <=
       estimate.targetCarbonation + estimate.targetToleranceVol,
     `HOLD must mean no-change forecast is in spec, got ${estimate.predictedWithoutChange}`,
+  );
+});
+
+
+test("V5 stable second check uses the tank trend and does not raise tank 16", () => {
+  const tank16 = state(2.37, 1.10, 1.6);
+  tank16.carbonationTrend = {
+    checksInPhase: 2,
+    previousCarbonation: 2.26,
+    previousDateTimeMs: Date.now() - 48 * 3600000,
+    hoursSincePrevious: 48,
+    deltaFromPrevious: 0.11,
+    ratePerDay: 0.055,
+    previousPressure: 1.44,
+    previousTemp: 6.8,
+  };
+
+  const estimate = estimatePressureTargetV5({
+    state: tank16,
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    firstCarbonation: false,
+    equilibriumPressureAtTemperature: () => 0.50,
+    measurements: [
+      {
+        id: "2026-09-18_0900",
+        pressure: 1.58,
+        notes: "הורדת 13.5 דליי שמרים, לחץ אחרי 1.47 bar",
+      },
+      {
+        id: "2026-09-19_0900",
+        pressure: 1.10,
+        notes: "הורדת 12 דליי שמרים, לחץ אחרי 0.90 bar",
+      },
+    ],
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.mode, "stable");
+  assert.equal(estimate.stableForecastSource, "recent_tank_trend");
+  assert.equal(estimate.action, "hold");
+  assert.equal(estimate.holdReason, "stable_forecast_on_target");
+  assert.equal(estimate.targetPressure, 1.10);
+  assert.ok(
+    Math.abs(estimate.predictedWithoutChange - 2.48) <= 0.001,
+    `expected the observed +0.11/48h trend to project about 2.48, got ${estimate.predictedWithoutChange}`,
+  );
+  assert.ok(
+    estimate.physicalPredictedWithoutChange >
+      estimate.predictedWithoutChange + 0.1,
+    "the physics-only forecast may disagree, but must not override direct tank evidence",
+  );
+  assert.equal(estimate.operationalPressureReserveSource, "batch_yeast_drops");
+  assert.equal(estimate.operationalPressureReserveSampleCount, 2);
+  assert.ok(
+    estimate.operationalPressureReserveBar >= 0.15 &&
+      estimate.operationalPressureReserveBar <= 0.16,
+    `expected median yeast-drop loss around 0.155 bar, got ${estimate.operationalPressureReserveBar}`,
+  );
+  assert.equal(
+    estimate.predictedAtTarget,
+    estimate.predictedWithoutChange,
+    "HOLD must report the real no-change forecast, not echo the target carbonation",
+  );
+});
+
+test("V5 stable lowering preserves a learned yeast-drop pressure reserve while beer is still below target", () => {
+  const risingFast = state(2.37, 1.10, 1.6);
+  risingFast.carbonationTrend = {
+    checksInPhase: 2,
+    previousCarbonation: 1.93,
+    previousDateTimeMs: Date.now() - 48 * 3600000,
+    hoursSincePrevious: 48,
+    deltaFromPrevious: 0.44,
+    ratePerDay: 0.22,
+    previousPressure: 1.20,
+    previousTemp: 1.8,
+  };
+
+  const estimate = estimatePressureTargetV5({
+    state: risingFast,
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    firstCarbonation: false,
+    equilibriumPressureAtTemperature: () => 0.50,
+    measurements: [
+      {
+        id: "2026-09-18_0900",
+        pressure: 1.58,
+        notes: "הורדת 13.5 דליי שמרים, לחץ אחרי 1.47 bar",
+      },
+      {
+        id: "2026-09-19_0900",
+        pressure: 1.10,
+        notes: "הורדת 12 דליי שמרים, לחץ אחרי 0.90 bar",
+      },
+    ],
+  });
+
+  assert.ok(estimate);
+  assert.equal(estimate.action, "lower");
+  assert.ok(estimate.targetPressure !== null);
+  assert.ok(
+    estimate.targetPressure! >= estimate.operationalPressureFloorBar - 0.011,
+    `stable pressure must preserve the operational floor ${estimate.operationalPressureFloorBar}, got ${estimate.targetPressure}`,
   );
 });
