@@ -862,7 +862,7 @@ export function countV6SuccessfulOneActionBatches(args: {
   targetCarbonation: number;
   targetToleranceVol: number;
 }): number {
-  const courses = buildOneActionCourses(args);
+  const courses = buildV6OneActionCourses(args);
   return new Set(
     courses
       .map((course) => String(course.batchId || "").trim())
@@ -1412,9 +1412,13 @@ function projectCurrentCarbonation(args: {
     } => row.time !== null)
     .sort((a, b) => a.time - b.time);
 
-  const lastCarbonationIndex = rows.findLastIndex(
-    (row) => row.carbonation !== null,
-  );
+  let lastCarbonationIndex = -1;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (rows[index].carbonation !== null) {
+      lastCarbonationIndex = index;
+      break;
+    }
+  }
   if (lastCarbonationIndex < 0) {
     return {
       carbonation: args.measuredCarbonation,
