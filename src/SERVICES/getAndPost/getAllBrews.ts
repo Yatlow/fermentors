@@ -1,6 +1,8 @@
 // SERVICES/getAllBrews.ts
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   limit,
   orderBy,
@@ -106,4 +108,71 @@ export async function getBrewsSummaryPage(
 /** Backwards-compatible first page for callers that only need recent brews. */
 export async function getAllBrewsSummary(): Promise<BrewSummary[]> {
   return (await getBrewsSummaryPage(null, 100)).rows;
+}
+
+
+export type BrewPhysicsMetadata = {
+  batchNumber: string;
+  beerStyle: string;
+  brewDate: string;
+  tankNumber: number | null;
+  beerVolumeLiters: number | null;
+};
+
+const physicsMetadataCache = new Map<
+  string,
+  Promise<BrewPhysicsMetadata | null>
+>();
+
+function finitePhysicsNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Development/validation helper. Reads the parent brews/{batch} document once
+ * and caches it for the session. V9 production recommendations do not use this.
+ */
+export async function getBrewPhysicsMetadata(
+  batchNumber: string | number,
+): Promise<BrewPhysicsMetadata | null> {
+  const id = String(batchNumber).replace("#", "").trim();
+  if (!id || id.includes("/")) return null;
+
+  const cached = physicsMetadataCache.get(id);
+  if (cached) return cached;
+
+  const pending = getDoc(doc(db, "brews", id))
+    .then((snapshot) => {
+      if (!snapshot.exists()) return null;
+      const data = snapshot.data() as Record<string, unknown>;
+
+      const tankNumber =
+        finitePhysicsNumber(data.tankNumber) ??
+        finitePhysicsNumber(data.tank) ??
+        finitePhysicsNumber(data.fermentorNumber);
+      const beerVolumeLiters =
+        finitePhysicsNumber(data.beerVolume) ??
+        finitePhysicsNumber(data.volume) ??
+        finitePhysicsNumber(data.beerVolumeLiters);
+
+      return {
+        batchNumber: String(data.batchNumber ?? id),
+        beerStyle: String(data.beerStyle ?? ""),
+        brewDate: String(data.brewDate ?? ""),
+        tankNumber,
+        beerVolumeLiters,
+      };
+    })
+    .catch((error) => {
+      console.warn("V9 validation metadata unavailable", {
+        batchNumber: id,
+        error,
+      });
+      return null;
+    });
+
+  physicsMetadataCache.set(id, pending);
+  return pending;
 }
