@@ -51,6 +51,7 @@ type FutureLossEstimate = {
 type CandidateForecast = {
   setPressure: number;
   checkpoint48: number;
+  checkpoint72: number;
   checkpoint96: number;
   finalPressure: number;
   terminalEquilibriumCarbonation: number;
@@ -1465,6 +1466,7 @@ function simulateCandidate(args: {
   );
   let carbonation = args.currentCarbonation;
   let checkpoint48 = carbonation;
+  let checkpoint72 = carbonation;
   let checkpoint96 = carbonation;
   let maxCarbonation = carbonation;
   let minCarbonation = carbonation;
@@ -1505,6 +1507,7 @@ function simulateCandidate(args: {
     minCarbonation = Math.min(minCarbonation, carbonation);
 
     if (hour === 48) checkpoint48 = carbonation;
+    if (hour === 72) checkpoint72 = carbonation;
     if (hour === 96) checkpoint96 = carbonation;
 
     if (
@@ -1526,23 +1529,33 @@ function simulateCandidate(args: {
   );
   if (terminalEquilibrium === null) return null;
 
-  const terminalError = Math.abs(
-    terminalEquilibrium - args.targetCarbonation,
+  // Fallback scoring is intentionally COURSE based. A fixed setpoint is not
+  // a valid model of the terminal tank pressure because headspace pressure is
+  // consumed while CO2 dissolves and is also changed by cellar operations.
+  // Therefore the static terminal equilibrium is diagnostic only and must not
+  // force every recommendation down to P_eq + one guessed pressure loss.
+  const courseError72 = Math.abs(
+    checkpoint72 - args.targetCarbonation,
   );
 
-  let overshoot = 0;
+  const courseValues = [
+    checkpoint48,
+    checkpoint72,
+    checkpoint96,
+  ];
+  let courseOvershoot = 0;
   if (args.currentCarbonation < args.targetCarbonation) {
-    overshoot = Math.max(
+    courseOvershoot = Math.max(
       0,
-      maxCarbonation -
+      Math.max(...courseValues) -
         args.targetCarbonation -
         args.targetToleranceVol,
     );
   } else if (args.currentCarbonation > args.targetCarbonation) {
-    overshoot = Math.max(
+    courseOvershoot = Math.max(
       0,
       args.targetCarbonation -
-        minCarbonation -
+        Math.min(...courseValues) -
         args.targetToleranceVol,
     );
   }
@@ -1569,15 +1582,16 @@ function simulateCandidate(args: {
     Math.abs(args.setPressure - args.currentPressure);
 
   const score =
-    terminalError * 10 +
-    overshoot * 14 +
-    checkpointError * 1.8 +
-    historicalPressurePenalty * 0.20 +
-    interventionPenalty * 0.025;
+    courseError72 * 10 +
+    courseOvershoot * 8 +
+    checkpointError * 1.5 +
+    historicalPressurePenalty * 0.40 +
+    interventionPenalty * 0.05;
 
   return {
     setPressure: args.setPressure,
     checkpoint48,
+    checkpoint72,
     checkpoint96,
     finalPressure,
     terminalEquilibriumCarbonation: terminalEquilibrium,
@@ -1911,6 +1925,17 @@ export function estimatePressureTargetV6(args: {
   });
   if (!currentForecast) return null;
 
+  const fallbackTrend = reliableCurrentTrend({
+    state: args.state,
+    currentCarbonation: estimatedCurrentCarbonation,
+    targetCarbonation: args.targetCarbonation,
+    targetToleranceVol,
+    historicalHoursToTarget: null,
+  });
+  if (fallbackTrend.onCourse) {
+    best = currentForecast;
+  }
+
   const currentTerminalOnTarget =
     Math.abs(
       currentForecast.terminalEquilibriumCarbonation -
@@ -1925,6 +1950,7 @@ export function estimatePressureTargetV6(args: {
         args.targetCarbonation - targetToleranceVol - 0.03;
 
   if (
+    !fallbackTrend.onCourse &&
     currentTerminalOnTarget &&
     currentCourseSafe &&
     currentForecast.score <= best.score + 0.08
@@ -2016,7 +2042,12 @@ export function estimatePressureTargetV6(args: {
     };
   }
 
-  let targetPressure = best.setPressure;
+  let targetPressure = fallbackTrend.onCourse
+    ? currentPressure
+    : best.setPressure;
+  if (fallbackTrend.onCourse) {
+    best = currentForecast;
+  }
   const rawTargetPressure = targetPressure;
   const delta = targetPressure - currentPressure;
 
