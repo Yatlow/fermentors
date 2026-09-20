@@ -832,7 +832,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         : `זיהוי: בדיקה חוזרת · ${resolved.priorChecks} בדיקות גיזוז קודמות אחרי קירור`;
                 })()}
                 {" · "}
-                ב-V6 אין נוסחה נפרדת לבדיקה ראשונה/חוזרת: אותו optimizer משתמש בכל המידע הזמין. הזיהוי כאן משפיע רק על בניית תרחיש ה-Replay ועל מנוע ההמלצות הישן.
+                V7 לא מנסה לחקות את לחץ העובד ולא לפתור נוסחת שיווי־משקל: הוא בודק לחצים אפשריים מול outcome של אצוות דומות ובוחר את הלחץ עם סיכויי ההצלחה הגבוהים ביותר. V6 נשאר מתחת להשוואה.
             </div>
 
             <div className="cellar-simulator-actions">
@@ -868,35 +868,35 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
             {backtestResult && (
                 <div className="cellar-simulator-results cellar-simulator-backtest">
-                    <h3>Backtest — האם ההחלטה של V6 צפויה לעבוד?</h3>
+                    <h3>Backtest — האם V7 באמת משפר את הסיכוי לפגוע בפעם הראשונה?</h3>
                     <article className="cellar-simulator-result level-1">
                         <strong>
                             {backtestReadinessText(backtestResult.readiness)}
                         </strong>
                         <p>
-                            המבחן כבר לא בודק אם V6 ניחש את אותו לחץ שהעובד בחר.
-                            בכל נקודת החלטה אצווה אחת מוסתרת לחלוטין, V6 בוחר לחץ,
-                            ואז מודל outcome נפרד בודק — מתוך אצוות אחרות בלבד —
-                            מה קרה במצבים דומים כשנבחר לחץ דומה: האם הגיעו ליעד
-                            בלי תיקון לחץ נוסף או גיזוז מלמטה.
+                            בכל נקודת החלטה אצווה אחת מוסתרת לחלוטין. V7 סורק לחצים
+                            אפשריים ובוחר את זה שקיבל את תוצאות ה-outcome הטובות ביותר
+                            באצוות אחרות עם מצב דומה. אחר כך אותו לחץ נשפט שוב מול
+                            אצוות אחרות בלבד. כלומר המדד כאן הוא הצלחה צפויה — לא
+                            דמיון להחלטה של העובד.
                         </p>
 
                         <div className="cellar-simulator-backtest-metrics">
                             <div>
                                 <b>{percent(backtestResult.estimatedFirstShotSuccessRate)}</b>
-                                <span>הצלחה צפויה בפעולה אחת</span>
+                                <span>V7 — הצלחה צפויה בפעולה אחת</span>
                             </div>
                             <div>
                                 <b>{percent(backtestResult.actualHumanFirstShotSuccessRate)}</b>
-                                <span>הצלחה בפועל של החלטות האדם</span>
+                                <span>החלטות האדם — הצלחה בפועל</span>
                             </div>
                             <div>
-                                <b>
-                                    {backtestResult.estimatedSuccessLiftVsHuman === null
-                                        ? "—"
-                                        : `${backtestResult.estimatedSuccessLiftVsHuman >= 0 ? "+" : ""}${Math.round(backtestResult.estimatedSuccessLiftVsHuman * 100)}%`}
-                                </b>
-                                <span>יתרון צפוי מול לחץ האדם</span>
+                                <b>{percent(backtestResult.dangerousMissRate)}</b>
+                                <span>V7 — המלצות עם סיכויי הצלחה מתחת ל-50%</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.successProbabilityP10)}</b>
+                                <span>V7 — סיכויי הצלחה בעשירון החלש</span>
                             </div>
                             <div>
                                 <b>
@@ -907,47 +907,44 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 <span>סטיית גיזוז צפויה מהיעד</span>
                             </div>
                             <div>
-                                <b>{percent(backtestResult.dangerousMissRate)}</b>
-                                <span>מקרים עם סיכויי הצלחה מתחת ל-50%</span>
-                            </div>
-                            <div>
                                 <b>{percent(backtestResult.counterfactualCoverage)}</b>
-                                <span>המלצות עם מספיק מקרים דומים להשוואה</span>
-                            </div>
-                            <div>
-                                <b>{percent(backtestResult.successProbabilityP10)}</b>
-                                <span>סיכויי הצלחה בעשירון החלש</span>
+                                <span>המלצות עם מספיק מקרים דומים כדי לשפוט</span>
                             </div>
                             <div>
                                 <b>{percent(backtestResult.modelCoverage)}</b>
-                                <span>מקרים שבהם V6 הצליח לתת המלצה</span>
+                                <span>נקודות שבהן V7 הסכים לתת המלצה</span>
+                            </div>
+                            <div>
+                                <b>{backtestResult.distinctBatchCount}</b>
+                                <span>אצוות שונות שנכנסו ל-Backtest</span>
                             </div>
                         </div>
 
+                        {backtestV6Result && (
+                            <p className="cellar-simulator-backtest-warning">
+                                השוואה באותו מבחן בדיוק: V6 —
+                                {" "}הצלחה צפויה {percent(backtestV6Result.estimatedFirstShotSuccessRate)},
+                                {" "}מקרים מסוכנים {percent(backtestV6Result.dangerousMissRate)},
+                                {" "}כיסוי counterfactual {percent(backtestV6Result.counterfactualCoverage)}.
+                                {" "}כך אפשר לראות אם V7 באמת שיפר את המנוע ולא רק שינה את המספרים.
+                            </p>
+                        )}
+
                         <p>
-                            בסיס ה-outcome כולל {backtestResult.labeledOutcomeCount} החלטות עם תוצאה ידועה
-                            על {backtestResult.labeledOutcomeBatchCount} אצוות:
-                            {" "}{backtestResult.successfulOutcomeCount} הגיעו ליעד בלי תיקון נוסף,
-                            {" "}{backtestResult.failedOutcomeCount} נזקקו לתיקון / גיזוז מלמטה / חצו את היעד.
-                            {" "}ב-Backtest עצמו V6 נתן תשובה ב-{backtestResult.predictedCaseCount}
-                            {" "}מתוך {backtestResult.eligibleCaseCount} נקודות החלטה, על
-                            {" "}{backtestResult.distinctBatchCount} אצוות שונות.
+                            בסיס ה-outcome כולל {backtestResult.labeledOutcomeCount} החלטות עם
+                            תוצאה ידועה על {backtestResult.labeledOutcomeBatchCount} אצוות:
+                            {" "}{backtestResult.successfulOutcomeCount} הצלחות בפעולה אחת,
+                            {" "}{backtestResult.failedOutcomeCount} החלטות שנזקקו לתיקון /
+                            גיזוז מלמטה / חצו את היעד.
+                            {" "}V7 נתן המלצה ב-{backtestResult.predictedCaseCount} מתוך
+                            {" "}{backtestResult.eligibleCaseCount} נקודות החלטה.
                         </p>
 
                         <p className="cellar-simulator-backtest-warning">
-                            זה Counterfactual Backtest ולא ניסוי אקראי: כש-V6 בוחר לחץ שלא נוסה
-                            באותה אצווה, אנחנו מעריכים את התוצאה מאצוות אחרות עם מצב ולחץ פעולה
-                            דומים. לכן כיסוי נמוך אומר שאין לנו מספיק דאטה כדי לשפוט את ההמלצה —
-                            לא שהיא טובה או רעה. המדדים מאוזנים לפי אצווה.
+                            זה עדיין Counterfactual Backtest ולא ניסוי אקראי. אם V7 בוחר לחץ
+                            שאין סביבו מספיק היסטוריה דומה, הוא נמנע מלתת המלצה והכיסוי יורד.
+                            זו התנהגות מכוונת: עדיף "אין מספיק מידע" על ביטחון מזויף.
                         </p>
-
-                        {backtestResult.imitationPressureMaeBar !== null && (
-                            <p className="cellar-simulator-backtest-warning">
-                                להשוואה בלבד: V6 שונה מהלחץ שבני אדם בחרו בממוצע ב-
-                                {backtestResult.imitationPressureMaeBar.toFixed(2)} bar.
-                                המספר הזה אינו חלק מציון האיכות.
-                            </p>
-                        )}
 
                         {backtestResult.cases.some(
                             (item) => item.counterfactualSupported
@@ -974,7 +971,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                             >
                                                 <b>#{item.batchId}</b>
                                                 <span>
-                                                    V6 {item.predictedPressure.toFixed(2)} bar ·
+                                                    V7 {item.predictedPressure.toFixed(2)} bar ·
                                                     הצלחה צפויה {percent(item.modelEstimatedSuccessProbability)} ·
                                                     האדם {item.actualHumanPressure.toFixed(2)} bar
                                                     {" "}({item.humanActualSuccess ? "הצליח בפועל" : "נדרש תיקון"}) ·
@@ -986,6 +983,62 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             </>
                         )}
                     </article>
+                </div>
+            )}
+
+            {(v7Result || v7Status) && (
+                <div className="cellar-simulator-results">
+                    <h3>V7 — Outcome Optimizer ניסיוני</h3>
+                    {v7Result ? (
+                        <article className="cellar-simulator-result level-1">
+                            <strong>
+                                {v7Result.action === "insufficient_data"
+                                    ? "אין מספיק מידע להמלצת לחץ"
+                                    : v7Result.action === "hold"
+                                        ? "להשאיר לחץ"
+                                        : v7Result.action === "raise"
+                                            ? `להעלות לחץ ל-${v7Result.targetPressure?.toFixed(2)} bar`
+                                            : `להוריד לחץ ל-${v7Result.targetPressure?.toFixed(2)} bar`}
+                            </strong>
+                            <p>
+                                גיזוז {v7Result.currentCarbonation.toFixed(2)} vol ·
+                                לחץ נוכחי {v7Result.currentPressure.toFixed(2)} bar ·
+                                טמפרטורה {v7Result.currentTemperature.toFixed(1)}°C ·
+                                יעד {v7Result.targetCarbonation.toFixed(2)} vol ·
+                                {v7Result.estimatedSuccessProbability !== null
+                                    ? ` הצלחה צפויה: ${percent(v7Result.estimatedSuccessProbability)} ·`
+                                    : ""}
+                                {" "}תמיכה: {v7Result.supportBatches} אצוות ·
+                                ביטחון: {v7Result.confidence} ·
+                                {v7Result.expectedAbsCarbonationErrorVol !== null
+                                    ? ` סטיית גיזוז צפויה: ${v7Result.expectedAbsCarbonationErrorVol.toFixed(3)} vol ·`
+                                    : ""}
+                                {" "}לחצים נתמכים שנבדקו: {v7Result.candidateCount}
+                                {v7Result.currentPressureSuccessProbability !== null
+                                    ? ` · אם לא נוגעים: ${percent(v7Result.currentPressureSuccessProbability)} הצלחה צפויה`
+                                    : " · ללחץ הנוכחי אין מספיק מקרים דומים"}
+                                {v7Result.targetPressureRangeLow !== null &&
+                                v7Result.targetPressureRangeHigh !== null
+                                    ? ` · טווח כמעט-מיטבי: ${v7Result.targetPressureRangeLow.toFixed(2)}–${v7Result.targetPressureRangeHigh.toFixed(2)} bar`
+                                    : ""}
+                            </p>
+                            {v7Result.bestCandidates.length > 0 && (
+                                <p>
+                                    המועמדים החזקים:
+                                    {" "}
+                                    {v7Result.bestCandidates
+                                        .slice(0, 5)
+                                        .map(
+                                            (candidate) =>
+                                                `${candidate.pressure.toFixed(2)} bar → ${percent(candidate.successProbability)}`
+                                        )
+                                        .join(" · ")}
+                                </p>
+                            )}
+                        </article>
+                    ) : (
+                        <div className="cellar-simulator-empty">{v7Status}</div>
+                    )}
                 </div>
             )}
 
