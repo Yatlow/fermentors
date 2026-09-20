@@ -140,3 +140,57 @@ test("V9 validation never starts a closed interval from a row whose yeast-drop n
     "2026-09-18_0800",
   );
 });
+
+
+test("V9 validation rejects corrupt carbonation values instead of letting one typo dominate MAE", () => {
+  const batch = exactBatch("1800");
+  batch.measurements = [
+    {
+      id: "2026-09-16_0800",
+      carbonation: 3.96,
+      pressure: 1.1,
+      temp: 2.0,
+    },
+    {
+      id: "2026-09-17_0800",
+      carbonation: 38,
+      pressure: 1.0,
+      temp: 1.8,
+    },
+  ];
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 1,
+  });
+
+  assert.equal(result.caseCount, 0);
+});
+
+test("V9 validation does not carry an older pressure or temperature into a later carbonation state", () => {
+  const batch = exactBatch("1801");
+  batch.measurements = [
+    {
+      id: "2026-09-16_0800",
+      pressure: 1.2,
+      temp: 4.0,
+    },
+    {
+      id: "2026-09-17_0800",
+      carbonation: 2.25,
+    },
+    {
+      id: "2026-09-19_0800",
+      carbonation: 2.35,
+      pressure: 0.9,
+      temp: 1.5,
+    },
+  ];
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 1,
+  });
+
+  assert.equal(result.caseCount, 0);
+});
