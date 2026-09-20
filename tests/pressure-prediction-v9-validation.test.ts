@@ -291,3 +291,39 @@ test("V9 validation uses the observed temperature path instead of assuming linea
   assert.ok(result.carbonationMae! < 0.000001);
   assert.equal(result.cases[0]?.temperaturePathPointCount, 4);
 });
+
+
+test("V9 validation can recover a shorthand pressure target when the note only says a different bar value", () => {
+  const batch = exactBatch("1903");
+  batch.measurements[0] = {
+    ...batch.measurements[0],
+    pressure: 1.44,
+    notes: "1.15 bar",
+  };
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 11,
+  });
+
+  assert.equal(result.caseCount, 1);
+  assert.ok(result.carbonationMae !== null);
+  assert.ok(result.carbonationMae! < 0.000001);
+});
+
+test("V9 validation recognizes legacy three-digit measurement times when checking intervening pressure actions", () => {
+  const batch = exactBatch("1904");
+  batch.measurements.splice(1, 0, {
+    id: "2026-09-19_930",
+    pressure: 1.0,
+    temp: 3.0,
+    notes: "שחרור לחץ ל 0.85 bar",
+  });
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 11,
+  });
+
+  assert.equal(result.caseCount, 0);
+});
