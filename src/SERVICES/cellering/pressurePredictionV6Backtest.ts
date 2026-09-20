@@ -5,16 +5,24 @@ import {
 import {
   buildPressureV4DecisionState,
   type PressureV4Measurement,
+  type PressureV4PassiveSample,
+  type PressureV4Sample,
+  type PressureV4TransitionSample,
 } from "./pressurePredictionV4";
-import type {
-  PressurePredictionModelV4,
-} from "./pressurePredictionV4Model";
 import {
   buildV6OneActionCourses,
   estimatePressureTargetV6,
   type PressureV6HistoricalBatch,
   type PressureV6OneActionCourse,
 } from "./pressurePredictionV6";
+
+export type PressureV6BacktestModel = {
+  style: string;
+  samples: PressureV4Sample[];
+  passiveSamples: PressureV4PassiveSample[];
+  transitions: PressureV4TransitionSample[];
+  equilibriumPoints: PressureEquilibriumV4Point[];
+};
 
 export type PressureV6BacktestDirection = "raise" | "hold" | "lower";
 
@@ -199,7 +207,7 @@ function perBatchMeanErrors(
 }
 
 export function runPressureV6LeaveOneBatchOutBacktest(args: {
-  model: PressurePredictionModelV4;
+  model: PressureV6BacktestModel;
   historicalBatches: PressureV6HistoricalBatch[];
   targetCarbonation: number;
   targetToleranceVol: number;
