@@ -53,7 +53,7 @@ export type PressureV5Estimate = {
   targetPressureRangeLow: number | null;
   targetPressureRangeHigh: number | null;
   setpointResponseVolPerBar: number;
-  setpointBasis: "first_cooling_kinetic" | "stable_incremental";
+  setpointBasis: "first_cooling_kinetic" | "stable_forecast";
   supportCount: number;
   confidence: "low" | "medium" | "high";
 
@@ -74,7 +74,11 @@ export type PressureV5Estimate = {
   predictedAtTarget: number | null;
 
   action: "hold" | "raise" | "lower" | "edge_case";
-  holdReason: "stable_in_tolerance" | "first_cooling_forecast_on_target" | null;
+  holdReason:
+    | "stable_in_tolerance"
+    | "stable_forecast_on_target"
+    | "first_cooling_forecast_on_target"
+    | null;
   recommendationVisibility: "global" | "tank_only";
   edgeCase:
     | null
@@ -84,6 +88,7 @@ export type PressureV5Estimate = {
 };
 
 function finite(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -850,7 +855,7 @@ export function estimatePressureTargetV5(args: {
     setpointBasis:
       firstCoolingMode
         ? "first_cooling_kinetic"
-        : "stable_incremental",
+        : "stable_forecast",
     supportCount: learned.supportCount,
     confidence: learned.confidence,
     equilibriumPressureForCurrentCarb:
@@ -900,11 +905,11 @@ export function estimatePressureTargetV5(args: {
   // Setpoint policy:
   // - first carbonation / cooling: absolute closed-headspace balance anchored
   //   at the equilibrium pressure of the TARGET carbonation;
-  // - subsequent stable check: incremental correction from the pressure that
-  //   is actually on the tank now.
+  // - subsequent stable check: start from the tank's observed 48h trajectory
+  //   when one is available, then correct only the remaining forecast error.
   //
-  // Historical response drives the recommendation. The 0.25-2.0 vol/bar range
-  // is only a broad safety guardrail against pathological learned values.
+  // Historical response drives the pressure sensitivity. The 0.25-2.0
+  // vol/bar range is only a broad guardrail against pathological learned values.
   const carbonationGap =
     args.targetCarbonation - estimatedCurrentCarbonation;
   const stableForecastError =
@@ -935,7 +940,7 @@ export function estimatePressureTargetV5(args: {
   // response that V5 has already learned, but keep it inside a broad
   // operational guardrail so a pathological k cannot dominate.
   //
-  // Subsequent stable checks remain incremental from the current pressure.
+  // Subsequent stable checks correct around the no-change forecast.
   const learnedSetpointResponse = clamp(
     effectiveVolPerBar48h,
     OPERATIONAL_VOL_PER_BAR_MIN,
@@ -1089,15 +1094,19 @@ export function estimatePressureTargetV5(args: {
         ? "raise"
         : "lower";
 
+  const measuredInTolerance =
+    Math.abs(carbonationGap) <= targetToleranceVol + 1e-6;
   const holdReason: PressureV5Estimate["holdReason"] =
     action !== "hold"
       ? null
       : firstCoolingForecastOnTarget
         ? "first_cooling_forecast_on_target"
-        : "stable_in_tolerance";
+        : measuredInTolerance
+          ? "stable_in_tolerance"
+          : "stable_forecast_on_target";
 
   const recommendationVisibility: PressureV5Estimate["recommendationVisibility"] =
-    action === "hold" && holdReason === "stable_in_tolerance"
+    action === "hold" && !firstCoolingMode
       ? "tank_only"
       : "global";
 
