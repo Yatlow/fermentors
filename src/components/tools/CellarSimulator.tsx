@@ -874,11 +874,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             {backtestReadinessText(backtestResult.readiness)}
                         </strong>
                         <p>
-                            בכל נקודת החלטה אצווה אחת מוסתרת לחלוטין. V7 סורק לחצים
-                            אפשריים ובוחר את זה שקיבל את תוצאות ה-outcome הטובות ביותר
-                            באצוות אחרות עם מצב דומה. אחר כך אותו לחץ נשפט שוב מול
-                            אצוות אחרות בלבד. כלומר המדד כאן הוא הצלחה צפויה — לא
-                            דמיון להחלטה של העובד.
+                            בכל נקודת החלטה אצווה אחת מוסתרת לחלוטין. שאר האצוות
+                            מתחלקות לשתי קבוצות נפרדות: קבוצה אחת בלבד משמשת את V7
+                            לבחירת הלחץ, וקבוצה אחרת בלבד שופטת את ההחלטה. אם V7
+                            בחר כמעט בדיוק את הלחץ שבוצע בפועל, משתמשים בתוצאה האמיתית
+                            של האצווה המוסתרת במקום בהערכה counterfactual.
                         </p>
 
                         <div className="cellar-simulator-backtest-metrics">
@@ -908,7 +908,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             </div>
                             <div>
                                 <b>{percent(backtestResult.counterfactualCoverage)}</b>
-                                <span>המלצות עם מספיק מקרים דומים כדי לשפוט</span>
+                                <span>המלצות שניתן היה לשפוט באופן אמין</span>
                             </div>
                             <div>
                                 <b>{percent(backtestResult.modelCoverage)}</b>
@@ -941,9 +941,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         </p>
 
                         <p className="cellar-simulator-backtest-warning">
-                            זה עדיין Counterfactual Backtest ולא ניסוי אקראי. אם V7 בוחר לחץ
-                            שאין סביבו מספיק היסטוריה דומה, הוא נמנע מלתת המלצה והכיסוי יורד.
-                            זו התנהגות מכוונת: עדיף "אין מספיק מידע" על ביטחון מזויף.
+                            ולידציה: {percent(backtestResult.observedEvaluationRate ?? 0)}
+                            {" "}מההמלצות נבדקו מול תוצאה אמיתית של האצווה המוסתרת,
+                            {" "}{percent(backtestResult.counterfactualEvaluationRate ?? 0)}
+                            {" "}נבדקו counterfactually על קבוצת אצוות שלא השתתפה בבחירת
+                            הלחץ. אם אין מספיק תמיכה עצמאית, המקרה לא מקבל ציון.
                         </p>
 
                         {backtestResult.cases.some(
@@ -1021,7 +1023,29 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 v7Result.targetPressureRangeHigh !== null
                                     ? ` · טווח כמעט-מיטבי: ${v7Result.targetPressureRangeLow.toFixed(2)}–${v7Result.targetPressureRangeHigh.toFixed(2)} bar`
                                     : ""}
+                                {v7Result.successLiftVsHold !== null
+                                    ? ` · יתרון הטוב ביותר מול HOLD: ${Math.round(v7Result.successLiftVsHold * 100)} נק' אחוז`
+                                    : ""}
+                                {v7Result.nearOptimalRangeWidthBar !== null
+                                    ? ` · רוחב טווח: ${v7Result.nearOptimalRangeWidthBar.toFixed(2)} bar`
+                                    : ""}
                             </p>
+                            {v7Result.action === "hold" &&
+                                v7Result.successLiftVsHold !== null && (
+                                    <p>
+                                        HOLD נבחר כי הלחץ הטוב ביותר בהיסטוריה לא שיפר
+                                        את סיכויי ההצלחה בלפחות 7 נקודות אחוז לעומת
+                                        לא לגעת בלחץ.
+                                    </p>
+                                )}
+                            {v7Result.action === "insufficient_data" &&
+                                v7Result.abstentionReason === "flat_response_surface" && (
+                                    <p>
+                                        אין המלצת לחץ מספרית: כמה לחצים רחוקים זה מזה
+                                        קיבלו תוצאות כמעט זהות, ולכן ההיסטוריה לא
+                                        מאפשרת לזהות setpoint מדויק בלי להמציא דיוק.
+                                    </p>
+                                )}
                             {v7Result.bestCandidates.length > 0 && (
                                 <p>
                                     המועמדים החזקים:
