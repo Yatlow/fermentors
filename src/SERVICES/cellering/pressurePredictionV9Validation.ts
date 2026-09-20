@@ -6,6 +6,9 @@ import {
   type PressureV9TankClass,
 } from "./pressurePredictionV9Physics";
 
+const MIN_PLAUSIBLE_CARBONATION_VOL = 0.5;
+const MAX_PLAUSIBLE_CARBONATION_VOL = 4.0;
+
 export type PressureV9ValidationBatch = {
   batchId: string;
   style: string;
@@ -87,6 +90,18 @@ function finite(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
+function plausibleCarbonation(value: unknown): number | null {
+  const number = finite(value);
+  if (number === null) return null;
+  if (
+    number < MIN_PLAUSIBLE_CARBONATION_VOL ||
+    number > MAX_PLAUSIBLE_CARBONATION_VOL
+  ) {
+    return null;
+  }
+  return number;
+}
+
 function measurementTimeMs(
   measurement: PressureV4Measurement,
 ): number | null {
@@ -152,18 +167,6 @@ function isIntervention(
   );
 }
 
-function previousFinite(
-  rows: IndexedMeasurement[],
-  index: number,
-  field: "pressure" | "temp",
-): number | null {
-  for (let cursor = index; cursor >= 0; cursor -= 1) {
-    const value = finite(rows[cursor]?.row[field]);
-    if (value !== null) return value;
-  }
-  return null;
-}
-
 function actualStartPressure(
   rows: IndexedMeasurement[],
   index: number,
@@ -171,9 +174,13 @@ function actualStartPressure(
   const row = rows[index]?.row;
   if (!row) return null;
 
+  // Validation must never invent a state by carrying pressure forward from a
+  // previous day. If there was an explicit pressure action on this row, that
+  // is the pressure actually set after the carbonation check. Otherwise the
+  // numeric pressure must exist on this same measurement row.
   return (
     pressureTargetFromNote(row) ??
-    previousFinite(rows, index, "pressure")
+    finite(row.pressure)
   );
 }
 
@@ -279,16 +286,10 @@ function eligibleIntervals(
       rows,
       startIndex,
     );
-    const startTemperature = previousFinite(
-      rows,
-      startIndex,
-      "temp",
-    );
-    const endTemperature = previousFinite(
-      rows,
-      endIndex,
-      "temp",
-    );
+    const startTemperature =
+      finite(start.row.temp);
+    const endTemperature =
+      finite(end.row.temp);
 
     if (
       startPressure === null ||
@@ -451,9 +452,9 @@ export function runPressureV9PhysicsValidation(args: {
     ];
 
     const startCarbonation =
-      finite(selected.start.row.carbonation);
+      plausibleCarbonation(selected.start.row.carbonation);
     const actualEndCarbonation =
-      finite(selected.end.row.carbonation);
+      plausibleCarbonation(selected.end.row.carbonation);
     if (
       startCarbonation === null ||
       actualEndCarbonation === null
