@@ -33,6 +33,9 @@ export type PressureV9ValidationCase = {
   pressureAbsError: number | null;
   startTemperature: number;
   endTemperature: number;
+  temperatureDrop: number;
+  actualPressureChange: number | null;
+  estimatedHeadspaceFraction: number | null;
   kPerHour: number;
   startMeasurementId: string;
   endMeasurementId: string;
@@ -64,6 +67,10 @@ export type PressureV9ValidationResult = {
   byStyle: PressureV9ValidationGroup[];
   byTankClass: PressureV9ValidationGroup[];
   byHorizon: PressureV9ValidationGroup[];
+  byCoolingDrop: PressureV9ValidationGroup[];
+  byActualPressureChange: PressureV9ValidationGroup[];
+  byHeadspaceFraction: PressureV9ValidationGroup[];
+  byStartCarbonation: PressureV9ValidationGroup[];
   worstCases: PressureV9ValidationCase[];
   cases: PressureV9ValidationCase[];
 };
@@ -380,6 +387,46 @@ function horizonBucket(hours: number): string {
   return "72–120h";
 }
 
+function coolingDropBucket(dropC: number): string {
+  if (dropC < -0.25) return "התחמם";
+  if (dropC < 0.75) return "כמעט יציב <0.75°C";
+  if (dropC < 2) return "קירור 0.75–2°C";
+  if (dropC < 4) return "קירור 2–4°C";
+  return "קירור מעל 4°C";
+}
+
+function pressureChangeBucket(deltaBar: number | null): string {
+  if (deltaBar === null) return "לחץ סופי חסר";
+  if (deltaBar <= -0.3) return "ירידה מעל 0.30 bar";
+  if (deltaBar <= -0.1) return "ירידה 0.10–0.30 bar";
+  if (deltaBar < 0.1) return "לחץ כמעט יציב ±0.10";
+  if (deltaBar < 0.3) return "עלייה 0.10–0.30 bar";
+  return "עלייה מעל 0.30 bar";
+}
+
+function headspaceBucket(fraction: number | null): string {
+  if (fraction === null || !Number.isFinite(fraction)) return "headspace לא ידוע";
+  if (fraction < 0.15) return "headspace <15%";
+  if (fraction < 0.25) return "headspace 15–25%";
+  if (fraction < 0.35) return "headspace 25–35%";
+  return "headspace ≥35%";
+}
+
+function startCarbonationBucket(value: number): string {
+  if (value < 2.1) return "גיזוז התחלתי <2.10";
+  if (value < 2.25) return "2.10–2.25";
+  if (value < 2.4) return "2.25–2.40";
+  return "≥2.40";
+}
+
+function nominalVesselVolume(
+  tankClass: PressureV9TankClass,
+): number {
+  if (tankClass === "single") return 1300;
+  if (tankClass === "double") return 3000;
+  return 4000;
+}
+
 export function runPressureV9PhysicsValidation(args: {
   batches: PressureV9ValidationBatch[];
   seed: number;
@@ -449,6 +496,24 @@ export function runPressureV9PhysicsValidation(args: {
       Math.abs(prediction.massBalanceResidualMoles),
     );
 
+    const temperatureDrop =
+      selected.startTemperature -
+      selected.endTemperature;
+    const actualPressureChange =
+      actualEndPressure === null
+        ? null
+        : actualEndPressure -
+          selected.startPressure;
+    const nominalVolume =
+      nominalVesselVolume(tankClass);
+    const estimatedHeadspaceFraction =
+      nominalVolume > batch.beerVolumeLiters
+        ? (
+            nominalVolume -
+            batch.beerVolumeLiters
+          ) / nominalVolume
+        : null;
+
     cases.push({
       batchId: batch.batchId,
       style: batch.style,
@@ -481,6 +546,9 @@ export function runPressureV9PhysicsValidation(args: {
         selected.startTemperature,
       endTemperature:
         selected.endTemperature,
+      temperatureDrop,
+      actualPressureChange,
+      estimatedHeadspaceFraction,
       kPerHour:
         finite(args.kPerHourOverride) ??
         batch.kPerHour,
@@ -551,6 +619,22 @@ export function runPressureV9PhysicsValidation(args: {
     byHorizon: grouped(
       cases,
       (item) => horizonBucket(item.durationHours),
+    ),
+    byCoolingDrop: grouped(
+      cases,
+      (item) => coolingDropBucket(item.temperatureDrop),
+    ),
+    byActualPressureChange: grouped(
+      cases,
+      (item) => pressureChangeBucket(item.actualPressureChange),
+    ),
+    byHeadspaceFraction: grouped(
+      cases,
+      (item) => headspaceBucket(item.estimatedHeadspaceFraction),
+    ),
+    byStartCarbonation: grouped(
+      cases,
+      (item) => startCarbonationBucket(item.startCarbonation),
     ),
     worstCases: cases
       .slice()
