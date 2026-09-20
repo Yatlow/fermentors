@@ -56,6 +56,36 @@ function batch(
   return { batchId: id, measurements };
 }
 
+function holdBatch(
+  id: string,
+) {
+  return {
+    batchId: id,
+    measurements: [
+      {
+        id: "2026-06-01_0800",
+        temp: 20,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: "2026-06-02_0900",
+        carbonation: 2.26,
+        temp: 6.5,
+        pressure: 1.44,
+        notes: "",
+      },
+      {
+        id: "2026-06-05_0900",
+        carbonation: 2.45,
+        temp: 0.7,
+        pressure: 0.65,
+        notes: "",
+      },
+    ],
+  };
+}
+
 const emptyModel: PressureV6BacktestModel = {
   style: "ipa",
   samples: [],
@@ -108,11 +138,7 @@ test("V7 backtest uses disjoint selector and evaluator batch sets", () => {
 
 test("V7 backtest uses the held-out real outcome when it independently chooses the same pressure", () => {
   const histories = Array.from({ length: 24 }, (_, index) =>
-    batch(
-      `same-${index}`,
-      1.15 + (index % 2) * 0.01,
-      true,
-    )
+    holdBatch(`same-${index}`)
   );
 
   const result = runPressureV7LeaveOneBatchOutBacktest({
