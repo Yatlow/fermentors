@@ -68,6 +68,9 @@ export type PressureV6BacktestCase = {
   counterfactualSupportBatches: number;
   counterfactualEffectiveSupport: number;
   counterfactualSupported: boolean;
+  evaluationMode?: "observed" | "counterfactual";
+  selectorTrainingBatches?: number;
+  evaluatorTrainingBatches?: number;
 
   imitationPressureErrorBar: number;
   supportBatches: number;
