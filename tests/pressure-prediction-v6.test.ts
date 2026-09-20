@@ -159,6 +159,40 @@ function passiveSample(
   };
 }
 
+function successfulHistoricalBatches(
+  actionPressure = 1.15,
+  startCarbonation = 2.26,
+  outcomeCarbonation = 2.45,
+) {
+  return Array.from({ length: 8 }, (_, index) => ({
+    batchId: `raw-history-${index}`,
+    measurements: [
+      {
+        id: `2026-08-${String(index + 1).padStart(2, "0")}_0800`,
+        temp: 20,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: `2026-08-${String(index + 2).padStart(2, "0")}_0900`,
+        carbonation: startCarbonation + (index % 3) * 0.01,
+        temp: 6.4 + (index % 3) * 0.2,
+        pressure: 1.42 + (index % 2) * 0.03,
+        notes: `הורדת לחץ ל${(actionPressure + (index % 3) * 0.01).toFixed(2)} bar`,
+      },
+      {
+        id: `2026-08-${String(index + 5).padStart(2, "0")}_0900`,
+        carbonation: outcomeCarbonation + (index % 2) * 0.01,
+        temp: 0.7,
+        pressure: 0.64 + (index % 3) * 0.02,
+        notes: index % 2 === 0
+          ? "הורדת שמרים, לחץ אחרי 0.60 bar"
+          : "",
+      },
+    ],
+  }));
+}
+
 test("V6 first check chooses the historical one-action course instead of forcing the 48h target", () => {
   const samples = Array.from({ length: 10 }, (_, index) =>
     actionSample(
@@ -197,6 +231,7 @@ test("V6 first check chooses the historical one-action course instead of forcing
     targetToleranceVol: 0.03,
     coldReferenceTemperature: 0.5,
     currentBatchId: "1590",
+    historicalBatches: successfulHistoricalBatches(1.15, 2.26, 2.45),
   });
 
   assert.ok(estimate);
@@ -280,6 +315,7 @@ test("V6 repeat check keeps pressure when the current tank trajectory is already
     targetToleranceVol: 0.03,
     coldReferenceTemperature: 0.5,
     currentBatchId: "1590",
+    historicalBatches: successfulHistoricalBatches(1.12, 2.30, 2.45),
   });
 
   assert.ok(estimate);
@@ -293,7 +329,7 @@ test("V6 repeat check keeps pressure when the current tank trajectory is already
     estimate.currentBatchKPerHour !== null,
     "the second check should fit kinetics from the current batch interval",
   );
-  assert.equal(estimate.operationalLossSource, "yeast_drop_fallback");
+  assert.equal(estimate.operationalLossSource, "historical_one_action_courses");
   assert.ok(
     estimate.terminalCarbonationAtTarget !== null &&
       Math.abs(estimate.terminalCarbonationAtTarget - 2.45) <= 0.04,
@@ -435,4 +471,74 @@ test("V6 uses measured yeast-drop loss only for a future identified yeast drop",
   assert.equal(estimate.expectedPressureLossEvents, 1);
   assert.equal(estimate.operationalLossSource, "observed_yeast_drops");
   assert.equal(estimate.expectedOperationalPressureLossBar, 0.12);
+});
+
+
+test("V6 raw historical training ignores courses that needed a second pressure correction", () => {
+  const badHistory = Array.from({ length: 8 }, (_, index) => ({
+    batchId: `bad-course-${index}`,
+    measurements: [
+      {
+        id: `2026-07-${String(index + 1).padStart(2, "0")}_0800`,
+        temp: 20,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: `2026-07-${String(index + 2).padStart(2, "0")}_0900`,
+        carbonation: 2.26,
+        temp: 6.5,
+        pressure: 1.44,
+        notes: "הורדת לחץ ל1.30 bar",
+      },
+      {
+        id: `2026-07-${String(index + 3).padStart(2, "0")}_0900`,
+        carbonation: 2.35,
+        temp: 2.0,
+        pressure: 1.20,
+        notes: "הורדת לחץ ל0.95 bar",
+      },
+      {
+        id: `2026-07-${String(index + 5).padStart(2, "0")}_0900`,
+        carbonation: 2.45,
+        temp: 0.7,
+        pressure: 0.65,
+      },
+    ],
+  }));
+
+  const estimate = estimatePressureTargetV6({
+    samples: [],
+    passiveSamples: [],
+    transitions: Array.from({ length: 8 }, (_, index) =>
+      transition(index, 0.002, 1.2, 4)
+    ),
+    state: state(2.26, 1.44, 6.5),
+    measurements: [
+      {
+        id: "2026-09-16_0800",
+        temp: 20.8,
+        pressure: 1.58,
+        notes: "קירור מיכל ל-0.3",
+      },
+      {
+        id: "2026-09-18_0900",
+        carbonation: 2.26,
+        temp: 6.5,
+        pressure: 1.44,
+      },
+    ],
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    coldReferenceTemperature: 0.5,
+    currentBatchId: "1590",
+    historicalBatches: badHistory,
+  });
+
+  assert.ok(estimate);
+  assert.equal(
+    estimate.supportCount,
+    0,
+    "a course that required another pressure correction must not train the one-action model",
+  );
 });
