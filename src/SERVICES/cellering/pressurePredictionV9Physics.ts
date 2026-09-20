@@ -644,6 +644,83 @@ function simulateTrajectory(args: {
   };
 }
 
+export type PressureV9ObservedIntervalPrediction = {
+  durationHours: number;
+  predictedCarbonation: number;
+  predictedPressure: number;
+  startTotalMoles: number;
+  endTotalMoles: number;
+  massBalanceResidualMoles: number;
+};
+
+export function simulateV9ObservedClosedInterval(args: {
+  tankNumber: number;
+  beerVolumeLiters: number;
+  startCarbonation: number;
+  startPressure: number;
+  startTemperature: number;
+  endTemperature: number;
+  durationHours: number;
+  kPerHour: number;
+}): PressureV9ObservedIntervalPrediction | null {
+  const geometry = estimatedV9TankGeometry(args.tankNumber);
+  if (!geometry) return null;
+
+  const headspaceLiters =
+    geometry.totalVolumeLiters - args.beerVolumeLiters;
+  if (headspaceLiters < MIN_HEADSPACE_LITERS) return null;
+
+  const durationHours = clamp(
+    Math.round(args.durationHours),
+    1,
+    168,
+  );
+  const kPerHour = clamp(args.kPerHour, 0.0002, 0.05);
+
+  const startTotalMoles = totalMolesAtState({
+    carbonation: args.startCarbonation,
+    pressure: args.startPressure,
+    temperature: args.startTemperature,
+    beerVolumeLiters: args.beerVolumeLiters,
+    headspaceLiters,
+  });
+
+  const simulated = simulateTrajectory({
+    startCarbonation: args.startCarbonation,
+    setPressure: args.startPressure,
+    currentTemperature: args.startTemperature,
+    finalTemperature: args.endTemperature,
+    coolingHours: durationHours,
+    beerVolumeLiters: args.beerVolumeLiters,
+    headspaceLiters,
+    kPerHour,
+    futureOperationalLossBar: 0,
+    hours: durationHours,
+  });
+
+  const endPoint =
+    simulated.points[simulated.points.length - 1];
+  if (!endPoint) return null;
+
+  const endTotalMoles = totalMolesAtState({
+    carbonation: endPoint.carbonation,
+    pressure: endPoint.pressure,
+    temperature: endPoint.temperature,
+    beerVolumeLiters: args.beerVolumeLiters,
+    headspaceLiters,
+  });
+
+  return {
+    durationHours,
+    predictedCarbonation: endPoint.carbonation,
+    predictedPressure: endPoint.pressure,
+    startTotalMoles,
+    endTotalMoles,
+    massBalanceResidualMoles:
+      endTotalMoles - startTotalMoles,
+  };
+}
+
 function pointAt(
   points: TrajectoryPoint[],
   hour: number,
