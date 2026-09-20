@@ -635,3 +635,60 @@ test("V5 first cooling at target converges to cold equilibrium plus small safety
     `tank16 at target should settle near equilibrium + safety, got ${tank16.targetPressure}`,
   );
 });
+
+
+test("V5 uses carbonation tolerance supplied by specs", () => {
+  const loose = estimatePressureTargetV5({
+    state: state(2.42, 0.80, 0.5),
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.04,
+    firstCarbonation: false,
+  });
+
+  const tight = estimatePressureTargetV5({
+    state: state(2.42, 0.80, 0.5),
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    firstCarbonation: false,
+  });
+
+  assert.ok(loose);
+  assert.ok(tight);
+  assert.equal(loose.action, "hold");
+  assert.notEqual(
+    tight.action,
+    "hold",
+    `0.03 tolerance should make an exact 0.03 miss actionable, got ${tight.targetPressure}`,
+  );
+  assert.equal(loose.targetToleranceVol, 0.04);
+  assert.equal(tight.targetToleranceVol, 0.03);
+});
+
+test("V5 uses a lower bottom-carbonation cutoff on the first cooling check", () => {
+  const first196 = estimatePressureTargetV5({
+    state: state(1.96, 1.40, 6.8),
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+
+  const first194 = estimatePressureTargetV5({
+    state: state(1.94, 1.40, 6.8),
+    targetCarbonation: 2.45,
+    coldReferenceTemperature: 0.5,
+    firstCarbonation: true,
+  });
+
+  const stable214 = estimatePressureTargetV5({
+    state: state(2.14, 0.80, 0.5),
+    targetCarbonation: 2.45,
+    firstCarbonation: false,
+  });
+
+  assert.ok(first196);
+  assert.ok(first194);
+  assert.ok(stable214);
+  assert.notEqual(first196.edgeCase, "bottom_carbonation");
+  assert.equal(first194.edgeCase, "bottom_carbonation");
+  assert.equal(stable214.edgeCase, "bottom_carbonation");
+});
