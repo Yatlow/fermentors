@@ -170,3 +170,57 @@
         flex-direction: column;
     }
 }
+
+
+.cellar-simulator-backtest-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.cellar-simulator-backtest-metrics > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 10px;
+    border: 1px solid rgba(15, 23, 42, 0.10);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.62);
+}
+
+.cellar-simulator-backtest-metrics b {
+    font-size: 1.02rem;
+}
+
+.cellar-simulator-backtest-metrics span,
+.cellar-simulator-backtest-warning {
+    font-size: 0.76rem;
+}
+
+.cellar-simulator-backtest-cases {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.cellar-simulator-backtest-cases > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.55);
+    font-size: 0.78rem;
+}
+
+@media (max-width: 600px) {
+    .cellar-simulator-backtest-metrics {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .cellar-simulator-backtest-cases > div {
+        flex-direction: column;
+        gap: 2px;
+    }
+}
