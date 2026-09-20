@@ -11,11 +11,14 @@ import {
     buildPressureV4DecisionState,
 } from "../../SERVICES/cellering/pressurePredictionV4";
 import {
-    countV6SuccessfulOneActionBatches,
     estimatePressureTargetV6,
     selectV6HistoricalBatchIds,
     type PressureV6Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV6";
+import {
+    estimatePressureTargetV7,
+    type PressureV7Estimate,
+} from "../../SERVICES/cellering/pressurePredictionV7";
 import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
@@ -26,6 +29,9 @@ import {
     runPressureV6LeaveOneBatchOutBacktest,
     type PressureV6BacktestResult,
 } from "../../SERVICES/cellering/pressurePredictionV6Backtest";
+import {
+    runPressureV7LeaveOneBatchOutBacktest,
+} from "../../SERVICES/cellering/pressurePredictionV7Backtest";
 import "./CellarSimulator.css";
 
 type Treatment = "none" | "ordinaryPressure" | "bottomCarbonation";
@@ -331,9 +337,13 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [result, setResult] = useState<Record<string, RecommendationLike> | null>(null);
     const [v6Result, setV6Result] = useState<PressureV6Estimate | null>(null);
     const [v6Status, setV6Status] = useState("");
+    const [v7Result, setV7Result] = useState<PressureV7Estimate | null>(null);
+    const [v7Status, setV7Status] = useState("");
     const [backtestRunning, setBacktestRunning] = useState(false);
     const [backtestProgress, setBacktestProgress] = useState("");
     const [backtestResult, setBacktestResult] =
+        useState<PressureV6BacktestResult | null>(null);
+    const [backtestV6Result, setBacktestV6Result] =
         useState<PressureV6BacktestResult | null>(null);
 
     const [carbonation, setCarbonation] = useState("2.10");
@@ -354,7 +364,12 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setResult(null);
         setV6Result(null);
         setV6Status("");
+        setV7Result(null);
+        setV7Status("");
+        setV7Result(null);
+        setV7Status("");
         setBacktestResult(null);
+        setBacktestV6Result(null);
         setBacktestProgress("");
         setError("");
         if (!tank?.batchNumber) {
@@ -420,6 +435,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
         setBacktestRunning(true);
         setBacktestResult(null);
+        setBacktestV6Result(null);
         setBacktestProgress("טוען מודל היסטורי…");
         setError("");
 
@@ -488,17 +504,22 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 historicalBatches.push(...loaded);
             }
 
-            setBacktestProgress("מריץ Leave-One-Batch-Out…");
-            const result = runPressureV6LeaveOneBatchOutBacktest({
+            setBacktestProgress("מריץ Leave-One-Batch-Out ל-V6 ול-V7…");
+            const backtestArgs = {
                 model,
                 historicalBatches,
                 targetCarbonation: Number(targetCarbonation),
                 targetToleranceVol:
                     specs.tolorances?.carbonation ?? 0.04,
                 maxCases: 120,
-            });
+            };
+            const v6Backtest =
+                runPressureV6LeaveOneBatchOutBacktest(backtestArgs);
+            const v7Backtest =
+                runPressureV7LeaveOneBatchOutBacktest(backtestArgs);
 
-            setBacktestResult(result);
+            setBacktestV6Result(v6Backtest);
+            setBacktestResult(v7Backtest);
             setBacktestProgress(
                 allBatchIds.length > maxHistoricalBatches
                     ? `נבדקו עד ${maxHistoricalBatches} אצוות מתוך ${allBatchIds.length} הזמינות במודל.`
@@ -618,55 +639,45 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         })
                         : [];
 
-                    const historicalBatches: {
-                        batchId: string;
-                        measurements: Measurement[];
-                    }[] = [];
-                    const targetSuccessfulBatches = 8;
-                    const searchChunkSize = 8;
                     const targetToleranceVol =
                         specs.tolorances?.carbonation ?? 0.04;
-
-                    for (
-                        let startIndex = 0;
-                        startIndex < historicalBatchIds.length;
-                        startIndex += searchChunkSize
-                    ) {
-                        const successfulSoFar =
-                            countV6SuccessfulOneActionBatches({
-                                historicalBatches,
-                                targetCarbonation: Number(carbonationTarget),
-                                targetToleranceVol,
-                            });
-                        if (successfulSoFar >= targetSuccessfulBatches) break;
-
-                        const batchChunk = historicalBatchIds.slice(
-                            startIndex,
-                            startIndex + searchChunkSize,
-                        );
-                        const loadedChunk = (
-                            await Promise.all(
-                                batchChunk.map(async (batchId) => {
+                    const historicalBatches = (
+                        await Promise.all(
+                            historicalBatchIds
+                                .slice(0, 32)
+                                .map(async (batchId) => {
                                     try {
                                         return {
                                             batchId,
-                                            measurements: await getMeasurementsByBatch(batchId),
+                                            measurements:
+                                                await getMeasurementsByBatch(batchId),
                                         };
                                     } catch (historyError) {
-                                        console.warn("V6 historical batch unavailable", {
+                                        console.warn("Pressure history unavailable", {
                                             batchId,
                                             historyError,
                                         });
                                         return null;
                                     }
                                 })
-                            )
-                        ).filter((item): item is {
-                            batchId: string;
-                            measurements: Measurement[];
-                        } => item !== null);
+                        )
+                    ).filter((item): item is {
+                        batchId: string;
+                        measurements: Measurement[];
+                    } => item !== null);
 
-                        historicalBatches.push(...loadedChunk);
+                    const v7Estimate = estimatePressureTargetV7({
+                        state,
+                        historicalBatches,
+                        targetCarbonation: Number(carbonationTarget),
+                        targetToleranceVol,
+                        currentBatchId,
+                    });
+                    if (v7Estimate) {
+                        setV7Result(v7Estimate);
+                        setV7Status("");
+                    } else {
+                        setV7Status("לא ניתן לבנות חישוב V7 מהמצב הנוכחי");
                     }
 
                     const v6Estimate = estimatePressureTargetV6({
@@ -702,7 +713,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
             <div className="cellar-simulator-header">
                 <div>
                     <h2>סימולטור סלרינג</h2>
-                    <p>כלי Preview/פיתוח של V6. קורא היסטוריה אמיתית ומחשב מסלול קינטי סופי, אך לא כותב ל-Firestore או ל-Sheets.</p>
+                    <p>כלי Preview/פיתוח של V7 מול V6. V7 בוחר לחץ לפי תוצאות היסטוריות של מצבים דומים; אין כתיבה ל-Firestore או ל-Sheets.</p>
                 </div>
                 <span className="cellar-simulator-badge">READ ONLY</span>
             </div>
