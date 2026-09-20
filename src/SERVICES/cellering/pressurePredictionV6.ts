@@ -39,11 +39,7 @@ type KEstimate = {
 type FutureLossEstimate = {
   totalBar: number;
   eventCount: number;
-  source:
-    | "historical_course"
-    | "trajectory_blend"
-    | "current_batch_fallback"
-    | "fallback";
+  source: "observed_yeast_drops" | "yeast_drop_fallback" | "none";
   observedDropMedianBar: number | null;
   observedDropCount: number;
 };
@@ -820,103 +816,65 @@ function yeastDropHistory(
   return { losses, coldDropCount };
 }
 
-function trajectoryReliability(args: {
+function expectedRemainingColdYeastDrops(args: {
   state: PressureV4DecisionState;
-  currentCarbonation: number;
-  targetCarbonation: number;
+  measurements: PressureV4Measurement[];
+  coldDropCount: number;
 }): number {
-  const trend = args.state.carbonationTrend;
-  const rate = finite(trend?.ratePerDay);
-  const hours = finite(trend?.hoursSincePrevious);
-  const checks = finite(trend?.checksInPhase) ?? 0;
+  // A normal cold-cellar course has one deliberate yeast drop after cooling.
+  // Do NOT infer extra future losses from the current pressure or from historical
+  // pressure setpoints: those are controller choices, not operational losses.
+  //
+  // Weekly/exceptional extra drops can be modelled later from an explicit
+  // historical yeast-drop event model. Until then, only schedule the one
+  // identifiable post-cooling drop when it has not happened yet.
+  if (args.coldDropCount > 0) return 0;
 
-  if (
-    rate === null ||
-    hours === null ||
-    hours < 12 ||
-    hours > 96 ||
-    checks < 2
-  ) return 0;
+  const coolingStarted = args.measurements.some(isCoolingStartNote);
+  if (!coolingStarted && !args.state.cooling) return 0;
 
-  const gap = args.targetCarbonation - args.currentCarbonation;
-  if (Math.abs(gap) < 0.01) return 0.7;
-  if (Math.sign(rate) !== Math.sign(gap)) return 0;
-
-  const daysToTarget = gap / rate;
-  if (!Number.isFinite(daysToTarget) || daysToTarget < 0 || daysToTarget > 6) {
-    return 0;
-  }
-
-  return checks >= 3 ? 0.78 : 0.62;
+  return 1;
 }
 
 function estimateFutureOperationalLoss(args: {
   measurements: PressureV4Measurement[];
   state: PressureV4DecisionState;
-  currentCarbonation: number;
-  currentPressure: number;
-  targetCarbonation: number;
-  targetEquilibriumPressure: number;
-  historicalPrior: HistoricalCoursePrior | null;
 }): FutureLossEstimate {
   const yeast = yeastDropHistory(args.measurements);
   const observedMedian = median(yeast.losses);
-
-  let baseLoss: number;
-  let source: FutureLossEstimate["source"];
-
-  if (args.historicalPrior) {
-    baseLoss = clamp(
-      args.historicalPrior.pressure - args.targetEquilibriumPressure,
-      0,
-      0.9,
-    );
-    source = "historical_course";
-  } else if (observedMedian !== null) {
-    const remaining = Math.max(0, 2 - yeast.coldDropCount);
-    baseLoss = clamp(observedMedian * remaining, 0, 0.7);
-    source = "current_batch_fallback";
-  } else {
-    const remaining = Math.max(0, 2 - yeast.coldDropCount);
-    baseLoss = clamp(
-      DEFAULT_YEAST_DROP_LOSS_BAR * remaining,
-      0,
-      0.5,
-    );
-    source = "fallback";
-  }
-
-  const reliability = trajectoryReliability({
+  const remainingDrops = expectedRemainingColdYeastDrops({
     state: args.state,
-    currentCarbonation: args.currentCarbonation,
-    targetCarbonation: args.targetCarbonation,
+    measurements: args.measurements,
+    coldDropCount: yeast.coldDropCount,
   });
 
-  if (reliability > 0) {
-    const impliedLoss = clamp(
-      args.currentPressure - args.targetEquilibriumPressure,
-      0,
-      0.9,
-    );
-    baseLoss =
-      baseLoss * (1 - reliability) +
-      impliedLoss * reliability;
-    source = "trajectory_blend";
+  if (remainingDrops <= 0) {
+    return {
+      totalBar: 0,
+      eventCount: 0,
+      source: "none",
+      observedDropMedianBar:
+        observedMedian === null
+          ? null
+          : Number(observedMedian.toFixed(3)),
+      observedDropCount: yeast.losses.length,
+    };
   }
 
-  const eventSize =
+  const lossPerDrop =
     observedMedian !== null
-      ? clamp(observedMedian, 0.07, 0.3)
+      ? clamp(observedMedian, 0.04, 0.35)
       : DEFAULT_YEAST_DROP_LOSS_BAR;
-  const eventCount =
-    baseLoss < 0.03
-      ? 0
-      : clamp(Math.round(baseLoss / eventSize), 1, 4);
 
   return {
-    totalBar: Number(clamp(baseLoss, 0, 0.9).toFixed(3)),
-    eventCount,
-    source,
+    totalBar: Number(
+      clamp(lossPerDrop * remainingDrops, 0, 0.7).toFixed(3),
+    ),
+    eventCount: remainingDrops,
+    source:
+      observedMedian !== null
+        ? "observed_yeast_drops"
+        : "yeast_drop_fallback",
     observedDropMedianBar:
       observedMedian === null
         ? null
@@ -1259,11 +1217,6 @@ export function estimatePressureTargetV6(args: {
   const futureLoss = estimateFutureOperationalLoss({
     measurements: args.measurements,
     state: args.state,
-    currentCarbonation: estimatedCurrentCarbonation,
-    currentPressure,
-    targetCarbonation: args.targetCarbonation,
-    targetEquilibriumPressure,
-    historicalPrior,
   });
 
   const coolingHours = estimateCoolingHours({
