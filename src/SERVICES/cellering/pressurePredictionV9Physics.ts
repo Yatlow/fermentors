@@ -656,6 +656,7 @@ export type PressureV9ObservedIntervalPrediction = {
 export function simulateV9ObservedClosedInterval(args: {
   tankNumber: number;
   beerVolumeLiters: number;
+  vesselVolumeLiters?: number | null;
   startCarbonation: number;
   startPressure: number;
   startTemperature: number;
@@ -666,8 +667,11 @@ export function simulateV9ObservedClosedInterval(args: {
   const geometry = estimatedV9TankGeometry(args.tankNumber);
   if (!geometry) return null;
 
+  const vesselVolumeLiters =
+    finite(args.vesselVolumeLiters) ??
+    geometry.totalVolumeLiters;
   const headspaceLiters =
-    geometry.totalVolumeLiters - args.beerVolumeLiters;
+    vesselVolumeLiters - args.beerVolumeLiters;
   if (headspaceLiters < MIN_HEADSPACE_LITERS) return null;
 
   const durationHours = clamp(
