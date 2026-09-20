@@ -48,6 +48,49 @@ function quantile(values: number[], q: number): number | null {
   return clean[lower] * (1 - fraction) + clean[upper] * fraction;
 }
 
+function stableBatchFold(batchId: string): 0 | 1 {
+  let hash = 2166136261;
+  for (const char of batchId) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (Math.abs(hash) % 2) as 0 | 1;
+}
+
+function splitCrossFitBatches(args: {
+  batches: PressureV6HistoricalBatch[];
+  heldOutBatchId: string;
+}): {
+  selectorBatches: PressureV6HistoricalBatch[];
+  evaluatorBatches: PressureV6HistoricalBatch[];
+} {
+  const heldOutFold = stableBatchFold(args.heldOutBatchId);
+
+  const available = args.batches.filter(
+    (batch) =>
+      normalizePressureBatchId(batch.batchId) !==
+      args.heldOutBatchId,
+  );
+
+  // Alternate which half selects versus evaluates according to the held-out
+  // batch. Across the full backtest, both folds serve both roles, but never
+  // for the same held-out decision.
+  const selectorBatches = available.filter(
+    (batch) =>
+      stableBatchFold(
+        normalizePressureBatchId(batch.batchId),
+      ) === heldOutFold,
+  );
+  const evaluatorBatches = available.filter(
+    (batch) =>
+      stableBatchFold(
+        normalizePressureBatchId(batch.batchId),
+      ) !== heldOutFold,
+  );
+
+  return { selectorBatches, evaluatorBatches };
+}
+
 function perBatchBalancedMean(
   cases: PressureV6BacktestCase[],
   selector: (item: PressureV6BacktestCase) => number | null,
@@ -131,14 +174,30 @@ export function runPressureV7LeaveOneBatchOutBacktest(args: {
       continue;
     }
 
-    const trainingBatches = args.historicalBatches.filter(
-      (batch) =>
-        normalizePressureBatchId(batch.batchId) !==
-        heldOutBatchId,
-    );
-    const trainingOutcomes = allOutcomes.filter(
-      (outcome) => outcome.batchId !== heldOutBatchId,
-    );
+    const {
+      selectorBatches,
+      evaluatorBatches,
+    } = splitCrossFitBatches({
+      batches: args.historicalBatches,
+      heldOutBatchId,
+    });
+
+    // The selector and evaluator must never learn from the same batches for
+    // this decision. Otherwise V7 would choose a pressure with one outcome
+    // surface and then let that same surface grade its own maximum.
+    if (
+      selectorBatches.length < 4 ||
+      evaluatorBatches.length < 4
+    ) {
+      failedPredictionCount += 1;
+      continue;
+    }
+
+    const evaluatorOutcomes = buildPressureDecisionOutcomes({
+      historicalBatches: evaluatorBatches,
+      targetCarbonation: args.targetCarbonation,
+      targetToleranceVol: args.targetToleranceVol,
+    });
 
     const equilibriumPoints =
       args.model.equilibriumPoints.filter(
@@ -179,7 +238,7 @@ export function runPressureV7LeaveOneBatchOutBacktest(args: {
 
     const estimate = estimatePressureTargetV7({
       state,
-      historicalBatches: trainingBatches,
+      historicalBatches: selectorBatches,
       targetCarbonation: args.targetCarbonation,
       targetToleranceVol: args.targetToleranceVol,
       currentBatchId: heldOutBatchId,
@@ -195,26 +254,51 @@ export function runPressureV7LeaveOneBatchOutBacktest(args: {
     }
 
     const predictedPressure = estimate.targetPressure;
+    const observedMatch =
+      Math.abs(
+        predictedPressure - decision.actionPressure,
+      ) <= 0.05;
 
-    const modelOutcome =
-      estimatePressureCounterfactualOutcome({
-        training: trainingOutcomes,
-        query: decision,
-        candidatePressure: predictedPressure,
-        targetCarbonation: args.targetCarbonation,
-      });
-    const humanOutcome =
-      estimatePressureCounterfactualOutcome({
-        training: trainingOutcomes,
-        query: decision,
-        candidatePressure: decision.actionPressure,
-        targetCarbonation: args.targetCarbonation,
-      });
+    // When V7 independently lands on essentially the same pressure that was
+    // actually used, we do not need a counterfactual model at all: the held-out
+    // batch gives us the real outcome.
+    const evaluatorOutcome = observedMatch
+      ? null
+      : estimatePressureCounterfactualOutcome({
+          training: evaluatorOutcomes,
+          query: decision,
+          candidatePressure: predictedPressure,
+          targetCarbonation: args.targetCarbonation,
+        });
 
-    const modelSupported =
-      isPressureCounterfactualSupported(modelOutcome);
-    const humanSupported =
-      isPressureCounterfactualSupported(humanOutcome);
+    const evaluatorSupported =
+      observedMatch ||
+      isPressureCounterfactualSupported(
+        evaluatorOutcome,
+      );
+
+    const modelScore = observedMatch
+      ? (decision.outcomeSuccess ? 1 : 0)
+      : isPressureCounterfactualSupported(
+          evaluatorOutcome,
+        )
+        ? evaluatorOutcome.successProbability
+        : null;
+
+    const modelError = observedMatch
+      ? (
+          decision.outcomeCarbonation === null
+            ? null
+            : Math.abs(
+                decision.outcomeCarbonation -
+                args.targetCarbonation,
+              )
+        )
+      : isPressureCounterfactualSupported(
+          evaluatorOutcome,
+        )
+        ? evaluatorOutcome.expectedAbsCarbonationErrorVol
+        : null;
 
     cases.push({
       batchId: heldOutBatchId,
@@ -234,29 +318,34 @@ export function runPressureV7LeaveOneBatchOutBacktest(args: {
             ? "lower"
             : "hold",
 
-      modelEstimatedSuccessProbability:
-        modelSupported
-          ? modelOutcome.successProbability
-          : null,
+      modelEstimatedSuccessProbability: modelScore,
       humanEstimatedSuccessProbability:
-        humanSupported
-          ? humanOutcome.successProbability
-          : null,
+        decision.outcomeSuccess ? 1 : 0,
       estimatedSuccessLiftVsHuman:
-        modelSupported && humanSupported
-          ? modelOutcome.successProbability -
-            humanOutcome.successProbability
-          : null,
+        modelScore === null
+          ? null
+          : modelScore -
+            (decision.outcomeSuccess ? 1 : 0),
       modelExpectedAbsCarbonationErrorVol:
-        modelSupported
-          ? modelOutcome.expectedAbsCarbonationErrorVol
-          : null,
+        modelError,
 
       counterfactualSupportBatches:
-        modelOutcome?.supportBatches ?? 0,
+        observedMatch
+          ? 0
+          : evaluatorOutcome?.supportBatches ?? 0,
       counterfactualEffectiveSupport:
-        modelOutcome?.effectiveSupport ?? 0,
-      counterfactualSupported: modelSupported,
+        observedMatch
+          ? 0
+          : evaluatorOutcome?.effectiveSupport ?? 0,
+      counterfactualSupported: evaluatorSupported,
+      evaluationMode:
+        observedMatch
+          ? "observed"
+          : "counterfactual",
+      selectorTrainingBatches:
+        selectorBatches.length,
+      evaluatorTrainingBatches:
+        evaluatorBatches.length,
 
       imitationPressureErrorBar:
         Math.abs(
@@ -284,6 +373,20 @@ export function runPressureV7LeaveOneBatchOutBacktest(args: {
   const counterfactualCoverage =
     predictedCaseCount > 0
       ? supportedCases.length / predictedCaseCount
+      : 0;
+  const observedEvaluationRate =
+    predictedCaseCount > 0
+      ? cases.filter(
+          (item) => item.evaluationMode === "observed",
+        ).length / predictedCaseCount
+      : 0;
+  const counterfactualEvaluationRate =
+    predictedCaseCount > 0
+      ? cases.filter(
+          (item) =>
+            item.evaluationMode === "counterfactual" &&
+            item.counterfactualSupported,
+        ).length / predictedCaseCount
       : 0;
 
   const estimatedFirstShotSuccessRate =
@@ -382,6 +485,10 @@ export function runPressureV7LeaveOneBatchOutBacktest(args: {
 
     modelCoverage,
     counterfactualCoverage,
+    observedEvaluationRate:
+      Number(observedEvaluationRate.toFixed(3)),
+    counterfactualEvaluationRate:
+      Number(counterfactualEvaluationRate.toFixed(3)),
 
     estimatedFirstShotSuccessRate:
       estimatedFirstShotSuccessRate === null
