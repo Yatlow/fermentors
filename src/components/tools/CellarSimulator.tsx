@@ -865,7 +865,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         : `זיהוי: בדיקה חוזרת · ${resolved.priorChecks} בדיקות גיזוז קודמות אחרי קירור`;
                 })()}
                 {" · "}
-                V7 לא מנסה לחקות את לחץ העובד ולא לפתור נוסחת שיווי־משקל: הוא בודק לחצים אפשריים מול outcome של אצוות דומות ובוחר את הלחץ עם סיכויי ההצלחה הגבוהים ביותר. V6 נשאר מתחת להשוואה.
+                V8 מנסה לאמוד השפעה סיבתית של שינוי הלחץ: הוא משווה מצבים דומים שקיבלו שינוי לחץ שונה, משתמש ב-HOLD כקבוצת ביקורת ודורש overlap אמיתי בין הקבוצות. V7/V6 נשארים מתחת להשוואה.
             </div>
 
             <div className="cellar-simulator-actions">
@@ -901,23 +901,23 @@ export default function CellarSimulator({ brews, specs }: Props) {
 
             {backtestResult && (
                 <div className="cellar-simulator-results cellar-simulator-backtest">
-                    <h3>Backtest — האם V7 באמת משפר את הסיכוי לפגוע בפעם הראשונה?</h3>
+                    <h3>Backtest — האם V8 לומד השפעת לחץ ולא רק קורלציה?</h3>
                     <article className="cellar-simulator-result level-1">
                         <strong>
                             {backtestReadinessText(backtestResult.readiness)}
                         </strong>
                         <p>
-                            בכל נקודת החלטה אצווה אחת מוסתרת לחלוטין. שאר האצוות
-                            מתחלקות לשתי קבוצות נפרדות: קבוצה אחת בלבד משמשת את V7
-                            לבחירת הלחץ, וקבוצה אחרת בלבד שופטת את ההחלטה. אם V7
-                            בחר כמעט בדיוק את הלחץ שבוצע בפועל, משתמשים בתוצאה האמיתית
-                            של האצווה המוסתרת במקום בהערכה counterfactual.
+                            V8 נבחן ב-cross-fit: קבוצה אחת של אצוות משמשת לבחירת
+                            Δpressure באמצעות matched treatment effect מול HOLD, וקבוצה
+                            אחרת לגמרי שופטת את ההחלטה. האצווה הנבדקת עצמה מוסתרת
+                            משתי הקבוצות. כש-V8 בוחר כמעט בדיוק את הפעולה שבוצעה בפועל,
+                            משתמשים בתוצאה האמיתית שלה.
                         </p>
 
                         <div className="cellar-simulator-backtest-metrics">
                             <div>
                                 <b>{percent(backtestResult.estimatedFirstShotSuccessRate)}</b>
-                                <span>V7 — הצלחה צפויה בפעולה אחת</span>
+                                <span>V8 — הצלחה צפויה בפעולה אחת</span>
                             </div>
                             <div>
                                 <b>{percent(backtestResult.actualHumanFirstShotSuccessRate)}</b>
@@ -925,19 +925,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             </div>
                             <div>
                                 <b>{percent(backtestResult.dangerousMissRate)}</b>
-                                <span>V7 — המלצות עם סיכויי הצלחה מתחת ל-50%</span>
+                                <span>V8 — המלצות עם סיכויי הצלחה מתחת ל-50%</span>
                             </div>
                             <div>
                                 <b>{percent(backtestResult.successProbabilityP10)}</b>
-                                <span>V7 — סיכויי הצלחה בעשירון החלש</span>
-                            </div>
-                            <div>
-                                <b>
-                                    {backtestResult.expectedAbsCarbonationErrorVol === null
-                                        ? "—"
-                                        : `${backtestResult.expectedAbsCarbonationErrorVol.toFixed(3)} vol`}
-                                </b>
-                                <span>סטיית גיזוז צפויה מהיעד</span>
+                                <span>V8 — סיכויי הצלחה בעשירון החלש</span>
                             </div>
                             <div>
                                 <b>{percent(backtestResult.counterfactualCoverage)}</b>
@@ -945,7 +937,11 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             </div>
                             <div>
                                 <b>{percent(backtestResult.modelCoverage)}</b>
-                                <span>נקודות שבהן V7 הסכים לתת המלצה</span>
+                                <span>נקודות שבהן V8 הסכים לתת המלצה</span>
+                            </div>
+                            <div>
+                                <b>{percent(backtestResult.observedEvaluationRate ?? 0)}</b>
+                                <span>נבדקו מול outcome אמיתי</span>
                             </div>
                             <div>
                                 <b>{backtestResult.distinctBatchCount}</b>
@@ -953,13 +949,20 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             </div>
                         </div>
 
+                        {backtestV7Result && (
+                            <p className="cellar-simulator-backtest-warning">
+                                השוואה באותו dataset: V7 —
+                                {" "}הצלחה צפויה {percent(backtestV7Result.estimatedFirstShotSuccessRate)},
+                                {" "}מקרים מסוכנים {percent(backtestV7Result.dangerousMissRate)},
+                                {" "}כיסוי {percent(backtestV7Result.modelCoverage)}.
+                            </p>
+                        )}
                         {backtestV6Result && (
                             <p className="cellar-simulator-backtest-warning">
-                                השוואה באותו מבחן בדיוק: V6 —
+                                V6 —
                                 {" "}הצלחה צפויה {percent(backtestV6Result.estimatedFirstShotSuccessRate)},
                                 {" "}מקרים מסוכנים {percent(backtestV6Result.dangerousMissRate)},
-                                {" "}כיסוי counterfactual {percent(backtestV6Result.counterfactualCoverage)}.
-                                {" "}כך אפשר לראות אם V7 באמת שיפר את המנוע ולא רק שינה את המספרים.
+                                {" "}כיסוי {percent(backtestV6Result.modelCoverage)}.
                             </p>
                         )}
 
@@ -969,23 +972,23 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             {" "}{backtestResult.successfulOutcomeCount} הצלחות בפעולה אחת,
                             {" "}{backtestResult.failedOutcomeCount} החלטות שנזקקו לתיקון /
                             גיזוז מלמטה / חצו את היעד.
-                            {" "}V7 נתן המלצה ב-{backtestResult.predictedCaseCount} מתוך
+                            {" "}V8 נתן המלצה ב-{backtestResult.predictedCaseCount} מתוך
                             {" "}{backtestResult.eligibleCaseCount} נקודות החלטה.
                         </p>
 
                         <p className="cellar-simulator-backtest-warning">
-                            ולידציה: {percent(backtestResult.observedEvaluationRate ?? 0)}
-                            {" "}מההמלצות נבדקו מול תוצאה אמיתית של האצווה המוסתרת,
+                            ולידציה עצמאית: {percent(backtestResult.observedEvaluationRate ?? 0)}
+                            {" "}מההמלצות קיבלו outcome אמיתי;
                             {" "}{percent(backtestResult.counterfactualEvaluationRate ?? 0)}
-                            {" "}נבדקו counterfactually על קבוצת אצוות שלא השתתפה בבחירת
-                            הלחץ. אם אין מספיק תמיכה עצמאית, המקרה לא מקבל ציון.
+                            {" "}נשפטו בעזרת matched causal estimate מקבוצת evaluator נפרדת.
+                            מקרה שאין בו overlap מספיק בין HOLD לטיפול פשוט לא מקבל ציון.
                         </p>
 
                         {backtestResult.cases.some(
                             (item) => item.counterfactualSupported
                         ) && (
                             <>
-                                <strong>המקרים עם סיכויי ההצלחה הנמוכים ביותר</strong>
+                                <strong>המקרים החלשים ביותר של V8</strong>
                                 <div className="cellar-simulator-backtest-cases">
                                     {backtestResult.cases
                                         .filter(
@@ -1006,11 +1009,13 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                             >
                                                 <b>#{item.batchId}</b>
                                                 <span>
-                                                    V7 {item.predictedPressure.toFixed(2)} bar ·
-                                                    הצלחה צפויה {percent(item.modelEstimatedSuccessProbability)} ·
+                                                    V8 {item.predictedPressure.toFixed(2)} bar ·
+                                                    הצלחה {percent(item.modelEstimatedSuccessProbability)} ·
+                                                    אפקט מול HOLD {item.causalEffectVsHold === null ||
+                                                    item.causalEffectVsHold === undefined
+                                                        ? "—"
+                                                        : `${item.causalEffectVsHold >= 0 ? "+" : ""}${Math.round(item.causalEffectVsHold * 100)} נק׳`} ·
                                                     האדם {item.actualHumanPressure.toFixed(2)} bar
-                                                    {" "}({item.humanActualSuccess ? "הצליח בפועל" : "נדרש תיקון"}) ·
-                                                    תמיכה {item.counterfactualSupportBatches} אצוות
                                                 </span>
                                             </div>
                                         ))}
@@ -1018,6 +1023,73 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             </>
                         )}
                     </article>
+                </div>
+            )}
+
+            {(v8Result || v8Status) && (
+                <div className="cellar-simulator-results">
+                    <h3>V8 — Causal Pressure ניסיוני</h3>
+                    {v8Result ? (
+                        <article className="cellar-simulator-result level-1">
+                            <strong>
+                                {v8Result.action === "insufficient_data"
+                                    ? "אין מספיק evidence סיבתי להמלצת לחץ"
+                                    : v8Result.action === "hold"
+                                        ? "להשאיר לחץ"
+                                        : v8Result.action === "raise"
+                                            ? `להעלות לחץ ל-${v8Result.targetPressure?.toFixed(2)} bar`
+                                            : `להוריד לחץ ל-${v8Result.targetPressure?.toFixed(2)} bar`}
+                            </strong>
+                            <p>
+                                גיזוז {v8Result.currentCarbonation.toFixed(2)} vol ·
+                                לחץ {v8Result.currentPressure.toFixed(2)} bar ·
+                                טמפרטורה {v8Result.currentTemperature.toFixed(1)}°C ·
+                                יעד {v8Result.targetCarbonation.toFixed(2)} vol ·
+                                HOLD היסטורי {v8Result.holdSuccessProbability === null
+                                    ? "—"
+                                    : percent(v8Result.holdSuccessProbability)} ·
+                                הצלחה משוערת {v8Result.estimatedSuccessProbability === null
+                                    ? "—"
+                                    : percent(v8Result.estimatedSuccessProbability)} ·
+                                אפקט סיבתי מול HOLD {v8Result.causalEffectVsHold === null
+                                    ? "—"
+                                    : `${v8Result.causalEffectVsHold >= 0 ? "+" : ""}${Math.round(v8Result.causalEffectVsHold * 100)} נק׳`} ·
+                                גבול תחתון 80% לאפקט {v8Result.effectLower80 === null
+                                    ? "—"
+                                    : `${v8Result.effectLower80 >= 0 ? "+" : ""}${Math.round(v8Result.effectLower80 * 100)} נק׳`} ·
+                                matched pairs: {v8Result.matchedPairs} ·
+                                תמיכת טיפול: {v8Result.treatmentSupportBatches} אצוות ·
+                                תמיכת HOLD: {v8Result.holdSupportBatches} אצוות ·
+                                ביטחון: {v8Result.confidence}
+                            </p>
+                            {v8Result.action === "insufficient_data" && (
+                                <p>
+                                    {v8Result.abstentionReason === "no_hold_overlap"
+                                        ? "אין מספיק מקרים דומים של HOLD כדי לבנות קבוצת ביקורת."
+                                        : v8Result.abstentionReason === "no_treatment_overlap"
+                                            ? "אין מספיק overlap בין מקרים דומים שקיבלו טיפולים שונים."
+                                            : v8Result.abstentionReason === "weak_success_probability"
+                                                ? "גם הפעולה הטובה ביותר אינה מקבלת סיכויי הצלחה מספקים."
+                                                : "קיים signal, אבל ההבדל מול HOLD לא מספיק יציב כדי לטעון שהלחץ הוא שגרם לשיפור."}
+                                </p>
+                            )}
+                            {v8Result.candidates.length > 0 && (
+                                <p>
+                                    טיפולים נתמכים:
+                                    {" "}
+                                    {v8Result.candidates
+                                        .slice(0, 6)
+                                        .map(
+                                            (candidate) =>
+                                                `Δ${candidate.treatmentDeltaBar >= 0 ? "+" : ""}${candidate.treatmentDeltaBar.toFixed(2)} → ${candidate.pressure.toFixed(2)} bar: ${percent(candidate.estimatedSuccessProbability)}, effect ${candidate.causalEffectVsHold >= 0 ? "+" : ""}${Math.round(candidate.causalEffectVsHold * 100)} נק׳ (${candidate.matchedPairs} pairs)`
+                                        )
+                                        .join(" · ")}
+                                </p>
+                            )}
+                        </article>
+                    ) : (
+                        <div className="cellar-simulator-empty">{v8Status}</div>
+                    )}
                 </div>
             )}
 
