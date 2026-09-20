@@ -117,18 +117,27 @@ function measurementTimeMs(
   const text = String(measurement.id ?? "").trim();
 
   let match = text.match(
-    /^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})$/,
+    /^(\d{4})-(\d{2})-(\d{2})_(\d{1,2})(\d{2})$/,
   );
   if (match) {
-    return new Date(
-      Number(match[1]),
-      Number(match[2]) - 1,
-      Number(match[3]),
-      Number(match[4]),
-      Number(match[5]),
-      0,
-      0,
-    ).getTime();
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    if (
+      hour >= 0 &&
+      hour <= 23 &&
+      minute >= 0 &&
+      minute <= 59
+    ) {
+      return new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+        hour,
+        minute,
+        0,
+        0,
+      ).getTime();
+    }
   }
 
   match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -160,6 +169,59 @@ function normalizedNote(
     .trim();
 }
 
+function pressureNumbersInNote(
+  row: PressureV4Measurement,
+): number[] {
+  const note = normalizedNote(row);
+  const values: number[] = [];
+
+  for (const match of note.matchAll(
+    /(?:לחץ|bar|באר)[^\d-]{0,12}(-?\d+(?:[.,]\d+)?)/gi,
+  )) {
+    const value = finite(match[1]);
+    if (
+      value !== null &&
+      value >= 0 &&
+      value <= 2.2
+    ) {
+      values.push(value);
+    }
+  }
+
+  for (const match of note.matchAll(
+    /(-?\d+(?:[.,]\d+)?)\s*(?:bar|באר)/gi,
+  )) {
+    const value = finite(match[1]);
+    if (
+      value !== null &&
+      value >= 0 &&
+      value <= 2.2
+    ) {
+      values.push(value);
+    }
+  }
+
+  return Array.from(new Set(values));
+}
+
+function pressureNoteDiffersFromNumericRow(
+  row: PressureV4Measurement,
+): boolean {
+  const measured = finite(row.pressure);
+  const candidates = pressureNumbersInNote(row);
+  if (!candidates.length) return false;
+
+  if (measured === null) {
+    // A pressure number in notes with no numeric pressure is ambiguous enough
+    // that this row should not be assumed to be a clean closed-tank state.
+    return true;
+  }
+
+  return candidates.some(
+    (value) => Math.abs(value - measured) >= 0.05,
+  );
+}
+
 function looksLikePressureInterventionNote(
   row: PressureV4Measurement,
 ): boolean {
@@ -179,6 +241,16 @@ function looksLikePressureInterventionNote(
   // Common shorthand: "לחץ ל 1.15", "לחץ -> 1.15", etc.
   if (
     /לחץ\s*(?:ל|על|עד|->|=|:)\s*-?\s*\d+(?:[.,]\d+)?/i.test(note)
+  ) {
+    return true;
+  }
+
+  // Historical shorthand is inconsistent. If the note contains a plausible
+  // pressure that materially differs from the row's numeric pressure, treat it
+  // as an intervention/ambiguous state rather than silently assuming "closed".
+  if (
+    !/שמר(?:ים|י)/.test(note) &&
+    pressureNoteDiffersFromNumericRow(row)
   ) {
     return true;
   }
@@ -220,8 +292,22 @@ function pressureTargetFromNote(
     }
   }
 
-  return candidates.length
-    ? candidates[candidates.length - 1]
+  if (candidates.length) {
+    return candidates[candidates.length - 1];
+  }
+
+  const genericCandidates =
+    pressureNumbersInNote(row);
+  const measured = finite(row.pressure);
+  const materiallyDifferent =
+    genericCandidates.filter(
+      (value) =>
+        measured === null ||
+        Math.abs(value - measured) >= 0.05,
+    );
+
+  return materiallyDifferent.length === 1
+    ? materiallyDifferent[0]
     : null;
 }
 
