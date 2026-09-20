@@ -12,7 +12,9 @@ import type {
 const OPERATIONAL_VOL_PER_BAR_MIN = 0.25;
 const OPERATIONAL_VOL_PER_BAR_MAX = 2.00;
 const MAX_OPERATIONAL_PRESSURE_BAR = 1.9;
-const TARGET_TOLERANCE_VOL = 0.04;
+const DEFAULT_TARGET_TOLERANCE_VOL = 0.04;
+const FIRST_COOLING_BOTTOM_CARBONATION_THRESHOLD_VOL = 1.95;
+const STABLE_BOTTOM_CARBONATION_THRESHOLD_VOL = 2.15;
 const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.05;
 const FIRST_COOLING_SAFETY_BAR = 0.10;
 // k is used only to advance an old measurement to "now". A slow but real
@@ -33,6 +35,7 @@ export type PressureV5Estimate = {
   currentTemperature: number;
   forecastTemperature: number;
   targetCarbonation: number;
+  targetToleranceVol: number;
 
   kPerHour: number;
   kSource: "learned" | "heuristic" | "guarded";
@@ -523,6 +526,7 @@ export function estimatePressureTargetV5(args: {
   transitions?: PressureV4TransitionSample[];
   state: PressureV4DecisionState;
   targetCarbonation: number;
+  targetToleranceVol?: number;
   coldReferenceTemperature?: number | null;
   firstCarbonation?: boolean;
   equilibriumPressureAtTemperature?: (
@@ -539,6 +543,12 @@ export function estimatePressureTargetV5(args: {
     currentTemp === null ||
     !Number.isFinite(args.targetCarbonation)
   ) return null;
+
+  const targetToleranceVol = clamp(
+    finite(args.targetToleranceVol) ?? DEFAULT_TARGET_TOLERANCE_VOL,
+    0.005,
+    0.25,
+  );
 
   const coldReference = finite(args.coldReferenceTemperature);
   const firstCoolingMode =
@@ -700,7 +710,12 @@ export function estimatePressureTargetV5(args: {
       Number(predictedWithoutChange.toFixed(3)),
   };
 
-  if (measuredCarbonation < 2.15) {
+  const bottomCarbonationThreshold =
+    firstCoolingMode
+      ? FIRST_COOLING_BOTTOM_CARBONATION_THRESHOLD_VOL
+      : STABLE_BOTTOM_CARBONATION_THRESHOLD_VOL;
+
+  if (measuredCarbonation < bottomCarbonationThreshold) {
     return {
       ...base,
       rawTargetPressure: null,
@@ -788,7 +803,7 @@ export function estimatePressureTargetV5(args: {
   if (
     rawTargetPressure < 0 &&
     predictedAtZero !== null &&
-    predictedAtZero > args.targetCarbonation + TARGET_TOLERANCE_VOL
+    predictedAtZero > args.targetCarbonation + targetToleranceVol
   ) {
     return {
       ...base,
@@ -807,7 +822,7 @@ export function estimatePressureTargetV5(args: {
   if (
     rawTargetPressure > MAX_OPERATIONAL_PRESSURE_BAR &&
     predictedAtMax !== null &&
-    predictedAtMax < args.targetCarbonation - TARGET_TOLERANCE_VOL
+    predictedAtMax < args.targetCarbonation - targetToleranceVol
   ) {
     return {
       ...base,
@@ -829,7 +844,7 @@ export function estimatePressureTargetV5(args: {
   const carbonationError =
     args.targetCarbonation - estimatedCurrentCarbonation;
   const outsideTargetWindow =
-    Math.abs(carbonationError) > TARGET_TOLERANCE_VOL + 1e-6;
+    Math.abs(carbonationError) >= targetToleranceVol - 1e-6;
 
   // Keep a real off-spec correction operationally meaningful. The calculated
   // setpoint itself may move in 0.01-bar increments, but once we decide to act
