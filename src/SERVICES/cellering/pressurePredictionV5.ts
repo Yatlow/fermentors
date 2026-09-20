@@ -432,7 +432,51 @@ function simulateForward(args: {
 }
 
 function roundPressure(pressure: number): number {
-  return Math.round(pressure * 20) / 20;
+  // Recommendation resolution. Keep the minimum *action* step at 0.05 bar,
+  // but do not quantize the whole response curve into 0.05-bar plateaus.
+  return Math.round(pressure * 100) / 100;
+}
+
+function solveFirstCoolingPressure(args: {
+  forecast: (pressure: number) => number | null;
+  targetCarbonation: number;
+  currentPressure: number;
+}): number | null {
+  let best:
+    | { pressure: number; error: number; move: number }
+    | null = null;
+
+  // First carbonation is a moving-temperature problem. Solve against the
+  // actual 48h cooling forecast instead of anchoring at the final cold
+  // equilibrium pressure and approximating the remaining cooling indirectly.
+  for (
+    let pressure = 0;
+    pressure <= MAX_OPERATIONAL_PRESSURE_BAR + 0.0001;
+    pressure += 0.01
+  ) {
+    const candidate = Number(pressure.toFixed(2));
+    const predicted = args.forecast(candidate);
+    if (predicted === null) continue;
+
+    const row = {
+      pressure: candidate,
+      error: Math.abs(predicted - args.targetCarbonation),
+      move: Math.abs(candidate - args.currentPressure),
+    };
+
+    if (
+      !best ||
+      row.error < best.error - 0.0005 ||
+      (
+        Math.abs(row.error - best.error) <= 0.0005 &&
+        row.move < best.move
+      )
+    ) {
+      best = row;
+    }
+  }
+
+  return best?.pressure ?? null;
 }
 
 // The learned response is deliberately trusted close to target, where the
@@ -710,9 +754,20 @@ export function estimatePressureTargetV5(args: {
     firstCoolingMode,
   });
 
+  const firstCoolingSolvedPressure =
+    firstCoolingMode
+      ? solveFirstCoolingPressure({
+          forecast,
+          targetCarbonation: args.targetCarbonation,
+          currentPressure,
+        })
+      : null;
+
   const rawTargetPressure =
-    correctionBasePressure +
-    (carbonationGap / learnedSetpointResponse) * correctionGain;
+    firstCoolingMode && firstCoolingSolvedPressure !== null
+      ? firstCoolingSolvedPressure
+      : correctionBasePressure +
+        (carbonationGap / learnedSetpointResponse) * correctionGain;
 
   // Edge cases are determined by what the physical forecast can do at the
   // operational pressure bounds, not merely by the nonlinear setpoint formula
@@ -766,9 +821,9 @@ export function estimatePressureTargetV5(args: {
   const outsideTargetWindow =
     Math.abs(carbonationError) > TARGET_TOLERANCE_VOL + 1e-6;
 
-  // Do not let the old 0.075-bar deadband hide a real off-spec carbonation
-  // correction. If the math asks for a change but rounding/deadband would turn
-  // it into HOLD, make one minimum operational 0.10-bar step in that direction.
+  // Keep a real off-spec correction operationally meaningful. The calculated
+  // setpoint itself may move in 0.01-bar increments, but once we decide to act
+  // the first actual correction is at least 0.05 bar.
   if (
     outsideTargetWindow &&
     rawTargetPressure > currentPressure + 0.005 &&
@@ -795,7 +850,8 @@ export function estimatePressureTargetV5(args: {
 
   const pressureDelta = targetPressure - currentPressure;
   const action: PressureV5Estimate["action"] =
-    Math.abs(pressureDelta) < 0.075
+    (!firstCoolingMode && !outsideTargetWindow) ||
+    Math.abs(pressureDelta) < 0.025
       ? "hold"
       : pressureDelta > 0
         ? "raise"
