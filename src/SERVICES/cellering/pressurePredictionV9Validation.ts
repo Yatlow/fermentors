@@ -387,6 +387,10 @@ function horizonBucket(hours: number): string {
 export function runPressureV9PhysicsValidation(args: {
   batches: PressureV9ValidationBatch[];
   seed: number;
+  vesselVolumeByTankClass?: Partial<
+    Record<PressureV9TankClass, number>
+  >;
+  kPerHourOverride?: number | null;
 }): PressureV9ValidationResult {
   const cases: PressureV9ValidationCase[] = [];
   let maxResidual = 0;
@@ -412,10 +416,16 @@ export function runPressureV9PhysicsValidation(args: {
       actualEndCarbonation === null
     ) continue;
 
+    const tankClass =
+      tankClassForNumber(batch.tankNumber);
+    const vesselVolumeLiters =
+      args.vesselVolumeByTankClass?.[tankClass];
+
     const prediction =
       simulateV9ObservedClosedInterval({
         tankNumber: batch.tankNumber,
         beerVolumeLiters: batch.beerVolumeLiters,
+        vesselVolumeLiters,
         startCarbonation,
         startPressure: selected.startPressure,
         startTemperature:
@@ -424,7 +434,9 @@ export function runPressureV9PhysicsValidation(args: {
           selected.endTemperature,
         durationHours:
           selected.durationHours,
-        kPerHour: batch.kPerHour,
+        kPerHour:
+          finite(args.kPerHourOverride) ??
+          batch.kPerHour,
       });
     if (!prediction) continue;
 
@@ -445,7 +457,7 @@ export function runPressureV9PhysicsValidation(args: {
       batchId: batch.batchId,
       style: batch.style,
       tankNumber: batch.tankNumber,
-      tankClass: tankClassForNumber(batch.tankNumber),
+      tankClass,
       beerVolumeLiters: batch.beerVolumeLiters,
       durationHours: selected.durationHours,
       startCarbonation,
@@ -473,7 +485,9 @@ export function runPressureV9PhysicsValidation(args: {
         selected.startTemperature,
       endTemperature:
         selected.endTemperature,
-      kPerHour: batch.kPerHour,
+      kPerHour:
+        finite(args.kPerHourOverride) ??
+        batch.kPerHour,
       startMeasurementId:
         String(selected.start.row.id ?? ""),
       endMeasurementId:
