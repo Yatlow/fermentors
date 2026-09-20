@@ -11,6 +11,7 @@ import {
     buildPressureV4DecisionState,
 } from "../../SERVICES/cellering/pressurePredictionV4";
 import {
+    countV6SuccessfulOneActionBatches,
     estimatePressureTargetV6,
     selectV6HistoricalBatchIds,
     type PressureV6Estimate,
@@ -465,30 +466,60 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             passiveSamples: v4Model.passiveSamples,
                             state,
                             currentBatchId,
-                            limit: 8,
+                            limit: 32,
                         })
                         : [];
-                    const historicalBatches = (
-                        await Promise.all(
-                            historicalBatchIds.map(async (batchId) => {
-                                try {
-                                    return {
-                                        batchId,
-                                        measurements: await getMeasurementsByBatch(batchId),
-                                    };
-                                } catch (historyError) {
-                                    console.warn("V6 historical batch unavailable", {
-                                        batchId,
-                                        historyError,
-                                    });
-                                    return null;
-                                }
-                            })
-                        )
-                    ).filter((item): item is {
+
+                    const historicalBatches: {
                         batchId: string;
                         measurements: Measurement[];
-                    } => item !== null);
+                    }[] = [];
+                    const targetSuccessfulBatches = 8;
+                    const searchChunkSize = 8;
+                    const targetToleranceVol =
+                        specs.tolorances?.carbonation ?? 0.04;
+
+                    for (
+                        let startIndex = 0;
+                        startIndex < historicalBatchIds.length;
+                        startIndex += searchChunkSize
+                    ) {
+                        const successfulSoFar =
+                            countV6SuccessfulOneActionBatches({
+                                historicalBatches,
+                                targetCarbonation: Number(carbonationTarget),
+                                targetToleranceVol,
+                            });
+                        if (successfulSoFar >= targetSuccessfulBatches) break;
+
+                        const batchChunk = historicalBatchIds.slice(
+                            startIndex,
+                            startIndex + searchChunkSize,
+                        );
+                        const loadedChunk = (
+                            await Promise.all(
+                                batchChunk.map(async (batchId) => {
+                                    try {
+                                        return {
+                                            batchId,
+                                            measurements: await getMeasurementsByBatch(batchId),
+                                        };
+                                    } catch (historyError) {
+                                        console.warn("V6 historical batch unavailable", {
+                                            batchId,
+                                            historyError,
+                                        });
+                                        return null;
+                                    }
+                                })
+                            )
+                        ).filter((item): item is {
+                            batchId: string;
+                            measurements: Measurement[];
+                        } => item !== null);
+
+                        historicalBatches.push(...loadedChunk);
+                    }
 
                     const v6Estimate = estimatePressureTargetV6({
                         samples: v4Model?.samples ?? [],
@@ -498,8 +529,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         measurements: simulated,
                         historicalBatches,
                         targetCarbonation: Number(carbonationTarget),
-                        targetToleranceVol:
-                            specs.tolorances?.carbonation ?? 0.04,
+                        targetToleranceVol,
                         coldReferenceTemperature,
                         currentBatchId,
                     });
