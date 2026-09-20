@@ -480,6 +480,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 transitions: v4Model.transitions,
                                 state,
                                 targetCarbonation: Number(carbonationTarget),
+                                targetToleranceVol:
+                                    specs.tolorances?.carbonation ?? 0.04,
                                 coldReferenceTemperature,
                                 firstCarbonation: carbonationScenario.first,
                                 equilibriumPressureAtTemperature:
@@ -684,6 +686,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 טמפרטורת חישוב: {v5Result.forecastTemperature.toFixed(1)}°C ·
                                 לחץ שיווי־משקל של הגיזוז המשוער עכשיו: {v5Result.equilibriumPressureForCurrentCarb.toFixed(2)} bar ·
                                 לחץ שיווי־משקל של יעד {v5Result.targetCarbonation.toFixed(2)}: {v5Result.targetEquilibriumPressure.toFixed(2)} bar ·
+                                טולרנס גיזוז: ±{v5Result.targetToleranceVol.toFixed(2)} vol ·
                                 מרחק הלחץ הנוכחי משיווי־משקל: {v5Result.pressureDistanceFromEquilibrium >= 0 ? "+" : ""}{v5Result.pressureDistanceFromEquilibrium.toFixed(2)} bar ·
                                 בעוד 48 שעות בלי שינוי לחץ: {v5Result.predictedWithoutChange.toFixed(3)} vol
                                 {v5Result.setpointBasis === "first_cooling_kinetic"
@@ -699,7 +702,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                     ? ` · יעד גיזוז בחישוב: ${v5Result.predictedAtTarget.toFixed(3)} vol`
                                     : ""}
                                 {v5Result.edgeCase === "bottom_carbonation"
-                                    ? " · מתחת 2.15: V5 רק מזהה את המסלול ולא מחשב טיפול."
+                                    ? ` · סף גיזוז מלמטה במסלול הזה: מתחת ${v5Result.mode === "first_cooling" ? "1.95" : "2.15"} vol. V5 רק מזהה את המסלול ולא מחשב טיפול.`
                                     : ""}
                                 {v5Result.edgeCase === "venting_below_zero"
                                     ? " · הפתרון המתמטי דורש לחץ gauge שלילי; V5 רק מזהה שנדרשת פריקה ולא מחשב זמן."
@@ -715,7 +718,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 </div>
             )}
 
-            {v5Result && (
+            {v5Result && v5Result.action !== "hold" && (
                 <div className="cellar-simulator-results">
                     <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
                     <article className="cellar-simulator-result level-1">
