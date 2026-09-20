@@ -679,6 +679,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     const coldReferenceTemperature = v4Model
                         ? getColdReferenceTemperatureV4(v4Model)
                         : null;
+                    const targetToleranceVol =
+                        specs.tolorances?.carbonation ?? 0.04;
 
                     const beerVolumeLiters = Number(tank.beerVolume);
                     const v9FinalTemperature =
@@ -724,8 +726,6 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         })
                         : [];
 
-                    const targetToleranceVol =
-                        specs.tolorances?.carbonation ?? 0.04;
                     const historicalBatches = (
                         await Promise.all(
                             historicalBatchIds
