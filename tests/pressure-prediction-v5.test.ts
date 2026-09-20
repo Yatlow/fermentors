@@ -664,17 +664,11 @@ test("V5 uses carbonation tolerance supplied by specs", () => {
   assert.equal(tight.targetToleranceVol, 0.03);
 });
 
-test("V5 uses a lower bottom-carbonation cutoff on the first cooling check", () => {
-  const first196 = estimatePressureTargetV5({
-    state: state(1.96, 1.40, 6.8),
+test("V5 first cooling can raise head pressure below the stable bottom-carbonation cutoff", () => {
+  const firstLow = estimatePressureTargetV5({
+    state: state(2.05, 0.60, 6.8),
     targetCarbonation: 2.45,
-    coldReferenceTemperature: 0.5,
-    firstCarbonation: true,
-  });
-
-  const first194 = estimatePressureTargetV5({
-    state: state(1.94, 1.40, 6.8),
-    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
     coldReferenceTemperature: 0.5,
     firstCarbonation: true,
   });
@@ -682,14 +676,20 @@ test("V5 uses a lower bottom-carbonation cutoff on the first cooling check", () 
   const stable214 = estimatePressureTargetV5({
     state: state(2.14, 0.80, 0.5),
     targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
     firstCarbonation: false,
   });
 
-  assert.ok(first196);
-  assert.ok(first194);
+  assert.ok(firstLow);
   assert.ok(stable214);
-  assert.notEqual(first196.edgeCase, "bottom_carbonation");
-  assert.equal(first194.edgeCase, "bottom_carbonation");
+  assert.equal(firstLow.edgeCase, null);
+  assert.equal(firstLow.action, "raise");
+  assert.ok(
+    firstLow.targetPressure !== null &&
+      firstLow.targetPressure > firstLow.currentPressure &&
+      firstLow.targetPressure <= 1.9,
+    `first check should use an ordinary pressure raise when feasible, got ${firstLow.targetPressure}`,
+  );
   assert.equal(stable214.edgeCase, "bottom_carbonation");
 });
 
@@ -708,9 +708,9 @@ test("V5 stable hold is tank-only context, not a global recommendation", () => {
   assert.equal(estimate.recommendationVisibility, "tank_only");
 });
 
-test("V5 first-cooling correction within 0.07 bar becomes an active global hold", () => {
+test("V5 first-cooling HOLD requires the no-change forecast itself to land in spec", () => {
   const estimate = estimatePressureTargetV5({
-    state: state(2.40, 0.88, 6.8),
+    state: state(2.13, 1.44, 6.8),
     targetCarbonation: 2.45,
     targetToleranceVol: 0.03,
     coldReferenceTemperature: 0.5,
@@ -720,12 +720,14 @@ test("V5 first-cooling correction within 0.07 bar becomes an active global hold"
   assert.ok(estimate);
   assert.equal(estimate.mode, "first_cooling");
   assert.equal(estimate.action, "hold");
-  assert.equal(estimate.holdReason, "first_cooling_small_change");
+  assert.equal(estimate.holdReason, "first_cooling_forecast_on_target");
   assert.equal(estimate.recommendationVisibility, "global");
-  assert.equal(estimate.targetPressure, 0.88);
+  assert.equal(estimate.targetPressure, 1.44);
   assert.ok(
-    estimate.rawTargetPressure !== null &&
-      Math.abs(estimate.rawTargetPressure - estimate.currentPressure) <= 0.07,
-    `expected raw first-cooling change within 0.07 bar, got current=${estimate.currentPressure}, raw=${estimate.rawTargetPressure}`,
+    estimate.predictedWithoutChange >=
+      estimate.targetCarbonation - estimate.targetToleranceVol &&
+    estimate.predictedWithoutChange <=
+      estimate.targetCarbonation + estimate.targetToleranceVol,
+    `HOLD must mean no-change forecast is in spec, got ${estimate.predictedWithoutChange}`,
   );
 });
