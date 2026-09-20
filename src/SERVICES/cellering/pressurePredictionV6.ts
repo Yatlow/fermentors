@@ -67,8 +67,9 @@ export type PressureV6HistoricalBatch = {
   measurements: PressureV4Measurement[];
 };
 
-type PressureV6OneActionCourse = {
+export type PressureV6OneActionCourse = {
   batchId: string;
+  startDateTimeMs: number;
   startCarbonation: number;
   startPressure: number;
   startTemperature: number;
@@ -731,7 +732,7 @@ function hoursSinceCoolingAt(
   return null;
 }
 
-function buildOneActionCourses(args: {
+export function buildV6OneActionCourses(args: {
   historicalBatches: PressureV6HistoricalBatch[];
   targetCarbonation: number;
   targetToleranceVol: number;
@@ -833,6 +834,7 @@ function buildOneActionCourses(args: {
 
         courses.push({
           batchId: String(batch.batchId),
+          startDateTimeMs: startMs,
           startCarbonation,
           startPressure,
           startTemperature,
@@ -1687,7 +1689,7 @@ export function estimatePressureTargetV6(args: {
   ) return null;
 
 
-  const oneActionCourses = buildOneActionCourses({
+  const oneActionCourses = buildV6OneActionCourses({
     historicalBatches: args.historicalBatches ?? [],
     targetCarbonation: args.targetCarbonation,
     targetToleranceVol,
