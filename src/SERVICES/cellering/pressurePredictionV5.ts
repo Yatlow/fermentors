@@ -678,6 +678,7 @@ export function estimatePressureTargetV5(args: {
     currentTemperature: currentTemp,
     forecastTemperature,
     targetCarbonation: args.targetCarbonation,
+    targetToleranceVol,
     kPerHour: Number(learned.kPerHour.toFixed(6)),
     kSource: learned.source,
     rawLearnedKPerHour: learned.rawLearnedKPerHour,
