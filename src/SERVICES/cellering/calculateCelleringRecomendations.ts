@@ -9,7 +9,7 @@ import {
     getBottomCarbonationModel,
 } from "./bottomCarbonationRecommendationModel";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
-import { carbonationRetestPolicy } from "./carbonationRetestPolicy";
+import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
 import {
     buildPressureV4DecisionState,
 } from "./pressurePredictionV4";
@@ -514,6 +514,30 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             diff / (1000 * 60 * 60 * 24)
         );
     }
+
+    function offsetDateKey(dateString: string, days: number): string {
+        const date = new Date(`${dateString}T12:00:00`);
+        date.setDate(date.getDate() + days);
+        return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+        ].join("-");
+    }
+
+    function hasCarbonationOnDate(dateString: string): boolean {
+        return sortedMeasurements.some((measurement) => {
+            const date = getMeasurementDate(measurement.id);
+            const carbonation = measurement.carbonation;
+            return (
+                date === dateString &&
+                carbonation !== null &&
+                carbonation !== undefined &&
+                carbonation !== "" &&
+                Number.isFinite(Number(carbonation))
+            );
+        });
+    }
     const style =
         String(beerStyle || "")
             .trim()
@@ -858,14 +882,14 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה ההאחרונה לא תקין (${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
-                    `הגיזוז לפני יומיים לא תקין (${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת `
+                    `הגיזוז בבדיקה האחרונה לא תקין (${toDaysAgoMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת `
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             } else {
                 requiresCarbTest.display = false,
                     requiresCarbTest.req = corrected !== 1;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה ההאחרונה תקין (${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
-                    `הגיזוז לפני יומיים תקין (${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
+                    `הגיזוז בבדיקה האחרונה תקין (${toDaysAgoMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
                 requiresCarbTest.importance = carbonationSpecToDaysAgo?.importance
             }
         }
@@ -876,14 +900,14 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     requiresCarbTest.req = !tookCare;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה האחרונה היה לא תקין (${yesterdayMeasurement?.carbonation})- מומלץ לבצע בדיקת גיזוז חוזרת ` :
-                    `הגיזוז אתמול היה לא תקין (${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר בדיקת גיזוז חוזרת `,
+                    `הגיזוז בבדיקה האחרונה היה לא תקין (${yesterdayMeasurement?.carbonation})- מומלץ לבצע מחר בדיקת גיזוז חוזרת `,
                     requiresCarbTest.importance =  CarbonationSpecYesterday.importance
             } else {
                 requiresCarbTest.display = false,
                     requiresCarbTest.req = corrected !== 1;
                 requiresCarbTest.reason = lastMessurmentUpToDate.req ?
                     `הגיזוז בבדיקה האחרונה היה תקין (${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת` :
-                    `הגיזוז אתמול היה תקין (${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
+                    `הגיזוז בבדיקה האחרונה היה תקין (${yesterdayMeasurement?.carbonation})- ניתן להמתין עם בדיקת גיזוז נוספת`
 
             }
         }
@@ -923,8 +947,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             requiresCarbTest.importance = 1;
         }
         if (stage.name === "קר" && (corrected === 5) && tankNumber && nextWeekPack.includes(tankNumber) && carbRes === null) {
-            if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
-                (lastMessurmentUpToDate.req && carbRes === null)) {
+            const yesterdayDate = offsetDateKey(todayDate, -1);
+            if (!hasCarbonationOnDate(yesterdayDate)) {
 
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
@@ -934,8 +958,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         }
 
         if (stage.name === "קר" && (corrected === 1) && CoolAge === 2 && carbRes === null) {
-            if ((!lastMessurmentUpToDate.req && yesterdayMeasurement?.carbonation === null) ||
-                (lastMessurmentUpToDate.req && carbRes === null)) {
+            const yesterdayDate = offsetDateKey(todayDate, -1);
+            if (!hasCarbonationOnDate(yesterdayDate)) {
 
                 requiresCarbTest.display = true,
                     requiresCarbTest.req = true;
@@ -1026,16 +1050,9 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     requiresCarbTest.display = true;
                     requiresCarbTest.importance = lastCarbSpec.importance;
 
-                    if (retestPolicy.waitReason === "bottom_carbonation") {
-                        requiresCarbTest.reason =
-                            `אתמול בוצע גיזוז מלמטה לאחר בדיקת גיזוז לא תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
-                    } else if (retestPolicy.waitReason === "ordinary_pressure") {
-                        requiresCarbTest.reason =
-                            `עברו יומיים משינוי הלחץ שבוצע בעקבות בדיקת גיזוז לא תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
-                    } else {
-                        requiresCarbTest.reason =
-                            `בדיקת הגיזוז האחרונה היתה לפני יומיים או יותר ולא היתה תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
-                    }
+                    requiresCarbTest.reason =
+                        carbonationRetestDueReason(retestPolicy) ??
+                        `בדיקת הגיזוז האחרונה לא היתה תקינה (${retestPolicy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`;
                 } else if (
                     retestPolicy.waitReason === "ordinary_pressure" ||
                     retestPolicy.waitReason === "bottom_carbonation" ||
