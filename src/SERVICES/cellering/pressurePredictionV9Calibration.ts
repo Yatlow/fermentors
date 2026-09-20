@@ -112,11 +112,15 @@ function score(
     return Number.POSITIVE_INFINITY;
   }
 
-  // Carbonation accuracy is the primary objective. P90 is a small
-  // regularizer so one parameter set cannot win only by improving easy cases.
+  // Carbonation accuracy is primary, but geometry is not identifiable
+  // enough from carbonation alone because vessel volume and k can compensate
+  // for one another. End pressure is an independent physical observable, so
+  // include it as a secondary constraint. This is still dominated by carb MAE.
   return (
     result.carbonationMae +
-    0.2 * (result.carbonationP90AbsError ?? 0)
+    0.2 * (result.carbonationP90AbsError ?? 0) +
+    0.08 * (result.pressureMae ?? 0) +
+    0.02 * (result.pressureP90AbsError ?? 0)
   );
 }
 
