@@ -93,3 +93,50 @@ test("V9 validation reports persistence baseline separately from physics error",
   assert.ok(result.improvementVsPersistence !== null);
   assert.ok(result.improvementVsPersistence! > 0.99);
 });
+
+
+test("V9 validation never starts a closed interval from a row whose yeast-drop note was appended after the morning pressure", () => {
+  const batch = exactBatch("1700");
+
+  batch.measurements = [
+    {
+      id: "2026-09-16_0800",
+      carbonation: 2.20,
+      pressure: 1.30,
+      temp: 5.8,
+    },
+    {
+      id: "2026-09-18_0800",
+      carbonation: 2.27,
+      pressure: 1.18,
+      temp: 3.2,
+      // Operational reality: 1.18 was measured in the morning. Later the same
+      // day yeast was dropped and only the post-drop pressure was appended to
+      // notes; the numeric pressure field stayed at 1.18.
+      notes: "הורדת שמרים | לחץ אחרי 0.92 bar",
+    },
+    {
+      id: "2026-09-20_0800",
+      carbonation: 2.34,
+      pressure: 0.86,
+      temp: 1.5,
+    },
+  ];
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 123,
+  });
+
+  // The 16->18 interval may be used because the numeric endpoint is the morning
+  // reading before the drop. The ambiguous 18->20 interval must never be used.
+  assert.equal(result.caseCount, 1);
+  assert.equal(
+    result.cases[0]?.startMeasurementId,
+    "2026-09-16_0800",
+  );
+  assert.equal(
+    result.cases[0]?.endMeasurementId,
+    "2026-09-18_0800",
+  );
+});
