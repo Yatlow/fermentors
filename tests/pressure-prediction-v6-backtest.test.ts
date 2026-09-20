@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  PressurePredictionModelV4,
-} from "../src/SERVICES/cellering/pressurePredictionV4Model";
 import {
   runPressureV6LeaveOneBatchOutBacktest,
+  type PressureV6BacktestModel,
 } from "../src/SERVICES/cellering/pressurePredictionV6Backtest";
 
 function batch(
@@ -37,17 +35,12 @@ function batch(
   };
 }
 
-const emptyModel: PressurePredictionModelV4 = {
-  version: 4,
+const emptyModel: PressureV6BacktestModel = {
   style: "ipa",
   samples: [],
-  sampleCount: 0,
   passiveSamples: [],
-  passiveSampleCount: 0,
   transitions: [],
-  transitionCount: 0,
   equilibriumPoints: [],
-  equilibriumPointCount: 0,
 };
 
 test("V6 backtest hides the held-out batch action from its own prediction", () => {
