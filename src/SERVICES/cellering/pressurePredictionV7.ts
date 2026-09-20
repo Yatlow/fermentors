@@ -123,6 +123,11 @@ function queryFromState(args: {
     startTemperature: temperature,
     hoursSinceCooling:
       finite(args.state.cooling?.hoursSinceCooling),
+    carbonationRatePerDay:
+      finite(args.state.carbonationTrend?.ratePerDay),
+    temperatureRatePerDay:
+      finite(args.state.cooling?.tempChange24h),
+    pressureRatePerDay: null,
     actionPressure: pressure,
     actionDelta: 0,
     outcomeSuccess: false,
