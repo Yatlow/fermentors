@@ -1593,12 +1593,22 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
      * אנחנו רוצים את הראשונה אחרי מועד הקירור,
      * ולא סתם את הורדת השמרים הקרה האחרונה.
      */
-    const firstColdYeastDropAfterCooling =
+    const coldYeastDropsAfterCooling =
         CooldDate
-            ? coldYeastDrops.find(
+            ? coldYeastDrops.filter(
                 drop => drop.date >= CooldDate
             )
-            : undefined;
+            : [];
+
+    const firstColdYeastDropAfterCooling =
+        coldYeastDropsAfterCooling[0];
+
+    // The quantitative completion is a one-shot follow-up to the first cold
+    // yeast drop. Once another cold yeast drop was actually performed, the
+    // operator has already acted on that recommendation, even if the total
+    // quantity is still below the nominal target.
+    const hasFollowUpColdYeastDropAfterCooling =
+        coldYeastDropsAfterCooling.length >= 2;
 
 
     /**
@@ -1702,7 +1712,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     (latestWarmYeastDropAge > 1
                         ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
                         : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים של שמרים.`),
-                importance: latestWarmYeastDropAge > 1 ? 3 : 2,
+                importance: 1,
             };
         }
     }
@@ -1714,6 +1724,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     if (
         firstColdYeastDropAfterCooling &&
+        !hasFollowUpColdYeastDropAfterCooling &&
         firstColdYeastDropAge !== null &&
         firstColdYeastDropAge >= 2 &&
         coldYeastDropTarget !== null
@@ -1734,7 +1745,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                     (firstColdYeastDropAge > 2
                         ? `השלמת הוצאת השמרים התפספסה ונשארו ${formatYeastAmount(missing)} דליים להוציא היום.`
                         : `מומלץ היום להוציא עוד ${formatYeastAmount(missing)} דליים של שמרים.`),
-                importance: firstColdYeastDropAge > 2 ? 3 : 2,
+                importance: 1,
             };
         }
     }
