@@ -34,6 +34,7 @@ try {
       "tests/pressure-prediction-v7-backtest.test.ts",
       "tests/pressure-prediction-v8.test.ts",
       "tests/pressure-prediction-v8-backtest.test.ts",
+      "tests/pressure-prediction-v9-physics.test.ts",
     ],
     { stdio: "inherit" },
   );
@@ -57,6 +58,7 @@ try {
         join(output, "tests/pressure-prediction-v7-backtest.test.js"),
         join(output, "tests/pressure-prediction-v8.test.js"),
         join(output, "tests/pressure-prediction-v8-backtest.test.js"),
+        join(output, "tests/pressure-prediction-v9-physics.test.js"),
       ],
       { stdio: "inherit" },
     );
