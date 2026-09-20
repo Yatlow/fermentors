@@ -4,6 +4,7 @@ import {
 } from "./pressureCarbonationPhysics";
 import type {
   PressureV4DecisionState,
+  PressureV4Measurement,
   PressureV4PassiveSample,
   PressureV4Sample,
   PressureV4TransitionSample,
@@ -16,6 +17,12 @@ const DEFAULT_TARGET_TOLERANCE_VOL = 0.04;
 const STABLE_BOTTOM_CARBONATION_THRESHOLD_VOL = 2.15;
 const MIN_OPERATIONAL_PRESSURE_STEP_BAR = 0.05;
 const FIRST_COOLING_SAFETY_BAR = 0.10;
+const DEFAULT_OPERATIONAL_PRESSURE_RESERVE_BAR = 0.10;
+const MIN_OPERATIONAL_PRESSURE_RESERVE_BAR = 0.04;
+const MAX_OPERATIONAL_PRESSURE_RESERVE_BAR = 0.25;
+const STABLE_TREND_MIN_HOURS = 12;
+const STABLE_TREND_MAX_HOURS = 96;
+const STABLE_TREND_MAX_ABS_RATE_PER_DAY = 0.25;
 // k is used only to advance an old measurement to "now". A slow but real
 // historical rate such as ~0.0015/h is valid for that purpose; only nearly
 // frozen fits are rejected.
@@ -53,6 +60,14 @@ export type PressureV5Estimate = {
   equilibriumPressureForCurrentCarb: number;
   pressureDistanceFromEquilibrium: number;
   predictedWithoutChange: number;
+  physicalPredictedWithoutChange: number;
+  stableForecastSource: "recent_tank_trend" | "physics";
+  recentTrendForecast48h: number | null;
+
+  operationalPressureReserveBar: number;
+  operationalPressureReserveSource: "batch_yeast_drops" | "fallback";
+  operationalPressureReserveSampleCount: number;
+  operationalPressureFloorBar: number;
 
   rawTargetPressure: number | null;
   targetPressure: number | null;
@@ -104,6 +119,117 @@ function weightedMedian(
 
 function qualityWeight(quality: "low" | "medium" | "high"): number {
   return quality === "high" ? 1 : quality === "medium" ? 0.7 : 0.3;
+}
+
+function median(values: number[]): number | null {
+  const sorted = values
+    .filter(Number.isFinite)
+    .slice()
+    .sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function yeastDropPressureLosses(
+  measurements: PressureV4Measurement[] | undefined,
+): number[] {
+  if (!measurements?.length) return [];
+
+  const ordered = measurements
+    .map((measurement) => ({
+      measurement,
+      id: String(measurement.id ?? ""),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  const losses: number[] = [];
+  let lastPressure: number | null = null;
+
+  for (const { measurement } of ordered) {
+    const rowPressure = finite(measurement.pressure);
+    const note = String(measurement.notes ?? "");
+
+    if (/שמר(?:ים|י)/.test(note)) {
+      const match = note.match(
+        /לחץ\s+אחרי\s*:?-?\s*(\d+(?:[.,]\d+)?)\s*(?:bar|באר)?/i,
+      );
+      const afterPressure = match
+        ? finite(match[1].replace(",", "."))
+        : null;
+      const beforePressure = rowPressure ?? lastPressure;
+
+      if (beforePressure !== null && afterPressure !== null) {
+        const loss = beforePressure - afterPressure;
+        if (loss >= 0.02 && loss <= 0.5) {
+          losses.push(loss);
+        }
+      }
+    }
+
+    if (rowPressure !== null) lastPressure = rowPressure;
+  }
+
+  return losses;
+}
+
+function operationalPressureReserve(
+  measurements: PressureV4Measurement[] | undefined,
+): {
+  reserveBar: number;
+  source: "batch_yeast_drops" | "fallback";
+  sampleCount: number;
+} {
+  const losses = yeastDropPressureLosses(measurements).slice(-8);
+  const learnedMedian = median(losses);
+
+  if (learnedMedian === null) {
+    return {
+      reserveBar: DEFAULT_OPERATIONAL_PRESSURE_RESERVE_BAR,
+      source: "fallback",
+      sampleCount: 0,
+    };
+  }
+
+  // With one observation, blend toward the conservative fallback instead of
+  // pretending a single yeast drop is already a stable batch average.
+  const learned =
+    losses.length === 1
+      ? (learnedMedian + DEFAULT_OPERATIONAL_PRESSURE_RESERVE_BAR) / 2
+      : learnedMedian;
+
+  return {
+    reserveBar: clamp(
+      learned,
+      MIN_OPERATIONAL_PRESSURE_RESERVE_BAR,
+      MAX_OPERATIONAL_PRESSURE_RESERVE_BAR,
+    ),
+    source: "batch_yeast_drops",
+    sampleCount: losses.length,
+  };
+}
+
+function recentStableTrendForecast48h(args: {
+  state: PressureV4DecisionState;
+  carbonationNow: number;
+}): number | null {
+  const trend = args.state.carbonationTrend;
+  const rate = finite(trend?.ratePerDay);
+  const hours = finite(trend?.hoursSincePrevious);
+  const checks = finite(trend?.checksInPhase) ?? 0;
+
+  if (
+    checks < 2 ||
+    rate === null ||
+    hours === null ||
+    hours < STABLE_TREND_MIN_HOURS ||
+    hours > STABLE_TREND_MAX_HOURS ||
+    Math.abs(rate) > STABLE_TREND_MAX_ABS_RATE_PER_DAY
+  ) return null;
+
+  return args.carbonationNow + rate * 2;
 }
 
 function calibrationOffset(args: {
@@ -533,6 +659,7 @@ export function estimatePressureTargetV5(args: {
   equilibriumPressureAtTemperature?: (
     temperature: number | null,
   ) => number | null;
+  measurements?: PressureV4Measurement[];
 }): PressureV5Estimate | null {
   const measuredCarbonation = finite(args.state.carbonation);
   const currentPressure = finite(args.state.currentPressure);
@@ -645,8 +772,22 @@ export function estimatePressureTargetV5(args: {
         args.equilibriumPressureAtTemperature,
     });
 
-  const predictedWithoutChange = forecast(currentPressure);
-  if (predictedWithoutChange === null) return null;
+  const physicalPredictedWithoutChange = forecast(currentPressure);
+  if (physicalPredictedWithoutChange === null) return null;
+
+  const recentTrendForecast =
+    firstCoolingMode
+      ? null
+      : recentStableTrendForecast48h({
+          state: args.state,
+          carbonationNow: estimatedCurrentCarbonation,
+        });
+  const stableForecastSource =
+    recentTrendForecast !== null
+      ? "recent_tank_trend"
+      : "physics";
+  const predictedWithoutChange =
+    recentTrendForecast ?? physicalPredictedWithoutChange;
 
   const alpha48 = 1 - Math.exp(-learned.kPerHour * 48);
   const eqSlope = equilibriumSlopeVolPerBar({
@@ -659,6 +800,12 @@ export function estimatePressureTargetV5(args: {
 
   const pressureDistance =
     currentPressure - equilibriumPressure;
+
+  const operationalReserve = operationalPressureReserve(
+    args.measurements,
+  );
+  const operationalPressureFloor =
+    targetEquilibriumPressure + operationalReserve.reserveBar;
 
   const base: Omit<
     PressureV5Estimate,
@@ -712,6 +859,21 @@ export function estimatePressureTargetV5(args: {
       Number(pressureDistance.toFixed(2)),
     predictedWithoutChange:
       Number(predictedWithoutChange.toFixed(3)),
+    physicalPredictedWithoutChange:
+      Number(physicalPredictedWithoutChange.toFixed(3)),
+    stableForecastSource,
+    recentTrendForecast48h:
+      recentTrendForecast === null
+        ? null
+        : Number(recentTrendForecast.toFixed(3)),
+    operationalPressureReserveBar:
+      Number(operationalReserve.reserveBar.toFixed(2)),
+    operationalPressureReserveSource:
+      operationalReserve.source,
+    operationalPressureReserveSampleCount:
+      operationalReserve.sampleCount,
+    operationalPressureFloorBar:
+      Number(operationalPressureFloor.toFixed(2)),
   };
 
   // A stable cold tank below the direct-treatment cutoff goes straight to
@@ -745,11 +907,16 @@ export function estimatePressureTargetV5(args: {
   // is only a broad safety guardrail against pathological learned values.
   const carbonationGap =
     args.targetCarbonation - estimatedCurrentCarbonation;
+  const stableForecastError =
+    args.targetCarbonation - predictedWithoutChange;
+  const decisionError =
+    firstCoolingMode
+      ? carbonationGap
+      : stableForecastError;
 
-  // First carbonation / active cooling must account for stored headspace
-  // pressure, so use the absolute equilibrium anchor. On a subsequent stable
-  // check, the current pressure is already the observed operating baseline:
-  // correct incrementally from it by the measured carbonation error.
+  // First carbonation / active cooling is anchored to the target equilibrium.
+  // A stable tank is different: the most recent tank trajectory is the baseline
+  // and pressure corrects only the forecast error that remains after 48h.
   const correctionBasePressure =
     firstCoolingMode
       ? targetEquilibriumPressure
@@ -757,10 +924,10 @@ export function estimatePressureTargetV5(args: {
 
   const candidateA =
     correctionBasePressure +
-    carbonationGap / OPERATIONAL_VOL_PER_BAR_MAX;
+    decisionError / OPERATIONAL_VOL_PER_BAR_MAX;
   const candidateB =
     correctionBasePressure +
-    carbonationGap / OPERATIONAL_VOL_PER_BAR_MIN;
+    decisionError / OPERATIONAL_VOL_PER_BAR_MIN;
   const targetPressureRangeLow = Math.min(candidateA, candidateB);
   const targetPressureRangeHigh = Math.max(candidateA, candidateB);
 
@@ -776,7 +943,7 @@ export function estimatePressureTargetV5(args: {
   );
 
   const correctionGain = carbonationErrorGain({
-    carbonationGap,
+    carbonationGap: decisionError,
     firstCoolingMode,
   });
 
@@ -795,19 +962,35 @@ export function estimatePressureTargetV5(args: {
         })
       : 0;
 
+  const stableRawTargetPressure =
+    correctionBasePressure +
+    (stableForecastError / learnedSetpointResponse) * correctionGain;
+
   const rawTargetPressure =
     firstCoolingMode
       ? absoluteCoolingTarget +
         (currentPressure - absoluteCoolingTarget) *
           firstCoolingRetention
-      : correctionBasePressure +
-        (carbonationGap / learnedSetpointResponse) * correctionGain;
+      : stableRawTargetPressure < currentPressure
+        ? Math.max(stableRawTargetPressure, operationalPressureFloor)
+        : stableRawTargetPressure;
 
-  // Edge cases are determined by what the physical forecast can do at the
-  // operational pressure bounds, not merely by the nonlinear setpoint formula
-  // crossing those bounds.
-  const predictedAtZero = forecast(0);
-  const predictedAtMax = forecast(MAX_OPERATIONAL_PRESSURE_BAR);
+  // Stable tanks use the observed tank trajectory as the no-change baseline.
+  // A pressure change is projected around that baseline with the learned 48h
+  // pressure response. First-cooling still uses the full kinetic simulation.
+  const decisionForecast = (pressure: number): number | null => {
+    if (!firstCoolingMode && recentTrendForecast !== null) {
+      return (
+        recentTrendForecast +
+        (pressure - currentPressure) * learnedSetpointResponse
+      );
+    }
+    return forecast(pressure);
+  };
+
+  // Edge cases must use the same forecast that drives the recommendation.
+  const predictedAtZero = decisionForecast(0);
+  const predictedAtMax = decisionForecast(MAX_OPERATIONAL_PRESSURE_BAR);
 
   if (
     rawTargetPressure < 0 &&
@@ -854,19 +1037,20 @@ export function estimatePressureTargetV5(args: {
   let targetPressure = roundPressure(
     clamp(rawTargetPressure, 0, MAX_OPERATIONAL_PRESSURE_BAR),
   );
-  const carbonationError =
-    args.targetCarbonation - estimatedCurrentCarbonation;
   const outsideTargetWindow =
-    Math.abs(carbonationError) >= targetToleranceVol - 1e-6;
+    Math.abs(decisionError) > targetToleranceVol + 1e-6;
 
-  const firstCoolingForecastOnTarget =
-    firstCoolingMode &&
+  const noChangeForecastOnTarget =
     predictedWithoutChange >=
-      args.targetCarbonation - targetToleranceVol &&
+      args.targetCarbonation - targetToleranceVol - 1e-6 &&
     predictedWithoutChange <=
-      args.targetCarbonation + targetToleranceVol;
+      args.targetCarbonation + targetToleranceVol + 1e-6;
+  const firstCoolingForecastOnTarget =
+    firstCoolingMode && noChangeForecastOnTarget;
+  const stableForecastOnTarget =
+    !firstCoolingMode && noChangeForecastOnTarget;
 
-  if (firstCoolingForecastOnTarget) {
+  if (firstCoolingForecastOnTarget || stableForecastOnTarget) {
     // First check HOLD is evidence-based: keep the current pressure only when
     // the no-change forecast itself is already expected to land in spec.
     targetPressure = Number(currentPressure.toFixed(2));
@@ -897,6 +1081,7 @@ export function estimatePressureTargetV5(args: {
   const pressureDelta = targetPressure - currentPressure;
   const action: PressureV5Estimate["action"] =
     firstCoolingForecastOnTarget ||
+    stableForecastOnTarget ||
     (!firstCoolingMode && !outsideTargetWindow) ||
     Math.abs(pressureDelta) < 0.025
       ? "hold"
@@ -916,6 +1101,8 @@ export function estimatePressureTargetV5(args: {
       ? "tank_only"
       : "global";
 
+  const predictedAtTargetValue = decisionForecast(targetPressure);
+
   return {
     ...base,
     targetPressureRangeLow:
@@ -924,9 +1111,10 @@ export function estimatePressureTargetV5(args: {
       Number(targetPressureRangeHigh.toFixed(2)),
     rawTargetPressure: Number(rawTargetPressure.toFixed(2)),
     targetPressure,
-    // This is the mass-balance target by construction, not a promise that the
-    // beer reaches it in exactly 48 hours.
-    predictedAtTarget: Number(args.targetCarbonation.toFixed(3)),
+    predictedAtTarget:
+      predictedAtTargetValue === null
+        ? null
+        : Number(predictedAtTargetValue.toFixed(3)),
     action,
     holdReason,
     recommendationVisibility,
