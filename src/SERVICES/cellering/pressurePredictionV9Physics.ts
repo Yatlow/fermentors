@@ -85,6 +85,11 @@ type TrajectoryPoint = {
   pressure: number;
 };
 
+export type PressureV9TemperaturePathPoint = {
+  hour: number;
+  temperature: number;
+};
+
 function finite(value: unknown): number | null {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -514,6 +519,63 @@ export function estimateV9CoolingHours(args: {
   return 24;
 }
 
+function interpolatedTemperature(args: {
+  hour: number;
+  currentTemperature: number;
+  finalTemperature: number;
+  coolingHours: number;
+  temperaturePath?: PressureV9TemperaturePathPoint[];
+}): number {
+  const path = (args.temperaturePath ?? [])
+    .filter(
+      (point) =>
+        Number.isFinite(point.hour) &&
+        Number.isFinite(point.temperature),
+    )
+    .slice()
+    .sort((a, b) => a.hour - b.hour);
+
+  if (path.length >= 2) {
+    if (args.hour <= path[0].hour) {
+      return path[0].temperature;
+    }
+
+    for (let index = 1; index < path.length; index += 1) {
+      const right = path[index];
+      if (args.hour > right.hour) continue;
+
+      const left = path[index - 1];
+      const span = right.hour - left.hour;
+      if (span <= 0) return right.temperature;
+
+      const fraction = clamp(
+        (args.hour - left.hour) / span,
+        0,
+        1,
+      );
+      return (
+        left.temperature +
+        (right.temperature - left.temperature) * fraction
+      );
+    }
+
+    return path[path.length - 1].temperature;
+  }
+
+  const coolingFraction =
+    args.coolingHours <= 0
+      ? 1
+      : clamp(args.hour / args.coolingHours, 0, 1);
+
+  return (
+    args.currentTemperature +
+    (
+      args.finalTemperature -
+      args.currentTemperature
+    ) * coolingFraction
+  );
+}
+
 function simulateTrajectory(args: {
   startCarbonation: number;
   setPressure: number;
@@ -525,6 +587,7 @@ function simulateTrajectory(args: {
   kPerHour: number;
   futureOperationalLossBar: number;
   hours: number;
+  temperaturePath?: PressureV9TemperaturePathPoint[];
 }): {
   points: TrajectoryPoint[];
   finalEquilibrium: {
@@ -550,16 +613,13 @@ function simulateTrajectory(args: {
       : -1;
 
   for (let hour = 0; hour <= args.hours; hour += 1) {
-    const coolingFraction =
-      args.coolingHours <= 0
-        ? 1
-        : clamp(hour / args.coolingHours, 0, 1);
-    const temperature =
-      args.currentTemperature +
-      (
-        args.finalTemperature -
-        args.currentTemperature
-      ) * coolingFraction;
+    const temperature = interpolatedTemperature({
+      hour,
+      currentTemperature: args.currentTemperature,
+      finalTemperature: args.finalTemperature,
+      coolingHours: args.coolingHours,
+      temperaturePath: args.temperaturePath,
+    });
 
     if (
       hour === lossHour &&
@@ -663,6 +723,7 @@ export function simulateV9ObservedClosedInterval(args: {
   endTemperature: number;
   durationHours: number;
   kPerHour: number;
+  temperaturePath?: PressureV9TemperaturePathPoint[];
 }): PressureV9ObservedIntervalPrediction | null {
   const geometry = estimatedV9TankGeometry(args.tankNumber);
   if (!geometry) return null;
@@ -700,6 +761,7 @@ export function simulateV9ObservedClosedInterval(args: {
     kPerHour,
     futureOperationalLossBar: 0,
     hours: durationHours,
+    temperaturePath: args.temperaturePath,
   });
 
   const endPoint =
