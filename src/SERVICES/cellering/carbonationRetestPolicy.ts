@@ -154,3 +154,44 @@ export function carbonationRetestPolicy(
     requiredWaitDays: 2,
   };
 }
+
+
+function hebrewAgeText(days: number | null): string {
+  if (days === 0) return "היום";
+  if (days === 1) return "אתמול";
+  if (days === 2) return "לפני יומיים";
+  if (days !== null && days > 2) return `לפני ${days} ימים`;
+  return "לאחרונה";
+}
+
+export function carbonationRetestDueReason(
+  policy: CarbonationRetestPolicy,
+): string | null {
+  if (
+    !policy.due ||
+    !policy.hasCarbonation ||
+    policy.lastCarbonation === null
+  ) return null;
+
+  if (policy.waitReason === "bottom_carbonation") {
+    const when = hebrewAgeText(policy.daysSinceReference);
+    return (
+      `${when} בוצע גיזוז מלמטה לאחר בדיקת גיזוז לא תקינה ` +
+      `(${policy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`
+    );
+  }
+
+  if (policy.waitReason === "ordinary_pressure") {
+    const when = hebrewAgeText(policy.daysSinceReference);
+    return (
+      `${when} בוצע שינוי לחץ בעקבות בדיקת גיזוז לא תקינה ` +
+      `(${policy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`
+    );
+  }
+
+  const when = hebrewAgeText(policy.daysSinceReference);
+  return (
+    `בדיקת הגיזוז האחרונה בוצעה ${when} ולא היתה תקינה ` +
+    `(${policy.lastCarbonation})- מומלץ לבצע היום בדיקת גיזוז חוזרת`
+  );
+}
