@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
+import { getBrewPhysicsMetadata } from "../../SERVICES/getAndPost/getAllBrews";
 import {
     calcCelleringRecomendations,
     type Measurement,
@@ -27,6 +28,11 @@ import {
     estimatePressureTargetV9,
     type PressureV9Estimate,
 } from "../../SERVICES/cellering/pressurePredictionV9Physics";
+import {
+    runPressureV9PhysicsValidation,
+    type PressureV9ValidationBatch,
+    type PressureV9ValidationResult,
+} from "../../SERVICES/cellering/pressurePredictionV9Validation";
 import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
@@ -349,6 +355,72 @@ function medianTransitionK(model: PressurePredictionModelV4 | null): number {
         : (values[middle - 1] + values[middle]) / 2;
 }
 
+function medianTransitionKExcludingBatch(
+    model: PressurePredictionModelV4,
+    batchId: string,
+): number {
+    const normalized = String(batchId).replace("#", "").trim();
+    const values = model.transitions
+        .filter((item) =>
+            String(item.batchId ?? "").replace("#", "").trim() !== normalized &&
+            (item.quality === "high" || item.quality === "medium") &&
+            Number.isFinite(Number(item.kPerHour)) &&
+            Number(item.kPerHour) > 0
+        )
+        .map((item) => Number(item.kPerHour))
+        .sort((a, b) => a - b);
+
+    if (!values.length) return medianTransitionK(model);
+
+    const middle = Math.floor(values.length / 2);
+    return values.length % 2
+        ? values[middle]
+        : (values[middle - 1] + values[middle]) / 2;
+}
+
+function finiteValidationNumber(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(String(value).replace(",", "."));
+    return Number.isFinite(number) ? number : null;
+}
+
+function latestMeasurementVolume(rows: Measurement[]): number | null {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const value = finiteValidationNumber(rows[index].volume);
+        if (value !== null && value > 0) return value;
+    }
+    return null;
+}
+
+function seededRandom(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+        state += 0x6D2B79F5;
+        let value = state;
+        value = Math.imul(value ^ (value >>> 15), value | 1);
+        value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+        return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function shuffledWithSeed<T>(items: T[], seed: number): T[] {
+    const output = items.slice();
+    const random = seededRandom(seed);
+    for (let index = output.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(random() * (index + 1));
+        [output[index], output[swapIndex]] = [output[swapIndex], output[index]];
+    }
+    return output;
+}
+
+function validationPercent(value: number | null): string {
+    return value === null ? "—" : `${Math.round(value * 100)}%`;
+}
+
+function validationNumber(value: number | null, digits = 3): string {
+    return value === null ? "—" : value.toFixed(digits);
+}
+
 function tankClassText(value: PressureV9Estimate["tankClass"]): string {
     if (value === "single") return "בודד";
     if (value === "double") return "כפול";
@@ -378,6 +450,18 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v8Status, setV8Status] = useState("");
     const [v9Result, setV9Result] = useState<PressureV9Estimate | null>(null);
     const [v9Status, setV9Status] = useState("");
+    const [v9ValidationRunning, setV9ValidationRunning] = useState(false);
+    const [v9ValidationProgress, setV9ValidationProgress] = useState("");
+    const [v9ValidationResult, setV9ValidationResult] =
+        useState<PressureV9ValidationResult | null>(null);
+    const [v9ValidationMeta, setV9ValidationMeta] = useState<{
+        seed: number;
+        requested: number;
+        candidatePool: number;
+        attempted: number;
+        metadataResolved: number;
+        measurementRowsLoaded: number;
+    } | null>(null);
     const [backtestRunning, setBacktestRunning] = useState(false);
     const [backtestProgress, setBacktestProgress] = useState("");
     const [backtestResult, setBacktestResult] =
@@ -405,12 +489,6 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setResult(null);
         setV6Result(null);
         setV6Status("");
-        setV7Result(null);
-        setV7Status("");
-        setV8Result(null);
-        setV8Status("");
-        setV9Result(null);
-        setV9Status("");
         setV7Result(null);
         setV7Status("");
         setV8Result(null);
@@ -478,6 +556,204 @@ export default function CellarSimulator({ brews, specs }: Props) {
             }))
             .sort((a, b) => b.importance - a.importance);
     }, [result]);
+
+    async function runV9PhysicsValidation() {
+        if (!specs) return;
+
+        const requested = 500;
+        const maxAttempts = 700;
+        const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+
+        setV9ValidationRunning(true);
+        setV9ValidationResult(null);
+        setV9ValidationMeta(null);
+        setV9ValidationProgress("טוען אינדקסים היסטוריים מכל סגנונות הבירה…");
+        setError("");
+
+        try {
+            const styles = Array.from(
+                new Set(
+                    Object.keys(specs.carbonation ?? {})
+                        .map((style) => String(style).trim())
+                        .filter((style) => style && style !== "other")
+                )
+            );
+
+            const models = (
+                await Promise.all(
+                    styles.map(async (style) => ({
+                        style,
+                        model: await getPressurePredictionModelV4(style),
+                    }))
+                )
+            ).filter((item): item is {
+                style: string;
+                model: PressurePredictionModelV4;
+            } => item.model !== null);
+
+            const candidateMap = new Map<
+                string,
+                { batchId: string; style: string; model: PressurePredictionModelV4 }
+            >();
+
+            for (const { style, model } of models) {
+                for (const batchId of historicalBatchIdsFromModel(model)) {
+                    const normalized = String(batchId).replace("#", "").trim();
+                    if (!normalized || candidateMap.has(normalized)) continue;
+                    candidateMap.set(normalized, {
+                        batchId: normalized,
+                        style,
+                        model,
+                    });
+                }
+            }
+
+            const candidates = shuffledWithSeed(
+                Array.from(candidateMap.values()),
+                seed,
+            );
+            const attemptLimit = Math.min(maxAttempts, candidates.length);
+            const validationBatches: PressureV9ValidationBatch[] = [];
+            let attempted = 0;
+            let metadataResolved = 0;
+            let measurementRowsLoaded = 0;
+            const chunkSize = 6;
+
+            const activeByBatch = new Map(
+                brews
+                    .filter((item) => item.batchNumber)
+                    .map((item) => [
+                        String(item.batchNumber).replace("#", "").trim(),
+                        item,
+                    ])
+            );
+
+            for (
+                let startIndex = 0;
+                startIndex < attemptLimit && validationBatches.length < requested;
+                startIndex += chunkSize
+            ) {
+                const chunk = candidates.slice(
+                    startIndex,
+                    Math.min(startIndex + chunkSize, attemptLimit),
+                );
+
+                const loaded = await Promise.all(
+                    chunk.map(async (candidate) => {
+                        attempted += 1;
+                        try {
+                            const [metadata, measurements] = await Promise.all([
+                                getBrewPhysicsMetadata(candidate.batchId),
+                                getMeasurementsByBatch(candidate.batchId),
+                            ]);
+
+                            measurementRowsLoaded += measurements.length;
+                            const active = activeByBatch.get(candidate.batchId);
+
+                            const tankNumber =
+                                metadata?.tankNumber ??
+                                finiteValidationNumber(active?.tankNumber);
+                            const beerVolumeLiters =
+                                metadata?.beerVolumeLiters ??
+                                finiteValidationNumber(active?.beerVolume) ??
+                                latestMeasurementVolume(measurements);
+
+                            if (
+                                tankNumber === null ||
+                                beerVolumeLiters === null ||
+                                tankNumber < 2 ||
+                                beerVolumeLiters <= 0
+                            ) {
+                                return null;
+                            }
+
+                            metadataResolved += 1;
+
+                            return {
+                                batchId: candidate.batchId,
+                                style:
+                                    metadata?.beerStyle ||
+                                    candidate.style,
+                                tankNumber,
+                                beerVolumeLiters,
+                                kPerHour:
+                                    medianTransitionKExcludingBatch(
+                                        candidate.model,
+                                        candidate.batchId,
+                                    ),
+                                measurements,
+                            } satisfies PressureV9ValidationBatch;
+                        } catch (historyError) {
+                            console.warn("V9 validation batch unavailable", {
+                                batchId: candidate.batchId,
+                                historyError,
+                            });
+                            return null;
+                        }
+                    })
+                );
+
+                validationBatches.push(
+                    ...loaded.filter(
+                        (item): item is PressureV9ValidationBatch =>
+                            item !== null
+                    )
+                );
+
+                const partial = runPressureV9PhysicsValidation({
+                    batches: validationBatches,
+                    seed,
+                });
+
+                setV9ValidationProgress(
+                    `נבדקו ${attempted}/${attemptLimit} מועמדים · ` +
+                    `נמצאו ${partial.caseCount}/${requested} אצוות עם חלון פיזיקלי נקי · ` +
+                    `נטענו ${measurementRowsLoaded} רשומות מדידה`
+                );
+
+                if (partial.caseCount >= requested) break;
+            }
+
+            const finalResult = runPressureV9PhysicsValidation({
+                batches: validationBatches,
+                seed,
+            });
+
+            // Random order is preserved by validationBatches. Keep exactly the
+            // requested sample if more became eligible in the final chunk.
+            const limitedResult =
+                finalResult.caseCount <= requested
+                    ? finalResult
+                    : runPressureV9PhysicsValidation({
+                        batches: validationBatches.filter((batch) =>
+                            finalResult.cases
+                                .slice(0, requested)
+                                .some((item) => item.batchId === batch.batchId)
+                        ),
+                        seed,
+                    });
+
+            setV9ValidationResult(limitedResult);
+            setV9ValidationMeta({
+                seed,
+                requested,
+                candidatePool: candidates.length,
+                attempted,
+                metadataResolved,
+                measurementRowsLoaded,
+            });
+            setV9ValidationProgress("");
+        } catch (reason) {
+            setError(
+                reason instanceof Error
+                    ? reason.message
+                    : String(reason)
+            );
+            setV9ValidationProgress("");
+        } finally {
+            setV9ValidationRunning(false);
+        }
+    }
 
     async function runBacktest() {
         if (!tank?.beerStyle || !specs) return;
@@ -931,7 +1207,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         : `זיהוי: בדיקה חוזרת · ${resolved.priorChecks} בדיקות גיזוז קודמות אחרי קירור`;
                 })()}
                 {" · "}
-                V8 מנסה לאמוד השפעה סיבתית של שינוי הלחץ: הוא משווה מצבים דומים שקיבלו שינוי לחץ שונה, משתמש ב-HOLD כקבוצת ביקורת ודורש overlap אמיתי בין הקבוצות. V7/V6 נשארים מתחת להשוואה.
+                V9 הוא המודל הפיזיקלי. אפשר להריץ למטה בדיקת אמינות כבדה על עד 500 אצוות אקראיות: בכל אצווה הוא מקבל את הפעולה שבוצעה באמת ומנסה לחזות את בדיקת הגיזוז הבאה. V8/V7/V6 נשארים להשוואה בלבד.
             </div>
 
             <div className="cellar-simulator-actions">
@@ -951,6 +1227,16 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 >
                     {backtestRunning ? "מריץ Backtest…" : "בדוק דיוק היסטורי"}
                 </button>
+                <button
+                    type="button"
+                    className="status-filter-button"
+                    disabled={!specs || v9ValidationRunning}
+                    onClick={() => void runV9PhysicsValidation()}
+                >
+                    {v9ValidationRunning
+                        ? "בודק V9 על מאות אצוות…"
+                        : "בדוק V9 על 500 אצוות אקראיות"}
+                </button>
                 {tank && (
                     <span>
                         בסיס: {source.length} מדידות אמיתיות · אין שמירה של התרחיש
@@ -962,8 +1248,140 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     {backtestProgress}
                 </div>
             )}
+            {v9ValidationProgress && (
+                <div className="cellar-simulator-v4-status">
+                    {v9ValidationProgress}
+                </div>
+            )}
 
             {error && <div className="cellar-simulator-error">{error}</div>}
+
+            {v9ValidationResult && v9ValidationMeta && (
+                <div className="cellar-simulator-results cellar-simulator-backtest">
+                    <h3>V9 Physics Validation — מדגם אקראי</h3>
+                    <article className="cellar-simulator-result level-1">
+                        <strong>
+                            {v9ValidationResult.caseCount >= 400
+                                ? "יש מדגם גדול מספיק כדי להתחיל לשפוט את הפיזיקה"
+                                : "המדגם התקין קטן מהיעד — צריך להשלים metadata היסטורי"}
+                        </strong>
+                        <p>
+                            נבחר seed אקראי {v9ValidationMeta.seed}. ניסינו
+                            {" "}{v9ValidationMeta.attempted} אצוות מתוך pool של
+                            {" "}{v9ValidationMeta.candidatePool}, ומתוכן
+                            {" "}{v9ValidationResult.caseCount} אצוות סיפקו חלון נקי:
+                            שתי בדיקות גיזוז עוקבות בקור, ללא שינוי לחץ / הורדת שמרים /
+                            גיזוז מלמטה ביניהן. V9 קיבל את הלחץ שבוצע באמת וניסה
+                            לחזות את הבדיקה הבאה.
+                        </p>
+
+                        <div className="cellar-simulator-backtest-metrics">
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.carbonationMae)} vol</b>
+                                <span>טעות גיזוז ממוצעת</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.carbonationP90AbsError)} vol</b>
+                                <span>טעות גיזוז ב-90% מהמקרים</span>
+                            </div>
+                            <div>
+                                <b>{validationPercent(v9ValidationResult.carbonationWithin003)}</b>
+                                <span>בתוך ±0.03 vol</span>
+                            </div>
+                            <div>
+                                <b>{validationPercent(v9ValidationResult.carbonationWithin005)}</b>
+                                <span>בתוך ±0.05 vol</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.pressureMae, 2)} bar</b>
+                                <span>טעות לחץ ממוצעת</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.pressureP90AbsError, 2)} bar</b>
+                                <span>טעות לחץ ב-90% מהמקרים</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.persistenceMae)} vol</b>
+                                <span>Baseline: להניח שהגיזוז לא השתנה</span>
+                            </div>
+                            <div>
+                                <b>{validationPercent(v9ValidationResult.improvementVsPersistence)}</b>
+                                <span>שיפור V9 מול baseline פשוט</span>
+                            </div>
+                        </div>
+
+                        <p className="cellar-simulator-backtest-warning">
+                            עלות הבדיקה הזו כבדה בכוונה והיא כלי פיתוח בלבד:
+                            נטענו {v9ValidationMeta.measurementRowsLoaded} מסמכי מדידה
+                            מהיסטוריה ועוד עד {v9ValidationMeta.attempted} מסמכי metadata.
+                            בדיקת גיזוז רגילה בפרודקשן לא תריץ את זה.
+                        </p>
+
+                        <strong>לפי סגנון</strong>
+                        <div className="cellar-simulator-backtest-cases">
+                            {v9ValidationResult.byStyle.slice(0, 8).map((group) => (
+                                <div key={`style-${group.key}`}>
+                                    <b>{group.key} · {group.caseCount} אצוות</b>
+                                    <span>
+                                        MAE {validationNumber(group.carbonationMae)} vol ·
+                                        P90 {validationNumber(group.carbonationP90)} ·
+                                        baseline {validationNumber(group.persistenceMae)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <strong>לפי סוג מיכל</strong>
+                        <div className="cellar-simulator-backtest-cases">
+                            {v9ValidationResult.byTankClass.map((group) => (
+                                <div key={`tank-${group.key}`}>
+                                    <b>{group.key} · {group.caseCount} אצוות</b>
+                                    <span>
+                                        MAE {validationNumber(group.carbonationMae)} vol ·
+                                        P90 {validationNumber(group.carbonationP90)} ·
+                                        לחץ MAE {validationNumber(group.pressureMae, 2)} bar
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <strong>לפי מרחק לבדיקה הבאה</strong>
+                        <div className="cellar-simulator-backtest-cases">
+                            {v9ValidationResult.byHorizon.map((group) => (
+                                <div key={`horizon-${group.key}`}>
+                                    <b>{group.key} · {group.caseCount} אצוות</b>
+                                    <span>
+                                        MAE {validationNumber(group.carbonationMae)} vol ·
+                                        P90 {validationNumber(group.carbonationP90)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {v9ValidationResult.worstCases.length > 0 && (
+                            <>
+                                <strong>10 הטעויות הגדולות ביותר</strong>
+                                <div className="cellar-simulator-backtest-cases">
+                                    {v9ValidationResult.worstCases.map((item) => (
+                                        <div
+                                            key={`${item.batchId}-${item.startMeasurementId}`}
+                                        >
+                                            <b>#{item.batchId} · {item.style}</b>
+                                            <span>
+                                                {item.startCarbonation.toFixed(2)} → בפועל
+                                                {" "}{item.actualEndCarbonation.toFixed(2)} ·
+                                                V9 {item.predictedEndCarbonation.toFixed(2)} ·
+                                                טעות {item.carbonationAbsError.toFixed(3)} vol ·
+                                                {Math.round(item.durationHours)}h
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </article>
+                </div>
+            )}
 
             {backtestResult && (
                 <div className="cellar-simulator-results cellar-simulator-backtest">
