@@ -74,6 +74,9 @@ export type PressureV6BacktestCase = {
   evaluationMode?: "observed" | "counterfactual";
   selectorTrainingBatches?: number;
   evaluatorTrainingBatches?: number;
+  causalEffectVsHold?: number | null;
+  causalEffectLower80?: number | null;
+  causalMatchedPairs?: number;
 
   imitationPressureErrorBar: number;
   supportBatches: number;
