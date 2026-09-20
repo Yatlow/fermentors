@@ -194,3 +194,100 @@ test("V9 validation does not carry an older pressure or temperature into a later
 
   assert.equal(result.caseCount, 0);
 });
+
+
+test("V9 validation recognizes common pressure-action wording variants", () => {
+  const batch = exactBatch("1900");
+  batch.measurements[0] = {
+    ...batch.measurements[0],
+    notes: "שחרור לחץ עד 1.15 באר",
+  };
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 7,
+  });
+
+  assert.equal(result.caseCount, 1);
+  assert.ok(result.carbonationMae !== null);
+  assert.ok(result.carbonationMae! < 0.000001);
+});
+
+test("V9 validation excludes an intermediate pressure intervention even when the note is not in the canonical wording", () => {
+  const batch = exactBatch("1901");
+  batch.measurements.splice(1, 0, {
+    id: "2026-09-19_0900",
+    pressure: 1.05,
+    temp: 3.2,
+    notes: "פתח לחץ ושחרר עד 0.90 bar",
+  });
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 7,
+  });
+
+  assert.equal(result.caseCount, 0);
+});
+
+test("V9 validation uses the observed temperature path instead of assuming linear cooling", () => {
+  const temperaturePath = [
+    { hour: 0, temperature: 6.4 },
+    { hour: 24, temperature: 6.0 },
+    { hour: 36, temperature: 3.0 },
+    { hour: 48, temperature: 1.6 },
+  ];
+  const prediction = simulateV9ObservedClosedInterval({
+    tankNumber: 16,
+    beerVolumeLiters: 3000,
+    startCarbonation: 2.27,
+    startPressure: 1.15,
+    startTemperature: 6.4,
+    endTemperature: 1.6,
+    durationHours: 48,
+    kPerHour: 0.0025,
+    temperaturePath,
+  });
+  assert.ok(prediction);
+
+  const batch: PressureV9ValidationBatch = {
+    batchId: "1902",
+    style: "ipa",
+    tankNumber: 16,
+    beerVolumeLiters: 3000,
+    kPerHour: 0.0025,
+    measurements: [
+      {
+        id: "2026-09-18_0900",
+        carbonation: 2.27,
+        pressure: 1.44,
+        temp: 6.4,
+        notes: "הורדת לחץ ל 1.15 bar",
+      },
+      {
+        id: "2026-09-19_0900",
+        temp: 6.0,
+      },
+      {
+        id: "2026-09-19_2100",
+        temp: 3.0,
+      },
+      {
+        id: "2026-09-20_0900",
+        carbonation: prediction!.predictedCarbonation,
+        pressure: prediction!.predictedPressure,
+        temp: 1.6,
+      },
+    ],
+  };
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 9,
+  });
+
+  assert.equal(result.caseCount, 1);
+  assert.ok(result.carbonationMae !== null);
+  assert.ok(result.carbonationMae! < 0.000001);
+  assert.equal(result.cases[0]?.temperaturePathPointCount, 4);
+});
