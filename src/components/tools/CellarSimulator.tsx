@@ -1519,6 +1519,27 @@ export default function CellarSimulator({ brews, specs }: Props) {
                             ))}
                         </div>
 
+                        <strong>אבחון אוטומטי — איפה V9 טועה</strong>
+                        <div className="cellar-simulator-backtest-cases">
+                            {[
+                                ["קירור", v9ValidationResult.byCoolingDrop],
+                                ["שינוי לחץ בפועל", v9ValidationResult.byActualPressureChange],
+                                ["Headspace משוער", v9ValidationResult.byHeadspaceFraction],
+                                ["גיזוז התחלתי", v9ValidationResult.byStartCarbonation],
+                            ].map(([label, groups]) => (
+                                <div key={String(label)}>
+                                    <b>{String(label)}</b>
+                                    <span>
+                                        {(groups as typeof v9ValidationResult.byCoolingDrop)
+                                            .map((group) =>
+                                                `${group.key}: ${group.caseCount} אצוות, MAE ${validationNumber(group.carbonationMae)}`
+                                            )
+                                            .join(" · ")}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
                         {v9ValidationResult.worstCases.length > 0 && (
                             <>
                                 <strong>10 הטעויות הגדולות ביותר</strong>
