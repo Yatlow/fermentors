@@ -1690,11 +1690,17 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         0
     );
 
+    const hasEnteredColdPhase =
+        CooldDate !== null ||
+        coldYeastDropsAfterCooling.length > 0 ||
+        stage.name === "קר";
+
     if (
         latestWarmYeastDrop &&
         latestWarmYeastDropAge !== null &&
         latestWarmYeastDropAge >= 1 &&
-        warmYeastDropTarget !== null
+        warmYeastDropTarget !== null &&
+        !hasEnteredColdPhase
     ) {
 
         const missing =
