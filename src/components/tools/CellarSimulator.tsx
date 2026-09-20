@@ -182,6 +182,21 @@ function buildHypotheticalProductionPressureTextV5(
         );
     }
 
+    if (estimate.action === "hold") {
+        if (estimate.holdReason === "first_cooling_small_change") {
+            return (
+                intro +
+                `שינוי הלחץ המחושב קטן מ-0.07 bar. מומלץ להשאיר את הלחץ על ${estimate.currentPressure.toFixed(2)} bar ולא לבצע שינוי לחץ כרגע.`
+            );
+        }
+
+        return (
+            `הגיזוז בבדיקה שנלקחה ${measurementDay} נמצא בטווח התקין ` +
+            `(${measured.toFixed(2)}, יעד ${target.toFixed(2)} ±${estimate.targetToleranceVol.toFixed(2)}). ` +
+            "ניתן להמתין ללא שינוי לחץ."
+        );
+    }
+
     if (estimate.action === "raise") {
         return (
             intro +
@@ -198,19 +213,7 @@ function buildHypotheticalProductionPressureTextV5(
         );
     }
 
-    if (Math.abs(measured - target) <= 0.02) {
-        return (
-            `הגיזוז בבדיקה שנלקחה ${measurementDay} תקין ` +
-            `(${measured.toFixed(2)}, גיזוז תקין ${target.toFixed(2)}). ` +
-            `מומלץ להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar.`
-        );
-    }
-
-    return (
-        intro +
-        `מומלץ להשאיר את הלחץ על ${estimate.targetPressure.toFixed(2)} bar ` +
-        "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
-    );
+    return intro;
 }
 
 function numericOrUndefined(value: string): number | undefined {
@@ -718,15 +721,21 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 </div>
             )}
 
-            {v5Result && v5Result.action !== "hold" && (
+            {v5Result && (
                 <div className="cellar-simulator-results">
-                    <h3>כך ההמלצה הייתה נראית בפרודקשיין</h3>
+                    <h3>
+                        {v5Result.recommendationVisibility === "global"
+                            ? "כך ההמלצה תופיע גם בהמלצות הכלליות ובמדד"
+                            : "כך זה יופיע במסך המיכל בלבד"}
+                    </h3>
                     <article className="cellar-simulator-result level-1">
                         <strong>
                             {v5Result.edgeCase === "bottom_carbonation" ||
                             v5Result.edgeCase === "head_pressure_insufficient"
                                 ? "גיזוז מלמטה"
-                                : "שינוי לחץ"}
+                                : v5Result.action === "hold"
+                                    ? "להשאיר לחץ"
+                                    : "שינוי לחץ"}
                         </strong>
                         <p>
                             {buildHypotheticalProductionPressureTextV5(
