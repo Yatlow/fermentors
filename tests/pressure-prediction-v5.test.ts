@@ -554,7 +554,7 @@ test("V5 stable recommendations use fine-grained setpoints between 0.05-bar acti
   );
 });
 
-test("V5 first cooling is solved from the moving-temperature forecast", () => {
+test("V5 first cooling retains stored head pressure as cooling progresses", () => {
   const transitions = Array.from(
     { length: 24 },
     (_, index) => transition(index, 0.00097),
@@ -562,7 +562,7 @@ test("V5 first cooling is solved from the moving-temperature forecast", () => {
 
   const tank18 = estimatePressureTargetV5({
     transitions,
-    state: state(2.26, 1.37, 4.5),
+    state: state(2.32, 1.37, 4.5),
     targetCarbonation: 2.40,
     coldReferenceTemperature: 0.7,
     firstCarbonation: true,
@@ -570,7 +570,7 @@ test("V5 first cooling is solved from the moving-temperature forecast", () => {
 
   const tank16 = estimatePressureTargetV5({
     transitions,
-    state: state(2.26, 1.44, 6.8),
+    state: state(2.32, 1.44, 6.8),
     targetCarbonation: 2.45,
     coldReferenceTemperature: 0.5,
     firstCarbonation: true,
@@ -583,14 +583,14 @@ test("V5 first cooling is solved from the moving-temperature forecast", () => {
 
   assert.ok(
     tank18.targetPressure !== null &&
-      tank18.targetPressure >= 0.95 &&
+      tank18.targetPressure >= 1.00 &&
       tank18.targetPressure <= 1.20,
-    `tank18 first-cooling forecast should solve near 1.1 bar, got ${tank18.targetPressure}`,
+    `tank18 2.32 first check should stay around 1.1 bar, got ${tank18.targetPressure}`,
   );
   assert.ok(
     tank16.targetPressure !== null &&
-      tank16.targetPressure >= 0.95 &&
+      tank16.targetPressure >= 1.00 &&
       tank16.targetPressure <= 1.20,
-    `tank16 first-cooling forecast should solve near 1.1 bar, got ${tank16.targetPressure}`,
+    `tank16 2.32 first check should stay around 1.1 bar, got ${tank16.targetPressure}`,
   );
 });
