@@ -190,6 +190,14 @@ function buildHypotheticalProductionPressureTextV5(
             );
         }
 
+        if (estimate.holdReason === "stable_forecast_on_target") {
+            return (
+                intro +
+                `לפי מגמת המיכל, ללא שינוי לחץ הוא צפוי להיות סביב ${estimate.predictedWithoutChange.toFixed(2)} vol בעוד 48 שעות. ` +
+                `מומלץ להשאיר את הלחץ על ${estimate.currentPressure.toFixed(2)} bar ולבצע בדיקת גיזוז חוזרת בעוד יומיים.`
+            );
+        }
+
         return (
             `הגיזוז בבדיקה שנלקחה ${measurementDay} נמצא בטווח התקין ` +
             `(${measured.toFixed(2)}, יעד ${target.toFixed(2)} ±${estimate.targetToleranceVol.toFixed(2)}). ` +
@@ -489,6 +497,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 firstCarbonation: carbonationScenario.first,
                                 equilibriumPressureAtTemperature:
                                     equilibriumForTemp,
+                                measurements: simulated,
                             });
                             if (v5Estimate) {
                                 setV5Result(v5Estimate);
@@ -692,9 +701,18 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 טולרנס גיזוז: ±{v5Result.targetToleranceVol.toFixed(2)} vol ·
                                 מרחק הלחץ הנוכחי משיווי־משקל: {v5Result.pressureDistanceFromEquilibrium >= 0 ? "+" : ""}{v5Result.pressureDistanceFromEquilibrium.toFixed(2)} bar ·
                                 בעוד 48 שעות בלי שינוי לחץ: {v5Result.predictedWithoutChange.toFixed(3)} vol
+                                {v5Result.mode === "stable"
+                                    ? ` · מקור תחזית: ${v5Result.stableForecastSource === "recent_tank_trend" ? "המגמה האחרונה של המיכל" : "המודל הפיזיקלי"}`
+                                    : ""}
+                                {v5Result.mode === "stable" && v5Result.stableForecastSource === "recent_tank_trend"
+                                    ? ` · תחזית פיזיקלית להשוואה: ${v5Result.physicalPredictedWithoutChange.toFixed(3)} vol`
+                                    : ""}
                                 {v5Result.setpointBasis === "first_cooling_kinetic"
                                     ? ` · בסיס setpoint: אפקט קינטי 48h ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`
-                                    : ` · בסיס setpoint: תיקון אינקרמנטלי מהלחץ הנוכחי לפי ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`}
+                                    : ` · בסיס setpoint: תיקון שגיאת התחזית לפי ${v5Result.setpointResponseVolPerBar.toFixed(3)} vol/bar`}
+                                {v5Result.mode === "stable"
+                                    ? ` · רזרבת לחץ תפעולית: +${v5Result.operationalPressureReserveBar.toFixed(2)} bar (${v5Result.operationalPressureReserveSource === "batch_yeast_drops" ? `נלמד מ-${v5Result.operationalPressureReserveSampleCount} הורדות שמרים באצווה` : "ברירת מחדל"}) · רצפת לחץ: ${v5Result.operationalPressureFloorBar.toFixed(2)} bar`
+                                    : ""}
                                 {v5Result.targetPressureRangeLow !== null && v5Result.targetPressureRangeHigh !== null
                                     ? ` · טווח הגנה ${v5Result.operationalVolPerBarMin.toFixed(2)}–${v5Result.operationalVolPerBarMax.toFixed(2)} vol/bar: ${v5Result.targetPressureRangeLow.toFixed(2)}–${v5Result.targetPressureRangeHigh.toFixed(2)} bar`
                                     : ""}
