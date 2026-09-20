@@ -437,46 +437,46 @@ function roundPressure(pressure: number): number {
   return Math.round(pressure * 100) / 100;
 }
 
-function solveFirstCoolingPressure(args: {
-  forecast: (pressure: number) => number | null;
-  targetCarbonation: number;
-  currentPressure: number;
-}): number | null {
-  let best:
-    | { pressure: number; error: number; move: number }
-    | null = null;
+function firstCoolingPressureRetention(args: {
+  state: PressureV4DecisionState;
+  currentTemp: number;
+  coldReference: number;
+  carbonationGap: number;
+}): number {
+  const fallbackStartTemp = 14;
+  const startTemp =
+    finite(args.state.cooling?.startTemp) ?? fallbackStartTemp;
 
-  // First carbonation is a moving-temperature problem. Solve against the
-  // actual 48h cooling forecast instead of anchoring at the final cold
-  // equilibrium pressure and approximating the remaining cooling indirectly.
-  for (
-    let pressure = 0;
-    pressure <= MAX_OPERATIONAL_PRESSURE_BAR + 0.0001;
-    pressure += 0.01
-  ) {
-    const candidate = Number(pressure.toFixed(2));
-    const predicted = args.forecast(candidate);
-    if (predicted === null) continue;
+  const denominator = Math.max(
+    0.5,
+    startTemp - args.coldReference,
+  );
+  const progress = clamp(
+    (startTemp - args.currentTemp) / denominator,
+    0,
+    1,
+  );
 
-    const row = {
-      pressure: candidate,
-      error: Math.abs(predicted - args.targetCarbonation),
-      move: Math.abs(candidate - args.currentPressure),
-    };
+  // Early in cooling, much of the current head pressure is expected to be
+  // consumed as the beer cools. Later in cooling, more of the pressure that is
+  // already on the tank should be retained. This prevents the first check from
+  // collapsing to the cold equilibrium pressure too early.
+  const coolingRetention = clamp(
+    0.15 + 0.65 * progress,
+    0.30,
+    0.75,
+  );
 
-    if (
-      !best ||
-      row.error < best.error - 0.0005 ||
-      (
-        Math.abs(row.error - best.error) <= 0.0005 &&
-        row.move < best.move
-      )
-    ) {
-      best = row;
-    }
-  }
+  // If the first check is already over target, retained head pressure becomes
+  // a liability rather than a reserve. Fade the retention out across ~0.12 vol.
+  const overTarget = Math.max(0, -args.carbonationGap);
+  const carbonationRetention = clamp(
+    1 - overTarget / 0.12,
+    0,
+    1,
+  );
 
-  return best?.pressure ?? null;
+  return coolingRetention * carbonationRetention;
 }
 
 // The learned response is deliberately trusted close to target, where the
@@ -754,18 +754,25 @@ export function estimatePressureTargetV5(args: {
     firstCoolingMode,
   });
 
-  const firstCoolingSolvedPressure =
-    firstCoolingMode
-      ? solveFirstCoolingPressure({
-          forecast,
-          targetCarbonation: args.targetCarbonation,
-          currentPressure,
+  const absoluteCoolingTarget =
+    targetEquilibriumPressure +
+    carbonationGap / learnedSetpointResponse;
+
+  const firstCoolingRetention =
+    firstCoolingMode && coldReference !== null
+      ? firstCoolingPressureRetention({
+          state: args.state,
+          currentTemp,
+          coldReference,
+          carbonationGap,
         })
-      : null;
+      : 0;
 
   const rawTargetPressure =
-    firstCoolingMode && firstCoolingSolvedPressure !== null
-      ? firstCoolingSolvedPressure
+    firstCoolingMode
+      ? absoluteCoolingTarget +
+        (currentPressure - absoluteCoolingTarget) *
+          firstCoolingRetention
       : correctionBasePressure +
         (carbonationGap / learnedSetpointResponse) * correctionGain;
 
