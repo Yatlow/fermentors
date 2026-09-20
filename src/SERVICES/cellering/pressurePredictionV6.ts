@@ -74,6 +74,7 @@ type PressureV6OneActionCourse = {
   startTemperature: number;
   startHoursSinceCooling: number | null;
   actionPressure: number;
+  actionPressureDelta: number;
   outcomeCarbonation: number;
   outcomePressure: number | null;
   hoursToTarget: number;
@@ -837,6 +838,7 @@ function buildOneActionCourses(args: {
           startTemperature,
           startHoursSinceCooling: hoursSinceCoolingAt(rows, startIndex),
           actionPressure,
+          actionPressureDelta: actionPressure - startPressure,
           outcomeCarbonation,
           outcomePressure:
             rowPressure ?? previousPressure,
@@ -944,12 +946,20 @@ function oneActionCourseEstimate(args: {
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 12);
 
-  const pressure = weightedMedian(
+  const pressureDelta = weightedMedian(
     selected.map((row) => ({
-      value: row.course.actionPressure,
+      value: row.course.actionPressureDelta,
       weight: row.weight,
     })),
   );
+  const pressure =
+    pressureDelta === null
+      ? null
+      : clamp(
+          currentPressure + pressureDelta,
+          0,
+          MAX_OPERATIONAL_PRESSURE_BAR,
+        );
   const hoursToTarget = weightedMedian(
     selected.map((row) => ({
       value: row.course.hoursToTarget,
@@ -1691,181 +1701,7 @@ export function estimatePressureTargetV6(args: {
     targetCarbonation: args.targetCarbonation,
   });
 
-  if (oneActionHistory) {
-    const trend = reliableCurrentTrend({
-      state: args.state,
-      currentCarbonation: estimatedCurrentCarbonation,
-      targetCarbonation: args.targetCarbonation,
-      targetToleranceVol,
-      historicalHoursToTarget: oneActionHistory.hoursToTarget,
-    });
-
-    const currentGap =
-      args.targetCarbonation - estimatedCurrentCarbonation;
-    const historyPressure = clamp(
-      oneActionHistory.pressure,
-      0,
-      MAX_OPERATIONAL_PRESSURE_BAR,
-    );
-
-    // With direct evidence from the current tank, HOLD wins over changing to
-    // a population prior as long as the observed trajectory is already headed
-    // into the successful historical time window.
-    const targetPressure = trend.onCourse
-      ? currentPressure
-      : historyPressure;
-
-    const action: PressureV6Estimate["action"] =
-      Math.abs(targetPressure - currentPressure) < 0.025
-        ? "hold"
-        : targetPressure > currentPressure
-          ? "raise"
-          : "lower";
-
-    const projected48 =
-      trend.projected48 ??
-      (
-        estimatedCurrentCarbonation +
-        currentGap *
-          clamp(48 / oneActionHistory.hoursToTarget, 0, 1)
-      );
-
-    const predictedAtTarget =
-      action === "hold"
-        ? projected48
-        : (
-          estimatedCurrentCarbonation +
-          currentGap *
-            clamp(48 / oneActionHistory.hoursToTarget, 0, 1)
-        );
-
-    const terminalOutcomePressure =
-      oneActionHistory.outcomePressure ??
-      targetEquilibriumPressure;
-
-    return {
-      version: 6,
-      mode: "trajectory",
-
-      measuredCarbonation,
-      estimatedCurrentCarbonation:
-        Number(estimatedCurrentCarbonation.toFixed(3)),
-      hoursSinceCarbonationMeasurement:
-        Number(currentProjection.hoursSinceMeasurement.toFixed(1)),
-
-      currentPressure,
-      currentTemperature,
-      forecastTemperature: coldReferenceTemperature,
-      targetCarbonation: args.targetCarbonation,
-      targetToleranceVol,
-
-      kPerHour: Number(k.kPerHour.toFixed(6)),
-      kSource: k.source,
-      historicalKPerHour:
-        k.historicalKPerHour === null
-          ? null
-          : Number(k.historicalKPerHour.toFixed(6)),
-      currentBatchKPerHour:
-        k.currentBatchKPerHour === null
-          ? null
-          : Number(k.currentBatchKPerHour.toFixed(6)),
-      kHistoricalBatchCount: k.historicalBatches,
-      kCurrentBatchIntervalCount: k.currentBatchIntervals,
-
-      supportCount: oneActionHistory.supportBatches,
-      supportSampleCount: oneActionHistory.supportCourses,
-      confidence: oneActionHistory.confidence,
-      historicalPressurePrior:
-        Number(oneActionHistory.pressure.toFixed(2)),
-      historicalProgressFraction48h:
-        Number(
-          clamp(48 / oneActionHistory.hoursToTarget, 0, 1).toFixed(3),
-        ),
-
-      targetEquilibriumPressure:
-        Number(targetEquilibriumPressure.toFixed(2)),
-      equilibriumPressureForCurrentCarb:
-        Number(currentEquilibriumPressure.toFixed(2)),
-      pressureDistanceFromEquilibrium:
-        Number(
-          (currentPressure - currentEquilibriumPressure).toFixed(2),
-        ),
-
-      expectedOperationalPressureLossBar:
-        Number(oneActionHistory.yeastLossBar.toFixed(2)),
-      expectedPressureLossEvents:
-        oneActionHistory.yeastLossBar >= 0.03 ? 1 : 0,
-      operationalLossSource:
-        oneActionHistory.yeastLossBar >= 0.03
-          ? "historical_one_action_courses"
-          : "none",
-      observedYeastDropMedianBar:
-        Number(oneActionHistory.yeastLossBar.toFixed(3)),
-      observedYeastDropCount:
-        oneActionHistory.yeastLossBar >= 0.03 ? 1 : 0,
-
-      coolingHoursRemaining: Number(
-        estimateCoolingHours({
-          state: args.state,
-          currentTemperature,
-          coldReferenceTemperature,
-        }).toFixed(1),
-      ),
-
-      predictedWithoutChange:
-        Number(projected48.toFixed(3)),
-      predictedAtTarget:
-        Number(predictedAtTarget.toFixed(3)),
-      terminalCarbonationWithoutChange:
-        trend.onCourse
-          ? Number(args.targetCarbonation.toFixed(3))
-          : Number(projected48.toFixed(3)),
-      terminalCarbonationAtTarget:
-        Number(args.targetCarbonation.toFixed(3)),
-      terminalPressureWithoutChange:
-        trend.onCourse
-          ? Number(terminalOutcomePressure.toFixed(2))
-          : Number(currentPressure.toFixed(2)),
-      terminalPressureAtTarget:
-        Number(terminalOutcomePressure.toFixed(2)),
-      terminalHoursAtTarget:
-        trend.onCourse && trend.hoursToTarget !== null
-          ? Number(trend.hoursToTarget.toFixed(1))
-          : Number(oneActionHistory.hoursToTarget.toFixed(1)),
-
-      effectiveVolPerBar48h: 0,
-
-      rawTargetPressure:
-        Number(historyPressure.toFixed(2)),
-      targetPressure:
-        Number(targetPressure.toFixed(2)),
-      targetPressureRangeLow:
-        Number(Math.max(0, historyPressure - 0.08).toFixed(2)),
-      targetPressureRangeHigh:
-        Number(
-          Math.min(
-            MAX_OPERATIONAL_PRESSURE_BAR,
-            historyPressure + 0.08,
-          ).toFixed(2),
-        ),
-
-      action,
-      holdReason:
-        action === "hold"
-          ? Math.abs(
-              estimatedCurrentCarbonation -
-              args.targetCarbonation
-            ) <= targetToleranceVol
-            ? "already_in_tolerance"
-            : "trajectory_on_course"
-          : null,
-      recommendationVisibility:
-        action === "hold" ? "tank_only" : "global",
-      edgeCase: null,
-    };
-  }
-
-  const historicalPrior = historicalCoursePrior({
+  const summarizedHistoricalPrior = historicalCoursePrior({
     samples: args.samples ?? [],
     passiveSamples: args.passiveSamples ?? [],
     state: {
@@ -1877,10 +1713,45 @@ export function estimatePressureTargetV6(args: {
     currentBatchId: args.currentBatchId,
   });
 
-  const futureLoss = estimateFutureOperationalLoss({
-    measurements: args.measurements,
-    state: args.state,
-  });
+  // Raw one-action histories are stronger evidence than the legacy +48h
+  // summaries, but they are a PRIOR only. They must not directly dictate the
+  // answer or fabricate a forecast that is independent of the chosen pressure.
+  const historicalPrior: HistoricalCoursePrior | null =
+    oneActionHistory
+      ? {
+          pressure: oneActionHistory.pressure,
+          progressFraction48h: clamp(
+            48 / oneActionHistory.hoursToTarget,
+            0,
+            1,
+          ),
+          supportBatches: oneActionHistory.supportBatches,
+          supportSamples: oneActionHistory.supportCourses,
+          confidence: oneActionHistory.confidence,
+        }
+      : summarizedHistoricalPrior;
+
+  const futureLoss: FutureLossEstimate =
+    oneActionHistory
+      ? {
+          totalBar: Number(
+            clamp(oneActionHistory.yeastLossBar, 0, 0.7).toFixed(3),
+          ),
+          eventCount:
+            oneActionHistory.yeastLossBar >= 0.03 ? 1 : 0,
+          source:
+            oneActionHistory.yeastLossBar >= 0.03
+              ? "historical_one_action_courses"
+              : "none",
+          observedDropMedianBar:
+            Number(oneActionHistory.yeastLossBar.toFixed(3)),
+          observedDropCount:
+            oneActionHistory.yeastLossBar >= 0.03 ? 1 : 0,
+        }
+      : estimateFutureOperationalLoss({
+          measurements: args.measurements,
+          state: args.state,
+        });
 
   const coolingHours = estimateCoolingHours({
     state: args.state,
@@ -1943,7 +1814,8 @@ export function estimatePressureTargetV6(args: {
     currentCarbonation: estimatedCurrentCarbonation,
     targetCarbonation: args.targetCarbonation,
     targetToleranceVol,
-    historicalHoursToTarget: null,
+    historicalHoursToTarget:
+      oneActionHistory?.hoursToTarget ?? null,
   });
   if (fallbackTrend.onCourse) {
     best = currentForecast;
