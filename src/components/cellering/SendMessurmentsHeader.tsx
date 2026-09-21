@@ -22,6 +22,7 @@ import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurren
 // ומאפשר למשתמש לערוך את חלוקת המשטחים לפני שהם נוצרים בפועל.
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
+import { recordPressureV9Shadow } from "../../SERVICES/cellering/pressurePredictionV9Shadow";
 
 export type SendMessurmentsHeaderProps = {
     brews: Fermentor[],
@@ -601,6 +602,58 @@ export default function SendMessurmentsHeader({
                     "The Sheet was updated, but the realtime Firestore update failed:",
                     error
                 );
+            }
+
+            // Prospective V9 shadow mode: whenever a real carbonation check was
+            // successfully written, save what V9 would have predicted at that
+            // moment. This never changes the operator recommendation or pressure
+            // action. The next carbonation check closes the previous snapshot
+            // and records forecast-vs-actual performance.
+            if (specs) {
+                const carbonationReadings = succeededReadings.filter(
+                    (reading) =>
+                        reading.carbonation !== undefined &&
+                        reading.carbonation !== null &&
+                        reading.carbonation !== "" &&
+                        Number.isFinite(Number(reading.carbonation))
+                );
+
+                if (carbonationReadings.length > 0) {
+                    const shadowResults = await Promise.allSettled(
+                        carbonationReadings.map(async (reading) => {
+                            const tank = brews.find(
+                                (candidate) =>
+                                    String(candidate.id) === String(reading.tankId)
+                            );
+                            if (!tank?.batchNumber) return null;
+
+                            const history = await getMeasurementsByBatch(
+                                tank.batchNumber
+                            );
+                            const withCurrentReading = mergeReadingIntoMeasurements(
+                                history,
+                                reading
+                            );
+
+                            return recordPressureV9Shadow({
+                                tank,
+                                reading,
+                                measurements: withCurrentReading,
+                                specs,
+                            });
+                        })
+                    );
+
+                    shadowResults.forEach((result, index) => {
+                        if (result.status === "rejected") {
+                            console.warn(
+                                "V9 shadow snapshot failed",
+                                carbonationReadings[index]?.tankNumber,
+                                result.reason
+                            );
+                        }
+                    });
+                }
             }
 
             const allSucceeded = res.every((r) => r.success);
