@@ -545,7 +545,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
     return (
         <main className="brewing-view" dir="rtl">
-            {tab === "form" && actionZeroProductionTanks.length > 0 && (
+            {tab === "form" && !selectedRun && actionZeroProductionTanks.length > 0 && (
                 <section className="brewing-action-zero-strip" aria-label="מיכלים ב-ACTION 0">
                     <div className="brewing-action-zero-heading">
                         <strong>מיכלים ב-ACTION 0</strong>
