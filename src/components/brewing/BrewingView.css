@@ -276,3 +276,30 @@
     font-weight: bold;
     cursor: pointer;
 }
+
+
+.brewing-field-note {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    line-height: 1.35;
+}
+
+.brewing-sheet-link {
+    min-height: var(--pill-height-mobile);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-pill);
+    background: var(--primary);
+    color: #fff;
+    font-size: var(--pill-font-mobile);
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.brewing-sheet-link:hover {
+    background: #245f9e;
+}
