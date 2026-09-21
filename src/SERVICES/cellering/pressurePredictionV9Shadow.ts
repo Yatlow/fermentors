@@ -1,6 +1,6 @@
 import {
+  deleteField,
   doc,
-  getDoc,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
@@ -776,51 +776,55 @@ export async function recordPressureV9Shadow(args: {
     createdAt: serverTimestamp(),
   };
 
-  const brewRef = doc(
+  // Store shadow history on the fermentor document, not brews/{batch}.
+  // The GAS fermentor sync uses an explicit updateMask and therefore preserves
+  // unknown fields such as v9Shadow. The brew uploader replaces the parent brew
+  // document and could otherwise erase experimental history.
+  const fermentorRef = doc(
     db,
-    "brews",
-    batchNumber,
+    "fermentors",
+    String(args.tank.id),
   );
-  const brewSnapshot =
-    await getDoc(brewRef);
-  if (!brewSnapshot.exists()) {
-    return null;
-  }
-
-  const raw = brewSnapshot.data() as {
-    v9Shadow?: Record<
+  const existing =
+    (
+      args.tank.v9Shadow &&
+      typeof args.tank.v9Shadow === "object" &&
+      !Array.isArray(args.tank.v9Shadow)
+        ? args.tank.v9Shadow
+        : {}
+    ) as Record<
       string,
       PressureV9ShadowSnapshot
     >;
-  };
-  const existing =
-    raw.v9Shadow ?? {};
+
+  const shadowKey =
+    `${batchNumber}__${measurementId}`;
 
   const previousEntry =
     Object.entries(existing)
       .filter(
         ([key, value]) =>
-          key !== measurementId &&
+          key !== shadowKey &&
           value &&
+          value.batchNumber ===
+            batchNumber &&
           !value.outcome &&
           String(
-            value.measurementId ?? key,
+            value.measurementId ?? "",
           ) < measurementId,
       )
       .sort((a, b) =>
         String(
-          b[1].measurementId ??
-            b[0],
+          b[1].measurementId ?? "",
         ).localeCompare(
           String(
-            a[1].measurementId ??
-              a[0],
+            a[1].measurementId ?? "",
           ),
         ),
       )[0];
 
   const patch: Record<string, unknown> = {
-    [`v9Shadow.${measurementId}`]:
+    [`v9Shadow.${shadowKey}`]:
       snapshot,
   };
 
@@ -844,8 +848,36 @@ export async function recordPressureV9Shadow(args: {
     });
   }
 
+  // Bound document growth. 120 snapshots is far more than needed for the
+  // prospective reliability checkpoint and keeps each fermentor safely small.
+  const orderedKeys = Object.entries(existing)
+    .sort((a, b) =>
+      String(
+        a[1]?.measurementId ?? a[0],
+      ).localeCompare(
+        String(
+          b[1]?.measurementId ?? b[0],
+        ),
+      ),
+    )
+    .map(([key]) => key);
+  const overflow = Math.max(
+    0,
+    orderedKeys.length + 1 - 120,
+  );
+  for (
+    const key of orderedKeys.slice(
+      0,
+      overflow,
+    )
+  ) {
+    patch[
+      `v9Shadow.${key}`
+    ] = deleteField();
+  }
+
   await updateDoc(
-    brewRef,
+    fermentorRef,
     patch,
   );
 
