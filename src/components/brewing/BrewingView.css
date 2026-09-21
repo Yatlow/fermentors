@@ -2916,3 +2916,35 @@
         flex-direction: column;
     }
 }
+
+
+.brew-sync-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.brew-sync-match {
+    color: #166534;
+    background: #f0fdf4 !important;
+}
+
+.brew-sync-mismatch {
+    color: #92400e;
+    background: #fffbeb !important;
+}
+
+@media (max-width: 560px) {
+    .brew-sync-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .brew-sync-actions button,
+    .brew-sync-now {
+        width: 100%;
+    }
+}
