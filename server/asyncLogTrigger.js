@@ -270,7 +270,6 @@ function runAsyncMaintenance_() {
   let packagingCleanup = null;
   let operationReceiptCleanup = null;
   let styleModels = null;
-  let pressureV3Cleanup = null;
   let logs = null;
 
   try {
@@ -326,13 +325,7 @@ function runAsyncMaintenance_() {
   try {
     styleModels = calculateWeeklyStyleAverages(false);
   } catch (error) {
-    console.log("Weekly style/pressure model maintenance failed: " + error.message);
-  }
-
-  try {
-    pressureV3Cleanup = cleanupPressureV3Artifacts_();
-  } catch (error) {
-    console.log("V3 pressure cleanup failed: " + error.message);
+    console.log("Weekly style averages maintenance failed: " + error.message);
   }
 
   try {
@@ -353,7 +346,6 @@ function runAsyncMaintenance_() {
     packagingCleanup: packagingCleanup,
     operationReceiptCleanup: operationReceiptCleanup,
     styleModels: styleModels,
-    pressureV3Cleanup: pressureV3Cleanup,
     logs: logs
   };
 }
