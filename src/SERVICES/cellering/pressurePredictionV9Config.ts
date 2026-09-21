@@ -15,5 +15,6 @@ export const PRESSURE_V9_HISTORICAL_REFERENCE = {
   validatedAt: "2026-09-21",
 } as const;
 
+// Prospective checkpoints are evidence counters for the admin monitor only.
 export const PRESSURE_V9_SHADOW_INITIAL_CHECKPOINT = 10;
 export const PRESSURE_V9_SHADOW_STRONGER_CHECKPOINT = 15;
