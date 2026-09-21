@@ -1342,13 +1342,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
 
-    const requiredBottomCarbonation = {
-        display: false,
-        req: bottomCarbonationCandidate,
-        reason: bottomCarbonationReason ?? "",
-        importance: bottomCarbonationCandidate ? latestCarbSpec.importance : 0,
-    };
-
     const pressureAdjustmentHandledToday = {
         completed: Boolean(
             stage.name === "קר" &&
