@@ -1,0 +1,131 @@
+.v9-monitor {
+  display: grid;
+  gap: 18px;
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.v9-panel {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.v9-panel h2,
+.v9-panel h3 {
+  margin-top: 0;
+}
+
+.v9-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.v9-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.045);
+}
+
+.v9-metrics b {
+  font-size: 1.35rem;
+}
+
+.v9-metrics span,
+.v9-reference span,
+.v9-checkpoint span {
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.v9-reference,
+.v9-checkpoint,
+.v9-simulation-result {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.045);
+}
+
+.v9-simulator-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.v9-simulator-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.v9-simulator-grid input,
+.v9-simulator-grid select {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #c9c9c9;
+  border-radius: 9px;
+  background: white;
+  font: inherit;
+}
+
+.v9-error {
+  color: #9b1c1c;
+  font-weight: 600;
+}
+
+.v9-cases {
+  display: grid;
+  gap: 10px;
+}
+
+.v9-case {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.v9-case-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.v9-case-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 14px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 600px) {
+  .v9-monitor {
+    padding: 10px;
+  }
+
+  .v9-panel {
+    padding: 12px;
+  }
+
+  .v9-case-grid {
+    grid-template-columns: 1fr;
+  }
+}

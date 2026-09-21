@@ -3,20 +3,8 @@ import { getPlannedPackagingContainerNumbers } from "../../components/reports/Pa
 import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
-import {
-    estimateBottomCarbonation,
-    getBottomCarbonationActivationThreshold,
-    getBottomCarbonationModel,
-} from "./bottomCarbonationRecommendationModel";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
-import {
-    buildPressureV4DecisionState,
-} from "./pressurePredictionV4";
-import {
-    getEquilibriumPressureForV4,
-    getPressurePredictionModelV4,
-} from "./pressurePredictionV4Model";
 
 
 
@@ -1310,10 +1298,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastMeasurement?.carbonation !== undefined &&
         Number.isFinite(Number(lastMeasurement.carbonation));
     const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
-    const currentCarbonation = hasLatestCarb ? Number(lastMeasurement.carbonation) : null;
-    const currentPressure = Number.isFinite(Number(lastMeasurement?.pressure))
-        ? Number(lastMeasurement.pressure)
-        : null;
     const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
     const bottomCarbonationCompletedToday =
         lastMeasurementDate === todayDate &&
@@ -1327,88 +1311,20 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !pressureHandledToday &&
         !bottomCarbonationCompletedToday;
 
-    // Bottom carbonation is a different intervention from ordinary pressure
-    // correction. 2.20 is only the safe fallback until enough historical
-    // sessions exist; after that, each style learns its own trigger threshold.
-    const bottomCarbonationPotential =
-        coldCarbOutOfSpecToday &&
-        currentCarbonation !== null &&
-        Number.isFinite(Number(carbonationTarget)) &&
-        currentCarbonation < Number(carbonationTarget) &&
-        currentCarbonation <= 2.2 &&
-        !openBottomCarbonation;
-
-    let bottomCarbonationCandidate = false;
-    let bottomCarbonationReason: string | null = null;
-    let bottomActivationThreshold = 2.2;
-    let shouldUseBottomCarbonation = false;
-
-    if (bottomCarbonationPotential) {
-        const bottomModel = await getBottomCarbonationModel(style);
-        const learnedActivation = bottomModel
-            ? getBottomCarbonationActivationThreshold(bottomModel.samples)
-            : null;
-        bottomActivationThreshold = learnedActivation?.threshold ?? 2.2;
-        bottomCarbonationCandidate =
-            currentCarbonation! <= bottomActivationThreshold;
-
-        let bottomState = null;
-        let bottomEquilibriumForTemp:
-            ((temperature: number | null) => number | null) | undefined;
-        const v4ModelForBottom = await getPressurePredictionModelV4(style);
-        if (v4ModelForBottom) {
-            bottomEquilibriumForTemp = (temperature: number | null) =>
-                getEquilibriumPressureForV4(v4ModelForBottom, temperature);
-            bottomState = buildPressureV4DecisionState({
-                measurements: sortedMeasurements,
-                equilibriumPressure: bottomEquilibriumForTemp,
-            });
-        }
-
-        const bottomEstimate =
-            bottomCarbonationCandidate && bottomModel
-                ? estimateBottomCarbonation({
-                    samples: bottomModel.samples,
-                    currentCarbonation: currentCarbonation!,
-                    targetCarbonation: Number(carbonationTarget),
-                    currentPressure,
-                    brewDay: brewAge,
-                    temp: Number.isFinite(Number(lastMeasurement.temp))
-                        ? Number(lastMeasurement.temp)
-                        : null,
-                    state: bottomState,
-                    equilibriumPressure: bottomEquilibriumForTemp,
-                })
-                : null;
-
-        shouldUseBottomCarbonation = bottomCarbonationCandidate;
-
-        if (bottomEstimate) {
-            const startText = currentPressure !== null
-                ? `מומלץ להוריד את הלחץ ל-${bottomEstimate.startPressure} bar`
-                : `מומלץ להתחיל ב-${bottomEstimate.startPressure} bar`;
-            const retestText =
-                bottomEstimate.expectedDays === 1
-                    ? "ולבצע בדיקת גיזוז חוזרת מחר."
-                    : bottomEstimate.expectedDays === 2
-                        ? "ולבצע בדיקת גיזוז חוזרת בעוד יומיים."
-                        : `ולבצע בדיקת גיזוז חוזרת בעוד ${bottomEstimate.expectedDays} ימים.`;
-
-            bottomCarbonationReason =
-                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}). ` +
-                `${startText}, לגזז מלמטה כ-${bottomEstimate.durationMinutes} דקות ולסגור על ${bottomEstimate.closePressure} bar. ` +
-                retestText;
-        } else {
-            bottomCarbonationReason =
-                `הגיזוז היום נמוך (${currentCarbonation}, יעד ${carbonationTarget}) ומתאים לגיזוז מלמטה. ` +
-                "עדיין אין מספיק מידע להמלצה על משך ולחצים.";
-        }
-    }
-
+    // Production wording stays deliberately generic for now. Even when a
+    // very low carbonation result would previously enter the bottom-carbonation
+    // estimator, the operator sees one neutral instruction to correct/verify
+    // pressure. V9 remains shadow-only until its live evidence is sufficient.
     const coldCarbNeedsPressureAdjustment =
         coldCarbOutOfSpecToday &&
-        !shouldUseBottomCarbonation &&
         !openBottomCarbonation;
+
+    const requiredBottomCarbonation = {
+        display: false,
+        req: false,
+        reason: "",
+        importance: 0,
+    };
 
     const hasPressureMeasurementToday = sortedMeasurements.some((measurement) => {
         const measurementDate = getMeasurementDate(measurement.id);
@@ -1431,13 +1347,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         Number(lastMeasurement?.temp) > 9 &&
         !isPressureOutOfRangeVal.onSpec;
 
-    const requiredBottomCarbonation = {
-        display: bottomCarbonationCandidate,
-        req: bottomCarbonationCandidate,
-        reason: bottomCarbonationReason ?? "",
-        importance: bottomCarbonationCandidate ? latestCarbSpec.importance : 0,
-    };
-
     const pressureAdjustmentHandledToday = {
         completed: Boolean(
             stage.name === "קר" &&
@@ -1456,7 +1365,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         display: true,
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
         reason: coldCarbNeedsPressureAdjustment
-            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם.`
+            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
             : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
