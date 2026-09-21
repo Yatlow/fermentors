@@ -121,6 +121,7 @@
 
 .brewing-tank-card button {
     min-height: var(--pill-height-mobile);
+    cursor: pointer;
     padding: 4px 10px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-pill);
