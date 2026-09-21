@@ -28,6 +28,7 @@ import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
 import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
 import BeerLoader from "./components/general/Loading";
 import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningTabs";
+import { BREWING_TABS, type BrewingTab } from "./components/brewing/brewingTabs";
 
 const BatchReportsView = lazy(() => import("./components/reports/BatchReportsView"));
 const PackagingReportsView = lazy(() => import("./components/reports/PackagingReportsView"));
@@ -178,6 +179,7 @@ function useAuth() {
 
 function App() {
     const [planningTab, setPlanningTab] = useState<PlanningTab>("stock");
+    const [brewingTab, setBrewingTab] = useState<BrewingTab>("create");
     const { user, loading: authLoading, isApproved, admin, plannerUser } = useAuth();
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
@@ -418,6 +420,7 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
                     </div>}
+                    {selectedView === "בישולים" && <nav className="status-filter" dir="rtl" aria-label="בישולים">{BREWING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${brewingTab === id ? "active" : ""}`} aria-pressed={brewingTab === id} onClick={() => setBrewingTab(id)}>{label}</button>)}</nav>}
                     {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{PLANNING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
             </header>
@@ -443,7 +446,7 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
                 {selectedView === "מקרר" && <CoolerMap brews={brews} />}
-                {selectedView === "בישולים" && <BrewingView brews={brews} />}
+                {selectedView === "בישולים" && <BrewingView brews={brews} tab={brewingTab} />}
             </Suspense>
         </div>
     );
