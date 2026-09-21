@@ -1584,3 +1584,159 @@
         grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 0.8fr) minmax(100px, 0.7fr) minmax(90px, 0.6fr) auto;
     }
 }
+
+
+/* =========================
+   Ingredient library polish
+   ========================= */
+
+.brew-action-button-danger {
+    border-color: #fecaca;
+    background: #fff7f7;
+    color: #b91c1c;
+}
+
+.brew-action-button-danger:hover {
+    border-color: #fca5a5;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.brew-ingredient-card {
+    position: relative;
+    overflow: hidden;
+    padding-inline-start: 14px;
+}
+
+.brew-ingredient-card::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 5px;
+    background: #cbd5e1;
+}
+
+.brew-ingredient-card-grain::before {
+    background: #eab308;
+}
+
+.brew-ingredient-card-hop::before {
+    background: #22c55e;
+}
+
+.brew-ingredient-card-yeast::before {
+    background: #3b82f6;
+}
+
+.brew-lot-editor {
+    display: grid;
+    gap: 7px;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-sm);
+    background: #f8fafc;
+}
+
+.brew-lot-editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.brew-lot-editor-head strong {
+    font-size: 0.68rem;
+}
+
+.brew-lot-editor-head select {
+    min-height: 30px;
+    max-width: 150px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    font: inherit;
+    font-size: 0.64rem;
+    font-weight: 700;
+}
+
+.brew-lot-editor-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.brew-lot-editor-grid label {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 0.61rem;
+    font-weight: 700;
+}
+
+.brew-lot-editor-grid input {
+    min-width: 0;
+    width: 100%;
+    min-height: 32px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--text-main);
+    font: inherit;
+    font-size: 0.68rem;
+}
+
+.brew-lot-history > .brew-action-button {
+    margin-top: 7px;
+}
+
+.brew-mash-pair {
+    display: grid;
+    gap: 5px;
+    padding: 7px;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-sm);
+    background: #fbfdff;
+}
+
+.brew-editor-row-heat {
+    background: #f1f5f9;
+}
+
+.brew-mash-step-name {
+    display: grid;
+    align-content: center;
+    gap: 2px;
+}
+
+.brew-mash-step-name strong {
+    font-size: 0.74rem;
+}
+
+.brew-mash-step-name span {
+    color: var(--text-muted);
+    font-size: 0.59rem;
+}
+
+.brew-ingredient-create-modal {
+    width: min(480px, 100%);
+}
+
+@media (max-width: 520px) {
+    .brew-lot-editor-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .brew-lot-editor-head {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .brew-lot-editor-head select {
+        max-width: none;
+        width: 100%;
+    }
+}
