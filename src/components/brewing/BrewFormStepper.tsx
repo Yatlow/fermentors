@@ -8,6 +8,7 @@ import {
 } from "../../SERVICES/brewing/sandboxExecution";
 import type { SandboxBrewRun } from "../../SERVICES/brewing/brewingSandbox";
 import { writeSandboxSheetCells } from "../../SERVICES/brewing/sandboxSheet";
+import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
 
 type Props = {
   run: SandboxBrewRun;
@@ -81,6 +82,20 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const baseRow = blockBaseRow(run.tankType, currentBlock);
 
   const boilTarget = recipe.targets.endBoilPlato;
+  const startingPlato = useMemo(
+    () =>
+      calculateWeightedStartingPlato(
+        Array.from({ length: blockCount(run.tankType) }, (_, index) => {
+          const blockFields = execution.blocks[String(index + 1)]?.fields || {};
+          return {
+            endBoilPlato: num(blockFields.endBoilPlato || ""),
+            cumulativeTankVolumeLiters: num(blockFields.cumulativeTankVolume || ""),
+          };
+        }),
+      ),
+    [execution.blocks, run.tankType],
+  );
+
   const boilRecommendation = useMemo(() => {
     const volume = num(fields.boilSampleVolume || "1200");
     const plato = num(fields.boilSamplePlato || "");
@@ -526,6 +541,96 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         <div className="brew-section-title">
           <h3>סוכר והוצאה לתסיסה</h3>
           <span>סוכר תחילי מחושב בנפרד כממוצע נע ומשוקלל</span>
+        </div>
+
+        <div className="brew-stage-row brew-transfer-stage">
+          <div className="brew-stage-label">
+            <strong>הוצאה לתסיסה</strong>
+          </div>
+          <label>
+            התחלה
+            <div className="brew-time-input">
+              <input
+                type="time"
+                value={localValue("outToFermentor.start")}
+                onChange={(e) =>
+                  setExecution(
+                    setSandboxExecutionField(
+                      execution,
+                      currentBlock,
+                      "outToFermentor.start",
+                      e.target.value,
+                    ),
+                  )
+                }
+                onBlur={(e) =>
+                  void commitStage(
+                    CORE_STAGES[CORE_STAGES.length - 1],
+                    "start",
+                    e.target.value,
+                  )
+                }
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  void setNow(CORE_STAGES[CORE_STAGES.length - 1], "start")
+                }
+              >
+                עכשיו
+              </button>
+            </div>
+          </label>
+          <label>
+            סיום
+            <div className="brew-time-input">
+              <input
+                type="time"
+                value={localValue("outToFermentor.end")}
+                onChange={(e) =>
+                  setExecution(
+                    setSandboxExecutionField(
+                      execution,
+                      currentBlock,
+                      "outToFermentor.end",
+                      e.target.value,
+                    ),
+                  )
+                }
+                onBlur={(e) =>
+                  void commitStage(
+                    CORE_STAGES[CORE_STAGES.length - 1],
+                    "end",
+                    e.target.value,
+                  )
+                }
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  void setNow(CORE_STAGES[CORE_STAGES.length - 1], "end")
+                }
+              >
+                עכשיו
+              </button>
+            </div>
+          </label>
+        </div>
+
+        <div className="brew-starting-plato-live">
+          <span>סוכר תחילי מחושב</span>
+          <strong>
+            {startingPlato.value === null
+              ? "—"
+              : `${startingPlato.value.toFixed(2)}°P`}
+          </strong>
+          <small>
+            {startingPlato.value === null
+              ? "ממתין לסוף רתיחה + נפח מצטבר"
+              : startingPlato.isPartial
+                ? `זמני · ${startingPlato.completedBlocks}/${blockCount(run.tankType)} בישולים`
+                : "סופי · ממוצע משוקלל לפי הנפחים שנכנסו למיכל"}
+          </small>
         </div>
 
         <div className="brew-sugar-grid">
