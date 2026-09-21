@@ -71,6 +71,15 @@ async function requireOk(response: Response, fallback: string) {
   } catch {
     detail = await response.text().catch(() => "");
   }
+  if (
+    response.status === 403 &&
+    /sheets\.googleapis\.com|Google Sheets API|has not been used|disabled/i.test(detail)
+  ) {
+    throw new Error(
+      "Google Sheets API כבוי בפרויקט של Firebase. צריך להפעיל אותו פעם אחת ב-Google Cloud ואז לנסות שוב."
+    );
+  }
+
   throw new Error(detail ? `${fallback}: ${detail}` : fallback);
 }
 
