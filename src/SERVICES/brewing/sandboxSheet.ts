@@ -127,17 +127,6 @@ function layoutFor(tankType: TankType) {
   };
 }
 
-function jerusalemDate(): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Jerusalem",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).formatToParts(new Date());
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.day}/${map.month}/${map.year}`;
-}
-
 
 async function deleteSandboxFile(fileId: string) {
   try {
