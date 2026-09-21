@@ -130,14 +130,19 @@ export function createEmptyRecipe(
     mash: {
       waterLiters: 0,
       steps: [
-        { id: "mashIn", label: "מאש אין", targetTemp: 0 },
+        { id: "mashIn", label: "מאש אין", targetTemp: 63 },
         {
           id: "rest1",
           label: "מנוחה 1",
           targetTemp: 0,
           minutes: 0,
         },
-        { id: "mashOut", label: "מאש אווט", targetTemp: 0 },
+        {
+          id: "heat1",
+          label: "חימום 1",
+          targetTemp: 78,
+        },
+        { id: "mashOut", label: "מאש אווט", targetTemp: 78 },
       ],
     },
     lautering: { usesGrant: false },
