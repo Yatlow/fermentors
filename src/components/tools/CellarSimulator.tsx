@@ -34,6 +34,10 @@ import {
     type PressureV9ValidationResult,
 } from "../../SERVICES/cellering/pressurePredictionV9Validation";
 import {
+    loadPressureV9ValidationCache,
+    savePressureV9ValidationCache,
+} from "../../SERVICES/cellering/pressurePredictionV9ValidationCache";
+import {
     calibratePressureV9,
     type PressureV9CalibrationResult,
 } from "../../SERVICES/cellering/pressurePredictionV9Calibration";
@@ -470,6 +474,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
         attempted: number;
         metadataResolved: number;
         measurementRowsLoaded: number;
+        source: "firestore" | "indexeddb";
     } | null>(null);
     const [backtestRunning, setBacktestRunning] = useState(false);
     const [backtestProgress, setBacktestProgress] = useState("");
@@ -582,6 +587,47 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setError("");
 
         try {
+            const cached = await loadPressureV9ValidationCache();
+            if (cached) {
+                setV9ValidationProgress(
+                    "משתמש ב-snapshot היסטורי מקומי — ללא קריאות measurement נוספות מ-Firestore…"
+                );
+
+                const cachedResult = runPressureV9PhysicsValidation({
+                    batches: cached.batches,
+                    seed,
+                });
+                const selectedBatchIds = new Set(
+                    cachedResult.cases
+                        .slice(0, requested)
+                        .map((item) => item.batchId)
+                );
+                const selectedBatches = cached.batches.filter((batch) =>
+                    selectedBatchIds.has(batch.batchId)
+                );
+                const limitedResult =
+                    cachedResult.caseCount <= requested
+                        ? cachedResult
+                        : runPressureV9PhysicsValidation({
+                            batches: selectedBatches,
+                            seed,
+                        });
+
+                setV9ValidationBatches(selectedBatches);
+                setV9ValidationResult(limitedResult);
+                setV9ValidationMeta({
+                    seed,
+                    requested,
+                    candidatePool: cached.candidatePool,
+                    attempted: cached.attempted,
+                    metadataResolved: cached.metadataResolved,
+                    measurementRowsLoaded: 0,
+                    source: "indexeddb",
+                });
+                setV9ValidationProgress("");
+                return;
+            }
+
             const styles = Array.from(
                 new Set(
                     Object.keys(specs.carbonation ?? {})
@@ -752,6 +798,14 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     selectedBatchIds.has(batch.batchId)
                 )
             );
+            await savePressureV9ValidationCache({
+                candidatePool: candidates.length,
+                attempted,
+                metadataResolved,
+                measurementRowsLoaded,
+                batches: validationBatches,
+            });
+
             setV9ValidationResult(limitedResult);
             setV9ValidationMeta({
                 seed,
@@ -760,6 +814,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                 attempted,
                 metadataResolved,
                 measurementRowsLoaded,
+                source: "firestore",
             });
             setV9ValidationProgress("");
         } catch (reason) {
@@ -1268,7 +1323,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         : `זיהוי: בדיקה חוזרת · ${resolved.priorChecks} בדיקות גיזוז קודמות אחרי קירור`;
                 })()}
                 {" · "}
-                V9 הוא המודל הפיזיקלי. אפשר להריץ למטה בדיקת אמינות כבדה על עד 500 אצוות אקראיות: בכל אצווה הוא מקבל את הפעולה שבוצעה באמת ומנסה לחזות את בדיקת הגיזוז הבאה. V8/V7/V6 נשארים להשוואה בלבד.
+                V9 הוא המודל הפיזיקלי. בדיקת האמינות משתמשת בכל מאגר ההיסטוריה הזמין כרגע. אחרי הטעינה הראשונה נשמר snapshot מקומי בדפדפן לשבעה ימים, כך שאבחונים חוזרים לא אמורים לקרוא שוב אלפי מסמכים מ-Firestore. V8/V7/V6 נשארים להשוואה בלבד.
             </div>
 
             <div className="cellar-simulator-actions">
@@ -1295,8 +1350,8 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     onClick={() => void runV9PhysicsValidation()}
                 >
                     {v9ValidationRunning
-                        ? "בודק V9 על מאות אצוות…"
-                        : "בדוק V9 על 500 אצוות אקראיות"}
+                        ? "בודק V9 על ההיסטוריה…"
+                        : "בדוק V9 על המדגם ההיסטורי"}
                 </button>
                 <button
                     type="button"
@@ -1422,9 +1477,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     <h3>V9 Physics Validation — מדגם אקראי</h3>
                     <article className="cellar-simulator-result level-1">
                         <strong>
-                            {v9ValidationResult.caseCount >= 400
-                                ? "יש מדגם גדול מספיק כדי להתחיל לשפוט את הפיזיקה"
-                                : "המדגם התקין קטן מהיעד — צריך להשלים metadata היסטורי"}
+                            {v9ValidationResult.caseCount >= 150
+                                ? "זה מדגם היסטורי שימושי מספיק כדי לשפוט את הפיזיקה"
+                                : "המדגם הנקי עדיין קטן — יש לפרש את התוצאה בזהירות"}
                         </strong>
                         <p>
                             נבחר seed אקראי {v9ValidationMeta.seed}. ניסינו
@@ -1499,10 +1554,10 @@ export default function CellarSimulator({ brews, specs }: Props) {
                         </p>
 
                         <p className="cellar-simulator-backtest-warning">
-                            עלות הבדיקה הזו כבדה בכוונה והיא כלי פיתוח בלבד:
-                            נטענו {v9ValidationMeta.measurementRowsLoaded} מסמכי מדידה
-                            מהיסטוריה ועוד עד {v9ValidationMeta.attempted} מסמכי metadata.
-                            בדיקת גיזוז רגילה בפרודקשן לא תריץ את זה.
+                            {v9ValidationMeta.source === "indexeddb"
+                                ? "ההרצה הזו השתמשה ב-snapshot מקומי בדפדפן ולא קראה מחדש את אלפי מסמכי המדידה מ-Firestore."
+                                : `ההרצה הזו טענה ${v9ValidationMeta.measurementRowsLoaded} מסמכי מדידה מההיסטוריה ועוד עד ${v9ValidationMeta.attempted} מסמכי metadata, ואז שמרה snapshot מקומי לשימוש חוזר במשך שבעה ימים.`}
+                            {" "}בדיקת גיזוז רגילה בפרודקשן לא מריצה את האבחון ההיסטורי הזה.
                         </p>
 
                         <strong>לפי סגנון</strong>
