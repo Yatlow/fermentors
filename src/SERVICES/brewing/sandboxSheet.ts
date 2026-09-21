@@ -409,7 +409,7 @@ export async function writeSandboxSheetCells(
   }
 
   const response = await googleFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}/values:batchUpdate`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}/values:batchUpdate?includeValuesInResponse=true&responseValueRenderOption=FORMATTED_VALUE`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -423,4 +423,12 @@ export async function writeSandboxSheetCells(
   );
 
   await requireOk(response, "כתיבת נתוני הבישול ל-Sheet נכשלה");
+  const payload = await response.json().catch(() => null);
+  const responses = Array.isArray(payload?.responses) ? payload.responses : [];
+
+  if (responses.length !== data.length) {
+    throw new Error(
+      `Google Sheets אישר רק ${responses.length} מתוך ${data.length} כתיבות. הנתונים נשארו מסומנים כלא מסונכרנים.`,
+    );
+  }
 }
