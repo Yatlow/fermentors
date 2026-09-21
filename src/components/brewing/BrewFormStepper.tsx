@@ -406,6 +406,8 @@ function fieldsFromSheetRows(
     if (value) pulled[key] = value;
   });
 
+  if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
+
   return pulled;
 }
 
@@ -1943,6 +1945,22 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
             {renderStageRows(LAUTER_STAGES)}
 
+            <div className="brew-lauter-reading-row">
+              <label>
+                F.R.
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("frPlato")}
+                  onChange={(e) => setLocal("frPlato", e.target.value)}
+                  onBlur={(e) =>
+                    void commitSugar("frPlato", e.target.value, 36, "B")
+                  }
+                />
+              </label>
+              <small>מדידת F.R. ליד ההוצאה לבישול</small>
+            </div>
+
             <div className="brew-lauter-subsection">
               <div className="brew-section-title">
                 <div>
@@ -2098,114 +2116,249 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </div>
             </div>
 
-            <div className="brew-lauter-subsection">
-              <div className="brew-section-title">
-                <div>
-                  <h4>מחשבון נפח רתיחה</h4>
-                </div>
-              </div>
-
-              <div className="brew-editor-two-cols brew-boil-calc-grid">
+            <div className="brew-lauter-end-transfer">
+              {renderStageRows([END_TRANSFER_STAGE])}
+              <div className="brew-lauter-reading-row">
                 <label>
-                  נפח בזמן הדגימה
-                  <input
-                    type="number"
-                    value={
-                      localValue("boilSampleVolume") || "1200"
-                    }
-                    onChange={(e) =>
-                      setLocal(
-                        "boilSampleVolume",
-                        e.target.value,
-                      )
-                    }
-                  />
-                </label>
-
-                <label>
-                  Plato בדגימה
+                  L.R.
                   <input
                     type="number"
                     step="0.01"
-                    value={localValue("boilSamplePlato")}
-                    onChange={(e) =>
-                      setLocal(
-                        "boilSamplePlato",
-                        e.target.value,
-                      )
+                    value={localValue("lrPlato")}
+                    onChange={(e) => setLocal("lrPlato", e.target.value)}
+                    onBlur={(e) =>
+                      void commitSugar("lrPlato", e.target.value, 37, "B")
                     }
                   />
                 </label>
-
-                <label>
-                  פקטור אידוי (ל׳)
-                  <input
-                    type="number"
-                    step="1"
-                    value={localValue("boilEvaporationFactor") || "100"}
-                    onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) =>
-                      setLocal(
-                        "boilEvaporationFactor",
-                        e.target.value,
-                      )
-                    }
-                  />
-                </label>
-
-                <div className="brew-calc-result">
-                  <span>נפח יעד</span>
-                  <strong>
-                    {boilRecommendation === null
-                      ? "—"
-                      : `${Math.round(boilRecommendation)} ל׳`}
-                  </strong>
-                  <small>
-                    לפי ה-Plato שנמדד ויעד סוף הרתיחה{" "}
-                    {recipe.targets.endBoilPlato}°P
-                  </small>
-                </div>
+                <small>מדידת L.R. ליד סוף ההעברה</small>
               </div>
-            </div>
-
-            <div className="brew-lauter-end-transfer">
-              {renderStageRows([END_TRANSFER_STAGE])}
             </div>
           </>
         )}
 
         {currentStep.id === "boil" && (
           <>
-            <div className="brew-section-title">
-              <span>
-                יעד סוף רתיחה: {recipe.targets.endBoilPlato}°P
-              </span>
+            <div className="brew-step-context-bar">
+              <span>סוף העברה</span>
+              <strong>{localValue("endTransfer.start") || "—"}</strong>
+              <small>מוצג משלב הלאוטר · ללא עריכה כאן</small>
             </div>
 
-            {renderStageRows(BOIL_STAGES)}
+            <div className="brew-boil-opening-grid">
+              <label>
+                Plato בסיר
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("kettlePlato")}
+                  onChange={(e) => setLocal("kettlePlato", e.target.value)}
+                  onBlur={(e) =>
+                    void commitSugar("kettlePlato", e.target.value, 38, "B")
+                  }
+                />
+              </label>
 
-            <label className="brew-editor-inline-field">
-              pH תחילת רתיחה
-              <input
-                type="number"
-                step="0.01"
-                value={localValue("boilPh")}
-                onChange={(e) => setLocal("boilPh", e.target.value)}
-                onBlur={(e) =>
-                  void commitPh(
-                    "boilPh",
-                    e.target.value,
-                    stageCell(28, "F"),
-                  )
-                }
-              />
-            </label>
+              <label>
+                נפח בסיר
+                <div className="brew-field-with-action">
+                  <input
+                    type="number"
+                    value={localValue("kettleVolume")}
+                    onChange={(e) => setLocal("kettleVolume", e.target.value)}
+                    onBlur={(e) =>
+                      void commitSugar("kettleVolume", e.target.value, 38, "C")
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="brew-button-secondary"
+                    onClick={() => setBoilCalcOpen(true)}
+                  >
+                    מחשבון נפח רתיחה
+                  </button>
+                </div>
+              </label>
+            </div>
+
+            <div className="brew-boil-start-row">
+              <label>
+                תחילת רתיחה
+                <div className="brew-time-input">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
+                    placeholder="HH:MM"
+                    value={localValue("boil.start")}
+                    onChange={(e) => setLocal("boil.start", e.target.value)}
+                    onBlur={(e) => void commitBoilStart(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void commitBoilStart(hhmmNow())}
+                  >
+                    עכשיו
+                  </button>
+                </div>
+              </label>
+
+              <label>
+                pH תחילת רתיחה
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("boilPh")}
+                  onChange={(e) => setLocal("boilPh", e.target.value)}
+                  onBlur={(e) =>
+                    void commitPh("boilPh", e.target.value, stageCell(28, "F"))
+                  }
+                />
+              </label>
+
+              <label>
+                תוספת H3PO4 85% (ML)
+                <input
+                  type="number"
+                  step="0.1"
+                  value={localValue("boilAcid85")}
+                  onChange={(e) => setLocal("boilAcid85", e.target.value)}
+                  onBlur={(e) => void commitBoilAcid(e.target.value)}
+                />
+              </label>
+
+              <button
+                type="button"
+                className="brew-button-secondary brew-acid-history-button"
+                onClick={() => void openAcidHistory("boil")}
+              >
+                השוואה לבישולים קודמים
+              </button>
+            </div>
+
+            <div className="brew-boil-timeline">
+              {boilHops.map((hop, index) => {
+                const key = `hop${index + 1}.start`;
+                const rowOffset = 30 + index * 2;
+                const purpose =
+                  hop.purpose === "bitterness"
+                    ? "מרירות"
+                    : hop.purpose === "aroma"
+                      ? "ארומה"
+                      : "ווירפול";
+                return (
+                  <div className="brew-boil-event-row" key={hop.id}>
+                    <div>
+                      <strong>כשות {index + 1} · {purpose}</strong>
+                      <small>
+                        {hop.boilMinutes ?? 0} דק׳ לסוף הרתיחה
+                      </small>
+                    </div>
+                    <label>
+                      שעה
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        dir="ltr"
+                        placeholder="HH:MM"
+                        value={localValue(key)}
+                        onChange={(e) => setLocal(key, e.target.value)}
+                        onBlur={(e) =>
+                          void commitBoilEvent(key, rowOffset, e.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+
+              <div className="brew-boil-event-row brew-boil-end-row">
+                <div>
+                  <strong>סוף רתיחה</strong>
+                  <small>{totalBoilMinutes} דק׳ מתחילת הרתיחה</small>
+                </div>
+                <label>
+                  שעה
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
+                    placeholder="HH:MM"
+                    value={localValue("endBoilTime")}
+                    onChange={(e) => setLocal("endBoilTime", e.target.value)}
+                    onBlur={(e) => void commitEndBoil(e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
           </>
         )}
 
         {currentStep.id === "transfer" && (
           <>
+            <div className="brew-step-context-bar">
+              <span>סוף רתיחה</span>
+              <strong>
+                {localValue("endBoilTime") || localValue("wp.start") || "—"}
+              </strong>
+              <small>תחילת WP שווה לזמן סוף הרתיחה</small>
+            </div>
+
+            <div className="brew-boil-opening-grid">
+              <label>
+                סוף רתיחה °P
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("endBoilPlato")}
+                  onChange={(e) => setLocal("endBoilPlato", e.target.value)}
+                  onBlur={(e) =>
+                    void commitSugar("endBoilPlato", e.target.value, 39, "B")
+                  }
+                />
+              </label>
+              <label>
+                נפח סוף רתיחה
+                <input
+                  type="number"
+                  value={localValue("endBoilVolume")}
+                  onChange={(e) => setLocal("endBoilVolume", e.target.value)}
+                  onBlur={(e) =>
+                    void commitSugar("endBoilVolume", e.target.value, 39, "C")
+                  }
+                />
+              </label>
+            </div>
+
             {renderStageRows([WP_STAGE, OUT_STAGE])}
+
+            {currentBlock === 1 && (
+              <div className="brew-yeast-pitch-row">
+                <label>
+                  שעת הוספת שמרים
+                  <div className="brew-time-input">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      dir="ltr"
+                      placeholder="HH:MM"
+                      value={localValue("yeastPitchTime")}
+                      onChange={(e) =>
+                        setLocal("yeastPitchTime", e.target.value)
+                      }
+                      onBlur={(e) => void commitYeastPitch(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void commitYeastPitch(hhmmNow())}
+                    >
+                      עכשיו
+                    </button>
+                  </div>
+                </label>
+                <small>נכתב גם בתחילת דף התסיסה</small>
+              </div>
+            )}
 
             <div className="brew-starting-plato-live">
               <span>סוכר תחילי מחושב</span>
@@ -2225,142 +2378,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
             <div className="brew-sugar-grid">
               <label>
-                F.R.
+                תחילת תסיסה °P
                 <input
                   type="number"
                   step="0.01"
-                  value={localValue("frPlato")}
+                  value={localValue("fermentorSamplePlato")}
                   onChange={(e) =>
-                    setLocal("frPlato", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitSugar(
-                      "frPlato",
-                      e.target.value,
-                      36,
-                      "B",
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                L.R.
-                <input
-                  type="number"
-                  step="0.01"
-                  value={localValue("lrPlato")}
-                  onChange={(e) =>
-                    setLocal("lrPlato", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitSugar(
-                      "lrPlato",
-                      e.target.value,
-                      37,
-                      "B",
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                Plato בסיר
-                <input
-                  type="number"
-                  step="0.01"
-                  value={localValue("kettlePlato")}
-                  onChange={(e) =>
-                    setLocal("kettlePlato", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitSugar(
-                      "kettlePlato",
-                      e.target.value,
-                      38,
-                      "B",
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                נפח בסיר
-                <input
-                  type="number"
-                  value={localValue("kettleVolume")}
-                  onChange={(e) =>
-                    setLocal("kettleVolume", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitSugar(
-                      "kettleVolume",
-                      e.target.value,
-                      38,
-                      "C",
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                סוף רתיחה °P
-                <input
-                  type="number"
-                  step="0.01"
-                  value={localValue("endBoilPlato")}
-                  onChange={(e) =>
-                    setLocal(
-                      "endBoilPlato",
-                      e.target.value,
-                    )
-                  }
-                  onBlur={(e) =>
-                    void commitSugar(
-                      "endBoilPlato",
-                      e.target.value,
-                      39,
-                      "B",
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                נפח סוף רתיחה
-                <input
-                  type="number"
-                  value={localValue("endBoilVolume")}
-                  onChange={(e) =>
-                    setLocal(
-                      "endBoilVolume",
-                      e.target.value,
-                    )
-                  }
-                  onBlur={(e) =>
-                    void commitSugar(
-                      "endBoilVolume",
-                      e.target.value,
-                      39,
-                      "C",
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                דגימת תחילת תסיסה °P
-                <input
-                  type="number"
-                  step="0.01"
-                  value={localValue(
-                    "fermentorSamplePlato",
-                  )}
-                  onChange={(e) =>
-                    setLocal(
-                      "fermentorSamplePlato",
-                      e.target.value,
-                    )
+                    setLocal("fermentorSamplePlato", e.target.value)
                   }
                   onBlur={(e) =>
                     void commitSugar(
@@ -2374,17 +2398,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </label>
 
               <label>
-                נפח מצטבר במיכל
+                נפח תחילת תסיסה
                 <input
                   type="number"
-                  value={localValue(
-                    "cumulativeTankVolume",
-                  )}
+                  value={localValue("cumulativeTankVolume")}
                   onChange={(e) =>
-                    setLocal(
-                      "cumulativeTankVolume",
-                      e.target.value,
-                    )
+                    setLocal("cumulativeTankVolume", e.target.value)
                   }
                   onBlur={(e) =>
                     void commitSugar(
@@ -2402,14 +2421,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.01"
-                  value={localValue(
-                    "outToFermentorPh",
-                  )}
+                  value={localValue("outToFermentorPh")}
                   onChange={(e) =>
-                    setLocal(
-                      "outToFermentorPh",
-                      e.target.value,
-                    )
+                    setLocal("outToFermentorPh", e.target.value)
                   }
                   onBlur={(e) =>
                     void commitPh(
