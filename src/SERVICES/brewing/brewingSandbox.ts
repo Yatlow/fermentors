@@ -204,3 +204,24 @@ export function attachSandboxSheet(
     persistSandboxBrewRuns(next);
     return updated;
 }
+
+
+export function attachSandboxRecipeSnapshot(
+    batchNumber: string,
+    recipeSnapshot: BrewRecipe,
+): SandboxBrewRun | null {
+    if (!isBrewingSandbox()) return null;
+    const clean = String(batchNumber || "").replace("#", "").trim();
+    const runs = loadSandboxBrewRuns();
+    let updated: SandboxBrewRun | null = null;
+    const next = runs.map((run) => {
+        if (run.batchNumber !== clean) return run;
+        updated = {
+            ...run,
+            recipeSnapshot: JSON.parse(JSON.stringify(recipeSnapshot)) as BrewRecipe,
+        };
+        return updated;
+    });
+    persistSandboxBrewRuns(next);
+    return updated;
+}
