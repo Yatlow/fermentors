@@ -187,7 +187,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
           <PlanningBoard settings={settings} plans={executionPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/>
         </>}
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
-        {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>} 
+        {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
         {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
     </section>
