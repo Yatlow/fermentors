@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react";
-import type { BrewRecipe, BrewRecipeHop, BrewRecipeMashStep } from "../../SERVICES/brewing/brewRecipe";
-import {
-  loadSandboxRecipe,
-  resetSandboxRecipe,
-  saveSandboxRecipe,
-} from "../../SERVICES/brewing/sandboxRecipe";
+import type {
+  BrewRecipe,
+  BrewRecipeHop,
+  BrewRecipeMashStep,
+} from "../../SERVICES/brewing/brewRecipe";
+import type { IngredientDefinition } from "../../SERVICES/brewing/ingredientLibrary";
 
 type Props = {
-  onRecipeChange?: (recipe: BrewRecipe) => void;
+  recipe: BrewRecipe;
+  ingredients: IngredientDefinition[];
+  onSave: (recipe: BrewRecipe) => void;
+  onBack: () => void;
 };
 
 function numberValue(value: string): number {
@@ -15,33 +18,28 @@ function numberValue(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export default function BrewRecipeEditor({ onRecipeChange }: Props) {
-  const [recipe, setRecipe] = useState<BrewRecipe>(() => loadSandboxRecipe());
-  const [message, setMessage] = useState("");
-
-  const boilHops = useMemo(
-    () => recipe.hops.filter((hop) => hop.phase !== "dryHop"),
-    [recipe.hops],
-  );
-  const dryHops = useMemo(
-    () => recipe.hops.filter((hop) => hop.phase === "dryHop"),
-    [recipe.hops],
+export default function BrewRecipeEditor({
+  recipe: initialRecipe,
+  ingredients,
+  onSave,
+  onBack,
+}: Props) {
+  const [recipe, setRecipe] = useState<BrewRecipe>(() =>
+    JSON.parse(JSON.stringify(initialRecipe)) as BrewRecipe,
   );
 
-  function updateGrain(index: number, field: "name" | "supplier" | "kgPerBrew", value: string) {
-    setRecipe((current) => ({
-      ...current,
-      grains: current.grains.map((grain, i) =>
-        i === index
-          ? {
-              ...grain,
-              [field]: field === "kgPerBrew" ? numberValue(value) : value,
-            }
-          : grain,
-      ),
-    }));
-    setMessage("");
-  }
+  const grainOptions = useMemo(
+    () => ingredients.filter((item) => item.category === "grain"),
+    [ingredients],
+  );
+  const hopOptions = useMemo(
+    () => ingredients.filter((item) => item.category === "hop"),
+    [ingredients],
+  );
+  const yeastOptions = useMemo(
+    () => ingredients.filter((item) => item.category === "yeast"),
+    [ingredients],
+  );
 
   function updateMashStep(index: number, patch: Partial<BrewRecipeMashStep>) {
     setRecipe((current) => ({
@@ -53,7 +51,6 @@ export default function BrewRecipeEditor({ onRecipeChange }: Props) {
         ),
       },
     }));
-    setMessage("");
   }
 
   function updateHop(id: string, patch: Partial<BrewRecipeHop>) {
@@ -61,50 +58,136 @@ export default function BrewRecipeEditor({ onRecipeChange }: Props) {
       ...current,
       hops: current.hops.map((hop) => (hop.id === id ? { ...hop, ...patch } : hop)),
     }));
-    setMessage("");
   }
 
-  function save() {
-    const next = saveSandboxRecipe(recipe);
-    setRecipe(next);
-    onRecipeChange?.(next);
-    setMessage(`המתכון נשמר ב-Sandbox כגרסה ${next.version}. אצוות שכבר נוצרו לא ישתנו.`);
+  function addGrain() {
+    const ingredientId = grainOptions[0]?.id || "";
+    setRecipe((current) => ({
+      ...current,
+      grains: [...current.grains, { ingredientId, kgPerBrew: 0 }],
+    }));
   }
 
-  function reset() {
-    const next = resetSandboxRecipe();
-    setRecipe(next);
-    onRecipeChange?.(next);
-    setMessage("מתכון ה-IPA הוחזר לערכי ברירת המחדל של ה-Sandbox.");
+  function addHop(phase: BrewRecipeHop["phase"]) {
+    const ingredientId = hopOptions[0]?.id || "";
+    setRecipe((current) => ({
+      ...current,
+      hops: [
+        ...current.hops,
+        {
+          id: `hop-${Date.now()}`,
+          ingredientId,
+          phase,
+          gramsPerLiter: 0,
+          minutesFromEnd: phase === "dryHop" ? undefined : 0,
+          daysAfterBrew: phase === "dryHop" ? 3 : undefined,
+        },
+      ],
+    }));
   }
 
   return (
     <section className="brew-recipe-editor">
       <div className="brewing-panel-heading">
         <div>
-          <h2>מתכון IPA</h2>
+          <button type="button" className="brew-back-button" onClick={onBack}>
+            חזרה לספריית המתכונים
+          </button>
+          <h2>עריכת {recipe.style}</h2>
           <p>
-            עריכת Sandbox בלבד. השמירה כאן מדמה את collection ‏brewRecipes; באצווה חדשה
-            יישמר snapshot של הגרסה הנוכחית.
+            המתכון מכיל רק את הוראות המתכון. ספקים, lots ו-AA נוכחי מנוהלים בספריית חומרי הגלם.
           </p>
         </div>
         <span className="brewing-count">v{recipe.version}</span>
       </div>
 
-      {message && <div className="brewing-message">{message}</div>}
+      <section className="brew-editor-section">
+        <h3>פרטי מתכון</h3>
+        <div className="brew-editor-two-cols">
+          <label>
+            שם / סגנון
+            <input
+              value={recipe.style}
+              onChange={(e) =>
+                setRecipe((current) => ({ ...current, style: e.target.value }))
+              }
+            />
+          </label>
+          <label>
+            מי מאש, ליטר
+            <input
+              type="number"
+              value={recipe.mash.waterLiters}
+              onChange={(e) =>
+                setRecipe((current) => ({
+                  ...current,
+                  mash: { ...current.mash, waterLiters: numberValue(e.target.value) },
+                }))
+              }
+            />
+          </label>
+          <label>
+            סוף רתיחה °P
+            <input
+              type="number"
+              step="0.01"
+              value={recipe.targets.endBoilPlato}
+              onChange={(e) =>
+                setRecipe((current) => ({
+                  ...current,
+                  targets: {
+                    ...current.targets,
+                    endBoilPlato: numberValue(e.target.value),
+                  },
+                }))
+              }
+            />
+          </label>
+          <label>
+            תחילת תסיסה יעד °P
+            <input
+              type="number"
+              step="0.01"
+              value={recipe.targets.startingPlato}
+              onChange={(e) =>
+                setRecipe((current) => ({
+                  ...current,
+                  targets: {
+                    ...current.targets,
+                    startingPlato: numberValue(e.target.value),
+                  },
+                }))
+              }
+            />
+          </label>
+        </div>
+      </section>
 
       <section className="brew-editor-section">
-        <h3>לתת וחומרי מאש</h3>
+        <div className="brew-section-title">
+          <h3>לתת וחומרי מאש</h3>
+          <button type="button" onClick={addGrain}>+ חומר</button>
+        </div>
         <div className="brew-editor-table">
           {recipe.grains.map((grain, index) => (
-            <div className="brew-editor-row brew-editor-row-grain" key={grain.id}>
+            <div className="brew-editor-row brew-editor-row-grain" key={`${grain.ingredientId}-${index}`}>
               <label>
-                חומר
-                <input value={grain.name} onChange={(e) => updateGrain(index, "name", e.target.value)} />
-              </label>
-              <label>
-                ספק
-                <input value={grain.supplier} onChange={(e) => updateGrain(index, "supplier", e.target.value)} />
+                חומר גלם
+                <select
+                  value={grain.ingredientId}
+                  onChange={(e) =>
+                    setRecipe((current) => ({
+                      ...current,
+                      grains: current.grains.map((item, i) =>
+                        i === index ? { ...item, ingredientId: e.target.value } : item,
+                      ),
+                    }))
+                  }
+                >
+                  {grainOptions.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
               </label>
               <label>
                 ק"ג לבישול
@@ -112,27 +195,33 @@ export default function BrewRecipeEditor({ onRecipeChange }: Props) {
                   type="number"
                   step="0.1"
                   value={grain.kgPerBrew}
-                  onChange={(e) => updateGrain(index, "kgPerBrew", e.target.value)}
+                  onChange={(e) =>
+                    setRecipe((current) => ({
+                      ...current,
+                      grains: current.grains.map((item, i) =>
+                        i === index
+                          ? { ...item, kgPerBrew: numberValue(e.target.value) }
+                          : item,
+                      ),
+                    }))
+                  }
                 />
               </label>
+              <button
+                type="button"
+                className="brewing-danger-button"
+                onClick={() =>
+                  setRecipe((current) => ({
+                    ...current,
+                    grains: current.grains.filter((_, i) => i !== index),
+                  }))
+                }
+              >
+                הסר
+              </button>
             </div>
           ))}
         </div>
-
-        <label className="brew-editor-inline-field">
-          מי מאש, ליטר
-          <input
-            type="number"
-            step="1"
-            value={recipe.mash.waterLiters}
-            onChange={(e) =>
-              setRecipe((current) => ({
-                ...current,
-                mash: { ...current.mash, waterLiters: numberValue(e.target.value) },
-              }))
-            }
-          />
-        </label>
       </section>
 
       <section className="brew-editor-section">
@@ -153,19 +242,20 @@ export default function BrewRecipeEditor({ onRecipeChange }: Props) {
                   type="number"
                   step="0.1"
                   value={step.targetTemp}
-                  onChange={(e) => updateMashStep(index, { targetTemp: numberValue(e.target.value) })}
+                  onChange={(e) =>
+                    updateMashStep(index, { targetTemp: numberValue(e.target.value) })
+                  }
                 />
               </label>
               <label>
                 דקות
                 <input
                   type="number"
-                  step="1"
                   value={step.minutes ?? ""}
-                  placeholder="—"
                   onChange={(e) =>
                     updateMashStep(index, {
-                      minutes: e.target.value === "" ? undefined : numberValue(e.target.value),
+                      minutes:
+                        e.target.value === "" ? undefined : numberValue(e.target.value),
                     })
                   }
                 />
@@ -176,62 +266,41 @@ export default function BrewRecipeEditor({ onRecipeChange }: Props) {
       </section>
 
       <section className="brew-editor-section">
-        <h3>יעדי סוכר</h3>
-        <div className="brew-editor-two-cols">
-          <label>
-            סוף רתיחה °P
-            <input
-              type="number"
-              step="0.01"
-              value={recipe.targets.endBoilPlato}
-              onChange={(e) =>
-                setRecipe((current) => ({
-                  ...current,
-                  targets: {
-                    ...current.targets,
-                    endBoilPlato: numberValue(e.target.value),
-                  },
-                }))
-              }
-            />
-          </label>
-          <label>
-            תחילת תסיסה °P
-            <input
-              type="number"
-              step="0.01"
-              value={recipe.targets.startingPlato}
-              onChange={(e) =>
-                setRecipe((current) => ({
-                  ...current,
-                  targets: {
-                    ...current.targets,
-                    startingPlato: numberValue(e.target.value),
-                  },
-                }))
-              }
-            />
-          </label>
+        <div className="brew-section-title">
+          <h3>כשות</h3>
+          <div className="brew-inline-actions">
+            <button type="button" onClick={() => addHop("boil")}>+ רתיחה</button>
+            <button type="button" onClick={() => addHop("dryHop")}>+ דרייהופ</button>
+          </div>
         </div>
-      </section>
-
-      <section className="brew-editor-section">
-        <h3>כשות ברתיחה</h3>
         <div className="brew-editor-table">
-          {boilHops.map((hop) => (
+          {recipe.hops.map((hop) => (
             <div className="brew-editor-row brew-editor-row-hop" key={hop.id}>
               <label>
-                כשות
-                <input value={hop.name} onChange={(e) => updateHop(hop.id, { name: e.target.value })} />
+                חומר גלם
+                <select
+                  value={hop.ingredientId}
+                  onChange={(e) => updateHop(hop.id, { ingredientId: e.target.value })}
+                >
+                  {hopOptions.map((item) => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
               </label>
               <label>
-                AA מתכון %
-                <input
-                  type="number"
-                  step="0.1"
-                  value={hop.referenceAlpha}
-                  onChange={(e) => updateHop(hop.id, { referenceAlpha: numberValue(e.target.value) })}
-                />
+                שלב
+                <select
+                  value={hop.phase}
+                  onChange={(e) =>
+                    updateHop(hop.id, {
+                      phase: e.target.value as BrewRecipeHop["phase"],
+                    })
+                  }
+                >
+                  <option value="boil">רתיחה</option>
+                  <option value="flameout">Flame out</option>
+                  <option value="dryHop">דרייהופ</option>
+                </select>
               </label>
               <label>
                 גרם/ליטר
@@ -239,76 +308,77 @@ export default function BrewRecipeEditor({ onRecipeChange }: Props) {
                   type="number"
                   step="0.001"
                   value={hop.gramsPerLiter}
-                  onChange={(e) => updateHop(hop.id, { gramsPerLiter: numberValue(e.target.value) })}
+                  onChange={(e) =>
+                    updateHop(hop.id, { gramsPerLiter: numberValue(e.target.value) })
+                  }
                 />
               </label>
               <label>
-                זמן לסוף
+                AA ייחוס %
                 <input
                   type="number"
-                  step="1"
-                  value={hop.minutesFromEnd ?? 0}
-                  onChange={(e) => updateHop(hop.id, { minutesFromEnd: numberValue(e.target.value) })}
+                  step="0.1"
+                  value={hop.referenceAlpha ?? ""}
+                  onChange={(e) =>
+                    updateHop(hop.id, {
+                      referenceAlpha:
+                        e.target.value === "" ? undefined : numberValue(e.target.value),
+                    })
+                  }
                 />
               </label>
+              <label>
+                {hop.phase === "dryHop" ? "ימים מהבישול" : "דקות לסוף"}
+                <input
+                  type="number"
+                  value={
+                    hop.phase === "dryHop"
+                      ? hop.daysAfterBrew ?? ""
+                      : hop.minutesFromEnd ?? ""
+                  }
+                  onChange={(e) =>
+                    hop.phase === "dryHop"
+                      ? updateHop(hop.id, { daysAfterBrew: numberValue(e.target.value) })
+                      : updateHop(hop.id, { minutesFromEnd: numberValue(e.target.value) })
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                className="brewing-danger-button"
+                onClick={() =>
+                  setRecipe((current) => ({
+                    ...current,
+                    hops: current.hops.filter((item) => item.id !== hop.id),
+                  }))
+                }
+              >
+                הסר
+              </button>
             </div>
           ))}
         </div>
       </section>
-
-      {dryHops.map((hop) => (
-        <section className="brew-editor-section" key={hop.id}>
-          <h3>דרייהופ</h3>
-          <div className="brew-editor-row brew-editor-row-hop">
-            <label>
-              כשות
-              <input value={hop.name} onChange={(e) => updateHop(hop.id, { name: e.target.value })} />
-            </label>
-            <label>
-              AA ייחוס %
-              <input
-                type="number"
-                step="0.1"
-                value={hop.referenceAlpha}
-                onChange={(e) => updateHop(hop.id, { referenceAlpha: numberValue(e.target.value) })}
-              />
-            </label>
-            <label>
-              גרם/ליטר
-              <input
-                type="number"
-                step="0.001"
-                value={hop.gramsPerLiter}
-                onChange={(e) => updateHop(hop.id, { gramsPerLiter: numberValue(e.target.value) })}
-              />
-            </label>
-            <label>
-              ימים מהבישול
-              <input
-                type="number"
-                step="1"
-                value={hop.daysAfterBrew ?? 0}
-                onChange={(e) => updateHop(hop.id, { daysAfterBrew: numberValue(e.target.value) })}
-              />
-            </label>
-          </div>
-        </section>
-      ))}
 
       <section className="brew-editor-section">
         <h3>שמרים ותסיסה</h3>
         <div className="brew-editor-two-cols">
           <label>
             שמרים
-            <input
-              value={recipe.yeast.name}
+            <select
+              value={recipe.yeast.ingredientId}
               onChange={(e) =>
                 setRecipe((current) => ({
                   ...current,
-                  yeast: { ...current.yeast, name: e.target.value },
+                  yeast: { ...current.yeast, ingredientId: e.target.value },
                 }))
               }
-            />
+            >
+              <option value="">בחר</option>
+              {yeastOptions.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
           </label>
           <label>
             גרם לכל בישול
@@ -360,8 +430,10 @@ export default function BrewRecipeEditor({ onRecipeChange }: Props) {
       </section>
 
       <div className="brew-editor-actions">
-        <button type="button" className="btn-primary" onClick={save}>שמור מתכון Sandbox</button>
-        <button type="button" onClick={reset}>איפוס לברירת מחדל</button>
+        <button type="button" className="btn-primary" onClick={() => onSave(recipe)}>
+          שמור מתכון
+        </button>
+        <button type="button" onClick={onBack}>ביטול</button>
       </div>
     </section>
   );
