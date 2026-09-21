@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type {
+  BrewHopPurpose,
   BrewRecipe,
   BrewRecipeHop,
   BrewRecipeMashStep,
@@ -68,7 +69,59 @@ export default function BrewRecipeEditor({
     }));
   }
 
-  function addHop(phase: BrewRecipeHop["phase"]) {
+  const mashIn = recipe.mash.steps[0];
+  const mashOut = recipe.mash.steps[recipe.mash.steps.length - 1];
+  const middleMashSteps = recipe.mash.steps.slice(1, -1);
+
+  function addMashStep() {
+    const step: BrewRecipeMashStep = {
+      id: `mash-step-${Date.now()}`,
+      label: `מנוחה ${Math.max(1, middleMashSteps.length + 1)}`,
+      targetTemp: 0,
+      minutes: 0,
+    };
+    setRecipe((current) => ({
+      ...current,
+      mash: {
+        ...current.mash,
+        steps: [
+          current.mash.steps[0],
+          ...current.mash.steps.slice(1, -1),
+          step,
+          current.mash.steps[current.mash.steps.length - 1],
+        ],
+      },
+    }));
+  }
+
+  function removeMashStep(id: string) {
+    setRecipe((current) => ({
+      ...current,
+      mash: {
+        ...current.mash,
+        steps: current.mash.steps.filter((step) => step.id !== id),
+      },
+    }));
+  }
+
+  function moveMashStep(id: string, direction: -1 | 1) {
+    setRecipe((current) => {
+      const first = current.mash.steps[0];
+      const last = current.mash.steps[current.mash.steps.length - 1];
+      const middle = current.mash.steps.slice(1, -1);
+      const index = middle.findIndex((step) => step.id === id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= middle.length) return current;
+      const nextMiddle = [...middle];
+      [nextMiddle[index], nextMiddle[target]] = [nextMiddle[target], nextMiddle[index]];
+      return {
+        ...current,
+        mash: { ...current.mash, steps: [first, ...nextMiddle, last] },
+      };
+    });
+  }
+
+  function addHop() {
     const ingredientId = hopOptions[0]?.id || "";
     setRecipe((current) => ({
       ...current,
@@ -77,10 +130,8 @@ export default function BrewRecipeEditor({
         {
           id: `hop-${Date.now()}`,
           ingredientId,
-          phase,
+          purpose: "aroma",
           gramsPerLiter: 0,
-          minutesFromEnd: phase === "dryHop" ? undefined : 0,
-          daysAfterBrew: phase === "dryHop" ? 3 : undefined,
         },
       ],
     }));
