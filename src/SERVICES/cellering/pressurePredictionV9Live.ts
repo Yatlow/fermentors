@@ -11,8 +11,8 @@ import {
 } from "./pressurePredictionV4Model";
 import {
   PRESSURE_V9_K_PER_HOUR,
-  PRESSURE_V9_MAX_GEOMETRY_SENSITIVITY_BAR,
   PRESSURE_V9_MODEL_VERSION,
+  pressureV9GeometryIsActionable,
 } from "./pressurePredictionV9Config";
 
 function finite(value: unknown): number | null {
@@ -158,9 +158,9 @@ export async function estimatePressureV9ForTank(args: {
   const geometrySensitivity =
     estimate.geometrySensitivityWidthBar;
   const geometryBlocked =
-    geometrySensitivity !== null &&
-    geometrySensitivity >
-      PRESSURE_V9_MAX_GEOMETRY_SENSITIVITY_BAR;
+    !pressureV9GeometryIsActionable(
+      geometrySensitivity,
+    );
 
   const operationallyBlocked =
     estimate.action === "insufficient_geometry" ||
