@@ -246,27 +246,65 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
 
           <div className="brew-library-grid">
             {recipes.map((recipe) => (
-              <button
-                type="button"
-                className="brew-library-card"
-                key={recipe.id}
-                onClick={() => setSelectedRecipeId(recipe.id)}
-              >
-                <div>
-                  <strong>{recipe.style}</strong>
-                  <span>גרסה {recipe.version}</span>
+              <article className="brew-library-card" key={recipe.id}>
+                <button
+                  type="button"
+                  className="brew-library-card-main"
+                  onClick={() => {
+                    setDeleteRecipeId(null);
+                    setSelectedRecipeId(recipe.id);
+                  }}
+                >
+                  <div>
+                    <strong>{recipe.style}</strong>
+                    <span>גרסה {recipe.version}</span>
+                  </div>
+                  <small>
+                    {recipe.grains.length} סוגי לתת · {recipe.hops.length} תוספות כשות
+                  </small>
+                  <small>
+                    {recipe.allowedTankTypes
+                      .map((type) =>
+                        type === "single"
+                          ? "בודד"
+                          : type === "double"
+                            ? "כפול"
+                            : "משולש",
+                      )
+                      .join(" · ")}
+                  </small>
+                </button>
+                <div className="brew-library-card-actions">
+                  {deleteRecipeId === recipe.id ? (
+                    <>
+                      <button
+                        type="button"
+                        className="brew-delete-confirm"
+                        onClick={() => removeRecipe(recipe)}
+                      >
+                        אישור מחיקה
+                      </button>
+                      <button
+                        type="button"
+                        className="brew-icon-button"
+                        onClick={() => setDeleteRecipeId(null)}
+                      >
+                        ביטול
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="brew-icon-button brew-icon-button-danger"
+                      aria-label={`מחק ${recipe.style}`}
+                      title="מחק מתכון"
+                      onClick={() => removeRecipe(recipe)}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
-                <small>
-                  {recipe.grains.length} חומרי מאש · {recipe.hops.length} תוספות כשות
-                </small>
-                <small>
-                  {recipe.allowedTankTypes
-                    .map((type) =>
-                      type === "single" ? "בודד" : type === "double" ? "כפול" : "משולש",
-                    )
-                    .join(" · ")}
-                </small>
-              </button>
+              </article>
             ))}
           </div>
         </>
