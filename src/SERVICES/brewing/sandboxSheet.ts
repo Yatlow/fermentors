@@ -1,6 +1,10 @@
-import { GoogleAuthProvider, reauthenticateWithPopup } from "firebase/auth";
 import { runtimeConfig } from "../../config/runtimeConfig";
 import { auth } from "../../firebase";
+import {
+  clearGoogleWorkspaceToken,
+  ensureGoogleWorkspaceToken,
+  getRememberedGoogleWorkspaceToken,
+} from "../auth/googleWorkspaceAccess";
 import type { SandboxDemoTank } from "./brewingSandbox";
 
 type TankType = SandboxDemoTank["tankType"];
@@ -11,88 +15,22 @@ export type SandboxSheetResult = {
   url: string;
 };
 
-const WRITE_SCOPES = [
-  "https://www.googleapis.com/auth/drive.readonly",
-  "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/spreadsheets",
-];
-
-const SESSION_TOKEN_KEY = "fermentors:google-drive-token:v1";
-const SESSION_TOKEN_EXPIRY_KEY = "fermentors:google-drive-token-expiry:v1";
-const TOKEN_TTL_MS = 50 * 60 * 1000;
-
-let writeAccessToken: string | null = null;
-let writeAccessTokenExpiresAt = 0;
-
-function restoreSessionToken(): string | null {
-  if (writeAccessToken && Date.now() < writeAccessTokenExpiresAt) {
-    return writeAccessToken;
-  }
-
-  try {
-    const token = sessionStorage.getItem(SESSION_TOKEN_KEY) || "";
-    const expiresAt = Number(sessionStorage.getItem(SESSION_TOKEN_EXPIRY_KEY) || 0);
-    if (token && expiresAt > Date.now()) {
-      writeAccessToken = token;
-      writeAccessTokenExpiresAt = expiresAt;
-      return token;
-    }
-  } catch {
-    // sessionStorage may be unavailable in hardened/private browser contexts.
-  }
-
-  writeAccessToken = null;
-  writeAccessTokenExpiresAt = 0;
-  return null;
-}
-
-function rememberSessionToken(token: string) {
-  writeAccessToken = token;
-  writeAccessTokenExpiresAt = Date.now() + TOKEN_TTL_MS;
-  try {
-    sessionStorage.setItem(SESSION_TOKEN_KEY, token);
-    sessionStorage.setItem(
-      SESSION_TOKEN_EXPIRY_KEY,
-      String(writeAccessTokenExpiresAt),
-    );
-  } catch {
-    // In-memory reuse still prevents repeated prompts during this page lifetime.
-  }
-}
-
-function clearSessionToken() {
-  writeAccessToken = null;
-  writeAccessTokenExpiresAt = 0;
-  try {
-    sessionStorage.removeItem(SESSION_TOKEN_KEY);
-    sessionStorage.removeItem(SESSION_TOKEN_EXPIRY_KEY);
-  } catch {
-    // Ignore storage cleanup failures.
-  }
-}
-
-async function requestWriteToken(forceConsent = false): Promise<string> {
+async function requestWriteToken(
+  forceConsent = false,
+): Promise<string> {
   if (!forceConsent) {
-    const existing = restoreSessionToken();
+    const existing = getRememberedGoogleWorkspaceToken();
     if (existing) return existing;
   }
 
   const user = auth.currentUser;
-  if (!user) throw new Error("צריך להתחבר מחדש לפני יצירת Sheet.");
-
-  const provider = new GoogleAuthProvider();
-  WRITE_SCOPES.forEach((scope) => provider.addScope(scope));
-  if (forceConsent) {
-    provider.setCustomParameters({ prompt: "consent" });
+  if (!user) {
+    throw new Error(
+      "צריך להתחבר מחדש לפני יצירת Sheet.",
+    );
   }
 
-  const result = await reauthenticateWithPopup(user, provider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  const token = credential?.accessToken;
-  if (!token) throw new Error("Google לא החזיר הרשאת Drive/Sheets.");
-
-  rememberSessionToken(token);
-  return token;
+  return ensureGoogleWorkspaceToken(user, forceConsent);
 }
 
 async function googleFetch(
@@ -109,7 +47,7 @@ async function googleFetch(
 
   const response = await fetch(url, { ...init, headers });
   if (response.status === 401 && retry) {
-    clearSessionToken();
+    clearGoogleWorkspaceToken();
     const fresh = await requestWriteToken(true);
     headers.set("Authorization", `Bearer ${fresh}`);
     return fetch(url, { ...init, headers });
