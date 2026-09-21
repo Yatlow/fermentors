@@ -27,6 +27,76 @@ function ingredientIdFromLegacyName(value: unknown): string {
   return slug(name) || "ingredient";
 }
 
+function normalizeMashSteps(rawSteps: any[], fallbackSteps: any[]) {
+  const source = rawSteps.length ? rawSteps : fallbackSteps;
+  const mashIn =
+    source.find((step) => step?.id === "mashIn") ||
+    source[0] ||
+    fallbackSteps[0];
+  const mashOut =
+    source.find((step) => step?.id === "mashOut") ||
+    source[source.length - 1] ||
+    fallbackSteps[fallbackSteps.length - 1];
+
+  const middle = source.filter(
+    (step) =>
+      step !== mashIn &&
+      step !== mashOut &&
+      step?.id !== "mashIn" &&
+      step?.id !== "mashOut",
+  );
+
+  const looksLikeHeat = (step: any) =>
+    /^heat/i.test(String(step?.id || "")) ||
+    /חימום/.test(String(step?.label || ""));
+
+  const rests = middle.filter((step) => !looksLikeHeat(step));
+  const heats = middle.filter(looksLikeHeat);
+
+  const paired = rests.flatMap((rest, index) => {
+    const existingHeat = heats[index];
+    const nextRest = rests[index + 1];
+    const heatTarget = Number(
+      existingHeat?.targetTemp ??
+        nextRest?.targetTemp ??
+        mashOut?.targetTemp ??
+        78,
+    );
+
+    return [
+      {
+        ...rest,
+        id: `rest${index + 1}`,
+        label: `מנוחה ${index + 1}`,
+      },
+      {
+        ...(existingHeat || {}),
+        id: `heat${index + 1}`,
+        label: `חימום ${index + 1}`,
+        targetTemp: Number.isFinite(heatTarget) ? heatTarget : 0,
+        minutes: undefined,
+      },
+    ];
+  });
+
+  return [
+    {
+      ...mashIn,
+      id: "mashIn",
+      label: "מאש אין",
+      targetTemp: Number(mashIn?.targetTemp || 63),
+      minutes: undefined,
+    },
+    ...paired,
+    {
+      ...mashOut,
+      id: "mashOut",
+      label: "מאש אווט",
+      targetTemp: Number(mashOut?.targetTemp || 78),
+      minutes: undefined,
+    },
+  ];
+}
 function normalizeRecipe(raw: any): BrewRecipe {
   const fallback =
     raw?.id === "ipa"
@@ -39,21 +109,9 @@ function normalizeRecipe(raw: any): BrewRecipe {
   const rawSteps = Array.isArray(raw?.mash?.steps)
     ? raw.mash.steps
     : fallback.mash.steps;
-
-  const mashIn =
-    rawSteps.find((step: any) => step?.id === "mashIn") ||
-    rawSteps[0] ||
-    fallback.mash.steps[0];
-  const mashOut =
-    rawSteps.find((step: any) => step?.id === "mashOut") ||
-    rawSteps[rawSteps.length - 1] ||
-    fallback.mash.steps[fallback.mash.steps.length - 1];
-  const middleSteps = rawSteps.filter(
-    (step: any) =>
-      step !== mashIn &&
-      step !== mashOut &&
-      step?.id !== "mashIn" &&
-      step?.id !== "mashOut",
+  const normalizedMashSteps = normalizeMashSteps(
+    rawSteps,
+    fallback.mash.steps,
   );
 
   const normalizeHopPurpose = (hop: any) => {
@@ -87,24 +145,7 @@ function normalizeRecipe(raw: any): BrewRecipe {
     mash: {
       ...fallback.mash,
       ...(raw?.mash || {}),
-      steps: [
-        {
-          ...mashIn,
-          id: "mashIn",
-          label: "מאש אין",
-          minutes: undefined,
-        },
-        ...middleSteps.map((step: any, index: number) => ({
-          ...step,
-          id: String(step?.id || `mash-step-${index + 1}`),
-        })),
-        {
-          ...mashOut,
-          id: "mashOut",
-          label: "מאש אווט",
-          minutes: undefined,
-        },
-      ],
+      steps: normalizedMashSteps,
     },
     lautering: {
       ...fallback.lautering,
