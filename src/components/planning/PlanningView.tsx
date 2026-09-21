@@ -1,7 +1,7 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
+import { addDays, parseDate, sameStyle, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import {
@@ -51,12 +51,48 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
+
+  const identityAlignedPlans = useMemo(
+    () =>
+      plans.map((plan) => {
+        const weekEnd = addDays(plan.id, 6);
+        return {
+          ...plan,
+          brews: plan.brews.map((brew) => {
+            const source = productionTanks.find(
+              (tank) => tank.id === brew.tankId,
+            );
+            if (!source?.batchNumber || !source.beerStyle) return brew;
+
+            const brewed = parseDate(source.brewDate);
+            const belongsToThisWeek =
+              Number(source.action) === 0 ||
+              (!!brewed &&
+                brewed >= plan.id &&
+                brewed <= weekEnd);
+
+            if (
+              belongsToThisWeek &&
+              sameStyle(source.beerStyle, brew.style)
+            ) {
+              return {
+                ...brew,
+                batchNumber: String(source.batchNumber),
+              };
+            }
+
+            return brew;
+          }),
+        };
+      }),
+    [plans, productionTanks],
+  );
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
   const executionPlans = useMemo(
-    () => plansAfterActualPackagingCompletion(plans, settings.products, actuals, productionTanks),
-    [plans, settings.products, actuals, productionTanks],
+    () => plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks),
+    [identityAlignedPlans, settings.products, actuals, productionTanks],
   );
 
   const weeklyPlans = useMemo(
@@ -70,14 +106,14 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   );
 
   const fiveWeekPlans = useMemo(
-    () => withTentativeFiveWeekTanks(plans, tanks, calendarSettings),
-    [plans, tanks, calendarSettings],
+    () => withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings),
+    [identityAlignedPlans, tanks, calendarSettings],
   );
 
   const pendingDailyWork = useMemo(() => {
     const firstWeek = weekStart(today);
     const horizonEnd = addDays(firstWeek, 34);
-    const upcomingPlans = plans.filter((plan) => plan.id >= firstWeek && plan.id <= horizonEnd);
+    const upcomingPlans = identityAlignedPlans.filter((plan) => plan.id >= firstWeek && plan.id <= horizonEnd);
     const brewsToAssign = upcomingPlans.reduce(
       (sum, plan) => sum + plan.brews.filter((brew) => !brew.tankId).length,
       0,
@@ -87,7 +123,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       0,
     );
     return { brews: brewsToAssign, packaging: packagingToAssign, total: brewsToAssign + packagingToAssign };
-  }, [plans, today]);
+  }, [identityAlignedPlans, today]);
 
   useEffect(() => {
     const applyBadge = () => {
@@ -136,11 +172,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
 
       {!data.loading && !data.error && <>
-        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={plans}/>}
+        {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={identityAlignedPlans}/>}
         {tab === "calendar" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningWeeklyReservations settings={calendarSettings} plans={weeklyPlans} historyPlans={plans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} onOpenCoolerMap={onOpenCoolerMap}/>
-          <PlanningShipmentStatusPortal plans={plans} shipments={data.actualShipments} products={settings.products}/>
+          <PlanningWeeklyReservations settings={calendarSettings} plans={weeklyPlans} historyPlans={identityAlignedPlans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} onOpenCoolerMap={onOpenCoolerMap}/>
+          <PlanningShipmentStatusPortal plans={identityAlignedPlans} shipments={data.actualShipments} products={settings.products}/>
         </>}
         {tab === "fiveWeeks" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
@@ -152,7 +188,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         </>}
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={plans} settings={settings} actuals={actuals} today={today}/>} 
-        {tab === "review" && <PlanningReview settings={settings} plans={plans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
+        {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
     </section>
   );
