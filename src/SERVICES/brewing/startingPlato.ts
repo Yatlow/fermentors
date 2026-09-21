@@ -1,6 +1,6 @@
 export type StartingPlatoBlockInput = {
     endBoilPlato: number | null | undefined;
-    cumulativeTankVolumeLiters: number | null | undefined;
+    endBoilVolumeLiters: number | null | undefined;
 };
 
 export type StartingPlatoResult = {
@@ -12,17 +12,17 @@ export type StartingPlatoResult = {
 /**
  * Calculates the rolling, volume-weighted starting Plato for the batch.
  *
- * Each brew block contributes:
+ * Each brew block contributes its own end-of-boil sample:
  *   correctedPlato = endBoilPlato + 0.05
- *   addedVolume = current cumulative tank volume - previous cumulative volume
+ *   weight = endBoilVolumeLiters
  *
- * The "תחילת תסיסה" Plato cell is deliberately not used here because it is a
- * sample from the already-mixed fermentor, not a sample of the individual brew.
+ * Neither the "תחילת תסיסה" Plato nor the cumulative fermentor volume are used
+ * here: the former is already mixed in the FV, while the latter is optional
+ * after brew A and can include transfer losses.
  */
 export function calculateWeightedStartingPlato(
     blocks: StartingPlatoBlockInput[],
 ): StartingPlatoResult {
-    let previousCumulativeVolume = 0;
     let weightedTotal = 0;
     let includedVolume = 0;
     let completedBlocks = 0;
@@ -33,31 +33,29 @@ export function calculateWeightedStartingPlato(
             block.endBoilPlato !== null &&
             block.endBoilPlato !== undefined;
         const hasRawVolume =
-            block.cumulativeTankVolumeLiters !== null &&
-            block.cumulativeTankVolumeLiters !== undefined;
+            block.endBoilVolumeLiters !== null &&
+            block.endBoilVolumeLiters !== undefined;
 
         const plato = hasRawPlato ? Number(block.endBoilPlato) : NaN;
-        const cumulativeVolume = hasRawVolume
-            ? Number(block.cumulativeTankVolumeLiters)
+        const endBoilVolume = hasRawVolume
+            ? Number(block.endBoilVolumeLiters)
             : NaN;
 
         const hasPlato = Number.isFinite(plato);
-        const hasVolume = Number.isFinite(cumulativeVolume) && cumulativeVolume > 0;
+        const hasVolume = Number.isFinite(endBoilVolume) && endBoilVolume > 0;
 
         if (!hasPlato && !hasVolume) {
             isPartial = true;
             break;
         }
 
-        if (!hasPlato || !hasVolume || cumulativeVolume <= previousCumulativeVolume) {
+        if (!hasPlato || !hasVolume) {
             isPartial = true;
             break;
         }
 
-        const addedVolume = cumulativeVolume - previousCumulativeVolume;
-        weightedTotal += (plato + 0.05) * addedVolume;
-        includedVolume += addedVolume;
-        previousCumulativeVolume = cumulativeVolume;
+        weightedTotal += (plato + 0.05) * endBoilVolume;
+        includedVolume += endBoilVolume;
         completedBlocks += 1;
     }
 
