@@ -180,6 +180,25 @@ export default function BrewingView({ brews, tab }: Props) {
         };
     }, [sandbox, showCreate]);
 
+    useEffect(() => {
+        if (!sandbox || !showCreate || planningHints.length === 0) return;
+
+        const used = new Set(
+            [
+                ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
+                ...sandboxRuns.map((run) => String(run.batchNumber).replace("#", "").trim()),
+            ].filter(Boolean),
+        );
+
+        const nextPlanned = [...planningHints]
+            .filter((hint) => !used.has(String(hint.batchNumber).replace("#", "").trim()))
+            .sort((a, b) => Number(a.batchNumber) - Number(b.batchNumber))[0];
+
+        if (nextPlanned?.batchNumber) {
+            setSuggestedBatch(String(nextPlanned.batchNumber));
+        }
+    }, [sandbox, showCreate, planningHints, brews, sandboxRuns]);
+
     function findProductionAssignment(batchNumber: string): Fermentor | null {
         const clean = String(batchNumber || "").replace("#", "").trim();
         if (!clean) return null;
