@@ -1749,3 +1749,30 @@
     color: #64748b;
     opacity: 0.8;
 }
+
+
+.brew-lot-editor-head-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.brew-lot-editor-head-actions .brew-action-button-danger {
+    min-height: 30px;
+    padding-inline: 9px;
+    font-size: 0.62rem;
+}
+
+@media (max-width: 520px) {
+    .brew-lot-editor-head-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .brew-lot-editor-head-actions select,
+    .brew-lot-editor-head-actions button {
+        flex: 1 1 auto;
+    }
+}
