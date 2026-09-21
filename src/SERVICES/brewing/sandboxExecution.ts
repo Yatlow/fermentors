@@ -69,3 +69,21 @@ export function setSandboxExecutionActiveBlock(
 ): BrewExecution {
   return saveSandboxExecution({ ...execution, activeBlockIndex });
 }
+
+
+export function replaceSandboxExecutionBlockFields(
+  execution: BrewExecution,
+  blockIndex: number,
+  fields: Record<string, string>,
+): BrewExecution {
+  const blockKey = String(blockIndex);
+  return saveSandboxExecution({
+    ...execution,
+    blocks: {
+      ...execution.blocks,
+      [blockKey]: {
+        fields: { ...fields },
+      },
+    },
+  });
+}
