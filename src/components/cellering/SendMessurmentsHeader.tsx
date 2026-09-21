@@ -22,6 +22,10 @@ import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurren
 // ומאפשר למשתמש לערוך את חלוקת המשטחים לפני שהם נוצרים בפועל.
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
+import {
+    recordPressureV9Shadow,
+    recordPressureV9ShadowAction,
+} from "../../SERVICES/cellering/pressurePredictionV9Shadow";
 
 export type SendMessurmentsHeaderProps = {
     brews: Fermentor[],
@@ -601,6 +605,92 @@ export default function SendMessurmentsHeader({
                     "The Sheet was updated, but the realtime Firestore update failed:",
                     error
                 );
+            }
+
+            // V9 runs in silent shadow mode in production. It never changes
+            // what the worker sees or does. A successful carbonation sample
+            // stores V9's recommendation/forecast; later action notes are linked
+            // to that open snapshot with their real timestamp.
+            if (specs) {
+                const carbonationReadings = succeededReadings.filter(
+                    (reading) =>
+                        reading.carbonation !== undefined &&
+                        reading.carbonation !== null &&
+                        reading.carbonation !== "" &&
+                        Number.isFinite(Number(reading.carbonation))
+                );
+
+                if (carbonationReadings.length > 0) {
+                    const shadowResults = await Promise.allSettled(
+                        carbonationReadings.map(async (reading) => {
+                            const tank = brews.find(
+                                (candidate) =>
+                                    String(candidate.id) === String(reading.tankId)
+                            );
+                            if (!tank?.batchNumber) return null;
+
+                            const history = await getMeasurementsByBatch(
+                                tank.batchNumber
+                            );
+                            const withCurrentReading = mergeReadingIntoMeasurements(
+                                history,
+                                reading
+                            );
+
+                            return recordPressureV9Shadow({
+                                tank,
+                                reading,
+                                measurements: withCurrentReading,
+                                specs,
+                            });
+                        })
+                    );
+
+                    shadowResults.forEach((result, index) => {
+                        if (result.status === "rejected") {
+                            console.warn(
+                                "V9 shadow snapshot failed",
+                                carbonationReadings[index]?.tankNumber,
+                                result.reason
+                            );
+                        }
+                    });
+                }
+
+                const actionReadings = succeededReadings.filter(
+                    (reading) =>
+                        reading.notes &&
+                        /לחץ|גיזוז מלמטה|שמרים|שמרי/i.test(
+                            String(reading.notes)
+                        )
+                );
+
+                if (actionReadings.length > 0) {
+                    const actionResults = await Promise.allSettled(
+                        actionReadings.map(async (reading) => {
+                            const tank = brews.find(
+                                (candidate) =>
+                                    String(candidate.id) === String(reading.tankId)
+                            );
+                            if (!tank?.batchNumber) return false;
+
+                            return recordPressureV9ShadowAction({
+                                tank,
+                                reading,
+                            });
+                        })
+                    );
+
+                    actionResults.forEach((result, index) => {
+                        if (result.status === "rejected") {
+                            console.warn(
+                                "V9 shadow action link failed",
+                                actionReadings[index]?.tankNumber,
+                                result.reason
+                            );
+                        }
+                    });
+                }
             }
 
             const allSucceeded = res.every((r) => r.success);
