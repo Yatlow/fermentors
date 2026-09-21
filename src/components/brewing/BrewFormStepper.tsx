@@ -616,6 +616,67 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     [execution.blocks, totalBlocks],
   );
 
+  const closestHistoryKey = useMemo(() => {
+    if (!acidHistoryMode || acidHistory.length === 0) return "";
+
+    const currentPh =
+      acidHistoryMode === "mash"
+        ? num(fields.mashPh || "")
+        : num(fields.boilPh || "");
+    if (currentPh === null) return "";
+
+    const currentVolume =
+      acidHistoryMode === "mash"
+        ? num(fields.mashVolume || "")
+        : num(fields.kettleVolume || "");
+
+    const ranked = acidHistory
+      .map((row) => {
+        const rowPh =
+          acidHistoryMode === "mash"
+            ? num(row.mashPh || "")
+            : num(row.boilPh || "");
+        const rowVolume =
+          acidHistoryMode === "mash"
+            ? num(row.mashVolume || "")
+            : num(row.kettleVolume || "");
+
+        if (rowPh === null) return null;
+
+        return {
+          key: `${row.batchNumber}-${row.brewLetter}`,
+          phDistance: Math.abs(rowPh - currentPh),
+          volumeDistance:
+            currentVolume !== null && rowVolume !== null
+              ? Math.abs(rowVolume - currentVolume)
+              : Number.POSITIVE_INFINITY,
+        };
+      })
+      .filter(
+        (
+          row,
+        ): row is {
+          key: string;
+          phDistance: number;
+          volumeDistance: number;
+        } => !!row,
+      )
+      .sort(
+        (a, b) =>
+          a.phDistance - b.phDistance ||
+          a.volumeDistance - b.volumeDistance,
+      );
+
+    return ranked[0]?.key || "";
+  }, [
+    acidHistory,
+    acidHistoryMode,
+    fields.boilPh,
+    fields.kettleVolume,
+    fields.mashPh,
+    fields.mashVolume,
+  ]);
+
   const boilRecommendation = useMemo(() => {
     const volume = num(fields.boilSampleVolume || "1200");
     const plato = num(fields.boilSamplePlato || "");
@@ -2329,6 +2390,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
   }
 
+  function transferDurationText(): string {
+    const start = localValue("outToBoil.start");
+    const end = localValue("endTransfer.start");
+    if (!start || !end) return "";
+
+    const minutes = forwardMinutes(start, end);
+    if (minutes === null || minutes > 8 * 60) return "";
+    return `מהוצאה לבישול עד סוף העברה: ${minutes} דק׳`;
+  }
+
   function renderStageRows(stages: StageDef[]) {
     return (
       <div className="brew-stage-list">
@@ -2362,6 +2433,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 {!target && duration && (
                   <small>{duration} דק׳</small>
                 )}
+                {stage.key === "endTransfer" && transferDurationText() && (
+                  <small className="brew-stage-duration">
+                    {transferDurationText()}
+                  </small>
+                )}
               </div>
 
               <label className="brew-stage-start">
@@ -2372,6 +2448,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     inputMode="numeric"
                     dir="ltr"
                     placeholder="HH:MM"
+                    required
                     value={localValue(`${stage.key}.start`)}
                     onChange={(e) =>
                       setLocal(`${stage.key}.start`, e.target.value)
@@ -2402,6 +2479,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       inputMode="numeric"
                       dir="ltr"
                       placeholder="HH:MM"
+                      required
                       value={localValue(`${stage.key}.end`)}
                       onChange={(e) =>
                         setLocal(`${stage.key}.end`, e.target.value)
@@ -2430,6 +2508,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <input
                     type="number"
                     step="0.1"
+                    required
                     value={
                       localValue(`${stage.key}.temp`) ||
                       (stage.key === "transferLt" ? "77.5" : "")
@@ -2451,6 +2530,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <input
                     type="number"
                     step="0.01"
+                    required
                     value={localValue("outToBoilPh")}
                     onChange={(e) =>
                       setLocal("outToBoilPh", e.target.value)
@@ -2717,9 +2797,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               <label>
                 תאריך
                 <input
-                  type="date"
-                  value={localValue("brewDate")}
-                  onChange={(e) => setLocal("brewDate", e.target.value)}
+                  key={`${currentBlock}-${localValue("brewDate")}`}
+                  type="text"
+                  inputMode="numeric"
+                  dir="ltr"
+                  placeholder="DD/MM/YY"
+                  required
+                  defaultValue={shortIsraeliDate(localValue("brewDate"))}
                   onBlur={(e) => void commitBrewDate(e.target.value)}
                 />
               </label>
