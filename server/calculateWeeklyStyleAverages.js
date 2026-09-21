@@ -36,7 +36,7 @@ function calculateWeeklyStyleAverages(force) {
 
   // style -> day -> metric -> { sum, count }
   const accumulator = {};
-  // style -> unique brew IDs
+  // style -> unique brew IDs used for batch counts
   const batchTracker = {};
 
   allBrews.forEach(function (brew) {
