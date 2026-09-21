@@ -588,6 +588,8 @@ function simulateTrajectory(args: {
   futureOperationalLossBar: number;
   hours: number;
   temperaturePath?: PressureV9TemperaturePathPoint[];
+  pressureActionAtHour?: number | null;
+  pressureActionTargetBar?: number | null;
 }): {
   points: TrajectoryPoint[];
   finalEquilibrium: {
@@ -631,6 +633,24 @@ function simulateTrajectory(args: {
         temperatureC: temperature,
       });
       gasMoles = Math.max(0.0001, gasMoles - loss);
+    }
+
+    if (
+      args.pressureActionAtHour !== null &&
+      args.pressureActionAtHour !== undefined &&
+      args.pressureActionTargetBar !== null &&
+      args.pressureActionTargetBar !== undefined &&
+      hour === args.pressureActionAtHour
+    ) {
+      gasMoles = headspaceCo2Moles({
+        gaugePressureBar: clamp(
+          args.pressureActionTargetBar,
+          0,
+          MAX_OPERATIONAL_PRESSURE_BAR,
+        ),
+        headspaceLiters: args.headspaceLiters,
+        temperatureC: temperature,
+      });
     }
 
     let pressure = gaugePressureFromHeadspaceMoles({
@@ -792,6 +812,7 @@ export function simulateV9ActionForecast(args: {
   kPerHour: number;
   futureOperationalLossBar?: number;
   hours?: number;
+  actionDelayHours?: number | null;
 }): PressureV9ActionForecast | null {
   const geometry = estimatedV9TankGeometry(
     args.tankNumber,
@@ -811,11 +832,28 @@ export function simulateV9ActionForecast(args: {
     168,
   );
 
+  const actionDelayHours =
+    finite(args.actionDelayHours) !== null
+      ? clamp(
+          Math.round(Number(args.actionDelayHours)),
+          0,
+          hours,
+        )
+      : 0;
+  const delayedAction =
+    actionDelayHours > 0;
+
   const trajectory = simulateTrajectory({
     startCarbonation:
       args.startCarbonation,
     setPressure:
-      clamp(args.setPressure, 0, MAX_OPERATIONAL_PRESSURE_BAR),
+      clamp(
+        delayedAction
+          ? args.startPressure
+          : args.setPressure,
+        0,
+        MAX_OPERATIONAL_PRESSURE_BAR,
+      ),
     currentTemperature:
       args.startTemperature,
     finalTemperature:
@@ -833,6 +871,14 @@ export function simulateV9ActionForecast(args: {
         args.futureOperationalLossBar ?? 0,
       ),
     hours,
+    pressureActionAtHour:
+      delayedAction
+        ? actionDelayHours
+        : null,
+    pressureActionTargetBar:
+      delayedAction
+        ? args.setPressure
+        : null,
   });
 
   return {
