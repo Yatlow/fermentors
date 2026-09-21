@@ -1525,6 +1525,14 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         value: mashMetaText(nextFields),
       },
     ]);
+
+    if (String(nextFields["mashIn.note"] || "").trim()) {
+      await commitCorrectionNote(
+        "mashIn.note",
+        "הערת מאש",
+        nextFields["mashIn.note"],
+      );
+    }
   }
 
   async function commitMashAcid(value: string) {
@@ -1932,12 +1940,51 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
-    await commit(key, value, [
+    let nextExecution = setSandboxExecutionField(
+      execution,
+      currentBlock,
+      key,
+      value,
+    );
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [
       {
         range: `'גיליון1'!B${baseRow + 15 + index}`,
         value: parsed ?? "",
       },
-    ]);
+    ];
+
+    const hop = boilHops[index];
+    const kettleVolume = num(fields.kettleVolume || "");
+    if (
+      hop?.purpose === "bitterness" &&
+      parsed !== null &&
+      parsed > 0 &&
+      kettleVolume !== null &&
+      Number.isFinite(Number(hop.aa)) &&
+      Number(hop.aa) > 0
+    ) {
+      const gramsPerLiter =
+        (Number(hop.gramsPerLiter || 0) * Number(hop.aa)) / parsed;
+      const grams = roundToFive(gramsPerLiter * kettleVolume);
+      const amountKey = `hop${index + 1}.amountGrams`;
+
+      nextExecution = setSandboxExecutionField(
+        nextExecution,
+        currentBlock,
+        amountKey,
+        String(grams),
+      );
+      writes.push({
+        range: `'גיליון1'!A${baseRow + 15 + index}`,
+        value: grams,
+      });
+    }
+
+    setExecution(nextExecution);
+    await writeSheet(key, writes);
   }
 
   async function commitEndBoil(raw: string) {
@@ -2026,6 +2073,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       key === "fermentorSamplePlato" ||
       key === "cumulativeTankVolume" ||
       key === "endBoilTime" ||
+      key === "generalNote" ||
       /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
       /^hop[1-3]\.(amountGrams|alphaOverride)$/.test(key) ||
       /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
@@ -2056,6 +2104,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       outToFermentorPh: "pH בהוצאה לתסיסה",
       yeastPitchTime: "שעת הוספת שמרים",
       endBoilTime: "שעת סוף רתיחה",
+      generalNote: "הערה כללית / תיקונים",
     };
     if (labels[key]) return labels[key];
 
