@@ -621,3 +621,34 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
+
+
+.brew-transfer-stage {
+    margin-bottom: 8px;
+}
+
+.brew-starting-plato-live {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    padding: 9px 10px;
+    border: 1px solid #bbf7d0;
+    border-radius: var(--radius-sm);
+    background: #f0fdf4;
+    color: #166534;
+}
+
+.brew-starting-plato-live span,
+.brew-starting-plato-live small {
+    font-size: 0.66rem;
+}
+
+.brew-starting-plato-live strong {
+    font-size: 1rem;
+}
+
+.brew-starting-plato-live small {
+    grid-column: 1 / -1;
+}
