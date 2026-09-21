@@ -110,17 +110,24 @@ export default function BrewingView({ brews, tab }: Props) {
         getAllBrewsSummary()
             .then((rows) => {
                 if (cancelled) return;
-                const max = rows.reduce((current, row) => {
+                const maxHistory = rows.reduce((current, row) => {
                     const value = Number(String(row.batchNumber).replace("#", "").trim());
                     return Number.isFinite(value) ? Math.max(current, value) : current;
                 }, 0);
+                const maxAssigned = brews.reduce((current, tank) => {
+                    const value = Number(
+                        String(tank.batchNumber || "").replace("#", "").trim(),
+                    );
+                    return Number.isFinite(value) ? Math.max(current, value) : current;
+                }, 0);
+                const max = Math.max(maxHistory, maxAssigned);
                 if (max > 0) setSuggestedBatch(String(max + 1));
             })
             .catch(() => undefined);
         return () => {
             cancelled = true;
         };
-    }, [sandbox]);
+    }, [sandbox, brews]);
 
     useEffect(() => {
         if (!sandbox || !suggestedBatch) return;
