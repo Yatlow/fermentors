@@ -5,13 +5,6 @@ import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
 import { carbonationRetestPolicy } from "./carbonationRetestPolicy";
-import {
-    buildPressureV4DecisionState,
-} from "./pressurePredictionV4";
-import {
-    getEquilibriumPressureForV4,
-    getPressurePredictionModelV4,
-} from "./pressurePredictionV4Model";
 
 
 
@@ -1288,10 +1281,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         lastMeasurement?.carbonation !== undefined &&
         Number.isFinite(Number(lastMeasurement.carbonation));
     const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
-    const currentCarbonation = hasLatestCarb ? Number(lastMeasurement.carbonation) : null;
-    const currentPressure = Number.isFinite(Number(lastMeasurement?.pressure))
-        ? Number(lastMeasurement.pressure)
-        : null;
     const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
     const bottomCarbonationCompletedToday =
         lastMeasurementDate === todayDate &&
