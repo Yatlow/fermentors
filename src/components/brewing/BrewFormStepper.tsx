@@ -3297,7 +3297,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <table className="brew-acid-history-table">
                   <thead>
                     <tr>
-                      <th>אצווה / בישול</th>
+                      <th>אצווה</th>
                       <th>תאריך</th>
                       <th>pH מאש</th>
                       <th>נפח מאש</th>
