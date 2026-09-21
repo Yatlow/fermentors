@@ -115,7 +115,7 @@ function layoutFor(tankType: TankType) {
       fermentationHeaderRow: 104,
       startingPlatoRow: 106,
       startingPlatoFormula:
-        '=IF(B98<>"",IF(AND(C49<>"",C99<>""),(((B48+0.05)*C49)+((B98+0.05)*(C99-C49)))/C99,""),IF(B48<>"",B48+0.05,""))',
+        '=IF(B98<>"",IF(AND(C48<>"",C98<>""),(((B48+0.05)*C48)+((B98+0.05)*C98))/(C48+C98),""),IF(B48<>"",B48+0.05,""))',
     };
   }
   return {
@@ -123,7 +123,7 @@ function layoutFor(tankType: TankType) {
     fermentationHeaderRow: 154,
     startingPlatoRow: 156,
     startingPlatoFormula:
-      '=IF(B145<>"",IF(AND(C49<>"",C99<>"",C146<>""),(((B48+0.05)*C49)+((B98+0.05)*(C99-C49))+((B145+0.05)*(C146-C99)))/C146,""),IF(B98<>"",IF(AND(C49<>"",C99<>""),(((B48+0.05)*C49)+((B98+0.05)*(C99-C49)))/C99,""),IF(B48<>"",B48+0.05,"")))',
+      '=IF(B145<>"",IF(AND(C48<>"",C98<>"",C145<>""),(((B48+0.05)*C48)+((B98+0.05)*C98)+((B145+0.05)*C145))/(C48+C98+C145),""),IF(B98<>"",IF(AND(C48<>"",C98<>""),(((B48+0.05)*C48)+((B98+0.05)*C98))/(C48+C98),""),IF(B48<>"",B48+0.05,"")))',
   };
 }
 
