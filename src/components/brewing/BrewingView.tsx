@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import {
+    attachSandboxSheet,
     createSandboxBrewRun,
     deleteSandboxBrewRun,
     isBrewingSandbox,
@@ -13,6 +14,7 @@ import {
     type SandboxBrewRun,
     type SandboxDemoTank,
 } from "../../SERVICES/brewing/brewingSandbox";
+import { createSandboxBrewSheet, ensureSandboxSheetAccess } from "../../SERVICES/brewing/sandboxSheet";
 import "./BrewingView.css";
 import type { BrewingTab } from "./brewingTabs";
 
@@ -89,13 +91,14 @@ export default function BrewingView({ brews, tab }: Props) {
     );
 
     const styles = useMemo(() => {
+        if (sandbox) return ["IPA"];
         const fromTanks = brews
             .map((tank) => String(tank.beerStyle || "").trim())
             .filter(Boolean);
         return Array.from(new Set([...DEFAULT_STYLES, ...fromTanks])).sort((a, b) =>
             a.localeCompare(b, "he")
         );
-    }, [brews]);
+    }, [brews, sandbox]);
 
     useEffect(() => {
         if (!sandbox) return;
@@ -148,7 +151,13 @@ export default function BrewingView({ brews, tab }: Props) {
         };
         setMessage("");
         setBusyTankId(tank.id);
+        let createdBatch: string | null = null;
+
         try {
+            // Ask for Google access while the click gesture is still active.
+            // This keeps the browser from blocking the OAuth popup.
+            await ensureSandboxSheetAccess();
+
             const run = await createSandboxBrewRun({
                 batchNumber: draft.batchNumber,
                 tankId: tank.id,
@@ -157,16 +166,36 @@ export default function BrewingView({ brews, tab }: Props) {
                 style: draft.style,
                 source: "manual",
             });
+            createdBatch = run.batchNumber;
+
+            const sheet = await createSandboxBrewSheet({
+                batchNumber: run.batchNumber,
+                style: run.style,
+                tankNumber: run.tankNumber,
+                tankType: run.tankType,
+            });
+
+            attachSandboxSheet(run.batchNumber, sheet);
             setSandboxRuns(loadSandboxBrewRuns());
+
             if (tank.id === demoTank.id) {
                 setDemoTank(markSandboxDemoTankBrewing());
             }
+
             setMessage(
-                `✓ אצווה ${run.batchNumber} נוצרה ב-Sandbox בלבד. פרודקשן והמיכל לא השתנו.`
+                `✓ אצווה ${run.batchNumber} ו-Sheet נוצרו ב-Sandbox. פרודקשן והמיכל האמיתי לא השתנו.`
             );
             setSuggestedBatch(String(Number(run.batchNumber) + 1));
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : "יצירת אצוות Sandbox נכשלה.");
+            if (createdBatch) {
+                deleteSandboxBrewRun(createdBatch);
+                setSandboxRuns(loadSandboxBrewRuns());
+            }
+            setMessage(
+                error instanceof Error
+                    ? error.message
+                    : "יצירת אצוות Sandbox וה-Sheet נכשלה."
+            );
         } finally {
             setBusyTankId(null);
         }
@@ -287,6 +316,11 @@ export default function BrewingView({ brews, tab }: Props) {
                                                         ))}
                                                     </select>
                                                 </label>
+                                                {sandbox && (
+                                                    <small className="brewing-field-note">
+                                                        בשלב הזה יצירת Sheet פעילה ל-IPA; שאר המתכונים יחוברו דרך brewRecipes.
+                                                    </small>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => void createSandbox(tank)}
@@ -297,8 +331,8 @@ export default function BrewingView({ brews, tab }: Props) {
                                                     }
                                                 >
                                                     {busyTankId === tank.id
-                                                        ? "בודק ויוצר..."
-                                                        : "צור אצוות Sandbox"}
+                                                        ? "יוצר אצווה ו-Sheet..."
+                                                        : "צור אצוות Sandbox + Sheet"}
                                                 </button>
                                             </div>
                                         ) : (
@@ -377,6 +411,20 @@ export default function BrewingView({ brews, tab }: Props) {
                                             <span>Sandbox בלבד</span>
                                         </div>
                                         <div className="brewing-card-actions">
+                                            {run.sheetUrl ? (
+                                                <a
+                                                    className="brewing-sheet-link"
+                                                    href={run.sheetUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                >
+                                                    פתח Sheet
+                                                </a>
+                                            ) : (
+                                                <button type="button" disabled>
+                                                    Sheet לא נוצר
+                                                </button>
+                                            )}
                                             <button type="button" disabled>
                                                 פתיחת Stepper — בשלב הבא
                                             </button>
