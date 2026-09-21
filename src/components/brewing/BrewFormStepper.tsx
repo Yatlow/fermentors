@@ -217,19 +217,15 @@ function sheetCell(
   column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
 ): string {
   const columnIndex = {
-    A: -1,
-    B: 0,
-    C: 1,
-    D: 2,
-    E: 3,
-    F: 4,
-    G: 5,
-    H: 6,
+    A: 0,
+    B: 1,
+    C: 2,
+    D: 3,
+    E: 4,
+    F: 5,
+    G: 6,
+    H: 7,
   }[column];
-
-  if (column === "A") {
-    return "";
-  }
   return String(rows[rowOffset]?.[columnIndex] ?? "").trim();
 }
 
@@ -743,7 +739,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         const row = blockBaseRow(run.tankType, index);
         const rows = await readSandboxSheetRange(
           run.sheetId,
-          `'גיליון1'!B${row}:H${row + 40}`,
+          `'גיליון1'!A${row}:H${row + 40}`,
         );
         const pulled = fieldsFromSheetRows(
           rows,
