@@ -14,6 +14,10 @@ import {
 } from "../../SERVICES/brewing/sandboxSheet";
 import BeerLoader from "../general/Loading";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
+import {
+  loadMashAcidHistoryPreview,
+  type MashAcidHistoryRow,
+} from "../../SERVICES/brewing/mashAcidHistory";
 
 type Props = {
   run: SandboxBrewRun;
@@ -364,6 +368,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [syncing, setSyncing] = useState("");
   const [pulling, setPulling] = useState(false);
   const [message, setMessage] = useState("");
+  const [acidHistoryOpen, setAcidHistoryOpen] = useState(false);
+  const [acidHistoryLoading, setAcidHistoryLoading] = useState(false);
+  const [acidHistoryError, setAcidHistoryError] = useState("");
+  const [acidHistory, setAcidHistory] = useState<MashAcidHistoryRow[]>([]);
 
   const totalBlocks = getBlockCount(run.tankType);
   const currentBlock = Math.min(
@@ -393,13 +401,23 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const boilRecommendation = useMemo(() => {
     const volume = num(fields.boilSampleVolume || "1200");
     const plato = num(fields.boilSamplePlato || "");
-    if (volume === null || plato === null || !recipe.targets.endBoilPlato) {
+    const evaporationFactor = num(fields.boilEvaporationFactor || "100");
+    if (
+      volume === null ||
+      plato === null ||
+      evaporationFactor === null ||
+      !recipe.targets.endBoilPlato
+    ) {
       return null;
     }
-    return (volume * plato) / recipe.targets.endBoilPlato + 100;
+    return (
+      (volume * plato) / recipe.targets.endBoilPlato +
+      evaporationFactor
+    );
   }, [
     fields.boilSampleVolume,
     fields.boilSamplePlato,
+    fields.boilEvaporationFactor,
     recipe.targets.endBoilPlato,
   ]);
 
@@ -421,22 +439,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
     if (highestWithData === 0) return 1;
 
-    const requiredKeys = [
-      `rinse${highestWithData}.time`,
-      `rinse${highestWithData}.amount`,
-      `rinse${highestWithData}.temp`,
-      `rinse${highestWithData}.kettle`,
-      ...(recipe.lautering.usesGrant
-        ? [`rinse${highestWithData}.grant`]
-        : []),
-    ];
+    const hasTime =
+      String(fields[`rinse${highestWithData}.time`] || "").trim() !== "";
 
-    const completed = requiredKeys.every(
-      (key) => String(fields[key] || "").trim() !== "",
-    );
-
-    return Math.min(7, completed ? highestWithData + 1 : highestWithData);
-  }, [fields, recipe.lautering.usesGrant]);
+    return Math.min(7, hasTime ? highestWithData + 1 : highestWithData);
+  }, [fields]);
 
   const missingItems = useMemo(() => {
     const items: string[] = [];
@@ -467,7 +474,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
 
     if (stepId === "mash") {
-      const required = ["mashVolume", "mashPh"];
+      const required = ["mashVolume", "mashPh", "mashAcid85"];
       MASH_STAGES.forEach((stage) => {
         required.push(
           `${stage.key}.start`,
@@ -482,6 +489,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       const required = [
         "transferLt.start",
         "transferLt.end",
+        "transferLt.temp",
         "restLt.start",
         "restLt.end",
         "circulation.start",
@@ -604,6 +612,19 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       range: string;
       value: string | number | boolean | null;
     }> = [{ range: stageCell(stage.rowOffset, "E"), value }];
+
+    if (stage.key === "transferLt" && !String(fields["transferLt.temp"] || "").trim()) {
+      nextExecution = setSandboxExecutionField(
+        nextExecution,
+        currentBlock,
+        "transferLt.temp",
+        "77.5",
+      );
+      writes.push({
+        range: stageCell(stage.rowOffset, "G"),
+        value: "77.5°C",
+      });
+    }
 
     const duration = knownDuration(stage);
     if (value && duration !== null) {
@@ -973,6 +994,27 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
   }
 
+  async function openAcidHistory() {
+    setAcidHistoryOpen(true);
+    setAcidHistoryLoading(true);
+    setAcidHistoryError("");
+    try {
+      const rows = await loadMashAcidHistoryPreview(
+        run.style,
+        run.batchNumber,
+      );
+      setAcidHistory(rows);
+    } catch (error) {
+      setAcidHistoryError(
+        error instanceof Error
+          ? error.message
+          : "טעינת היסטוריית החומצה נכשלה.",
+      );
+    } finally {
+      setAcidHistoryLoading(false);
+    }
+  }
+
   function renderStageRows(stages: StageDef[]) {
     return (
       <div className="brew-stage-list">
@@ -1008,7 +1050,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 )}
               </div>
 
-              <label>
+              <label className="brew-stage-start">
                 התחלה
                 <div className="brew-time-input">
                   <input
@@ -1038,7 +1080,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </label>
 
               {showEnd && (
-                <label>
+                <label className="brew-stage-end">
                   סיום
                   <div className="brew-time-input">
                     <input
@@ -1069,12 +1111,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               )}
 
               {stage.showTemp && (
-                <label>
+                <label className="brew-stage-temp">
                   טמפ׳
                   <input
                     type="number"
                     step="0.1"
-                    value={localValue(`${stage.key}.temp`)}
+                    value={
+                      localValue(`${stage.key}.temp`) ||
+                      (stage.key === "transferLt" ? "77.5" : "")
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
                     onChange={(e) =>
                       setLocal(`${stage.key}.temp`, e.target.value)
                     }
@@ -1086,7 +1132,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               )}
 
               {stage.key === "outToBoil" && (
-                <label>
+                <label className="brew-stage-ph">
                   pH
                   <input
                     type="number"
@@ -1176,7 +1222,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               className={currentBlock === index ? "active" : ""}
               onClick={() => void selectBlock(index)}
             >
-              בישול {index}
+              {(["A", "B", "C"] as const)[index - 1]}
             </button>
           ),
         )}
@@ -1204,7 +1250,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               }
               onClick={() => setActiveStep(index)}
             >
-              <span aria-hidden="true">{complete ? "✓" : "⚠"}</span>
+              <span className="brew-step-marker" aria-hidden="true">
+                <b>{index + 1}</b>
+                <em>{complete ? "✓" : "⚠"}</em>
+              </span>
               <strong>{step.label}</strong>
             </button>
           );
@@ -1338,20 +1387,29 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 />
               </label>
 
-              <label>
-                כמות H3PO4 85% (ML)
-                <input
-                  type="number"
-                  step="0.1"
-                  value={localValue("mashAcid85")}
-                  onChange={(e) =>
-                    setLocal("mashAcid85", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitMashAcid(e.target.value)
-                  }
-                />
-              </label>
+              <div className="brew-acid-field">
+                <label>
+                  כמות H3PO4 85% (ML)
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={localValue("mashAcid85")}
+                    onChange={(e) =>
+                      setLocal("mashAcid85", e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitMashAcid(e.target.value)
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="brew-button-secondary brew-acid-history-button"
+                  onClick={() => void openAcidHistory()}
+                >
+                  3 אצוות אחרונות
+                </button>
+              </div>
             </div>
 
             {renderStageRows(MASH_STAGES.slice(1))}
@@ -1539,7 +1597,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 </div>
               </div>
 
-              <div className="brew-editor-two-cols">
+              <div className="brew-editor-two-cols brew-boil-calc-grid">
                 <label>
                   נפח בזמן הדגימה
                   <input
@@ -1565,6 +1623,22 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     onChange={(e) =>
                       setLocal(
                         "boilSamplePlato",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  פקטור אידוי (ל׳)
+                  <input
+                    type="number"
+                    step="1"
+                    value={localValue("boilEvaporationFactor") || "100"}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) =>
+                      setLocal(
+                        "boilEvaporationFactor",
                         e.target.value,
                       )
                     }
@@ -1900,6 +1974,91 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           </div>
         )}
       </section>
+
+      {acidHistoryOpen && (
+        <div
+          className="brew-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setAcidHistoryOpen(false);
+            }
+          }}
+        >
+          <section
+            className="brew-acid-history-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="brew-acid-history-title"
+          >
+            <div className="brew-modal-header">
+              <div>
+                <h2 id="brew-acid-history-title">
+                  היסטוריית חומצה · {run.style}
+                </h2>
+                <p>3 אצוות אחרונות · עד 9 בישולים</p>
+              </div>
+              <button
+                type="button"
+                className="brew-modal-close brew-button-icon"
+                onClick={() => setAcidHistoryOpen(false)}
+                aria-label="סגירה"
+              >
+                ×
+              </button>
+            </div>
+
+            {acidHistoryLoading ? (
+              <div className="brew-modal-loader">
+                <BeerLoader size="small" message="טוען בישולים קודמים…" />
+              </div>
+            ) : acidHistoryError ? (
+              <div className="brewing-message brewing-message-error">
+                {acidHistoryError}
+              </div>
+            ) : acidHistory.length === 0 ? (
+              <div className="brew-acid-history-empty">
+                לא נמצאו נתוני מאש קודמים לסגנון הזה.
+              </div>
+            ) : (
+              <div className="brew-acid-history-scroll">
+                <table className="brew-acid-history-table">
+                  <thead>
+                    <tr>
+                      <th>אצווה / בישול</th>
+                      <th>תאריך</th>
+                      <th>pH מאש</th>
+                      <th>נפח מאש</th>
+                      <th>H3PO4 85% (ML)</th>
+                      <th>pH הוצאה לתסיסה</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {acidHistory.map((row) => (
+                      <tr key={`${row.batchNumber}-${row.brewLetter}`}>
+                        <td>
+                          <a
+                            href={row.sheetUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            #{row.batchNumber}{row.brewLetter}
+                          </a>
+                        </td>
+                        <td>{row.brewDate || "—"}</td>
+                        <td>{row.mashPh || "—"}</td>
+                        <td>{row.mashVolume || "—"}</td>
+                        <td>{row.acidMl || "—"}</td>
+                        <td>{row.outToFermentorPh || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
       <div className="brew-step-footer">
         <button
