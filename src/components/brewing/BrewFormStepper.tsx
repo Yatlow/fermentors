@@ -192,9 +192,17 @@ function num(value: string): number | null {
 
 function normalizedTime(value: unknown): string {
   const text = String(value ?? "").trim();
-  const match = text.match(/(?:^|\s)(\d{1,2}):(\d{2})(?::\d{2})?(?:\s|$)/);
+  const match = text.match(
+    /(?:^|\s)(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?(?:\s|$)/i,
+  );
   if (!match) return "";
-  return `${String(Number(match[1])).padStart(2, "0")}:${match[2]}`;
+
+  let hour = Number(match[1]);
+  const suffix = String(match[3] || "").toUpperCase();
+  if (suffix === "PM" && hour < 12) hour += 12;
+  if (suffix === "AM" && hour === 12) hour = 0;
+
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
 }
 
 function numericText(value: unknown): string {
