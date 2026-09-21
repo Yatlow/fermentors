@@ -568,6 +568,14 @@ function executePostAction_(data) {
     };
   }
 
+  if (data.action === "BrewSheetListHistory") {
+    return {
+      success: true,
+      action: "BrewSheetListHistory",
+      result: brewingSheetListHistory_(data)
+    };
+  }
+
   throw new Error("Unknown action: " + data.action);
 }
 
