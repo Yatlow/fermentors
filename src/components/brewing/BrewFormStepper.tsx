@@ -27,6 +27,8 @@ type StageDef = {
   rowOffset: number;
   showTemp?: boolean;
   showNote?: boolean;
+  showEnd?: boolean;
+  defaultMinutes?: number;
   targetRecipeStepId?: string;
 };
 
@@ -91,16 +93,38 @@ const MASH_STAGES: StageDef[] = [
 ];
 
 const LAUTER_STAGES: StageDef[] = [
-  { key: "transferLt", label: "העברה ל-L.T.", rowOffset: 10, showTemp: true },
-  { key: "restLt", label: "מנוחה L.T.", rowOffset: 12 },
-  { key: "circulation", label: "סחרור", rowOffset: 14 },
-  { key: "outToBoil", label: "הוצאה לבישול", rowOffset: 15 },
+  {
+    key: "transferLt",
+    label: "העברה ל-L.T.",
+    rowOffset: 10,
+    showTemp: true,
+    targetRecipeStepId: "mashOut",
+  },
+  {
+    key: "restLt",
+    label: "מנוחה L.T.",
+    rowOffset: 12,
+    defaultMinutes: 10,
+  },
+  {
+    key: "circulation",
+    label: "סחרור L.T.",
+    rowOffset: 14,
+    defaultMinutes: 10,
+  },
+  {
+    key: "outToBoil",
+    label: "הוצאה לבישול",
+    rowOffset: 15,
+    showEnd: false,
+  },
 ];
 
 const END_TRANSFER_STAGE: StageDef = {
   key: "endTransfer",
   label: "סוף העברה",
   rowOffset: 26,
+  showEnd: false,
 };
 
 const BOIL_STAGES: StageDef[] = [
@@ -251,12 +275,12 @@ function fieldsFromSheetRows(
 
   const hltAmount = sheetCell(rows, 8, "B");
   const hltTemp = numericText(sheetCell(rows, 8, "C"));
-  const lauterAmount = sheetCell(rows, 11, "B");
-  const lauterTemp = numericText(sheetCell(rows, 11, "C"));
+  const mashInWaterAmount = sheetCell(rows, 9, "B");
+  const mashInWaterTemp = sheetCell(rows, 9, "C");
   if (hltAmount) pulled.hltWaterAmount = hltAmount;
   if (hltTemp) pulled.hltWaterTemp = hltTemp;
-  if (lauterAmount) pulled.lauterWaterAmount = lauterAmount;
-  if (lauterTemp) pulled.lauterWaterTemp = lauterTemp;
+  if (mashInWaterAmount) pulled.lauterWaterAmount = mashInWaterAmount;
+  if (mashInWaterTemp) pulled.lauterWaterTemp = mashInWaterTemp;
 
   const mashMeta = sheetCell(rows, 0, "H");
   const mashVolume =
@@ -472,6 +496,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   function knownDuration(stage: StageDef): number | null {
+    if (Number.isFinite(stage.defaultMinutes) && Number(stage.defaultMinutes) > 0) {
+      return Number(stage.defaultMinutes);
+    }
     if (!stage.targetRecipeStepId) return null;
     const recipeStep = recipe.mash.steps.find(
       (step) => step.id === stage.targetRecipeStepId,
@@ -554,18 +581,38 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         },
       ];
 
-      const nextStage = nextTimelineStage(stage);
-      if (nextStage) {
+      let nextStage = nextTimelineStage(stage);
+      let nextStart = value;
+
+      while (nextStage) {
         nextExecution = setSandboxExecutionField(
           nextExecution,
           currentBlock,
           `${nextStage.key}.start`,
-          value,
+          nextStart,
         );
         writes.push({
           range: stageCell(nextStage.rowOffset, "E"),
-          value,
+          value: nextStart,
         });
+
+        const duration = knownDuration(nextStage);
+        if (!nextStart || duration === null) break;
+
+        const calculatedEnd = addMinutesToTime(nextStart, duration);
+        nextExecution = setSandboxExecutionField(
+          nextExecution,
+          currentBlock,
+          `${nextStage.key}.end`,
+          calculatedEnd,
+        );
+        writes.push({
+          range: stageCell(nextStage.rowOffset, "F"),
+          value: calculatedEnd,
+        });
+
+        nextStart = calculatedEnd;
+        nextStage = nextTimelineStage(nextStage);
       }
 
       setExecution(nextExecution);
@@ -653,11 +700,14 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     const mapping = {
       hltWaterAmount: { rowOffset: 8, column: "B" },
       hltWaterTemp: { rowOffset: 8, column: "C" },
-      lauterWaterAmount: { rowOffset: 11, column: "B" },
-      lauterWaterTemp: { rowOffset: 11, column: "C" },
+      lauterWaterAmount: { rowOffset: 9, column: "B" },
+      lauterWaterTemp: { rowOffset: 9, column: "C" },
     } as const;
     const target = mapping[field];
-    await commit(field, value, [
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [
       {
         range: `'גיליון1'!${target.column}${baseRow + target.rowOffset}`,
         value:
@@ -665,7 +715,23 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             ? num(value) ?? value
             : value,
       },
-    ]);
+    ];
+
+    // Preview versions before this fix wrote the second water row into
+    // "שטיפות". Clear that stale value when the corrected MASH IN field is saved.
+    if (field === "lauterWaterAmount") {
+      writes.push({
+        range: `'גיליון1'!B${baseRow + 11}`,
+        value: "",
+      });
+    } else if (field === "lauterWaterTemp") {
+      writes.push({
+        range: `'גיליון1'!C${baseRow + 11}`,
+        value: "",
+      });
+    }
+
+    await commit(field, value, writes);
   }
 
   async function commitPh(key: string, value: string, range: string) {
@@ -683,9 +749,34 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     const key = `rinse${index}.${field}`;
 
     if (field === "time") {
-      return commit(key, value, [
-        { range: stageCell(rowOffset, "E"), value },
-      ]);
+      let nextExecution = setSandboxExecutionField(
+        execution,
+        currentBlock,
+        key,
+        value,
+      );
+      const writes: Array<{
+        range: string;
+        value: string | number | boolean | null;
+      }> = [{ range: stageCell(rowOffset, "E"), value }];
+
+      const amountKey = `rinse${index}.amount`;
+      if (!String(fields[amountKey] || "").trim()) {
+        nextExecution = setSandboxExecutionField(
+          nextExecution,
+          currentBlock,
+          amountKey,
+          "150",
+        );
+        writes.push({
+          range: stageCell(rowOffset, "F"),
+          value: 150,
+        });
+      }
+
+      setExecution(nextExecution);
+      await writeSheet(key, writes);
+      return;
     }
     if (field === "amount") {
       return commit(key, value, [
@@ -812,9 +903,18 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               )
             : undefined;
           const duration = knownDuration(stage);
+          const showEnd = stage.showEnd !== false;
 
           return (
-            <div className="brew-stage-row" key={stage.key}>
+            <div
+              className={[
+                "brew-stage-row",
+                !showEnd ? "brew-stage-row-no-end" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              key={stage.key}
+            >
               <div className="brew-stage-label">
                 <strong>{stage.label}</strong>
                 {target && (
@@ -822,6 +922,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     יעד {target.targetTemp}°C
                     {duration ? ` · ${duration} דק׳` : ""}
                   </small>
+                )}
+                {!target && duration && (
+                  <small>{duration} דק׳</small>
                 )}
               </div>
 
@@ -854,34 +957,36 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 </div>
               </label>
 
-              <label>
-                סיום
-                <div className="brew-time-input">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    dir="ltr"
-                    placeholder="HH:MM"
-                    value={localValue(`${stage.key}.end`)}
-                    onChange={(e) =>
-                      setLocal(`${stage.key}.end`, e.target.value)
-                    }
-                    onBlur={(e) =>
-                      void commitTypedStageTime(
-                        stage,
-                        "end",
-                        e.target.value,
-                      )
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void setNow(stage, "end")}
-                  >
-                    עכשיו
-                  </button>
-                </div>
-              </label>
+              {showEnd && (
+                <label>
+                  סיום
+                  <div className="brew-time-input">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      dir="ltr"
+                      placeholder="HH:MM"
+                      value={localValue(`${stage.key}.end`)}
+                      onChange={(e) =>
+                        setLocal(`${stage.key}.end`, e.target.value)
+                      }
+                      onBlur={(e) =>
+                        void commitTypedStageTime(
+                          stage,
+                          "end",
+                          e.target.value,
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void setNow(stage, "end")}
+                    >
+                      עכשיו
+                    </button>
+                  </div>
+                </label>
+              )}
 
               {stage.showTemp && (
                 <label>
@@ -895,6 +1000,27 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     }
                     onBlur={(e) =>
                       void commitStage(stage, "temp", e.target.value)
+                    }
+                  />
+                </label>
+              )}
+
+              {stage.key === "outToBoil" && (
+                <label>
+                  pH
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={localValue("outToBoilPh")}
+                    onChange={(e) =>
+                      setLocal("outToBoilPh", e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitPh(
+                        "outToBoilPh",
+                        e.target.value,
+                        stageCell(15, "H"),
+                      )
                     }
                   />
                 </label>
@@ -1048,10 +1174,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
             <article className="brew-water-card">
               <div>
-                <strong>מי לאוטר / שטיפות</strong>
-                <small>
-                  הכמות נשמרת כטקסט, למשל 400+400+250
-                </small>
+                <strong>MASH IN / מי מאש</strong>
               </div>
               <label>
                 כמות מים
@@ -1126,7 +1249,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </label>
 
               <label>
-                כמות H3PO4 85%
+                כמות H3PO4 85% (ML)
                 <input
                   type="number"
                   step="0.1"
@@ -1147,26 +1270,22 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
         {currentStep.id === "lautering" && (
           <>
-            {renderStageRows(LAUTER_STAGES)}
+            <div className="brew-lauter-mashout-context">
+              <div>
+                <span>חימום למאש אווט</span>
+                <strong>
+                  {localValue("heat2.start") || "—"}–{localValue("heat2.end") || "—"}
+                </strong>
+              </div>
+              <small>
+                יעד{" "}
+                {recipe.mash.steps.find((step) => step.id === "mashOut")
+                  ?.targetTemp ?? "—"}
+                °C · התצוגה מגיעה משלב המאש ואינה ניתנת לעריכה כאן
+              </small>
+            </div>
 
-            <label className="brew-editor-inline-field">
-              pH בהוצאה לבישול
-              <input
-                type="number"
-                step="0.01"
-                value={localValue("outToBoilPh")}
-                onChange={(e) =>
-                  setLocal("outToBoilPh", e.target.value)
-                }
-                onBlur={(e) =>
-                  void commitPh(
-                    "outToBoilPh",
-                    e.target.value,
-                    stageCell(15, "H"),
-                  )
-                }
-              />
-            </label>
+            {renderStageRows(LAUTER_STAGES)}
 
             <div className="brew-lauter-subsection">
               <div className="brew-section-title">
@@ -1193,37 +1312,47 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
                     <label>
                       שעה
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        dir="ltr"
-                        placeholder="HH:MM"
-                        value={localValue(`rinse${index}.time`)}
-                        onChange={(e) =>
-                          setLocal(
-                            `rinse${index}.time`,
-                            e.target.value,
-                          )
-                        }
-                        onBlur={(e) => {
-                          const value = normalizeUserTime(e.target.value);
-                          if (value === null) {
-                            setMessage(
-                              "יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.",
-                            );
-                            return;
+                      <div className="brew-time-input">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          dir="ltr"
+                          placeholder="HH:MM"
+                          value={localValue(`rinse${index}.time`)}
+                          onChange={(e) =>
+                            setLocal(
+                              `rinse${index}.time`,
+                              e.target.value,
+                            )
                           }
-                          setLocal(`rinse${index}.time`, value);
-                          void commitRinse(index, "time", value);
-                        }}
-                      />
+                          onBlur={(e) => {
+                            const value = normalizeUserTime(e.target.value);
+                            if (value === null) {
+                              setMessage(
+                                "יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.",
+                              );
+                              return;
+                            }
+                            setLocal(`rinse${index}.time`, value);
+                            void commitRinse(index, "time", value);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void commitRinse(index, "time", hhmmNow())
+                          }
+                        >
+                          עכשיו
+                        </button>
+                      </div>
                     </label>
 
                     <label>
                       ליטר
                       <input
                         type="number"
-                        value={localValue(`rinse${index}.amount`)}
+                        value={localValue(`rinse${index}.amount`) || "150"}
                         onChange={(e) =>
                           setLocal(
                             `rinse${index}.amount`,
@@ -1315,10 +1444,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             <div className="brew-lauter-subsection">
               <div className="brew-section-title">
                 <div>
-                  <h4>לקראת סוף הלאוטר</h4>
-                  <span>
-                    לפי הדגימה מחליטים באיזה נפח להפסיק למלא את הסיר
-                  </span>
+                  <h4>מחשבון נפח רתיחה</h4>
                 </div>
               </div>
 
@@ -1355,7 +1481,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 </label>
 
                 <div className="brew-calc-result">
-                  <span>עצירת מילוי מומלצת</span>
+                  <span>נפח יעד</span>
                   <strong>
                     {boilRecommendation === null
                       ? "—"
