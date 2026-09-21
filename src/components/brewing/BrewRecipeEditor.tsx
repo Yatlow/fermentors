@@ -29,6 +29,39 @@ function numberValue(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function defaultRestTemps(count: number): number[] {
+  if (count <= 1) return [63];
+  if (count === 2) return [63, 72];
+  if (count === 3) return [45, 63, 72];
+
+  return [
+    ...Array.from({ length: Math.max(0, count - 3) }, () => 45),
+    45,
+    63,
+    72,
+  ].slice(-count);
+}
+
+function isDefaultMashProfile(
+  pairs: Array<{
+    rest: BrewRecipeMashStep;
+    heat?: BrewRecipeMashStep;
+  }>,
+  mashOutTemp: number,
+): boolean {
+  const defaults = defaultRestTemps(pairs.length);
+  return pairs.every((pair, index) => {
+    const restMatches = pair.rest.targetTemp === defaults[index];
+    const expectedHeat =
+      index < pairs.length - 1
+        ? defaults[index + 1]
+        : mashOutTemp;
+    const heatMatches =
+      !pair.heat || pair.heat.targetTemp === expectedHeat;
+    return restMatches && heatMatches;
+  });
+}
+
 export default function BrewRecipeEditor({
   recipe: initialRecipe,
   ingredients,
@@ -111,11 +144,56 @@ export default function BrewRecipeEditor({
       const first = current.mash.steps[0];
       const last = current.mash.steps[current.mash.steps.length - 1];
       const middle = current.mash.steps.slice(1, -1);
-      const pairNumber = Math.floor(middle.length / 2) + 1;
+      const currentPairs = Array.from(
+        { length: Math.ceil(middle.length / 2) },
+        (_, index) => ({
+          rest: middle[index * 2],
+          heat: middle[index * 2 + 1],
+        }),
+      ).filter((pair) => !!pair.rest);
+
+      const pairNumber = currentPairs.length + 1;
+      const nextDefaults = defaultRestTemps(pairNumber);
+      const preserveManualValues = !isDefaultMashProfile(
+        currentPairs as Array<{
+          rest: BrewRecipeMashStep;
+          heat?: BrewRecipeMashStep;
+        }>,
+        last?.targetTemp ?? 78,
+      );
+
+      const nextMiddle = currentPairs.flatMap((pair, index) => {
+        const restTarget = preserveManualValues
+          ? pair.rest.targetTemp
+          : nextDefaults[index];
+        const heatTarget = preserveManualValues
+          ? pair.heat?.targetTemp ??
+            (index < currentPairs.length - 1
+              ? currentPairs[index + 1].rest.targetTemp
+              : last?.targetTemp ?? 78)
+          : nextDefaults[index + 1] ?? last?.targetTemp ?? 78;
+
+        return [
+          {
+            ...pair.rest,
+            id: `rest${index + 1}`,
+            label: `מנוחה ${index + 1}`,
+            targetTemp: restTarget,
+          },
+          {
+            ...(pair.heat || {}),
+            id: `heat${index + 1}`,
+            label: `חימום ${index + 1}`,
+            targetTemp: heatTarget,
+            minutes: undefined,
+          },
+        ];
+      });
+
       const rest: BrewRecipeMashStep = {
         id: `rest${pairNumber}`,
         label: `מנוחה ${pairNumber}`,
-        targetTemp: 0,
+        targetTemp: nextDefaults[pairNumber - 1] ?? 72,
         minutes: 0,
       };
       const heat: BrewRecipeMashStep = {
@@ -123,11 +201,18 @@ export default function BrewRecipeEditor({
         label: `חימום ${pairNumber}`,
         targetTemp: last?.targetTemp ?? 78,
       };
+
       return {
         ...current,
         mash: {
           ...current.mash,
-          steps: [first, ...middle, rest, heat, last],
+          steps: [
+            first,
+            ...nextMiddle,
+            rest,
+            heat,
+            last,
+          ],
         },
       };
     });
