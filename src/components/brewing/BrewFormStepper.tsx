@@ -42,6 +42,14 @@ type StageDef = {
   targetRecipeStepId?: string;
 };
 
+type SyncMismatch = {
+  blockIndex: number;
+  key: string;
+  label: string;
+  appValue: string;
+  sheetValue: string;
+};
+
 type StepId =
   | "water"
   | "mash"
@@ -148,6 +156,7 @@ const WP_STAGE: StageDef = {
   key: "wp",
   label: "WP",
   rowOffset: 38,
+  defaultMinutes: 20,
 };
 
 const OUT_STAGE: StageDef = {
@@ -406,6 +415,11 @@ function fieldsFromSheetRows(
     if (value) pulled[key] = value;
   });
 
+  for (let index = 1; index <= 3; index += 1) {
+    const amount = numericText(sheetCell(rows, 14 + index, "A"));
+    if (amount) pulled[`hop${index}.amountGrams`] = amount;
+  }
+
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
 
   return pulled;
@@ -430,7 +444,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [lastVerifyAt, setLastVerifyAt] = useState<Date | null>(null);
   const [checkingSync, setCheckingSync] = useState(false);
   const [syncMismatchCount, setSyncMismatchCount] = useState<number | null>(null);
+  const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
   const [syncError, setSyncError] = useState("");
+  const [heightCalcOpen, setHeightCalcOpen] = useState(false);
+  const [heightCm, setHeightCm] = useState("");
   const ingredientLibrary = useMemo(
     () => loadSandboxIngredients(),
     [],
@@ -443,7 +460,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   );
   const fields = execution.blocks[String(currentBlock)]?.fields || {};
   const baseRow = blockBaseRow(run.tankType, currentBlock);
-  const currentStep = STEPS[activeStep];
+  const visibleSteps =
+    currentBlock === totalBlocks
+      ? STEPS
+      : STEPS.filter((step) => step.id !== "summary");
+  const currentStep = visibleSteps[Math.min(activeStep, visibleSteps.length - 1)];
 
   const brewMaterials = useMemo(() => {
     const ids = [
@@ -535,24 +556,44 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }, [fields]);
 
   const missingItems = useMemo(() => {
-    const items: string[] = [];
-    if (!fields["mashIn.start"]) items.push("זמן התחלת הכנסת לתת");
-    if (!fields.mashPh) items.push("pH מאש");
-    if (!fields.outToBoilPh) items.push("pH בהוצאה לבישול");
-    if (!fields.boilPh) items.push("pH תחילת רתיחה");
-    if (!fields.endBoilPlato) items.push("Plato סוף רתיחה");
-    if (!fields.cumulativeTankVolume) items.push("נפח מצטבר במיכל");
-    if (!fields["outToFermentor.start"]) {
-      items.push("זמן התחלת הוצאה לתסיסה");
-    }
-    return items;
-  }, [fields]);
+    const labels: Array<[StepId, string]> = [
+      ["water", "תאריך, מים וחומרי גלם"],
+      ["mash", "מאש"],
+      ["lautering", "לאוטר"],
+      ["boil", "רתיחה וכשות"],
+      ["transfer", "WP והוצאה לתסיסה"],
+    ];
+    return labels
+      .map(([id, label]) => ({
+        label,
+        count: stepMissingCountForBlock(currentBlock, id),
+      }))
+      .filter((item) => item.count > 0);
+  }, [
+    execution.blocks,
+    currentBlock,
+    boilHops.length,
+    recipe.lautering.usesGrant,
+  ]);
 
-  function hasField(key: string): boolean {
-    return String(fields[key] ?? "").trim() !== "";
+  function blockFields(blockIndex: number): Record<string, string> {
+    return execution.blocks[String(blockIndex)]?.fields || {};
   }
 
-  function stepMissingCount(stepId: StepId): number {
+  function hasFieldForBlock(blockIndex: number, key: string): boolean {
+    return String(blockFields(blockIndex)[key] ?? "").trim() !== "";
+  }
+
+  function hasField(key: string): boolean {
+    return hasFieldForBlock(currentBlock, key);
+  }
+
+  function stepMissingCountForBlock(
+    blockIndex: number,
+    stepId: StepId,
+  ): number {
+    const has = (key: string) => hasFieldForBlock(blockIndex, key);
+
     if (stepId === "water") {
       return [
         "brewDate",
@@ -561,19 +602,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         "lauterWaterAmount",
         "lauterWaterTemp",
         "materialsConfirmed",
-      ].filter((key) => !hasField(key)).length;
+      ].filter((key) => !has(key)).length;
     }
 
     if (stepId === "mash") {
       const required = ["mashVolume", "mashPh", "mashAcid85"];
       MASH_STAGES.forEach((stage) => {
-        required.push(
-          `${stage.key}.start`,
-          `${stage.key}.end`,
-        );
+        required.push(`${stage.key}.start`, `${stage.key}.end`);
         if (stage.showTemp) required.push(`${stage.key}.temp`);
       });
-      return required.filter((key) => !hasField(key)).length;
+      return required.filter((key) => !has(key)).length;
     }
 
     if (stepId === "lautering") {
@@ -593,7 +631,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         "rinse1.kettle",
       ];
       if (recipe.lautering.usesGrant) required.push("rinse1.grant");
-      return required.filter((key) => !hasField(key)).length;
+      return required.filter((key) => !has(key)).length;
     }
 
     if (stepId === "boil") {
@@ -606,9 +644,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         "endBoilTime",
       ];
       for (let index = 1; index <= boilHops.length; index += 1) {
-        required.push(`hop${index}.start`);
+        required.push(`hop${index}.start`, `hop${index}.amountGrams`);
       }
-      return required.filter((key) => !hasField(key)).length;
+      return required.filter((key) => !has(key)).length;
     }
 
     if (stepId === "transfer") {
@@ -623,19 +661,34 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         "cumulativeTankVolume",
         "outToFermentorPh",
       ];
-      if (currentBlock === 1) required.push("yeastPitchTime");
-      return required.filter((key) => !hasField(key)).length;
+      if (blockIndex === 1) required.push("yeastPitchTime");
+      return required.filter((key) => !has(key)).length;
     }
 
     return (["water", "mash", "lautering", "boil", "transfer"] as StepId[])
-      .reduce((sum, id) => sum + stepMissingCount(id), 0);
+      .reduce(
+        (sum, id) => sum + stepMissingCountForBlock(blockIndex, id),
+        0,
+      );
+  }
+
+  function stepMissingCount(stepId: StepId): number {
+    return stepMissingCountForBlock(currentBlock, stepId);
+  }
+
+  function blockMissingCount(blockIndex: number): number {
+    return (["water", "mash", "lautering", "boil", "transfer"] as StepId[])
+      .reduce(
+        (sum, id) => sum + stepMissingCountForBlock(blockIndex, id),
+        0,
+      );
   }
 
   function isStepComplete(stepId: StepId): boolean {
     return stepMissingCount(stepId) === 0;
   }
 
-  async function writeSheet(
+  async function writeSheet(  async function writeSheet(
     key: string,
     writes: Array<{ range: string; value: string | number | boolean | null }>,
   ) {
@@ -647,6 +700,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       await writeSandboxSheetCells(run.sheetId, writes);
       setLastPushAt(new Date());
       setSyncMismatchCount(null);
+      setSyncMismatches([]);
       setSyncError("");
     } catch (error) {
       const detail =
@@ -791,7 +845,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         if (lot.alpha !== undefined) {
           writes.push({
             range: `'גיליון1'!B${row}`,
-            value: `${lot.alpha}%aa`,
+            value: lot.alpha,
           });
         }
       });
@@ -1021,10 +1075,144 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     await commitStage(stage, "end", value);
   }
 
+  function approveNumericValue(key: string, value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+
+    const parsed = num(trimmed);
+    if (parsed === null) {
+      setMessage("הערך חייב להיות מספר.");
+      return false;
+    }
+
+    let hardError = "";
+    let warning = "";
+
+    if (/Ph$/i.test(key) || key === "mashPh" || key === "boilPh") {
+      if (parsed < 4 || parsed > 7) {
+        hardError = `pH ${parsed} אינו ערך סביר לבישול (טווח קשיח 4–7).`;
+      } else if (parsed < 5 || parsed > 6.2) {
+        warning = `pH ${parsed} חריג ביחס לבישולים האחרונים (רובם סביב 5.45–5.85).`;
+      }
+    } else if (key === "mashAcid85" || key === "boilAcid85") {
+      if (parsed < 0 || parsed > 300) {
+        hardError = `כמות חומצה ${parsed} מ״ל אינה סבירה (0–300 מ״ל).`;
+      }
+    } else if (
+      key === "frPlato" ||
+      key === "lrPlato" ||
+      key === "kettlePlato" ||
+      key === "endBoilPlato" ||
+      key === "fermentorSamplePlato"
+    ) {
+      if (parsed < 3 || parsed > 30) {
+        hardError = `Plato ${parsed} אינו סביר (טווח קשיח 3–30°P).`;
+      } else if (
+        ["kettlePlato", "endBoilPlato", "fermentorSamplePlato"].includes(key) &&
+        recipe.targets.endBoilPlato > 0 &&
+        Math.abs(parsed - recipe.targets.endBoilPlato) > 3
+      ) {
+        warning = `הערך ${parsed}°P רחוק ביותר מ-3°P מיעד סוף הרתיחה ${recipe.targets.endBoilPlato}°P.`;
+      }
+
+      if (
+        key === "fermentorSamplePlato" &&
+        num(fields.endBoilPlato || "") !== null &&
+        Math.abs(parsed - Number(fields.endBoilPlato)) > 1
+      ) {
+        warning = `Plato ביציאה לתסיסה שונה ביותר מ-1°P מסוף הרתיחה (${fields.endBoilPlato}°P).`;
+      }
+    } else if (key === "mashVolume") {
+      if (parsed < 500 || parsed > 2000) {
+        hardError = `נפח מאש ${parsed} ל׳ אינו סביר (500–2000 ל׳).`;
+      } else if (parsed < 700 || parsed > 1700) {
+        warning = `נפח מאש ${parsed} ל׳ חריג ביחס להיסטוריה האחרונה.`;
+      }
+    } else if (key === "kettleVolume" || key === "endBoilVolume") {
+      if (parsed < 500 || parsed > 2500) {
+        hardError = `נפח ${parsed} ל׳ אינו סביר (500–2500 ל׳).`;
+      } else if (parsed < 900 || parsed > 1900) {
+        warning = `נפח ${parsed} ל׳ חריג ביחס לבישולים האחרונים.`;
+      }
+
+      if (key === "endBoilVolume") {
+        const startVolume = num(fields.kettleVolume || "");
+        if (startVolume !== null) {
+          const loss = startVolume - parsed;
+          if (parsed > startVolume + 50) {
+            warning = `נפח סוף רתיחה (${parsed}) גבוה מנפח תחילת הרתיחה (${startVolume}).`;
+          } else if (loss > 300 || loss / startVolume > 0.2) {
+            warning = `אובדן של ${Math.round(loss)} ל׳ ברתיחה חריג מאוד.`;
+          }
+        }
+      }
+    } else if (key === "cumulativeTankVolume") {
+      if (parsed < 500 || parsed > 6000) {
+        hardError = `נפח מיכל ${parsed} ל׳ אינו סביר (500–6000 ל׳).`;
+      }
+      if (currentBlock > 1) {
+        const previous = num(
+          blockFields(currentBlock - 1).cumulativeTankVolume || "",
+        );
+        if (previous !== null) {
+          const added = parsed - previous;
+          if (added <= 0) {
+            warning = `הנפח המצטבר חייב לגדול לעומת בישול ${["A", "B", "C"][currentBlock - 2]} (${previous} ל׳).`;
+          } else if (added < 700 || added > 1700) {
+            warning = `תוספת של ${Math.round(added)} ל׳ מהבישול הקודם חריגה (בדרך כלל כ-700–1700 ל׳).`;
+          }
+        }
+      }
+    } else if (/^rinse\d+\.(kettle|grant)$/.test(key)) {
+      if (parsed < 0 || parsed > 2500) {
+        hardError = `נפח שטיפה ${parsed} ל׳ אינו סביר.`;
+      }
+      const match = /^rinse(\d+)\.kettle$/.exec(key);
+      if (match && Number(match[1]) > 1) {
+        const previous = num(fields[`rinse${Number(match[1]) - 1}.kettle`] || "");
+        if (previous !== null) {
+          const jump = parsed - previous;
+          if (jump < 0) {
+            warning = "נפח ה-Kettle ירד לעומת השטיפה הקודמת.";
+          } else if (jump > 500) {
+            warning = `קפיצה של ${Math.round(jump)} ל׳ בין שטיפות חריגה.`;
+          }
+        }
+      }
+    } else if (/^hop\d+\.amountGrams$/.test(key)) {
+      if (parsed < 0 || parsed > 5000) {
+        hardError = `כמות כשות ${parsed} גרם אינה סבירה.`;
+      }
+    } else if (/Temp$/.test(key) || key.endsWith(".temp")) {
+      if (parsed < 0 || parsed > 100) {
+        hardError = `טמפרטורה ${parsed}°C אינה סבירה.`;
+      }
+    }
+
+    if (hardError) {
+      setMessage(`⚠ ${hardError} הנתון לא נשמר — בדוק שאין TYPO.`);
+      return false;
+    }
+
+    if (warning) {
+      const approved = window.confirm(
+        `${warning}\n\nייתכן שהנתון נכון. לשמור אותו בכל זאת?`,
+      );
+      if (!approved) {
+        setMessage("השמירה בוטלה כדי לאפשר תיקון הנתון.");
+        return false;
+      }
+    }
+
+    setMessage("");
+    return true;
+  }
+
   async function commitMashMeta(
     field: "mashVolume" | "mashPh",
     value: string,
   ) {
+    if (!approveNumericValue(field, value)) return;
     const nextFields = { ...fields, [field]: value };
     await commit(field, value, [
       {
@@ -1035,6 +1223,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitMashAcid(value: string) {
+    if (!approveNumericValue("mashAcid85", value)) return;
     await commit("mashAcid85", value, [
       {
         range: `'גיליון1'!A${baseRow + 28}`,
@@ -1089,6 +1278,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitPh(key: string, value: string, range: string) {
+    if (!approveNumericValue(key, value)) return;
     await commit(key, value, [
       { range, value: value ? `pH ${value}` : "" },
     ]);
@@ -1138,6 +1328,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       ]);
     }
     if (field === "temp") {
+      if (!approveNumericValue(key, value)) return;
       return commit(key, value, [
         {
           range: stageCell(rowOffset, "G"),
@@ -1146,6 +1337,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       ]);
     }
 
+    if (!approveNumericValue(key, value)) return;
     const nextFields = { ...fields, [key]: value };
     const kettle = nextFields[`rinse${index}.kettle`] || "";
     const grant = nextFields[`rinse${index}.grant`] || "";
@@ -1162,6 +1354,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     rowOffset: number,
     column: "B" | "C",
   ) {
+    if (!approveNumericValue(key, value)) return;
     const parsed = num(value);
     await commit(key, value, [
       {
@@ -1172,6 +1365,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitBoilAcid(value: string) {
+    if (!approveNumericValue("boilAcid85", value)) return;
     await commit("boilAcid85", value, [
       {
         range: `'גיליון1'!A${baseRow + 29}`,
@@ -1251,6 +1445,54 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     ]);
   }
 
+  function hopDose(
+    hop: BrewRecipe["hops"][number],
+  ): { grams: number | null; gramsPerLiter: number | null; alpha: number | null } {
+    const kettleVolume = num(fields.kettleVolume || "");
+    const ingredient = ingredientLibrary.find(
+      (item) => item.id === hop.ingredientId,
+    );
+    const lot = ingredient ? selectedMaterialLot(ingredient) : undefined;
+    const alpha =
+      lot?.alpha !== undefined && Number.isFinite(Number(lot.alpha))
+        ? Number(lot.alpha)
+        : null;
+
+    let gramsPerLiter = Number(hop.gramsPerLiter);
+    if (!Number.isFinite(gramsPerLiter) || gramsPerLiter < 0) {
+      gramsPerLiter = 0;
+    }
+
+    if (
+      hop.purpose === "bitterness" &&
+      alpha !== null &&
+      alpha > 0 &&
+      Number.isFinite(Number(hop.aa)) &&
+      Number(hop.aa) > 0
+    ) {
+      gramsPerLiter =
+        (gramsPerLiter * Number(hop.aa)) / alpha;
+    }
+
+    return {
+      grams:
+        kettleVolume === null ? null : gramsPerLiter * kettleVolume,
+      gramsPerLiter,
+      alpha,
+    };
+  }
+
+  async function commitHopAmount(index: number, value: string) {
+    const key = `hop${index + 1}.amountGrams`;
+    if (!approveNumericValue(key, value)) return;
+    await commit(key, value, [
+      {
+        range: `'גיליון1'!A${baseRow + 15 + index}`,
+        value: num(value) ?? "",
+      },
+    ]);
+  }
+
   async function commitEndBoil(raw: string) {
     const value = normalizeUserTime(raw);
     if (value === null) {
@@ -1323,10 +1565,59 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       key === "cumulativeTankVolume" ||
       key === "endBoilTime" ||
       /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
+      /^hop[1-3]\.amountGrams$/.test(key) ||
       /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
         key,
       )
     );
+  }
+
+  function syncFieldLabel(key: string): string {
+    const labels: Record<string, string> = {
+      brewDate: "תאריך בישול",
+      hltWaterAmount: "כמות HLT",
+      hltWaterTemp: "טמפ׳ HLT",
+      lauterWaterAmount: "מי מאש",
+      lauterWaterTemp: "טמפ׳ מי מאש",
+      mashVolume: "נפח מאש",
+      mashPh: "pH מאש",
+      mashAcid85: "חומצה במאש",
+      outToBoilPh: "pH בהוצאה לבישול",
+      boilPh: "pH תחילת רתיחה",
+      boilAcid85: "חומצה ברתיחה",
+      kettlePlato: "Plato בסיר",
+      kettleVolume: "נפח בסיר",
+      endBoilPlato: "Plato סוף רתיחה",
+      endBoilVolume: "נפח סוף רתיחה",
+      fermentorSamplePlato: "Plato תחילת תסיסה",
+      cumulativeTankVolume: "נפח תחילת תסיסה",
+      outToFermentorPh: "pH בהוצאה לתסיסה",
+      yeastPitchTime: "שעת הוספת שמרים",
+      endBoilTime: "שעת סוף רתיחה",
+    };
+    if (labels[key]) return labels[key];
+
+    const hopAmount = /^hop(\d+)\.amountGrams$/.exec(key);
+    if (hopAmount) return `כמות כשות ${hopAmount[1]}`;
+
+    const rinse = /^rinse(\d+)\.(.+)$/.exec(key);
+    if (rinse) return `שטיפה ${rinse[1]} · ${rinse[2]}`;
+
+    const stage = /^([^.]+)\.(start|end|temp|note)$/.exec(key);
+    if (stage) {
+      const def = TIMELINE_STAGES.find((item) => item.key === stage[1]);
+      const suffix =
+        stage[2] === "start"
+          ? "התחלה"
+          : stage[2] === "end"
+            ? "סיום"
+            : stage[2] === "temp"
+              ? "טמפ׳"
+              : "הערה";
+      return `${def?.label || stage[1]} · ${suffix}`;
+    }
+
+    return key;
   }
 
   function syncComparable(value: unknown): string {
@@ -1352,7 +1643,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     setMessage("");
 
     try {
-      let mismatches = 0;
+      const mismatchDetails: SyncMismatch[] = [];
 
       for (let index = 1; index <= totalBlocks; index += 1) {
         const row = blockBaseRow(run.tankType, index);
@@ -1395,21 +1686,27 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         ]);
 
         keys.forEach((key) => {
-          if (
-            syncComparable(localFields[key]) !==
-            syncComparable(pulled[key])
-          ) {
-            mismatches += 1;
+          const appValue = syncComparable(localFields[key]);
+          const sheetValue = syncComparable(pulled[key]);
+          if (appValue !== sheetValue) {
+            mismatchDetails.push({
+              blockIndex: index,
+              key,
+              label: syncFieldLabel(key),
+              appValue: appValue || "—",
+              sheetValue: sheetValue || "—",
+            });
           }
         });
       }
 
-      setSyncMismatchCount(mismatches);
+      setSyncMismatchCount(mismatchDetails.length);
+      setSyncMismatches(mismatchDetails);
       setLastVerifyAt(new Date());
       setMessage(
-        mismatches === 0
+        mismatchDetails.length === 0
           ? "✓ בדיקת התאמה מלאה: הנתונים באפליקציה וב-Sheet תואמים."
-          : `נמצאו ${mismatches} פערים בין האפליקציה ל-Sheet. אפשר למשוך מה-Sheet או לבדוק את השדות לפני דריסה.`,
+          : `נמצאו ${mismatchDetails.length} פערים בין האפליקציה ל-Sheet — הפירוט מופיע מתחת.`,
       );
     } catch (error) {
       const detail =
@@ -1479,6 +1776,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
       setExecution(nextExecution);
       setLastPullAt(new Date());
+      setSyncMismatchCount(null);
+      setSyncMismatches([]);
       setSyncError("");
       setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
     } catch (error) {
@@ -1784,6 +2083,36 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       )}
       {message && <div className="brewing-message">{message}</div>}
 
+      {syncMismatches.length > 0 && (
+        <details className="brew-sync-diff" open>
+          <summary>
+            פירוט {syncMismatches.length} הפערים
+          </summary>
+          <div className="brew-sync-diff-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>בישול</th>
+                  <th>שדה</th>
+                  <th>באפליקציה</th>
+                  <th>ב-Sheet</th>
+                </tr>
+              </thead>
+              <tbody>
+                {syncMismatches.map((item) => (
+                  <tr key={`${item.blockIndex}-${item.key}`}>
+                    <td>{(["A", "B", "C"] as const)[item.blockIndex - 1]}</td>
+                    <td>{item.label}</td>
+                    <td>{item.appValue}</td>
+                    <td>{item.sheetValue}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+
       <div className="brew-sync-explainer">
         <span>
           ✓ / ⚠ ב-Stepper מציינים שלמות נתונים בלבד — לא מצב סנכרון.
@@ -1795,21 +2124,36 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
       <div className="brew-block-tabs">
         {Array.from({ length: totalBlocks }, (_, index) => index + 1).map(
-          (index) => (
-            <button
-              type="button"
-              key={index}
-              className={currentBlock === index ? "active" : ""}
-              onClick={() => void selectBlock(index)}
-            >
-              בישול {(["A", "B", "C"] as const)[index - 1]}
-            </button>
-          ),
+          (index) => {
+            const missing = blockMissingCount(index);
+            const complete = missing === 0;
+            return (
+              <button
+                type="button"
+                key={index}
+                className={[
+                  currentBlock === index ? "active" : "",
+                  complete ? "complete" : "warning",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                title={
+                  complete
+                    ? `בישול ${(["A", "B", "C"] as const)[index - 1]} הושלם`
+                    : `חסרים ${missing} נתונים בבישול ${(["A", "B", "C"] as const)[index - 1]}`
+                }
+                onClick={() => void selectBlock(index)}
+              >
+                <span>בישול {(["A", "B", "C"] as const)[index - 1]}</span>
+                <em>{complete ? "✓" : `⚠ ${missing}`}</em>
+              </button>
+            );
+          },
         )}
       </div>
 
       <nav className="brew-step-progress" aria-label="שלבי טופס הבישול">
-        {STEPS.map((step, index) => {
+        {visibleSteps.map((step, index) => {
           const complete = isStepComplete(step.id);
           const missing = stepMissingCount(step.id);
 
@@ -1844,7 +2188,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         <div className="brew-step-panel-head">
           <div>
             <span>
-              שלב {activeStep + 1} מתוך {STEPS.length}
+              שלב {activeStep + 1} מתוך {visibleSteps.length}
             </span>
             <h3>{currentStep.label}</h3>
           </div>
@@ -2042,6 +2386,18 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
         {currentStep.id === "mash" && (
           <>
+            {currentBlock > 1 && (
+              <div className="brew-step-context-bar">
+                <span>
+                  סיום הוצאה לתסיסה · בישול {["A", "B", "C"][currentBlock - 2]}
+                </span>
+                <strong>
+                  {blockFields(currentBlock - 1)["outToFermentor.end"] || "—"}
+                </strong>
+                <small>תזכורת מהבישול הקודם לפני הכנסת לתת</small>
+              </div>
+            )}
+
             <div className="brew-section-title">
               <span>מי מאש יעד: {recipe.mash.waterLiters} ל׳</span>
             </div>
@@ -2447,6 +2803,45 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                         }
                       />
                     </label>
+                    {(() => {
+                      const dose = hopDose(hop);
+                      const amountKey = `hop${index + 1}.amountGrams`;
+                      const suggested =
+                        dose.grams === null
+                          ? ""
+                          : String(Math.round(dose.grams));
+                      return (
+                        <>
+                          <label>
+                            כמות כשות (גרם)
+                            <input
+                              type="number"
+                              step="1"
+                              value={localValue(amountKey) || suggested}
+                              onFocus={(e) => e.currentTarget.select()}
+                              onChange={(e) =>
+                                setLocal(amountKey, e.target.value)
+                              }
+                              onBlur={(e) =>
+                                void commitHopAmount(
+                                  index,
+                                  e.target.value || suggested,
+                                )
+                              }
+                            />
+                          </label>
+                          <small className="brew-hop-dose-meta">
+                            {dose.alpha === null
+                              ? "aa —"
+                              : `aa ${dose.alpha}%`}
+                            {" · "}
+                            {dose.gramsPerLiter === null
+                              ? "—"
+                              : `${dose.gramsPerLiter.toFixed(3)} ג׳/ל׳`}
+                          </small>
+                        </>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -2578,21 +2973,33 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
               <label>
                 נפח תחילת תסיסה
-                <input
-                  type="number"
-                  value={localValue("cumulativeTankVolume")}
-                  onChange={(e) =>
-                    setLocal("cumulativeTankVolume", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitSugar(
-                      "cumulativeTankVolume",
-                      e.target.value,
-                      40,
-                      "C",
-                    )
-                  }
-                />
+                <div className="brew-volume-with-action">
+                  <input
+                    type="number"
+                    value={localValue("cumulativeTankVolume")}
+                    onChange={(e) =>
+                      setLocal("cumulativeTankVolume", e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitSugar(
+                        "cumulativeTankVolume",
+                        e.target.value,
+                        40,
+                        "C",
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="brew-button-secondary"
+                    onClick={() => {
+                      setHeightCm("");
+                      setHeightCalcOpen(true);
+                    }}
+                  >
+                    מחשבון גובה
+                  </button>
+                </div>
               </label>
 
               <label>
@@ -2637,15 +3044,17 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
             <div className="brew-summary-missing">
               <h4>
-                {missingItems.length
-                  ? `חסרים ${missingItems.length} נתונים`
-                  : "אין חוסרים בולטים בשלב זה"}
+                {stepMissingCount("summary") > 0
+                  ? `חסרים ${stepMissingCount("summary")} נתונים`
+                  : "כל נתוני הבישול הושלמו"}
               </h4>
 
               {missingItems.length > 0 && (
                 <ul>
                   {missingItems.map((item) => (
-                    <li key={item}>{item}</li>
+                    <li key={item.label}>
+                      {item.label} — חסרים {item.count}
+                    </li>
                   ))}
                 </ul>
               )}
@@ -2727,8 +3136,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   </strong>
                 </div>
                 <div>
-                  <span>pH תחילת רתיחה נוכחי</span>
-                  <strong>{localValue("boilPh") || "—"}</strong>
+                  <span>pH הוצאה לבישול</span>
+                  <strong>{localValue("outToBoilPh") || "—"}</strong>
                 </div>
               </div>
             )}
@@ -2754,12 +3163,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       <th>תאריך</th>
                       <th>pH מאש</th>
                       <th>נפח מאש</th>
-                      <th>H3PO4 ראשון (ML)</th>
-                      <th>pH תחילת רתיחה</th>
+                      <th>מ״ל חומצה במאש</th>
+                      <th>pH הוצאה לבישול</th>
                       {acidHistoryMode === "boil" && (
                         <>
-                          <th>H3PO4 שני (ML)</th>
-                          <th>pH הוצאה לתסיסה</th>
+                          <th>pH תחילת רתיחה</th>
+                          <th>מ״ל חומצה ברתיחה</th>
+                          <th>pH בהוצאה לתסיסה</th>
                         </>
                       )}
                     </tr>
@@ -2780,9 +3190,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                         <td>{row.mashPh || "—"}</td>
                         <td>{row.mashVolume || "—"}</td>
                         <td>{row.acidMl || "—"}</td>
-                        <td>{row.boilPh || "—"}</td>
+                        <td>{row.outToBoilPh || "—"}</td>
                         {acidHistoryMode === "boil" && (
                           <>
+                            <td>{row.boilPh || "—"}</td>
                             <td>{row.boilAcidMl || "—"}</td>
                             <td>{row.outToFermentorPh || "—"}</td>
                           </>
@@ -2793,6 +3204,130 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 </table>
               </div>
             )}
+          </section>
+        </div>
+      )}
+
+      {heightCalcOpen && (
+        <div
+          className="brew-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setHeightCalcOpen(false);
+            }
+          }}
+        >
+          <section
+            className="brew-boil-calc-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="brew-height-calc-title"
+          >
+            {(() => {
+              const tankNumber = Number(run.tankNumber);
+              const spec =
+                tankNumber === 6
+                  ? { base: 1300, cmPer100: 7.6, adjustment: 0, label: "מיכל 6" }
+                  : run.tankType === "double"
+                    ? { base: 1250, cmPer100: 9, adjustment: 0, label: "מיכל כפול" }
+                    : run.tankType === "triple"
+                      ? {
+                          base: 2300,
+                          cmPer100: 5,
+                          adjustment: tankNumber === 11 ? -50 : 0,
+                          label: tankNumber === 11 ? "מיכל משולש 11" : "מיכל משולש",
+                        }
+                      : null;
+              const height = num(heightCm);
+              const calculated =
+                spec && height !== null
+                  ? Math.round(
+                      spec.base +
+                        (100 * height) / spec.cmPer100 +
+                        spec.adjustment,
+                    )
+                  : null;
+
+              return (
+                <>
+                  <div className="brew-modal-header">
+                    <div>
+                      <h2 id="brew-height-calc-title">מחשבון גובה מיכל {run.tankNumber}</h2>
+                      <p>
+                        {spec
+                          ? `${spec.label} · בסיס ${spec.base} ל׳ · כל ${spec.cmPer100} ס״מ = 100 ל׳${spec.adjustment ? " · תיקון -50 ל׳" : ""}`
+                          : "אין במסמך הכיול נוסחת גובה למיכל בודד."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="brew-modal-close brew-button-icon"
+                      onClick={() => setHeightCalcOpen(false)}
+                      aria-label="סגירה"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {spec && (
+                    <>
+                      <div className="brew-boil-calc-fields">
+                        <label>
+                          גובה מדידה (ס״מ)
+                          <input
+                            type="number"
+                            step="0.1"
+                            autoFocus
+                            value={heightCm}
+                            onChange={(e) => setHeightCm(e.target.value)}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="brew-calc-result">
+                        <span>נפח מחושב</span>
+                        <strong>
+                          {calculated === null ? "—" : `${calculated} ל׳`}
+                        </strong>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="brew-modal-actions">
+                    <button
+                      type="button"
+                      className="brew-button-secondary"
+                      onClick={() => setHeightCalcOpen(false)}
+                    >
+                      סגור
+                    </button>
+                    {spec && (
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={calculated === null}
+                        onClick={() => {
+                          if (calculated === null) return;
+                          const value = String(calculated);
+                          setHeightCalcOpen(false);
+                          setHeightCm("");
+                          setLocal("cumulativeTankVolume", value);
+                          void commitSugar(
+                            "cumulativeTankVolume",
+                            value,
+                            40,
+                            "C",
+                          );
+                        }}
+                      >
+                        השתמש בנפח
+                      </button>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </section>
         </div>
       )}
@@ -2913,16 +3448,38 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         <button
           type="button"
           className="btn-primary brew-button-primary"
-          onClick={() =>
-            setActiveStep((value) =>
-              Math.min(STEPS.length - 1, value + 1),
-            )
-          }
-          disabled={activeStep === STEPS.length - 1}
+          onClick={() => {
+            const isLastVisibleStep =
+              activeStep >= visibleSteps.length - 1;
+
+            if (!isLastVisibleStep) {
+              setActiveStep((value) =>
+                Math.min(visibleSteps.length - 1, value + 1),
+              );
+              return;
+            }
+
+            if (currentBlock < totalBlocks) {
+              void selectBlock(currentBlock + 1);
+              return;
+            }
+
+            if (currentStep.id === "summary") {
+              onClose();
+            }
+          }}
         >
-          הבא
+          {activeStep < visibleSteps.length - 1
+            ? "הבא"
+            : currentBlock < totalBlocks
+              ? `מעבר לבישול ${(["A", "B", "C"] as const)[currentBlock]}`
+              : currentStep.id === "summary"
+                ? "סיום בישול"
+                : "הבא"}
         </button>
       </div>
     </section>
+  );
+}    </section>
   );
 }
