@@ -1353,11 +1353,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       setSyncError("");
       setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
     } catch (error) {
-      setMessage(
+      const detail =
         error instanceof Error
           ? error.message
-          : "סנכרון הנתונים מה-Sheet נכשל.",
-      );
+          : "סנכרון הנתונים מה-Sheet נכשל.";
+      setSyncError(detail);
+      setMessage(detail);
     } finally {
       setPulling(false);
     }
@@ -1593,11 +1594,18 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               בישול {currentBlock}/{totalBlocks} · מתכון v{recipe.version}
             </span>
             {syncing ? (
-              <BeerLoader size="spinner" message="שומר ל-Sheet…" />
+              <BeerLoader size="spinner" message="אפליקציה → Sheet…" />
             ) : pulling ? (
-              <BeerLoader size="spinner" message="קורא מה-Sheet…" />
+              <BeerLoader size="spinner" message="Sheet → אפליקציה…" />
             ) : (
-              <span className="brew-sync-ok">✓ מסונכרן</span>
+              <div className="brew-sync-directions">
+                <span>
+                  אפליקציה → Sheet: {syncTimeLabel(lastPushAt)}
+                </span>
+                <span>
+                  Sheet → אפליקציה: {syncTimeLabel(lastPullAt)}
+                </span>
+              </div>
             )}
           </div>
         </div>
@@ -1612,7 +1620,21 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         </button>
       </div>
 
+      {syncError && (
+        <div className="brewing-message brewing-message-error">
+          סנכרון ל-Sheet נכשל: {syncError}
+        </div>
+      )}
       {message && <div className="brewing-message">{message}</div>}
+
+      <div className="brew-sync-explainer">
+        <span>
+          ✓ / ⚠ ב-Stepper מציינים שלמות נתונים בלבד — לא מצב סנכרון.
+        </span>
+        <span>
+          כתיבה: אפליקציה → Sheet אוטומטית. קריאה: Sheet → אפליקציה בכפתור הסנכרון.
+        </span>
+      </div>
 
       <div className="brew-block-tabs">
         {Array.from({ length: totalBlocks }, (_, index) => index + 1).map(
@@ -2516,9 +2538,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             <div className="brew-modal-header">
               <div>
                 <h2 id="brew-acid-history-title">
-                  היסטוריית חומצה · {run.style}
+                  {acidHistoryMode === "mash"
+                    ? "השוואת חומצה במאש"
+                    : "השוואת חומצה בתחילת רתיחה"}{" "}
+                  · {run.style}
                 </h2>
-                <p>3 אצוות אחרונות · עד 9 בישולים</p>
+                <p>3 אצוות אחרונות · עד 9 בישולים · נשמר מקומית לטעינה חוזרת מהירה</p>
               </div>
               <button
                 type="button"
@@ -2530,6 +2555,27 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </button>
             </div>
 
+            {acidHistoryMode === "boil" && (
+              <div className="brew-acid-current-context">
+                <div>
+                  <span>pH מאש נוכחי</span>
+                  <strong>{localValue("mashPh") || "—"}</strong>
+                </div>
+                <div>
+                  <span>H3PO4 ראשון</span>
+                  <strong>
+                    {localValue("mashAcid85")
+                      ? localValue("mashAcid85") + " ML"
+                      : "—"}
+                  </strong>
+                </div>
+                <div>
+                  <span>pH תחילת רתיחה נוכחי</span>
+                  <strong>{localValue("boilPh") || "—"}</strong>
+                </div>
+              </div>
+            )}
+
             {acidHistoryLoading ? (
               <div className="brew-modal-loader">
                 <BeerLoader size="small" message="טוען בישולים קודמים…" />
@@ -2540,7 +2586,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </div>
             ) : acidHistory.length === 0 ? (
               <div className="brew-acid-history-empty">
-                לא נמצאו נתוני מאש קודמים לסגנון הזה.
+                לא נמצאו נתונים קודמים לסגנון הזה.
               </div>
             ) : (
               <div className="brew-acid-history-scroll">
@@ -2551,8 +2597,14 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       <th>תאריך</th>
                       <th>pH מאש</th>
                       <th>נפח מאש</th>
-                      <th>H3PO4 85% (ML)</th>
-                      <th>pH הוצאה לתסיסה</th>
+                      <th>H3PO4 ראשון (ML)</th>
+                      <th>pH תחילת רתיחה</th>
+                      {acidHistoryMode === "boil" && (
+                        <>
+                          <th>H3PO4 שני (ML)</th>
+                          <th>pH הוצאה לתסיסה</th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -2571,13 +2623,118 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                         <td>{row.mashPh || "—"}</td>
                         <td>{row.mashVolume || "—"}</td>
                         <td>{row.acidMl || "—"}</td>
-                        <td>{row.outToFermentorPh || "—"}</td>
+                        <td>{row.boilPh || "—"}</td>
+                        {acidHistoryMode === "boil" && (
+                          <>
+                            <td>{row.boilAcidMl || "—"}</td>
+                            <td>{row.outToFermentorPh || "—"}</td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
+          </section>
+        </div>
+      )}
+
+      {boilCalcOpen && (
+        <div
+          className="brew-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setBoilCalcOpen(false);
+            }
+          }}
+        >
+          <section
+            className="brew-boil-calc-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="brew-boil-calc-title"
+          >
+            <div className="brew-modal-header">
+              <div>
+                <h2 id="brew-boil-calc-title">מחשבון נפח רתיחה</h2>
+                <p>
+                  יעד סוף רתיחה: {recipe.targets.endBoilPlato}°P
+                </p>
+              </div>
+              <button
+                type="button"
+                className="brew-modal-close brew-button-icon"
+                onClick={() => setBoilCalcOpen(false)}
+                aria-label="סגירה"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="brew-boil-calc-fields">
+              <label>
+                נפח בזמן הדגימה
+                <input
+                  type="number"
+                  value={localValue("boilSampleVolume") || "1200"}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) =>
+                    setLocal("boilSampleVolume", e.target.value)
+                  }
+                />
+              </label>
+              <label>
+                Plato בדגימה
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("boilSamplePlato")}
+                  onChange={(e) =>
+                    setLocal("boilSamplePlato", e.target.value)
+                  }
+                />
+              </label>
+              <label>
+                פקטור אידוי (ל׳)
+                <input
+                  type="number"
+                  value={localValue("boilEvaporationFactor") || "100"}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) =>
+                    setLocal("boilEvaporationFactor", e.target.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="brew-calc-result">
+              <span>נפח יעד</span>
+              <strong>
+                {boilRecommendation === null
+                  ? "—"
+                  : Math.round(boilRecommendation) + " ל׳"}
+              </strong>
+            </div>
+
+            <div className="brew-modal-actions">
+              <button
+                type="button"
+                className="brew-button-secondary"
+                onClick={() => setBoilCalcOpen(false)}
+              >
+                סגור
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={boilRecommendation === null}
+                onClick={() => void applyBoilRecommendation()}
+              >
+                השתמש בנפח היעד
+              </button>
+            </div>
           </section>
         </div>
       )}
