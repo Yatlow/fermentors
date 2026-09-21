@@ -2818,6 +2818,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <label>
                   כמות מים
                   <input
+                    required
                     value={localValue("hltWaterAmount")}
                     onChange={(e) =>
                       setLocal("hltWaterAmount", e.target.value)
@@ -2835,6 +2836,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <input
                     type="number"
                     step="0.1"
+                    required
                     value={localValue("hltWaterTemp")}
                     onChange={(e) =>
                       setLocal("hltWaterTemp", e.target.value)
@@ -2856,6 +2858,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <label>
                   כמות מים
                   <input
+                    required
                     value={localValue("lauterWaterAmount")}
                     onChange={(e) =>
                       setLocal("lauterWaterAmount", e.target.value)
@@ -2873,6 +2876,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <input
                     type="number"
                     step="0.1"
+                    required
                     value={localValue("lauterWaterTemp")}
                     onChange={(e) =>
                       setLocal("lauterWaterTemp", e.target.value)
@@ -2888,7 +2892,14 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </article>
             </div>
 
-            <article className="brew-material-confirmation">
+            <article
+              className={[
+                "brew-material-confirmation",
+                !hasField("materialsConfirmed") ? "brew-required-missing" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+            >
               <div className="brew-section-title">
                 <div>
                   <h4>חומרי גלם</h4>
@@ -3004,6 +3015,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 נפח מאש
                 <input
                   type="number"
+                  required
                   value={localValue("mashVolume")}
                   onChange={(e) =>
                     setLocal("mashVolume", e.target.value)
@@ -3019,6 +3031,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.01"
+                  required
                   value={localValue("mashPh")}
                   onChange={(e) => setLocal("mashPh", e.target.value)}
                   onBlur={(e) =>
@@ -3033,6 +3046,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <input
                     type="number"
                     step="0.1"
+                    required
                     value={localValue("mashAcid85")}
                     onChange={(e) =>
                       setLocal("mashAcid85", e.target.value)
@@ -3088,7 +3102,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   }
                 />
               </label>
-              <small>מדידת F.R. ליד ההוצאה לבישול</small>
+              <button
+                type="button"
+                className="brew-button-secondary"
+                onClick={() => setBoilCalcOpen(true)}
+              >
+                מחשבון נפח רתיחה
+              </button>
             </div>
 
             <div className="brew-lauter-subsection">
@@ -3122,6 +3142,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                           inputMode="numeric"
                           dir="ltr"
                           placeholder="HH:MM"
+                          required={index === 1}
                           value={localValue(`rinse${index}.time`)}
                           onChange={(e) =>
                             setLocal(
@@ -3179,6 +3200,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       <input
                         type="number"
                         step="0.1"
+                        required={index === 1}
                         value={localValue(`rinse${index}.temp`)}
                         onChange={(e) =>
                           setLocal(
@@ -3200,6 +3222,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       נפח ב-Kettle
                       <input
                         type="number"
+                        required={index === 1}
                         value={localValue(`rinse${index}.kettle`)}
                         onChange={(e) =>
                           setLocal(
@@ -3222,6 +3245,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                         Grant
                         <input
                           type="number"
+                          required={index === 1}
                           value={localValue(
                             `rinse${index}.grant`,
                           )}
