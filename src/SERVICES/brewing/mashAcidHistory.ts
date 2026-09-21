@@ -10,6 +10,8 @@ export type MashAcidHistoryRow = {
   mashPh: string;
   mashVolume: string;
   acidMl: string;
+  boilPh: string;
+  boilAcidMl: string;
   outToFermentorPh: string;
   sheetName: string;
   sheetUrl: string;
@@ -71,10 +73,12 @@ function parseBlock(
     mashMeta.match(/pH\s*([\d.,]+)/i)?.[1]?.replace(",", ".") || "";
 
   const acidMl = numericText(cell(rows, baseRow + 28, 1));
+  const boilPh = numericText(cell(rows, baseRow + 28, 6));
+  const boilAcidMl = numericText(cell(rows, baseRow + 29, 1));
   const outToFermentorPh = numericText(cell(rows, baseRow + 40, 8));
   const brewDate = cell(rows, headerRow, 8);
 
-  if (!mashVolume && !mashPh && !acidMl && !outToFermentorPh) {
+  if (!mashVolume && !mashPh && !acidMl && !boilPh && !boilAcidMl && !outToFermentorPh) {
     return null;
   }
 
@@ -85,16 +89,62 @@ function parseBlock(
     mashPh,
     mashVolume,
     acidMl,
+    boilPh,
+    boilAcidMl,
     outToFermentorPh,
     sheetName,
     sheetUrl,
   };
 }
 
+const CACHE_PREFIX = "fermentors:brewing:acid-history:v2:";
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+
+function cacheKey(style: string) {
+  return CACHE_PREFIX + String(style || "").trim().toLowerCase();
+}
+
+function loadCached(style: string): MashAcidHistoryRow[] | null {
+  try {
+    const raw = window.localStorage.getItem(cacheKey(style));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      savedAt?: number;
+      rows?: MashAcidHistoryRow[];
+    };
+    if (
+      !parsed.savedAt ||
+      Date.now() - parsed.savedAt > CACHE_TTL_MS ||
+      !Array.isArray(parsed.rows)
+    ) {
+      return null;
+    }
+    return parsed.rows;
+  } catch {
+    return null;
+  }
+}
+
+function saveCached(style: string, rows: MashAcidHistoryRow[]) {
+  try {
+    window.localStorage.setItem(
+      cacheKey(style),
+      JSON.stringify({ savedAt: Date.now(), rows }),
+    );
+  } catch {
+    // Local storage is a convenience cache only.
+  }
+}
+
 export async function loadMashAcidHistoryPreview(
   style: string,
   currentBatchNumber: string,
+  forceRefresh = false,
 ): Promise<MashAcidHistoryRow[]> {
+  if (!forceRefresh) {
+    const cached = loadCached(style);
+    if (cached) return cached;
+  }
   const sheets = await searchAccessibleBrewSheetsByStyle(style, 80);
   const currentBatch = Number(
     String(currentBatchNumber || "").replace("#", "").trim(),
@@ -156,5 +206,7 @@ export async function loadMashAcidHistoryPreview(
     }
   }
 
-  return result.slice(0, 9);
+  const rows = result.slice(0, 9);
+  saveCached(style, rows);
+  return rows;
 }
