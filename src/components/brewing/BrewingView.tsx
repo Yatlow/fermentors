@@ -4,6 +4,7 @@ import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import { loadSandboxRecipe } from "../../SERVICES/brewing/sandboxRecipe";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
+    attachSandboxRecipeSnapshot,
     attachSandboxSheet,
     createSandboxBrewRun,
     deleteSandboxBrewRun,
@@ -110,6 +111,20 @@ export default function BrewingView({ brews, tab }: Props) {
             a.localeCompare(b, "he")
         );
     }, [brews, sandbox]);
+
+    useEffect(() => {
+        if (!sandbox) return;
+        let changed = false;
+        sandboxRuns.forEach((run) => {
+            if (run.recipeSnapshot) return;
+            attachSandboxRecipeSnapshot(run.batchNumber, recipe);
+            changed = true;
+        });
+        if (changed) setSandboxRuns(loadSandboxBrewRuns());
+        // Existing Sandbox runs from before recipe snapshots get exactly one
+        // snapshot when this version first sees them.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sandbox]);
 
     useEffect(() => {
         if (!sandbox) return;
