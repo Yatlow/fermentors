@@ -71,6 +71,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [demoTank, setDemoTank] = useState<SandboxDemoTank>(() => loadSandboxDemoTank());
     const [selectedRun, setSelectedRun] = useState<SandboxBrewRun | null>(null);
     const [openingBatch, setOpeningBatch] = useState<string | null>(null);
+    const [showCreate, setShowCreate] = useState(false);
 
     const demoTankAsFermentor = useMemo<Fermentor>(
         () => ({
@@ -309,6 +310,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     : `✓ אצווה ${run.batchNumber} נוצרה. היא ממתינה לשיבוץ למיכל ${run.tankNumber} עד שהמיכל יהיה מחוטא.`,
             );
             setSuggestedBatch(String(Number(run.batchNumber) + 1));
+            setShowCreate(false);
         } catch (error) {
             if (createdBatch) {
                 deleteSandboxBrewRun(createdBatch);
@@ -370,13 +372,20 @@ export default function BrewingView({ brews, tab }: Props) {
 
             {message && <div className="brewing-message">{message}</div>}
 
-            {tab === "create" && (
+            {tab === "form" && showCreate && !selectedRun && (
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
-                            <h2>יצירת בישול לפי מיכל יעד</h2>
+                            <button
+                                type="button"
+                                className="brew-back-button"
+                                onClick={() => setShowCreate(false)}
+                            >
+                                חזרה לאצוות
+                            </button>
+                            <h2>יצירת בישול חדש</h2>
                             <p>
-                                אפשר ליצור אצווה לכל מיכל. מיכל שאינו מחוטא יקבל את האצווה לתור והיא לא תשויך בפועל עד החיטוי.
+                                בוחרים מיכל יעד. אם הוא עדיין לא מחוטא, האצווה תיווצר ותמתין בתור עד החיטוי.
                             </p>
                         </div>
                         <span className="brewing-count">{allTanks.length}</span>
@@ -572,16 +581,27 @@ export default function BrewingView({ brews, tab }: Props) {
                 />
             )}
 
-            {tab === "form" && !selectedRun && (
+            {tab === "form" && !selectedRun && !showCreate && (
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
                             <h2>אצוות לפני / בזמן בישול</h2>
                             <p>אצוות שממתינות לחיטוי מוצגות כאן, אבל אי אפשר להתחיל להן טופס בישול לפני השיבוץ.</p>
                         </div>
-                        <span className="brewing-count">
-                            {sandboxRuns.length + waitingBrews.length}
-                        </span>
+                        <div className="brewing-heading-actions">
+                            <span className="brewing-count">
+                                {sandboxRuns.length + waitingBrews.length}
+                            </span>
+                            {sandbox && (
+                                <button
+                                    type="button"
+                                    className="btn-primary brewing-create-button"
+                                    onClick={() => setShowCreate(true)}
+                                >
+                                    + יצירת בישול חדש
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {sandbox && (
