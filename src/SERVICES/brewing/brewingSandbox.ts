@@ -9,6 +9,7 @@ export type SandboxBrewRun = {
     tankNumber: string;
     tankType: "single" | "double" | "triple";
     style: string;
+    brewDate?: string;
     createdAt: string;
     source: "manual" | "planning";
     started: boolean;
