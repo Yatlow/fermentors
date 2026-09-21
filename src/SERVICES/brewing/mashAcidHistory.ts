@@ -10,6 +10,7 @@ export type MashAcidHistoryRow = {
   mashPh: string;
   mashVolume: string;
   acidMl: string;
+  outToBoilPh: string;
   boilPh: string;
   boilAcidMl: string;
   outToFermentorPh: string;
@@ -73,12 +74,13 @@ function parseBlock(
     mashMeta.match(/pH\s*([\d.,]+)/i)?.[1]?.replace(",", ".") || "";
 
   const acidMl = numericText(cell(rows, baseRow + 28, 1));
+  const outToBoilPh = numericText(cell(rows, baseRow + 15, 8));
   const boilPh = numericText(cell(rows, baseRow + 28, 6));
   const boilAcidMl = numericText(cell(rows, baseRow + 29, 1));
   const outToFermentorPh = numericText(cell(rows, baseRow + 40, 8));
   const brewDate = cell(rows, headerRow, 8);
 
-  if (!mashVolume && !mashPh && !acidMl && !boilPh && !boilAcidMl && !outToFermentorPh) {
+  if (!mashVolume && !mashPh && !acidMl && !outToBoilPh && !boilPh && !boilAcidMl && !outToFermentorPh) {
     return null;
   }
 
@@ -89,6 +91,7 @@ function parseBlock(
     mashPh,
     mashVolume,
     acidMl,
+    outToBoilPh,
     boilPh,
     boilAcidMl,
     outToFermentorPh,
@@ -97,7 +100,7 @@ function parseBlock(
   };
 }
 
-const CACHE_PREFIX = "fermentors:brewing:acid-history:v2:";
+const CACHE_PREFIX = "fermentors:brewing:acid-history:v3:";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function cacheKey(style: string) {
