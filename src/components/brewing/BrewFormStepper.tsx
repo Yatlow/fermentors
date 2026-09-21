@@ -350,6 +350,9 @@ function fieldsFromSheetRows(
   const mashAcid = numericText(sheetCell(rows, 28, "A"));
   if (mashAcid) pulled.mashAcid85 = mashAcid;
 
+  const boilAcid = numericText(sheetCell(rows, 29, "A"));
+  if (boilAcid) pulled.boilAcid85 = boilAcid;
+
   const outToBoilPh = numericText(sheetCell(rows, 15, "H"));
   if (outToBoilPh) pulled.outToBoilPh = outToBoilPh;
 
@@ -1161,6 +1164,29 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           rows,
           recipe.lautering.usesGrant,
         );
+
+        const headerRow = blockHeaderRow(run.tankType, index);
+        const dateRows = await readSandboxSheetRange(
+          run.sheetId,
+          `'גיליון1'!H${headerRow}:H${headerRow}`,
+        );
+        const brewDate = isoDateFromSheet(
+          String(dateRows[0]?.[0] || ""),
+        );
+        if (brewDate) pulled.brewDate = brewDate;
+
+        if (index === 1) {
+          const fermentationRow = fermentationStartingRow(run.tankType);
+          const yeastRows = await readSandboxSheetRange(
+            run.sheetId,
+            `'גיליון1'!G${fermentationRow}:G${fermentationRow}`,
+          );
+          const yeastTime = normalizedTime(
+            String(yeastRows[0]?.[0] || ""),
+          );
+          if (yeastTime) pulled.yeastPitchTime = yeastTime;
+        }
+
         const existing =
           nextExecution.blocks[String(index)]?.fields || {};
         nextExecution = replaceSandboxExecutionBlockFields(
@@ -1220,8 +1246,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
   }
 
-  async function openAcidHistory() {
-    setAcidHistoryOpen(true);
+  async function openAcidHistory(mode: "mash" | "boil") {
+    setAcidHistoryMode(mode);
     setAcidHistoryLoading(true);
     setAcidHistoryError("");
     try {
@@ -1448,7 +1474,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               className={currentBlock === index ? "active" : ""}
               onClick={() => void selectBlock(index)}
             >
-              {(["A", "B", "C"] as const)[index - 1]}
+              בישול {(["A", "B", "C"] as const)[index - 1]}
             </button>
           ),
         )}
@@ -1740,7 +1766,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <button
                   type="button"
                   className="brew-button-secondary brew-acid-history-button"
-                  onClick={() => void openAcidHistory()}
+                  onClick={() => void openAcidHistory("mash")}
                 >
                   3 אצוות אחרונות
                 </button>
@@ -2310,13 +2336,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         )}
       </section>
 
-      {acidHistoryOpen && (
+      {acidHistoryMode && (
         <div
           className="brew-modal-backdrop"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              setAcidHistoryOpen(false);
+              setAcidHistoryMode(null);
             }
           }}
         >
@@ -2336,7 +2362,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               <button
                 type="button"
                 className="brew-modal-close brew-button-icon"
-                onClick={() => setAcidHistoryOpen(false)}
+                onClick={() => setAcidHistoryMode(null)}
                 aria-label="סגירה"
               >
                 ×
