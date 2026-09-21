@@ -6,6 +6,11 @@ import {
   getRememberedGoogleWorkspaceToken,
 } from "../auth/googleWorkspaceAccess";
 import type { SandboxDemoTank } from "./brewingSandbox";
+import type { BrewRecipe } from "./brewRecipe";
+import {
+  activeLot,
+  type IngredientDefinition,
+} from "./ingredientLibrary";
 
 type TankType = SandboxDemoTank["tankType"];
 
@@ -174,6 +179,8 @@ export async function createSandboxBrewSheet(input: {
   style: string;
   tankNumber: string;
   tankType: TankType;
+  recipe?: BrewRecipe;
+  ingredients?: IngredientDefinition[];
 }): Promise<SandboxSheetResult> {
   if (runtimeConfig.deployEnv !== "preview") {
     throw new Error("יצירת Sheet ב-Sandbox זמינה רק ב-Preview.");
@@ -245,6 +252,41 @@ export async function createSandboxBrewSheet(input: {
         { range: `'גיליון1'!H${row}`, values: [[date]] },
       );
     });
+
+    if (input.recipe && input.ingredients) {
+      layout.blockHeaderRows.forEach((headerRow) => {
+        input.recipe!.grains.forEach((grain, grainIndex) => {
+          const ingredient = input.ingredients!.find(
+            (item) => item.id === grain.ingredientId,
+          );
+          if (!ingredient) return;
+
+          const lot = activeLot(ingredient);
+          const row = headerRow + 4 + grainIndex;
+          const typeAndLot = [
+            ingredient.name,
+            lot?.lotNumber ? `#${lot.lotNumber}` : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          data.push(
+            {
+              range: `'גיליון1'!A${row}`,
+              values: [[`${grain.kgPerBrew}Kg`]],
+            },
+            {
+              range: `'גיליון1'!B${row}`,
+              values: [[typeAndLot]],
+            },
+            {
+              range: `'גיליון1'!C${row}`,
+              values: [[lot?.supplier || ""]],
+            },
+          );
+        });
+      });
+    }
 
     data.push(
       {
