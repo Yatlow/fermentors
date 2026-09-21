@@ -72,51 +72,70 @@ export default function BrewRecipeEditor({
   const mashIn = recipe.mash.steps[0];
   const mashOut = recipe.mash.steps[recipe.mash.steps.length - 1];
   const middleMashSteps = recipe.mash.steps.slice(1, -1);
+  const mashPairs = Array.from(
+    { length: Math.ceil(middleMashSteps.length / 2) },
+    (_, index) => ({
+      rest: middleMashSteps[index * 2],
+      heat: middleMashSteps[index * 2 + 1],
+    }),
+  ).filter((pair) => !!pair.rest);
+
+  function renumberMashMiddle(steps: BrewRecipeMashStep[]) {
+    return steps.map((step, index) => {
+      const pairNumber = Math.floor(index / 2) + 1;
+      const isRest = index % 2 === 0;
+      return {
+        ...step,
+        id: `${isRest ? "rest" : "heat"}${pairNumber}`,
+        label: `${isRest ? "מנוחה" : "חימום"} ${pairNumber}`,
+        minutes: isRest ? step.minutes : undefined,
+      };
+    });
+  }
 
   function addMashStep() {
-    const step: BrewRecipeMashStep = {
-      id: `mash-step-${Date.now()}`,
-      label: `מנוחה ${Math.max(1, middleMashSteps.length + 1)}`,
-      targetTemp: 0,
-      minutes: 0,
-    };
-    setRecipe((current) => ({
-      ...current,
-      mash: {
-        ...current.mash,
-        steps: [
-          current.mash.steps[0],
-          ...current.mash.steps.slice(1, -1),
-          step,
-          current.mash.steps[current.mash.steps.length - 1],
-        ],
-      },
-    }));
-  }
-
-  function removeMashStep(id: string) {
-    setRecipe((current) => ({
-      ...current,
-      mash: {
-        ...current.mash,
-        steps: current.mash.steps.filter((step) => step.id !== id),
-      },
-    }));
-  }
-
-  function moveMashStep(id: string, direction: -1 | 1) {
     setRecipe((current) => {
       const first = current.mash.steps[0];
       const last = current.mash.steps[current.mash.steps.length - 1];
       const middle = current.mash.steps.slice(1, -1);
-      const index = middle.findIndex((step) => step.id === id);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= middle.length) return current;
-      const nextMiddle = [...middle];
-      [nextMiddle[index], nextMiddle[target]] = [nextMiddle[target], nextMiddle[index]];
+      const pairNumber = Math.floor(middle.length / 2) + 1;
+      const rest: BrewRecipeMashStep = {
+        id: `rest${pairNumber}`,
+        label: `מנוחה ${pairNumber}`,
+        targetTemp: 0,
+        minutes: 0,
+      };
+      const heat: BrewRecipeMashStep = {
+        id: `heat${pairNumber}`,
+        label: `חימום ${pairNumber}`,
+        targetTemp: last?.targetTemp ?? 78,
+      };
       return {
         ...current,
-        mash: { ...current.mash, steps: [first, ...nextMiddle, last] },
+        mash: {
+          ...current.mash,
+          steps: [first, ...middle, rest, heat, last],
+        },
+      };
+    });
+  }
+
+  function removeMashPair(index: number) {
+    setRecipe((current) => {
+      const first = current.mash.steps[0];
+      const last = current.mash.steps[current.mash.steps.length - 1];
+      const middle = current.mash.steps.slice(1, -1);
+      const nextMiddle = middle.filter(
+        (_, stepIndex) =>
+          stepIndex !== index * 2 &&
+          stepIndex !== index * 2 + 1,
+      );
+      return {
+        ...current,
+        mash: {
+          ...current.mash,
+          steps: [first, ...renumberMashMiddle(nextMiddle), last],
+        },
       };
     });
   }
@@ -275,7 +294,7 @@ export default function BrewRecipeEditor({
             className="brew-action-button brew-action-button-add"
             onClick={addMashStep}
           >
-            + שלב
+            + מנוחה וחימום
           </button>
         </div>
 
@@ -319,83 +338,75 @@ export default function BrewRecipeEditor({
         )}
 
         <div className="brew-editor-table brew-mash-middle-list">
-          {middleMashSteps.map((step, index) => (
-            <div
-              className="brew-editor-row brew-editor-row-mash"
-              key={step.id}
-            >
-              <label>
-                שלב
-                <input
-                  value={step.label}
-                  onChange={(e) =>
-                    updateMashStep(step.id, { label: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                יעד °C
-                <input
-                  type="number"
-                  step="0.1"
-                  value={step.targetTemp}
-                  onChange={(e) =>
-                    updateMashStep(step.id, {
-                      targetTemp: numberValue(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                דקות
-                <input
-                  type="number"
-                  value={step.minutes ?? ""}
-                  onChange={(e) =>
-                    updateMashStep(step.id, {
-                      minutes:
-                        e.target.value === ""
-                          ? undefined
-                          : numberValue(e.target.value),
-                    })
-                  }
-                />
-              </label>
-              <div className="brew-row-actions">
-                <button
-                  type="button"
-                  className="brew-icon-button"
-                  aria-label="העלה שלב"
-                  title="העלה שלב"
-                  disabled={index === 0}
-                  onClick={() => moveMashStep(step.id, -1)}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  className="brew-icon-button"
-                  aria-label="הורד שלב"
-                  title="הורד שלב"
-                  disabled={index === middleMashSteps.length - 1}
-                  onClick={() => moveMashStep(step.id, 1)}
-                >
-                  ↓
-                </button>
+          {mashPairs.map((pair, index) => (
+            <div className="brew-mash-pair" key={pair.rest.id}>
+              <div className="brew-editor-row brew-editor-row-mash">
+                <div className="brew-mash-step-name">
+                  <strong>מנוחה {index + 1}</strong>
+                </div>
+                <label>
+                  יעד °C
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={pair.rest.targetTemp}
+                    onChange={(e) =>
+                      updateMashStep(pair.rest.id, {
+                        targetTemp: numberValue(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  דקות
+                  <input
+                    type="number"
+                    value={pair.rest.minutes ?? ""}
+                    onChange={(e) =>
+                      updateMashStep(pair.rest.id, {
+                        minutes:
+                          e.target.value === ""
+                            ? undefined
+                            : numberValue(e.target.value),
+                      })
+                    }
+                  />
+                </label>
                 <button
                   type="button"
                   className="brew-icon-button brew-icon-button-danger"
-                  aria-label="הסר שלב"
-                  title="הסר שלב"
-                  onClick={() => removeMashStep(step.id)}
+                  aria-label={`הסר מנוחה וחימום ${index + 1}`}
+                  title="הסר מנוחה וחימום"
+                  onClick={() => removeMashPair(index)}
                 >
                   ×
                 </button>
               </div>
+
+              {pair.heat && (
+                <div className="brew-editor-row brew-editor-row-mash brew-editor-row-heat">
+                  <div className="brew-mash-step-name">
+                    <strong>חימום {index + 1}</strong>
+                    <span>ללא משך מוגדר</span>
+                  </div>
+                  <label>
+                    יעד °C
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={pair.heat.targetTemp}
+                      onChange={(e) =>
+                        updateMashStep(pair.heat.id, {
+                          targetTemp: numberValue(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
             </div>
           ))}
         </div>
-
         {mashOut && (
           <div className="brew-editor-row brew-editor-row-mash-fixed">
             <div className="brew-mash-boundary-label">
