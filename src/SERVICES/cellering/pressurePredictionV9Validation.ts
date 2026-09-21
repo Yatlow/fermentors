@@ -745,6 +745,17 @@ export function runPressureV9PhysicsValidation(args: {
   kPerHourOverride?: number | null;
 }): PressureV9ValidationResult {
   const cases: PressureV9ValidationCase[] = [];
+  const internalCases: {
+    item: PressureV9ValidationCase;
+    batch: PressureV9ValidationBatch;
+    selected: ReturnType<typeof eligibleIntervals>[number];
+    vesselVolumeLiters?: number;
+  }[] = [];
+  const diagnosticsEnabled =
+    args.kPerHourOverride === null ||
+    args.kPerHourOverride === undefined
+      ? !args.vesselVolumeByTankClass
+      : false;
   let maxResidual = 0;
 
   for (const batch of args.batches) {
@@ -829,6 +840,45 @@ export function runPressureV9PhysicsValidation(args: {
           : pressureResidualBar >= 0.18
             ? "possible_unrecorded_addition"
             : "none";
+    const observedInventory =
+      actualEndPressure === null
+        ? null
+        : pressureV9ObservedInventory({
+            tankNumber: batch.tankNumber,
+            beerVolumeLiters:
+              batch.beerVolumeLiters,
+            vesselVolumeLiters,
+            startCarbonation,
+            startPressure:
+              selected.startPressure,
+            startTemperature:
+              selected.startTemperature,
+            endCarbonation:
+              actualEndCarbonation,
+            endPressure:
+              actualEndPressure,
+            endTemperature:
+              selected.endTemperature,
+          });
+    const observedInventoryDeltaVol =
+      observedInventory?.deltaEquivalentCarbonationVol ??
+      null;
+    const inventoryStatus =
+      inventoryStatusFromDelta(
+        observedInventoryDeltaVol,
+      );
+    const inferredKPerHour =
+      diagnosticsEnabled &&
+      inventoryStatus === "closed_consistent"
+        ? inferKPerHour({
+            batch,
+            selected,
+            startCarbonation,
+            actualEndCarbonation,
+            vesselVolumeLiters,
+          })
+        : null;
+
     const nominalVolume =
       nominalVesselVolume(tankClass);
     const estimatedHeadspaceFraction =
@@ -839,7 +889,7 @@ export function runPressureV9PhysicsValidation(args: {
           ) / nominalVolume
         : null;
 
-    cases.push({
+    const item: PressureV9ValidationCase = {
       batchId: batch.batchId,
       style: batch.style,
       tankNumber: batch.tankNumber,
@@ -877,6 +927,9 @@ export function runPressureV9PhysicsValidation(args: {
       suspectedPressureEvent,
       temperaturePathPointCount:
         selected.temperaturePath.length,
+      observedInventoryDeltaVol,
+      inventoryStatus,
+      inferredKPerHour,
       estimatedHeadspaceFraction,
       kPerHour:
         finite(args.kPerHourOverride) ??
@@ -885,6 +938,13 @@ export function runPressureV9PhysicsValidation(args: {
         String(selected.start.row.id ?? ""),
       endMeasurementId:
         String(selected.end.row.id ?? ""),
+    };
+    cases.push(item);
+    internalCases.push({
+      item,
+      batch,
+      selected,
+      vesselVolumeLiters,
     });
   }
 
@@ -900,6 +960,90 @@ export function runPressureV9PhysicsValidation(args: {
 
   const carbonationMae = mean(carbonationErrors);
   const persistenceMae = mean(persistenceErrors);
+
+  const strictClosedCases = cases.filter(
+    (item) => item.inventoryStatus === "closed_consistent",
+  );
+  const strictClosedCarbonationMae = mean(
+    strictClosedCases.map(
+      (item) => item.carbonationAbsError,
+    ),
+  );
+  const strictClosedPersistenceMae = mean(
+    strictClosedCases.map(
+      (item) => item.persistenceAbsError,
+    ),
+  );
+  const inferredKs = strictClosedCases
+    .map((item) => item.inferredKPerHour)
+    .filter((value): value is number => value !== null);
+
+  const crossFitErrors: number[] = [];
+  if (diagnosticsEnabled) {
+    const strictInputs = internalCases.filter(
+      (entry) =>
+        entry.item.inventoryStatus === "closed_consistent" &&
+        entry.item.inferredKPerHour !== null,
+    );
+
+    for (const entry of strictInputs) {
+      const fold =
+        hash32(
+          `${args.seed}|v9-native-k|${entry.item.batchId}`,
+        ) % 5;
+      const trainKs = strictInputs
+        .filter(
+          (candidate) =>
+            hash32(
+              `${args.seed}|v9-native-k|${candidate.item.batchId}`,
+            ) % 5 !== fold,
+        )
+        .map(
+          (candidate) =>
+            candidate.item.inferredKPerHour,
+        )
+        .filter(
+          (value): value is number =>
+            value !== null,
+        );
+      const foldK = quantile(trainKs, 0.5);
+      if (foldK === null) continue;
+
+      const prediction =
+        simulateV9ObservedClosedInterval({
+          tankNumber:
+            entry.batch.tankNumber,
+          beerVolumeLiters:
+            entry.batch.beerVolumeLiters,
+          vesselVolumeLiters:
+            entry.vesselVolumeLiters,
+          startCarbonation:
+            entry.item.startCarbonation,
+          startPressure:
+            entry.selected.startPressure,
+          startTemperature:
+            entry.selected.startTemperature,
+          endTemperature:
+            entry.selected.endTemperature,
+          durationHours:
+            entry.selected.durationHours,
+          temperaturePath:
+            entry.selected.temperaturePath,
+          kPerHour: foldK,
+        });
+      if (!prediction) continue;
+
+      crossFitErrors.push(
+        Math.abs(
+          prediction.predictedCarbonation -
+          entry.item.actualEndCarbonation,
+        ),
+      );
+    }
+  }
+
+  const kCrossFitCarbonationMae =
+    mean(crossFitErrors);
 
   return {
     batchCount: new Set(
@@ -937,6 +1081,47 @@ export function runPressureV9PhysicsValidation(args: {
         : null,
     massBalanceMaxResidualMoles:
       cases.length ? maxResidual : null,
+
+    strictClosedCaseCount:
+      strictClosedCases.length,
+    strictClosedCarbonationMae,
+    strictClosedCarbonationP90AbsError:
+      quantile(
+        strictClosedCases.map(
+          (item) => item.carbonationAbsError,
+        ),
+        0.9,
+      ),
+    strictClosedPersistenceMae,
+    strictClosedImprovementVsPersistence:
+      strictClosedCarbonationMae !== null &&
+      strictClosedPersistenceMae !== null &&
+      strictClosedPersistenceMae > 0
+        ? 1 -
+          strictClosedCarbonationMae /
+            strictClosedPersistenceMae
+        : null,
+
+    inferredKMedianPerHour:
+      quantile(inferredKs, 0.5),
+    inferredKP10PerHour:
+      quantile(inferredKs, 0.1),
+    inferredKP90PerHour:
+      quantile(inferredKs, 0.9),
+    kCrossFitCaseCount:
+      crossFitErrors.length,
+    kCrossFitCarbonationMae,
+    kCrossFitCarbonationP90AbsError:
+      quantile(crossFitErrors, 0.9),
+    kCrossFitImprovementVsCurrentK:
+      kCrossFitCarbonationMae !== null &&
+      strictClosedCarbonationMae !== null &&
+      strictClosedCarbonationMae > 0
+        ? 1 -
+          kCrossFitCarbonationMae /
+            strictClosedCarbonationMae
+        : null,
+
     byStyle: grouped(
       cases,
       (item) => item.style || "unknown",
@@ -960,6 +1145,10 @@ export function runPressureV9PhysicsValidation(args: {
     byPressureResidual: grouped(
       cases,
       (item) => pressureResidualBucket(item),
+    ),
+    byInventoryBalance: grouped(
+      cases,
+      (item) => inventoryBucket(item),
     ),
     byHeadspaceFraction: grouped(
       cases,
