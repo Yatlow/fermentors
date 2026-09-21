@@ -20,6 +20,13 @@ export type SandboxSheetResult = {
   url: string;
 };
 
+export type AccessibleBrewSheet = {
+  id: string;
+  name: string;
+  url: string;
+  modifiedTime?: string;
+};
+
 async function requestWriteToken(
   forceConsent = false,
 ): Promise<string> {
@@ -348,6 +355,47 @@ export async function createSandboxBrewSheet(input: {
     await deleteSandboxFile(fileId);
     throw error;
   }
+}
+
+
+export async function searchAccessibleBrewSheetsByStyle(
+  style: string,
+  maxResults = 80,
+): Promise<AccessibleBrewSheet[]> {
+  if (runtimeConfig.deployEnv !== "preview") {
+    throw new Error("חיפוש Sheets היסטוריים זמין כרגע ב-Preview בלבד.");
+  }
+
+  const cleanStyle = String(style || "").trim();
+  if (!cleanStyle) return [];
+
+  const escaped = cleanStyle.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const q = [
+    "mimeType = 'application/vnd.google-apps.spreadsheet'",
+    "trashed = false",
+    `name contains '${escaped}'`,
+  ].join(" and ");
+
+  const url =
+    "https://www.googleapis.com/drive/v3/files" +
+    `?q=${encodeURIComponent(q)}` +
+    `&pageSize=${Math.max(10, Math.min(100, maxResults))}` +
+    "&orderBy=modifiedTime desc" +
+    "&fields=files(id,name,webViewLink,modifiedTime)";
+
+  const response = await googleFetch(url, { method: "GET" });
+  await requireOk(response, "חיפוש בישולים קודמים ב-Drive נכשל");
+  const payload = await response.json();
+  const files = Array.isArray(payload?.files) ? payload.files : [];
+
+  return files.map((file: Record<string, unknown>) => ({
+    id: String(file.id || ""),
+    name: String(file.name || ""),
+    url:
+      String(file.webViewLink || "") ||
+      `https://docs.google.com/spreadsheets/d/${String(file.id || "")}/edit`,
+    modifiedTime: file.modifiedTime ? String(file.modifiedTime) : undefined,
+  })).filter((file: AccessibleBrewSheet) => !!file.id);
 }
 
 
