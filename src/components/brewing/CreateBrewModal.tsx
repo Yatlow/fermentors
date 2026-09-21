@@ -6,6 +6,7 @@ import type {
   SandboxDemoTank,
 } from "../../SERVICES/brewing/brewingSandbox";
 import type { PlannedBrewHint } from "../../SERVICES/brewing/planningBrewHints";
+import BeerLoader from "../general/Loading";
 
 type Props = {
   open: boolean;
@@ -17,6 +18,9 @@ type Props = {
   busyTankId: string | null;
   planningHints: PlannedBrewHint[];
   planningHintsAvailable: boolean;
+  planningHintsLoading: boolean;
+  error: string;
+  onClearError: () => void;
   onClose: () => void;
   onDemoTankTypeChange: (value: SandboxDemoTank["tankType"]) => void;
   onCreate: (
@@ -67,6 +71,9 @@ export default function CreateBrewModal({
   busyTankId,
   planningHints,
   planningHintsAvailable,
+  planningHintsLoading,
+  error,
+  onClearError,
   onClose,
   onDemoTankTypeChange,
   onCreate,
@@ -140,7 +147,7 @@ export default function CreateBrewModal({
           </div>
           <button
             type="button"
-            className="brew-modal-close"
+            className="brew-modal-close brew-button-icon"
             onClick={onClose}
             disabled={busy}
             aria-label="סגירה"
@@ -148,6 +155,15 @@ export default function CreateBrewModal({
             ×
           </button>
         </div>
+
+        {planningHintsLoading && (
+          <div className="brew-inline-loader">
+            <BeerLoader
+              size="spinner"
+              message="טוען את בישולי השבוע…"
+            />
+          </div>
+        )}
 
         {planningHintsAvailable && planningHints.length > 0 && (
           <div className="brew-planning-hint">
@@ -210,15 +226,22 @@ export default function CreateBrewModal({
           </div>
         )}
 
+        {error && (
+          <div className="brewing-message brewing-message-error" role="alert">
+            {error}
+          </div>
+        )}
+
         <div className="brew-modal-fields">
           <label>
             מספר אצווה
             <input
               inputMode="numeric"
               value={batchNumber}
-              onChange={(event) =>
-                setBatchNumber(event.target.value.replace(/\D/g, ""))
-              }
+              onChange={(event) => {
+                onClearError();
+                setBatchNumber(event.target.value.replace(/\D/g, ""));
+              }}
             />
           </label>
 
@@ -226,7 +249,10 @@ export default function CreateBrewModal({
             מיכל יעד
             <select
               value={tankId}
-              onChange={(event) => setTankId(event.target.value)}
+              onChange={(event) => {
+                onClearError();
+                setTankId(event.target.value);
+              }}
             >
               {sortedTanks.map((tank) => {
                 const currentBatch =
@@ -271,7 +297,10 @@ export default function CreateBrewModal({
             מתכון
             <select
               value={style}
-              onChange={(event) => setStyle(event.target.value)}
+              onChange={(event) => {
+                onClearError();
+                setStyle(event.target.value);
+              }}
             >
               {recipes.map((recipe) => (
                 <option key={recipe.id} value={recipe.style}>
@@ -302,9 +331,19 @@ export default function CreateBrewModal({
           </div>
         )}
 
+        {busy && (
+          <div className="brew-modal-loader">
+            <BeerLoader
+              size="small"
+              message="יוצר אצווה ומכין Sheet…"
+            />
+          </div>
+        )}
+
         <div className="brew-modal-actions">
           <button
             type="button"
+            className="brew-button-secondary"
             onClick={onClose}
             disabled={busy}
           >
@@ -312,7 +351,7 @@ export default function CreateBrewModal({
           </button>
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary brew-button-primary"
             disabled={
               busy || !selectedTank || !batchNumber || !style
             }
