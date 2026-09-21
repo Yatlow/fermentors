@@ -281,6 +281,7 @@ function brewingSheetParseHistoryBlock_(
     acidMl: brewingSheetNumber_(cell(baseRow + 28, 1)),
     outToBoilPh: brewingSheetNumber_(cell(baseRow + 15, 8)),
     boilPh: brewingSheetNumber_(cell(baseRow + 28, 6)),
+    kettleVolume: brewingSheetNumber_(cell(baseRow + 38, 3)),
     boilAcidMl: brewingSheetNumber_(cell(baseRow + 29, 1)),
     outToFermentorPh: brewingSheetNumber_(cell(baseRow + 40, 8)),
     sheetName: file.fileName || "",
@@ -293,6 +294,7 @@ function brewingSheetParseHistoryBlock_(
     !row.acidMl &&
     !row.outToBoilPh &&
     !row.boilPh &&
+    !row.kettleVolume &&
     !row.boilAcidMl &&
     !row.outToFermentorPh
   ) {
