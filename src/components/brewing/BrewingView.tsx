@@ -183,6 +183,22 @@ export default function BrewingView({ brews, tab }: Props) {
         [brews],
     );
 
+    const actionZeroProductionTanks = useMemo(
+        () =>
+            editableProductionTanks.filter(
+                (tank) => Number(tank.action) === 0,
+            ),
+        [editableProductionTanks],
+    );
+
+    const otherProductionTanks = useMemo(
+        () =>
+            editableProductionTanks.filter(
+                (tank) => Number(tank.action) !== 0,
+            ),
+        [editableProductionTanks],
+    );
+
     const selectedRecipe = useMemo(() => {
         if (!selectedRun) return null;
         if (selectedRun.recipeSnapshot) return selectedRun.recipeSnapshot;
@@ -522,12 +538,54 @@ export default function BrewingView({ brews, tab }: Props) {
 
     return (
         <main className="brewing-view" dir="rtl">
+            {tab === "form" && actionZeroProductionTanks.length > 0 && (
+                <section className="brewing-action-zero-strip" aria-label="מיכלים ב-ACTION 0">
+                    <div className="brewing-action-zero-heading">
+                        <strong>מיכלים ב-ACTION 0</strong>
+                        <span>ממתינים / נמצאים בבישול · נתוני אמת</span>
+                    </div>
+                    <div className="brewing-action-zero-list">
+                        {actionZeroProductionTanks.map((tank) => {
+                            const run = productionRunFromTank(tank);
+                            if (!run) return null;
+                            const style = beerStyleClass(run.style);
+                            const recipe =
+                                recipes.find((item) =>
+                                    sameStyle(item.style, run.style),
+                                ) || null;
+
+                            return (
+                                <button
+                                    type="button"
+                                    className="brewing-action-zero-chip"
+                                    key={tank.id}
+                                    disabled={!sandbox || !recipe}
+                                    onClick={() => {
+                                        setMessage("");
+                                        setSelectedRun(run);
+                                    }}
+                                >
+                                    <strong>מיכל {run.tankNumber}</strong>
+                                    <span>#{run.batchNumber}</span>
+                                    <span
+                                        className={`brewing-style-tag ${style.className}`}
+                                    >
+                                        {style.displayLabel}
+                                    </span>
+                                    <small>
+                                        {tank.brewProgress?.stageName || "ACTION 0"}
+                                    </small>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </section>
+            )}
+
             {sandbox && (
-                <div className="brewing-sandbox-banner" role="status">
-                    <strong>SANDBOX</strong>
-                    <span>
-                        ה-Preview מבודד: אצוות הבדיקה וסטטוסי השיבוץ כאן לא משנים מיכלים בפרודקשן.
-                    </span>
+                <div className="brewing-preview-note" role="status">
+                    PR Preview · עריכת אצוות אמת פעילה. יצירת אצווה חדשה עדיין משתמשת
+                    ב-Sandbox עד שנעביר גם את פעולת היצירה לנתוני אמת.
                 </div>
             )}
 
@@ -716,10 +774,10 @@ export default function BrewingView({ brews, tab }: Props) {
                         </>
                     )}
 
-                    {editableProductionTanks.length > 0 && (
+                    {otherProductionTanks.length > 0 && (
                         <>
                             <h3 className="brewing-subheading">
-                                אצוות אמת — עריכת Sheet
+                                אצוות אמת — ACTION 1/3/4/5
                             </h3>
                             <div className="brewing-real-data-note">
                                 <strong>זה מידע אמיתי.</strong>
@@ -729,7 +787,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                 </span>
                             </div>
                             <div className="brewing-tank-grid">
-                                {editableProductionTanks.map((tank) => {
+                                {otherProductionTanks.map((tank) => {
                                     const run = productionRunFromTank(tank);
                                     if (!run) return null;
                                     const style = beerStyleClass(run.style);
