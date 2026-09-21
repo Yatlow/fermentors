@@ -1306,3 +1306,23 @@
         padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
     }
 }
+
+
+.brew-planning-hint-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.brew-planning-hint-chips button {
+    min-height: 30px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border: 1px solid #93c5fd;
+    border-radius: var(--radius-pill);
+    background: #fff;
+    color: #1d4ed8;
+    font: inherit;
+    font-size: 0.64rem;
+    font-weight: bold;
+}
