@@ -103,6 +103,31 @@ export async function serverTrashBrewSheet(spreadsheetId: string) {
   return unwrapAppsScriptResult(response, "מחיקת Sheet הבישול נכשלה.");
 }
 
+export type BrewingDriveHistoryRow = {
+  id: string;
+  fileId: string;
+  fileName: string;
+  batchNumber: string;
+  beerStyle: string;
+  brewDate: string;
+  sheetUrl: string;
+  tankNumber: string;
+  tankType: "single" | "double" | "triple";
+};
+
+export async function serverListBrewDriveHistory(limit = 100) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<BrewingDriveHistoryRow[]>
+  >({
+    action: "BrewSheetListHistory",
+    limit,
+  });
+  return unwrapAppsScriptResult(
+    response,
+    "טעינת היסטוריית הבישולים מ-Drive נכשלה.",
+  );
+}
+
 export async function serverLoadBrewAcidHistory(
   style: string,
   currentBatchNumber: string,
