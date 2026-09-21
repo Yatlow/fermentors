@@ -770,6 +770,77 @@ export function pressureV9ObservedInventory(args: {
   };
 }
 
+export type PressureV9ActionForecast = {
+  setPressure: number;
+  points: {
+    hour: number;
+    temperature: number;
+    carbonation: number;
+    pressure: number;
+  }[];
+};
+
+export function simulateV9ActionForecast(args: {
+  tankNumber: number;
+  beerVolumeLiters: number;
+  startCarbonation: number;
+  startPressure: number;
+  startTemperature: number;
+  setPressure: number;
+  finalTemperature: number;
+  coolingHours: number;
+  kPerHour: number;
+  futureOperationalLossBar?: number;
+  hours?: number;
+}): PressureV9ActionForecast | null {
+  const geometry = estimatedV9TankGeometry(
+    args.tankNumber,
+  );
+  if (!geometry) return null;
+
+  const headspaceLiters =
+    geometry.totalVolumeLiters -
+    args.beerVolumeLiters;
+  if (headspaceLiters < MIN_HEADSPACE_LITERS) {
+    return null;
+  }
+
+  const hours = clamp(
+    Math.round(args.hours ?? 120),
+    1,
+    168,
+  );
+
+  const trajectory = simulateTrajectory({
+    startCarbonation:
+      args.startCarbonation,
+    setPressure:
+      clamp(args.setPressure, 0, MAX_OPERATIONAL_PRESSURE_BAR),
+    currentTemperature:
+      args.startTemperature,
+    finalTemperature:
+      args.finalTemperature,
+    coolingHours:
+      Math.max(0, args.coolingHours),
+    beerVolumeLiters:
+      args.beerVolumeLiters,
+    headspaceLiters,
+    kPerHour:
+      clamp(args.kPerHour, 0.0002, 0.05),
+    futureOperationalLossBar:
+      Math.max(
+        0,
+        args.futureOperationalLossBar ?? 0,
+      ),
+    hours,
+  });
+
+  return {
+    setPressure: args.setPressure,
+    points: trajectory.points,
+  };
+}
+
 export type PressureV9ObservedIntervalPrediction = {
   durationHours: number;
   predictedCarbonation: number;
