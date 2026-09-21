@@ -1037,3 +1037,123 @@
         font-size: 0.68rem;
     }
 }
+
+
+/* =========================
+   Unified batches workspace
+   ========================= */
+
+.brewing-heading-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.brewing-create-button {
+    min-height: var(--pill-height-mobile);
+    padding: 5px 11px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+/* =========================
+   Mobile stepper refinement
+   ========================= */
+
+.brew-step-progress {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: x proximity;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+}
+
+.brew-step-progress::-webkit-scrollbar {
+    display: none;
+}
+
+.brew-step-progress button {
+    flex: 0 0 92px;
+    min-width: 92px;
+    scroll-snap-align: start;
+}
+
+.brew-step-progress button strong {
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
+}
+
+.brew-lauter-subsection {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #eef2f7;
+}
+
+.brew-lauter-subsection .brew-section-title {
+    align-items: flex-end;
+}
+
+.brew-lauter-subsection .brew-section-title h4 {
+    margin: 0;
+    font-size: 0.78rem;
+}
+
+.brew-lauter-subsection .brew-section-title small {
+    max-width: 150px;
+    color: var(--text-muted);
+    font-size: 0.62rem;
+    line-height: 1.3;
+    text-align: left;
+}
+
+.brew-lauter-end-transfer {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #eef2f7;
+}
+
+@media (max-width: 520px) {
+    .brewing-panel-heading {
+        align-items: flex-start;
+    }
+
+    .brewing-heading-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .brewing-create-button {
+        width: 100%;
+    }
+
+    .brew-step-progress {
+        margin-inline: -2px;
+        padding-inline: 2px;
+    }
+
+    .brew-step-progress button {
+        flex-basis: 86px;
+        min-width: 86px;
+        min-height: 54px;
+    }
+
+    .brew-step-progress button strong {
+        font-size: 0.61rem;
+    }
+}
+
+@media (min-width: 760px) {
+    .brew-step-progress {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        overflow: visible;
+    }
+
+    .brew-step-progress button {
+        min-width: 0;
+        width: auto;
+    }
+}
