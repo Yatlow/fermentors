@@ -36,7 +36,6 @@ const BrewCalc = lazy(() => import("./components/tools/BrewerCalc"));
 const ManualBatchAssignment = lazy(() => import("./components/tools/ManualBatchAssignment"));
 const ManualStatusAssignment = lazy(() => import("./components/tools/Manualstatusassignment "));
 const EditApprovedUsers = lazy(() => import("./components/tools/EditApprovedUsers"));
-const PressureV9Monitor = lazy(() => import("./components/tools/PressureV9Monitor"));
 const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));
 const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentReportsView"));
 const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
@@ -186,7 +185,7 @@ function App() {
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר">("אריזה");
-    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "v9Monitor">("calculator");
+    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
     const [resetKey, setResetKey] = useState(0);
@@ -376,9 +375,6 @@ function App() {
         return filteredBrews;
     }, [filteredBrews, sortByAge]);
 
-    const canAccessV9Monitor =
-        user?.email?.trim().toLowerCase() === "yisrael@atlow.co.il";
-
     if (authLoading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען משתמש..."} overlay={false} size={"large"} /></div>;
     if (!user) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>כניסה למערכת</h1><button onClick={login} className="status-filter-button active">התחבר באמצעות Google</button></div>;
     if (isApproved === false) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>אין לך הרשאות גישה למערכת זו.</h1><button onClick={logout} className="status-filter-button">התנתק</button><img src={shpiro} alt="Shpiro" className="login-logo" /></div>;
@@ -419,7 +415,6 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
-                        {canAccessV9Monitor && <button type="button" className={`status-filter-button ${selectedAdminTools === "v9Monitor" ? "active" : ""}`} onClick={() => setSelectedAdminTools("v9Monitor")}><span>V9 · מעקב וסימולציה</span></button>}
                     </div>}
                     {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{PLANNING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
@@ -445,7 +440,6 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-                {selectedView === "ניהול" && selectedAdminTools === "v9Monitor" && canAccessV9Monitor && <PressureV9Monitor brews={brews} specs={specs} />}
                 {selectedView === "מקרר" && <CoolerMap brews={brews} />}
             </Suspense>
         </div>
