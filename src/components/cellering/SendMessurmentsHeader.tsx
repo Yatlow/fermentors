@@ -22,7 +22,10 @@ import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurren
 // ומאפשר למשתמש לערוך את חלוקת המשטחים לפני שהם נוצרים בפועל.
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
-import { recordPressureV9Shadow } from "../../SERVICES/cellering/pressurePredictionV9Shadow";
+import {
+    recordPressureV9Shadow,
+    recordPressureV9ShadowAction,
+} from "../../SERVICES/cellering/pressurePredictionV9Shadow";
 
 export type SendMessurmentsHeaderProps = {
     brews: Fermentor[],
@@ -649,6 +652,43 @@ export default function SendMessurmentsHeader({
                             console.warn(
                                 "V9 shadow snapshot failed",
                                 carbonationReadings[index]?.tankNumber,
+                                result.reason
+                            );
+                        }
+                    });
+                }
+
+                // A pressure decision often happens minutes or hours after the
+                // carbonation sample. Link those later cellar-action notes to
+                // the still-open shadow snapshot instead of treating the whole
+                // interval as "contaminated". The next carbonation check can
+                // then score V9 with the real action time and target pressure.
+                const actionReadings = succeededReadings.filter((reading) =>
+                    reading.notes &&
+                    /לחץ|גיזוז מלמטה|שמרים|שמרי/i.test(String(reading.notes))
+                );
+
+                if (actionReadings.length > 0) {
+                    const actionResults = await Promise.allSettled(
+                        actionReadings.map(async (reading) => {
+                            const tank = brews.find(
+                                (candidate) =>
+                                    String(candidate.id) === String(reading.tankId)
+                            );
+                            if (!tank?.batchNumber) return false;
+
+                            return recordPressureV9ShadowAction({
+                                tank,
+                                reading,
+                            });
+                        })
+                    );
+
+                    actionResults.forEach((result, index) => {
+                        if (result.status === "rejected") {
+                            console.warn(
+                                "V9 shadow action link failed",
+                                actionReadings[index]?.tankNumber,
                                 result.reason
                             );
                         }
