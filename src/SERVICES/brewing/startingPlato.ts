@@ -29,8 +29,17 @@ export function calculateWeightedStartingPlato(
     let isPartial = false;
 
     for (const block of blocks) {
-        const plato = Number(block.endBoilPlato);
-        const cumulativeVolume = Number(block.cumulativeTankVolumeLiters);
+        const hasRawPlato =
+            block.endBoilPlato !== null &&
+            block.endBoilPlato !== undefined;
+        const hasRawVolume =
+            block.cumulativeTankVolumeLiters !== null &&
+            block.cumulativeTankVolumeLiters !== undefined;
+
+        const plato = hasRawPlato ? Number(block.endBoilPlato) : NaN;
+        const cumulativeVolume = hasRawVolume
+            ? Number(block.cumulativeTankVolumeLiters)
+            : NaN;
 
         const hasPlato = Number.isFinite(plato);
         const hasVolume = Number.isFinite(cumulativeVolume) && cumulativeVolume > 0;
