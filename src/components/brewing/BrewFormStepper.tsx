@@ -448,6 +448,85 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     return items;
   }, [fields]);
 
+  function hasField(key: string): boolean {
+    return String(fields[key] ?? "").trim() !== "";
+  }
+
+  function stepMissingCount(stepId: StepId): number {
+    if (stepId === "water") {
+      return [
+        "hltWaterAmount",
+        "hltWaterTemp",
+        "lauterWaterAmount",
+        "lauterWaterTemp",
+      ].filter((key) => !hasField(key)).length;
+    }
+
+    if (stepId === "mash") {
+      const required = ["mashVolume", "mashPh"];
+      MASH_STAGES.forEach((stage) => {
+        required.push(
+          `${stage.key}.start`,
+          `${stage.key}.end`,
+        );
+        if (stage.showTemp) required.push(`${stage.key}.temp`);
+      });
+      return required.filter((key) => !hasField(key)).length;
+    }
+
+    if (stepId === "lautering") {
+      const required = [
+        "transferLt.start",
+        "transferLt.end",
+        "restLt.start",
+        "restLt.end",
+        "circulation.start",
+        "circulation.end",
+        "outToBoil.start",
+        "outToBoilPh",
+        "endTransfer.start",
+        "rinse1.time",
+        "rinse1.temp",
+        "rinse1.kettle",
+      ];
+      if (recipe.lautering.usesGrant) required.push("rinse1.grant");
+      return required.filter((key) => !hasField(key)).length;
+    }
+
+    if (stepId === "boil") {
+      const required = ["boil.start", "boilPh"];
+      const brewHopCount = Math.min(
+        3,
+        recipe.hops.filter((hop) => hop.purpose !== "dryHop").length,
+      );
+      for (let index = 1; index <= brewHopCount; index += 1) {
+        required.push(`hop${index}.start`);
+      }
+      return required.filter((key) => !hasField(key)).length;
+    }
+
+    if (stepId === "transfer") {
+      return [
+        "wp.start",
+        "outToFermentor.start",
+        "endBoilPlato",
+        "endBoilVolume",
+        "cumulativeTankVolume",
+        "outToFermentorPh",
+      ].filter((key) => !hasField(key)).length;
+    }
+
+    return missingItems.length;
+  }
+
+  function isStepComplete(stepId: StepId): boolean {
+    if (stepId === "summary") {
+      return (["water", "mash", "lautering", "boil", "transfer"] as StepId[])
+        .every((id) => stepMissingCount(id) === 0);
+    }
+    return stepMissingCount(stepId) === 0;
+  }
+
   async function writeSheet(
     key: string,
     writes: Array<{ range: string; value: string | number | boolean | null }>,
@@ -1103,22 +1182,32 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       </div>
 
       <nav className="brew-step-progress" aria-label="שלבי טופס הבישול">
-        {STEPS.map((step, index) => (
-          <button
-            type="button"
-            key={step.id}
-            className={[
-              index === activeStep ? "active" : "",
-              index < activeStep ? "done" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => setActiveStep(index)}
-          >
-            <span>{index < activeStep ? "✓" : index + 1}</span>
-            <strong>{step.label}</strong>
-          </button>
-        ))}
+        {STEPS.map((step, index) => {
+          const complete = isStepComplete(step.id);
+          const missing = stepMissingCount(step.id);
+
+          return (
+            <button
+              type="button"
+              key={step.id}
+              className={[
+                index === activeStep ? "active" : "",
+                complete ? "complete" : "warning",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              title={
+                complete
+                  ? `${step.label}: הושלם`
+                  : `${step.label}: חסרים ${missing} נתונים`
+              }
+              onClick={() => setActiveStep(index)}
+            >
+              <span aria-hidden="true">{complete ? "✓" : "!"}</span>
+              <strong>{step.label}</strong>
+            </button>
+          );
+        })}
       </nav>
 
       <section className="brew-step-panel">
