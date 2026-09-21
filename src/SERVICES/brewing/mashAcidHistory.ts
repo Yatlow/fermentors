@@ -122,16 +122,20 @@ export async function loadMashAcidHistoryPreview(
 
   const candidates = Array.from(byBatch.entries())
     .sort(([a], [b]) => b - a)
-    .slice(0, 3);
+    .slice(0, 12);
 
   const result: MashAcidHistoryRow[] = [];
+  let batchesWithData = 0;
 
   for (const [batch, sheet] of candidates) {
+    if (batchesWithData >= 3) break;
+
     const rows = await readSandboxSheetRange(
       sheet.id,
       "'גיליון1'!A1:H150",
     );
     const layout = blockLayout(sheet.name);
+    const batchRows: MashAcidHistoryRow[] = [];
 
     layout.bases.forEach((baseRow, index) => {
       const row = parseBlock(
@@ -143,8 +147,13 @@ export async function loadMashAcidHistoryPreview(
         sheet.name,
         sheet.url,
       );
-      if (row) result.push(row);
+      if (row) batchRows.push(row);
     });
+
+    if (batchRows.length > 0) {
+      batchesWithData += 1;
+      result.push(...batchRows);
+    }
   }
 
   return result.slice(0, 9);
