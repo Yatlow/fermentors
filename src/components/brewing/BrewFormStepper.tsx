@@ -1595,6 +1595,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     } else if (value.trim()) {
       const parsedAmount = num(value);
       if (parsedAmount === null || parsedAmount < 0 || parsedAmount > 4000) {
+        restoreCommittedField(field);
         setValidationNotice({
           kind: "error",
           text: `כמות מים "${value}" אינה סבירה (0–4000 ל׳). הנתון לא נשמר.`,
@@ -1801,7 +1802,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   async function commitBoilStart(raw: string) {
     const value = normalizeUserTime(raw);
     if (value === null) {
-      setMessage("יש להזין שעה בפורמט 24 שעות, למשל 10:35.");
+      restoreCommittedField("boil.start");
+      setValidationNotice({
+        kind: "error",
+        text: "יש להזין שעה בפורמט 24 שעות, למשל 10:35.",
+      });
       return;
     }
 
@@ -1884,7 +1889,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   ) {
     const value = normalizeUserTime(raw);
     if (value === null) {
-      setMessage("יש להזין שעה בפורמט 24 שעות.");
+      restoreCommittedField(key);
+      setValidationNotice({
+        kind: "error",
+        text: "יש להזין שעה בפורמט 24 שעות.",
+      });
       return;
     }
     await commit(key, value, [
@@ -2019,7 +2028,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   async function commitEndBoil(raw: string) {
     const value = normalizeUserTime(raw);
     if (value === null) {
-      setMessage("יש להזין שעה בפורמט 24 שעות.");
+      restoreCommittedField("endBoilTime");
+      setValidationNotice({
+        kind: "error",
+        text: "יש להזין שעה בפורמט 24 שעות.",
+      });
       return;
     }
 
@@ -2059,7 +2072,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   async function commitYeastPitch(raw: string) {
     const value = normalizeUserTime(raw);
     if (value === null) {
-      setMessage("יש להזין שעה בפורמט 24 שעות.");
+      restoreCommittedField("yeastPitchTime");
+      setValidationNotice({
+        kind: "error",
+        text: "יש להזין שעה בפורמט 24 שעות.",
+      });
       return;
     }
     await commit("yeastPitchTime", value, [
@@ -2434,7 +2451,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   ) {
     const normalized = normalizeUserTime(raw);
     if (normalized === null) {
-      setMessage("יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.");
+      restoreCommittedField(`${stage.key}.${field}`);
+      setValidationNotice({
+        kind: "error",
+        text: "יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.",
+      });
       return;
     }
 
@@ -3234,9 +3255,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                           onBlur={(e) => {
                             const value = normalizeUserTime(e.target.value);
                             if (value === null) {
-                              setMessage(
-                                "יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.",
-                              );
+                              restoreCommittedField(`rinse${index}.time`);
+                              setValidationNotice({
+                                kind: "error",
+                                text: "יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.",
+                              });
                               return;
                             }
                             setLocal(`rinse${index}.time`, value);
