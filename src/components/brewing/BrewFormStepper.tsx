@@ -1340,6 +1340,24 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 החוסרים אינם חוסמים מעבר, שמירה או יציאה מהבישול.
               </p>
             </div>
+
+            <div className="brew-summary-sync">
+              <button
+                type="button"
+                className="brew-button-secondary"
+                disabled={pulling || !!syncing || !run.sheetId}
+                onClick={() => void syncFromSheet()}
+              >
+                {pulling ? (
+                  <BeerLoader size="spinner" message="מסנכרן…" />
+                ) : (
+                  "↻ סנכרן עכשיו מה-Sheet"
+                )}
+              </button>
+              <small>
+                מושך שינויים שנעשו ידנית ב-Sheet אל טופס הבישול.
+              </small>
+            </div>
           </div>
         )}
       </section>
