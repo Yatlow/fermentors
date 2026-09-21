@@ -7,6 +7,7 @@ import {
     type PlannedBrewHint,
 } from "../../SERVICES/brewing/planningBrewHints";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
+import { addDays, parseDate, sameStyle } from "../../SERVICES/planning/planningEngine";
 import {
     assignNextSandboxRunToTank,
     attachSandboxRecipeSnapshot,
@@ -171,7 +172,31 @@ export default function BrewingView({ brews, tab }: Props) {
         let cancelled = false;
         getCurrentWeekPlannedBrewHints().then((result) => {
             if (cancelled) return;
-            setPlanningHints(result.hints);
+            const weekEnd = addDays(result.weekId, 6);
+            const reconciled = result.hints.map((hint) => {
+                const source = brews.find((tank) => tank.id === hint.tankId);
+                if (!source?.batchNumber || !source.beerStyle) return hint;
+
+                const brewed = parseDate(source.brewDate);
+                const belongsToWeek =
+                    Number(source.action) === 0 ||
+                    (!!brewed &&
+                        brewed >= result.weekId &&
+                        brewed <= weekEnd);
+
+                if (
+                    belongsToWeek &&
+                    sameStyle(source.beerStyle, hint.style)
+                ) {
+                    return {
+                        ...hint,
+                        batchNumber: String(source.batchNumber),
+                    };
+                }
+
+                return hint;
+            });
+            setPlanningHints(reconciled);
             setPlanningHintsAvailable(result.available);
         });
 
