@@ -28,10 +28,50 @@ function ingredientIdFromLegacyName(value: unknown): string {
 }
 
 function normalizeRecipe(raw: any): BrewRecipe {
-  const fallback = raw?.id === "ipa" ? cloneRecipe(DEFAULT_IPA_RECIPE) : createEmptyRecipe(
-    String(raw?.id || "recipe"),
-    String(raw?.style || "מתכון"),
+  const fallback =
+    raw?.id === "ipa"
+      ? cloneRecipe(DEFAULT_IPA_RECIPE)
+      : createEmptyRecipe(
+          String(raw?.id || "recipe"),
+          String(raw?.style || "מתכון"),
+        );
+
+  const rawSteps = Array.isArray(raw?.mash?.steps)
+    ? raw.mash.steps
+    : fallback.mash.steps;
+
+  const mashIn =
+    rawSteps.find((step: any) => step?.id === "mashIn") ||
+    rawSteps[0] ||
+    fallback.mash.steps[0];
+  const mashOut =
+    rawSteps.find((step: any) => step?.id === "mashOut") ||
+    rawSteps[rawSteps.length - 1] ||
+    fallback.mash.steps[fallback.mash.steps.length - 1];
+  const middleSteps = rawSteps.filter(
+    (step: any) =>
+      step !== mashIn &&
+      step !== mashOut &&
+      step?.id !== "mashIn" &&
+      step?.id !== "mashOut",
   );
+
+  const normalizeHopPurpose = (hop: any) => {
+    if (hop?.purpose) return hop.purpose;
+    if (hop?.phase === "dryHop") return "dryHop";
+    if (hop?.phase === "flameout") return "whirlpool";
+    if (hop?.phase === "boil") {
+      const minutes = Number(hop?.minutesFromEnd);
+      if (Number.isFinite(minutes) && minutes <= 0) {
+        return "whirlpool";
+      }
+      if (Number.isFinite(minutes) && minutes <= 20) {
+        return "aroma";
+      }
+      return "bitterness";
+    }
+    return "aroma";
+  };
 
   return {
     ...fallback,
@@ -47,9 +87,24 @@ function normalizeRecipe(raw: any): BrewRecipe {
     mash: {
       ...fallback.mash,
       ...(raw?.mash || {}),
-      steps: Array.isArray(raw?.mash?.steps)
-        ? raw.mash.steps
-        : fallback.mash.steps,
+      steps: [
+        {
+          ...mashIn,
+          id: "mashIn",
+          label: "מאש אין",
+          minutes: undefined,
+        },
+        ...middleSteps.map((step: any, index: number) => ({
+          ...step,
+          id: String(step?.id || `mash-step-${index + 1}`),
+        })),
+        {
+          ...mashOut,
+          id: "mashOut",
+          label: "מאש אווט",
+          minutes: undefined,
+        },
+      ],
     },
     lautering: {
       ...fallback.lautering,
@@ -60,19 +115,36 @@ function normalizeRecipe(raw: any): BrewRecipe {
       ...(raw?.targets || {}),
     },
     hops: Array.isArray(raw?.hops)
-      ? raw.hops.map((hop: any, index: number) => ({
-          ...hop,
-          id: String(hop.id || `hop-${index + 1}`),
-          ingredientId:
-            hop.ingredientId || ingredientIdFromLegacyName(hop.name),
-        }))
+      ? raw.hops.map((hop: any, index: number) => {
+          const purpose = normalizeHopPurpose(hop);
+          return {
+            id: String(hop.id || `hop-${index + 1}`),
+            ingredientId:
+              hop.ingredientId ||
+              ingredientIdFromLegacyName(hop.name),
+            purpose,
+            gramsPerLiter: Number(hop.gramsPerLiter || 0),
+            ...(purpose === "bitterness"
+              ? {
+                  aa:
+                    hop.aa !== undefined
+                      ? Number(hop.aa)
+                      : hop.referenceAlpha !== undefined
+                        ? Number(hop.referenceAlpha)
+                        : undefined,
+                }
+              : {}),
+          };
+        })
       : fallback.hops,
     yeast: {
       ...fallback.yeast,
       ...(raw?.yeast || {}),
       ingredientId:
         raw?.yeast?.ingredientId ||
-        ingredientIdFromLegacyName(raw?.yeast?.name || fallback.yeast.ingredientId),
+        ingredientIdFromLegacyName(
+          raw?.yeast?.name || fallback.yeast.ingredientId,
+        ),
     },
   };
 }
@@ -159,4 +231,13 @@ export function resetSandboxRecipe(id = "ipa"): BrewRecipe {
       : [next, ...recipes],
   );
   return cloneRecipe(next);
+}
+
+
+export function deleteSandboxRecipe(id: string): boolean {
+  const recipes = loadSandboxRecipes();
+  const next = recipes.filter((recipe) => recipe.id !== id);
+  if (next.length === recipes.length) return false;
+  persist(next);
+  return true;
 }
