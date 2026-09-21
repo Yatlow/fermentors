@@ -12,14 +12,19 @@ export type BrewRecipeMashStep = {
   minutes?: number;
 };
 
+export type BrewHopPurpose =
+  | "bitterness"
+  | "aroma"
+  | "whirlpool"
+  | "dryHop";
+
 export type BrewRecipeHop = {
   id: string;
   ingredientId: string;
-  phase: "boil" | "flameout" | "dryHop";
-  referenceAlpha?: number;
+  purpose: BrewHopPurpose;
   gramsPerLiter: number;
-  minutesFromEnd?: number;
-  daysAfterBrew?: number;
+  /** Recipe aa target is relevant only for bitterness additions. */
+  aa?: number;
 };
 
 export type BrewRecipe = {
@@ -63,7 +68,7 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
       { id: "mashIn", label: "מאש אין", targetTemp: 63 },
       { id: "rest1", label: "מנוחה 1", targetTemp: 63, minutes: 30 },
       { id: "rest2", label: "מנוחה 2", targetTemp: 72, minutes: 15 },
-      { id: "mashOut", label: "סוף מאש", targetTemp: 78 },
+      { id: "mashOut", label: "מאש אווט", targetTemp: 78 },
     ],
   },
   lautering: {
@@ -75,36 +80,29 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
   },
   hops: [
     {
-      id: "cascade-60",
+      id: "cascade-bitterness",
       ingredientId: "cascade",
-      phase: "boil",
-      referenceAlpha: 6,
+      purpose: "bitterness",
+      aa: 6,
       gramsPerLiter: 0.581,
-      minutesFromEnd: 60,
     },
     {
-      id: "cascade-10",
+      id: "cascade-aroma",
       ingredientId: "cascade",
-      phase: "boil",
-      referenceAlpha: 6,
+      purpose: "aroma",
       gramsPerLiter: 1.37,
-      minutesFromEnd: 10,
     },
     {
-      id: "cascade-flameout",
+      id: "cascade-whirlpool",
       ingredientId: "cascade",
-      phase: "flameout",
-      referenceAlpha: 6,
+      purpose: "whirlpool",
       gramsPerLiter: 1.37,
-      minutesFromEnd: 0,
     },
     {
       id: "citra-dryhop",
       ingredientId: "citra",
-      phase: "dryHop",
-      referenceAlpha: 13.8,
+      purpose: "dryHop",
       gramsPerLiter: 3,
-      daysAfterBrew: 3,
     },
   ],
   yeast: {
@@ -119,7 +117,10 @@ export function cloneRecipe(recipe: BrewRecipe): BrewRecipe {
   return JSON.parse(JSON.stringify(recipe)) as BrewRecipe;
 }
 
-export function createEmptyRecipe(id: string, style: string): BrewRecipe {
+export function createEmptyRecipe(
+  id: string,
+  style: string,
+): BrewRecipe {
   return {
     id,
     style,
@@ -130,14 +131,23 @@ export function createEmptyRecipe(id: string, style: string): BrewRecipe {
       waterLiters: 0,
       steps: [
         { id: "mashIn", label: "מאש אין", targetTemp: 0 },
-        { id: "rest1", label: "מנוחה 1", targetTemp: 0 },
-        { id: "mashOut", label: "סוף מאש", targetTemp: 0 },
+        {
+          id: "rest1",
+          label: "מנוחה 1",
+          targetTemp: 0,
+          minutes: 0,
+        },
+        { id: "mashOut", label: "מאש אווט", targetTemp: 0 },
       ],
     },
     lautering: { usesGrant: false },
     targets: { endBoilPlato: 0, startingPlato: 0 },
     hops: [],
-    yeast: { ingredientId: "", gramsPerBrew: 0, extraPerBatch: 0 },
+    yeast: {
+      ingredientId: "",
+      gramsPerBrew: 0,
+      extraPerBatch: 0,
+    },
     fermentationTemp: 0,
   };
 }
