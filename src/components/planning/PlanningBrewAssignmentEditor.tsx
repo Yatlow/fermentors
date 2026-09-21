@@ -65,7 +65,16 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
 }) {
   const [draft, setDraft] = useState<WeekPlan>(() => {
     const copy = structuredClone(initial);
-    copy.brews = normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
+    const hasSavedBatchIdentity = copy.brews.some(
+      (brew) => String(brew.batchNumber || "").trim() !== "",
+    );
+    copy.brews = hasSavedBatchIdentity
+      ? copy.brews
+      : normalizeOrder(
+          copy.brews as BrewPlanWithMeta[],
+          brews,
+          releases,
+        );
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
