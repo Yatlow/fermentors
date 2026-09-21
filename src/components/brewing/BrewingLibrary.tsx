@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   createSandboxRecipe,
+  deleteSandboxRecipe,
   loadSandboxRecipes,
   saveSandboxRecipe,
 } from "../../SERVICES/brewing/sandboxRecipe";
@@ -17,13 +18,13 @@ import {
 import BrewRecipeEditor from "./BrewRecipeEditor";
 
 type Props = {
-  onRecipeChange?: (recipe: BrewRecipe) => void;
+  onRecipesChange?: (recipes: BrewRecipe[]) => void;
 };
 
 type LibrarySection = "recipes" | "ingredients";
 
 const CATEGORY_LABELS: Record<IngredientCategory, string> = {
-  grain: "לתת / גרעינים",
+  grain: "לתת",
   hop: "כשות",
   yeast: "שמרים",
   other: "אחר",
@@ -38,7 +39,7 @@ function newIngredientId(name: string) {
   return base || `ingredient-${Date.now()}`;
 }
 
-export default function BrewingLibrary({ onRecipeChange }: Props) {
+export default function BrewingLibrary({ onRecipesChange }: Props) {
   const [section, setSection] = useState<LibrarySection>("recipes");
   const [recipes, setRecipes] = useState<BrewRecipe[]>(() => loadSandboxRecipes());
   const [ingredients, setIngredients] = useState<IngredientDefinition[]>(() =>
@@ -52,6 +53,7 @@ export default function BrewingLibrary({ onRecipeChange }: Props) {
   const [newIngredientCategory, setNewIngredientCategory] =
     useState<IngredientCategory>("grain");
   const [message, setMessage] = useState("");
+  const [deleteRecipeId, setDeleteRecipeId] = useState<string | null>(null);
 
   const selectedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === selectedRecipeId) || null,
@@ -63,7 +65,7 @@ export default function BrewingLibrary({ onRecipeChange }: Props) {
     const next = loadSandboxRecipes();
     setRecipes(next);
     setSelectedRecipeId(null);
-    onRecipeChange?.(saved);
+    onRecipesChange?.(next);
     setMessage(`${saved.style} נשמר כגרסה ${saved.version}.`);
   }
 
@@ -71,11 +73,26 @@ export default function BrewingLibrary({ onRecipeChange }: Props) {
     const name = newRecipeName.trim();
     if (!name) return;
     const created = createSandboxRecipe(name);
-    setRecipes(loadSandboxRecipes());
+    const next = loadSandboxRecipes();
+    setRecipes(next);
+    onRecipesChange?.(next);
     setNewRecipeName("");
     setShowNewRecipe(false);
     setSelectedRecipeId(created.id);
     setMessage("");
+  }
+
+  function removeRecipe(recipe: BrewRecipe) {
+    if (deleteRecipeId !== recipe.id) {
+      setDeleteRecipeId(recipe.id);
+      return;
+    }
+    deleteSandboxRecipe(recipe.id);
+    const next = loadSandboxRecipes();
+    setRecipes(next);
+    onRecipesChange?.(next);
+    setDeleteRecipeId(null);
+    setMessage(`${recipe.style} נמחק מספריית המתכונים. אצוות קיימות עם snapshot לא משתנות.`);
   }
 
   function updateIngredient(
