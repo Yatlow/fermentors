@@ -293,6 +293,11 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
       return;
     }
 
+    const source = ingredients.find(
+      (ingredient) => ingredient.id === ingredientId,
+    );
+    const removesIngredient = source?.lots.length === 1;
+
     setIngredients((current) =>
       current.flatMap((ingredient) => {
         if (ingredient.id !== ingredientId) return [ingredient];
@@ -301,32 +306,18 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
           (lot) => lot.id !== lotId,
         );
 
-        if (remainingLots.length === 0) {
-          return [];
-        }
-
-        const hasActive = remainingLots.some((lot) => lot.active);
-        return [
-          {
-            ...ingredient,
-            lots: hasActive
-              ? remainingLots
-              : remainingLots.map((lot, index) =>
-                  index === 0
-                    ? {
-                        ...lot,
-                        active: true,
-                        status: "current" as const,
-                      }
-                    : lot,
-                ),
-          },
-        ];
+        return remainingLots.length === 0
+          ? []
+          : [{ ...ingredient, lots: remainingLots }];
       }),
     );
 
     setDeleteLotKey(null);
-    setMessage("");
+    setMessage(
+      removesIngredient
+        ? `${source?.name || "חומר הגלם"} נמחק כי לא נשארו לו אצוות.`
+        : "אצוות חומר הגלם נמחקה.",
+    );
   }
 
   if (selectedRecipe) {
