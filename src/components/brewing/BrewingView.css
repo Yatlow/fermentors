@@ -3065,3 +3065,416 @@
         grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
     }
 }
+
+
+/* Brewing production-ready responsive refinements */
+
+.brewing-style-tag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 3px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    font-size: 0.64rem;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.brewing-style-tag.pallet-style-ipa {
+    background: #b5d3fb;
+    color: #385196;
+    border-color: #28578d;
+}
+
+.brewing-style-tag.pallet-style-pale {
+    background: #a4f1bf;
+    color: #166534;
+    border-color: #208b47;
+}
+
+.brewing-style-tag.pallet-style-stout {
+    background: #f29696;
+    color: #92260e;
+    border-color: #971010;
+}
+
+.brewing-style-tag.pallet-style-hoppyLager {
+    background: #eab365;
+    color: #4d2f02;
+    border-color: #59420f;
+}
+
+.brewing-style-tag.pallet-style-lager {
+    background: #a3a3a3;
+    color: #060605;
+    border-color: #474949;
+}
+
+.brewing-style-tag.pallet-style-wheat {
+    background: #fef9c3;
+    color: #433b00;
+    border-color: #766b1c;
+}
+
+.brewing-style-tag.pallet-style-sour {
+    background: #fbcfe8;
+    color: #9d174d;
+    border-color: #f472b6;
+}
+
+.brewing-style-tag.pallet-style-other {
+    background: #c49cef;
+    color: #361352;
+    border-color: #430b7f;
+}
+
+.brewing-production-card {
+    border-color: #bfdbfe;
+}
+
+.brewing-history-card {
+    border-color: #e2e8f0;
+}
+
+.brewing-real-data-note,
+.brew-real-data-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin-bottom: 9px;
+    padding: 8px 10px;
+    border: 1px solid #f59e0b;
+    border-radius: var(--radius-sm);
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 0.68rem;
+    line-height: 1.4;
+}
+
+.brewing-real-data-note strong,
+.brew-real-data-banner strong {
+    flex: none;
+}
+
+.brewing-history-section {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.brewing-history-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.brewing-history-heading > div {
+    min-width: 0;
+}
+
+.brewing-history-heading .brewing-subheading {
+    margin-bottom: 2px;
+}
+
+.brewing-history-heading small {
+    color: var(--text-muted);
+    font-size: 0.62rem;
+}
+
+.brewing-history-heading input {
+    width: min(360px, 46vw);
+    min-width: 220px;
+    min-height: 36px;
+    padding: 6px 9px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    color: var(--text-main);
+    font: inherit;
+    font-size: 0.72rem;
+}
+
+.brewing-history-loader {
+    min-height: 90px;
+    display: grid;
+    place-items: center;
+}
+
+.brew-validation-notice {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 7px;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 8px 9px;
+    border: 1px solid;
+    border-radius: var(--radius-sm);
+    font-size: 0.68rem;
+    line-height: 1.4;
+}
+
+.brew-validation-notice.warning {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.brew-validation-notice.error {
+    border-color: #ef4444;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.brew-validation-notice button {
+    width: 28px;
+    min-height: 28px !important;
+    padding: 0 !important;
+    border: 0;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    color: currentColor;
+    font: inherit;
+    font-size: 1rem !important;
+    cursor: pointer;
+}
+
+.brew-acid-current-context {
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}
+
+.brew-acid-history-modal,
+.brew-boil-calc-modal,
+.brew-create-modal,
+.brew-lots-modal,
+.brew-ingredient-create-modal {
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+.brew-acid-history-modal {
+    display: flex;
+    flex-direction: column;
+    max-height: min(88dvh, 780px);
+}
+
+.brew-acid-history-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.brew-boil-calc-modal {
+    max-height: calc(100dvh - 28px);
+    overflow-y: auto;
+}
+
+@media (min-width: 700px) and (max-width: 1099px) {
+    .brew-stage-row,
+    .brew-stage-row-no-end {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .brew-stage-row .brew-stage-label {
+        grid-column: 1 / -1;
+    }
+
+    .brew-stage-row .brew-stage-start,
+    .brew-stage-row .brew-stage-end,
+    .brew-stage-row .brew-stage-temp,
+    .brew-stage-row .brew-stage-ph,
+    .brew-stage-row .brew-stage-note {
+        grid-column: auto;
+    }
+
+    .brew-rinse-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .brew-rinse-row > strong {
+        grid-column: 1 / -1;
+    }
+
+    .brew-boil-event-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .brew-boil-event-row > div:first-child {
+        grid-column: 1 / -1;
+    }
+
+    .brew-acid-current-context {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .brew-boil-opening-grid,
+    .brew-boil-calc-fields,
+    .brew-water-grid,
+    .brew-sugar-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 699px) {
+    .brew-modal-backdrop {
+        place-items: end center;
+        padding: 0;
+    }
+
+    .brew-acid-history-modal,
+    .brew-boil-calc-modal,
+    .brew-create-modal,
+    .brew-lots-modal,
+    .brew-ingredient-create-modal {
+        width: 100%;
+        max-height: 92dvh;
+        margin: 0;
+        padding: 12px 10px calc(12px + env(safe-area-inset-bottom));
+        border-radius: 16px 16px 0 0;
+        overflow-y: auto;
+    }
+
+    .brew-acid-history-modal {
+        overflow: hidden;
+    }
+
+    .brew-modal-header {
+        flex: 0 0 auto;
+        position: sticky;
+        top: 0;
+        z-index: 4;
+        margin-inline: -2px;
+        padding: 2px 2px 8px;
+        background: #fff;
+    }
+
+    .brew-acid-current-context,
+    .brew-boil-opening-grid,
+    .brew-boil-calc-fields,
+    .brew-water-grid,
+    .brew-sugar-grid,
+    .brew-mash-meta-row,
+    .brew-editor-two-cols {
+        grid-template-columns: 1fr;
+    }
+
+    .brew-stage-row,
+    .brew-stage-row-no-end,
+    .brew-rinse-row,
+    .brew-boil-event-row,
+    .brew-yeast-pitch-row,
+    .brew-lauter-reading-row {
+        grid-template-columns: 1fr !important;
+    }
+
+    .brew-stage-row > *,
+    .brew-stage-row-no-end > *,
+    .brew-rinse-row > *,
+    .brew-boil-event-row > * {
+        grid-column: 1 !important;
+    }
+
+    .brew-step-context-bar {
+        grid-template-columns: auto 1fr;
+    }
+
+    .brew-step-context-bar small {
+        grid-column: 1 / -1;
+    }
+
+    .brew-sync-directions {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
+    .brew-sync-directions span {
+        white-space: normal;
+    }
+
+    .brew-sync-explainer,
+    .brewing-real-data-note,
+    .brew-real-data-banner {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .brewing-history-heading {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .brewing-history-heading input {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .brew-acid-history-table {
+        min-width: 760px;
+        font-size: 0.66rem;
+    }
+
+    .brew-acid-history-table th,
+    .brew-acid-history-table td {
+        padding: 7px 6px;
+    }
+}
+
+@media (max-width: 520px) {
+    .brewing-tank-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .brew-block-tabs {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .brew-block-tabs button {
+        min-width: 0;
+        padding-inline: 4px;
+    }
+
+    .brew-block-tabs button span,
+    .brew-block-tabs button em {
+        font-size: 0.58rem;
+    }
+
+    .brew-step-panel {
+        min-height: 0;
+        padding: 8px;
+    }
+
+    .brew-step-footer {
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        bottom: max(6px, env(safe-area-inset-bottom));
+    }
+
+    .brew-step-footer > span {
+        grid-column: 1 / -1;
+        grid-row: 1;
+    }
+
+    .brew-step-footer > button:first-child {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .brew-step-footer > button:last-child {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    .brew-modal-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .brew-validation-notice {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        font-size: 0.64rem;
+    }
+}
