@@ -2078,3 +2078,41 @@
     margin: 0;
     font-size: 0.62rem;
 }
+
+
+/* Preserve component-specific button geometry after the global control reset. */
+.brewing-view .brew-step-progress button {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 4px;
+}
+
+.brewing-view .brew-library-card-main {
+    display: grid;
+    gap: 7px;
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    justify-content: stretch;
+    justify-items: stretch;
+    text-align: right;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+}
+
+.brewing-view .brew-library-card-main:hover:not(:disabled) {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+    transform: none;
+}
+
+.brewing-view .brew-modal-close,
+.brew-modal-backdrop .brew-modal-close {
+    font-size: 1rem;
+}
