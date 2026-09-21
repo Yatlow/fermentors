@@ -187,9 +187,10 @@ export default function CreateBrewModal({
               onChange={(event) => setTankId(event.target.value)}
             >
               {sortedTanks.map((tank) => {
-                const currentBatch = String(
-                  tank.batchNumber || "",
-                ).trim();
+                const currentBatch =
+                  Number(tank.action) <= 1
+                    ? String(tank.batchNumber || "").trim()
+                    : "";
                 return (
                   <option key={tank.id} value={tank.id}>
                     {[
