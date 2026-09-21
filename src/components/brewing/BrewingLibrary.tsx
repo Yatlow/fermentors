@@ -10,6 +10,7 @@ import {
   activeLot,
   type IngredientCategory,
   type IngredientDefinition,
+  type IngredientLotStatus,
 } from "../../SERVICES/brewing/ingredientLibrary";
 import {
   loadSandboxIngredients,
@@ -28,6 +29,14 @@ const CATEGORY_LABELS: Record<IngredientCategory, string> = {
   hop: "כשות",
   yeast: "שמרים",
   other: "אחר",
+};
+
+const LOT_STATUS_LABELS: Record<IngredientLotStatus, string> = {
+  current: "בשימוש",
+  next: "הבא בתור",
+  received: "התקבל",
+  ended: "נגמר",
+  unknown: "ללא סטטוס",
 };
 
 function newIngredientId(name: string) {
@@ -115,7 +124,10 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
               },
             ];
 
-        let activeIndex = lots.findIndex((lot) => lot.active);
+        const selectedLot = activeLot(ingredient);
+        let activeIndex = lots.findIndex(
+          (lot) => lot.id === selectedLot?.id,
+        );
         if (activeIndex < 0) activeIndex = 0;
 
         return {
@@ -393,7 +405,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
 
                   {ingredient.category === "hop" && (
                     <label>
-                      AA נוכחי %
+                      aa נוכחי %
                       <input
                         type="number"
                         step="0.1"
@@ -415,6 +427,38 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
                         }
                       />
                     </label>
+                  )}
+
+                  {ingredient.lots.length > 0 && (
+                    <details className="brew-lot-history">
+                      <summary>
+                        אצוות חומר גלם ({ingredient.lots.length})
+                      </summary>
+                      <div className="brew-lot-list">
+                        {ingredient.lots.map((item) => (
+                          <div className="brew-lot-row" key={item.id}>
+                            <div>
+                              <strong>
+                                {item.lotNumber || "ללא מספר אצווה"}
+                              </strong>
+                              <span>
+                                {item.supplier || "ללא ספק"}
+                                {item.alpha !== undefined
+                                  ? ` · aa ${item.alpha}%`
+                                  : ""}
+                              </span>
+                            </div>
+                            <span
+                              className={`brew-lot-status brew-lot-status-${item.status || "unknown"}`}
+                            >
+                              {LOT_STATUS_LABELS[
+                                item.status || "unknown"
+                              ]}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   )}
                 </article>
               );
