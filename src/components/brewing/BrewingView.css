@@ -2251,3 +2251,155 @@
         grid-template-columns: 1fr;
     }
 }
+
+
+/* =========================================================
+   Brewing polish: aligned editor, step health and lauter context
+   ========================================================= */
+
+.brew-recipe-editor {
+    width: min(1120px, 100%);
+    margin-inline: auto;
+}
+
+.brew-editor-section {
+    overflow: hidden;
+}
+
+.brew-editor-row {
+    width: 100%;
+}
+
+.brew-library-autosave-note {
+    padding: 7px 9px;
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-sm);
+    background: #f8fbff;
+    color: var(--text-muted);
+    font-size: 0.66rem;
+}
+
+.brew-step-progress button.complete span {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.brew-step-progress button.warning span {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.brew-step-progress button.warning:not(.active) {
+    border-color: #fde68a;
+}
+
+.brew-step-progress button.complete:not(.active) {
+    border-color: #bbf7d0;
+}
+
+.brew-lauter-mashout-context {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    padding: 9px 10px;
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-sm);
+    background: #f8fbff;
+}
+
+.brew-lauter-mashout-context > div {
+    display: grid;
+    gap: 2px;
+}
+
+.brew-lauter-mashout-context span,
+.brew-lauter-mashout-context small {
+    color: var(--text-muted);
+    font-size: 0.64rem;
+}
+
+.brew-lauter-mashout-context strong {
+    direction: ltr;
+    text-align: right;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.brew-stage-row-no-end {
+    grid-template-columns: 1fr;
+}
+
+.brew-rinse-row .brew-time-input {
+    min-width: 0;
+}
+
+.brew-rinse-row .brew-time-input button {
+    min-width: 52px;
+}
+
+@media (min-width: 760px) {
+    .brew-editor-row-grain {
+        grid-template-columns:
+            minmax(220px, 1.7fr)
+            minmax(140px, 0.8fr)
+            42px;
+    }
+
+    .brew-editor-row-mash-fixed {
+        grid-template-columns:
+            minmax(220px, 1.5fr)
+            minmax(140px, 0.75fr)
+            minmax(160px, 0.85fr);
+    }
+
+    .brew-editor-row-mash {
+        grid-template-columns:
+            minmax(220px, 1.5fr)
+            minmax(140px, 0.75fr)
+            minmax(120px, 0.65fr)
+            42px;
+    }
+
+    .brew-editor-row-heat {
+        grid-template-columns:
+            minmax(220px, 1.5fr)
+            minmax(140px, 0.75fr);
+        padding-inline-end: 50px;
+    }
+
+    .brew-stage-row-no-end {
+        grid-template-columns:
+            minmax(150px, 1.1fr)
+            minmax(180px, 1fr)
+            minmax(120px, 0.75fr);
+        align-items: end;
+    }
+}
+
+@media (min-width: 920px) {
+    .brew-editor-row-hop {
+        grid-template-columns:
+            minmax(180px, 1.45fr)
+            minmax(125px, 0.85fr)
+            minmax(100px, 0.65fr)
+            minmax(115px, 0.7fr)
+            minmax(90px, 0.6fr)
+            42px;
+        align-items: end;
+    }
+
+    .brew-editor-row-hop > .brew-icon-button {
+        grid-column: -2 / -1;
+        justify-self: stretch;
+        align-self: end;
+    }
+}
+
+@media (max-width: 759px) {
+    .brew-lauter-mashout-context {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
