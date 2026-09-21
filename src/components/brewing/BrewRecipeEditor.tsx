@@ -422,84 +422,88 @@ export default function BrewRecipeEditor({
       <section className="brew-editor-section">
         <div className="brew-section-title">
           <h3>כשות</h3>
-          <div className="brew-inline-actions">
-            <button type="button" onClick={() => addHop("boil")}>+ רתיחה</button>
-            <button type="button" onClick={() => addHop("dryHop")}>+ דרייהופ</button>
-          </div>
+          <button
+            type="button"
+            className="brew-action-button brew-action-button-add"
+            onClick={addHop}
+          >
+            + כשות
+          </button>
         </div>
         <div className="brew-editor-table">
           {recipe.hops.map((hop) => (
             <div className="brew-editor-row brew-editor-row-hop" key={hop.id}>
               <label>
-                חומר גלם
+                כשות
                 <select
                   value={hop.ingredientId}
-                  onChange={(e) => updateHop(hop.id, { ingredientId: e.target.value })}
+                  onChange={(e) =>
+                    updateHop(hop.id, { ingredientId: e.target.value })
+                  }
                 >
                   {hopOptions.map((item) => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
                   ))}
                 </select>
               </label>
               <label>
-                שלב
+                מטרה
                 <select
-                  value={hop.phase}
-                  onChange={(e) =>
+                  value={hop.purpose}
+                  onChange={(e) => {
+                    const purpose = e.target.value as BrewHopPurpose;
                     updateHop(hop.id, {
-                      phase: e.target.value as BrewRecipeHop["phase"],
-                    })
-                  }
+                      purpose,
+                      ...(purpose === "bitterness"
+                        ? { aa: hop.aa ?? 0 }
+                        : { aa: undefined }),
+                    });
+                  }}
                 >
-                  <option value="boil">רתיחה</option>
-                  <option value="flameout">Flame out</option>
+                  <option value="bitterness">מרירות</option>
+                  <option value="aroma">ארומה</option>
+                  <option value="whirlpool">ווירפול</option>
                   <option value="dryHop">דרייהופ</option>
                 </select>
               </label>
               <label>
-                גרם/ליטר
+                ג׳/ל׳
                 <input
                   type="number"
                   step="0.001"
                   value={hop.gramsPerLiter}
                   onChange={(e) =>
-                    updateHop(hop.id, { gramsPerLiter: numberValue(e.target.value) })
-                  }
-                />
-              </label>
-              <label>
-                AA ייחוס %
-                <input
-                  type="number"
-                  step="0.1"
-                  value={hop.referenceAlpha ?? ""}
-                  onChange={(e) =>
                     updateHop(hop.id, {
-                      referenceAlpha:
-                        e.target.value === "" ? undefined : numberValue(e.target.value),
+                      gramsPerLiter: numberValue(e.target.value),
                     })
                   }
                 />
               </label>
-              <label>
-                {hop.phase === "dryHop" ? "ימים מהבישול" : "דקות לסוף"}
-                <input
-                  type="number"
-                  value={
-                    hop.phase === "dryHop"
-                      ? hop.daysAfterBrew ?? ""
-                      : hop.minutesFromEnd ?? ""
-                  }
-                  onChange={(e) =>
-                    hop.phase === "dryHop"
-                      ? updateHop(hop.id, { daysAfterBrew: numberValue(e.target.value) })
-                      : updateHop(hop.id, { minutesFromEnd: numberValue(e.target.value) })
-                  }
-                />
-              </label>
+              {hop.purpose === "bitterness" && (
+                <label>
+                  aa %
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={hop.aa ?? ""}
+                    onChange={(e) =>
+                      updateHop(hop.id, {
+                        aa:
+                          e.target.value === ""
+                            ? undefined
+                            : numberValue(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+              )}
               <button
                 type="button"
-                className="brewing-danger-button"
+                className="brew-icon-button brew-icon-button-danger"
+                aria-label="הסר כשות"
+                title="הסר כשות"
                 onClick={() =>
                   setRecipe((current) => ({
                     ...current,
@@ -507,7 +511,7 @@ export default function BrewRecipeEditor({
                   }))
                 }
               >
-                הסר
+                ×
               </button>
             </div>
           ))}
