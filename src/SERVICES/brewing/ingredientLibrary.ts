@@ -226,23 +226,11 @@ export const DEFAULT_INGREDIENT_LIBRARY: IngredientDefinition[] = [
   },
 ];
 
-const LOT_STATUS_RANK: Record<IngredientLotStatus, number> = {
-  current: 0,
-  next: 1,
-  received: 2,
-  unknown: 3,
-  ended: 4,
-};
-
 export function activeLot(
   ingredient: IngredientDefinition,
 ): IngredientLot | undefined {
   return (
     ingredient.lots.find((lot) => lot.active) ??
-    [...ingredient.lots].sort(
-      (a, b) =>
-        LOT_STATUS_RANK[a.status || "unknown"] -
-        LOT_STATUS_RANK[b.status || "unknown"],
-    )[0]
+    ingredient.lots.find((lot) => lot.status === "current")
   );
 }
