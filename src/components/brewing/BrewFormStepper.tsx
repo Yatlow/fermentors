@@ -14,6 +14,12 @@ import {
 } from "../../SERVICES/brewing/sandboxSheet";
 import BeerLoader from "../general/Loading";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
+import { loadSandboxIngredients } from "../../SERVICES/brewing/sandboxIngredients";
+import {
+  activeLot,
+  type IngredientDefinition,
+  type IngredientLot,
+} from "../../SERVICES/brewing/ingredientLibrary";
 import {
   loadMashAcidHistoryPreview,
   type MashAcidHistoryRow,
@@ -45,7 +51,7 @@ type StepId =
   | "summary";
 
 const STEPS: Array<{ id: StepId; label: string }> = [
-  { id: "water", label: "מים" },
+  { id: "water", label: "תאריך, מים וחומרי גלם" },
   { id: "mash", label: "מאש" },
   { id: "lautering", label: "לאוטר" },
   { id: "boil", label: "רתיחה וכשות" },
@@ -132,15 +138,15 @@ const END_TRANSFER_STAGE: StageDef = {
 };
 
 const BOIL_STAGES: StageDef[] = [
-  { key: "boil", label: "רתיחה 100°C", rowOffset: 28 },
-  { key: "hop1", label: "הוספת כשות 1", rowOffset: 30 },
-  { key: "hop2", label: "הוספת כשות 2", rowOffset: 32 },
-  { key: "hop3", label: "הוספת כשות 3", rowOffset: 34 },
+  { key: "boil", label: "תחילת רתיחה", rowOffset: 28, showEnd: false },
+  { key: "hop1", label: "הוספת כשות 1", rowOffset: 30, showEnd: false },
+  { key: "hop2", label: "הוספת כשות 2", rowOffset: 32, showEnd: false },
+  { key: "hop3", label: "הוספת כשות 3", rowOffset: 34, showEnd: false },
 ];
 
 const WP_STAGE: StageDef = {
   key: "wp",
-  label: "סוף רתיחה / תחילת WP",
+  label: "WP",
   rowOffset: 38,
 };
 
@@ -170,6 +176,46 @@ function blockBaseRow(
 
 function getBlockCount(tankType: SandboxBrewRun["tankType"]) {
   return tankType === "single" ? 1 : tankType === "double" ? 2 : 3;
+}
+
+function blockHeaderRow(
+  tankType: SandboxBrewRun["tankType"],
+  blockIndex: number,
+): number {
+  const rows =
+    tankType === "single"
+      ? [4]
+      : tankType === "double"
+        ? [4, 54]
+        : [4, 54, 102];
+  return rows[blockIndex - 1] || rows[0];
+}
+
+function fermentationStartingRow(
+  tankType: SandboxBrewRun["tankType"],
+): number {
+  return tankType === "single" ? 59 : tankType === "double" ? 106 : 156;
+}
+
+function isoDateFromSheet(value: string): string {
+  const text = String(value || "").trim();
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (!match) return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+  return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+}
+
+function sheetDateFromIso(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
+}
+
+function syncTimeLabel(value: Date | null): string {
+  if (!value) return "טרם";
+  return value.toLocaleTimeString("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function hhmmNow() {
@@ -368,10 +414,19 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [syncing, setSyncing] = useState("");
   const [pulling, setPulling] = useState(false);
   const [message, setMessage] = useState("");
-  const [acidHistoryOpen, setAcidHistoryOpen] = useState(false);
+  const [acidHistoryMode, setAcidHistoryMode] =
+    useState<"mash" | "boil" | null>(null);
   const [acidHistoryLoading, setAcidHistoryLoading] = useState(false);
   const [acidHistoryError, setAcidHistoryError] = useState("");
   const [acidHistory, setAcidHistory] = useState<MashAcidHistoryRow[]>([]);
+  const [boilCalcOpen, setBoilCalcOpen] = useState(false);
+  const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
+  const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
+  const [syncError, setSyncError] = useState("");
+  const ingredientLibrary = useMemo(
+    () => loadSandboxIngredients(),
+    [],
+  );
 
   const totalBlocks = getBlockCount(run.tankType);
   const currentBlock = Math.min(
