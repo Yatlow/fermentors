@@ -1776,3 +1776,281 @@
         flex: 1 1 auto;
     }
 }
+
+
+/* =========================================================
+   Brewing controls — one modern control system
+   ========================================================= */
+
+.brewing-view button,
+.brewing-view .brewing-sheet-link,
+.brew-modal-backdrop button {
+    -webkit-appearance: none;
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 6px 12px;
+    border: 1px solid var(--pill-border);
+    border-radius: var(--radius-pill);
+    background: #ffffff;
+    color: #475569;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 750;
+    line-height: 1.1;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition:
+        background-color 140ms ease,
+        border-color 140ms ease,
+        color 140ms ease,
+        box-shadow 140ms ease,
+        transform 100ms ease;
+}
+
+.brewing-view button:hover:not(:disabled),
+.brewing-view .brewing-sheet-link:hover,
+.brew-modal-backdrop button:hover:not(:disabled) {
+    border-color: #93c5fd;
+    background: #f8fbff;
+    color: #1e40af;
+    box-shadow: 0 3px 8px rgba(30, 64, 175, 0.08);
+}
+
+.brewing-view button:active:not(:disabled),
+.brewing-view .brewing-sheet-link:active,
+.brew-modal-backdrop button:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.brewing-view button:disabled,
+.brew-modal-backdrop button:disabled {
+    cursor: default;
+    opacity: 0.48;
+    box-shadow: none;
+}
+
+.brewing-view .btn-primary,
+.brewing-view .brew-button-primary,
+.brew-modal-backdrop .btn-primary,
+.brew-modal-backdrop .brew-button-primary {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+    box-shadow: var(--pill-active-shadow);
+}
+
+.brewing-view .btn-primary:hover:not(:disabled),
+.brewing-view .brew-button-primary:hover:not(:disabled),
+.brew-modal-backdrop .btn-primary:hover:not(:disabled),
+.brew-modal-backdrop .brew-button-primary:hover:not(:disabled) {
+    border-color: #245f9e;
+    background: #245f9e;
+    color: #fff;
+}
+
+.brewing-view .brew-button-secondary,
+.brew-modal-backdrop .brew-button-secondary {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.brewing-view .brewing-danger-button,
+.brewing-view .brew-action-button-danger,
+.brew-modal-backdrop .brew-action-button-danger {
+    border-color: #fecaca;
+    background: #fff7f7;
+    color: #b91c1c;
+}
+
+.brewing-view .brewing-danger-button:hover:not(:disabled),
+.brewing-view .brew-action-button-danger:hover:not(:disabled),
+.brew-modal-backdrop .brew-action-button-danger:hover:not(:disabled) {
+    border-color: #fca5a5;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+/* Icon buttons keep their compact geometry while inheriting the modern states. */
+.brewing-view .brew-icon-button,
+.brew-modal-backdrop .brew-button-icon,
+.brewing-view .brew-modal-close {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    border-radius: 10px;
+}
+
+/* Inputs/selects in Brewing should not fall back to browser-default chrome. */
+.brewing-view input,
+.brewing-view select,
+.brewing-view textarea,
+.brew-modal-backdrop input,
+.brew-modal-backdrop select,
+.brew-modal-backdrop textarea {
+    width: 100%;
+    min-width: 0;
+    min-height: 38px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #fff;
+    color: var(--text-main);
+    font: inherit;
+    font-size: 0.76rem;
+    line-height: 1.25;
+    box-shadow:
+        inset 0 1px 1px rgba(15, 23, 42, 0.025),
+        0 1px 2px rgba(15, 23, 42, 0.02);
+    transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease,
+        background-color 140ms ease;
+}
+
+.brewing-view input:hover,
+.brewing-view select:hover,
+.brewing-view textarea:hover,
+.brew-modal-backdrop input:hover,
+.brew-modal-backdrop select:hover,
+.brew-modal-backdrop textarea:hover {
+    border-color: #94a3b8;
+}
+
+.brewing-view input:focus,
+.brewing-view select:focus,
+.brewing-view textarea:focus,
+.brew-modal-backdrop input:focus,
+.brew-modal-backdrop select:focus,
+.brew-modal-backdrop textarea:focus {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
+}
+
+.brewing-view label,
+.brew-modal-backdrop label {
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 720;
+}
+
+/* Keep step navigation visually distinct from ordinary buttons. */
+.brewing-view .brew-step-progress button {
+    min-height: 56px;
+    padding: 7px 6px;
+}
+
+.brewing-view .brew-block-tabs button.active,
+.brewing-view .brew-step-progress button.active {
+    border-color: var(--primary);
+    background: #eff6ff;
+    color: var(--primary);
+    box-shadow: 0 2px 6px rgba(43, 108, 176, 0.12);
+}
+
+.brew-time-input button {
+    flex: 0 0 auto;
+    min-height: 36px !important;
+    padding-inline: 10px !important;
+    background: #f8fafc !important;
+}
+
+.brew-mash-meta-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 8px 0;
+    padding: 9px;
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-md);
+    background: #f8fbff;
+}
+
+.brew-mash-meta-row label {
+    display: grid;
+    gap: 4px;
+}
+
+.brew-stepper-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.brew-sync-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+}
+
+.brew-sync-line .beer-loader {
+    flex-direction: row;
+    gap: 5px;
+}
+
+.brew-sync-line .beer-loader-message {
+    margin: 0;
+    font-size: 0.64rem;
+}
+
+.brew-sync-ok {
+    color: #166534;
+    font-weight: 800;
+}
+
+.brew-sync-now {
+    flex: 0 0 auto;
+}
+
+.brew-inline-loader,
+.brew-modal-loader {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0;
+}
+
+.brew-inline-loader .beer-loader,
+.brew-modal-loader .beer-loader {
+    min-height: 0;
+}
+
+.brewing-message-error {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+@media (max-width: 560px) {
+    .brewing-view button,
+    .brewing-view .brewing-sheet-link,
+    .brew-modal-backdrop button {
+        min-height: 38px;
+        font-size: 0.7rem;
+    }
+
+    .brew-stepper-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .brew-sync-now {
+        width: 100%;
+    }
+
+    .brew-mash-meta-row {
+        grid-template-columns: 1fr 1fr;
+    }
+}
