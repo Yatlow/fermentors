@@ -51,6 +51,8 @@ export type BrewPlan = {
   tankId: string;
   date: string;
   liters: number;
+  batchNumber?: string;
+  tankAssignmentStatus?: "tentative" | "confirmed";
 };
 export type WeekPlan = {
   id: string;
