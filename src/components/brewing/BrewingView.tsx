@@ -134,6 +134,38 @@ export default function BrewingView({ brews, tab }: Props) {
 
     useEffect(() => {
         if (!sandbox) return;
+
+        let changed = false;
+
+        allTanks.forEach((tank) => {
+            if (Number(tank.action) !== 5) return;
+
+            const tankNumber = String(tank.tankNumber ?? tank.id);
+            const hasAssignedSandboxRun = sandboxRuns.some(
+                (run) =>
+                    String(run.tankNumber) === tankNumber &&
+                    (run.assignmentStatus || "assigned") === "assigned" &&
+                    !run.started,
+            );
+            if (hasAssignedSandboxRun) return;
+
+            const assigned = assignNextSandboxRunToTank(tankNumber);
+            if (!assigned) return;
+
+            changed = true;
+
+            if (tank.id === demoTank.id) {
+                setDemoTank(markSandboxDemoTankBrewing());
+            }
+        });
+
+        if (changed) {
+            setSandboxRuns(loadSandboxBrewRuns());
+        }
+    }, [sandbox, allTanks, sandboxRuns, demoTank.id]);
+
+    useEffect(() => {
+        if (!sandbox) return;
         let cancelled = false;
         getAllBrewsSummary()
             .then((rows) => {
