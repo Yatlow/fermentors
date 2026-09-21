@@ -12,6 +12,7 @@ import {
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
 import {
+    clearGoogleWorkspaceToken,
     configureGoogleWorkspaceProvider,
     rememberGoogleWorkspaceCredential,
 } from "./SERVICES/auth/googleWorkspaceAccess";
@@ -264,7 +265,8 @@ function App() {
     }
 
     function logout() {
-        signOut(auth)
+        clearGoogleWorkspaceToken();
+        signOut(auth);
     }
 
     const tanksNeedingStage = useMemo(
