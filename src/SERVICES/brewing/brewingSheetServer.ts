@@ -17,6 +17,7 @@ export type BrewingSheetHistoryRow = {
   mashPh: string;
   mashVolume: string;
   acidMl: string;
+  outToBoilPh: string;
   boilPh: string;
   boilAcidMl: string;
   outToFermentorPh: string;
