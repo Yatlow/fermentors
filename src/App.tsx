@@ -179,7 +179,7 @@ function useAuth() {
 
 function App() {
     const [planningTab, setPlanningTab] = useState<PlanningTab>("stock");
-    const [brewingTab, setBrewingTab] = useState<BrewingTab>("create");
+    const [brewingTab, setBrewingTab] = useState<BrewingTab>("form");
     const { user, loading: authLoading, isApproved, admin, plannerUser } = useAuth();
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
