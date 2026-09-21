@@ -174,6 +174,17 @@ async function deleteSandboxFile(fileId: string) {
   }
 }
 
+export async function deleteSandboxBrewSheet(fileId: string): Promise<void> {
+  if (!fileId || runtimeConfig.deployEnv !== "preview") return;
+  const response = await googleFetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`,
+    { method: "DELETE" },
+  );
+  if (!response.ok && response.status !== 404) {
+    await requireOk(response, "מחיקת Sheet ה-Sandbox נכשלה");
+  }
+}
+
 export async function ensureSandboxSheetAccess(): Promise<void> {
   if (runtimeConfig.deployEnv !== "preview") {
     throw new Error("הרשאת Sandbox זמינה רק ב-Preview.");
