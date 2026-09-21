@@ -1,9 +1,7 @@
 export type BrewTankType = "single" | "double" | "triple";
 
 export type BrewRecipeGrain = {
-  id: string;
-  name: string;
-  supplier: string;
+  ingredientId: string;
   kgPerBrew: number;
 };
 
@@ -16,9 +14,9 @@ export type BrewRecipeMashStep = {
 
 export type BrewRecipeHop = {
   id: string;
-  name: string;
+  ingredientId: string;
   phase: "boil" | "flameout" | "dryHop";
-  referenceAlpha: number;
+  referenceAlpha?: number;
   gramsPerLiter: number;
   minutesFromEnd?: number;
   daysAfterBrew?: number;
@@ -43,7 +41,7 @@ export type BrewRecipe = {
   };
   hops: BrewRecipeHop[];
   yeast: {
-    name: string;
+    ingredientId: string;
     gramsPerBrew: number;
     extraPerBatch: number;
   };
@@ -56,8 +54,8 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
   version: 1,
   allowedTankTypes: ["single", "double", "triple"],
   grains: [
-    { id: "pils-avangard", name: "Pils", supplier: "Avangard", kgPerBrew: 275 },
-    { id: "caramunich2-weyermann", name: "Caramunich2", supplier: "Weyermann", kgPerBrew: 30.6 },
+    { ingredientId: "pils", kgPerBrew: 275 },
+    { ingredientId: "caramunich2", kgPerBrew: 30.6 },
   ],
   mash: {
     waterLiters: 1040,
@@ -78,7 +76,7 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
   hops: [
     {
       id: "cascade-60",
-      name: "Cascade",
+      ingredientId: "cascade",
       phase: "boil",
       referenceAlpha: 6,
       gramsPerLiter: 0.581,
@@ -86,7 +84,7 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
     },
     {
       id: "cascade-10",
-      name: "Cascade",
+      ingredientId: "cascade",
       phase: "boil",
       referenceAlpha: 6,
       gramsPerLiter: 1.37,
@@ -94,7 +92,7 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
     },
     {
       id: "cascade-flameout",
-      name: "Cascade",
+      ingredientId: "cascade",
       phase: "flameout",
       referenceAlpha: 6,
       gramsPerLiter: 1.37,
@@ -102,7 +100,7 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
     },
     {
       id: "citra-dryhop",
-      name: "Citra",
+      ingredientId: "citra",
       phase: "dryHop",
       referenceAlpha: 13.8,
       gramsPerLiter: 3,
@@ -110,7 +108,7 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
     },
   ],
   yeast: {
-    name: "S-05",
+    ingredientId: "s05",
     gramsPerBrew: 500,
     extraPerBatch: 0,
   },
@@ -119,4 +117,27 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
 
 export function cloneRecipe(recipe: BrewRecipe): BrewRecipe {
   return JSON.parse(JSON.stringify(recipe)) as BrewRecipe;
+}
+
+export function createEmptyRecipe(id: string, style: string): BrewRecipe {
+  return {
+    id,
+    style,
+    version: 1,
+    allowedTankTypes: ["single", "double", "triple"],
+    grains: [],
+    mash: {
+      waterLiters: 0,
+      steps: [
+        { id: "mashIn", label: "מאש אין", targetTemp: 0 },
+        { id: "rest1", label: "מנוחה 1", targetTemp: 0 },
+        { id: "mashOut", label: "סוף מאש", targetTemp: 0 },
+      ],
+    },
+    lautering: { usesGrant: false },
+    targets: { endBoilPlato: 0, startingPlato: 0 },
+    hops: [],
+    yeast: { ingredientId: "", gramsPerBrew: 0, extraPerBatch: 0 },
+    fermentationTemp: 0,
+  };
 }
