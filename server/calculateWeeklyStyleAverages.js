@@ -1,4 +1,4 @@
-const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_averages_last_run_v1";
+const WEEKLY_STYLE_MODEL_LAST_RUN_KEY = "weekly_style_models_last_run_v3";
 const WEEKLY_STYLE_MODEL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function calculateWeeklyStyleAverages(force) {
