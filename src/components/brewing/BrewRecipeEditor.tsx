@@ -100,6 +100,105 @@ export default function BrewRecipeEditor({
     }));
   }
 
+  function syncMashChain(steps: BrewRecipeMashStep[]): BrewRecipeMashStep[] {
+    if (steps.length < 2) return steps;
+
+    const first = { ...steps[0] };
+    const last = { ...steps[steps.length - 1] };
+    const middle = steps.slice(1, -1).map((step) => ({ ...step }));
+
+    const rests = middle.filter((_, index) => index % 2 === 0);
+    const restTargets = rests.map((rest) => rest.targetTemp);
+
+    if (restTargets.length > 0) {
+      first.targetTemp = restTargets[0];
+    }
+
+    for (let index = 1; index < middle.length; index += 2) {
+      const pairIndex = Math.floor(index / 2);
+      const nextRestTarget = restTargets[pairIndex + 1];
+      middle[index].targetTemp =
+        nextRestTarget !== undefined
+          ? nextRestTarget
+          : last.targetTemp;
+      middle[index].minutes = undefined;
+    }
+
+    return [first, ...middle, last];
+  }
+
+  function updateMashInTemp(value: number) {
+    setRecipe((current) => {
+      const steps = current.mash.steps.map((step) => ({ ...step }));
+      if (steps[0]) steps[0].targetTemp = value;
+      if (steps[1]) steps[1].targetTemp = value;
+      return {
+        ...current,
+        mash: {
+          ...current.mash,
+          steps: syncMashChain(steps),
+        },
+      };
+    });
+  }
+
+  function updateRestTemp(pairIndex: number, value: number) {
+    setRecipe((current) => {
+      const steps = current.mash.steps.map((step) => ({ ...step }));
+      const restIndex = 1 + pairIndex * 2;
+      if (steps[restIndex]) steps[restIndex].targetTemp = value;
+      return {
+        ...current,
+        mash: {
+          ...current.mash,
+          steps: syncMashChain(steps),
+        },
+      };
+    });
+  }
+
+  function updateHeatTemp(pairIndex: number, value: number) {
+    setRecipe((current) => {
+      const steps = current.mash.steps.map((step) => ({ ...step }));
+      const heatIndex = 2 + pairIndex * 2;
+      if (steps[heatIndex]) steps[heatIndex].targetTemp = value;
+
+      const nextRestIndex = heatIndex + 1;
+      if (
+        nextRestIndex < steps.length - 1 &&
+        steps[nextRestIndex]
+      ) {
+        steps[nextRestIndex].targetTemp = value;
+      } else if (steps.length > 1) {
+        steps[steps.length - 1].targetTemp = value;
+      }
+
+      return {
+        ...current,
+        mash: {
+          ...current.mash,
+          steps: syncMashChain(steps),
+        },
+      };
+    });
+  }
+
+  function updateMashOutTemp(value: number) {
+    setRecipe((current) => {
+      const steps = current.mash.steps.map((step) => ({ ...step }));
+      if (steps.length > 0) {
+        steps[steps.length - 1].targetTemp = value;
+      }
+      return {
+        ...current,
+        mash: {
+          ...current.mash,
+          steps: syncMashChain(steps),
+        },
+      };
+    });
+  }
+
   function updateHop(id: string, patch: Partial<BrewRecipeHop>) {
     setRecipe((current) => ({
       ...current,
@@ -152,8 +251,8 @@ export default function BrewRecipeEditor({
         }),
       ).filter((pair) => !!pair.rest);
 
-      const pairNumber = currentPairs.length + 1;
-      const nextDefaults = defaultRestTemps(pairNumber);
+      const nextPairCount = currentPairs.length + 1;
+      const defaults = defaultRestTemps(nextPairCount);
       const preserveManualValues = !isDefaultMashProfile(
         currentPairs as Array<{
           rest: BrewRecipeMashStep;
@@ -162,57 +261,53 @@ export default function BrewRecipeEditor({
         last?.targetTemp ?? 78,
       );
 
-      const nextMiddle = currentPairs.flatMap((pair, index) => {
-        const restTarget = preserveManualValues
+      const restTargets = currentPairs.map((pair, index) =>
+        preserveManualValues
           ? pair.rest.targetTemp
-          : nextDefaults[index];
-        const heatTarget = preserveManualValues
-          ? pair.heat?.targetTemp ??
-            (index < currentPairs.length - 1
-              ? currentPairs[index + 1].rest.targetTemp
-              : last?.targetTemp ?? 78)
-          : nextDefaults[index + 1] ?? last?.targetTemp ?? 78;
+          : defaults[index],
+      );
+      restTargets.push(
+        preserveManualValues
+          ? defaults[nextPairCount - 1] ?? 72
+          : defaults[nextPairCount - 1],
+      );
 
-        return [
-          {
-            ...pair.rest,
-            id: `rest${index + 1}`,
-            label: `מנוחה ${index + 1}`,
-            targetTemp: restTarget,
-          },
-          {
-            ...(pair.heat || {}),
-            id: `heat${index + 1}`,
-            label: `חימום ${index + 1}`,
-            targetTemp: heatTarget,
-            minutes: undefined,
-          },
-        ];
+      const nextMiddle: BrewRecipeMashStep[] = [];
+      restTargets.forEach((targetTemp, index) => {
+        const source = currentPairs[index];
+        nextMiddle.push({
+          ...(source?.rest || {}),
+          id: `rest${index + 1}`,
+          label: `מנוחה ${index + 1}`,
+          targetTemp,
+          minutes: source?.rest?.minutes ?? 0,
+        });
+        nextMiddle.push({
+          ...(source?.heat || {}),
+          id: `heat${index + 1}`,
+          label: `חימום ${index + 1}`,
+          targetTemp:
+            restTargets[index + 1] ??
+            last?.targetTemp ??
+            78,
+          minutes: undefined,
+        });
       });
 
-      const rest: BrewRecipeMashStep = {
-        id: `rest${pairNumber}`,
-        label: `מנוחה ${pairNumber}`,
-        targetTemp: nextDefaults[pairNumber - 1] ?? 72,
-        minutes: 0,
-      };
-      const heat: BrewRecipeMashStep = {
-        id: `heat${pairNumber}`,
-        label: `חימום ${pairNumber}`,
-        targetTemp: last?.targetTemp ?? 78,
-      };
+      const nextSteps = syncMashChain([
+        {
+          ...first,
+          targetTemp: restTargets[0] ?? first?.targetTemp ?? 63,
+        },
+        ...nextMiddle,
+        last,
+      ]);
 
       return {
         ...current,
         mash: {
           ...current.mash,
-          steps: [
-            first,
-            ...nextMiddle,
-            rest,
-            heat,
-            last,
-          ],
+          steps: nextSteps,
         },
       };
     });
@@ -232,7 +327,11 @@ export default function BrewRecipeEditor({
         ...current,
         mash: {
           ...current.mash,
-          steps: [first, ...renumberMashMiddle(nextMiddle), last],
+          steps: syncMashChain([
+            first,
+            ...renumberMashMiddle(nextMiddle),
+            last,
+          ]),
         },
       };
     });
@@ -249,6 +348,7 @@ export default function BrewRecipeEditor({
           ingredientId,
           purpose: "aroma",
           gramsPerLiter: 0,
+          boilMinutes: 10,
         },
       ],
     }));
@@ -461,9 +561,7 @@ export default function BrewRecipeEditor({
                 step="0.1"
                 value={mashIn.targetTemp}
                 onChange={(e) =>
-                  updateMashStep("mashIn", {
-                    targetTemp: numberValue(e.target.value),
-                  })
+                  updateMashInTemp(numberValue(e.target.value))
                 }
               />
             </label>
@@ -501,9 +599,10 @@ export default function BrewRecipeEditor({
                     step="0.1"
                     value={pair.rest.targetTemp}
                     onChange={(e) =>
-                      updateMashStep(pair.rest.id, {
-                        targetTemp: numberValue(e.target.value),
-                      })
+                      updateRestTemp(
+                        index,
+                        numberValue(e.target.value),
+                      )
                     }
                   />
                 </label>
@@ -546,9 +645,10 @@ export default function BrewRecipeEditor({
                       step="0.1"
                       value={pair.heat.targetTemp}
                       onChange={(e) =>
-                        updateMashStep(pair.heat.id, {
-                          targetTemp: numberValue(e.target.value),
-                        })
+                        updateHeatTemp(
+                          index,
+                          numberValue(e.target.value),
+                        )
                       }
                     />
                   </label>
@@ -570,9 +670,7 @@ export default function BrewRecipeEditor({
                 step="0.1"
                 value={mashOut.targetTemp}
                 onChange={(e) =>
-                  updateMashStep("mashOut", {
-                    targetTemp: numberValue(e.target.value),
-                  })
+                  updateMashOutTemp(numberValue(e.target.value))
                 }
               />
             </label>
@@ -630,8 +728,20 @@ export default function BrewRecipeEditor({
                     updateHop(hop.id, {
                       purpose,
                       ...(purpose === "bitterness"
-                        ? { aa: hop.aa ?? 0 }
+                        ? {
+                            aa: hop.aa ?? 0,
+                            boilMinutes: hop.boilMinutes ?? 60,
+                          }
                         : { aa: undefined }),
+                      ...(purpose === "aroma"
+                        ? { boilMinutes: hop.boilMinutes ?? 10 }
+                        : {}),
+                      ...(purpose === "whirlpool"
+                        ? { boilMinutes: hop.boilMinutes ?? 0 }
+                        : {}),
+                      ...(purpose === "dryHop"
+                        ? { boilMinutes: undefined }
+                        : {}),
                     });
                   }}
                 >
@@ -654,6 +764,25 @@ export default function BrewRecipeEditor({
                   }
                 />
               </label>
+              {hop.purpose !== "dryHop" && (
+                <label>
+                  דקות ברתיחה
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={hop.boilMinutes ?? ""}
+                    onChange={(e) =>
+                      updateHop(hop.id, {
+                        boilMinutes:
+                          e.target.value === ""
+                            ? undefined
+                            : numberValue(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+              )}
               {hop.purpose === "bitterness" && (
                 <label>
                   aa %
