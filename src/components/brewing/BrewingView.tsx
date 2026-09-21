@@ -185,10 +185,17 @@ export default function BrewingView({ brews, tab }: Props) {
 
     const actionZeroProductionTanks = useMemo(
         () =>
-            editableProductionTanks.filter(
-                (tank) => Number(tank.action) === 0,
-            ),
-        [editableProductionTanks],
+            brews
+                .filter(
+                    (tank) =>
+                        Number(tank.tankNumber) !== 1 &&
+                        Number(tank.action) === 0,
+                )
+                .sort(
+                    (a, b) =>
+                        Number(a.tankNumber) - Number(b.tankNumber),
+                ),
+        [brews],
     );
 
     const otherProductionTanks = useMemo(
@@ -547,33 +554,44 @@ export default function BrewingView({ brews, tab }: Props) {
                     <div className="brewing-action-zero-list">
                         {actionZeroProductionTanks.map((tank) => {
                             const run = productionRunFromTank(tank);
-                            if (!run) return null;
-                            const style = beerStyleClass(run.style);
+                            const rawStyle = String(tank.beerStyle || "");
+                            const style = beerStyleClass(rawStyle);
                             const recipe =
-                                recipes.find((item) =>
-                                    sameStyle(item.style, run.style),
-                                ) || null;
+                                run
+                                    ? recipes.find((item) =>
+                                          sameStyle(item.style, run.style),
+                                      ) || null
+                                    : null;
 
                             return (
                                 <button
                                     type="button"
                                     className="brewing-action-zero-chip"
                                     key={tank.id}
-                                    disabled={!sandbox || !recipe}
+                                    disabled={!sandbox || !run || !recipe}
                                     onClick={() => {
+                                        if (!run) return;
                                         setMessage("");
                                         setSelectedRun(run);
                                     }}
                                 >
-                                    <strong>מיכל {run.tankNumber}</strong>
-                                    <span>#{run.batchNumber}</span>
+                                    <strong>
+                                        מיכל {String(tank.tankNumber ?? tank.id)}
+                                    </strong>
+                                    <span>
+                                        {tank.batchNumber
+                                            ? `#${String(tank.batchNumber)}`
+                                            : "ללא אצווה"}
+                                    </span>
                                     <span
                                         className={`brewing-style-tag ${style.className}`}
                                     >
-                                        {style.displayLabel}
+                                        {style.displayLabel || "—"}
                                     </span>
                                     <small>
-                                        {tank.brewProgress?.stageName || "ACTION 0"}
+                                        {run
+                                            ? tank.brewProgress?.stageName || "ACTION 0"
+                                            : "ACTION 0 · אין Sheet זמין לעריכה"}
                                     </small>
                                 </button>
                             );
