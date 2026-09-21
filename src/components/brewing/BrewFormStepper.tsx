@@ -82,7 +82,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
   const boilTarget = recipe.targets.endBoilPlato;
   const boilRecommendation = useMemo(() => {
-    const volume = num(fields.boilSampleVolume || "");
+    const volume = num(fields.boilSampleVolume || "1200");
     const plato = num(fields.boilSamplePlato || "");
     if (volume === null || plato === null || !boilTarget) return null;
     return (volume * plato) / boilTarget + 100;
@@ -181,13 +181,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     value: string,
     rowOffset: number,
     column: "B" | "C",
-    suffix: string,
+    _suffix: string,
   ) {
     const parsed = num(value);
     await commit(key, value, [
       {
         range: `'גיליון1'!${column}${baseRow + rowOffset}`,
-        value: parsed === null ? "" : `${parsed}${suffix}`,
+        value: parsed === null ? "" : parsed,
       },
     ]);
   }
