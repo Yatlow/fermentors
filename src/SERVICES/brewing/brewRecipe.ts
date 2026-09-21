@@ -23,6 +23,8 @@ export type BrewRecipeHop = {
   ingredientId: string;
   purpose: BrewHopPurpose;
   gramsPerLiter: number;
+  /** Minutes in the boil; relevant to bitterness/aroma/whirlpool, not dry hop. */
+  boilMinutes?: number;
   /** Recipe aa target is relevant only for bitterness additions. */
   aa?: number;
 };
@@ -87,18 +89,21 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
       purpose: "bitterness",
       aa: 6,
       gramsPerLiter: 0.581,
+      boilMinutes: 60,
     },
     {
       id: "cascade-aroma",
       ingredientId: "cascade",
       purpose: "aroma",
       gramsPerLiter: 1.37,
+      boilMinutes: 10,
     },
     {
       id: "cascade-whirlpool",
       ingredientId: "cascade",
       purpose: "whirlpool",
       gramsPerLiter: 1.37,
+      boilMinutes: 0,
     },
     {
       id: "citra-dryhop",
