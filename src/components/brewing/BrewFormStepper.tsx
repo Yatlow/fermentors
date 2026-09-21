@@ -427,6 +427,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [boilCalcOpen, setBoilCalcOpen] = useState(false);
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
+  const [lastVerifyAt, setLastVerifyAt] = useState<Date | null>(null);
+  const [checkingSync, setCheckingSync] = useState(false);
+  const [syncMismatchCount, setSyncMismatchCount] = useState<number | null>(null);
   const [syncError, setSyncError] = useState("");
   const ingredientLibrary = useMemo(
     () => loadSandboxIngredients(),
@@ -643,6 +646,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     try {
       await writeSandboxSheetCells(run.sheetId, writes);
       setLastPushAt(new Date());
+      setSyncMismatchCount(null);
       setSyncError("");
     } catch (error) {
       const detail =
@@ -1294,6 +1298,131 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     await commitSugar("kettleVolume", value, 38, "C");
   }
 
+  function isSheetBackedExecutionKey(key: string): boolean {
+    return (
+      key === "brewDate" ||
+      key === "yeastPitchTime" ||
+      key === "hltWaterAmount" ||
+      key === "hltWaterTemp" ||
+      key === "lauterWaterAmount" ||
+      key === "lauterWaterTemp" ||
+      key === "mashVolume" ||
+      key === "mashPh" ||
+      key === "mashAcid85" ||
+      key === "boilAcid85" ||
+      key === "outToBoilPh" ||
+      key === "boilPh" ||
+      key === "outToFermentorPh" ||
+      key === "frPlato" ||
+      key === "lrPlato" ||
+      key === "kettlePlato" ||
+      key === "kettleVolume" ||
+      key === "endBoilPlato" ||
+      key === "endBoilVolume" ||
+      key === "fermentorSamplePlato" ||
+      key === "cumulativeTankVolume" ||
+      key === "endBoilTime" ||
+      /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
+      /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
+        key,
+      )
+    );
+  }
+
+  function syncComparable(value: unknown): string {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+
+    const time = normalizeUserTime(text);
+    if (time !== null && /^\d{1,2}:?\d{2}$/.test(text.replace(".", ":"))) {
+      return time;
+    }
+
+    const numeric = Number(text);
+    if (Number.isFinite(numeric)) return String(numeric);
+
+    return text.replace(/\s+/g, " ");
+  }
+
+  async function verifySheetSync() {
+    if (!run.sheetId) return;
+
+    setCheckingSync(true);
+    setSyncError("");
+    setMessage("");
+
+    try {
+      let mismatches = 0;
+
+      for (let index = 1; index <= totalBlocks; index += 1) {
+        const row = blockBaseRow(run.tankType, index);
+        const rows = await readSandboxSheetRange(
+          run.sheetId,
+          `'גיליון1'!A${row}:H${row + 40}`,
+        );
+        const pulled = fieldsFromSheetRows(
+          rows,
+          recipe.lautering.usesGrant,
+        );
+
+        const headerRow = blockHeaderRow(run.tankType, index);
+        const dateRows = await readSandboxSheetRange(
+          run.sheetId,
+          `'גיליון1'!H${headerRow}:H${headerRow}`,
+        );
+        const brewDate = isoDateFromSheet(
+          String(dateRows[0]?.[0] || ""),
+        );
+        if (brewDate) pulled.brewDate = brewDate;
+
+        if (index === 1) {
+          const fermentationRow = fermentationStartingRow(run.tankType);
+          const yeastRows = await readSandboxSheetRange(
+            run.sheetId,
+            `'גיליון1'!G${fermentationRow}:G${fermentationRow}`,
+          );
+          const yeastTime = normalizedTime(
+            String(yeastRows[0]?.[0] || ""),
+          );
+          if (yeastTime) pulled.yeastPitchTime = yeastTime;
+        }
+
+        const localFields =
+          execution.blocks[String(index)]?.fields || {};
+        const keys = new Set([
+          ...Object.keys(localFields).filter(isSheetBackedExecutionKey),
+          ...Object.keys(pulled).filter(isSheetBackedExecutionKey),
+        ]);
+
+        keys.forEach((key) => {
+          if (
+            syncComparable(localFields[key]) !==
+            syncComparable(pulled[key])
+          ) {
+            mismatches += 1;
+          }
+        });
+      }
+
+      setSyncMismatchCount(mismatches);
+      setLastVerifyAt(new Date());
+      setMessage(
+        mismatches === 0
+          ? "✓ בדיקת התאמה מלאה: הנתונים באפליקציה וב-Sheet תואמים."
+          : `נמצאו ${mismatches} פערים בין האפליקציה ל-Sheet. אפשר למשוך מה-Sheet או לבדוק את השדות לפני דריסה.`,
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "בדיקת ההתאמה מול ה-Sheet נכשלה.";
+      setSyncError(detail);
+      setMessage(detail);
+    } finally {
+      setCheckingSync(false);
+    }
+  }
+
   async function syncFromSheet() {
     if (!run.sheetId) return;
 
@@ -1605,19 +1734,47 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <span>
                   Sheet → אפליקציה: {syncTimeLabel(lastPullAt)}
                 </span>
+                <span
+                  className={
+                    syncMismatchCount === 0
+                      ? "brew-sync-match"
+                      : syncMismatchCount && syncMismatchCount > 0
+                        ? "brew-sync-mismatch"
+                        : ""
+                  }
+                >
+                  התאמה מלאה:{" "}
+                  {syncMismatchCount === null
+                    ? "לא נבדקה"
+                    : syncMismatchCount === 0
+                      ? `✓ ${syncTimeLabel(lastVerifyAt)}`
+                      : `⚠ ${syncMismatchCount} פערים`}
+                </span>
               </div>
             )}
           </div>
         </div>
 
-        <button
-          type="button"
-          className="brew-button-secondary brew-sync-now"
-          disabled={pulling || !!syncing || !run.sheetId}
-          onClick={() => void syncFromSheet()}
-        >
-          ↻ סנכרן עכשיו
-        </button>
+        <div className="brew-sync-actions">
+          <button
+            type="button"
+            className="brew-button-secondary"
+            disabled={
+              checkingSync || pulling || !!syncing || !run.sheetId
+            }
+            onClick={() => void verifySheetSync()}
+          >
+            {checkingSync ? "בודק התאמה…" : "בדוק התאמה"}
+          </button>
+          <button
+            type="button"
+            className="brew-button-secondary brew-sync-now"
+            disabled={pulling || !!syncing || !run.sheetId}
+            onClick={() => void syncFromSheet()}
+          >
+            ↻ משוך מה-Sheet
+          </button>
+        </div>
       </div>
 
       {syncError && (
@@ -1632,7 +1789,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           ✓ / ⚠ ב-Stepper מציינים שלמות נתונים בלבד — לא מצב סנכרון.
         </span>
         <span>
-          כתיבה: אפליקציה → Sheet אוטומטית. קריאה: Sheet → אפליקציה בכפתור הסנכרון.
+          כתיבה: אפליקציה → Sheet אוטומטית. "בדוק התאמה" קורא בלי לשנות דבר; "משוך מה-Sheet" מעדכן את האפליקציה מהגיליון.
         </span>
       </div>
 
