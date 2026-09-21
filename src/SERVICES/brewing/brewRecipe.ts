@@ -136,12 +136,23 @@ export function createEmptyRecipe(
         {
           id: "rest1",
           label: "מנוחה 1",
-          targetTemp: 0,
+          targetTemp: 63,
           minutes: 0,
         },
         {
           id: "heat1",
           label: "חימום 1",
+          targetTemp: 72,
+        },
+        {
+          id: "rest2",
+          label: "מנוחה 2",
+          targetTemp: 72,
+          minutes: 0,
+        },
+        {
+          id: "heat2",
+          label: "חימום 2",
           targetTemp: 78,
         },
         { id: "mashOut", label: "מאש אווט", targetTemp: 78 },
