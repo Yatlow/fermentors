@@ -3770,6 +3770,53 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         )}
       </section>
 
+      {validationConfirmText && (
+        <div className="brew-modal-backdrop" role="presentation">
+          <section
+            className="brew-validation-confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="brew-validation-confirm-title"
+          >
+            <div className="brew-modal-header">
+              <div>
+                <h2 id="brew-validation-confirm-title">בדיקת נתון</h2>
+                <p>הנתון חריג, אבל ייתכן שהוא נכון.</p>
+              </div>
+              <button
+                type="button"
+                className="brew-modal-close brew-button-icon"
+                onClick={() => closeValidationConfirmation(false)}
+                aria-label="סגירה"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="brew-validation-confirm-text">
+              {validationConfirmText}
+            </p>
+
+            <div className="brew-modal-actions">
+              <button
+                type="button"
+                className="brew-button-secondary"
+                onClick={() => closeValidationConfirmation(false)}
+              >
+                חזור לתיקון
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => closeValidationConfirmation(true)}
+              >
+                שמור בכל זאת
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {acidHistoryMode && (
         <div
           className="brew-modal-backdrop"
@@ -3870,7 +3917,15 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   </thead>
                   <tbody>
                     {acidHistory.map((row) => (
-                      <tr key={`${row.batchNumber}-${row.brewLetter}`}>
+                      <tr
+                        key={`${row.batchNumber}-${row.brewLetter}`}
+                        className={
+                          closestHistoryKey ===
+                          `${row.batchNumber}-${row.brewLetter}`
+                            ? "brew-history-closest"
+                            : ""
+                        }
+                      >
                         <td>
                           <a
                             href={row.sheetUrl}
