@@ -24,7 +24,7 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
   const weekId = weekStart(dateKey(new Date()));
 
   try {
-    const snapshot = await getDoc(doc(db, "planningWeeks", weekId));
+    const snapshot = await getDoc(doc(db, "brewPlanningQueue", weekId));
     if (!snapshot.exists()) {
       return { weekId, hints: [], available: true };
     }
@@ -46,8 +46,6 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
         })),
     };
   } catch {
-    // planningWeeks is intentionally planner/admin-only today.
-    // Brewing UI treats this as an optional hint until a small read projection exists.
     return { weekId, hints: [], available: false };
   }
 }
