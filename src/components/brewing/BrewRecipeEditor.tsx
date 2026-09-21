@@ -318,18 +318,50 @@ export default function BrewRecipeEditor({
       const first = current.mash.steps[0];
       const last = current.mash.steps[current.mash.steps.length - 1];
       const middle = current.mash.steps.slice(1, -1);
-      const nextMiddle = middle.filter(
-        (_, stepIndex) =>
-          stepIndex !== index * 2 &&
-          stepIndex !== index * 2 + 1,
+
+      const currentPairs = Array.from(
+        { length: Math.ceil(middle.length / 2) },
+        (_, pairIndex) => ({
+          rest: middle[pairIndex * 2],
+          heat: middle[pairIndex * 2 + 1],
+        }),
+      ).filter((pair) => !!pair.rest);
+
+      const wasDefault = isDefaultMashProfile(
+        currentPairs as Array<{
+          rest: BrewRecipeMashStep;
+          heat?: BrewRecipeMashStep;
+        }>,
+        last?.targetTemp ?? 78,
       );
+
+      let nextMiddle = renumberMashMiddle(
+        middle.filter(
+          (_, stepIndex) =>
+            stepIndex !== index * 2 &&
+            stepIndex !== index * 2 + 1,
+        ),
+      );
+
+      if (wasDefault) {
+        const nextPairCount = Math.ceil(nextMiddle.length / 2);
+        const defaults = defaultRestTemps(nextPairCount);
+        nextMiddle = nextMiddle.map((step, stepIndex) => ({
+          ...step,
+          targetTemp:
+            stepIndex % 2 === 0
+              ? defaults[Math.floor(stepIndex / 2)] ?? step.targetTemp
+              : step.targetTemp,
+        }));
+      }
+
       return {
         ...current,
         mash: {
           ...current.mash,
           steps: syncMashChain([
             first,
-            ...renumberMashMiddle(nextMiddle),
+            ...nextMiddle,
             last,
           ]),
         },
