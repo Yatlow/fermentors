@@ -2054,3 +2054,27 @@
         grid-template-columns: 1fr 1fr;
     }
 }
+
+
+.brew-summary-sync {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 5px;
+    justify-items: start;
+    padding-top: 4px;
+}
+
+.brew-summary-sync small {
+    color: var(--text-muted);
+    font-size: 0.62rem;
+}
+
+.brew-summary-sync .beer-loader {
+    flex-direction: row;
+    gap: 5px;
+}
+
+.brew-summary-sync .beer-loader-message {
+    margin: 0;
+    font-size: 0.62rem;
+}
