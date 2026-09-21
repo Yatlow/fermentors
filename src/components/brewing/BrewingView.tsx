@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import { loadSandboxRecipes } from "../../SERVICES/brewing/sandboxRecipe";
+import { loadSandboxIngredients } from "../../SERVICES/brewing/sandboxIngredients";
 import {
     getCurrentWeekPlannedBrewHints,
     type PlannedBrewHint,
@@ -306,6 +307,8 @@ export default function BrewingView({ brews, tab }: Props) {
                 style: run.style,
                 tankNumber: run.tankNumber,
                 tankType: run.tankType,
+                recipe,
+                ingredients: loadSandboxIngredients(),
             });
 
             attachSandboxSheet(run.batchNumber, sheet);
