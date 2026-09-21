@@ -259,12 +259,6 @@ export default function CreateBrewModal({
           </div>
         )}
 
-        {!planningHintsAvailable && (
-          <small className="brew-planning-hint-unavailable">
-            מידע התכנון השבועי אינו זמין למשתמש הזה כרגע.
-          </small>
-        )}
-
         <div className="brew-modal-actions">
           <button
             type="button"
