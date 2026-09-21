@@ -1,30 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Fermentor } from "../../App";
 import "./BrewingView.css";
-
-type BrewingSection = "create" | "recipes" | "form";
+import type { BrewingTab } from "./brewingTabs";
 
 type Props = {
     brews: Fermentor[];
+    tab: BrewingTab;
 };
-
-const SECTIONS: { id: BrewingSection; label: string; description: string }[] = [
-    {
-        id: "create",
-        label: "יצירת בישול חדש",
-        description: "יצירת אצווה חדשה למיכל מחוטא, לפי התכנון או באופן ידני.",
-    },
-    {
-        id: "recipes",
-        label: "עריכת מתכונים",
-        description: "מתכונים, חומרי גלם ואצוות פעילות.",
-    },
-    {
-        id: "form",
-        label: "מילוי טופס בישול",
-        description: "הזנת נתוני הבישול לאצוות שנמצאות בתהליך.",
-    },
-];
 
 function tankType(tankNumber: unknown): "בודד" | "כפול" | "משולש" {
     const tank = Number(tankNumber);
@@ -33,8 +15,7 @@ function tankType(tankNumber: unknown): "בודד" | "כפול" | "משולש" {
     return "משולש";
 }
 
-export default function BrewingView({ brews }: Props) {
-    const [section, setSection] = useState<BrewingSection>("create");
+export default function BrewingView({ brews, tab }: Props) {
 
     const sanitizedTanks = useMemo(
         () =>
@@ -54,28 +35,7 @@ export default function BrewingView({ brews }: Props) {
 
     return (
         <main className="brewing-view" dir="rtl">
-            <section className="brewing-hero">
-                <div>
-                    <h1>בישולים</h1>
-                    <p>{SECTIONS.find((item) => item.id === section)?.description}</p>
-                </div>
-            </section>
-
-            <nav className="brewing-section-tabs" aria-label="תפריטי בישולים">
-                {SECTIONS.map((item) => (
-                    <button
-                        key={item.id}
-                        type="button"
-                        className={section === item.id ? "active" : ""}
-                        aria-pressed={section === item.id}
-                        onClick={() => setSection(item.id)}
-                    >
-                        {item.label}
-                    </button>
-                ))}
-            </nav>
-
-            {section === "create" && (
+            {tab === "create" && (
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
@@ -109,7 +69,7 @@ export default function BrewingView({ brews }: Props) {
                 </section>
             )}
 
-            {section === "recipes" && (
+            {tab === "recipes" && (
                 <section className="brewing-panel">
                     <h2>מתכונים וחומרי גלם</h2>
                     <p>
@@ -119,7 +79,7 @@ export default function BrewingView({ brews }: Props) {
                 </section>
             )}
 
-            {section === "form" && (
+            {tab === "form" && (
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
