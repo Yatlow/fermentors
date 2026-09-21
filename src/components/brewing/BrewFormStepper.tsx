@@ -1497,82 +1497,191 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         </div>
 
         {currentStep.id === "water" && (
-          <div className="brew-water-grid">
-            <article className="brew-water-card">
+          <div className="brew-prep-step">
+            <article className="brew-prep-date-card">
               <div>
-                <strong>HLT</strong>
-                <small>מצב המים בתחילת הבישול</small>
+                <strong>תאריך בישול</strong>
+                <small>
+                  זה תאריך הבישול בפועל של בישול {["A", "B", "C"][currentBlock - 1]} — לא תאריך יצירת ה-Sheet.
+                </small>
               </div>
               <label>
-                כמות מים
+                תאריך
                 <input
-                  value={localValue("hltWaterAmount")}
-                  onChange={(e) =>
-                    setLocal("hltWaterAmount", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitWaterField(
-                      "hltWaterAmount",
-                      e.target.value,
-                    )
-                  }
-                />
-              </label>
-              <label>
-                טמפ׳ °C
-                <input
-                  type="number"
-                  step="0.1"
-                  value={localValue("hltWaterTemp")}
-                  onChange={(e) =>
-                    setLocal("hltWaterTemp", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitWaterField(
-                      "hltWaterTemp",
-                      e.target.value,
-                    )
-                  }
+                  type="date"
+                  value={localValue("brewDate")}
+                  onChange={(e) => setLocal("brewDate", e.target.value)}
+                  onBlur={(e) => void commitBrewDate(e.target.value)}
                 />
               </label>
             </article>
 
-            <article className="brew-water-card">
-              <div>
-                <strong>MASH IN / מי מאש</strong>
+            <div className="brew-water-grid">
+              <article className="brew-water-card">
+                <div>
+                  <strong>HLT</strong>
+                  <small>מצב המים בתחילת הבישול</small>
+                </div>
+                <label>
+                  כמות מים
+                  <input
+                    value={localValue("hltWaterAmount")}
+                    onChange={(e) =>
+                      setLocal("hltWaterAmount", e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitWaterField(
+                        "hltWaterAmount",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  טמפ׳ °C
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={localValue("hltWaterTemp")}
+                    onChange={(e) =>
+                      setLocal("hltWaterTemp", e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitWaterField(
+                        "hltWaterTemp",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </label>
+              </article>
+
+              <article className="brew-water-card">
+                <div>
+                  <strong>MASH IN / מי מאש</strong>
+                </div>
+                <label>
+                  כמות מים
+                  <input
+                    value={localValue("lauterWaterAmount")}
+                    onChange={(e) =>
+                      setLocal("lauterWaterAmount", e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitWaterField(
+                        "lauterWaterAmount",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  טמפ׳ °C
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={localValue("lauterWaterTemp")}
+                    onChange={(e) =>
+                      setLocal("lauterWaterTemp", e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitWaterField(
+                        "lauterWaterTemp",
+                        e.target.value,
+                      )
+                    }
+                  />
+                </label>
+              </article>
+            </div>
+
+            <article className="brew-material-confirmation">
+              <div className="brew-section-title">
+                <div>
+                  <h4>חומרי גלם</h4>
+                  <span>
+                    ברירת המחדל היא האצווה שמסומנת כעת בשימוש בספרייה.
+                  </span>
+                </div>
+                <small>
+                  אפשר להחליף lot לפני האישור.
+                </small>
               </div>
-              <label>
-                כמות מים
-                <input
-                  value={localValue("lauterWaterAmount")}
-                  onChange={(e) =>
-                    setLocal("lauterWaterAmount", e.target.value)
+
+              <div className="brew-material-list">
+                {brewMaterials.map((ingredient) => {
+                  const selected = selectedMaterialLot(ingredient);
+                  return (
+                    <label
+                      className="brew-material-row"
+                      key={ingredient.id}
+                    >
+                      <span>
+                        <strong>{ingredient.name}</strong>
+                        <small>
+                          {ingredient.category === "grain"
+                            ? "לתת"
+                            : ingredient.category === "hop"
+                              ? "כשות"
+                              : ingredient.category === "yeast"
+                                ? "שמרים"
+                                : "חומר גלם"}
+                        </small>
+                      </span>
+                      <select
+                        value={selected?.id || ""}
+                        onChange={(e) =>
+                          selectMaterialLot(
+                            ingredient.id,
+                            e.target.value,
+                          )
+                        }
+                      >
+                        {ingredient.lots.map((lot) => (
+                          <option key={lot.id} value={lot.id}>
+                            {[
+                              lot.lotNumber || "ללא מספר lot",
+                              lot.supplier || "",
+                              lot.alpha !== undefined
+                                ? "aa " + lot.alpha + "%"
+                                : "",
+                              lot.status === "current"
+                                ? "בשימוש"
+                                : lot.status === "next"
+                                  ? "ממתין לשימוש"
+                                  : lot.status === "ended"
+                                    ? "נגמר"
+                                    : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="brew-material-confirm-actions">
+                <button
+                  type="button"
+                  className={
+                    hasField("materialsConfirmed")
+                      ? "brew-button-secondary"
+                      : "btn-primary"
                   }
-                  onBlur={(e) =>
-                    void commitWaterField(
-                      "lauterWaterAmount",
-                      e.target.value,
-                    )
-                  }
-                />
-              </label>
-              <label>
-                טמפ׳ °C
-                <input
-                  type="number"
-                  step="0.1"
-                  value={localValue("lauterWaterTemp")}
-                  onChange={(e) =>
-                    setLocal("lauterWaterTemp", e.target.value)
-                  }
-                  onBlur={(e) =>
-                    void commitWaterField(
-                      "lauterWaterTemp",
-                      e.target.value,
-                    )
-                  }
-                />
-              </label>
+                  onClick={() => void confirmMaterials()}
+                  disabled={!!syncing}
+                >
+                  {hasField("materialsConfirmed")
+                    ? "✓ חומרי הגלם אושרו — אשר מחדש"
+                    : "אשר אצוות חומרי גלם"}
+                </button>
+                <small>
+                  האישור כותב את ה-lot / ספק / aa הרלוונטיים גם ל-Sheet.
+                </small>
+              </div>
             </article>
           </div>
         )}
