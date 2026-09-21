@@ -5,14 +5,24 @@ import type {
   BrewRecipeHop,
   BrewRecipeMashStep,
 } from "../../SERVICES/brewing/brewRecipe";
-import type { IngredientDefinition } from "../../SERVICES/brewing/ingredientLibrary";
+import type { IngredientCategory, IngredientDefinition } from "../../SERVICES/brewing/ingredientLibrary";
+import type { CreateSandboxIngredientInput } from "../../SERVICES/brewing/sandboxIngredients";
+import IngredientQuickCreateModal from "./IngredientQuickCreateModal";
 
 type Props = {
   recipe: BrewRecipe;
   ingredients: IngredientDefinition[];
   onSave: (recipe: BrewRecipe) => void;
   onBack: () => void;
+  onCreateIngredient: (
+    input: CreateSandboxIngredientInput,
+  ) => IngredientDefinition;
 };
+
+type IngredientCreateTarget =
+  | { kind: "grain"; category: "grain"; index: number }
+  | { kind: "hop"; category: "hop"; hopId: string }
+  | { kind: "yeast"; category: "yeast" };
 
 function numberValue(value: string): number {
   const parsed = Number(value);
@@ -24,10 +34,13 @@ export default function BrewRecipeEditor({
   ingredients,
   onSave,
   onBack,
+  onCreateIngredient,
 }: Props) {
   const [recipe, setRecipe] = useState<BrewRecipe>(() =>
     JSON.parse(JSON.stringify(initialRecipe)) as BrewRecipe,
   );
+  const [ingredientCreateTarget, setIngredientCreateTarget] =
+    useState<IngredientCreateTarget | null>(null);
 
   const grainOptions = useMemo(
     () => ingredients.filter((item) => item.category === "grain"),
@@ -156,6 +169,44 @@ export default function BrewRecipeEditor({
     }));
   }
 
+  function selectCreatedIngredient(
+    input: CreateSandboxIngredientInput,
+  ) {
+    const target = ingredientCreateTarget;
+    if (!target) return;
+
+    const created = onCreateIngredient(input);
+
+    if (target.kind === "grain") {
+      setRecipe((current) => ({
+        ...current,
+        grains: current.grains.map((grain, index) =>
+          index === target.index
+            ? { ...grain, ingredientId: created.id }
+            : grain,
+        ),
+      }));
+    } else if (target.kind === "hop") {
+      updateHop(target.hopId, { ingredientId: created.id });
+    } else {
+      setRecipe((current) => ({
+        ...current,
+        yeast: {
+          ...current.yeast,
+          ingredientId: created.id,
+        },
+      }));
+    }
+
+    setIngredientCreateTarget(null);
+  }
+
+  function ingredientCreateCategory(
+    target: IngredientCreateTarget | null,
+  ): IngredientCategory {
+    return target?.category || "other";
+  }
+
   return (
     <section className="brew-recipe-editor">
       <div className="brewing-panel-heading">
@@ -235,18 +286,32 @@ export default function BrewRecipeEditor({
                 לתת
                 <select
                   value={grain.ingredientId}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    if (e.target.value === "__create__") {
+                      setIngredientCreateTarget({
+                        kind: "grain",
+                        category: "grain",
+                        index,
+                      });
+                      return;
+                    }
                     setRecipe((current) => ({
                       ...current,
                       grains: current.grains.map((item, i) =>
-                        i === index ? { ...item, ingredientId: e.target.value } : item,
+                        i === index
+                          ? { ...item, ingredientId: e.target.value }
+                          : item,
                       ),
-                    }))
-                  }
+                    }));
+                  }}
                 >
                   {grainOptions.map((item) => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
                   ))}
+                  <option disabled>────────</option>
+                  <option value="__create__">+ יצירת לתת חדש…</option>
                 </select>
               </label>
               <label>
@@ -448,15 +513,27 @@ export default function BrewRecipeEditor({
                 כשות
                 <select
                   value={hop.ingredientId}
-                  onChange={(e) =>
-                    updateHop(hop.id, { ingredientId: e.target.value })
-                  }
+                  onChange={(e) => {
+                    if (e.target.value === "__create__") {
+                      setIngredientCreateTarget({
+                        kind: "hop",
+                        category: "hop",
+                        hopId: hop.id,
+                      });
+                      return;
+                    }
+                    updateHop(hop.id, {
+                      ingredientId: e.target.value,
+                    });
+                  }}
                 >
                   {hopOptions.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
                     </option>
                   ))}
+                  <option disabled>────────</option>
+                  <option value="__create__">+ יצירת כשות חדש…</option>
                 </select>
               </label>
               <label>
@@ -536,17 +613,31 @@ export default function BrewRecipeEditor({
             שמרים
             <select
               value={recipe.yeast.ingredientId}
-              onChange={(e) =>
+              onChange={(e) => {
+                if (e.target.value === "__create__") {
+                  setIngredientCreateTarget({
+                    kind: "yeast",
+                    category: "yeast",
+                  });
+                  return;
+                }
                 setRecipe((current) => ({
                   ...current,
-                  yeast: { ...current.yeast, ingredientId: e.target.value },
-                }))
-              }
+                  yeast: {
+                    ...current.yeast,
+                    ingredientId: e.target.value,
+                  },
+                }));
+              }}
             >
               <option value="">בחר</option>
               {yeastOptions.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
               ))}
+              <option disabled>────────</option>
+              <option value="__create__">+ יצירת שמרים חדשים…</option>
             </select>
           </label>
           <label>
@@ -604,6 +695,13 @@ export default function BrewRecipeEditor({
         </button>
         <button type="button" onClick={onBack}>ביטול</button>
       </div>
+
+      <IngredientQuickCreateModal
+        open={ingredientCreateTarget !== null}
+        category={ingredientCreateCategory(ingredientCreateTarget)}
+        onClose={() => setIngredientCreateTarget(null)}
+        onCreate={selectCreatedIngredient}
+      />
     </section>
   );
 }
