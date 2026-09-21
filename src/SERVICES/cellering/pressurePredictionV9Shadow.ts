@@ -12,18 +12,10 @@ import { db } from "../../firebase";
 import type { SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { Measurement } from "./calculateCelleringRecomendations";
 import {
-  estimatePressureTargetV9,
   simulateV9ActionForecast,
   type PressureV9Estimate,
 } from "./pressurePredictionV9Physics";
-import {
-  getColdReferenceTemperatureV4,
-  getPressurePredictionModelV4,
-} from "./pressurePredictionV4Model";
-import {
-  PRESSURE_V9_K_PER_HOUR,
-  PRESSURE_V9_MODEL_VERSION,
-} from "./pressurePredictionV9Config";
+import { estimatePressureV9ForTank } from "./pressurePredictionV9Live";
 
 type ShadowStateQuality =
   | "same_submission"
@@ -115,15 +107,6 @@ function finite(value: unknown): number | null {
     : null;
 }
 
-function normalizeStyle(value: unknown): string {
-  return (
-    String(value ?? "")
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)[0] || "other"
-  );
-}
-
 function measurementTimeMs(
   id: unknown,
 ): number | null {
@@ -153,54 +136,6 @@ function measurementTimeMs(
     0,
     0,
   ).getTime();
-}
-
-function temperatureChange24h(
-  measurements: Measurement[],
-): number | null {
-  const rows = measurements
-    .map((row) => ({
-      timeMs: measurementTimeMs(row.id),
-      temp: finite(row.temp),
-    }))
-    .filter(
-      (
-        row,
-      ): row is {
-        timeMs: number;
-        temp: number;
-      } =>
-        row.timeMs !== null &&
-        row.temp !== null,
-    )
-    .sort((a, b) => a.timeMs - b.timeMs);
-
-  if (rows.length < 2) return null;
-
-  const latest = rows[rows.length - 1];
-  for (
-    let index = rows.length - 2;
-    index >= 0;
-    index -= 1
-  ) {
-    const previous = rows[index];
-    const hours =
-      (
-        latest.timeMs -
-        previous.timeMs
-      ) / 3600000;
-
-    if (hours < 8) continue;
-    if (hours > 36) break;
-
-    return (
-      (latest.temp - previous.temp) *
-      24 /
-      hours
-    );
-  }
-
-  return null;
 }
 
 function operatorActionNote(
@@ -902,64 +837,30 @@ export async function recordPressureV9Shadow(args: {
     return null;
   }
 
-  const style = normalizeStyle(
-    args.tank.beerStyle,
-  );
-  const targetCarbonation = finite(
-    args.specs.carbonation?.[style] ??
-      args.specs.carbonation?.other,
-  );
-  if (targetCarbonation === null) {
-    return null;
-  }
-
-  const model =
-    await getPressurePredictionModelV4(
-      args.tank.beerStyle,
-    );
-  const kPerHour =
-    PRESSURE_V9_K_PER_HOUR;
-  const finalTemperature =
-    (
-      model
-        ? getColdReferenceTemperatureV4(
-            model,
-          )
-        : null
-    ) ?? 0.5;
-
-  const estimate =
-    estimatePressureTargetV9({
-      tankNumber,
-      beerVolumeLiters,
-      currentCarbonation:
-        state.carbonation,
-      currentPressure:
-        state.pressure,
-      currentTemperature:
-        state.temperature,
-      targetCarbonation,
-      targetToleranceVol:
-        finite(
-          args.specs.tolorances
-            .carbonation,
-        ) ?? 0.04,
-      finalTemperature,
-      kPerHour,
-      tempChange24h:
-        temperatureChange24h(
-          args.measurements,
-        ),
-      measurements:
-        args.measurements,
+  const live =
+    await estimatePressureV9ForTank({
+      tank: args.tank,
+      measurements: args.measurements,
+      specs: args.specs,
+      carbonation: state.carbonation,
+      pressure: state.pressure,
+      temperature: state.temperature,
     });
-  if (!estimate) return null;
+  if (!live) return null;
+
+  const {
+    estimate,
+    targetCarbonation,
+    targetToleranceVol,
+    finalTemperature,
+    kPerHour,
+    modelConfigVersion,
+  } = live;
 
   const snapshot: PressureV9ShadowSnapshot = {
     version: 1,
     modelVersion: 9,
-    modelConfigVersion:
-      PRESSURE_V9_MODEL_VERSION,
+    modelConfigVersion,
     batchNumber,
     tankNumber,
     beerStyle: String(
@@ -978,11 +879,7 @@ export async function recordPressureV9Shadow(args: {
     currentTemperature:
       state.temperature,
     targetCarbonation,
-    targetToleranceVol:
-      finite(
-        args.specs.tolorances
-          .carbonation,
-      ) ?? 0.04,
+    targetToleranceVol,
     beerVolumeLiters,
     kPerHour,
     finalTemperature,
