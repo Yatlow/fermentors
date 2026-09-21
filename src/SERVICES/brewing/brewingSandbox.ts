@@ -16,6 +16,7 @@ export type SandboxBrewRun = {
     sheetUrl?: string;
     sheetName?: string;
     recipeSnapshot?: BrewRecipe;
+    assignmentStatus?: "assigned" | "pending_sanitization";
 };
 
 const STORAGE_KEY = "fermentors:brewing-sandbox:runs:v1";
@@ -224,4 +225,39 @@ export function attachSandboxRecipeSnapshot(
     });
     persistSandboxBrewRuns(next);
     return updated;
+}
+
+
+export function setSandboxRunAssignmentStatus(
+    batchNumber: string,
+    assignmentStatus: "assigned" | "pending_sanitization",
+): SandboxBrewRun | null {
+    if (!isBrewingSandbox()) return null;
+    const clean = String(batchNumber || "").replace("#", "").trim();
+    const runs = loadSandboxBrewRuns();
+    let updated: SandboxBrewRun | null = null;
+    const next = runs.map((run) => {
+        if (run.batchNumber !== clean) return run;
+        updated = { ...run, assignmentStatus };
+        return updated;
+    });
+    persistSandboxBrewRuns(next);
+    return updated;
+}
+
+export function getSandboxQueueForTank(tankNumber: string): SandboxBrewRun[] {
+    const cleanTank = String(tankNumber).trim();
+    return loadSandboxBrewRuns()
+        .filter(
+            (run) =>
+                String(run.tankNumber).trim() === cleanTank &&
+                (run.assignmentStatus || "assigned") === "pending_sanitization",
+        )
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function assignNextSandboxRunToTank(tankNumber: string): SandboxBrewRun | null {
+    const nextRun = getSandboxQueueForTank(tankNumber)[0];
+    if (!nextRun) return null;
+    return setSandboxRunAssignmentStatus(nextRun.batchNumber, "assigned");
 }
