@@ -97,11 +97,14 @@ function slugIngredient(value: string) {
 
 export function createSandboxIngredient(
   input: CreateSandboxIngredientInput,
+  baseIngredients?: IngredientDefinition[],
 ): {
   ingredient: IngredientDefinition;
   ingredients: IngredientDefinition[];
 } {
-  const current = loadSandboxIngredients();
+  const current = baseIngredients
+    ? clone(baseIngredients)
+    : loadSandboxIngredients();
   const baseId = slugIngredient(input.name);
   let id = baseId;
   if (current.some((item) => item.id === id)) {
