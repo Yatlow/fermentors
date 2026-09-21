@@ -268,15 +268,69 @@ export default function BrewRecipeEditor({
       </section>
 
       <section className="brew-editor-section">
-        <h3>תהליך מאש</h3>
-        <div className="brew-editor-table">
-          {recipe.mash.steps.map((step, index) => (
-            <div className="brew-editor-row brew-editor-row-mash" key={step.id}>
+        <div className="brew-section-title">
+          <h3>תהליך מאש</h3>
+          <button
+            type="button"
+            className="brew-action-button brew-action-button-add"
+            onClick={addMashStep}
+          >
+            + שלב
+          </button>
+        </div>
+
+        {mashIn && (
+          <div className="brew-editor-row brew-editor-row-mash-fixed">
+            <div className="brew-mash-boundary-label">
+              <strong>מאש אין</strong>
+              <span>שלב ראשון קבוע</span>
+            </div>
+            <label>
+              טמפ׳ °C
+              <input
+                type="number"
+                step="0.1"
+                value={mashIn.targetTemp}
+                onChange={(e) =>
+                  updateMashStep("mashIn", {
+                    targetTemp: numberValue(e.target.value),
+                  })
+                }
+              />
+            </label>
+            <label>
+              מים, ליטר
+              <input
+                type="number"
+                step="1"
+                value={recipe.mash.waterLiters}
+                onChange={(e) =>
+                  setRecipe((current) => ({
+                    ...current,
+                    mash: {
+                      ...current.mash,
+                      waterLiters: numberValue(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </label>
+          </div>
+        )}
+
+        <div className="brew-editor-table brew-mash-middle-list">
+          {middleMashSteps.map((step, index) => (
+            <div
+              className="brew-editor-row brew-editor-row-mash"
+              key={step.id}
+            >
               <label>
                 שלב
                 <input
                   value={step.label}
-                  onChange={(e) => updateMashStep(index, { label: e.target.value })}
+                  onChange={(e) =>
+                    updateMashStep(step.id, { label: e.target.value })
+                  }
                 />
               </label>
               <label>
@@ -286,7 +340,9 @@ export default function BrewRecipeEditor({
                   step="0.1"
                   value={step.targetTemp}
                   onChange={(e) =>
-                    updateMashStep(index, { targetTemp: numberValue(e.target.value) })
+                    updateMashStep(step.id, {
+                      targetTemp: numberValue(e.target.value),
+                    })
                   }
                 />
               </label>
@@ -296,16 +352,71 @@ export default function BrewRecipeEditor({
                   type="number"
                   value={step.minutes ?? ""}
                   onChange={(e) =>
-                    updateMashStep(index, {
+                    updateMashStep(step.id, {
                       minutes:
-                        e.target.value === "" ? undefined : numberValue(e.target.value),
+                        e.target.value === ""
+                          ? undefined
+                          : numberValue(e.target.value),
                     })
                   }
                 />
               </label>
+              <div className="brew-row-actions">
+                <button
+                  type="button"
+                  className="brew-icon-button"
+                  aria-label="העלה שלב"
+                  title="העלה שלב"
+                  disabled={index === 0}
+                  onClick={() => moveMashStep(step.id, -1)}
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="brew-icon-button"
+                  aria-label="הורד שלב"
+                  title="הורד שלב"
+                  disabled={index === middleMashSteps.length - 1}
+                  onClick={() => moveMashStep(step.id, 1)}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="brew-icon-button brew-icon-button-danger"
+                  aria-label="הסר שלב"
+                  title="הסר שלב"
+                  onClick={() => removeMashStep(step.id)}
+                >
+                  ×
+                </button>
+              </div>
             </div>
           ))}
         </div>
+
+        {mashOut && (
+          <div className="brew-editor-row brew-editor-row-mash-fixed">
+            <div className="brew-mash-boundary-label">
+              <strong>מאש אווט</strong>
+              <span>שלב אחרון קבוע</span>
+            </div>
+            <label>
+              טמפ׳ °C
+              <input
+                type="number"
+                step="0.1"
+                value={mashOut.targetTemp}
+                onChange={(e) =>
+                  updateMashStep("mashOut", {
+                    targetTemp: numberValue(e.target.value),
+                  })
+                }
+              />
+            </label>
+          </div>
+        )}
       </section>
 
       <section className="brew-editor-section">
