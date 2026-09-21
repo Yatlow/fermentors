@@ -13,6 +13,7 @@ import type { SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { Measurement } from "./calculateCelleringRecomendations";
 import {
   estimatePressureTargetV9,
+  simulateV9ActionForecast,
   type PressureV9Estimate,
 } from "./pressurePredictionV9Physics";
 import {
@@ -43,6 +44,7 @@ export type PressureV9ShadowSnapshot = {
   beerVolumeLiters: number;
   kPerHour: number;
   finalTemperature: number;
+  coolingHoursRemaining: number;
   action: PressureV9Estimate["action"];
   targetPressure: number | null;
   holdFinalCarbonation: number | null;
@@ -65,7 +67,13 @@ export type PressureV9ShadowOutcome = {
   elapsedHours: number | null;
   cleanInterval: boolean;
   contaminationReason: string | null;
-  forecastHorizonHours: 48 | 72 | 96 | null;
+  scorable: boolean;
+  scoringMode:
+    | "hold"
+    | "operator_pressure_action"
+    | "unscorable";
+  appliedPressureForForecast: number | null;
+  forecastHorizonHours: number | null;
   predictedCarbonation: number | null;
   actualCarbonation: number;
   carbonationAbsError: number | null;
@@ -386,69 +394,63 @@ function interventionBetween(
   return null;
 }
 
-function nearestForecast(
-  snapshot: PressureV9ShadowSnapshot,
-  elapsedHours: number | null,
-): {
-  horizon: 48 | 72 | 96 | null;
-  carbonation: number | null;
-  pressure: number | null;
-} {
-  if (elapsedHours === null) {
-    return {
-      horizon: null,
-      carbonation: null,
-      pressure: null,
-    };
+function operatorPressureTargetFromNote(
+  noteValue: string | null,
+): number | null {
+  const note = String(noteValue ?? "")
+    .replace(/[–—−]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!note) return null;
+  if (
+    /גיזוז מלמטה|שמרים|שמרי/i.test(note)
+  ) {
+    return null;
   }
 
-  const candidates = [
-    {
-      horizon: 48 as const,
-      carbonation:
-        snapshot.target48hCarbonation,
-      pressure:
-        snapshot.target48hPressure,
-    },
-    {
-      horizon: 72 as const,
-      carbonation:
-        snapshot.target72hCarbonation,
-      pressure:
-        snapshot.target72hPressure,
-    },
-    {
-      horizon: 96 as const,
-      carbonation:
-        snapshot.target96hCarbonation,
-      pressure:
-        snapshot.target96hPressure,
-    },
-  ].filter(
-    (item) =>
-      item.carbonation !== null ||
-      item.pressure !== null,
+  const patterns = [
+    /(?:העל(?:את|ה)|להעלות|הוספת|הורד(?:ת|ה)|להוריד|הנמכ(?:ת|ה)|שחרור|שחרר|פריק(?:ת|ה)|הוצאת|פתיחת|פתח|שינוי|שינה|כיוון|כוונון|ויסות|ווסת)[^\d]{0,24}(?:לחץ[^\d]{0,12})?(?:ל|על|עד|->|=|:)?\s*(-?\d+(?:[.,]\d+)?)/gi,
+    /לחץ\s*(?:ל|על|עד|->|=|:)\s*(-?\d+(?:[.,]\d+)?)/gi,
+  ];
+
+  const candidates: number[] = [];
+  for (const pattern of patterns) {
+    for (const match of note.matchAll(pattern)) {
+      const value = finite(match[1]);
+      if (
+        value !== null &&
+        value >= 0 &&
+        value <= 1.9
+      ) {
+        candidates.push(value);
+      }
+    }
+  }
+
+  return candidates.length
+    ? candidates[candidates.length - 1]
+    : null;
+}
+
+function noteContainsPressureAction(
+  noteValue: string | null,
+): boolean {
+  const note = String(noteValue ?? "");
+  if (!note) return false;
+  if (
+    /גיזוז מלמטה|שמרים|שמרי/i.test(note)
+  ) {
+    return false;
+  }
+  return (
+    /(?:העל|הורד|להעלות|להוריד|שחרור|שחרר|שינוי|כיוון|ויסות|ווסת|פתיחת|פתח)[^|]{0,30}לחץ/i.test(
+      note,
+    ) ||
+    /לחץ\s*(?:ל|על|עד|->|=|:)\s*\d/i.test(
+      note,
+    )
   );
-
-  if (!candidates.length) {
-    return {
-      horizon: null,
-      carbonation: null,
-      pressure: null,
-    };
-  }
-
-  return candidates
-    .slice()
-    .sort(
-      (a, b) =>
-        Math.abs(
-          a.horizon - elapsedHours,
-        ) -
-        Math.abs(
-          b.horizon - elapsedHours,
-        ),
-    )[0];
 }
 
 function makeOutcome(args: {
@@ -473,17 +475,106 @@ function makeOutcome(args: {
         ) / 3600000
       : null;
 
-  const contaminationReason =
+  let contaminationReason =
     interventionBetween(
       args.measurements,
       args.previous.measurementId,
       args.currentId,
     );
+
+  const startNote =
+    args.previous.operatorActionNote;
+  let scoringMode:
+    PressureV9ShadowOutcome["scoringMode"] =
+    "hold";
+  let appliedPressure =
+    args.previous.currentPressure;
+
+  if (
+    /גיזוז מלמטה/i.test(
+      String(startNote ?? ""),
+    )
+  ) {
+    contaminationReason =
+      contaminationReason ??
+      "bottom_carbonation_at_start";
+  } else if (
+    /שמרים|שמרי/i.test(
+      String(startNote ?? ""),
+    )
+  ) {
+    contaminationReason =
+      contaminationReason ??
+      "yeast_drop_at_start";
+  } else {
+    const operatorTarget =
+      operatorPressureTargetFromNote(
+        startNote,
+      );
+    if (operatorTarget !== null) {
+      scoringMode =
+        "operator_pressure_action";
+      appliedPressure = operatorTarget;
+    } else if (
+      noteContainsPressureAction(startNote)
+    ) {
+      contaminationReason =
+        contaminationReason ??
+        "ambiguous_pressure_action_at_start";
+    }
+  }
+
+  const scorable =
+    contaminationReason === null &&
+    elapsedHours !== null &&
+    elapsedHours > 0 &&
+    elapsedHours <= 168;
+
   const forecast =
-    nearestForecast(
-      args.previous,
-      elapsedHours,
-    );
+    scorable
+      ? simulateV9ActionForecast({
+          tankNumber:
+            args.previous.tankNumber,
+          beerVolumeLiters:
+            args.previous.beerVolumeLiters,
+          startCarbonation:
+            args.previous.currentCarbonation,
+          startPressure:
+            args.previous.currentPressure,
+          startTemperature:
+            args.previous.currentTemperature,
+          setPressure:
+            appliedPressure,
+          finalTemperature:
+            args.previous.finalTemperature,
+          coolingHours:
+            args.previous.coolingHoursRemaining,
+          kPerHour:
+            args.previous.kPerHour,
+          futureOperationalLossBar:
+            args.previous
+              .expectedFutureOperationalLossBar,
+          hours: Math.max(
+            1,
+            Math.ceil(elapsedHours ?? 1),
+          ),
+        })
+      : null;
+
+  const point =
+    forecast && elapsedHours !== null
+      ? forecast.points
+          .slice()
+          .sort(
+            (a, b) =>
+              Math.abs(
+                a.hour - elapsedHours,
+              ) -
+              Math.abs(
+                b.hour - elapsedHours,
+              ),
+          )[0] ?? null
+      : null;
 
   return {
     evaluatedAtMeasurementId:
@@ -492,30 +583,40 @@ function makeOutcome(args: {
     cleanInterval:
       contaminationReason === null,
     contaminationReason,
+    scorable:
+      scorable && point !== null,
+    scoringMode:
+      scorable && point !== null
+        ? scoringMode
+        : "unscorable",
+    appliedPressureForForecast:
+      scorable && point !== null
+        ? appliedPressure
+        : null,
     forecastHorizonHours:
-      forecast.horizon,
+      point?.hour ?? null,
     predictedCarbonation:
-      forecast.carbonation,
+      point?.carbonation ?? null,
     actualCarbonation:
       args.currentCarbonation,
     carbonationAbsError:
-      forecast.carbonation === null
-        ? null
-        : Math.abs(
-            forecast.carbonation -
+      point
+        ? Math.abs(
+            point.carbonation -
             args.currentCarbonation,
-          ),
+          )
+        : null,
     predictedPressure:
-      forecast.pressure,
+      point?.pressure ?? null,
     actualPressure:
       args.currentPressure,
     pressureAbsError:
-      forecast.pressure === null
-        ? null
-        : Math.abs(
-            forecast.pressure -
+      point
+        ? Math.abs(
+            point.pressure -
             args.currentPressure,
-          ),
+          )
+        : null,
   };
 }
 
@@ -643,6 +744,8 @@ export async function recordPressureV9Shadow(args: {
     beerVolumeLiters,
     kPerHour,
     finalTemperature,
+    coolingHoursRemaining:
+      estimate.coolingHoursRemaining,
     action: estimate.action,
     targetPressure:
       estimate.targetPressure,
