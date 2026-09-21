@@ -85,6 +85,7 @@ function pressureAction(snapshot: PressureV9ShadowSnapshot) {
 }
 
 function recommendationMatched(snapshot: PressureV9ShadowSnapshot): boolean {
+  if (snapshot.actionable === false) return false;
   if (!snapshot.outcome?.scorable) return false;
 
   if (snapshot.action === "hold") {
@@ -364,7 +365,17 @@ export default function PressureV9Monitor({
 
         {simResult && (
           <div className="v9-simulation-result">
-            <strong>{liveActionText(simResult)}</strong>
+            {simResult.actionable ? (
+              <strong>{liveActionText(simResult)}</strong>
+            ) : (
+              <>
+                <strong>V9 לא כשיר לתת המלצת לחץ למצב הזה</strong>
+                <span>{simResult.blockedReason}</span>
+                <span>
+                  חישוב גולמי לצורכי אבחון בלבד: {liveActionText(simResult)}
+                </span>
+              </>
+            )}
             <span>
               יעד גיזוז {round(simResult.targetCarbonation, 2)} · k{" "}
               {simResult.kPerHour.toFixed(6)}/h · טמפ׳ סופית משוערת{" "}
@@ -416,7 +427,17 @@ export default function PressureV9Monitor({
                       {round(row.currentPressure, 2)} · {round(row.currentTemperature, 1)}°C
                     </span>
                     <span>יעד: {round(row.targetCarbonation, 2)} vol</span>
-                    <strong>V9: {actionText(row)}</strong>
+                    <strong>
+                      V9: {row.actionable === false
+                        ? "לא כשיר להמלצה"
+                        : actionText(row)}
+                    </strong>
+                    {row.actionable === false && (
+                      <span>
+                        סיבה: {row.blockedReason ?? "נפסל ע״י guard"}
+                        {" "}· חישוב גולמי: {actionText(row)}
+                      </span>
+                    )}
                     <span>Confidence: {row.confidence}</span>
                     <span>
                       48ש׳ {round(row.target48hCarbonation)} · 72ש׳{" "}
