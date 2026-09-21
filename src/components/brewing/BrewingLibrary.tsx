@@ -446,6 +446,12 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
                                 {item.alpha !== undefined
                                   ? ` · aa ${item.alpha}%`
                                   : ""}
+                                {item.receivedDate
+                                  ? ` · התקבל ${item.receivedDate}`
+                                  : ""}
+                                {item.startedDate
+                                  ? ` · התחלה ${item.startedDate}`
+                                  : ""}
                               </span>
                             </div>
                             <span
