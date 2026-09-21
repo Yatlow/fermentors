@@ -48,6 +48,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     useState<IngredientCategory>("grain");
   const [message, setMessage] = useState("");
   const [deleteRecipeId, setDeleteRecipeId] = useState<string | null>(null);
+  const [deleteLotKey, setDeleteLotKey] = useState<string | null>(null);
 
   const selectedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === selectedRecipeId) || null,
@@ -279,6 +280,52 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
             },
       ),
     );
+    setMessage("");
+  }
+
+  function deleteIngredientLot(
+    ingredientId: string,
+    lotId: string,
+  ) {
+    const key = `${ingredientId}:${lotId}`;
+    if (deleteLotKey !== key) {
+      setDeleteLotKey(key);
+      return;
+    }
+
+    setIngredients((current) =>
+      current.flatMap((ingredient) => {
+        if (ingredient.id !== ingredientId) return [ingredient];
+
+        const remainingLots = ingredient.lots.filter(
+          (lot) => lot.id !== lotId,
+        );
+
+        if (remainingLots.length === 0) {
+          return [];
+        }
+
+        const hasActive = remainingLots.some((lot) => lot.active);
+        return [
+          {
+            ...ingredient,
+            lots: hasActive
+              ? remainingLots
+              : remainingLots.map((lot, index) =>
+                  index === 0
+                    ? {
+                        ...lot,
+                        active: true,
+                        status: "current" as const,
+                      }
+                    : lot,
+                ),
+          },
+        ];
+      }),
+    );
+
+    setDeleteLotKey(null);
     setMessage("");
   }
 
@@ -534,22 +581,44 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
                             <strong>
                               {item.lotNumber || "אצווה ללא מספר"}
                             </strong>
-                            <select
-                              value={item.status || "unknown"}
-                              onChange={(e) =>
-                                setIngredientLotStatus(
-                                  ingredient.id,
-                                  item.id,
-                                  e.target.value as IngredientLotStatus,
-                                )
-                              }
-                            >
-                              <option value="current">בשימוש</option>
-                              <option value="next">ממתין לשימוש</option>
-                              <option value="received">התקבל</option>
-                              <option value="ended">נגמר</option>
-                              <option value="unknown">ללא סטטוס</option>
-                            </select>
+                            <div className="brew-lot-editor-head-actions">
+                              <select
+                                value={item.status || "unknown"}
+                                onChange={(e) =>
+                                  setIngredientLotStatus(
+                                    ingredient.id,
+                                    item.id,
+                                    e.target.value as IngredientLotStatus,
+                                  )
+                                }
+                              >
+                                <option value="current">בשימוש</option>
+                                <option value="next">ממתין לשימוש</option>
+                                <option value="received">התקבל</option>
+                                <option value="ended">נגמר</option>
+                                <option value="unknown">ללא סטטוס</option>
+                              </select>
+
+                              <button
+                                type="button"
+                                className="brew-action-button brew-action-button-danger"
+                                onClick={() =>
+                                  deleteIngredientLot(
+                                    ingredient.id,
+                                    item.id,
+                                  )
+                                }
+                              >
+                                {deleteLotKey ===
+                                `${ingredient.id}:${item.id}`
+                                  ? ingredient.lots.length === 1
+                                    ? "אישור מחיקת חומר"
+                                    : "אישור מחיקת אצווה"
+                                  : ingredient.lots.length === 1
+                                    ? "מחק חומר גלם"
+                                    : "מחק אצווה"}
+                              </button>
+                            </div>
                           </div>
 
                           <div className="brew-lot-editor-grid">
