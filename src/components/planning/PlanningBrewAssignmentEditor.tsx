@@ -144,13 +144,17 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
     .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)), [releases, brews, weekEnd]);
 
   function move(index: number, direction: -1 | 1) {
+    const slotBatchNumbers = orderedBrews.map((brew) => brew.batchNumber);
     setDraft((current) => {
       const next = [...(current.brews as BrewPlanWithMeta[])];
       const other = index + direction;
       if (other < 0 || other >= next.length) return current;
       const dates = next.map((brew) => brew.date).sort();
       [next[index], next[other]] = [next[other], next[index]];
-      next.forEach((brew, i) => { brew.date = dates[i] ?? brew.date; });
+      next.forEach((brew, i) => {
+        brew.date = dates[i] ?? brew.date;
+        brew.batchNumber = slotBatchNumbers[i];
+      });
       return { ...current, brews: next };
     });
     setSelectedIndex((current) => Math.max(0, Math.min(orderedBrews.length - 1, current + direction)));
