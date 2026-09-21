@@ -2,12 +2,17 @@ import { useMemo, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadSandboxExecution,
+  replaceSandboxExecutionBlockFields,
   setSandboxExecutionActiveBlock,
   setSandboxExecutionField,
   type BrewExecution,
 } from "../../SERVICES/brewing/sandboxExecution";
 import type { SandboxBrewRun } from "../../SERVICES/brewing/brewingSandbox";
-import { writeSandboxSheetCells } from "../../SERVICES/brewing/sandboxSheet";
+import {
+  readSandboxSheetRange,
+  writeSandboxSheetCells,
+} from "../../SERVICES/brewing/sandboxSheet";
+import BeerLoader from "../general/Loading";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
 
 type Props = {
@@ -49,7 +54,13 @@ const MASH_STAGES: StageDef[] = [
     showTemp: true,
     targetRecipeStepId: "rest1",
   },
-  { key: "heat1", label: "חימום 1", rowOffset: 4, showTemp: true },
+  {
+    key: "heat1",
+    label: "חימום 1",
+    rowOffset: 4,
+    showTemp: true,
+    targetRecipeStepId: "heat1",
+  },
   {
     key: "rest2",
     label: "השריה 2",
@@ -62,7 +73,7 @@ const MASH_STAGES: StageDef[] = [
     label: "חימום 2",
     rowOffset: 8,
     showTemp: true,
-    targetRecipeStepId: "mashOut",
+    targetRecipeStepId: "heat2",
   },
 ];
 
@@ -145,12 +156,122 @@ function num(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizedTime(value: unknown): string {
+  const text = String(value ?? "").trim();
+  const match = text.match(/(?:^|\s)(\d{1,2}):(\d{2})(?::\d{2})?(?:\s|$)/);
+  if (!match) return "";
+  return `${String(Number(match[1])).padStart(2, "0")}:${match[2]}`;
+}
+
+function numericText(value: unknown): string {
+  const text = String(value ?? "").replace(",", ".").trim();
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  return match ? match[0] : "";
+}
+
+function sheetCell(
+  rows: string[][],
+  rowOffset: number,
+  column: "B" | "C" | "D" | "E" | "F" | "G" | "H",
+): string {
+  const columnIndex = {
+    B: 0,
+    C: 1,
+    D: 2,
+    E: 3,
+    F: 4,
+    G: 5,
+    H: 6,
+  }[column];
+  return String(rows[rowOffset]?.[columnIndex] ?? "").trim();
+}
+
+function fieldsFromSheetRows(
+  rows: string[][],
+  usesGrant: boolean,
+): Record<string, string> {
+  const pulled: Record<string, string> = {};
+
+  TIMELINE_STAGES.forEach((stage) => {
+    const start = normalizedTime(sheetCell(rows, stage.rowOffset, "E"));
+    const end = normalizedTime(sheetCell(rows, stage.rowOffset, "F"));
+    const temp = numericText(sheetCell(rows, stage.rowOffset, "G"));
+    if (start) pulled[`${stage.key}.start`] = start;
+    if (end) pulled[`${stage.key}.end`] = end;
+    if (stage.showTemp && temp) pulled[`${stage.key}.temp`] = temp;
+  });
+
+  const mashMeta = sheetCell(rows, 0, "H");
+  const mashVolume =
+    mashMeta.match(/נפח\s*מאש\s*([\d.,]+)/i)?.[1] || "";
+  const mashPh =
+    mashMeta.match(/pH\s*([\d.,]+)/i)?.[1] || "";
+  if (mashVolume) pulled.mashVolume = mashVolume.replace(",", ".");
+  if (mashPh) pulled.mashPh = mashPh.replace(",", ".");
+
+  const outToBoilPh = numericText(sheetCell(rows, 15, "H"));
+  if (outToBoilPh) pulled.outToBoilPh = outToBoilPh;
+
+  const boilCell = sheetCell(rows, 28, "F");
+  if (!normalizedTime(boilCell)) {
+    const boilPh = numericText(boilCell);
+    if (boilPh) pulled.boilPh = boilPh;
+  }
+
+  const outToFermentorPh = numericText(sheetCell(rows, 40, "H"));
+  if (outToFermentorPh) pulled.outToFermentorPh = outToFermentorPh;
+
+  for (let index = 1; index <= 7; index += 1) {
+    const rowOffset = 18 + (index - 1);
+    const time = normalizedTime(sheetCell(rows, rowOffset, "E"));
+    const amount = numericText(sheetCell(rows, rowOffset, "F"));
+    const temp = numericText(sheetCell(rows, rowOffset, "G"));
+    const volumeText = sheetCell(rows, rowOffset, "H");
+
+    if (time) pulled[`rinse${index}.time`] = time;
+    if (amount) pulled[`rinse${index}.amount`] = amount;
+    if (temp) pulled[`rinse${index}.temp`] = temp;
+
+    if (volumeText) {
+      const parts = volumeText
+        .split("+")
+        .map((part) => numericText(part))
+        .filter(Boolean);
+      if (parts[0]) pulled[`rinse${index}.kettle`] = parts[0];
+      if (usesGrant && parts[1]) {
+        pulled[`rinse${index}.grant`] = parts[1];
+      }
+    }
+  }
+
+  const sugarFields: Array<
+    [string, number, "B" | "C"]
+  > = [
+    ["frPlato", 36, "B"],
+    ["lrPlato", 37, "B"],
+    ["kettlePlato", 38, "B"],
+    ["kettleVolume", 38, "C"],
+    ["endBoilPlato", 39, "B"],
+    ["endBoilVolume", 39, "C"],
+    ["fermentorSamplePlato", 40, "B"],
+    ["cumulativeTankVolume", 40, "C"],
+  ];
+
+  sugarFields.forEach(([key, rowOffset, column]) => {
+    const value = numericText(sheetCell(rows, rowOffset, column));
+    if (value) pulled[key] = value;
+  });
+
+  return pulled;
+}
+
 export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [execution, setExecution] = useState<BrewExecution>(() =>
     loadSandboxExecution(run.batchNumber),
   );
   const [activeStep, setActiveStep] = useState(0);
   const [syncing, setSyncing] = useState("");
+  const [pulling, setPulling] = useState(false);
   const [message, setMessage] = useState("");
 
   const totalBlocks = getBlockCount(run.tankType);
@@ -441,6 +562,50 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     ]);
   }
 
+  async function syncFromSheet() {
+    if (!run.sheetId) return;
+
+    setPulling(true);
+    setMessage("");
+
+    try {
+      let nextExecution = execution;
+
+      for (let index = 1; index <= totalBlocks; index += 1) {
+        const row = blockBaseRow(run.tankType, index);
+        const rows = await readSandboxSheetRange(
+          run.sheetId,
+          `'גיליון1'!B${row}:H${row + 40}`,
+        );
+        const pulled = fieldsFromSheetRows(
+          rows,
+          recipe.lautering.usesGrant,
+        );
+        const existing =
+          nextExecution.blocks[String(index)]?.fields || {};
+        nextExecution = replaceSandboxExecutionBlockFields(
+          nextExecution,
+          index,
+          {
+            ...existing,
+            ...pulled,
+          },
+        );
+      }
+
+      setExecution(nextExecution);
+      setMessage("✓ הנתונים סונכרנו עכשיו מה-Sheet.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "סנכרון הנתונים מה-Sheet נכשל.",
+      );
+    } finally {
+      setPulling(false);
+    }
+  }
+
   async function selectBlock(index: number) {
     setExecution(setSandboxExecutionActiveBlock(execution, index));
     setActiveStep(0);
@@ -519,7 +684,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
               {stage.showTemp && (
                 <label>
-                  טמפ׳ בפועל
+                  טמפ׳
                   <input
                     type="number"
                     step="0.1"
@@ -546,7 +711,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         <div>
           <button
             type="button"
-            className="brew-back-button"
+            className="brew-back-button brew-button-secondary"
             onClick={onClose}
           >
             חזרה לאצוות
@@ -554,11 +719,28 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           <h2>
             אצווה {run.batchNumber} · {run.style} · מיכל {run.tankNumber}
           </h2>
-          <p>
-            בישול {currentBlock}/{totalBlocks} · מתכון v{recipe.version}
-            {syncing ? " · שומר ל-Sheet..." : " · מסונכרן"}
-          </p>
+          <div className="brew-sync-line">
+            <span>
+              בישול {currentBlock}/{totalBlocks} · מתכון v{recipe.version}
+            </span>
+            {syncing ? (
+              <BeerLoader size="spinner" message="שומר ל-Sheet…" />
+            ) : pulling ? (
+              <BeerLoader size="spinner" message="קורא מה-Sheet…" />
+            ) : (
+              <span className="brew-sync-ok">✓ מסונכרן</span>
+            )}
+          </div>
         </div>
+
+        <button
+          type="button"
+          className="brew-button-secondary brew-sync-now"
+          disabled={pulling || !!syncing || !run.sheetId}
+          onClick={() => void syncFromSheet()}
+        >
+          ↻ סנכרן עכשיו
+        </button>
       </div>
 
       {message && <div className="brewing-message">{message}</div>}
@@ -613,11 +795,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               <span>מי מאש יעד: {recipe.mash.waterLiters} ל׳</span>
             </div>
 
-            {renderStageRows(MASH_STAGES)}
+            {renderStageRows([MASH_STAGES[0]])}
 
-            <div className="brew-editor-two-cols">
+            <div className="brew-mash-meta-row">
               <label>
-                נפח מאש בפועל
+                נפח מאש
                 <input
                   type="number"
                   value={localValue("mashVolume")}
@@ -643,6 +825,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 />
               </label>
             </div>
+
+            {renderStageRows(MASH_STAGES.slice(1))}
           </>
         )}
 
@@ -1163,6 +1347,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       <div className="brew-step-footer">
         <button
           type="button"
+          className="brew-button-secondary"
           onClick={() =>
             setActiveStep((value) => Math.max(0, value - 1))
           }
@@ -1175,7 +1360,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary brew-button-primary"
           onClick={() =>
             setActiveStep((value) =>
               Math.min(STEPS.length - 1, value + 1),
