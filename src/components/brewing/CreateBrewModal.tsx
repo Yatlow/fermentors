@@ -25,7 +25,7 @@ type Props = {
   onDemoTankTypeChange: (value: SandboxDemoTank["tankType"]) => void;
   onCreate: (
     tank: Fermentor,
-    draft: { batchNumber: string; style: string; brewDate: string },
+    draft: { batchNumber: string; style: string },
   ) => Promise<void>;
 };
 
@@ -61,24 +61,6 @@ function statusRank(tank: Fermentor) {
   return 6;
 }
 
-function jerusalemIsoDate() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Jerusalem",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day}`;
-}
-
-function normalizeDateInput(value: string) {
-  const text = String(value || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
-  if (!match) return "";
-  return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
-}
 
 export default function CreateBrewModal({
   open,
@@ -110,12 +92,10 @@ export default function CreateBrewModal({
   const [batchNumber, setBatchNumber] = useState(suggestedBatch);
   const [tankId, setTankId] = useState("");
   const [style, setStyle] = useState("");
-  const [brewDate, setBrewDate] = useState(jerusalemIsoDate());
 
   useEffect(() => {
     if (!open) return;
     setBatchNumber(suggestedBatch);
-    setBrewDate((current) => current || jerusalemIsoDate());
     setTankId((current) =>
       current && sortedTanks.some((tank) => tank.id === current)
         ? current
@@ -233,8 +213,6 @@ export default function CreateBrewModal({
                         setStyle(hint.style);
                       }
                       if (tank) setTankId(tank.id);
-                      const plannedDate = normalizeDateInput(hint.date);
-                      if (plannedDate) setBrewDate(plannedDate);
                     }}
                   >
                     #{hint.batchNumber} · {hint.style || "ללא סגנון"}
@@ -315,19 +293,6 @@ export default function CreateBrewModal({
               </select>
             </label>
           )}
-
-          <label>
-            תאריך בישול מתוכנן
-            <input
-              type="date"
-              value={brewDate}
-              onChange={(event) => {
-                onClearError();
-                setBrewDate(event.target.value);
-              }}
-            />
-          </label>
-
           <label>
             מתכון
             <select
@@ -388,14 +353,13 @@ export default function CreateBrewModal({
             type="button"
             className="btn-primary brew-button-primary"
             disabled={
-              busy || !selectedTank || !batchNumber || !style || !brewDate
+              busy || !selectedTank || !batchNumber || !style
             }
             onClick={() => {
               if (!selectedTank) return;
               void onCreate(selectedTank, {
                 batchNumber,
                 style,
-                brewDate,
               });
             }}
           >
