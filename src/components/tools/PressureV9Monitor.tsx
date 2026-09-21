@@ -270,10 +270,11 @@ export default function PressureV9Monitor({
   return (
     <div className="v9-monitor" dir="rtl">
       <section className="v9-panel">
-        <h2>V9 — מעקב חי והחלטה על מעבר לפרודקשן</h2>
+        <h2>V9 — מעקב חי ואבחון</h2>
         <p>
           V9 כרגע עובד ב-Shadow בלבד: העובדים לא רואים את ההמלצה שלו. המסך הזה
-          הוא המקום שלך לראות מה הוא היה ממליץ, מה נעשה בפועל ומה קרה אחר כך.
+          מיועד לאבחון. מדדי התחזית ההיסטוריים אינם הוכחה שאיכות יעד הלחץ
+          הקאונטרפקטואלי טובה; את זה צריך לאמת בנפרד.
         </p>
 
         <div className="v9-metrics">
@@ -299,9 +300,9 @@ export default function PressureV9Monitor({
         </div>
 
         <div className="v9-reference">
-          <strong>נקודת הייחוס ההיסטורית · {PRESSURE_V9_MODEL_VERSION}</strong>
+          <strong>נקודת ייחוס היסטורית לתחזית בלבד · {PRESSURE_V9_MODEL_VERSION}</strong>
           <span>
-            Out-of-time על {PRESSURE_V9_HISTORICAL_REFERENCE.testBatchCount} האצוות
+            בדיקת התחזית Out-of-time על {PRESSURE_V9_HISTORICAL_REFERENCE.testBatchCount} האצוות
             החדשות ביותר: MAE בחלונות תואמי מאזן סגור{" "}
             {PRESSURE_V9_HISTORICAL_REFERENCE.closedConsistentMaeVol.toFixed(3)} vol,
             P90 {PRESSURE_V9_HISTORICAL_REFERENCE.closedConsistentP90Vol.toFixed(3)} vol.
