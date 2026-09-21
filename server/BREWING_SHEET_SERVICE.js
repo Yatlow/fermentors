@@ -279,6 +279,7 @@ function brewingSheetParseHistoryBlock_(
     mashPh: mashPhMatch ? String(mashPhMatch[1]).replace(",", ".") : "",
     mashVolume: mashVolumeMatch ? String(mashVolumeMatch[1]).replace(",", ".") : "",
     acidMl: brewingSheetNumber_(cell(baseRow + 28, 1)),
+    outToBoilPh: brewingSheetNumber_(cell(baseRow + 15, 8)),
     boilPh: brewingSheetNumber_(cell(baseRow + 28, 6)),
     boilAcidMl: brewingSheetNumber_(cell(baseRow + 29, 1)),
     outToFermentorPh: brewingSheetNumber_(cell(baseRow + 40, 8)),
@@ -290,6 +291,7 @@ function brewingSheetParseHistoryBlock_(
     !row.mashPh &&
     !row.mashVolume &&
     !row.acidMl &&
+    !row.outToBoilPh &&
     !row.boilPh &&
     !row.boilAcidMl &&
     !row.outToFermentorPh
