@@ -262,6 +262,13 @@ export default function BrewingView({ brews, tab }: Props) {
             return;
         }
 
+        if (sandbox && draft.style !== "IPA") {
+            setCreateModalError(
+                "בשלב ה-Sandbox הראשון יצירת Sheet פעילה ל-IPA בלבד.",
+            );
+            return;
+        }
+
         const recipe =
             recipes.find((item) => item.style === draft.style) ||
             recipes.find((item) => item.id === "ipa");
