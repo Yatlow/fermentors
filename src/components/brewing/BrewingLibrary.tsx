@@ -328,7 +328,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
             <div>
               <h2>ספריית חומרי גלם</h2>
               <p>
-                כאן נשמר המידע המשתנה של החומר שנמצא עכשיו במבשלה: ספק, lot, AA ותוקף.
+                כאן נשמר המידע המשתנה של החומר שנמצא עכשיו במבשלה: ספק, lot, aa ותוקף.
               </p>
             </div>
             <button
