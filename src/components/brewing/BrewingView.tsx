@@ -213,7 +213,7 @@ export default function BrewingView({ brews, tab }: Props) {
         return () => {
             cancelled = true;
         };
-    }, [sandbox, showCreate]);
+    }, [sandbox, showCreate, brews]);
 
     useEffect(() => {
         if (!sandbox || !showCreate || planningHints.length === 0) return;
