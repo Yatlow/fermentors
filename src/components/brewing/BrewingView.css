@@ -303,3 +303,20 @@
 .brewing-sheet-link:hover {
     background: #245f9e;
 }
+
+
+.brewing-batch-conflict {
+    display: grid;
+    gap: 3px;
+    padding: 7px 8px;
+    border: 1px solid #f59e0b;
+    border-radius: var(--radius-sm);
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
+.brewing-batch-conflict strong {
+    font-size: 0.72rem;
+}
