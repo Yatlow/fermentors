@@ -437,6 +437,20 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const baseRow = blockBaseRow(run.tankType, currentBlock);
   const currentStep = STEPS[activeStep];
 
+  const brewMaterials = useMemo(() => {
+    const ids = [
+      ...recipe.grains.map((item) => item.ingredientId),
+      ...recipe.hops
+        .filter((item) => item.purpose !== "dryHop")
+        .map((item) => item.ingredientId),
+      recipe.yeast.ingredientId,
+    ].filter(Boolean);
+
+    return Array.from(new Set(ids))
+      .map((id) => ingredientLibrary.find((item) => item.id === id))
+      .filter((item): item is IngredientDefinition => !!item);
+  }, [recipe, ingredientLibrary]);
+
   const startingPlato = useMemo(
     () =>
       calculateWeightedStartingPlato(
@@ -521,10 +535,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   function stepMissingCount(stepId: StepId): number {
     if (stepId === "water") {
       return [
+        "brewDate",
         "hltWaterAmount",
         "hltWaterTemp",
         "lauterWaterAmount",
         "lauterWaterTemp",
+        "materialsConfirmed",
       ].filter((key) => !hasField(key)).length;
     }
 
@@ -601,12 +617,15 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     setMessage("");
     try {
       await writeSandboxSheetCells(run.sheetId, writes);
+      setLastPushAt(new Date());
+      setSyncError("");
     } catch (error) {
-      setMessage(
+      const detail =
         error instanceof Error
           ? error.message
-          : "שמירת הנתון ב-Sheet נכשלה.",
-      );
+          : "שמירת הנתון ב-Sheet נכשלה.";
+      setSyncError(detail);
+      setMessage(detail);
     } finally {
       setSyncing("");
     }
@@ -629,6 +648,156 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
   function localValue(key: string) {
     return fields[key] || "";
+  }
+
+  function selectedMaterialLot(
+    ingredient: IngredientDefinition,
+  ): IngredientLot | undefined {
+    const selectedId = localValue(`materialLot.${ingredient.id}`);
+    return (
+      ingredient.lots.find((lot) => lot.id === selectedId) ||
+      activeLot(ingredient) ||
+      ingredient.lots[0]
+    );
+  }
+
+  function selectMaterialLot(ingredientId: string, lotId: string) {
+    let next = setSandboxExecutionField(
+      execution,
+      currentBlock,
+      `materialLot.${ingredientId}`,
+      lotId,
+    );
+    next = setSandboxExecutionField(
+      next,
+      currentBlock,
+      "materialsConfirmed",
+      "",
+    );
+    setExecution(next);
+  }
+
+  async function commitBrewDate(value: string) {
+    const headerRow = blockHeaderRow(run.tankType, currentBlock);
+    const display = sheetDateFromIso(value);
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [
+      {
+        range: `'גיליון1'!H${headerRow}`,
+        value: display,
+      },
+    ];
+
+    if (currentBlock === 1) {
+      writes.push(
+        { range: "'גיליון1'!H1", value: display },
+        {
+          range: `'גיליון1'!B${fermentationStartingRow(run.tankType)}`,
+          value: display,
+        },
+      );
+    }
+
+    await commit("brewDate", value, writes);
+  }
+
+  async function confirmMaterials() {
+    let nextExecution = execution;
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [];
+
+    recipe.grains.forEach((grain, index) => {
+      const ingredient = ingredientLibrary.find(
+        (item) => item.id === grain.ingredientId,
+      );
+      if (!ingredient) return;
+      const lot = selectedMaterialLot(ingredient);
+      if (!lot) return;
+
+      nextExecution = setSandboxExecutionField(
+        nextExecution,
+        currentBlock,
+        `materialLot.${ingredient.id}`,
+        lot.id,
+      );
+      const row = baseRow + index;
+      const typeAndLot = [
+        ingredient.name,
+        lot.lotNumber ? `#${lot.lotNumber}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      writes.push(
+        { range: `'גיליון1'!B${row}`, value: typeAndLot },
+        { range: `'גיליון1'!C${row}`, value: lot.supplier || "" },
+      );
+    });
+
+    recipe.hops
+      .filter((hop) => hop.purpose !== "dryHop")
+      .forEach((hop, index) => {
+        const ingredient = ingredientLibrary.find(
+          (item) => item.id === hop.ingredientId,
+        );
+        if (!ingredient) return;
+        const lot = selectedMaterialLot(ingredient);
+        if (!lot) return;
+
+        nextExecution = setSandboxExecutionField(
+          nextExecution,
+          currentBlock,
+          `materialLot.${ingredient.id}`,
+          lot.id,
+        );
+        const row = baseRow + 15 + index;
+        writes.push({
+          range: `'גיליון1'!C${row}`,
+          value: `${index + 1})${ingredient.name}${lot.lotNumber ? ` ${lot.lotNumber}` : ""}`,
+        });
+        if (lot.alpha !== undefined) {
+          writes.push({
+            range: `'גיליון1'!B${row}`,
+            value: `${lot.alpha}%aa`,
+          });
+        }
+      });
+
+    const yeast = ingredientLibrary.find(
+      (item) => item.id === recipe.yeast.ingredientId,
+    );
+    if (yeast) {
+      const lot = selectedMaterialLot(yeast);
+      if (lot) {
+        nextExecution = setSandboxExecutionField(
+          nextExecution,
+          currentBlock,
+          `materialLot.${yeast.id}`,
+          lot.id,
+        );
+        const row = baseRow + 23;
+        writes.push(
+          { range: `'גיליון1'!B${row}`, value: yeast.name },
+          {
+            range: `'גיליון1'!C${row}`,
+            value: [lot.lotNumber, lot.supplier].filter(Boolean).join(" · "),
+          },
+        );
+      }
+    }
+
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "materialsConfirmed",
+      "yes",
+    );
+    setExecution(nextExecution);
+    await writeSheet("materialsConfirmed", writes);
   }
 
   function stageCell(
@@ -1005,7 +1174,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       }
 
       setExecution(nextExecution);
-      setMessage("✓ הנתונים סונכרנו עכשיו מה-Sheet.");
+      setLastPullAt(new Date());
+      setSyncError("");
+      setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
     } catch (error) {
       setMessage(
         error instanceof Error
