@@ -5,6 +5,9 @@ import {
   estimatedV9TankGeometry,
   simulateV9ActionForecast,
 } from "../src/SERVICES/cellering/pressurePredictionV9Physics";
+import {
+  pressureV9GeometryIsActionable,
+} from "../src/SERVICES/cellering/pressurePredictionV9Config";
 
 test("V9 maps estimated vessel geometry by production tank class", () => {
   assert.deepEqual(
@@ -161,5 +164,47 @@ test("V9 shadow forecast preserves the measured pressure until a delayed operato
   assert.ok(
     Math.abs(atAction!.pressure - 1.00) < 0.001,
     "the delayed pressure target should be applied at the recorded action hour",
+  );
+});
+
+
+test("V9 blocks the known tank-16 replay when real fill volume makes geometry uncertainty dominate the pressure target", () => {
+  const estimate = estimatePressureTargetV9({
+    tankNumber: 16,
+    beerVolumeLiters: 3388,
+    currentCarbonation: 2.26,
+    currentPressure: 1.44,
+    currentTemperature: 6.4,
+    targetCarbonation: 2.45,
+    targetToleranceVol: 0.03,
+    finalTemperature: 0.5,
+    kPerHour: 0.000699,
+    measurements: [
+      {
+        id: "2026-09-18_0900",
+        temp: 1.6,
+        pressure: 1.10,
+        notes: "הורדת שמרים, לחץ אחרי 0.90 bar",
+      },
+    ],
+  });
+
+  assert.ok(estimate);
+  assert.ok(estimate.targetPressure !== null);
+  assert.ok(
+    estimate.targetPressure! > 1.6,
+    `raw target should expose the unstable nominal-geometry result, got ${estimate.targetPressure}`,
+  );
+  assert.ok(
+    estimate.geometrySensitivityWidthBar !== null &&
+      estimate.geometrySensitivityWidthBar > 2,
+    `expected huge geometry sensitivity, got ${estimate.geometrySensitivityWidthBar}`,
+  );
+  assert.equal(
+    pressureV9GeometryIsActionable(
+      estimate.geometrySensitivityWidthBar,
+    ),
+    false,
+    "a pressure target this sensitive to vessel volume must never be presented as actionable",
   );
 });
