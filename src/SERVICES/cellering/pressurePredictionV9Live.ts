@@ -11,6 +11,7 @@ import {
 } from "./pressurePredictionV4Model";
 import {
   PRESSURE_V9_K_PER_HOUR,
+  PRESSURE_V9_MAX_GEOMETRY_SENSITIVITY_BAR,
   PRESSURE_V9_MODEL_VERSION,
 } from "./pressurePredictionV9Config";
 
@@ -84,6 +85,8 @@ export type PressureV9LiveResult = {
   targetToleranceVol: number;
   finalTemperature: number;
   kPerHour: number;
+  actionable: boolean;
+  blockedReason: string | null;
 };
 
 export async function estimatePressureV9ForTank(args: {
@@ -152,6 +155,29 @@ export async function estimatePressureV9ForTank(args: {
 
   if (!estimate) return null;
 
+  const geometrySensitivity =
+    estimate.geometrySensitivityWidthBar;
+  const geometryBlocked =
+    geometrySensitivity !== null &&
+    geometrySensitivity >
+      PRESSURE_V9_MAX_GEOMETRY_SENSITIVITY_BAR;
+
+  const operationallyBlocked =
+    estimate.action === "insufficient_geometry" ||
+    estimate.action === "outside_operational_range";
+
+  const actionable =
+    !geometryBlocked &&
+    !operationallyBlocked;
+
+  const blockedReason = geometryBlocked
+    ? `רגישות גבוהה מדי להערכת נפח המיכל (${geometrySensitivity!.toFixed(2)} bar)`
+    : estimate.action === "insufficient_geometry"
+      ? "אין מספיק מידע גאומטרי"
+      : estimate.action === "outside_operational_range"
+        ? "יעד הלחץ מחוץ לטווח התפעולי"
+        : null;
+
   return {
     modelConfigVersion: PRESSURE_V9_MODEL_VERSION,
     estimate,
@@ -159,5 +185,7 @@ export async function estimatePressureV9ForTank(args: {
     targetToleranceVol,
     finalTemperature,
     kPerHour: PRESSURE_V9_K_PER_HOUR,
+    actionable,
+    blockedReason,
   };
 }
