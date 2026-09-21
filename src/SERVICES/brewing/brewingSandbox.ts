@@ -11,7 +11,7 @@ export type SandboxBrewRun = {
     style: string;
     brewDate?: string;
     createdAt: string;
-    source: "manual" | "planning";
+    source: "manual" | "planning" | "production";
     started: boolean;
     sheetId?: string;
     sheetUrl?: string;
