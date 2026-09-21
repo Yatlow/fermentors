@@ -1214,7 +1214,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                           }
                           setLocal(`rinse${index}.time`, value);
                           void commitRinse(index, "time", value);
-                        }
+                        }}
                       />
                     </label>
 
