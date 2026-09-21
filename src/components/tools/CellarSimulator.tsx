@@ -1469,7 +1469,34 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 <b>{validationPercent(v9ValidationResult.improvementVsPersistence)}</b>
                                 <span>שיפור V9 מול baseline פשוט</span>
                             </div>
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.strictClosedCarbonationMae)} vol</b>
+                                <span>MAE בחלונות עם מאזן CO₂ תואם מיכל סגור</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.strictClosedCarbonationP90AbsError)} vol</b>
+                                <span>P90 בחלונות סגורים באמת</span>
+                            </div>
+                            <div>
+                                <b>{validationPercent(v9ValidationResult.strictClosedImprovementVsPersistence)}</b>
+                                <span>שיפור מול baseline בחלונות הסגורים</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9ValidationResult.kCrossFitCarbonationMae)} vol</b>
+                                <span>MAE עם k חדש של V9 ב-cross-fit</span>
+                            </div>
                         </div>
+
+                        <p>
+                            בדיקת מאזן CO₂ מסווגת חלון כ"מיכל סגור" רק כאשר השינוי
+                            בכמות ה-CO₂ הכוללת בין שתי המדידות נמצא בתוך ±0.08 vol.
+                            מתוך המדגם: {v9ValidationResult.strictClosedCaseCount} חלונות
+                            עברו את הבדיקה. k חדש נלמד רק מהחלונות האלה וב-cross-fit
+                            בין אצוות שונות: median {validationNumber(v9ValidationResult.inferredKMedianPerHour, 6)}/h
+                            {" · "}P10 {validationNumber(v9ValidationResult.inferredKP10PerHour, 6)}
+                            {" · "}P90 {validationNumber(v9ValidationResult.inferredKP90PerHour, 6)}
+                            {" · "}נבדקו {v9ValidationResult.kCrossFitCaseCount} אצוות.
+                        </p>
 
                         <p className="cellar-simulator-backtest-warning">
                             עלות הבדיקה הזו כבדה בכוונה והיא כלי פיתוח בלבד:
@@ -1525,6 +1552,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                 ["קירור", v9ValidationResult.byCoolingDrop],
                                 ["שינוי לחץ בפועל", v9ValidationResult.byActualPressureChange],
                                 ["Residual לחץ — חשד לפעולה לא מתועדת", v9ValidationResult.byPressureResidual],
+                                ["מאזן CO₂ בפועל", v9ValidationResult.byInventoryBalance],
                                 ["Headspace משוער", v9ValidationResult.byHeadspaceFraction],
                                 ["גיזוז התחלתי", v9ValidationResult.byStartCarbonation],
                             ].map(([label, groups]) => (
@@ -1559,6 +1587,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
                                                 מסלול טמפ׳ {item.temperaturePathPointCount} נק׳
                                                 {item.pressureResidualBar !== null
                                                     ? ` · residual לחץ ${item.pressureResidualBar >= 0 ? "+" : ""}${item.pressureResidualBar.toFixed(2)} bar`
+                                                    : ""}
+                                                {item.observedInventoryDeltaVol !== null
+                                                    ? ` · ΔCO₂ ${item.observedInventoryDeltaVol >= 0 ? "+" : ""}${item.observedInventoryDeltaVol.toFixed(3)} vol`
                                                     : ""}
                                             </span>
                                         </div>
