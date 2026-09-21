@@ -345,9 +345,8 @@ export default function BrewingView({ brews, tab }: Props) {
                 <section className="brewing-panel">
                     {sandbox ? (
                         <BrewingLibrary
-                            onRecipeChange={(changed) => {
-                                setRecipes(loadSandboxRecipes());
-                                setMessage(`המתכון ${changed.style} נשמר.`);
+                            onRecipesChange={(next) => {
+                                setRecipes(next);
                             }}
                         />
                     ) : (
