@@ -42,13 +42,13 @@ export default function BrewRecipeEditor({
     [ingredients],
   );
 
-  function updateMashStep(index: number, patch: Partial<BrewRecipeMashStep>) {
+  function updateMashStep(id: string, patch: Partial<BrewRecipeMashStep>) {
     setRecipe((current) => ({
       ...current,
       mash: {
         ...current.mash,
-        steps: current.mash.steps.map((step, i) =>
-          i === index ? { ...step, ...patch } : step,
+        steps: current.mash.steps.map((step) =>
+          step.id === id ? { ...step, ...patch } : step,
         ),
       },
     }));
@@ -145,9 +145,6 @@ export default function BrewRecipeEditor({
             חזרה לספריית המתכונים
           </button>
           <h2>עריכת {recipe.style}</h2>
-          <p>
-            המתכון מכיל רק את הוראות המתכון. ספקים, lots ו-AA נוכחי מנוהלים בספריית חומרי הגלם.
-          </p>
         </div>
         <span className="brewing-count">v{recipe.version}</span>
       </div>
@@ -161,19 +158,6 @@ export default function BrewRecipeEditor({
               value={recipe.style}
               onChange={(e) =>
                 setRecipe((current) => ({ ...current, style: e.target.value }))
-              }
-            />
-          </label>
-          <label>
-            מי מאש, ליטר
-            <input
-              type="number"
-              value={recipe.mash.waterLiters}
-              onChange={(e) =>
-                setRecipe((current) => ({
-                  ...current,
-                  mash: { ...current.mash, waterLiters: numberValue(e.target.value) },
-                }))
               }
             />
           </label>
@@ -216,14 +200,20 @@ export default function BrewRecipeEditor({
 
       <section className="brew-editor-section">
         <div className="brew-section-title">
-          <h3>לתת וחומרי מאש</h3>
-          <button type="button" onClick={addGrain}>+ חומר</button>
+          <h3>לתת</h3>
+          <button
+            type="button"
+            className="brew-action-button brew-action-button-add"
+            onClick={addGrain}
+          >
+            + לתת
+          </button>
         </div>
         <div className="brew-editor-table">
           {recipe.grains.map((grain, index) => (
             <div className="brew-editor-row brew-editor-row-grain" key={`${grain.ingredientId}-${index}`}>
               <label>
-                חומר גלם
+                לתת
                 <select
                   value={grain.ingredientId}
                   onChange={(e) =>
@@ -260,7 +250,9 @@ export default function BrewRecipeEditor({
               </label>
               <button
                 type="button"
-                className="brewing-danger-button"
+                className="brew-icon-button brew-icon-button-danger"
+                aria-label="הסר לתת"
+                title="הסר לתת"
                 onClick={() =>
                   setRecipe((current) => ({
                     ...current,
@@ -268,7 +260,7 @@ export default function BrewRecipeEditor({
                   }))
                 }
               >
-                הסר
+                ×
               </button>
             </div>
           ))}
