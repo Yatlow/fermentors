@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   estimatePressureTargetV9,
   estimatedV9TankGeometry,
+  simulateV9ActionForecast,
 } from "../src/SERVICES/cellering/pressurePredictionV9Physics";
 
 test("V9 maps estimated vessel geometry by production tank class", () => {
@@ -109,4 +110,56 @@ test("V9 refuses impossible headspace geometry", () => {
   assert.ok(estimate);
   assert.equal(estimate.action, "insufficient_geometry");
   assert.equal(estimate.targetPressure, null);
+});
+
+
+test("V9 shadow forecast preserves the measured pressure until a delayed operator action actually happens", () => {
+  const immediate = simulateV9ActionForecast({
+    tankNumber: 16,
+    beerVolumeLiters: 3000,
+    startCarbonation: 2.30,
+    startPressure: 1.40,
+    startTemperature: 5,
+    setPressure: 1.00,
+    finalTemperature: 1,
+    coolingHours: 24,
+    kPerHour: 0.001,
+    futureOperationalLossBar: 0,
+    hours: 48,
+    actionDelayHours: 0,
+  });
+
+  const delayed = simulateV9ActionForecast({
+    tankNumber: 16,
+    beerVolumeLiters: 3000,
+    startCarbonation: 2.30,
+    startPressure: 1.40,
+    startTemperature: 5,
+    setPressure: 1.00,
+    finalTemperature: 1,
+    coolingHours: 24,
+    kPerHour: 0.001,
+    futureOperationalLossBar: 0,
+    hours: 48,
+    actionDelayHours: 12,
+  });
+
+  assert.ok(immediate);
+  assert.ok(delayed);
+
+  assert.ok(
+    Math.abs(immediate!.points[0].pressure - 1.00) < 0.001,
+    "an immediate action should begin at the requested pressure",
+  );
+  assert.ok(
+    Math.abs(delayed!.points[0].pressure - 1.40) < 0.001,
+    "a delayed action must preserve the measured start pressure before the action",
+  );
+
+  const atAction = delayed!.points.find((point) => point.hour === 12);
+  assert.ok(atAction);
+  assert.ok(
+    Math.abs(atAction!.pressure - 1.00) < 0.001,
+    "the delayed pressure target should be applied at the recorded action hour",
+  );
 });
