@@ -151,7 +151,14 @@ function processAction0(fermentor) {
   const sheetUrl =
     String(fermentor.sheetUrl || "").trim();
 
-  if (!sheetUrl) return;
+  if (!sheetUrl) {
+    Logger.log(
+      "CRITICAL ACTION 0 invariant violation: tank " +
+      tankNumber +
+      " has no sheetUrl. ACTION 5 must assign the Sheet atomically before ACTION 0."
+    );
+    return;
+  }
 
   let stageInfo;
 
