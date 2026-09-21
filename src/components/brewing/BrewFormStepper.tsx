@@ -1383,8 +1383,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <h4>שטיפות</h4>
                   <span>
                     {recipe.lautering.usesGrant
-                      ? "נפח Kettle + Grant"
-                      : "נפח Kettle"}
+                      ? "נפח ב-Kettle + Grant"
+                      : "נפח ב-Kettle"}
                   </span>
                 </div>
                 <small>
@@ -1483,7 +1483,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     </label>
 
                     <label>
-                      Kettle
+                      נפח ב-Kettle
                       <input
                         type="number"
                         value={localValue(`rinse${index}.kettle`)}
