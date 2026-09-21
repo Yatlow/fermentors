@@ -454,6 +454,18 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       .filter((item): item is IngredientDefinition => !!item);
   }, [recipe, ingredientLibrary]);
 
+  const boilHops = useMemo(
+    () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 3),
+    [recipe.hops],
+  );
+
+  const totalBoilMinutes = useMemo(() => {
+    const values = boilHops
+      .map((hop) => Number(hop.boilMinutes))
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    return values.length ? Math.max(...values) : 60;
+  }, [boilHops]);
+
   const startingPlato = useMemo(
     () =>
       calculateWeightedStartingPlato(
@@ -580,26 +592,34 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
 
     if (stepId === "boil") {
-      const required = ["boil.start", "boilPh"];
-      const brewHopCount = Math.min(
-        3,
-        recipe.hops.filter((hop) => hop.purpose !== "dryHop").length,
-      );
-      for (let index = 1; index <= brewHopCount; index += 1) {
+      const required = [
+        "boil.start",
+        "boilPh",
+        "boilAcid85",
+        "kettlePlato",
+        "kettleVolume",
+        "endBoilTime",
+      ];
+      for (let index = 1; index <= boilHops.length; index += 1) {
         required.push(`hop${index}.start`);
       }
       return required.filter((key) => !hasField(key)).length;
     }
 
     if (stepId === "transfer") {
-      return [
+      const required = [
         "wp.start",
+        "wp.end",
         "outToFermentor.start",
+        "outToFermentor.end",
         "endBoilPlato",
         "endBoilVolume",
+        "fermentorSamplePlato",
         "cumulativeTankVolume",
         "outToFermentorPh",
-      ].filter((key) => !hasField(key)).length;
+      ];
+      if (currentBlock === 1) required.push("yeastPitchTime");
+      return required.filter((key) => !hasField(key)).length;
     }
 
     return (["water", "mash", "lautering", "boil", "transfer"] as StepId[])
@@ -1143,6 +1163,133 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         value: parsed === null ? "" : parsed,
       },
     ]);
+  }
+
+  async function commitBoilAcid(value: string) {
+    await commit("boilAcid85", value, [
+      {
+        range: `'גיליון1'!A${baseRow + 29}`,
+        value: num(value) ?? value,
+      },
+    ]);
+  }
+
+  async function commitBoilStart(raw: string) {
+    const value = normalizeUserTime(raw);
+    if (value === null) {
+      setMessage("יש להזין שעה בפורמט 24 שעות, למשל 10:35.");
+      return;
+    }
+
+    let nextExecution = setSandboxExecutionField(
+      execution,
+      currentBlock,
+      "boil.start",
+      value,
+    );
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [{ range: stageCell(28, "E"), value }];
+
+    boilHops.forEach((hop, index) => {
+      const minutes = Number(hop.boilMinutes ?? 0);
+      const offset = Math.max(0, totalBoilMinutes - minutes);
+      const time = addMinutesToTime(value, offset);
+      nextExecution = setSandboxExecutionField(
+        nextExecution,
+        currentBlock,
+        `hop${index + 1}.start`,
+        time,
+      );
+      writes.push({
+        range: stageCell(30 + index * 2, "E"),
+        value: time,
+      });
+    });
+
+    const endBoil = addMinutesToTime(value, totalBoilMinutes);
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "endBoilTime",
+      endBoil,
+    );
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "wp.start",
+      endBoil,
+    );
+    writes.push({
+      range: stageCell(38, "E"),
+      value: endBoil,
+    });
+
+    setExecution(nextExecution);
+    await writeSheet("boil.start", writes);
+  }
+
+  async function commitBoilEvent(
+    key: string,
+    rowOffset: number,
+    raw: string,
+  ) {
+    const value = normalizeUserTime(raw);
+    if (value === null) {
+      setMessage("יש להזין שעה בפורמט 24 שעות.");
+      return;
+    }
+    await commit(key, value, [
+      { range: stageCell(rowOffset, "E"), value },
+    ]);
+  }
+
+  async function commitEndBoil(raw: string) {
+    const value = normalizeUserTime(raw);
+    if (value === null) {
+      setMessage("יש להזין שעה בפורמט 24 שעות.");
+      return;
+    }
+
+    let nextExecution = setSandboxExecutionField(
+      execution,
+      currentBlock,
+      "endBoilTime",
+      value,
+    );
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "wp.start",
+      value,
+    );
+    setExecution(nextExecution);
+    await writeSheet("endBoilTime", [
+      { range: stageCell(38, "E"), value },
+    ]);
+  }
+
+  async function commitYeastPitch(raw: string) {
+    const value = normalizeUserTime(raw);
+    if (value === null) {
+      setMessage("יש להזין שעה בפורמט 24 שעות.");
+      return;
+    }
+    await commit("yeastPitchTime", value, [
+      {
+        range: `'גיליון1'!G${fermentationStartingRow(run.tankType)}`,
+        value,
+      },
+    ]);
+  }
+
+  async function applyBoilRecommendation() {
+    if (boilRecommendation === null) return;
+    const value = String(Math.round(boilRecommendation));
+    setBoilCalcOpen(false);
+    setLocal("kettleVolume", value);
+    await commitSugar("kettleVolume", value, 38, "C");
   }
 
   async function syncFromSheet() {
