@@ -1287,6 +1287,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
     const parsed = num(trimmed);
     if (parsed === null) {
+      restoreCommittedField(key);
       setValidationNotice({
         kind: "error",
         text: "הערך חייב להיות מספר. הנתון לא נשמר.",
@@ -1422,6 +1423,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
 
     if (hardError) {
+      restoreCommittedField(key);
       setValidationNotice({
         kind: "error",
         text: `${hardError} הנתון לא נשמר — בדוק שאין TYPO.`,
@@ -1432,6 +1434,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     if (warning) {
       const approved = await askValidationConfirmation(warning);
       if (!approved) {
+        restoreCommittedField(key);
         setValidationNotice({
           kind: "warning",
           text: `${warning} השמירה בוטלה כדי לאפשר תיקון.`,
@@ -1548,6 +1551,35 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     const key = `rinse${index}.${field}`;
 
     if (field === "time") {
+      const previousTime =
+        index > 1 ? String(fields[`rinse${index - 1}.time`] || "") : "";
+      const nextTime =
+        index < 7 ? String(fields[`rinse${index + 1}.time`] || "") : "";
+
+      if (previousTime) {
+        const delta = forwardMinutes(previousTime, value);
+        if (delta !== null && delta > 180) {
+          restoreCommittedField(key);
+          setValidationNotice({
+            kind: "error",
+            text: `שעת שטיפה ${index} (${value}) מוקדמת משטיפה ${index - 1} (${previousTime}). הנתון לא נשמר.`,
+          });
+          return;
+        }
+      }
+
+      if (nextTime) {
+        const deltaToNext = forwardMinutes(value, nextTime);
+        if (deltaToNext !== null && deltaToNext > 180) {
+          restoreCommittedField(key);
+          setValidationNotice({
+            kind: "error",
+            text: `שעת שטיפה ${index} (${value}) מאוחרת משטיפה ${index + 1} (${nextTime}). הנתון לא נשמר.`,
+          });
+          return;
+        }
+      }
+
       let nextExecution = setSandboxExecutionField(
         execution,
         currentBlock,
@@ -1632,7 +1664,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
       boilHops.forEach((hop, index) => {
         const amountKey = `hop${index + 1}.amountGrams`;
-        if (String(fields[amountKey] || "").trim())) return;
+        if (String(fields[amountKey] || "").trim()) return;
 
         const dose = hopDose(hop, parsed);
         if (dose.grams === null) return;
@@ -1774,10 +1806,17 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       (item) => item.id === hop.ingredientId,
     );
     const lot = ingredient ? selectedMaterialLot(ingredient) : undefined;
-    const alpha =
-      lot?.alpha !== undefined && Number.isFinite(Number(lot.alpha))
-        ? Number(lot.alpha)
+    const hopIndex = boilHops.findIndex((item) => item.id === hop.id);
+    const alphaOverride =
+      hopIndex >= 0
+        ? num(fields[`hop${hopIndex + 1}.alphaOverride`] || "")
         : null;
+    const alpha =
+      alphaOverride !== null
+        ? alphaOverride
+        : lot?.alpha !== undefined && Number.isFinite(Number(lot.alpha))
+          ? Number(lot.alpha)
+          : null;
 
     let gramsPerLiter = Number(hop.gramsPerLiter);
     if (!Number.isFinite(gramsPerLiter) || gramsPerLiter < 0) {
@@ -1815,6 +1854,27 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       {
         range: `'גיליון1'!A${baseRow + 15 + index}`,
         value: rounded === "" ? "" : Number(rounded),
+      },
+    ]);
+  }
+
+  async function commitHopAlpha(index: number, value: string) {
+    const key = `hop${index + 1}.alphaOverride`;
+    const parsed = num(value);
+
+    if (value.trim() && (parsed === null || parsed < 1 || parsed > 25)) {
+      restoreCommittedField(key);
+      setValidationNotice({
+        kind: "error",
+        text: `Alpha ${value}% אינו סביר לכשות (1–25%). הנתון לא נשמר.`,
+      });
+      return;
+    }
+
+    await commit(key, value, [
+      {
+        range: `'גיליון1'!B${baseRow + 15 + index}`,
+        value: parsed ?? "",
       },
     ]);
   }
@@ -1906,7 +1966,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       key === "cumulativeTankVolume" ||
       key === "endBoilTime" ||
       /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
-      /^hop[1-3]\.amountGrams$/.test(key) ||
+      /^hop[1-3]\.(amountGrams|alphaOverride)$/.test(key) ||
       /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
         key,
       )
@@ -1940,6 +2000,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
     const hopAmount = /^hop(\d+)\.amountGrams$/.exec(key);
     if (hopAmount) return `כמות כשות ${hopAmount[1]}`;
+
+    const hopAlpha = /^hop(\d+)\.alphaOverride$/.exec(key);
+    if (hopAlpha) return `Alpha כשות ${hopAlpha[1]}`;
 
     const rinse = /^rinse(\d+)\.(.+)$/.exec(key);
     if (rinse) return `שטיפה ${rinse[1]} · ${rinse[2]}`;
@@ -2021,7 +2084,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         const row = blockBaseRow(run.tankType, index);
         const rows = await readSandboxSheetRange(
           run.sheetId,
-          `'גיליון1'!A${row}:H${row + 40}`,
+          `'גיליון1'!A${row}:H${row + 45}`,
         );
         const pulled = fieldsFromSheetRows(
           rows,
@@ -2109,7 +2172,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         const row = blockBaseRow(run.tankType, index);
         const rows = await readSandboxSheetRange(
           run.sheetId,
-          `'גיליון1'!A${row}:H${row + 40}`,
+          `'גיליון1'!A${row}:H${row + 45}`,
         );
         const pulled = fieldsFromSheetRows(
           rows,
@@ -2190,9 +2253,39 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   function setLocal(key: string, value: string) {
-    setExecution(
-      setSandboxExecutionField(execution, currentBlock, key, value),
-    );
+    const blockKey = String(currentBlock);
+    setExecution((previous) => ({
+      ...previous,
+      blocks: {
+        ...previous.blocks,
+        [blockKey]: {
+          fields: {
+            ...(previous.blocks[blockKey]?.fields || {}),
+            [key]: value,
+          },
+        },
+      },
+    }));
+  }
+
+  function restoreCommittedField(key: string) {
+    const committed = loadSandboxExecution(run.batchNumber);
+    const value =
+      committed.blocks[String(currentBlock)]?.fields?.[key] || "";
+    const blockKey = String(currentBlock);
+
+    setExecution((previous) => ({
+      ...previous,
+      blocks: {
+        ...previous.blocks,
+        [blockKey]: {
+          fields: {
+            ...(previous.blocks[blockKey]?.fields || {}),
+            [key]: value,
+          },
+        },
+      },
+    }));
   }
 
   async function commitTypedStageTime(
