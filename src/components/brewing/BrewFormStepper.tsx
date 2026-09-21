@@ -1204,7 +1204,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               }
               onClick={() => setActiveStep(index)}
             >
-              <span aria-hidden="true">{complete ? "✓" : "!"}</span>
+              <span aria-hidden="true">{complete ? "✓" : "⚠"}</span>
               <strong>{step.label}</strong>
             </button>
           );
