@@ -19,8 +19,11 @@ import {
 import {
   getColdReferenceTemperatureV4,
   getPressurePredictionModelV4,
-  type PressurePredictionModelV4,
 } from "./pressurePredictionV4Model";
+import {
+  PRESSURE_V9_K_PER_HOUR,
+  PRESSURE_V9_MODEL_VERSION,
+} from "./pressurePredictionV9Config";
 
 type ShadowStateQuality =
   | "same_submission"
@@ -30,6 +33,7 @@ type ShadowStateQuality =
 export type PressureV9ShadowSnapshot = {
   version: 1;
   modelVersion: 9;
+  modelConfigVersion: string;
   batchNumber: string;
   tankNumber: number;
   beerStyle: string;
@@ -118,46 +122,6 @@ function normalizeStyle(value: unknown): string {
       .toLowerCase()
       .split(/\s+/)[0] || "other"
   );
-}
-
-function median(values: number[]): number | null {
-  const clean = values
-    .filter(Number.isFinite)
-    .slice()
-    .sort((a, b) => a - b);
-  if (!clean.length) return null;
-
-  const middle = Math.floor(clean.length / 2);
-  return clean.length % 2
-    ? clean[middle]
-    : (
-        clean[middle - 1] +
-        clean[middle]
-      ) / 2;
-}
-
-function v9KFromModel(
-  model: PressurePredictionModelV4 | null,
-  batchNumber: string,
-): number {
-  if (!model) return 0.0025;
-
-  const usable = model.transitions
-    .filter(
-      (sample) =>
-        sample.quality !== "low" &&
-        String(sample.batchId ?? "") !==
-          batchNumber &&
-        Number.isFinite(
-          Number(sample.kPerHour),
-        ) &&
-        Number(sample.kPerHour) > 0,
-    )
-    .map((sample) =>
-      Number(sample.kPerHour),
-    );
-
-  return median(usable) ?? 0.0025;
 }
 
 function measurementTimeMs(
@@ -953,10 +917,8 @@ export async function recordPressureV9Shadow(args: {
     await getPressurePredictionModelV4(
       args.tank.beerStyle,
     );
-  const kPerHour = v9KFromModel(
-    model,
-    batchNumber,
-  );
+  const kPerHour =
+    PRESSURE_V9_K_PER_HOUR;
   const finalTemperature =
     (
       model
@@ -996,6 +958,8 @@ export async function recordPressureV9Shadow(args: {
   const snapshot: PressureV9ShadowSnapshot = {
     version: 1,
     modelVersion: 9,
+    modelConfigVersion:
+      PRESSURE_V9_MODEL_VERSION,
     batchNumber,
     tankNumber,
     beerStyle: String(
