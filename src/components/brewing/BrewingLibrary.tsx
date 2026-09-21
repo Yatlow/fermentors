@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   createSandboxRecipe,
@@ -51,6 +51,20 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
   const [deleteRecipeId, setDeleteRecipeId] = useState<string | null>(null);
   const [deleteLotKey, setDeleteLotKey] = useState<string | null>(null);
   const [lotsIngredientId, setLotsIngredientId] = useState<string | null>(null);
+  const ingredientsHydrated = useRef(false);
+
+  useEffect(() => {
+    if (!ingredientsHydrated.current) {
+      ingredientsHydrated.current = true;
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      saveSandboxIngredients(ingredients);
+    }, 180);
+
+    return () => window.clearTimeout(timeout);
+  }, [ingredients]);
 
   const selectedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === selectedRecipeId) || null,
@@ -142,12 +156,6 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
       }),
     );
     setMessage("");
-  }
-
-  function persistIngredients() {
-    const saved = saveSandboxIngredients(ingredients);
-    setIngredients(saved);
-    setMessage("ספריית חומרי הגלם נשמרה ב-Sandbox.");
   }
 
   function createIngredientFromInput(
@@ -579,10 +587,8 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
             })}
           </div>
 
-          <div className="brew-editor-actions">
-            <button type="button" className="btn-primary" onClick={persistIngredients}>
-              שמור חומרי גלם
-            </button>
+          <div className="brew-library-autosave-note">
+            השינויים בספריית חומרי הגלם נשמרים אוטומטית.
           </div>
 
           <IngredientLotsModal
