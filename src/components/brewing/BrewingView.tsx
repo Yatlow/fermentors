@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import {
-    getAllBrewsSummary,
-    type BrewSummary,
-} from "../../SERVICES/getAndPost/getAllBrews";
+    serverListBrewDriveHistory,
+    type BrewingDriveHistoryRow,
+} from "../../SERVICES/brewing/brewingSheetServer";
 import { loadSandboxRecipes } from "../../SERVICES/brewing/sandboxRecipe";
 import { loadSandboxIngredients } from "../../SERVICES/brewing/sandboxIngredients";
 import {
@@ -93,7 +93,9 @@ function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
     };
 }
 
-function productionRunFromSummary(row: BrewSummary): SandboxBrewRun | null {
+function productionRunFromSummary(
+    row: BrewingDriveHistoryRow,
+): SandboxBrewRun | null {
     const batchNumber = String(row.batchNumber || "").replace("#", "").trim();
     const style = String(row.beerStyle || "").trim();
     const sheetUrl = String(row.sheetUrl || "").trim();
@@ -105,7 +107,7 @@ function productionRunFromSummary(row: BrewSummary): SandboxBrewRun | null {
         batchNumber,
         tankId: `history-${batchNumber}`,
         tankNumber: String(row.tankNumber || "—"),
-        tankType: tankTypeKey(row.tankNumber, style),
+        tankType: row.tankType || tankTypeKey(row.tankNumber, style),
         style,
         brewDate: String(row.brewDate || ""),
         createdAt: new Date(0).toISOString(),
@@ -124,7 +126,7 @@ function productionTankStatus(tank: Fermentor): string {
 
     const action = Number(tank.action);
     const labels: Record<number, string> = {
-        0: "בישול חדש / ממתין",
+        0: "בישול חדש",
         1: "בתסיסה",
         3: "מלוכלך / ריק",
         4: "נקי",
@@ -148,7 +150,8 @@ export default function BrewingView({ brews, tab }: Props) {
     const [planningHintsLoading, setPlanningHintsLoading] = useState(false);
     const [createModalError, setCreateModalError] = useState("");
     const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
-    const [productionHistory, setProductionHistory] = useState<BrewSummary[]>([]);
+    const [productionHistory, setProductionHistory] =
+        useState<BrewingDriveHistoryRow[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyQuery, setHistoryQuery] = useState("");
 
@@ -196,6 +199,14 @@ export default function BrewingView({ brews, tab }: Props) {
                         Number(a.tankNumber) - Number(b.tankNumber),
                 ),
         [brews],
+    );
+
+    const invalidActionZeroTanks = useMemo(
+        () =>
+            actionZeroProductionTanks.filter(
+                (tank) => !productionRunFromTank(tank),
+            ),
+        [actionZeroProductionTanks],
     );
 
     const otherProductionTanks = useMemo(
@@ -303,10 +314,9 @@ export default function BrewingView({ brews, tab }: Props) {
     }, [sandbox, allTanks, sandboxRuns, demoTank.id]);
 
     useEffect(() => {
-        if (!sandbox) return;
         let cancelled = false;
         setHistoryLoading(true);
-        getAllBrewsSummary()
+        serverListBrewDriveHistory(100)
             .then((rows) => {
                 if (cancelled) return;
                 setProductionHistory(rows);
@@ -337,7 +347,7 @@ export default function BrewingView({ brews, tab }: Props) {
         return () => {
             cancelled = true;
         };
-    }, [sandbox, brews, sandboxRuns]);
+    }, [brews, sandboxRuns]);
 
     useEffect(() => {
         if (!sandbox || !showCreate) return;
@@ -548,8 +558,8 @@ export default function BrewingView({ brews, tab }: Props) {
             {tab === "form" && !selectedRun && actionZeroProductionTanks.length > 0 && (
                 <section className="brewing-action-zero-strip" aria-label="מיכלים ב-ACTION 0">
                     <div className="brewing-action-zero-heading">
-                        <strong>מיכלים ב-ACTION 0</strong>
-                        <span>ממתינים / נמצאים בבישול · נתוני אמת</span>
+                        <strong>מיכלים „בישול חדש”</strong>
+                        <span>נתוני אמת</span>
                     </div>
                     <div className="brewing-action-zero-list">
                         {actionZeroProductionTanks.map((tank) => {
@@ -590,14 +600,22 @@ export default function BrewingView({ brews, tab }: Props) {
                                     </span>
                                     <small>
                                         {run
-                                            ? tank.brewProgress?.stageName || "ACTION 0"
-                                            : "ACTION 0 · אין Sheet זמין לעריכה"}
+                                            ? tank.brewProgress?.stageName || "בישול חדש"
+                                            : "חריגת נתונים · בישול חדש ללא Sheet"}
                                     </small>
                                 </button>
                             );
                         })}
                     </div>
                 </section>
+            )}
+
+            {tab === "form" && !selectedRun && invalidActionZeroTanks.length > 0 && (
+                <div className="brewing-message brewing-message-error">
+                    נמצאו {invalidActionZeroTanks.length} מיכלים במצב „בישול חדש”
+                    ללא Sheet משויך. זה מצב לא תקין לפי מנגנון ACTION 5 ויש לבדוק
+                    את נתוני המיכל / המעבר האחרון.
+                </div>
             )}
 
             {sandbox && (
@@ -870,7 +888,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                     אצוות קודמות לעריכה
                                 </h3>
                                 <small>
-                                    חיפוש מתוך 100 האצוות האחרונות שנשמרו ב-Firestore
+                                    חיפוש מתוך 100 האצוות האחרונות ב-Drive
                                 </small>
                             </div>
                             <input
