@@ -1,7 +1,6 @@
-export type BrewingTab = "create" | "recipes" | "form";
+export type BrewingTab = "form" | "recipes";
 
 export const BREWING_TABS: ReadonlyArray<readonly [BrewingTab, string]> = [
-    ["create", "יצירת בישול חדש"],
-    ["recipes", "עריכת מתכונים"],
-    ["form", "מילוי טופס בישול"],
+    ["form", "אצוות בישול"],
+    ["recipes", "מתכונים וחומרי גלם"],
 ];
