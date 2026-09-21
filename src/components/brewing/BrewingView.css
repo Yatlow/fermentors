@@ -1740,3 +1740,12 @@
         width: 100%;
     }
 }
+
+
+.brew-planning-hint-chips button:disabled {
+    cursor: default;
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    color: #64748b;
+    opacity: 0.8;
+}
