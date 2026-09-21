@@ -21,26 +21,54 @@ type StageDef = {
   label: string;
   rowOffset: number;
   showTemp?: boolean;
+  targetRecipeStepId?: string;
 };
 
-const CORE_STAGES: StageDef[] = [
-  { key: "mashIn", label: "הכנסת לתת", rowOffset: 0, showTemp: true },
-  { key: "rest1", label: "השריה 1", rowOffset: 2, showTemp: true },
+type StepId = "mash" | "lautering" | "rinses" | "boil" | "transfer" | "summary";
+
+const STEPS: Array<{ id: StepId; label: string }> = [
+  { id: "mash", label: "מאש" },
+  { id: "lautering", label: "לאוטר" },
+  { id: "rinses", label: "שטיפות" },
+  { id: "boil", label: "רתיחה וכשות" },
+  { id: "transfer", label: "WP והוצאה לתסיסה" },
+  { id: "summary", label: "סיכום" },
+];
+
+const MASH_STAGES: StageDef[] = [
+  { key: "mashIn", label: "הכנסת לתת", rowOffset: 0, showTemp: true, targetRecipeStepId: "mashIn" },
+  { key: "rest1", label: "השריה 1", rowOffset: 2, showTemp: true, targetRecipeStepId: "rest1" },
   { key: "heat1", label: "חימום 1", rowOffset: 4, showTemp: true },
-  { key: "rest2", label: "השריה 2", rowOffset: 6, showTemp: true },
-  { key: "heat2", label: "חימום 2", rowOffset: 8, showTemp: true },
+  { key: "rest2", label: "השריה 2", rowOffset: 6, showTemp: true, targetRecipeStepId: "rest2" },
+  { key: "heat2", label: "חימום 2", rowOffset: 8, showTemp: true, targetRecipeStepId: "mashOut" },
+];
+
+const LAUTER_STAGES: StageDef[] = [
   { key: "transferLt", label: "העברה ל-L.T.", rowOffset: 10, showTemp: true },
   { key: "restLt", label: "מנוחה L.T.", rowOffset: 12 },
   { key: "circulation", label: "סחרור", rowOffset: 14 },
   { key: "outToBoil", label: "הוצאה לבישול", rowOffset: 15 },
   { key: "endTransfer", label: "סוף העברה", rowOffset: 26 },
+];
+
+const BOIL_STAGES: StageDef[] = [
   { key: "boil", label: "רתיחה 100°C", rowOffset: 28 },
   { key: "hop1", label: "הוספת כשות 1", rowOffset: 30 },
   { key: "hop2", label: "הוספת כשות 2", rowOffset: 32 },
   { key: "hop3", label: "הוספת כשות 3", rowOffset: 34 },
-  { key: "wp", label: "סוף רתיחה / תחילת WP", rowOffset: 38 },
-  { key: "outToFermentor", label: "הוצאה לתסיסה", rowOffset: 40 },
 ];
+
+const WP_STAGE: StageDef = {
+  key: "wp",
+  label: "סוף רתיחה / תחילת WP",
+  rowOffset: 38,
+};
+
+const OUT_STAGE: StageDef = {
+  key: "outToFermentor",
+  label: "הוצאה לתסיסה",
+  rowOffset: 40,
+};
 
 function blockBaseRow(tankType: SandboxBrewRun["tankType"], blockIndex: number): number {
   const rows =
@@ -48,7 +76,7 @@ function blockBaseRow(tankType: SandboxBrewRun["tankType"], blockIndex: number):
   return rows[blockIndex - 1] || rows[0];
 }
 
-function blockCount(tankType: SandboxBrewRun["tankType"]) {
+function getBlockCount(tankType: SandboxBrewRun["tankType"]) {
   return tankType === "single" ? 1 : tankType === "double" ? 2 : 3;
 }
 
@@ -71,21 +99,23 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [execution, setExecution] = useState<BrewExecution>(() =>
     loadSandboxExecution(run.batchNumber),
   );
+  const [activeStep, setActiveStep] = useState(0);
   const [syncing, setSyncing] = useState("");
   const [message, setMessage] = useState("");
 
+  const totalBlocks = getBlockCount(run.tankType);
   const currentBlock = Math.min(
     Math.max(execution.activeBlockIndex || 1, 1),
-    blockCount(run.tankType),
+    totalBlocks,
   );
   const fields = execution.blocks[String(currentBlock)]?.fields || {};
   const baseRow = blockBaseRow(run.tankType, currentBlock);
+  const currentStep = STEPS[activeStep];
 
-  const boilTarget = recipe.targets.endBoilPlato;
   const startingPlato = useMemo(
     () =>
       calculateWeightedStartingPlato(
-        Array.from({ length: blockCount(run.tankType) }, (_, index) => {
+        Array.from({ length: totalBlocks }, (_, index) => {
           const blockFields = execution.blocks[String(index + 1)]?.fields || {};
           return {
             endBoilPlato: num(blockFields.endBoilPlato || ""),
@@ -93,15 +123,27 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           };
         }),
       ),
-    [execution.blocks, run.tankType],
+    [execution.blocks, totalBlocks],
   );
 
   const boilRecommendation = useMemo(() => {
     const volume = num(fields.boilSampleVolume || "1200");
     const plato = num(fields.boilSamplePlato || "");
-    if (volume === null || plato === null || !boilTarget) return null;
-    return (volume * plato) / boilTarget + 100;
-  }, [fields.boilSampleVolume, fields.boilSamplePlato, boilTarget]);
+    if (volume === null || plato === null || !recipe.targets.endBoilPlato) return null;
+    return (volume * plato) / recipe.targets.endBoilPlato + 100;
+  }, [fields.boilSampleVolume, fields.boilSamplePlato, recipe.targets.endBoilPlato]);
+
+  const missingItems = useMemo(() => {
+    const items: string[] = [];
+    if (!fields["mashIn.start"]) items.push("זמן התחלת הכנסת לתת");
+    if (!fields.mashPh) items.push("pH מאש");
+    if (!fields.outToBoilPh) items.push("pH בהוצאה לבישול");
+    if (!fields.boilPh) items.push("pH תחילת רתיחה");
+    if (!fields.endBoilPlato) items.push("Plato סוף רתיחה");
+    if (!fields.cumulativeTankVolume) items.push("נפח מצטבר במיכל");
+    if (!fields["outToFermentor.start"]) items.push("זמן התחלת הוצאה לתסיסה");
+    return items;
+  }, [fields]);
 
   async function commit(
     key: string,
@@ -140,16 +182,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   ) {
     const col = field === "start" ? "E" : field === "end" ? "F" : "G";
     const cellValue = field === "temp" && value ? `${value}°C` : value;
-    await commit(
-      `${stage.key}.${field}`,
-      value,
-      [{ range: stageCell(stage.rowOffset, col), value: cellValue }],
-    );
+    await commit(`${stage.key}.${field}`, value, [
+      { range: stageCell(stage.rowOffset, col), value: cellValue },
+    ]);
   }
 
   async function setNow(stage: StageDef, field: "start" | "end") {
-    const value = hhmmNow();
-    await commitStage(stage, field, value);
+    await commitStage(stage, field, hhmmNow());
   }
 
   async function commitMashMeta(field: "mashVolume" | "mashPh", value: string) {
@@ -163,25 +202,26 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     await commit(field, value, [{ range: stageCell(0, "H"), value: text }]);
   }
 
-  async function commitPh(
-    key: string,
-    value: string,
-    range: string,
-  ) {
+  async function commitPh(key: string, value: string, range: string) {
     await commit(key, value, [{ range, value: value ? `pH ${value}` : "" }]);
   }
 
   async function commitRinse(index: number, field: string, value: string) {
     const rowOffset = 18 + (index - 1);
     const key = `rinse${index}.${field}`;
+
     if (field === "time") {
       return commit(key, value, [{ range: stageCell(rowOffset, "E"), value }]);
     }
     if (field === "amount") {
-      return commit(key, value, [{ range: stageCell(rowOffset, "F"), value: num(value) ?? value }]);
+      return commit(key, value, [
+        { range: stageCell(rowOffset, "F"), value: num(value) ?? value },
+      ]);
     }
     if (field === "temp") {
-      return commit(key, value, [{ range: stageCell(rowOffset, "G"), value: value ? `${value}°C` : "" }]);
+      return commit(key, value, [
+        { range: stageCell(rowOffset, "G"), value: value ? `${value}°C` : "" },
+      ]);
     }
 
     const nextFields = { ...fields, [key]: value };
@@ -196,7 +236,6 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     value: string,
     rowOffset: number,
     column: "B" | "C",
-    _suffix: string,
   ) {
     const parsed = num(value);
     await commit(key, value, [
@@ -209,16 +248,78 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
   async function selectBlock(index: number) {
     setExecution(setSandboxExecutionActiveBlock(execution, index));
+    setActiveStep(0);
     setMessage("");
   }
 
-  const targetForStage = (key: string) => {
-    if (key === "mashIn") return recipe.mash.steps.find((x) => x.id === "mashIn");
-    if (key === "rest1") return recipe.mash.steps.find((x) => x.id === "rest1");
-    if (key === "rest2") return recipe.mash.steps.find((x) => x.id === "rest2");
-    if (key === "heat2") return recipe.mash.steps.find((x) => x.id === "mashOut");
-    return undefined;
-  };
+  function setLocal(key: string, value: string) {
+    setExecution(setSandboxExecutionField(execution, currentBlock, key, value));
+  }
+
+  function renderStageRows(stages: StageDef[]) {
+    return (
+      <div className="brew-stage-list">
+        {stages.map((stage) => {
+          const target = stage.targetRecipeStepId
+            ? recipe.mash.steps.find((step) => step.id === stage.targetRecipeStepId)
+            : undefined;
+          return (
+            <div className="brew-stage-row" key={stage.key}>
+              <div className="brew-stage-label">
+                <strong>{stage.label}</strong>
+                {target && (
+                  <small>
+                    יעד {target.targetTemp}°C
+                    {target.minutes ? ` · ${target.minutes} דק׳` : ""}
+                  </small>
+                )}
+              </div>
+              <label>
+                התחלה
+                <div className="brew-time-input">
+                  <input
+                    type="time"
+                    value={localValue(`${stage.key}.start`)}
+                    onChange={(e) => setLocal(`${stage.key}.start`, e.target.value)}
+                    onBlur={(e) => void commitStage(stage, "start", e.target.value)}
+                  />
+                  <button type="button" onClick={() => void setNow(stage, "start")}>
+                    עכשיו
+                  </button>
+                </div>
+              </label>
+              <label>
+                סיום
+                <div className="brew-time-input">
+                  <input
+                    type="time"
+                    value={localValue(`${stage.key}.end`)}
+                    onChange={(e) => setLocal(`${stage.key}.end`, e.target.value)}
+                    onBlur={(e) => void commitStage(stage, "end", e.target.value)}
+                  />
+                  <button type="button" onClick={() => void setNow(stage, "end")}>
+                    עכשיו
+                  </button>
+                </div>
+              </label>
+              {stage.showTemp && (
+                <label>
+                  טמפ׳ בפועל
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={localValue(`${stage.key}.temp`)}
+                    onChange={(e) => setLocal(`${stage.key}.temp`, e.target.value)}
+                    onBlur={(e) => void commitStage(stage, "temp", e.target.value)}
+                  />
+                </label>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <section className="brew-stepper">
@@ -229,8 +330,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           </button>
           <h2>אצווה {run.batchNumber} · {run.style} · מיכל {run.tankNumber}</h2>
           <p>
-            מתכון v{recipe.version} · {blockCount(run.tankType)} בישולים לאצווה
-            {syncing ? " · שומר ל-Sheet..." : ""}
+            בישול {currentBlock}/{totalBlocks} · מתכון v{recipe.version}
+            {syncing ? " · שומר ל-Sheet..." : " · מסונכרן"}
           </p>
         </div>
       </div>
@@ -238,7 +339,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       {message && <div className="brewing-message">{message}</div>}
 
       <div className="brew-block-tabs">
-        {Array.from({ length: blockCount(run.tankType) }, (_, i) => i + 1).map((index) => (
+        {Array.from({ length: totalBlocks }, (_, index) => index + 1).map((index) => (
           <button
             type="button"
             key={index}
@@ -250,497 +351,367 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         ))}
       </div>
 
-      <section className="brew-step-section">
-        <div className="brew-section-title">
-          <h3>מאש ותהליך</h3>
-          <span>מי מאש יעד: {recipe.mash.waterLiters} ל׳</span>
+      <nav className="brew-step-progress" aria-label="שלבי טופס הבישול">
+        {STEPS.map((step, index) => (
+          <button
+            type="button"
+            key={step.id}
+            className={[
+              index === activeStep ? "active" : "",
+              index < activeStep ? "done" : "",
+            ].filter(Boolean).join(" ")}
+            onClick={() => setActiveStep(index)}
+          >
+            <span>{index < activeStep ? "✓" : index + 1}</span>
+            <strong>{step.label}</strong>
+          </button>
+        ))}
+      </nav>
+
+      <section className="brew-step-panel">
+        <div className="brew-step-panel-head">
+          <div>
+            <span>שלב {activeStep + 1} מתוך {STEPS.length}</span>
+            <h3>{currentStep.label}</h3>
+          </div>
         </div>
 
-        <div className="brew-stage-list">
-          {CORE_STAGES.slice(0, 9).map((stage) => {
-            const target = targetForStage(stage.key);
-            return (
-              <div className="brew-stage-row" key={stage.key}>
-                <div className="brew-stage-label">
-                  <strong>{stage.label}</strong>
-                  {target && (
-                    <small>
-                      יעד {target.targetTemp}°C
-                      {target.minutes ? ` · ${target.minutes} דק׳` : ""}
-                    </small>
-                  )}
-                </div>
-                <label>
-                  התחלה
-                  <div className="brew-time-input">
-                    <input
-                      type="time"
-                      value={localValue(`${stage.key}.start`)}
-                      onChange={(e) =>
-                        setExecution(
-                          setSandboxExecutionField(
-                            execution,
-                            currentBlock,
-                            `${stage.key}.start`,
-                            e.target.value,
-                          ),
-                        )
-                      }
-                      onBlur={(e) => void commitStage(stage, "start", e.target.value)}
-                    />
-                    <button type="button" onClick={() => void setNow(stage, "start")}>עכשיו</button>
-                  </div>
-                </label>
-                <label>
-                  סיום
-                  <div className="brew-time-input">
-                    <input
-                      type="time"
-                      value={localValue(`${stage.key}.end`)}
-                      onChange={(e) =>
-                        setExecution(
-                          setSandboxExecutionField(
-                            execution,
-                            currentBlock,
-                            `${stage.key}.end`,
-                            e.target.value,
-                          ),
-                        )
-                      }
-                      onBlur={(e) => void commitStage(stage, "end", e.target.value)}
-                    />
-                    <button type="button" onClick={() => void setNow(stage, "end")}>עכשיו</button>
-                  </div>
-                </label>
-                {stage.showTemp && (
+        {currentStep.id === "mash" && (
+          <>
+            <div className="brew-section-title">
+              <span>מי מאש יעד: {recipe.mash.waterLiters} ל׳</span>
+            </div>
+            {renderStageRows(MASH_STAGES)}
+            <div className="brew-editor-two-cols">
+              <label>
+                נפח מאש בפועל
+                <input
+                  type="number"
+                  value={localValue("mashVolume")}
+                  onChange={(e) => setLocal("mashVolume", e.target.value)}
+                  onBlur={(e) => void commitMashMeta("mashVolume", e.target.value)}
+                />
+              </label>
+              <label>
+                pH מאש
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("mashPh")}
+                  onChange={(e) => setLocal("mashPh", e.target.value)}
+                  onBlur={(e) => void commitMashMeta("mashPh", e.target.value)}
+                />
+              </label>
+            </div>
+          </>
+        )}
+
+        {currentStep.id === "lautering" && (
+          <>
+            {renderStageRows(LAUTER_STAGES)}
+            <label className="brew-editor-inline-field">
+              pH בהוצאה לבישול
+              <input
+                type="number"
+                step="0.01"
+                value={localValue("outToBoilPh")}
+                onChange={(e) => setLocal("outToBoilPh", e.target.value)}
+                onBlur={(e) =>
+                  void commitPh("outToBoilPh", e.target.value, stageCell(15, "H"))
+                }
+              />
+            </label>
+          </>
+        )}
+
+        {currentStep.id === "rinses" && (
+          <>
+            <div className="brew-section-title">
+              <span>
+                {recipe.lautering.usesGrant
+                  ? "נפח Kettle + Grant"
+                  : "נפח Kettle"}
+              </span>
+            </div>
+            <div className="brew-rinse-grid">
+              {[1, 2, 3, 4, 5, 6, 7].map((index) => (
+                <div className="brew-rinse-row" key={index}>
+                  <strong>שטיפה {index}</strong>
                   <label>
-                    טמפ׳ בפועל
+                    שעה
+                    <input
+                      type="time"
+                      value={localValue(`rinse${index}.time`)}
+                      onChange={(e) => setLocal(`rinse${index}.time`, e.target.value)}
+                      onBlur={(e) => void commitRinse(index, "time", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    ליטר
+                    <input
+                      type="number"
+                      value={localValue(`rinse${index}.amount`)}
+                      onChange={(e) => setLocal(`rinse${index}.amount`, e.target.value)}
+                      onBlur={(e) => void commitRinse(index, "amount", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    °C
                     <input
                       type="number"
                       step="0.1"
-                      value={localValue(`${stage.key}.temp`)}
-                      onChange={(e) =>
-                        setExecution(
-                          setSandboxExecutionField(
-                            execution,
-                            currentBlock,
-                            `${stage.key}.temp`,
-                            e.target.value,
-                          ),
-                        )
-                      }
-                      onBlur={(e) => void commitStage(stage, "temp", e.target.value)}
+                      value={localValue(`rinse${index}.temp`)}
+                      onChange={(e) => setLocal(`rinse${index}.temp`, e.target.value)}
+                      onBlur={(e) => void commitRinse(index, "temp", e.target.value)}
                     />
                   </label>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="brew-editor-two-cols">
-          <label>
-            נפח מאש בפועל
-            <input
-              type="number"
-              value={localValue("mashVolume")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "mashVolume", e.target.value))
-              }
-              onBlur={(e) => void commitMashMeta("mashVolume", e.target.value)}
-            />
-          </label>
-          <label>
-            pH מאש
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("mashPh")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "mashPh", e.target.value))
-              }
-              onBlur={(e) => void commitMashMeta("mashPh", e.target.value)}
-            />
-          </label>
-          <label>
-            pH בהוצאה לבישול
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("outToBoilPh")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "outToBoilPh", e.target.value))
-              }
-              onBlur={(e) => void commitPh("outToBoilPh", e.target.value, stageCell(15, "H"))}
-            />
-          </label>
-        </div>
-      </section>
-
-      <section className="brew-step-section">
-        <div className="brew-section-title">
-          <h3>שטיפות</h3>
-          <span>{recipe.lautering.usesGrant ? "נפח Kettle + Grant" : "נפח Kettle"}</span>
-        </div>
-        <div className="brew-rinse-grid">
-          {[1, 2, 3, 4, 5, 6, 7].map((index) => (
-            <div className="brew-rinse-row" key={index}>
-              <strong>שטיפה {index}</strong>
-              <label>
-                שעה
-                <input
-                  type="time"
-                  value={localValue(`rinse${index}.time`)}
-                  onChange={(e) =>
-                    setExecution(setSandboxExecutionField(execution, currentBlock, `rinse${index}.time`, e.target.value))
-                  }
-                  onBlur={(e) => void commitRinse(index, "time", e.target.value)}
-                />
-              </label>
-              <label>
-                ליטר
-                <input
-                  type="number"
-                  value={localValue(`rinse${index}.amount`)}
-                  onChange={(e) =>
-                    setExecution(setSandboxExecutionField(execution, currentBlock, `rinse${index}.amount`, e.target.value))
-                  }
-                  onBlur={(e) => void commitRinse(index, "amount", e.target.value)}
-                />
-              </label>
-              <label>
-                °C
-                <input
-                  type="number"
-                  step="0.1"
-                  value={localValue(`rinse${index}.temp`)}
-                  onChange={(e) =>
-                    setExecution(setSandboxExecutionField(execution, currentBlock, `rinse${index}.temp`, e.target.value))
-                  }
-                  onBlur={(e) => void commitRinse(index, "temp", e.target.value)}
-                />
-              </label>
-              <label>
-                Kettle
-                <input
-                  type="number"
-                  value={localValue(`rinse${index}.kettle`)}
-                  onChange={(e) =>
-                    setExecution(setSandboxExecutionField(execution, currentBlock, `rinse${index}.kettle`, e.target.value))
-                  }
-                  onBlur={(e) => void commitRinse(index, "kettle", e.target.value)}
-                />
-              </label>
-              {recipe.lautering.usesGrant && (
-                <label>
-                  Grant
-                  <input
-                    type="number"
-                    value={localValue(`rinse${index}.grant`)}
-                    onChange={(e) =>
-                      setExecution(setSandboxExecutionField(execution, currentBlock, `rinse${index}.grant`, e.target.value))
-                    }
-                    onBlur={(e) => void commitRinse(index, "grant", e.target.value)}
-                  />
-                </label>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="brew-step-section">
-        <div className="brew-section-title">
-          <h3>רתיחה וכשות</h3>
-          <span>יעד סוף רתיחה: {recipe.targets.endBoilPlato}°P</span>
-        </div>
-
-        <div className="brew-stage-list">
-          {CORE_STAGES.slice(9, 15).map((stage) => (
-            <div className="brew-stage-row" key={stage.key}>
-              <div className="brew-stage-label">
-                <strong>{stage.label}</strong>
-              </div>
-              <label>
-                התחלה
-                <div className="brew-time-input">
-                  <input
-                    type="time"
-                    value={localValue(`${stage.key}.start`)}
-                    onChange={(e) =>
-                      setExecution(setSandboxExecutionField(execution, currentBlock, `${stage.key}.start`, e.target.value))
-                    }
-                    onBlur={(e) => void commitStage(stage, "start", e.target.value)}
-                  />
-                  <button type="button" onClick={() => void setNow(stage, "start")}>עכשיו</button>
-                </div>
-              </label>
-              {["endTransfer", "boil", "wp"].includes(stage.key) && (
-                <label>
-                  סיום
-                  <div className="brew-time-input">
+                  <label>
+                    Kettle
                     <input
-                      type="time"
-                      value={localValue(`${stage.key}.end`)}
-                      onChange={(e) =>
-                        setExecution(setSandboxExecutionField(execution, currentBlock, `${stage.key}.end`, e.target.value))
-                      }
-                      onBlur={(e) => void commitStage(stage, "end", e.target.value)}
+                      type="number"
+                      value={localValue(`rinse${index}.kettle`)}
+                      onChange={(e) => setLocal(`rinse${index}.kettle`, e.target.value)}
+                      onBlur={(e) => void commitRinse(index, "kettle", e.target.value)}
                     />
-                    <button type="button" onClick={() => void setNow(stage, "end")}>עכשיו</button>
-                  </div>
-                </label>
+                  </label>
+                  {recipe.lautering.usesGrant && (
+                    <label>
+                      Grant
+                      <input
+                        type="number"
+                        value={localValue(`rinse${index}.grant`)}
+                        onChange={(e) => setLocal(`rinse${index}.grant`, e.target.value)}
+                        onBlur={(e) => void commitRinse(index, "grant", e.target.value)}
+                      />
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {currentStep.id === "boil" && (
+          <>
+            <div className="brew-section-title">
+              <span>יעד סוף רתיחה: {recipe.targets.endBoilPlato}°P</span>
+            </div>
+            {renderStageRows(BOIL_STAGES)}
+            <div className="brew-editor-two-cols">
+              <label>
+                pH תחילת רתיחה
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("boilPh")}
+                  onChange={(e) => setLocal("boilPh", e.target.value)}
+                  onBlur={(e) =>
+                    void commitPh("boilPh", e.target.value, stageCell(28, "F"))
+                  }
+                />
+              </label>
+              <label>
+                נפח בזמן בדיקה
+                <input
+                  type="number"
+                  value={localValue("boilSampleVolume") || "1200"}
+                  onChange={(e) => setLocal("boilSampleVolume", e.target.value)}
+                />
+              </label>
+              <label>
+                Plato בדיקה
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("boilSamplePlato")}
+                  onChange={(e) => setLocal("boilSamplePlato", e.target.value)}
+                />
+              </label>
+              <div className="brew-calc-result">
+                <span>עצירת מילוי מומלצת</span>
+                <strong>
+                  {boilRecommendation === null
+                    ? "—"
+                    : `${Math.round(boilRecommendation)} ל׳`}
+                </strong>
+                <small>לפי ה-Plato שנמדד והיעד במתכון</small>
+              </div>
+            </div>
+          </>
+        )}
+
+        {currentStep.id === "transfer" && (
+          <>
+            {renderStageRows([WP_STAGE, OUT_STAGE])}
+            <div className="brew-starting-plato-live">
+              <span>סוכר תחילי מחושב</span>
+              <strong>
+                {startingPlato.value === null
+                  ? "—"
+                  : `${startingPlato.value.toFixed(2)}°P`}
+              </strong>
+              <small>
+                {startingPlato.value === null
+                  ? "ממתין לסוף רתיחה + נפח מצטבר"
+                  : startingPlato.isPartial
+                    ? `זמני · ${startingPlato.completedBlocks}/${totalBlocks} בישולים`
+                    : "סופי · ממוצע נע ומשוקלל לפי נפחים"}
+              </small>
+            </div>
+
+            <div className="brew-sugar-grid">
+              <label>
+                F.R.
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("frPlato")}
+                  onChange={(e) => setLocal("frPlato", e.target.value)}
+                  onBlur={(e) => void commitSugar("frPlato", e.target.value, 36, "B")}
+                />
+              </label>
+              <label>
+                L.R.
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("lrPlato")}
+                  onChange={(e) => setLocal("lrPlato", e.target.value)}
+                  onBlur={(e) => void commitSugar("lrPlato", e.target.value, 37, "B")}
+                />
+              </label>
+              <label>
+                Plato בסיר
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("kettlePlato")}
+                  onChange={(e) => setLocal("kettlePlato", e.target.value)}
+                  onBlur={(e) => void commitSugar("kettlePlato", e.target.value, 38, "B")}
+                />
+              </label>
+              <label>
+                נפח בסיר
+                <input
+                  type="number"
+                  value={localValue("kettleVolume")}
+                  onChange={(e) => setLocal("kettleVolume", e.target.value)}
+                  onBlur={(e) => void commitSugar("kettleVolume", e.target.value, 38, "C")}
+                />
+              </label>
+              <label>
+                סוף רתיחה °P
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("endBoilPlato")}
+                  onChange={(e) => setLocal("endBoilPlato", e.target.value)}
+                  onBlur={(e) => void commitSugar("endBoilPlato", e.target.value, 39, "B")}
+                />
+              </label>
+              <label>
+                נפח סוף רתיחה
+                <input
+                  type="number"
+                  value={localValue("endBoilVolume")}
+                  onChange={(e) => setLocal("endBoilVolume", e.target.value)}
+                  onBlur={(e) => void commitSugar("endBoilVolume", e.target.value, 39, "C")}
+                />
+              </label>
+              <label>
+                דגימת תחילת תסיסה °P
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("fermentorSamplePlato")}
+                  onChange={(e) => setLocal("fermentorSamplePlato", e.target.value)}
+                  onBlur={(e) =>
+                    void commitSugar("fermentorSamplePlato", e.target.value, 40, "B")
+                  }
+                />
+              </label>
+              <label>
+                נפח מצטבר במיכל
+                <input
+                  type="number"
+                  value={localValue("cumulativeTankVolume")}
+                  onChange={(e) => setLocal("cumulativeTankVolume", e.target.value)}
+                  onBlur={(e) =>
+                    void commitSugar("cumulativeTankVolume", e.target.value, 40, "C")
+                  }
+                />
+              </label>
+              <label>
+                pH בהוצאה לתסיסה
+                <input
+                  type="number"
+                  step="0.01"
+                  value={localValue("outToFermentorPh")}
+                  onChange={(e) => setLocal("outToFermentorPh", e.target.value)}
+                  onBlur={(e) =>
+                    void commitPh(
+                      "outToFermentorPh",
+                      e.target.value,
+                      stageCell(40, "H"),
+                    )
+                  }
+                />
+              </label>
+            </div>
+          </>
+        )}
+
+        {currentStep.id === "summary" && (
+          <div className="brew-step-summary">
+            <div className="brew-summary-card">
+              <span>בישול</span>
+              <strong>{currentBlock}/{totalBlocks}</strong>
+            </div>
+            <div className="brew-summary-card">
+              <span>סוכר תחילי מחושב</span>
+              <strong>
+                {startingPlato.value === null
+                  ? "—"
+                  : `${startingPlato.value.toFixed(2)}°P`}
+              </strong>
+            </div>
+            <div className="brew-summary-missing">
+              <h4>
+                {missingItems.length
+                  ? `חסרים ${missingItems.length} נתונים`
+                  : "אין חוסרים בולטים בשלב זה"}
+              </h4>
+              {missingItems.length > 0 && (
+                <ul>
+                  {missingItems.map((item) => <li key={item}>{item}</li>)}
+                </ul>
               )}
+              <p>החוסרים אינם חוסמים מעבר, שמירה או יציאה מהבישול.</p>
             </div>
-          ))}
-        </div>
-
-        <div className="brew-editor-two-cols">
-          <label>
-            pH תחילת רתיחה
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("boilPh")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "boilPh", e.target.value))
-              }
-              onBlur={(e) => void commitPh("boilPh", e.target.value, stageCell(28, "F"))}
-            />
-          </label>
-          <label>
-            נפח בדיקת רתיחה
-            <input
-              type="number"
-              value={localValue("boilSampleVolume") || "1200"}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "boilSampleVolume", e.target.value))
-              }
-            />
-          </label>
-          <label>
-            Plato בדיקה
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("boilSamplePlato")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "boilSamplePlato", e.target.value))
-              }
-            />
-          </label>
-          <div className="brew-calc-result">
-            <span>עצירת מילוי מומלצת</span>
-            <strong>{boilRecommendation === null ? "—" : `${Math.round(boilRecommendation)} ל׳`}</strong>
-            <small>לפי יעד {boilTarget}°P ואידוי 100 ל׳</small>
           </div>
-        </div>
+        )}
       </section>
 
-      <section className="brew-step-section">
-        <div className="brew-section-title">
-          <h3>סוכר והוצאה לתסיסה</h3>
-          <span>סוכר תחילי מחושב בנפרד כממוצע נע ומשוקלל</span>
-        </div>
-
-        <div className="brew-stage-row brew-transfer-stage">
-          <div className="brew-stage-label">
-            <strong>הוצאה לתסיסה</strong>
-          </div>
-          <label>
-            התחלה
-            <div className="brew-time-input">
-              <input
-                type="time"
-                value={localValue("outToFermentor.start")}
-                onChange={(e) =>
-                  setExecution(
-                    setSandboxExecutionField(
-                      execution,
-                      currentBlock,
-                      "outToFermentor.start",
-                      e.target.value,
-                    ),
-                  )
-                }
-                onBlur={(e) =>
-                  void commitStage(
-                    CORE_STAGES[CORE_STAGES.length - 1],
-                    "start",
-                    e.target.value,
-                  )
-                }
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  void setNow(CORE_STAGES[CORE_STAGES.length - 1], "start")
-                }
-              >
-                עכשיו
-              </button>
-            </div>
-          </label>
-          <label>
-            סיום
-            <div className="brew-time-input">
-              <input
-                type="time"
-                value={localValue("outToFermentor.end")}
-                onChange={(e) =>
-                  setExecution(
-                    setSandboxExecutionField(
-                      execution,
-                      currentBlock,
-                      "outToFermentor.end",
-                      e.target.value,
-                    ),
-                  )
-                }
-                onBlur={(e) =>
-                  void commitStage(
-                    CORE_STAGES[CORE_STAGES.length - 1],
-                    "end",
-                    e.target.value,
-                  )
-                }
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  void setNow(CORE_STAGES[CORE_STAGES.length - 1], "end")
-                }
-              >
-                עכשיו
-              </button>
-            </div>
-          </label>
-        </div>
-
-        <div className="brew-starting-plato-live">
-          <span>סוכר תחילי מחושב</span>
-          <strong>
-            {startingPlato.value === null
-              ? "—"
-              : `${startingPlato.value.toFixed(2)}°P`}
-          </strong>
-          <small>
-            {startingPlato.value === null
-              ? "ממתין לסוף רתיחה + נפח מצטבר"
-              : startingPlato.isPartial
-                ? `זמני · ${startingPlato.completedBlocks}/${blockCount(run.tankType)} בישולים`
-                : "סופי · ממוצע משוקלל לפי הנפחים שנכנסו למיכל"}
-          </small>
-        </div>
-
-        <div className="brew-sugar-grid">
-          <label>
-            F.R.
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("frPlato")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "frPlato", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("frPlato", e.target.value, 36, "B", "°P")}
-            />
-          </label>
-          <label>
-            L.R.
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("lrPlato")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "lrPlato", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("lrPlato", e.target.value, 37, "B", "°P")}
-            />
-          </label>
-          <label>
-            Plato בסיר
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("kettlePlato")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "kettlePlato", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("kettlePlato", e.target.value, 38, "B", "°P")}
-            />
-          </label>
-          <label>
-            נפח בסיר
-            <input
-              type="number"
-              value={localValue("kettleVolume")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "kettleVolume", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("kettleVolume", e.target.value, 38, "C", "")}
-            />
-          </label>
-          <label>
-            סוף רתיחה °P
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("endBoilPlato")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "endBoilPlato", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("endBoilPlato", e.target.value, 39, "B", "°P")}
-            />
-          </label>
-          <label>
-            נפח סוף רתיחה
-            <input
-              type="number"
-              value={localValue("endBoilVolume")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "endBoilVolume", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("endBoilVolume", e.target.value, 39, "C", "")}
-            />
-          </label>
-          <label>
-            דגימת תחילת תסיסה °P
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("fermentorSamplePlato")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "fermentorSamplePlato", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("fermentorSamplePlato", e.target.value, 40, "B", "°P")}
-            />
-          </label>
-          <label>
-            נפח מצטבר במיכל
-            <input
-              type="number"
-              value={localValue("cumulativeTankVolume")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "cumulativeTankVolume", e.target.value))
-              }
-              onBlur={(e) => void commitSugar("cumulativeTankVolume", e.target.value, 40, "C", "")}
-            />
-          </label>
-          <label>
-            pH בהוצאה לתסיסה
-            <input
-              type="number"
-              step="0.01"
-              value={localValue("outToFermentorPh")}
-              onChange={(e) =>
-                setExecution(setSandboxExecutionField(execution, currentBlock, "outToFermentorPh", e.target.value))
-              }
-              onBlur={(e) => void commitPh("outToFermentorPh", e.target.value, stageCell(40, "H"))}
-            />
-          </label>
-        </div>
-      </section>
+      <div className="brew-step-footer">
+        <button
+          type="button"
+          onClick={() => setActiveStep((value) => Math.max(0, value - 1))}
+          disabled={activeStep === 0}
+        >
+          הקודם
+        </button>
+        <span>{currentStep.label}</span>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() =>
+            setActiveStep((value) => Math.min(STEPS.length - 1, value + 1))
+          }
+          disabled={activeStep === STEPS.length - 1}
+        >
+          הבא
+        </button>
+      </div>
     </section>
   );
 }
