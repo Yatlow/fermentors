@@ -1,5 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
+import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
+import {
+    createSandboxBrewRun,
+    deleteSandboxBrewRun,
+    isBrewingSandbox,
+    loadSandboxBrewRuns,
+    type SandboxBrewRun,
+} from "../../SERVICES/brewing/brewingSandbox";
 import "./BrewingView.css";
 import type { BrewingTab } from "./brewingTabs";
 
@@ -8,6 +16,13 @@ type Props = {
     tab: BrewingTab;
 };
 
+type Draft = {
+    batchNumber: string;
+    style: string;
+};
+
+const DEFAULT_STYLES = ["IPA", "פייל", "חיטה", "לאגר", "הופי לאגר", "סטאוט"];
+
 function tankType(tankNumber: unknown): "בודד" | "כפול" | "משולש" {
     const tank = Number(tankNumber);
     if (tank < 5) return "בודד";
@@ -15,7 +30,20 @@ function tankType(tankNumber: unknown): "בודד" | "כפול" | "משולש" {
     return "משולש";
 }
 
+function tankTypeKey(tankNumber: unknown): "single" | "double" | "triple" {
+    const tank = Number(tankNumber);
+    if (tank < 5) return "single";
+    if (tank < 9) return "double";
+    return "triple";
+}
+
 export default function BrewingView({ brews, tab }: Props) {
+    const sandbox = isBrewingSandbox();
+    const [sandboxRuns, setSandboxRuns] = useState<SandboxBrewRun[]>(() => loadSandboxBrewRuns());
+    const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+    const [busyTankId, setBusyTankId] = useState<string | null>(null);
+    const [message, setMessage] = useState<string>("");
+    const [suggestedBatch, setSuggestedBatch] = useState<string>("");
 
     const sanitizedTanks = useMemo(
         () =>
@@ -33,14 +61,116 @@ export default function BrewingView({ brews, tab }: Props) {
         [brews]
     );
 
+    const styles = useMemo(() => {
+        const fromTanks = brews
+            .map((tank) => String(tank.beerStyle || "").trim())
+            .filter(Boolean);
+        return Array.from(new Set([...DEFAULT_STYLES, ...fromTanks])).sort((a, b) =>
+            a.localeCompare(b, "he")
+        );
+    }, [brews]);
+
+    useEffect(() => {
+        if (!sandbox) return;
+        let cancelled = false;
+        getAllBrewsSummary()
+            .then((rows) => {
+                if (cancelled) return;
+                const max = rows.reduce((current, row) => {
+                    const value = Number(String(row.batchNumber).replace("#", "").trim());
+                    return Number.isFinite(value) ? Math.max(current, value) : current;
+                }, 0);
+                if (max > 0) setSuggestedBatch(String(max + 1));
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [sandbox]);
+
+    useEffect(() => {
+        if (!sandbox || !suggestedBatch) return;
+        setDrafts((current) => {
+            const next = { ...current };
+            sanitizedTanks.forEach((tank, index) => {
+                if (next[tank.id]) return;
+                next[tank.id] = {
+                    batchNumber: String(Number(suggestedBatch) + index),
+                    style: styles[0] || "IPA",
+                };
+            });
+            return next;
+        });
+    }, [sandbox, sanitizedTanks, styles, suggestedBatch]);
+
+    function updateDraft(tankId: string, patch: Partial<Draft>) {
+        setDrafts((current) => ({
+            ...current,
+            [tankId]: {
+                batchNumber: current[tankId]?.batchNumber || suggestedBatch,
+                style: current[tankId]?.style || styles[0] || "IPA",
+                ...patch,
+            },
+        }));
+    }
+
+    async function createSandbox(tank: Fermentor) {
+        const draft = drafts[tank.id] || {
+            batchNumber: suggestedBatch,
+            style: styles[0] || "IPA",
+        };
+        setMessage("");
+        setBusyTankId(tank.id);
+        try {
+            const run = await createSandboxBrewRun({
+                batchNumber: draft.batchNumber,
+                tankId: tank.id,
+                tankNumber: String(tank.tankNumber ?? tank.id),
+                tankType: tankTypeKey(tank.tankNumber),
+                style: draft.style,
+                source: "manual",
+            });
+            setSandboxRuns(loadSandboxBrewRuns());
+            setMessage(
+                `✓ אצווה ${run.batchNumber} נוצרה ב-Sandbox בלבד. פרודקשן והמיכל לא השתנו.`
+            );
+            setSuggestedBatch(String(Number(run.batchNumber) + 1));
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "יצירת אצוות Sandbox נכשלה.");
+        } finally {
+            setBusyTankId(null);
+        }
+    }
+
+    function removeSandboxRun(batchNumber: string) {
+        deleteSandboxBrewRun(batchNumber);
+        setSandboxRuns(loadSandboxBrewRuns());
+        setMessage(`אצוות Sandbox ${batchNumber} נמחקה.`);
+    }
+
     return (
         <main className="brewing-view" dir="rtl">
+            {sandbox && (
+                <div className="brewing-sandbox-banner" role="status">
+                    <strong>SANDBOX</strong>
+                    <span>
+                        ה-Preview מבודד: יצירת אצווה כאן אינה משנה Firestore, מיכלים או ACTION בפרודקשן.
+                    </span>
+                </div>
+            )}
+
+            {message && <div className="brewing-message">{message}</div>}
+
             {tab === "create" && (
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
                             <h2>מיכלים מחוטאים</h2>
-                            <p>בשלב הבא נחבר לכל מיכל את המלצת הבישול מהתכנון ואת היצירה הידנית.</p>
+                            <p>
+                                {sandbox
+                                    ? "אפשר ליצור אצוות בדיקה על בסיס מצב המיכלים האמיתי, ללא שינוי בפרודקשן."
+                                    : "יצירת בישול תופעל לאחר השלמת תשתית ה-Sandbox וה-Drive."}
+                            </p>
                         </div>
                         <span className="brewing-count">{sanitizedTanks.length}</span>
                     </div>
@@ -49,21 +179,76 @@ export default function BrewingView({ brews, tab }: Props) {
                         <div className="brewing-empty">אין כרגע מיכלי ייצור מחוטאים.</div>
                     ) : (
                         <div className="brewing-tank-grid">
-                            {sanitizedTanks.map((tank) => (
-                                <article className="brewing-tank-card" key={tank.id}>
-                                    <div className="brewing-tank-card-top">
-                                        <strong>מיכל {String(tank.tankNumber ?? tank.id)}</strong>
-                                        <span>{tankType(tank.tankNumber)}</span>
-                                    </div>
-                                    <div className="brewing-tank-meta">
-                                        <span>סטטוס: {tank.stage?.name || "מחוטא"}</span>
-                                        {tank.batchNumber && <span>אצווה קודמת: {String(tank.batchNumber)}</span>}
-                                    </div>
-                                    <button type="button" disabled>
-                                        יצירת בישול — בקרוב
-                                    </button>
-                                </article>
-                            ))}
+                            {sanitizedTanks.map((tank) => {
+                                const draft = drafts[tank.id] || {
+                                    batchNumber: suggestedBatch,
+                                    style: styles[0] || "IPA",
+                                };
+                                return (
+                                    <article className="brewing-tank-card" key={tank.id}>
+                                        <div className="brewing-tank-card-top">
+                                            <strong>מיכל {String(tank.tankNumber ?? tank.id)}</strong>
+                                            <span>{tankType(tank.tankNumber)}</span>
+                                        </div>
+
+                                        <div className="brewing-tank-meta">
+                                            <span>סטטוס: {tank.stage?.name || "מחוטא"}</span>
+                                            {tank.batchNumber && (
+                                                <span>אצווה קודמת: {String(tank.batchNumber)}</span>
+                                            )}
+                                        </div>
+
+                                        {sandbox ? (
+                                            <div className="brewing-create-fields">
+                                                <label>
+                                                    אצווה
+                                                    <input
+                                                        inputMode="numeric"
+                                                        value={draft.batchNumber}
+                                                        onChange={(event) =>
+                                                            updateDraft(tank.id, {
+                                                                batchNumber: event.target.value.replace(/\D/g, ""),
+                                                            })
+                                                        }
+                                                    />
+                                                </label>
+                                                <label>
+                                                    סגנון
+                                                    <select
+                                                        value={draft.style}
+                                                        onChange={(event) =>
+                                                            updateDraft(tank.id, { style: event.target.value })
+                                                        }
+                                                    >
+                                                        {styles.map((style) => (
+                                                            <option key={style} value={style}>
+                                                                {style}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void createSandbox(tank)}
+                                                    disabled={
+                                                        busyTankId === tank.id ||
+                                                        !draft.batchNumber ||
+                                                        !draft.style
+                                                    }
+                                                >
+                                                    {busyTankId === tank.id
+                                                        ? "בודק ויוצר..."
+                                                        : "צור אצוות Sandbox"}
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button type="button" disabled>
+                                                יצירת בישול — בקרוב
+                                            </button>
+                                        )}
+                                    </article>
+                                );
+                            })}
                         </div>
                     )}
                 </section>
@@ -76,6 +261,11 @@ export default function BrewingView({ brews, tab }: Props) {
                         כאן ירוכזו מתכוני הבירה, אצוות חומרי הגלם ונתוני AA. עד לחיבור הנתונים
                         נשאיר את עריכת ה-AA הפעילה גם במסך הגדרות המערכת.
                     </p>
+                    {sandbox && (
+                        <div className="brewing-sandbox-note">
+                            עריכת מתכונים ב-Sandbox תחובר בשלב הבא לנתוני draft מבודדים, לפני כתיבה ל-Firestore.
+                        </div>
+                    )}
                 </section>
             )}
 
@@ -84,33 +274,77 @@ export default function BrewingView({ brews, tab }: Props) {
                     <div className="brewing-panel-heading">
                         <div>
                             <h2>אצוות לפני / בזמן בישול</h2>
-                            <p>כאן ייפתח ה-Stepper להזנת נתוני הבישול.</p>
+                            <p>אצוות Sandbox מוצגות בנפרד מאצוות הפרודקשן.</p>
                         </div>
-                        <span className="brewing-count">{waitingBrews.length}</span>
+                        <span className="brewing-count">
+                            {sandboxRuns.length + waitingBrews.length}
+                        </span>
                     </div>
 
-                    {waitingBrews.length === 0 ? (
-                        <div className="brewing-empty">אין כרגע אצוות ב-ACTION 0.</div>
-                    ) : (
-                        <div className="brewing-tank-grid">
-                            {waitingBrews.map((tank) => (
-                                <article className="brewing-tank-card" key={tank.id}>
-                                    <div className="brewing-tank-card-top">
-                                        <strong>
-                                            {tank.batchNumber ? `אצווה ${String(tank.batchNumber)}` : "אצווה חדשה"}
-                                        </strong>
-                                        <span>{String(tank.beerStyle || "")}</span>
-                                    </div>
-                                    <div className="brewing-tank-meta">
-                                        <span>מיכל {String(tank.tankNumber ?? tank.id)}</span>
-                                        <span>{tank.brewProgress?.stageName || "עדיין לא בבישול"}</span>
-                                    </div>
-                                    <button type="button" disabled>
-                                        פתיחת טופס — בקרוב
-                                    </button>
-                                </article>
-                            ))}
-                        </div>
+                    {sandbox && sandboxRuns.length > 0 && (
+                        <>
+                            <h3 className="brewing-subheading">אצוות Sandbox</h3>
+                            <div className="brewing-tank-grid">
+                                {sandboxRuns.map((run) => (
+                                    <article className="brewing-tank-card brewing-sandbox-card" key={run.batchNumber}>
+                                        <div className="brewing-tank-card-top">
+                                            <strong>אצווה {run.batchNumber}</strong>
+                                            <span>{run.style}</span>
+                                        </div>
+                                        <div className="brewing-tank-meta">
+                                            <span>מיכל {run.tankNumber}</span>
+                                            <span>עדיין לא בבישול</span>
+                                            <span>Sandbox בלבד</span>
+                                        </div>
+                                        <div className="brewing-card-actions">
+                                            <button type="button" disabled>
+                                                פתיחת Stepper — בשלב הבא
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="brewing-danger-button"
+                                                onClick={() => removeSandboxRun(run.batchNumber)}
+                                            >
+                                                מחק
+                                            </button>
+                                        </div>
+                                    </article>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {waitingBrews.length > 0 && (
+                        <>
+                            <h3 className="brewing-subheading">אצוות פרודקשן — קריאה בלבד ב-Preview</h3>
+                            <div className="brewing-tank-grid">
+                                {waitingBrews.map((tank) => (
+                                    <article className="brewing-tank-card" key={tank.id}>
+                                        <div className="brewing-tank-card-top">
+                                            <strong>
+                                                {tank.batchNumber
+                                                    ? `אצווה ${String(tank.batchNumber)}`
+                                                    : "אצווה חדשה"}
+                                            </strong>
+                                            <span>{String(tank.beerStyle || "")}</span>
+                                        </div>
+                                        <div className="brewing-tank-meta">
+                                            <span>מיכל {String(tank.tankNumber ?? tank.id)}</span>
+                                            <span>
+                                                {tank.brewProgress?.stageName || "עדיין לא בבישול"}
+                                            </span>
+                                        </div>
+                                        <button type="button" disabled>
+                                            Preview — קריאה בלבד
+                                        </button>
+                                    </article>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {sandboxRuns.length === 0 && waitingBrews.length === 0 && (
+                        <div className="brewing-empty">אין כרגע אצוות להצגה.</div>
                     )}
                 </section>
             )}
