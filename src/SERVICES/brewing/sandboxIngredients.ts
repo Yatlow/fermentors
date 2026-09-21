@@ -10,13 +10,54 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function mergeWithDefaults(
+  saved: IngredientDefinition[],
+): IngredientDefinition[] {
+  const byId = new Map(
+    saved.map((ingredient) => [ingredient.id, clone(ingredient)]),
+  );
+
+  DEFAULT_INGREDIENT_LIBRARY.forEach((fallback) => {
+    const current = byId.get(fallback.id);
+    if (!current) {
+      byId.set(fallback.id, clone(fallback));
+      return;
+    }
+
+    const existingLots = new Map(
+      (current.lots || []).map((lot) => [lot.id, lot]),
+    );
+    fallback.lots.forEach((lot) => {
+      if (!existingLots.has(lot.id)) {
+        existingLots.set(lot.id, clone(lot));
+      }
+    });
+
+    byId.set(fallback.id, {
+      ...fallback,
+      ...current,
+      lots: Array.from(existingLots.values()),
+    });
+  });
+
+  return Array.from(byId.values());
+}
+
 export function loadSandboxIngredients(): IngredientDefinition[] {
   if (!isBrewingSandbox()) return clone(DEFAULT_INGREDIENT_LIBRARY);
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) return clone(DEFAULT_INGREDIENT_LIBRARY);
+    if (!raw) {
+      const defaults = clone(DEFAULT_INGREDIENT_LIBRARY);
+      window.localStorage.setItem(KEY, JSON.stringify(defaults));
+      return defaults;
+    }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : clone(DEFAULT_INGREDIENT_LIBRARY);
+    const merged = Array.isArray(parsed)
+      ? mergeWithDefaults(parsed)
+      : clone(DEFAULT_INGREDIENT_LIBRARY);
+    window.localStorage.setItem(KEY, JSON.stringify(merged));
+    return merged;
   } catch {
     return clone(DEFAULT_INGREDIENT_LIBRARY);
   }
