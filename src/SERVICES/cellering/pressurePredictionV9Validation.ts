@@ -2,6 +2,7 @@ import type {
   PressureV4Measurement,
 } from "./pressurePredictionV4";
 import {
+  pressureV9ObservedInventory,
   simulateV9ObservedClosedInterval,
   type PressureV9TankClass,
   type PressureV9TemperaturePathPoint,
@@ -9,6 +10,7 @@ import {
 
 const MIN_PLAUSIBLE_CARBONATION_VOL = 0.5;
 const MAX_PLAUSIBLE_CARBONATION_VOL = 4.0;
+const CLOSED_INVENTORY_TOLERANCE_VOL = 0.08;
 
 export type PressureV9ValidationBatch = {
   batchId: string;
@@ -46,6 +48,13 @@ export type PressureV9ValidationCase = {
     | "none"
     | "unknown";
   temperaturePathPointCount: number;
+  observedInventoryDeltaVol: number | null;
+  inventoryStatus:
+    | "closed_consistent"
+    | "possible_net_addition"
+    | "possible_net_release"
+    | "unknown";
+  inferredKPerHour: number | null;
   estimatedHeadspaceFraction: number | null;
   kPerHour: number;
   startMeasurementId: string;
@@ -75,12 +84,27 @@ export type PressureV9ValidationResult = {
   persistenceMae: number | null;
   improvementVsPersistence: number | null;
   massBalanceMaxResidualMoles: number | null;
+
+  strictClosedCaseCount: number;
+  strictClosedCarbonationMae: number | null;
+  strictClosedCarbonationP90AbsError: number | null;
+  strictClosedPersistenceMae: number | null;
+  strictClosedImprovementVsPersistence: number | null;
+
+  inferredKMedianPerHour: number | null;
+  inferredKP10PerHour: number | null;
+  inferredKP90PerHour: number | null;
+  kCrossFitCaseCount: number;
+  kCrossFitCarbonationMae: number | null;
+  kCrossFitCarbonationP90AbsError: number | null;
+  kCrossFitImprovementVsCurrentK: number | null;
   byStyle: PressureV9ValidationGroup[];
   byTankClass: PressureV9ValidationGroup[];
   byHorizon: PressureV9ValidationGroup[];
   byCoolingDrop: PressureV9ValidationGroup[];
   byActualPressureChange: PressureV9ValidationGroup[];
   byPressureResidual: PressureV9ValidationGroup[];
+  byInventoryBalance: PressureV9ValidationGroup[];
   byHeadspaceFraction: PressureV9ValidationGroup[];
   byStartCarbonation: PressureV9ValidationGroup[];
   worstCases: PressureV9ValidationCase[];
@@ -613,6 +637,80 @@ function pressureResidualBucket(
     return "חשד להוספת לחץ לא מתועדת";
   }
   return "ללא residual חריג (±0.18 bar)";
+}
+
+function inventoryStatusFromDelta(
+  deltaVol: number | null,
+): PressureV9ValidationCase["inventoryStatus"] {
+  if (deltaVol === null || !Number.isFinite(deltaVol)) {
+    return "unknown";
+  }
+  if (deltaVol > CLOSED_INVENTORY_TOLERANCE_VOL) {
+    return "possible_net_addition";
+  }
+  if (deltaVol < -CLOSED_INVENTORY_TOLERANCE_VOL) {
+    return "possible_net_release";
+  }
+  return "closed_consistent";
+}
+
+function inventoryBucket(
+  item: PressureV9ValidationCase,
+): string {
+  if (item.inventoryStatus === "possible_net_addition") {
+    return "מאזן CO₂: חשד לתוספת גז נטו";
+  }
+  if (item.inventoryStatus === "possible_net_release") {
+    return "מאזן CO₂: חשד לאיבוד/שחרור גז נטו";
+  }
+  if (item.inventoryStatus === "closed_consistent") {
+    return "מאזן CO₂: תואם מיכל סגור (±0.08 vol)";
+  }
+  return "מאזן CO₂: לא ניתן לחשב";
+}
+
+function inferKPerHour(args: {
+  batch: PressureV9ValidationBatch;
+  selected: ReturnType<typeof eligibleIntervals>[number];
+  startCarbonation: number;
+  actualEndCarbonation: number;
+  vesselVolumeLiters?: number;
+}): number | null {
+  let bestK: number | null = null;
+  let bestError = Number.POSITIVE_INFINITY;
+
+  const logLow = Math.log(0.0002);
+  const logHigh = Math.log(0.02);
+
+  for (let index = 0; index <= 72; index += 1) {
+    const kPerHour = Math.exp(
+      logLow + (logHigh - logLow) * index / 72,
+    );
+    const prediction = simulateV9ObservedClosedInterval({
+      tankNumber: args.batch.tankNumber,
+      beerVolumeLiters: args.batch.beerVolumeLiters,
+      vesselVolumeLiters: args.vesselVolumeLiters,
+      startCarbonation: args.startCarbonation,
+      startPressure: args.selected.startPressure,
+      startTemperature: args.selected.startTemperature,
+      endTemperature: args.selected.endTemperature,
+      durationHours: args.selected.durationHours,
+      temperaturePath: args.selected.temperaturePath,
+      kPerHour,
+    });
+    if (!prediction) continue;
+
+    const error = Math.abs(
+      prediction.predictedCarbonation -
+      args.actualEndCarbonation,
+    );
+    if (error < bestError) {
+      bestError = error;
+      bestK = kPerHour;
+    }
+  }
+
+  return bestK;
 }
 
 function headspaceBucket(fraction: number | null): string {
