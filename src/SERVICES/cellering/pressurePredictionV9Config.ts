@@ -23,3 +23,17 @@ export const PRESSURE_V9_SHADOW_STRONGER_CHECKPOINT = 15;
 // more than this amount, the recommendation is not operationally actionable.
 // We still expose the raw physics result in the private monitor for diagnosis.
 export const PRESSURE_V9_MAX_GEOMETRY_SENSITIVITY_BAR = 0.30;
+
+export function pressureV9GeometryIsActionable(
+  sensitivityWidthBar: number | null | undefined,
+): boolean {
+  return (
+    sensitivityWidthBar === null ||
+    sensitivityWidthBar === undefined ||
+    (
+      Number.isFinite(sensitivityWidthBar) &&
+      sensitivityWidthBar <=
+        PRESSURE_V9_MAX_GEOMETRY_SENSITIVITY_BAR
+    )
+  );
+}
