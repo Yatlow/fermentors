@@ -33,14 +33,6 @@ const CATEGORY_LABELS: Record<IngredientCategory, string> = {
   other: "אחר",
 };
 
-const LOT_STATUS_LABELS: Record<IngredientLotStatus, string> = {
-  current: "בשימוש",
-  next: "ממתין לשימוש",
-  received: "התקבל",
-  ended: "נגמר",
-  unknown: "ללא סטטוס",
-};
-
 export default function BrewingLibrary({ onRecipesChange }: Props) {
   const [section, setSection] = useState<LibrarySection>("recipes");
   const [recipes, setRecipes] = useState<BrewRecipe[]>(() => loadSandboxRecipes());
