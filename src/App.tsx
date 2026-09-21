@@ -376,6 +376,9 @@ function App() {
         return filteredBrews;
     }, [filteredBrews, sortByAge]);
 
+    const canAccessV9Monitor =
+        user?.email?.trim().toLowerCase() === "yisrael@atlow.co.il";
+
     if (authLoading) return <div className="dashboard-loading"><img src={shpiro} alt="Shpiro" className="login-logo" /><BeerLoader message={"טוען משתמש..."} overlay={false} size={"large"} /></div>;
     if (!user) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>כניסה למערכת</h1><button onClick={login} className="status-filter-button active">התחבר באמצעות Google</button></div>;
     if (isApproved === false) return <div className="dashboard-loading" style={{ flexDirection: "column", gap: "20px" }}><h1>אין לך הרשאות גישה למערכת זו.</h1><button onClick={logout} className="status-filter-button">התנתק</button><img src={shpiro} alt="Shpiro" className="login-logo" /></div>;
@@ -416,7 +419,7 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
-                        {admin && <button type="button" className={`status-filter-button ${selectedAdminTools === "v9Monitor" ? "active" : ""}`} onClick={() => setSelectedAdminTools("v9Monitor")}><span>V9 · מעקב וסימולציה</span></button>}
+                        {canAccessV9Monitor && <button type="button" className={`status-filter-button ${selectedAdminTools === "v9Monitor" ? "active" : ""}`} onClick={() => setSelectedAdminTools("v9Monitor")}><span>V9 · מעקב וסימולציה</span></button>}
                     </div>}
                     {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{PLANNING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
@@ -442,7 +445,7 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-                {selectedView === "ניהול" && selectedAdminTools === "v9Monitor" && admin && <PressureV9Monitor brews={brews} specs={specs} />}
+                {selectedView === "ניהול" && selectedAdminTools === "v9Monitor" && canAccessV9Monitor && <PressureV9Monitor brews={brews} specs={specs} />}
                 {selectedView === "מקרר" && <CoolerMap brews={brews} />}
             </Suspense>
         </div>
