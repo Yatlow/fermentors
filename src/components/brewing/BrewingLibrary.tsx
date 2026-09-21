@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   createSandboxRecipe,
@@ -51,19 +51,9 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
   const [deleteRecipeId, setDeleteRecipeId] = useState<string | null>(null);
   const [deleteLotKey, setDeleteLotKey] = useState<string | null>(null);
   const [lotsIngredientId, setLotsIngredientId] = useState<string | null>(null);
-  const ingredientsHydrated = useRef(false);
 
   useEffect(() => {
-    if (!ingredientsHydrated.current) {
-      ingredientsHydrated.current = true;
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      saveSandboxIngredients(ingredients);
-    }, 180);
-
-    return () => window.clearTimeout(timeout);
+    saveSandboxIngredients(ingredients);
   }, [ingredients]);
 
   const selectedRecipe = useMemo(
