@@ -1,3 +1,4 @@
+import type { BrewRecipe } from "./brewRecipe";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { runtimeConfig } from "../../config/runtimeConfig";
@@ -14,6 +15,7 @@ export type SandboxBrewRun = {
     sheetId?: string;
     sheetUrl?: string;
     sheetName?: string;
+    recipeSnapshot?: BrewRecipe;
 };
 
 const STORAGE_KEY = "fermentors:brewing-sandbox:runs:v1";
