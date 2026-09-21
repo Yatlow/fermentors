@@ -42,6 +42,10 @@ import {
     type PressureV9CalibrationResult,
 } from "../../SERVICES/cellering/pressurePredictionV9Calibration";
 import {
+    runPressureV9OutOfTimeValidation,
+    type PressureV9OutOfTimeResult,
+} from "../../SERVICES/cellering/pressurePredictionV9OutOfTime";
+import {
     getColdReferenceTemperatureV4,
     getEquilibriumPressureForV4,
     getPressurePredictionModelV4,
@@ -467,6 +471,9 @@ export default function CellarSimulator({ brews, specs }: Props) {
     const [v9CalibrationRunning, setV9CalibrationRunning] = useState(false);
     const [v9CalibrationResult, setV9CalibrationResult] =
         useState<PressureV9CalibrationResult | null>(null);
+    const [v9OutOfTimeRunning, setV9OutOfTimeRunning] = useState(false);
+    const [v9OutOfTimeResult, setV9OutOfTimeResult] =
+        useState<PressureV9OutOfTimeResult | null>(null);
     const [v9ValidationMeta, setV9ValidationMeta] = useState<{
         seed: number;
         requested: number;
@@ -582,6 +589,7 @@ export default function CellarSimulator({ brews, specs }: Props) {
         setV9ValidationResult(null);
         setV9ValidationBatches([]);
         setV9CalibrationResult(null);
+        setV9OutOfTimeResult(null);
         setV9ValidationMeta(null);
         setV9ValidationProgress("טוען אינדקסים היסטוריים מכל סגנונות הבירה…");
         setError("");
@@ -826,6 +834,49 @@ export default function CellarSimulator({ brews, specs }: Props) {
             setV9ValidationProgress("");
         } finally {
             setV9ValidationRunning(false);
+        }
+    }
+
+    async function runV9OutOfTime() {
+        setV9OutOfTimeRunning(true);
+        setV9OutOfTimeResult(null);
+        setError("");
+
+        try {
+            let batches = v9ValidationBatches;
+
+            if (!batches.length) {
+                const cached = await loadPressureV9ValidationCache();
+                if (!cached?.batches?.length) {
+                    throw new Error(
+                        "אין snapshot היסטורי מקומי. לא הופעלה טעינה חדשה מ-Firestore כדי לא לשרוף אלפי קריאות. צריך להריץ פעם אחת את בדיקת V9 ההיסטורית כדי ליצור cache מקומי."
+                    );
+                }
+                batches = cached.batches;
+                setV9ValidationBatches(batches);
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const result = runPressureV9OutOfTimeValidation({
+                batches,
+            });
+
+            if (!result) {
+                throw new Error(
+                    "אין מספיק אצוות נקיות כדי לבנות Train / Validation / Test כרונולוגיים."
+                );
+            }
+
+            setV9OutOfTimeResult(result);
+        } catch (reason) {
+            setError(
+                reason instanceof Error
+                    ? reason.message
+                    : String(reason)
+            );
+        } finally {
+            setV9OutOfTimeRunning(false);
         }
     }
 
@@ -1357,6 +1408,19 @@ export default function CellarSimulator({ brews, specs }: Props) {
                     type="button"
                     className="status-filter-button"
                     disabled={
+                        v9OutOfTimeRunning ||
+                        v9ValidationRunning
+                    }
+                    onClick={() => void runV9OutOfTime()}
+                >
+                    {v9OutOfTimeRunning
+                        ? "מריץ Out-of-time…"
+                        : "בדיקת V9 Out-of-time"}
+                </button>
+                <button
+                    type="button"
+                    className="status-filter-button"
+                    disabled={
                         !v9ValidationBatches.length ||
                         v9CalibrationRunning ||
                         v9ValidationRunning
@@ -1385,6 +1449,87 @@ export default function CellarSimulator({ brews, specs }: Props) {
             )}
 
             {error && <div className="cellar-simulator-error">{error}</div>}
+
+            {v9OutOfTimeResult && (
+                <div className="cellar-simulator-results cellar-simulator-backtest">
+                    <h3>V9 Out-of-time — בדיקה כרונולוגית</h3>
+                    <article className="cellar-simulator-result level-1">
+                        <strong>
+                            {v9OutOfTimeResult.informationalGatePassed
+                                ? "V9 עבר את הסף שהוגדר להצגת מידע משלים בפרודקשן"
+                                : "V9 עדיין לא עבר את הסף שהוגדר להצגת מידע משלים בפרודקשן"}
+                        </strong>
+
+                        <p>
+                            האצוות ממוינות בזמן: 70% הישנות משמשות Train,
+                            15% שאחריהן Validation, ורק לאחר בחירת הפרמטרים נפתחו
+                            15% החדשות ביותר כ-Test. לכל אצווה יש קול אחד כדי שאצווה
+                            עם הרבה מדידות לא תקבל משקל עודף.
+                        </p>
+
+                        <div className="cellar-simulator-backtest-metrics">
+                            <div>
+                                <b>{v9OutOfTimeResult.trainBatchCount}</b>
+                                <span>Train · עד {v9OutOfTimeResult.trainUntil ?? "—"}</span>
+                            </div>
+                            <div>
+                                <b>{v9OutOfTimeResult.validationBatchCount}</b>
+                                <span>Validation · עד {v9OutOfTimeResult.validationUntil ?? "—"}</span>
+                            </div>
+                            <div>
+                                <b>{v9OutOfTimeResult.testBatchCount}</b>
+                                <span>Test — האצוות החדשות ביותר</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9OutOfTimeResult.testSelected.carbonationMae)} vol</b>
+                                <span>Test MAE — כל החלונות</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9OutOfTimeResult.testSelected.carbonationP90AbsError)} vol</b>
+                                <span>Test P90 — כל החלונות</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9OutOfTimeResult.testSelected.strictClosedCarbonationMae)} vol</b>
+                                <span>Test MAE — מאזן CO₂ סגור</span>
+                            </div>
+                            <div>
+                                <b>{validationNumber(v9OutOfTimeResult.testSelected.strictClosedCarbonationP90AbsError)} vol</b>
+                                <span>Test P90 — מאזן CO₂ סגור</span>
+                            </div>
+                            <div>
+                                <b>{validationPercent(v9OutOfTimeResult.testSelected.strictClosedImprovementVsPersistence)}</b>
+                                <span>שיפור מול baseline — Test סגור</span>
+                            </div>
+                        </div>
+
+                        <p>
+                            k שנלמד רק מה-Train:
+                            {" "}{validationNumber(v9OutOfTimeResult.learnedKPerHour, 6)}/h.
+                            {" "}{v9OutOfTimeResult.candidateKAcceptedOnValidation
+                                ? "הוא שיפר לפחות 2% ב-Validation ולכן נבחר לפני פתיחת ה-Test."
+                                : "הוא לא שיפר מספיק ב-Validation, ולכן ה-Test נבדק עם V9 הקיים ללא החלפת k."}
+                        </p>
+
+                        {!v9OutOfTimeResult.informationalGatePassed &&
+                            v9OutOfTimeResult.informationalGateReasons.length > 0 && (
+                            <div className="cellar-simulator-backtest-cases">
+                                {v9OutOfTimeResult.informationalGateReasons.map((reason) => (
+                                    <div key={reason}>
+                                        <span>{reason}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <p className="cellar-simulator-backtest-warning">
+                            הבדיקה הזו רצה על הנתונים שכבר נטענו לזיכרון/IndexedDB.
+                            היא לא סורקת מחדש אלפי מסמכי measurements ב-Firestore.
+                            מעבר הסף מאפשר בשלב הראשון מידע משלים בלבד — לא החלפה
+                            אוטומטית של המלצת הלחץ הקיימת.
+                        </p>
+                    </article>
+                </div>
+            )}
 
             {v9CalibrationResult && (
                 <div className="cellar-simulator-results cellar-simulator-backtest">
