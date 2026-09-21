@@ -58,6 +58,9 @@ export default function BrewingView({ brews, tab }: Props) {
     const [showCreate, setShowCreate] = useState(false);
     const [planningHints, setPlanningHints] = useState<PlannedBrewHint[]>([]);
     const [planningHintsAvailable, setPlanningHintsAvailable] = useState(false);
+    const [planningHintsLoading, setPlanningHintsLoading] = useState(false);
+    const [createModalError, setCreateModalError] = useState("");
+    const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
 
     const demoTankAsFermentor = useMemo<Fermentor>(
         () => ({
@@ -172,6 +175,7 @@ export default function BrewingView({ brews, tab }: Props) {
         if (!sandbox || !showCreate) return;
 
         let cancelled = false;
+        setPlanningHintsLoading(true);
         getCurrentWeekPlannedBrewHints().then((result) => {
             if (cancelled) return;
             const weekEnd = addDays(result.weekId, 6);
@@ -200,6 +204,8 @@ export default function BrewingView({ brews, tab }: Props) {
             });
             setPlanningHints(reconciled);
             setPlanningHintsAvailable(result.available);
+        }).finally(() => {
+            if (!cancelled) setPlanningHintsLoading(false);
         });
 
         return () => {
@@ -247,7 +253,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 productionAssignment.tankNumber ?? productionAssignment.id,
             );
             const isUnstarted = Number(productionAssignment.action) === 0;
-            setMessage(
+            setCreateModalError(
                 isUnstarted
                     ? `אצווה ${draft.batchNumber} כבר משויכת למיכל ${assignedTank} ועדיין לא התחילה. לא תיווצר אצווה נוספת — הפעולה הנכונה תהיה העברת שיוך/החלפה.`
                     : `אצווה ${draft.batchNumber} כבר קיימת במיכל ${assignedTank} ולכן לא ניתן ליצור אותה שוב.`,
@@ -259,12 +265,13 @@ export default function BrewingView({ brews, tab }: Props) {
             recipes.find((item) => item.style === draft.style) ||
             recipes.find((item) => item.id === "ipa");
         if (!recipe) {
-            setMessage("לא נמצא מתכון לסגנון שנבחר.");
+            setCreateModalError("לא נמצא מתכון לסגנון שנבחר.");
             return;
         }
 
         const isSanitized = Number(tank.action) === 5;
         setMessage("");
+        setCreateModalError("");
         setBusyTankId(tank.id);
         let createdBatch: string | null = null;
 
@@ -307,12 +314,13 @@ export default function BrewingView({ brews, tab }: Props) {
             );
             setSuggestedBatch(String(Number(run.batchNumber) + 1));
             setShowCreate(false);
+            setCreateModalError("");
         } catch (error) {
             if (createdBatch) {
                 deleteSandboxBrewRun(createdBatch);
                 setSandboxRuns(loadSandboxBrewRuns());
             }
-            setMessage(
+            setCreateModalError(
                 error instanceof Error
                     ? error.message
                     : "יצירת אצוות Sandbox וה-Sheet נכשלה.",
@@ -324,6 +332,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
     async function removeSandboxRun(run: SandboxBrewRun) {
         setMessage("");
+        setDeletingBatch(run.batchNumber);
         try {
             if (run.sheetId) {
                 await ensureSandboxSheetAccess();
@@ -338,6 +347,8 @@ export default function BrewingView({ brews, tab }: Props) {
                     ? error.message
                     : "מחיקת אצוות ה-Sandbox נכשלה.",
             );
+        } finally {
+            setDeletingBatch(null);
         }
     }
 
@@ -379,7 +390,13 @@ export default function BrewingView({ brews, tab }: Props) {
                     busyTankId={busyTankId}
                     planningHints={planningHints}
                     planningHintsAvailable={planningHintsAvailable}
-                    onClose={() => setShowCreate(false)}
+                    planningHintsLoading={planningHintsLoading}
+                    error={createModalError}
+                    onClearError={() => setCreateModalError("")}
+                    onClose={() => {
+                        setCreateModalError("");
+                        setShowCreate(false);
+                    }}
                     onDemoTankTypeChange={(value) =>
                         setDemoTank(setSandboxDemoTankType(value))
                     }
@@ -431,7 +448,10 @@ export default function BrewingView({ brews, tab }: Props) {
                                 <button
                                     type="button"
                                     className="btn-primary brewing-create-button"
-                                    onClick={() => setShowCreate(true)}
+                                    onClick={() => {
+                                        setCreateModalError("");
+                                        setShowCreate(true);
+                                    }}
                                 >
                                     + יצירת בישול חדש
                                 </button>
@@ -517,9 +537,12 @@ export default function BrewingView({ brews, tab }: Props) {
                                                 <button
                                                     type="button"
                                                     className="brewing-danger-button"
+                                                    disabled={deletingBatch === run.batchNumber}
                                                     onClick={() => void removeSandboxRun(run)}
                                                 >
-                                                    מחק
+                                                    {deletingBatch === run.batchNumber
+                                                        ? "מוחק..."
+                                                        : "מחק"}
                                                 </button>
                                             </div>
                                         </article>
