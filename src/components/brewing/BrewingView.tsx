@@ -31,6 +31,7 @@ import {
 import BrewingLibrary from "./BrewingLibrary";
 import CreateBrewModal from "./CreateBrewModal";
 import BrewFormStepper from "./BrewFormStepper";
+import BeerLoader from "../general/Loading";
 import "./BrewingView.css";
 import type { BrewingTab } from "./brewingTabs";
 
@@ -540,9 +541,11 @@ export default function BrewingView({ brews, tab }: Props) {
                                                     disabled={deletingBatch === run.batchNumber}
                                                     onClick={() => void removeSandboxRun(run)}
                                                 >
-                                                    {deletingBatch === run.batchNumber
-                                                        ? "מוחק..."
-                                                        : "מחק"}
+                                                    {deletingBatch === run.batchNumber ? (
+                                                        <BeerLoader size="spinner" message="מוחק…" />
+                                                    ) : (
+                                                        "מחק"
+                                                    )}
                                                 </button>
                                             </div>
                                         </article>
