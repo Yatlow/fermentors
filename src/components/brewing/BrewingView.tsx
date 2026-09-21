@@ -190,10 +190,9 @@ export default function BrewingView({ brews, tab }: Props) {
         let createdBatch: string | null = null;
 
         try {
-            // Ask for Google access while the click gesture is still active.
-            // This keeps the browser from blocking the OAuth popup.
-            await ensureSandboxSheetAccess();
-
+            // Finish all Firestore/local validation before opening the Google
+            // permission popup. Firestore reads can fail while the main tab is
+            // hidden behind an OAuth popup ("Database is closing/hidden").
             const run = await createSandboxBrewRun({
                 batchNumber: draft.batchNumber,
                 tankId: tank.id,
@@ -203,6 +202,8 @@ export default function BrewingView({ brews, tab }: Props) {
                 source: "manual",
             });
             createdBatch = run.batchNumber;
+
+            await ensureSandboxSheetAccess();
 
             const sheet = await createSandboxBrewSheet({
                 batchNumber: run.batchNumber,
