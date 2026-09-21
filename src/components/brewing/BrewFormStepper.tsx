@@ -3106,7 +3106,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <h2 id="brew-acid-history-title">
                   {acidHistoryMode === "mash"
                     ? "השוואת חומצה במאש"
-                    : "השוואת חומצה בתחילת רתיחה"}{" "}
+                    : "השוואת חומצה ברתיחה"}{" "}
                   · {run.style}
                 </h2>
                 <p>3 אצוות אחרונות · עד 9 בישולים · נשמר מקומית לטעינה חוזרת מהירה</p>
@@ -3128,7 +3128,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <strong>{localValue("mashPh") || "—"}</strong>
                 </div>
                 <div>
-                  <span>H3PO4 ראשון</span>
+                  <span>מ״ל חומצה במאש</span>
                   <strong>
                     {localValue("mashAcid85")
                       ? localValue("mashAcid85") + " ML"
@@ -3479,7 +3479,5 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         </button>
       </div>
     </section>
-  );
-}    </section>
   );
 }
