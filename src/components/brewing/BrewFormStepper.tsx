@@ -757,6 +757,19 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       "materialsConfirmed",
       "",
     );
+
+    const hopIndex = boilHops.findIndex(
+      (hop) => hop.ingredientId === ingredientId,
+    );
+    if (hopIndex >= 0) {
+      next = setSandboxExecutionField(
+        next,
+        currentBlock,
+        `hop${hopIndex + 1}.amountGrams`,
+        "",
+      );
+    }
+
     setExecution(next);
   }
 
@@ -845,8 +858,26 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         if (lot.alpha !== undefined) {
           writes.push({
             range: `'גיליון1'!B${row}`,
-            value: lot.alpha,
+            value: Number(lot.alpha),
           });
+        }
+
+        const amountKey = `hop${index + 1}.amountGrams`;
+        if (!String(fields[amountKey] || "").trim()) {
+          const dose = hopDose(hop);
+          if (dose.grams !== null) {
+            const grams = String(Math.round(dose.grams));
+            nextExecution = setSandboxExecutionField(
+              nextExecution,
+              currentBlock,
+              amountKey,
+              grams,
+            );
+            writes.push({
+              range: `'גיליון1'!A${row}`,
+              value: Number(grams),
+            });
+          }
         }
       });
 
@@ -1356,12 +1387,50 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   ) {
     if (!approveNumericValue(key, value)) return;
     const parsed = num(value);
-    await commit(key, value, [
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [
       {
         range: `'גיליון1'!${column}${baseRow + rowOffset}`,
         value: parsed === null ? "" : parsed,
       },
-    ]);
+    ];
+
+    if (key === "kettleVolume" && parsed !== null) {
+      let nextExecution = setSandboxExecutionField(
+        execution,
+        currentBlock,
+        key,
+        value,
+      );
+
+      boilHops.forEach((hop, index) => {
+        const amountKey = `hop${index + 1}.amountGrams`;
+        if (String(fields[amountKey] || "").trim()) return;
+
+        const dose = hopDose(hop, parsed);
+        if (dose.grams === null) return;
+
+        const grams = String(Math.round(dose.grams));
+        nextExecution = setSandboxExecutionField(
+          nextExecution,
+          currentBlock,
+          amountKey,
+          grams,
+        );
+        writes.push({
+          range: `'גיליון1'!A${baseRow + 15 + index}`,
+          value: Number(grams),
+        });
+      });
+
+      setExecution(nextExecution);
+      await writeSheet(key, writes);
+      return;
+    }
+
+    await commit(key, value, writes);
   }
 
   async function commitBoilAcid(value: string) {
@@ -1409,6 +1478,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     });
 
     const endBoil = addMinutesToTime(value, totalBoilMinutes);
+    const wpEnd = addMinutesToTime(endBoil, 20);
     nextExecution = setSandboxExecutionField(
       nextExecution,
       currentBlock,
@@ -1421,10 +1491,32 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       "wp.start",
       endBoil,
     );
-    writes.push({
-      range: stageCell(38, "E"),
-      value: endBoil,
-    });
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "wp.end",
+      wpEnd,
+    );
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "outToFermentor.start",
+      wpEnd,
+    );
+    writes.push(
+      {
+        range: stageCell(38, "E"),
+        value: endBoil,
+      },
+      {
+        range: stageCell(38, "F"),
+        value: wpEnd,
+      },
+      {
+        range: stageCell(40, "E"),
+        value: wpEnd,
+      },
+    );
 
     setExecution(nextExecution);
     await writeSheet("boil.start", writes);
@@ -1447,8 +1539,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
   function hopDose(
     hop: BrewRecipe["hops"][number],
+    kettleVolumeOverride?: number | null,
   ): { grams: number | null; gramsPerLiter: number | null; alpha: number | null } {
-    const kettleVolume = num(fields.kettleVolume || "");
+    const kettleVolume =
+      kettleVolumeOverride === undefined
+        ? num(fields.kettleVolume || "")
+        : kettleVolumeOverride;
     const ingredient = ingredientLibrary.find(
       (item) => item.id === hop.ingredientId,
     );
@@ -1500,6 +1596,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
+    const wpEnd = addMinutesToTime(value, 20);
     let nextExecution = setSandboxExecutionField(
       execution,
       currentBlock,
@@ -1512,9 +1609,23 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       "wp.start",
       value,
     );
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "wp.end",
+      wpEnd,
+    );
+    nextExecution = setSandboxExecutionField(
+      nextExecution,
+      currentBlock,
+      "outToFermentor.start",
+      wpEnd,
+    );
     setExecution(nextExecution);
     await writeSheet("endBoilTime", [
       { range: stageCell(38, "E"), value },
+      { range: stageCell(38, "F"), value: wpEnd },
+      { range: stageCell(40, "E"), value: wpEnd },
     ]);
   }
 
