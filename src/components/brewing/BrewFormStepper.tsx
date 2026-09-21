@@ -1263,8 +1263,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     value: string,
   ) {
     const clean = value.trim();
-    const startRow = baseRow + 42;
-    const endRow = baseRow + 45;
+    const correctionsLabelRow = baseRow + 41;
+    const nextBoundaryRow =
+      currentBlock < totalBlocks
+        ? blockHeaderRow(run.tankType, currentBlock + 1)
+        : fermentationStartingRow(run.tankType) - 2;
+    const startRow = correctionsLabelRow + 1;
+    const endRow = Math.max(startRow, nextBoundaryRow - 1);
     const rows = run.sheetId
       ? await readSandboxSheetRange(
           run.sheetId,
