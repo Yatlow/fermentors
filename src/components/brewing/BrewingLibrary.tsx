@@ -13,8 +13,10 @@ import {
   type IngredientLotStatus,
 } from "../../SERVICES/brewing/ingredientLibrary";
 import {
+  createSandboxIngredient,
   loadSandboxIngredients,
   saveSandboxIngredients,
+  type CreateSandboxIngredientInput,
 } from "../../SERVICES/brewing/sandboxIngredients";
 import BrewRecipeEditor from "./BrewRecipeEditor";
 
@@ -33,20 +35,11 @@ const CATEGORY_LABELS: Record<IngredientCategory, string> = {
 
 const LOT_STATUS_LABELS: Record<IngredientLotStatus, string> = {
   current: "בשימוש",
-  next: "הבא בתור",
+  next: "ממתין לשימוש",
   received: "התקבל",
   ended: "נגמר",
   unknown: "ללא סטטוס",
 };
-
-function newIngredientId(name: string) {
-  const base = name
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9א-ת_-]/g, "");
-  return base || `ingredient-${Date.now()}`;
-}
 
 export default function BrewingLibrary({ onRecipesChange }: Props) {
   const [section, setSection] = useState<LibrarySection>("recipes");
@@ -101,7 +94,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     setRecipes(next);
     onRecipesChange?.(next);
     setDeleteRecipeId(null);
-    setMessage(`${recipe.style} נמחק מספריית המתכונים. אצוות קיימות עם snapshot לא משתנות.`);
+    setMessage(`${recipe.style} נמחק מספריית המתכונים. אצוות קיימות לא משתנות.`);
   }
 
   function updateIngredient(
@@ -162,34 +155,139 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     setMessage("ספריית חומרי הגלם נשמרה ב-Sandbox.");
   }
 
+  function createIngredientFromInput(
+    input: CreateSandboxIngredientInput,
+  ): IngredientDefinition {
+    const result = createSandboxIngredient(input);
+    setIngredients(result.ingredients);
+    setMessage(`${result.ingredient.name} נוסף לספריית חומרי הגלם.`);
+    return result.ingredient;
+  }
+
   function createIngredient() {
     const name = newIngredientName.trim();
     if (!name) return;
 
-    const baseId = newIngredientId(name);
-    let id = baseId;
-    if (ingredients.some((item) => item.id === id)) {
-      id = `${baseId}-${Date.now()}`;
-    }
-
-    const next: IngredientDefinition = {
-      id,
+    createIngredientFromInput({
       name,
       category: newIngredientCategory,
-      lots: [
-        {
-          id: `${id}-current`,
-          lotNumber: "",
-          active: true,
-        },
-      ],
-    };
-
-    const saved = saveSandboxIngredients([...ingredients, next]);
-    setIngredients(saved);
+    });
     setNewIngredientName("");
     setShowNewIngredient(false);
-    setMessage("חומר הגלם נוסף לספרייה.");
+  }
+
+  function updateIngredientLot(
+    ingredientId: string,
+    lotId: string,
+    field:
+      | "supplier"
+      | "lotNumber"
+      | "alpha"
+      | "bbe"
+      | "receivedDate"
+      | "startedDate",
+    value: string,
+  ) {
+    setIngredients((current) =>
+      current.map((ingredient) =>
+        ingredient.id !== ingredientId
+          ? ingredient
+          : {
+              ...ingredient,
+              lots: ingredient.lots.map((lot) =>
+                lot.id !== lotId
+                  ? lot
+                  : {
+                      ...lot,
+                      ...(field === "supplier"
+                        ? { supplier: value }
+                        : {}),
+                      ...(field === "lotNumber"
+                        ? { lotNumber: value }
+                        : {}),
+                      ...(field === "alpha"
+                        ? {
+                            alpha:
+                              value === "" ||
+                              !Number.isFinite(Number(value))
+                                ? undefined
+                                : Number(value),
+                          }
+                        : {}),
+                      ...(field === "bbe" ? { bbe: value } : {}),
+                      ...(field === "receivedDate"
+                        ? { receivedDate: value }
+                        : {}),
+                      ...(field === "startedDate"
+                        ? { startedDate: value }
+                        : {}),
+                    },
+              ),
+            },
+      ),
+    );
+    setMessage("");
+  }
+
+  function setIngredientLotStatus(
+    ingredientId: string,
+    lotId: string,
+    status: IngredientLotStatus,
+  ) {
+    setIngredients((current) =>
+      current.map((ingredient) => {
+        if (ingredient.id !== ingredientId) return ingredient;
+
+        return {
+          ...ingredient,
+          lots: ingredient.lots.map((lot) => {
+            if (lot.id === lotId) {
+              return {
+                ...lot,
+                status,
+                active: status === "current",
+              };
+            }
+
+            if (status === "current" && lot.active) {
+              return {
+                ...lot,
+                active: false,
+                status:
+                  lot.status === "current"
+                    ? "next"
+                    : lot.status,
+              };
+            }
+
+            return lot;
+          }),
+        };
+      }),
+    );
+    setMessage("");
+  }
+
+  function addIngredientLot(ingredientId: string) {
+    setIngredients((current) =>
+      current.map((ingredient) =>
+        ingredient.id !== ingredientId
+          ? ingredient
+          : {
+              ...ingredient,
+              lots: [
+                ...ingredient.lots,
+                {
+                  id: `${ingredient.id}-lot-${Date.now()}`,
+                  lotNumber: "",
+                  status: "next",
+                  active: false,
+                },
+              ],
+            },
+      ),
+    );
+    setMessage("");
   }
 
   if (selectedRecipe) {
@@ -199,6 +297,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
         ingredients={ingredients}
         onSave={saveRecipe}
         onBack={() => setSelectedRecipeId(null)}
+        onCreateIngredient={createIngredientFromInput}
       />
     );
   }
@@ -307,12 +406,12 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
                   ) : (
                     <button
                       type="button"
-                      className="brew-icon-button brew-icon-button-danger"
+                      className="brew-action-button brew-action-button-danger"
                       aria-label={`מחק ${recipe.style}`}
                       title="מחק מתכון"
                       onClick={() => removeRecipe(recipe)}
                     >
-                      ×
+                      מחק
                     </button>
                   )}
                 </div>
@@ -367,7 +466,10 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
             {ingredients.map((ingredient) => {
               const lot = activeLot(ingredient);
               return (
-                <article className="brew-ingredient-card" key={ingredient.id}>
+                <article
+                  className={`brew-ingredient-card brew-ingredient-card-${ingredient.category}`}
+                  key={ingredient.id}
+                >
                   <div className="brew-ingredient-card-head">
                     <strong>{ingredient.name}</strong>
                     <span>{CATEGORY_LABELS[ingredient.category]}</span>
@@ -429,43 +531,144 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
                     </label>
                   )}
 
-                  {ingredient.lots.length > 0 && (
-                    <details className="brew-lot-history">
-                      <summary>
-                        אצוות חומר גלם ({ingredient.lots.length})
-                      </summary>
-                      <div className="brew-lot-list">
-                        {ingredient.lots.map((item) => (
-                          <div className="brew-lot-row" key={item.id}>
-                            <div>
-                              <strong>
-                                {item.lotNumber || "ללא מספר אצווה"}
-                              </strong>
-                              <span>
-                                {item.supplier || "ללא ספק"}
-                                {item.alpha !== undefined
-                                  ? ` · aa ${item.alpha}%`
-                                  : ""}
-                                {item.receivedDate
-                                  ? ` · התקבל ${item.receivedDate}`
-                                  : ""}
-                                {item.startedDate
-                                  ? ` · התחלה ${item.startedDate}`
-                                  : ""}
-                              </span>
-                            </div>
-                            <span
-                              className={`brew-lot-status brew-lot-status-${item.status || "unknown"}`}
+                  <details className="brew-lot-history">
+                    <summary>
+                      אצוות חומר גלם ({ingredient.lots.length})
+                    </summary>
+                    <div className="brew-lot-list">
+                      {ingredient.lots.map((item) => (
+                        <div className="brew-lot-editor" key={item.id}>
+                          <div className="brew-lot-editor-head">
+                            <strong>
+                              {item.lotNumber || "אצווה ללא מספר"}
+                            </strong>
+                            <select
+                              value={item.status || "unknown"}
+                              onChange={(e) =>
+                                setIngredientLotStatus(
+                                  ingredient.id,
+                                  item.id,
+                                  e.target.value as IngredientLotStatus,
+                                )
+                              }
                             >
-                              {LOT_STATUS_LABELS[
-                                item.status || "unknown"
-                              ]}
-                            </span>
+                              <option value="current">בשימוש</option>
+                              <option value="next">ממתין לשימוש</option>
+                              <option value="received">התקבל</option>
+                              <option value="ended">נגמר</option>
+                              <option value="unknown">ללא סטטוס</option>
+                            </select>
                           </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
+
+                          <div className="brew-lot-editor-grid">
+                            <label>
+                              ספק
+                              <input
+                                value={item.supplier || ""}
+                                onChange={(e) =>
+                                  updateIngredientLot(
+                                    ingredient.id,
+                                    item.id,
+                                    "supplier",
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                            </label>
+                            <label>
+                              Lot / אצווה
+                              <input
+                                value={item.lotNumber || ""}
+                                onChange={(e) =>
+                                  updateIngredientLot(
+                                    ingredient.id,
+                                    item.id,
+                                    "lotNumber",
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                            </label>
+
+                            {ingredient.category === "hop" && (
+                              <label>
+                                aa %
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  value={item.alpha ?? ""}
+                                  onChange={(e) =>
+                                    updateIngredientLot(
+                                      ingredient.id,
+                                      item.id,
+                                      "alpha",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              </label>
+                            )}
+
+                            {ingredient.category === "yeast" && (
+                              <label>
+                                BBE
+                                <input
+                                  value={item.bbe || ""}
+                                  onChange={(e) =>
+                                    updateIngredientLot(
+                                      ingredient.id,
+                                      item.id,
+                                      "bbe",
+                                      e.target.value,
+                                    )
+                                  }
+                                />
+                              </label>
+                            )}
+
+                            <label>
+                              תאריך קבלה
+                              <input
+                                type="date"
+                                value={item.receivedDate || ""}
+                                onChange={(e) =>
+                                  updateIngredientLot(
+                                    ingredient.id,
+                                    item.id,
+                                    "receivedDate",
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                            </label>
+                            <label>
+                              התחלת שימוש
+                              <input
+                                type="date"
+                                value={item.startedDate || ""}
+                                onChange={(e) =>
+                                  updateIngredientLot(
+                                    ingredient.id,
+                                    item.id,
+                                    "startedDate",
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="brew-action-button"
+                      onClick={() => addIngredientLot(ingredient.id)}
+                    >
+                      + אצוות חומר גלם
+                    </button>
+                  </details>
                 </article>
               );
             })}
