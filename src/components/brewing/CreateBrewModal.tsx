@@ -157,11 +157,35 @@ export default function CreateBrewModal({
                 const tank = tanks.find(
                   (item) => item.id === hint.tankId,
                 );
+                const cleanBatch = String(hint.batchNumber)
+                  .replace("#", "")
+                  .trim();
+                const alreadyCreated =
+                  tanks.some(
+                    (item) =>
+                      String(item.batchNumber || "")
+                        .replace("#", "")
+                        .trim() === cleanBatch,
+                  ) ||
+                  sandboxRuns.some(
+                    (run) =>
+                      String(run.batchNumber)
+                        .replace("#", "")
+                        .trim() === cleanBatch,
+                  );
+
                 return (
                   <button
                     type="button"
                     key={`${hint.batchNumber}-${hint.tankId}-${hint.date}`}
+                    disabled={alreadyCreated}
+                    title={
+                      alreadyCreated
+                        ? "האצווה כבר נוצרה"
+                        : "מלא את פרטי האצווה המתוכננת"
+                    }
                     onClick={() => {
+                      if (alreadyCreated) return;
                       setBatchNumber(hint.batchNumber);
                       if (
                         hint.style &&
@@ -178,6 +202,7 @@ export default function CreateBrewModal({
                     {tank?.tankNumber
                       ? ` · מיכל ${tank.tankNumber}`
                       : ""}
+                    {alreadyCreated ? " · נוצר" : ""}
                   </button>
                 );
               })}
