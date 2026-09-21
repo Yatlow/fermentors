@@ -1,0 +1,160 @@
+.brewing-view {
+    width: min(1180px, calc(100% - 24px));
+    margin: 20px auto 48px;
+    direction: rtl;
+}
+
+.brewing-hero,
+.brewing-panel {
+    border-radius: 18px;
+    background: #f7f4ee;
+    border: 1px solid rgba(68, 55, 35, 0.12);
+    box-shadow: 0 8px 24px rgba(40, 31, 20, 0.06);
+}
+
+.brewing-hero {
+    padding: 18px;
+    margin-bottom: 12px;
+}
+
+.brewing-hero h1,
+.brewing-panel h2 {
+    margin: 0;
+}
+
+.brewing-hero p,
+.brewing-panel p,
+.brewing-tank-meta {
+    color: #5d554a;
+}
+
+.brewing-hero p,
+.brewing-panel p {
+    margin: 8px 0 0;
+    line-height: 1.5;
+}
+
+.brewing-section-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.brewing-section-tabs button,
+.brewing-tank-card button {
+    min-height: 46px;
+    border-radius: 12px;
+    border: 1px solid rgba(68, 55, 35, 0.16);
+    background: #fff;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.brewing-section-tabs button.active {
+    background: #ebe0ca;
+    border-color: rgba(68, 55, 35, 0.28);
+}
+
+.brewing-panel {
+    padding: 16px;
+}
+
+.brewing-panel-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.brewing-count {
+    display: inline-grid;
+    place-items: center;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #ebe0ca;
+    font-weight: 800;
+}
+
+.brewing-tank-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+.brewing-tank-card {
+    background: #fff;
+    border: 1px solid rgba(68, 55, 35, 0.12);
+    border-radius: 16px;
+    padding: 14px;
+}
+
+.brewing-tank-card-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    font-size: 1.05rem;
+}
+
+.brewing-tank-card-top span {
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #f2eee6;
+    font-size: 0.86rem;
+}
+
+.brewing-tank-meta {
+    display: grid;
+    gap: 5px;
+    margin: 12px 0 14px;
+    font-size: 0.92rem;
+}
+
+.brewing-tank-card button {
+    width: 100%;
+}
+
+.brewing-tank-card button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.brewing-empty {
+    padding: 24px 12px;
+    text-align: center;
+    color: #6e6559;
+    border: 1px dashed rgba(68, 55, 35, 0.2);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.55);
+}
+
+@media (min-width: 720px) {
+    .brewing-view {
+        width: min(1180px, calc(100% - 40px));
+        margin-top: 28px;
+    }
+
+    .brewing-hero,
+    .brewing-panel {
+        padding: 22px;
+    }
+
+    .brewing-section-tabs {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .brewing-tank-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1060px) {
+    .brewing-tank-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
