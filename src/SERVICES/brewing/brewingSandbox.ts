@@ -86,3 +86,93 @@ export function clearSandboxBrewRuns() {
     if (!isBrewingSandbox()) return;
     window.localStorage.removeItem(STORAGE_KEY);
 }
+
+
+export type SandboxDemoTank = {
+    id: "sandbox-tank-20";
+    tankNumber: "20";
+    tankType: "single" | "double" | "triple";
+    action: 5 | 0;
+    stageName: "מחוטא" | "בישול חדש";
+};
+
+const TANK_STORAGE_KEY = "fermentors:brewing-sandbox:tank20:v1";
+
+export function loadSandboxDemoTank(): SandboxDemoTank {
+    if (!isBrewingSandbox()) {
+        return {
+            id: "sandbox-tank-20",
+            tankNumber: "20",
+            tankType: "triple",
+            action: 5,
+            stageName: "מחוטא",
+        };
+    }
+
+    try {
+        const raw = window.localStorage.getItem(TANK_STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw) as Partial<SandboxDemoTank>;
+            if (
+                parsed.id === "sandbox-tank-20" &&
+                parsed.tankNumber === "20" &&
+                ["single", "double", "triple"].includes(String(parsed.tankType)) &&
+                [0, 5].includes(Number(parsed.action))
+            ) {
+                return {
+                    id: "sandbox-tank-20",
+                    tankNumber: "20",
+                    tankType: parsed.tankType as SandboxDemoTank["tankType"],
+                    action: Number(parsed.action) as SandboxDemoTank["action"],
+                    stageName: Number(parsed.action) === 5 ? "מחוטא" : "בישול חדש",
+                };
+            }
+        }
+    } catch {
+        // Fall back to a fresh demo tank.
+    }
+
+    return {
+        id: "sandbox-tank-20",
+        tankNumber: "20",
+        tankType: "triple",
+        action: 5,
+        stageName: "מחוטא",
+    };
+}
+
+function persistSandboxDemoTank(tank: SandboxDemoTank) {
+    if (!isBrewingSandbox()) return;
+    window.localStorage.setItem(TANK_STORAGE_KEY, JSON.stringify(tank));
+}
+
+export function setSandboxDemoTankType(
+    tankType: SandboxDemoTank["tankType"],
+): SandboxDemoTank {
+    const current = loadSandboxDemoTank();
+    const next = { ...current, tankType };
+    persistSandboxDemoTank(next);
+    return next;
+}
+
+export function markSandboxDemoTankBrewing(): SandboxDemoTank {
+    const current = loadSandboxDemoTank();
+    const next: SandboxDemoTank = {
+        ...current,
+        action: 0,
+        stageName: "בישול חדש",
+    };
+    persistSandboxDemoTank(next);
+    return next;
+}
+
+export function resetSandboxDemoTank(): SandboxDemoTank {
+    const current = loadSandboxDemoTank();
+    const next: SandboxDemoTank = {
+        ...current,
+        action: 5,
+        stageName: "מחוטא",
+    };
+    persistSandboxDemoTank(next);
+    return next;
+}
