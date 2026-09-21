@@ -11,6 +11,9 @@ export type SandboxBrewRun = {
     createdAt: string;
     source: "manual" | "planning";
     started: boolean;
+    sheetId?: string;
+    sheetUrl?: string;
+    sheetName?: string;
 };
 
 const STORAGE_KEY = "fermentors:brewing-sandbox:runs:v1";
@@ -175,4 +178,27 @@ export function resetSandboxDemoTank(): SandboxDemoTank {
     };
     persistSandboxDemoTank(next);
     return next;
+}
+
+
+export function attachSandboxSheet(
+    batchNumber: string,
+    sheet: { id: string; url: string; name: string },
+): SandboxBrewRun | null {
+    if (!isBrewingSandbox()) return null;
+    const clean = String(batchNumber || "").replace("#", "").trim();
+    const runs = loadSandboxBrewRuns();
+    let updated: SandboxBrewRun | null = null;
+    const next = runs.map((run) => {
+        if (run.batchNumber !== clean) return run;
+        updated = {
+            ...run,
+            sheetId: sheet.id,
+            sheetUrl: sheet.url,
+            sheetName: sheet.name,
+        };
+        return updated;
+    });
+    persistSandboxBrewRuns(next);
+    return updated;
 }
