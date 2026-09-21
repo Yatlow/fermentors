@@ -1324,8 +1324,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     let bottomCarbonationCandidate = false;
     let bottomCarbonationReason: string | null = null;
     let bottomActivationThreshold = 2.2;
-    let shouldUseBottomCarbonation = false;
-
     if (bottomCarbonationPotential) {
         const bottomModel = await getBottomCarbonationModel(style);
         const learnedActivation = bottomModel
@@ -1364,8 +1362,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
                 })
                 : null;
 
-        shouldUseBottomCarbonation = bottomCarbonationCandidate;
-
         if (bottomEstimate) {
             const startText = currentPressure !== null
                 ? `מומלץ להוריד את הלחץ ל-${bottomEstimate.startPressure} bar`
@@ -1388,9 +1384,14 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         }
     }
 
+    // Production presentation is intentionally generic for now: even when the
+    // historical bottom-carbonation model considers the low reading a candidate
+    // for bottom carbonation, the operator sees the same neutral instruction to
+    // perform/verify a pressure correction. The bottom-carbonation estimate is
+    // kept hidden for development only until the V9-backed recommendation is
+    // ready to become operational.
     const coldCarbNeedsPressureAdjustment =
         coldCarbOutOfSpecToday &&
-        !shouldUseBottomCarbonation &&
         !openBottomCarbonation;
 
     const hasPressureMeasurementToday = sortedMeasurements.some((measurement) => {
@@ -1415,7 +1416,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         !isPressureOutOfRangeVal.onSpec;
 
     const requiredBottomCarbonation = {
-        display: bottomCarbonationCandidate,
+        display: false,
         req: bottomCarbonationCandidate,
         reason: bottomCarbonationReason ?? "",
         importance: bottomCarbonationCandidate ? latestCarbSpec.importance : 0,
@@ -1439,7 +1440,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         display: true,
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
         reason: coldCarbNeedsPressureAdjustment
-            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, יעד ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם.`
+            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
             : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
