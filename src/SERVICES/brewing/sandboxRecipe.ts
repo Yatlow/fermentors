@@ -165,6 +165,18 @@ function normalizeRecipe(raw: any): BrewRecipe {
               ingredientIdFromLegacyName(hop.name),
             purpose,
             gramsPerLiter: Number(hop.gramsPerLiter || 0),
+            ...(purpose !== "dryHop"
+              ? {
+                  boilMinutes:
+                    hop.boilMinutes !== undefined
+                      ? Number(hop.boilMinutes)
+                      : hop.minutesFromEnd !== undefined
+                        ? Number(hop.minutesFromEnd)
+                        : purpose === "whirlpool"
+                          ? 0
+                          : undefined,
+                }
+              : {}),
             ...(purpose === "bitterness"
               ? {
                   aa:
