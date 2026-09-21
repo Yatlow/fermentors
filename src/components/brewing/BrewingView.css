@@ -2657,3 +2657,262 @@
         grid-template-columns: 1fr;
     }
 }
+
+
+/* =========================================================
+   Brewing workflow v2: prep, boil timeline and explicit sync
+   ========================================================= */
+
+.brew-prep-step,
+.brew-material-list,
+.brew-boil-timeline {
+    display: grid;
+    gap: 8px;
+}
+
+.brew-prep-date-card,
+.brew-material-confirmation,
+.brew-step-context-bar,
+.brew-boil-start-row,
+.brew-boil-event-row,
+.brew-yeast-pitch-row,
+.brew-lauter-reading-row {
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-sm);
+    background: #f8fafc;
+}
+
+.brew-prep-date-card {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+}
+
+.brew-prep-date-card > div {
+    display: grid;
+    gap: 2px;
+}
+
+.brew-prep-date-card small,
+.brew-material-confirmation small,
+.brew-material-row small,
+.brew-material-confirm-actions small,
+.brew-step-context-bar small,
+.brew-boil-event-row small,
+.brew-yeast-pitch-row small,
+.brew-lauter-reading-row small {
+    color: var(--text-muted);
+    font-size: 0.64rem;
+}
+
+.brew-material-confirmation {
+    margin-top: 8px;
+    padding: 10px;
+}
+
+.brew-material-row {
+    display: grid;
+    grid-template-columns: minmax(130px, 0.75fr) minmax(0, 1.7fr);
+    gap: 8px;
+    align-items: end;
+}
+
+.brew-material-row > span {
+    display: grid;
+    gap: 2px;
+}
+
+.brew-material-row select {
+    width: 100%;
+    min-width: 0;
+}
+
+.brew-material-confirm-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.brew-sync-directions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 10px;
+}
+
+.brew-sync-directions span {
+    padding: 2px 6px;
+    border-radius: var(--radius-pill);
+    background: #f1f5f9;
+    white-space: nowrap;
+}
+
+.brew-sync-explainer {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 9px;
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-sm);
+    background: #f8fbff;
+    color: var(--text-muted);
+    font-size: 0.62rem;
+}
+
+.brew-step-context-bar {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 9px;
+    padding: 8px 10px;
+}
+
+.brew-step-context-bar strong {
+    direction: ltr;
+    font-variant-numeric: tabular-nums;
+}
+
+.brew-boil-opening-grid,
+.brew-boil-calc-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 9px;
+}
+
+.brew-field-with-action {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px;
+}
+
+.brew-field-with-action button {
+    white-space: nowrap;
+}
+
+.brew-boil-start-row {
+    display: grid;
+    gap: 8px;
+    padding: 9px;
+    margin-bottom: 9px;
+}
+
+.brew-boil-event-row {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) minmax(160px, 0.8fr);
+    gap: 8px;
+    align-items: end;
+    padding: 8px 10px;
+}
+
+.brew-boil-event-row > div {
+    display: grid;
+    gap: 2px;
+}
+
+.brew-boil-end-row {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+}
+
+.brew-yeast-pitch-row,
+.brew-lauter-reading-row {
+    display: grid;
+    grid-template-columns: minmax(170px, 0.8fr) minmax(0, 1fr);
+    gap: 8px;
+    align-items: end;
+    margin-top: 8px;
+    padding: 8px 10px;
+}
+
+.brew-lauter-reading-row label {
+    max-width: 220px;
+}
+
+.brew-acid-current-context {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    margin-bottom: 9px;
+}
+
+.brew-acid-current-context > div {
+    display: grid;
+    gap: 2px;
+    padding: 8px;
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-sm);
+    background: #f8fbff;
+}
+
+.brew-acid-current-context span {
+    color: var(--text-muted);
+    font-size: 0.62rem;
+}
+
+.brew-boil-calc-modal {
+    width: min(680px, calc(100vw - 24px));
+    padding: 12px;
+    border-radius: var(--radius);
+    background: #fff;
+    box-shadow: var(--shadow-lg);
+}
+
+.brew-boil-calc-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (min-width: 700px) {
+    .brew-step-progress {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        overflow: visible;
+        gap: 6px;
+    }
+
+    .brew-step-progress button {
+        min-width: 0;
+        width: 100%;
+        flex: initial;
+    }
+
+    .brew-boil-start-row {
+        grid-template-columns:
+            minmax(190px, 1.1fr)
+            minmax(130px, 0.7fr)
+            minmax(150px, 0.75fr)
+            auto;
+        align-items: end;
+    }
+
+    .brew-prep-date-card {
+        grid-template-columns: minmax(0, 1fr) minmax(180px, 0.45fr);
+        align-items: end;
+    }
+}
+
+@media (max-width: 699px) {
+    .brew-material-row,
+    .brew-step-context-bar,
+    .brew-boil-opening-grid,
+    .brew-boil-start-row,
+    .brew-boil-event-row,
+    .brew-yeast-pitch-row,
+    .brew-lauter-reading-row,
+    .brew-acid-current-context,
+    .brew-boil-calc-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .brew-field-with-action {
+        grid-template-columns: 1fr;
+    }
+
+    .brew-material-confirm-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
