@@ -131,6 +131,17 @@ function jerusalemDate(): string {
   return `${map.day}/${map.month}/${map.year}`;
 }
 
+function sheetDate(value?: string): string {
+  const text = String(value || "").trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const display = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (display) {
+    return `${display[1].padStart(2, "0")}/${display[2].padStart(2, "0")}/${display[3]}`;
+  }
+  return jerusalemDate();
+}
+
 async function deleteSandboxFile(fileId: string) {
   try {
     const response = await googleFetch(
@@ -181,6 +192,7 @@ export async function createSandboxBrewSheet(input: {
   style: string;
   tankNumber: string;
   tankType: TankType;
+  brewDate?: string;
   recipe?: BrewRecipe;
   ingredients?: IngredientDefinition[];
 }): Promise<SandboxSheetResult> {
@@ -231,7 +243,7 @@ export async function createSandboxBrewSheet(input: {
     );
     await requireOk(propertiesResponse, "עדכון אזור הזמן של ה-Sheet נכשל");
 
-    const date = jerusalemDate();
+    const date = sheetDate(input.brewDate);
     const layout = layoutFor(input.tankType);
     const styleLabel =
       input.tankType === "single" ? "IPA" : `IPA ${tankLabel(input.tankType)}`;
