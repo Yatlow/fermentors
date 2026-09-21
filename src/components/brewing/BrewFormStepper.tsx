@@ -214,9 +214,10 @@ function numericText(value: unknown): string {
 function sheetCell(
   rows: string[][],
   rowOffset: number,
-  column: "B" | "C" | "D" | "E" | "F" | "G" | "H",
+  column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
 ): string {
   const columnIndex = {
+    A: -1,
     B: 0,
     C: 1,
     D: 2,
@@ -225,6 +226,10 @@ function sheetCell(
     G: 5,
     H: 6,
   }[column];
+
+  if (column === "A") {
+    return "";
+  }
   return String(rows[rowOffset]?.[columnIndex] ?? "").trim();
 }
 
