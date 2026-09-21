@@ -53,7 +53,9 @@ async function googleFetch(
   const response = await fetch(url, { ...init, headers });
   if (response.status === 401 && retry) {
     clearGoogleWorkspaceToken();
-    const fresh = await requestWriteToken(true);
+    // The scopes were already granted at the application's Google login.
+    // Re-authenticate the same account without forcing the consent screen again.
+    const fresh = await requestWriteToken(false);
     headers.set("Authorization", `Bearer ${fresh}`);
     return fetch(url, { ...init, headers });
   }
