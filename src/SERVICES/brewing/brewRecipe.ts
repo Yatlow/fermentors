@@ -34,6 +34,9 @@ export type BrewRecipe = {
     waterLiters: number;
     steps: BrewRecipeMashStep[];
   };
+  lautering: {
+    usesGrant: boolean;
+  };
   targets: {
     endBoilPlato: number;
     startingPlato: number;
@@ -64,6 +67,9 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
       { id: "rest2", label: "מנוחה 2", targetTemp: 72, minutes: 15 },
       { id: "mashOut", label: "סוף מאש", targetTemp: 78 },
     ],
+  },
+  lautering: {
+    usesGrant: false,
   },
   targets: {
     endBoilPlato: 15.45,
