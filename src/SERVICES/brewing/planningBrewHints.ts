@@ -26,6 +26,7 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
   try {
     const snapshot = await getDoc(doc(db, "brewPlanningQueue", weekId));
     let source = snapshot;
+    let plannerFallback: BrewPlanWithMeta[] | null = null;
 
     if (!source.exists() && auth.currentUser) {
       try {
@@ -38,6 +39,7 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
           )
             ? (planningSnapshot.data().brews as BrewPlanWithMeta[])
             : [];
+          plannerFallback = rawBrews;
           const projectedBrews = rawBrews
             .filter((brew) => !!brew.batchNumber)
             .map((brew) => ({
@@ -51,33 +53,39 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
               date: String(brew.date || ""),
             }));
 
-          await setDoc(doc(db, "brewPlanningQueue", weekId), {
-            id: weekId,
-            revision: Number(
-              planningSnapshot.data()?.revision || 1,
-            ),
-            brews: projectedBrews,
-            updatedAt: serverTimestamp(),
-            updatedBy: auth.currentUser.uid,
-          });
-
-          source = await getDoc(
-            doc(db, "brewPlanningQueue", weekId),
-          );
+          try {
+            await setDoc(doc(db, "brewPlanningQueue", weekId), {
+              id: weekId,
+              revision: Number(
+                planningSnapshot.data()?.revision || 1,
+              ),
+              brews: projectedBrews,
+              updatedAt: serverTimestamp(),
+              updatedBy: auth.currentUser.uid,
+            });
+            source = await getDoc(
+              doc(db, "brewPlanningQueue", weekId),
+            );
+          } catch {
+            // PR previews use the production Firestore rules, so the
+            // projection write may remain blocked until the rules ship.
+          }
         }
       } catch {
-        // Non-planner users cannot read planningWeeks. They simply use
-        // the projection once a planner has created it.
+        // Non-planner users cannot read planningWeeks. They use the
+        // approved-user projection once a planner has created it.
       }
     }
 
-    if (!source.exists()) {
+    if (!source.exists() && !plannerFallback) {
       return { weekId, hints: [], available: true };
     }
 
-    const brews = Array.isArray(source.data()?.brews)
-      ? (source.data().brews as BrewPlanWithMeta[])
-      : [];
+    const brews = source.exists()
+      ? Array.isArray(source.data()?.brews)
+        ? (source.data().brews as BrewPlanWithMeta[])
+        : []
+      : plannerFallback || [];
 
     return {
       weekId,
