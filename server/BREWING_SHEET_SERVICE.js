@@ -304,6 +304,74 @@ function brewingSheetParseHistoryBlock_(
   return row;
 }
 
+function brewingSheetStyleFromFileName_(fileName) {
+  return String(fileName || "")
+    .replace(/^\s*\[SANDBOX\]\s*/i, "")
+    .replace(/^\s*עותק של\s*/i, "")
+    .replace(/#?\s*\d{3,6}\s*#?/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function brewingSheetTankTypeFromFileName_(fileName) {
+  const name = String(fileName || "");
+  if (name.indexOf("משולש") !== -1) return "triple";
+  if (name.indexOf("כפול") !== -1) return "double";
+  return "single";
+}
+
+function brewingSheetListHistory_(data) {
+  const requestedLimit = Number(data && data.limit);
+  const safeLimit =
+    Number.isFinite(requestedLimit)
+      ? Math.max(10, Math.min(150, Math.round(requestedLimit)))
+      : 100;
+
+  let candidates = [];
+  if (typeof getBrewFolderCandidatesCached === "function") {
+    candidates = getBrewFolderCandidatesCached() || [];
+  }
+
+  const seenBatches = {};
+  return candidates
+    .slice()
+    .sort(function (a, b) {
+      return Number(b.batch || 0) - Number(a.batch || 0);
+    })
+    .filter(function (candidate) {
+      const name = String(candidate.fileName || "");
+      if (/^\s*\[SANDBOX\]/i.test(name)) return false;
+
+      const batch = Number(
+        candidate.batch || brewingSheetBatchFromName_(name)
+      );
+      if (!Number.isFinite(batch)) return false;
+      if (seenBatches[batch]) return false;
+
+      seenBatches[batch] = true;
+      return true;
+    })
+    .slice(0, safeLimit)
+    .map(function (candidate) {
+      const fileName = String(candidate.fileName || "");
+      const batch = Number(
+        candidate.batch || brewingSheetBatchFromName_(fileName)
+      );
+
+      return {
+        id: String(candidate.fileId || ""),
+        fileId: String(candidate.fileId || ""),
+        fileName: fileName,
+        batchNumber: String(batch),
+        beerStyle: brewingSheetStyleFromFileName_(fileName),
+        brewDate: "",
+        sheetUrl: buildSheetUrl(candidate.fileId),
+        tankNumber: "",
+        tankType: brewingSheetTankTypeFromFileName_(fileName)
+      };
+    });
+}
+
 function brewingSheetAcidHistory_(data) {
   const style = String(data.style || "").trim().toLowerCase();
   const currentBatch = Number(String(data.currentBatchNumber || "").replace("#", ""));
