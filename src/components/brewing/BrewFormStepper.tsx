@@ -3305,6 +3305,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.01"
+                  required
                   value={localValue("kettlePlato")}
                   onChange={(e) => setLocal("kettlePlato", e.target.value)}
                   onBlur={(e) =>
@@ -3318,7 +3319,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <div className="brew-field-with-action">
                   <input
                     type="number"
-                    value={localValue("kettleVolume")}
+                    required
+                  value={localValue("kettleVolume")}
                     onChange={(e) => setLocal("kettleVolume", e.target.value)}
                     onBlur={(e) =>
                       void commitSugar("kettleVolume", e.target.value, 38, "C")
@@ -3344,7 +3346,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     inputMode="numeric"
                     dir="ltr"
                     placeholder="HH:MM"
-                    value={localValue("boil.start")}
+                    required
+                  value={localValue("boil.start")}
                     onChange={(e) => setLocal("boil.start", e.target.value)}
                     onBlur={(e) => void commitBoilStart(e.target.value)}
                   />
@@ -3362,6 +3365,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.01"
+                  required
                   value={localValue("boilPh")}
                   onChange={(e) => setLocal("boilPh", e.target.value)}
                   onBlur={(e) =>
@@ -3375,6 +3379,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.1"
+                  required
                   value={localValue("boilAcid85")}
                   onChange={(e) => setLocal("boilAcid85", e.target.value)}
                   onBlur={(e) => void commitBoilAcid(e.target.value)}
@@ -3415,6 +3420,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                         inputMode="numeric"
                         dir="ltr"
                         placeholder="HH:MM"
+                        required
                         value={localValue(key)}
                         onChange={(e) => setLocal(key, e.target.value)}
                         onBlur={(e) =>
@@ -3436,6 +3442,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                             <input
                               type="number"
                               step="1"
+                              required
                               value={localValue(amountKey) || suggested}
                               onFocus={(e) => e.currentTarget.select()}
                               onChange={(e) =>
@@ -3449,14 +3456,42 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                               }
                             />
                           </label>
+                          {hop.purpose === "bitterness" && (
+                            <label className="brew-hop-alpha-field">
+                              Alpha %
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="1"
+                                max="25"
+                                value={
+                                  localValue(`hop${index + 1}.alphaOverride`) ||
+                                  (dose.alpha === null ? "" : String(dose.alpha))
+                                }
+                                onChange={(e) =>
+                                  setLocal(
+                                    `hop${index + 1}.alphaOverride`,
+                                    e.target.value,
+                                  )
+                                }
+                                onBlur={(e) =>
+                                  void commitHopAlpha(index, e.target.value)
+                                }
+                              />
+                            </label>
+                          )}
                           <small className="brew-hop-dose-meta">
-                            {dose.alpha === null
-                              ? "aa —"
-                              : `aa ${dose.alpha}%`}
-                            {" · "}
                             {dose.gramsPerLiter === null
                               ? "—"
                               : `${dose.gramsPerLiter.toFixed(3)} ג׳/ל׳`}
+                            {hop.purpose !== "bitterness" && (
+                              <>
+                                {" · "}
+                                {dose.alpha === null
+                                  ? "aa —"
+                                  : `aa ${dose.alpha}%`}
+                              </>
+                            )}
                           </small>
                         </>
                       );
@@ -3477,6 +3512,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     inputMode="numeric"
                     dir="ltr"
                     placeholder="HH:MM"
+                    required
                     value={localValue("endBoilTime")}
                     onChange={(e) => setLocal("endBoilTime", e.target.value)}
                     onBlur={(e) => void commitEndBoil(e.target.value)}
@@ -3503,6 +3539,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.01"
+                  required
                   value={localValue("endBoilPlato")}
                   onChange={(e) => setLocal("endBoilPlato", e.target.value)}
                   onBlur={(e) =>
@@ -3514,6 +3551,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 נפח סוף רתיחה
                 <input
                   type="number"
+                  required
                   value={localValue("endBoilVolume")}
                   onChange={(e) => setLocal("endBoilVolume", e.target.value)}
                   onBlur={(e) =>
@@ -3535,7 +3573,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       inputMode="numeric"
                       dir="ltr"
                       placeholder="HH:MM"
-                      value={localValue("yeastPitchTime")}
+                      required
+                  value={localValue("yeastPitchTime")}
                       onChange={(e) =>
                         setLocal("yeastPitchTime", e.target.value)
                       }
@@ -3564,8 +3603,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 {startingPlato.value === null
                   ? "ממתין לסוף רתיחה + נפח מצטבר"
                   : startingPlato.isPartial
-                    ? `זמני · ${startingPlato.completedBlocks}/${totalBlocks} בישולים`
-                    : "סופי · ממוצע נע ומשוקלל לפי נפחים"}
+                    ? `זמני · ${startingPlato.completedBlocks}/${totalBlocks} בישולים · לפי °P סוף רתיחה + 0.05`
+                    : "סופי · ממוצע משוקלל לפי °P סוף רתיחה + 0.05 ונפחים מצטברים"}
               </small>
             </div>
 
@@ -3575,6 +3614,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.01"
+                  required
                   value={localValue("fermentorSamplePlato")}
                   onChange={(e) =>
                     setLocal("fermentorSamplePlato", e.target.value)
@@ -3595,6 +3635,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <div className="brew-volume-with-action">
                   <input
                     type="number"
+                    required={currentBlock > 1 || totalBlocks === 1}
                     value={localValue("cumulativeTankVolume")}
                     onChange={(e) =>
                       setLocal("cumulativeTankVolume", e.target.value)
@@ -3633,6 +3674,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <input
                   type="number"
                   step="0.01"
+                  required
                   value={localValue("outToFermentorPh")}
                   onChange={(e) =>
                     setLocal("outToFermentorPh", e.target.value)
@@ -3647,6 +3689,23 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 />
               </label>
             </div>
+
+            <label className="brew-general-note">
+              הערה כללית / תיקונים
+              <textarea
+                rows={3}
+                value={localValue("generalNote")}
+                placeholder="הערה שתישמר באזור תיקונים ב-Sheet"
+                onChange={(e) => setLocal("generalNote", e.target.value)}
+                onBlur={(e) =>
+                  void commitCorrectionNote(
+                    "generalNote",
+                    "הערה כללית",
+                    e.target.value,
+                  )
+                }
+              />
+            </label>
           </>
         )}
 
