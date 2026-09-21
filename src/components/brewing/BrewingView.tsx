@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
+import {
+    getAllBrewsSummary,
+    type BrewSummary,
+} from "../../SERVICES/getAndPost/getAllBrews";
 import { loadSandboxRecipes } from "../../SERVICES/brewing/sandboxRecipe";
 import { loadSandboxIngredients } from "../../SERVICES/brewing/sandboxIngredients";
 import {
@@ -35,17 +38,99 @@ import BrewFormStepper from "./BrewFormStepper";
 import BeerLoader from "../general/Loading";
 import "./BrewingView.css";
 import type { BrewingTab } from "./brewingTabs";
+import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 
 type Props = {
     brews: Fermentor[];
     tab: BrewingTab;
 };
 
-function tankTypeKey(tankNumber: unknown): "single" | "double" | "triple" {
+function tankTypeKey(
+    tankNumber: unknown,
+    style = "",
+): "single" | "double" | "triple" {
     const tank = Number(tankNumber);
-    if (tank < 5) return "single";
-    if (tank < 9) return "double";
-    return "triple";
+    if (Number.isFinite(tank) && tank > 0) {
+        if (tank < 5) return "single";
+        if (tank < 9) return "double";
+        return "triple";
+    }
+
+    if (/משולש/.test(style)) return "triple";
+    if (/כפול/.test(style)) return "double";
+    return "single";
+}
+
+function extractSpreadsheetId(value: unknown): string {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    const match = text.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : text;
+}
+
+function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
+    const batchNumber = String(tank.batchNumber || "").replace("#", "").trim();
+    const style = String(tank.beerStyle || "").trim();
+    const sheetUrl = String(tank.sheetUrl || "").trim();
+    const sheetId = extractSpreadsheetId(sheetUrl);
+
+    if (!batchNumber || !style || !sheetId) return null;
+
+    return {
+        batchNumber,
+        tankId: tank.id,
+        tankNumber: String(tank.tankNumber ?? tank.id),
+        tankType: tankTypeKey(tank.tankNumber, style),
+        style,
+        brewDate: String(tank.brewDate || ""),
+        createdAt: new Date(0).toISOString(),
+        source: "production",
+        started: Number(tank.action) !== 0,
+        sheetId,
+        sheetUrl,
+        sheetName: "",
+        assignmentStatus: "assigned",
+    };
+}
+
+function productionRunFromSummary(row: BrewSummary): SandboxBrewRun | null {
+    const batchNumber = String(row.batchNumber || "").replace("#", "").trim();
+    const style = String(row.beerStyle || "").trim();
+    const sheetUrl = String(row.sheetUrl || "").trim();
+    const sheetId = extractSpreadsheetId(sheetUrl);
+
+    if (!batchNumber || !style || !sheetId) return null;
+
+    return {
+        batchNumber,
+        tankId: `history-${batchNumber}`,
+        tankNumber: String(row.tankNumber || "—"),
+        tankType: tankTypeKey(row.tankNumber, style),
+        style,
+        brewDate: String(row.brewDate || ""),
+        createdAt: new Date(0).toISOString(),
+        source: "production",
+        started: true,
+        sheetId,
+        sheetUrl,
+        sheetName: "",
+        assignmentStatus: "assigned",
+    };
+}
+
+function productionTankStatus(tank: Fermentor): string {
+    const stageName = String(tank.brewProgress?.stageName || "").trim();
+    if (stageName) return stageName;
+
+    const action = Number(tank.action);
+    const labels: Record<number, string> = {
+        0: "בישול חדש / ממתין",
+        1: "בתסיסה",
+        3: "מלוכלך / ריק",
+        4: "נקי",
+        5: "מחוטא",
+    };
+    return labels[action] || `ACTION ${String(tank.action ?? "—")}`;
 }
 
 export default function BrewingView({ brews, tab }: Props) {
@@ -63,6 +148,9 @@ export default function BrewingView({ brews, tab }: Props) {
     const [planningHintsLoading, setPlanningHintsLoading] = useState(false);
     const [createModalError, setCreateModalError] = useState("");
     const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
+    const [productionHistory, setProductionHistory] = useState<BrewSummary[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyQuery, setHistoryQuery] = useState("");
 
     const demoTankAsFermentor = useMemo<Fermentor>(
         () => ({
@@ -86,13 +174,61 @@ export default function BrewingView({ brews, tab }: Props) {
         );
     }, [brews, demoTankAsFermentor, sandbox]);
 
-    const waitingBrews = useMemo(
+    const editableProductionTanks = useMemo(
         () =>
             brews
-                .filter((tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 0)
+                .filter((tank) => Number(tank.tankNumber) !== 1)
+                .filter((tank) => !!productionRunFromTank(tank))
                 .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)),
-        [brews]
+        [brews],
     );
+
+    const selectedRecipe = useMemo(() => {
+        if (!selectedRun) return null;
+        if (selectedRun.recipeSnapshot) return selectedRun.recipeSnapshot;
+
+        const matching =
+            recipes.find((item) => sameStyle(item.style, selectedRun.style)) ||
+            recipes.find(
+                (item) =>
+                    item.id.toLowerCase() ===
+                    selectedRun.style.trim().toLowerCase(),
+            );
+
+        if (matching) return matching;
+        return selectedRun.source === "production" ? null : recipes[0] || null;
+    }, [recipes, selectedRun]);
+
+    const currentProductionBatchNumbers = useMemo(
+        () =>
+            new Set(
+                editableProductionTanks
+                    .map((tank) =>
+                        String(tank.batchNumber || "").replace("#", "").trim(),
+                    )
+                    .filter(Boolean),
+            ),
+        [editableProductionTanks],
+    );
+
+    const historicalProductionRuns = useMemo(() => {
+        const query = historyQuery.trim().toLowerCase();
+
+        return productionHistory
+            .map(productionRunFromSummary)
+            .filter((run): run is SandboxBrewRun => !!run)
+            .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber))
+            .filter((run) => {
+                if (!query) return true;
+                return [
+                    run.batchNumber,
+                    run.style,
+                    run.tankNumber,
+                    run.brewDate || "",
+                ].some((value) => String(value).toLowerCase().includes(query));
+            })
+            .slice(0, query ? 30 : 12);
+    }, [productionHistory, currentProductionBatchNumbers, historyQuery]);
 
     useEffect(() => {
         if (!sandbox) return;
@@ -146,9 +282,11 @@ export default function BrewingView({ brews, tab }: Props) {
     useEffect(() => {
         if (!sandbox) return;
         let cancelled = false;
+        setHistoryLoading(true);
         getAllBrewsSummary()
             .then((rows) => {
                 if (cancelled) return;
+                setProductionHistory(rows);
                 const maxHistory = rows.reduce((current, row) => {
                     const value = Number(String(row.batchNumber).replace("#", "").trim());
                     return Number.isFinite(value) ? Math.max(current, value) : current;
@@ -167,7 +305,12 @@ export default function BrewingView({ brews, tab }: Props) {
                     setSuggestedBatch(String(candidate));
                 }
             })
-            .catch(() => undefined);
+            .catch(() => {
+                if (!cancelled) setProductionHistory([]);
+            })
+            .finally(() => {
+                if (!cancelled) setHistoryLoading(false);
+            });
         return () => {
             cancelled = true;
         };
@@ -432,14 +575,10 @@ export default function BrewingView({ brews, tab }: Props) {
                 </section>
             )}
 
-            {tab === "form" && selectedRun && sandbox && (
+            {tab === "form" && selectedRun && sandbox && selectedRecipe && (
                 <BrewFormStepper
                     run={selectedRun}
-                    recipe={
-                        selectedRun.recipeSnapshot ||
-                        recipes.find((item) => item.style === selectedRun.style) ||
-                        recipes[0]
-                    }
+                    recipe={selectedRecipe}
                     onClose={() => setSelectedRun(null)}
                 />
             )}
@@ -448,12 +587,15 @@ export default function BrewingView({ brews, tab }: Props) {
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
-                            <h2>אצוות לפני / בזמן בישול</h2>
-                            <p>אצוות שממתינות לחיטוי מוצגות כאן, אבל אי אפשר להתחיל להן טופס בישול לפני השיבוץ.</p>
+                            <h2>אצוות בישול</h2>
+                            <p>
+                                אצוות Sandbox לצד אצוות אמת. באצוות אמת העריכה מעדכנת
+                                את ה-Sheet המקורי בלבד ואינה משנה ACTION / Stage.
+                            </p>
                         </div>
                         <div className="brewing-heading-actions">
                             <span className="brewing-count">
-                                {sandboxRuns.length + waitingBrews.length}
+                                {sandboxRuns.length + editableProductionTanks.length}
                             </span>
                             {sandbox && (
                                 <button
@@ -504,7 +646,16 @@ export default function BrewingView({ brews, tab }: Props) {
                                         >
                                             <div className="brewing-tank-card-top">
                                                 <strong>אצווה {run.batchNumber}</strong>
-                                                <span>{run.style}</span>
+                                                {(() => {
+                                                    const style = beerStyleClass(run.style);
+                                                    return (
+                                                        <span
+                                                            className={`brewing-style-tag ${style.className}`}
+                                                        >
+                                                            {style.displayLabel}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </div>
                                             <div className="brewing-tank-meta">
                                                 <span>מיכל יעד {run.tankNumber}</span>
@@ -565,43 +716,173 @@ export default function BrewingView({ brews, tab }: Props) {
                         </>
                     )}
 
-                    {waitingBrews.length > 0 && (
+                    {editableProductionTanks.length > 0 && (
                         <>
                             <h3 className="brewing-subheading">
-                                אצוות פרודקשן — קריאה בלבד ב-Preview
+                                אצוות אמת — עריכת Sheet
                             </h3>
+                            <div className="brewing-real-data-note">
+                                <strong>זה מידע אמיתי.</strong>
+                                <span>
+                                    פתיחת אצווה מושכת את הנתונים מה-Sheet הקיים.
+                                    כל שמירה בטופס נכתבת חזרה לאותו Sheet.
+                                </span>
+                            </div>
                             <div className="brewing-tank-grid">
-                                {waitingBrews.map((tank) => (
-                                    <article className="brewing-tank-card" key={tank.id}>
-                                        <div className="brewing-tank-card-top">
-                                            <strong>
-                                                {tank.batchNumber
-                                                    ? `אצווה ${String(tank.batchNumber)}`
-                                                    : "אצווה חדשה"}
-                                            </strong>
-                                            <span>{String(tank.beerStyle || "")}</span>
-                                        </div>
-                                        <div className="brewing-tank-meta">
-                                            <span>
-                                                מיכל {String(tank.tankNumber ?? tank.id)}
-                                            </span>
-                                            <span>
-                                                {tank.brewProgress?.stageName ||
-                                                    "עדיין לא בבישול"}
-                                            </span>
-                                        </div>
-                                        <button type="button" disabled>
-                                            Preview — קריאה בלבד
-                                        </button>
-                                    </article>
-                                ))}
+                                {editableProductionTanks.map((tank) => {
+                                    const run = productionRunFromTank(tank);
+                                    if (!run) return null;
+                                    const style = beerStyleClass(run.style);
+                                    const recipe =
+                                        recipes.find((item) =>
+                                            sameStyle(item.style, run.style),
+                                        ) || null;
+
+                                    return (
+                                        <article
+                                            className="brewing-tank-card brewing-production-card"
+                                            key={tank.id}
+                                        >
+                                            <div className="brewing-tank-card-top">
+                                                <strong>אצווה {run.batchNumber}</strong>
+                                                <span
+                                                    className={`brewing-style-tag ${style.className}`}
+                                                >
+                                                    {style.displayLabel}
+                                                </span>
+                                            </div>
+                                            <div className="brewing-tank-meta">
+                                                <span>מיכל {run.tankNumber}</span>
+                                                <span>{productionTankStatus(tank)}</span>
+                                                <span>ACTION {String(tank.action ?? "—")}</span>
+                                            </div>
+                                            <div className="brewing-card-actions">
+                                                <a
+                                                    className="brewing-sheet-link"
+                                                    href={run.sheetUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                >
+                                                    פתח Sheet
+                                                </a>
+                                                <button
+                                                    type="button"
+                                                    disabled={!sandbox || !recipe}
+                                                    onClick={() => {
+                                                        setMessage("");
+                                                        setSelectedRun(run);
+                                                    }}
+                                                >
+                                                    {!recipe
+                                                        ? "חסר מתכון תואם"
+                                                        : sandbox
+                                                          ? "עריכת נתוני בישול"
+                                                          : "עריכה זמינה ב-Preview"}
+                                                </button>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
                             </div>
                         </>
                     )}
 
-                    {sandboxRuns.length === 0 && waitingBrews.length === 0 && (
-                        <div className="brewing-empty">אין כרגע אצוות להצגה.</div>
-                    )}
+                    <div className="brewing-history-section">
+                        <div className="brewing-history-heading">
+                            <div>
+                                <h3 className="brewing-subheading">
+                                    אצוות קודמות לעריכה
+                                </h3>
+                                <small>
+                                    חיפוש מתוך 100 האצוות האחרונות שנשמרו ב-Firestore
+                                </small>
+                            </div>
+                            <input
+                                type="search"
+                                value={historyQuery}
+                                placeholder="אצווה / סגנון / מיכל / תאריך"
+                                onChange={(event) =>
+                                    setHistoryQuery(event.target.value)
+                                }
+                            />
+                        </div>
+
+                        {historyLoading ? (
+                            <div className="brewing-history-loader">
+                                <BeerLoader size="small" message="טוען אצוות…" />
+                            </div>
+                        ) : historicalProductionRuns.length > 0 ? (
+                            <div className="brewing-tank-grid">
+                                {historicalProductionRuns.map((run) => {
+                                    const style = beerStyleClass(run.style);
+                                    const recipe =
+                                        recipes.find((item) =>
+                                            sameStyle(item.style, run.style),
+                                        ) || null;
+
+                                    return (
+                                        <article
+                                            className="brewing-tank-card brewing-history-card"
+                                            key={`history-${run.batchNumber}`}
+                                        >
+                                            <div className="brewing-tank-card-top">
+                                                <strong>אצווה {run.batchNumber}</strong>
+                                                <span
+                                                    className={`brewing-style-tag ${style.className}`}
+                                                >
+                                                    {style.displayLabel}
+                                                </span>
+                                            </div>
+                                            <div className="brewing-tank-meta">
+                                                <span>
+                                                    {run.tankNumber === "—"
+                                                        ? "מיכל לא ידוע"
+                                                        : `מיכל ${run.tankNumber}`}
+                                                </span>
+                                                <span>{run.brewDate || "ללא תאריך"}</span>
+                                            </div>
+                                            <div className="brewing-card-actions">
+                                                <a
+                                                    className="brewing-sheet-link"
+                                                    href={run.sheetUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                >
+                                                    פתח Sheet
+                                                </a>
+                                                <button
+                                                    type="button"
+                                                    disabled={!sandbox || !recipe}
+                                                    onClick={() => {
+                                                        setMessage("");
+                                                        setSelectedRun(run);
+                                                    }}
+                                                >
+                                                    {!recipe
+                                                        ? "חסר מתכון תואם"
+                                                        : "עריכת נתוני בישול"}
+                                                </button>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="brewing-empty">
+                                {historyQuery
+                                    ? "לא נמצאה אצווה תואמת עם Sheet לעריכה."
+                                    : "לא נמצאו אצוות קודמות עם Sheet זמין לעריכה."}
+                            </div>
+                        )}
+                    </div>
+
+                    {sandboxRuns.length === 0 &&
+                        editableProductionTanks.length === 0 &&
+                        productionHistory.length === 0 && (
+                            <div className="brewing-empty">
+                                אין כרגע אצוות להצגה.
+                            </div>
+                        )}
                 </section>
             )}
         </main>
