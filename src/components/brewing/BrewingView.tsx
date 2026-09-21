@@ -14,7 +14,11 @@ import {
     type SandboxBrewRun,
     type SandboxDemoTank,
 } from "../../SERVICES/brewing/brewingSandbox";
-import { createSandboxBrewSheet, ensureSandboxSheetAccess } from "../../SERVICES/brewing/sandboxSheet";
+import {
+    createSandboxBrewSheet,
+    deleteSandboxBrewSheet,
+    ensureSandboxSheetAccess,
+} from "../../SERVICES/brewing/sandboxSheet";
 import "./BrewingView.css";
 import type { BrewingTab } from "./brewingTabs";
 
@@ -201,10 +205,23 @@ export default function BrewingView({ brews, tab }: Props) {
         }
     }
 
-    function removeSandboxRun(batchNumber: string) {
-        deleteSandboxBrewRun(batchNumber);
-        setSandboxRuns(loadSandboxBrewRuns());
-        setMessage(`אצוות Sandbox ${batchNumber} נמחקה.`);
+    async function removeSandboxRun(run: SandboxBrewRun) {
+        setMessage("");
+        try {
+            if (run.sheetId) {
+                await ensureSandboxSheetAccess();
+                await deleteSandboxBrewSheet(run.sheetId);
+            }
+            deleteSandboxBrewRun(run.batchNumber);
+            setSandboxRuns(loadSandboxBrewRuns());
+            setMessage(`אצוות Sandbox ${run.batchNumber} וה-Sheet שלה נמחקו.`);
+        } catch (error) {
+            setMessage(
+                error instanceof Error
+                    ? error.message
+                    : "מחיקת אצוות ה-Sandbox נכשלה."
+            );
+        }
     }
 
     return (
@@ -431,7 +448,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                             <button
                                                 type="button"
                                                 className="brewing-danger-button"
-                                                onClick={() => removeSandboxRun(run.batchNumber)}
+                                                onClick={() => void removeSandboxRun(run)}
                                             >
                                                 מחק
                                             </button>
