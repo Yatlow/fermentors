@@ -158,7 +158,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
   function createIngredientFromInput(
     input: CreateSandboxIngredientInput,
   ): IngredientDefinition {
-    const result = createSandboxIngredient(input);
+    const result = createSandboxIngredient(input, ingredients);
     setIngredients(result.ingredients);
     setMessage(`${result.ingredient.name} נוסף לספריית חומרי הגלם.`);
     return result.ingredient;
