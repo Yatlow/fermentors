@@ -174,6 +174,13 @@ async function deleteSandboxFile(fileId: string) {
   }
 }
 
+export async function ensureSandboxSheetAccess(): Promise<void> {
+  if (runtimeConfig.deployEnv !== "preview") {
+    throw new Error("הרשאת Sandbox זמינה רק ב-Preview.");
+  }
+  await requestWriteToken(false);
+}
+
 export async function createSandboxBrewSheet(input: {
   batchNumber: string;
   style: string;
