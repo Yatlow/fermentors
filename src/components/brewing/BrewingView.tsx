@@ -247,7 +247,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
     async function createSandbox(
         tank: Fermentor,
-        draft: { batchNumber: string; style: string; brewDate: string },
+        draft: { batchNumber: string; style: string },
     ) {
         const productionAssignment = findProductionAssignment(draft.batchNumber);
         if (productionAssignment) {
@@ -294,7 +294,6 @@ export default function BrewingView({ brews, tab }: Props) {
                         ? demoTank.tankType
                         : tankTypeKey(tank.tankNumber),
                 style: draft.style,
-                brewDate: draft.brewDate,
                 source: "manual",
                 recipeSnapshot: recipe,
                 assignmentStatus: isSanitized ? "assigned" : "pending_sanitization",
@@ -308,7 +307,6 @@ export default function BrewingView({ brews, tab }: Props) {
                 style: run.style,
                 tankNumber: run.tankNumber,
                 tankType: run.tankType,
-                brewDate: run.brewDate,
                 recipe,
                 ingredients: loadSandboxIngredients(),
             });
