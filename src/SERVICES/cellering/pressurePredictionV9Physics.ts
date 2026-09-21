@@ -704,6 +704,72 @@ function simulateTrajectory(args: {
   };
 }
 
+export type PressureV9ObservedInventory = {
+  tankClass: PressureV9TankClass;
+  vesselVolumeLiters: number;
+  headspaceLiters: number;
+  startTotalMoles: number;
+  endTotalMoles: number;
+  deltaMoles: number;
+  deltaEquivalentCarbonationVol: number;
+};
+
+export function pressureV9ObservedInventory(args: {
+  tankNumber: number;
+  beerVolumeLiters: number;
+  vesselVolumeLiters?: number | null;
+  startCarbonation: number;
+  startPressure: number;
+  startTemperature: number;
+  endCarbonation: number;
+  endPressure: number;
+  endTemperature: number;
+}): PressureV9ObservedInventory | null {
+  const geometry = estimatedV9TankGeometry(
+    args.tankNumber,
+  );
+  if (!geometry) return null;
+
+  const vesselVolumeLiters =
+    finite(args.vesselVolumeLiters) ??
+    geometry.totalVolumeLiters;
+  const headspaceLiters =
+    vesselVolumeLiters - args.beerVolumeLiters;
+  if (headspaceLiters < MIN_HEADSPACE_LITERS) {
+    return null;
+  }
+
+  const startTotalMoles = totalMolesAtState({
+    carbonation: args.startCarbonation,
+    pressure: args.startPressure,
+    temperature: args.startTemperature,
+    beerVolumeLiters: args.beerVolumeLiters,
+    headspaceLiters,
+  });
+  const endTotalMoles = totalMolesAtState({
+    carbonation: args.endCarbonation,
+    pressure: args.endPressure,
+    temperature: args.endTemperature,
+    beerVolumeLiters: args.beerVolumeLiters,
+    headspaceLiters,
+  });
+  const deltaMoles =
+    endTotalMoles - startTotalMoles;
+
+  return {
+    tankClass: geometry.tankClass,
+    vesselVolumeLiters,
+    headspaceLiters,
+    startTotalMoles,
+    endTotalMoles,
+    deltaMoles,
+    deltaEquivalentCarbonationVol:
+      deltaMoles *
+      STANDARD_CO2_MOLAR_VOLUME_L /
+      args.beerVolumeLiters,
+  };
+}
+
 export type PressureV9ObservedIntervalPrediction = {
   durationHours: number;
   predictedCarbonation: number;
