@@ -287,3 +287,29 @@ export async function createSandboxBrewSheet(input: {
     throw error;
   }
 }
+
+
+export async function writeSandboxSheetCells(
+  fileId: string,
+  data: Array<{ range: string; value: string | number | boolean | null }>,
+): Promise<void> {
+  if (!fileId || runtimeConfig.deployEnv !== "preview") {
+    throw new Error("כתיבה ל-Sheet זמינה רק ב-Preview.");
+  }
+
+  const response = await googleFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}/values:batchUpdate`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        valueInputOption: "USER_ENTERED",
+        data: data.map((item) => ({
+          range: item.range,
+          values: [[item.value ?? ""]],
+        })),
+      }),
+    },
+  );
+
+  await requireOk(response, "כתיבת נתוני הבישול ל-Sheet נכשלה");
+}
