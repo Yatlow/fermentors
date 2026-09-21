@@ -1455,6 +1455,30 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               ? `נפח מצטבר ${parsed} ל׳ לא מתאים לבישול הנוכחי: מהבישול הקודם היו ${previous} ל׳ וסוף הרתיחה הנוכחי הוא ${currentEndBoil} ל׳. תוספת סבירה היא בערך ${minExpectedAdded}–${maxExpectedAdded} ל׳.`
               : `נפח תחילת תסיסה ${parsed} ל׳ לא מתאים לנפח סוף הרתיחה ${currentEndBoil} ל׳.`;
         }
+      } else if (!hardError && currentBlock > 1 && previous === null) {
+        const endBoilVolumes = Array.from(
+          { length: currentBlock },
+          (_, index) =>
+            num(
+              execution.blocks[String(index + 1)]?.fields?.endBoilVolume || "",
+            ),
+        );
+
+        if (endBoilVolumes.every((volume) => volume !== null)) {
+          const totalEndBoil = endBoilVolumes.reduce(
+            (sum, volume) => sum + Number(volume),
+            0,
+          );
+          const minExpected = Math.max(
+            0,
+            totalEndBoil - 180 * currentBlock,
+          );
+          const maxExpected = totalEndBoil + 20;
+
+          if (parsed < minExpected || parsed > maxExpected) {
+            hardError = `נפח מצטבר ${parsed} ל׳ לא מתאים לנפחי סוף הרתיחה של האצווה (סה״כ ${Math.round(totalEndBoil)} ל׳). טווח סביר בשלב הזה הוא בערך ${Math.round(minExpected)}–${Math.round(maxExpected)} ל׳.`;
+          }
+        }
       }
     } else if (/^rinse\d+\.amount$/.test(key)) {
       if (parsed < 0 || parsed > 500) {
@@ -2563,6 +2587,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     type="number"
                     step="0.1"
                     required
+                    className={
+                      hasField(`${stage.key}.temp`) ? "" : "brew-input-missing"
+                    }
                     value={
                       localValue(`${stage.key}.temp`) ||
                       (stage.key === "transferLt" ? "77.5" : "")
@@ -3497,6 +3524,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                               type="number"
                               step="1"
                               required
+                              className={
+                                hasField(amountKey) ? "" : "brew-input-missing"
+                              }
                               value={localValue(amountKey) || suggested}
                               onFocus={(e) => e.currentTarget.select()}
                               onChange={(e) =>
