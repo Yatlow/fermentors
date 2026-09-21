@@ -7,6 +7,9 @@ import {
   runPressureV9PhysicsValidation,
   type PressureV9ValidationBatch,
 } from "../src/SERVICES/cellering/pressurePredictionV9Validation";
+import {
+  runPressureV9OutOfTimeValidation,
+} from "../src/SERVICES/cellering/pressurePredictionV9OutOfTime";
 
 function exactBatch(id: string): PressureV9ValidationBatch {
   const prediction = simulateV9ObservedClosedInterval({
@@ -381,4 +384,25 @@ test("V9 observed inventory flags a hidden net gas addition independently of kin
     "possible_net_addition",
   );
   assert.equal(result.strictClosedCaseCount, 0);
+});
+
+
+test("V9 out-of-time keeps the newest chronological cohort untouched until train/validation selection is complete", () => {
+  const batches = Array.from(
+    { length: 60 },
+    (_, index) => exactBatch(String(2000 + index)),
+  );
+
+  const result = runPressureV9OutOfTimeValidation({
+    batches,
+    seed: 20260921,
+  });
+
+  assert.ok(result);
+  assert.equal(result!.trainBatchCount, 42);
+  assert.equal(result!.validationBatchCount, 9);
+  assert.equal(result!.testBatchCount, 9);
+  assert.ok(result!.learnedKPerHour !== null);
+  assert.ok(result!.testSelected.carbonationMae !== null);
+  assert.ok(result!.testSelected.carbonationMae! < 0.002);
 });
