@@ -40,6 +40,7 @@ const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));
 const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentReportsView"));
 const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
 const PlanningView = lazy(() => import("./components/planning/PlanningView"));
+const BrewingView = lazy(() => import("./components/brewing/BrewingView"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -393,6 +394,7 @@ function App() {
                             <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דוחות</div>
                             <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
                             <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
+                            <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>בישולים</div>
                             {plannerUser && <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>}
                         </div>
                     </div>
@@ -441,6 +443,7 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
                 {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+                {selectedView === "בישולים" && <BrewingView brews={brews} />}
             </Suspense>
         </div>
     );
