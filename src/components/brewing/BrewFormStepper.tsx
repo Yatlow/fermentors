@@ -607,8 +607,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           const blockFields = execution.blocks[String(index + 1)]?.fields || {};
           return {
             endBoilPlato: num(blockFields.endBoilPlato || ""),
-            cumulativeTankVolumeLiters: num(
-              blockFields.cumulativeTankVolume || "",
+            endBoilVolumeLiters: num(
+              blockFields.endBoilVolume || "",
             ),
           };
         }),
