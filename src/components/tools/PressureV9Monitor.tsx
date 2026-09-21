@@ -46,7 +46,9 @@ function percentile90(values: number[]): number | null {
   return clean[index];
 }
 
-function actionText(snapshot: PressureV9ShadowSnapshot): string {
+function actionText(
+  snapshot: Pick<PressureV9ShadowSnapshot, "action" | "targetPressure">,
+): string {
   const pressure = snapshot.targetPressure;
   if (snapshot.action === "raise") {
     return pressure === null ? "העלאת לחץ" : `להעלות לחץ ל-${round(pressure, 2)} bar`;
@@ -64,11 +66,10 @@ function actionText(snapshot: PressureV9ShadowSnapshot): string {
 }
 
 function liveActionText(result: PressureV9LiveResult): string {
-  const snapshotLike = {
+  return actionText({
     action: result.estimate.action,
     targetPressure: result.estimate.targetPressure,
-  } as PressureV9ShadowSnapshot;
-  return actionText(snapshotLike);
+  });
 }
 
 function measurementLabel(id: string): string {
