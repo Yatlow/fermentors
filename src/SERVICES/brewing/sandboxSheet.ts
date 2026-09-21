@@ -1,11 +1,7 @@
+import { GoogleAuthProvider, reauthenticateWithPopup } from "firebase/auth";
 import { runtimeConfig } from "../../config/runtimeConfig";
+import { auth } from "../../firebase";
 import type { SandboxDemoTank } from "./brewingSandbox";
-
-declare global {
-  interface Window {
-    google: any;
-  }
-}
 
 type TankType = SandboxDemoTank["tankType"];
 
@@ -15,67 +11,33 @@ export type SandboxSheetResult = {
   url: string;
 };
 
-const WRITE_SCOPE = [
+const WRITE_SCOPES = [
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/drive.file",
   "https://www.googleapis.com/auth/spreadsheets",
-].join(" ");
+];
 
-let gisPromise: Promise<void> | null = null;
 let writeAccessToken: string | null = null;
 
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-      resolve();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("לא ניתן לטעון את Google Identity Services."));
-    document.body.appendChild(script);
-  });
-}
-
-async function ensureGis() {
-  if (!gisPromise) {
-    gisPromise = loadScript("https://accounts.google.com/gsi/client");
-  }
-  await gisPromise;
-}
-
 async function requestWriteToken(forceConsent = false): Promise<string> {
-  await ensureGis();
-
-  if (!runtimeConfig.googleClientId) {
-    throw new Error("חסר Google Client ID.");
-  }
-
   if (writeAccessToken && !forceConsent) return writeAccessToken;
 
-  return new Promise((resolve, reject) => {
-    const client = window.google.accounts.oauth2.initTokenClient({
-      client_id: runtimeConfig.googleClientId,
-      scope: WRITE_SCOPE,
-      include_granted_scopes: true,
-      callback: (response: any) => {
-        if (response?.error) {
-          reject(new Error(String(response.error)));
-          return;
-        }
-        writeAccessToken = String(response.access_token || "");
-        if (!writeAccessToken) {
-          reject(new Error("Google לא החזיר הרשאת גישה."));
-          return;
-        }
-        resolve(writeAccessToken);
-      },
-    });
+  const user = auth.currentUser;
+  if (!user) throw new Error("צריך להתחבר מחדש לפני יצירת Sheet.");
 
-    client.requestAccessToken({ prompt: forceConsent ? "consent" : "" });
-  });
+  const provider = new GoogleAuthProvider();
+  WRITE_SCOPES.forEach((scope) => provider.addScope(scope));
+  if (forceConsent) {
+    provider.setCustomParameters({ prompt: "consent" });
+  }
+
+  const result = await reauthenticateWithPopup(user, provider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  const token = credential?.accessToken;
+  if (!token) throw new Error("Google לא החזיר הרשאת Drive/Sheets.");
+
+  writeAccessToken = token;
+  return token;
 }
 
 async function googleFetch(
