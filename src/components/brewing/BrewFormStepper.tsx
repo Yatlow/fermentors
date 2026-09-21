@@ -688,7 +688,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     return stepMissingCount(stepId) === 0;
   }
 
-  async function writeSheet(  async function writeSheet(
+  async function writeSheet(
     key: string,
     writes: Array<{ range: string; value: string | number | boolean | null }>,
   ) {
