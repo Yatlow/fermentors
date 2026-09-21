@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
+import { loadSandboxRecipe } from "../../SERVICES/brewing/sandboxRecipe";
+import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
     attachSandboxSheet,
     createSandboxBrewRun,
@@ -19,6 +21,8 @@ import {
     deleteSandboxBrewSheet,
     ensureSandboxSheetAccess,
 } from "../../SERVICES/brewing/sandboxSheet";
+import BrewRecipeEditor from "./BrewRecipeEditor";
+import BrewFormStepper from "./BrewFormStepper";
 import "./BrewingView.css";
 import type { BrewingTab } from "./brewingTabs";
 
@@ -56,6 +60,9 @@ export default function BrewingView({ brews, tab }: Props) {
     const [message, setMessage] = useState<string>("");
     const [suggestedBatch, setSuggestedBatch] = useState<string>("");
     const [demoTank, setDemoTank] = useState<SandboxDemoTank>(() => loadSandboxDemoTank());
+    const [recipe, setRecipe] = useState<BrewRecipe>(() => loadSandboxRecipe());
+    const [selectedRun, setSelectedRun] = useState<SandboxBrewRun | null>(null);
+    const [openingBatch, setOpeningBatch] = useState<string | null>(null);
 
     const sanitizedTanks = useMemo(
         () =>
@@ -200,6 +207,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 tankType: tank.id === demoTank.id ? demoTank.tankType : tankTypeKey(tank.tankNumber),
                 style: draft.style,
                 source: "manual",
+                recipeSnapshot: recipe,
             });
             createdBatch = run.batchNumber;
 
@@ -421,20 +429,26 @@ export default function BrewingView({ brews, tab }: Props) {
 
             {tab === "recipes" && (
                 <section className="brewing-panel">
-                    <h2>מתכונים וחומרי גלם</h2>
-                    <p>
-                        כאן ירוכזו מתכוני הבירה, אצוות חומרי הגלם ונתוני AA. עד לחיבור הנתונים
-                        נשאיר את עריכת ה-AA הפעילה גם במסך הגדרות המערכת.
-                    </p>
-                    {sandbox && (
-                        <div className="brewing-sandbox-note">
-                            עריכת מתכונים ב-Sandbox תחובר בשלב הבא לנתוני draft מבודדים, לפני כתיבה ל-Firestore.
-                        </div>
+                    {sandbox ? (
+                        <BrewRecipeEditor onRecipeChange={setRecipe} />
+                    ) : (
+                        <>
+                            <h2>מתכונים וחומרי גלם</h2>
+                            <p>עריכת המתכונים תתחבר ל-brewRecipes לפני העלאה לפרודקשן.</p>
+                        </>
                     )}
                 </section>
             )}
 
-            {tab === "form" && (
+            {tab === "form" && selectedRun && sandbox && (
+                <BrewFormStepper
+                    run={selectedRun}
+                    recipe={selectedRun.recipeSnapshot || recipe}
+                    onClose={() => setSelectedRun(null)}
+                />
+            )}
+
+            {tab === "form" && !selectedRun && (
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
@@ -496,8 +510,29 @@ export default function BrewingView({ brews, tab }: Props) {
                                                     Sheet לא נוצר
                                                 </button>
                                             )}
-                                            <button type="button" disabled>
-                                                פתיחת Stepper — בשלב הבא
+                                            <button
+                                                type="button"
+                                                disabled={!run.sheetId || openingBatch === run.batchNumber}
+                                                onClick={async () => {
+                                                    setOpeningBatch(run.batchNumber);
+                                                    setMessage("");
+                                                    try {
+                                                        await ensureSandboxSheetAccess();
+                                                        setSelectedRun(run);
+                                                    } catch (error) {
+                                                        setMessage(
+                                                            error instanceof Error
+                                                                ? error.message
+                                                                : "פתיחת טופס הבישול נכשלה.",
+                                                        );
+                                                    } finally {
+                                                        setOpeningBatch(null);
+                                                    }
+                                                }}
+                                            >
+                                                {openingBatch === run.batchNumber
+                                                    ? "מתחבר ל-Sheet..."
+                                                    : "מילוי טופס בישול"}
                                             </button>
                                             <button
                                                 type="button"
