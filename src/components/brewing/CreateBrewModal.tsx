@@ -151,20 +151,37 @@ export default function CreateBrewModal({
 
         {planningHintsAvailable && planningHints.length > 0 && (
           <div className="brew-planning-hint">
-            <strong>בתכנון השבוע:</strong>
-            <span>
-              {planningHints
-                .map((hint) => {
-                  const tank = tanks.find(
-                    (item) => item.id === hint.tankId,
-                  );
-                  const tankText = tank?.tankNumber
-                    ? ` · מיכל ${tank.tankNumber}`
-                    : "";
-                  return `#${hint.batchNumber} ${hint.style}${tankText}`;
-                })
-                .join("  |  ")}
-            </span>
+            <strong>בתכנון השבוע — אפשר לבחור כדי למלא:</strong>
+            <div className="brew-planning-hint-chips">
+              {planningHints.map((hint) => {
+                const tank = tanks.find(
+                  (item) => item.id === hint.tankId,
+                );
+                return (
+                  <button
+                    type="button"
+                    key={`${hint.batchNumber}-${hint.tankId}-${hint.date}`}
+                    onClick={() => {
+                      setBatchNumber(hint.batchNumber);
+                      if (
+                        hint.style &&
+                        recipes.some(
+                          (recipe) => recipe.style === hint.style,
+                        )
+                      ) {
+                        setStyle(hint.style);
+                      }
+                      if (tank) setTankId(tank.id);
+                    }}
+                  >
+                    #{hint.batchNumber} · {hint.style || "ללא סגנון"}
+                    {tank?.tankNumber
+                      ? ` · מיכל ${tank.tankNumber}`
+                      : ""}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
