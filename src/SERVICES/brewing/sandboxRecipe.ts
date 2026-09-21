@@ -57,9 +57,9 @@ function normalizeMashSteps(rawSteps: any[], fallbackSteps: any[]) {
     const existingHeat = heats[index];
     const nextRest = rests[index + 1];
     const heatTarget = Number(
-      existingHeat?.targetTemp ??
-        nextRest?.targetTemp ??
+      nextRest?.targetTemp ??
         mashOut?.targetTemp ??
+        existingHeat?.targetTemp ??
         78,
     );
 
@@ -84,7 +84,7 @@ function normalizeMashSteps(rawSteps: any[], fallbackSteps: any[]) {
       ...mashIn,
       id: "mashIn",
       label: "מאש אין",
-      targetTemp: Number(mashIn?.targetTemp || 63),
+      targetTemp: Number(rests[0]?.targetTemp ?? mashIn?.targetTemp ?? 63),
       minutes: undefined,
     },
     ...paired,
