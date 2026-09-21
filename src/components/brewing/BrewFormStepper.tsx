@@ -26,12 +26,20 @@ type StageDef = {
   label: string;
   rowOffset: number;
   showTemp?: boolean;
+  showNote?: boolean;
   targetRecipeStepId?: string;
 };
 
-type StepId = "mash" | "lautering" | "boil" | "transfer" | "summary";
+type StepId =
+  | "water"
+  | "mash"
+  | "lautering"
+  | "boil"
+  | "transfer"
+  | "summary";
 
 const STEPS: Array<{ id: StepId; label: string }> = [
+  { id: "water", label: "מים" },
   { id: "mash", label: "מאש" },
   { id: "lautering", label: "לאוטר" },
   { id: "boil", label: "רתיחה וכשות" },
@@ -45,6 +53,7 @@ const MASH_STAGES: StageDef[] = [
     label: "הכנסת לתת",
     rowOffset: 0,
     showTemp: true,
+    showNote: true,
     targetRecipeStepId: "mashIn",
   },
   {
@@ -52,6 +61,7 @@ const MASH_STAGES: StageDef[] = [
     label: "השריה 1",
     rowOffset: 2,
     showTemp: true,
+    showNote: true,
     targetRecipeStepId: "rest1",
   },
   {
@@ -59,6 +69,7 @@ const MASH_STAGES: StageDef[] = [
     label: "חימום 1",
     rowOffset: 4,
     showTemp: true,
+    showNote: true,
     targetRecipeStepId: "heat1",
   },
   {
@@ -66,6 +77,7 @@ const MASH_STAGES: StageDef[] = [
     label: "השריה 2",
     rowOffset: 6,
     showTemp: true,
+    showNote: true,
     targetRecipeStepId: "rest2",
   },
   {
@@ -73,6 +85,7 @@ const MASH_STAGES: StageDef[] = [
     label: "חימום 2",
     rowOffset: 8,
     showTemp: true,
+    showNote: true,
     targetRecipeStepId: "heat2",
   },
 ];
@@ -150,6 +163,27 @@ function addMinutesToTime(value: string, minutes: number): string {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function normalizeUserTime(value: string): string | null {
+  const text = value.trim().replace(".", ":");
+  if (!text) return "";
+
+  const compact = /^(\d{3,4})$/.exec(text);
+  const candidate = compact
+    ? `${compact[1].slice(0, -2)}:${compact[1].slice(-2)}`
+    : text;
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(candidate);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 function num(value: string): number | null {
   if (value.trim() === "") return null;
   const parsed = Number(value);
@@ -199,7 +233,21 @@ function fieldsFromSheetRows(
     if (start) pulled[`${stage.key}.start`] = start;
     if (end) pulled[`${stage.key}.end`] = end;
     if (stage.showTemp && temp) pulled[`${stage.key}.temp`] = temp;
+
+    if (stage.showNote && stage.key !== "mashIn") {
+      const note = sheetCell(rows, stage.rowOffset, "H");
+      if (note) pulled[`${stage.key}.note`] = note;
+    }
   });
+
+  const hltAmount = sheetCell(rows, 8, "B");
+  const hltTemp = numericText(sheetCell(rows, 8, "C"));
+  const lauterAmount = sheetCell(rows, 11, "B");
+  const lauterTemp = numericText(sheetCell(rows, 11, "C"));
+  if (hltAmount) pulled.hltWaterAmount = hltAmount;
+  if (hltTemp) pulled.hltWaterTemp = hltTemp;
+  if (lauterAmount) pulled.lauterWaterAmount = lauterAmount;
+  if (lauterTemp) pulled.lauterWaterTemp = lauterTemp;
 
   const mashMeta = sheetCell(rows, 0, "H");
   const mashVolume =
@@ -208,6 +256,12 @@ function fieldsFromSheetRows(
     mashMeta.match(/pH\s*([\d.,]+)/i)?.[1] || "";
   if (mashVolume) pulled.mashVolume = mashVolume.replace(",", ".");
   if (mashPh) pulled.mashPh = mashPh.replace(",", ".");
+  const mashInNote =
+    mashMeta.match(/הערה:\s*(.+)$/i)?.[1]?.trim() || "";
+  if (mashInNote) pulled["mashIn.note"] = mashInNote;
+
+  const mashAcid = numericText(sheetCell(rows, 28, "A"));
+  if (mashAcid) pulled.mashAcid85 = mashAcid;
 
   const outToBoilPh = numericText(sheetCell(rows, 15, "H"));
   if (outToBoilPh) pulled.outToBoilPh = outToBoilPh;
@@ -474,10 +528,77 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     field: "end" | "temp",
     value: string,
   ) {
-    const col = field === "end" ? "F" : "G";
-    const cellValue = field === "temp" && value ? `${value}°C` : value;
-    await commit(`${stage.key}.${field}`, value, [
-      { range: stageCell(stage.rowOffset, col), value: cellValue },
+    if (field === "end") {
+      let nextExecution = setSandboxExecutionField(
+        execution,
+        currentBlock,
+        `${stage.key}.end`,
+        value,
+      );
+      const writes: Array<{
+        range: string;
+        value: string | number | boolean | null;
+      }> = [
+        {
+          range: stageCell(stage.rowOffset, "F"),
+          value,
+        },
+      ];
+
+      const nextStage = nextTimelineStage(stage);
+      if (nextStage) {
+        nextExecution = setSandboxExecutionField(
+          nextExecution,
+          currentBlock,
+          `${nextStage.key}.start`,
+          value,
+        );
+        writes.push({
+          range: stageCell(nextStage.rowOffset, "E"),
+          value,
+        });
+      }
+
+      setExecution(nextExecution);
+      await writeSheet(`${stage.key}.end`, writes);
+      return;
+    }
+
+    const cellValue = value ? `${value}°C` : value;
+    await commit(`${stage.key}.temp`, value, [
+      { range: stageCell(stage.rowOffset, "G"), value: cellValue },
+    ]);
+  }
+
+  function mashMetaText(nextFields: Record<string, string>) {
+    return [
+      nextFields.mashVolume
+        ? `נפח מאש ${nextFields.mashVolume}`
+        : "",
+      nextFields.mashPh ? `pH ${nextFields.mashPh}` : "",
+      nextFields["mashIn.note"]
+        ? `הערה: ${nextFields["mashIn.note"]}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("   ");
+  }
+
+  async function commitStageNote(stage: StageDef, value: string) {
+    const key = `${stage.key}.note`;
+    if (stage.key === "mashIn") {
+      const nextFields = { ...fields, [key]: value };
+      await commit(key, value, [
+        {
+          range: stageCell(0, "H"),
+          value: mashMetaText(nextFields),
+        },
+      ]);
+      return;
+    }
+
+    await commit(key, value, [
+      { range: stageCell(stage.rowOffset, "H"), value },
     ]);
   }
 
@@ -495,13 +616,47 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     value: string,
   ) {
     const nextFields = { ...fields, [field]: value };
-    const text = [
-      nextFields.mashVolume ? `נפח מאש ${nextFields.mashVolume}` : "",
-      nextFields.mashPh ? `pH ${nextFields.mashPh}` : "",
-    ]
-      .filter(Boolean)
-      .join("   ");
-    await commit(field, value, [{ range: stageCell(0, "H"), value: text }]);
+    await commit(field, value, [
+      {
+        range: stageCell(0, "H"),
+        value: mashMetaText(nextFields),
+      },
+    ]);
+  }
+
+  async function commitMashAcid(value: string) {
+    await commit("mashAcid85", value, [
+      {
+        range: `'גיליון1'!A${baseRow + 28}`,
+        value: num(value) ?? value,
+      },
+    ]);
+  }
+
+  async function commitWaterField(
+    field:
+      | "hltWaterAmount"
+      | "hltWaterTemp"
+      | "lauterWaterAmount"
+      | "lauterWaterTemp",
+    value: string,
+  ) {
+    const mapping = {
+      hltWaterAmount: { rowOffset: 8, column: "B" },
+      hltWaterTemp: { rowOffset: 8, column: "C" },
+      lauterWaterAmount: { rowOffset: 11, column: "B" },
+      lauterWaterTemp: { rowOffset: 11, column: "C" },
+    } as const;
+    const target = mapping[field];
+    await commit(field, value, [
+      {
+        range: `'גיליון1'!${target.column}${baseRow + target.rowOffset}`,
+        value:
+          field.endsWith("Temp") && value
+            ? num(value) ?? value
+            : value,
+      },
+    ]);
   }
 
   async function commitPh(key: string, value: string, range: string) {
@@ -618,6 +773,26 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     );
   }
 
+  async function commitTypedStageTime(
+    stage: StageDef,
+    field: "start" | "end",
+    raw: string,
+  ) {
+    const normalized = normalizeUserTime(raw);
+    if (normalized === null) {
+      setMessage("יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.");
+      return;
+    }
+
+    setMessage("");
+    setLocal(`${stage.key}.${field}`, normalized);
+    if (field === "start") {
+      await commitStageStart(stage, normalized);
+    } else {
+      await commitStage(stage, "end", normalized);
+    }
+  }
+
   function renderStageRows(stages: StageDef[]) {
     return (
       <div className="brew-stage-list">
@@ -645,10 +820,20 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 התחלה
                 <div className="brew-time-input">
                   <input
-                    type="time"
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
+                    placeholder="HH:MM"
                     value={localValue(`${stage.key}.start`)}
                     onChange={(e) =>
-                      void commitStageStart(stage, e.target.value)
+                      setLocal(`${stage.key}.start`, e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitTypedStageTime(
+                        stage,
+                        "start",
+                        e.target.value,
+                      )
                     }
                   />
                   <button
@@ -664,13 +849,20 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 סיום
                 <div className="brew-time-input">
                   <input
-                    type="time"
+                    type="text"
+                    inputMode="numeric"
+                    dir="ltr"
+                    placeholder="HH:MM"
                     value={localValue(`${stage.key}.end`)}
                     onChange={(e) =>
                       setLocal(`${stage.key}.end`, e.target.value)
                     }
                     onBlur={(e) =>
-                      void commitStage(stage, "end", e.target.value)
+                      void commitTypedStageTime(
+                        stage,
+                        "end",
+                        e.target.value,
+                      )
                     }
                   />
                   <button
@@ -694,6 +886,21 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     }
                     onBlur={(e) =>
                       void commitStage(stage, "temp", e.target.value)
+                    }
+                  />
+                </label>
+              )}
+
+              {stage.showNote && (
+                <label className="brew-stage-note">
+                  הערה
+                  <input
+                    value={localValue(`${stage.key}.note`)}
+                    onChange={(e) =>
+                      setLocal(`${stage.key}.note`, e.target.value)
+                    }
+                    onBlur={(e) =>
+                      void commitStageNote(stage, e.target.value)
                     }
                   />
                 </label>
@@ -789,6 +996,90 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           </div>
         </div>
 
+        {currentStep.id === "water" && (
+          <div className="brew-water-grid">
+            <article className="brew-water-card">
+              <div>
+                <strong>HLT</strong>
+                <small>מצב המים בתחילת הבישול</small>
+              </div>
+              <label>
+                כמות מים
+                <input
+                  value={localValue("hltWaterAmount")}
+                  onChange={(e) =>
+                    setLocal("hltWaterAmount", e.target.value)
+                  }
+                  onBlur={(e) =>
+                    void commitWaterField(
+                      "hltWaterAmount",
+                      e.target.value,
+                    )
+                  }
+                />
+              </label>
+              <label>
+                טמפ׳ °C
+                <input
+                  type="number"
+                  step="0.1"
+                  value={localValue("hltWaterTemp")}
+                  onChange={(e) =>
+                    setLocal("hltWaterTemp", e.target.value)
+                  }
+                  onBlur={(e) =>
+                    void commitWaterField(
+                      "hltWaterTemp",
+                      e.target.value,
+                    )
+                  }
+                />
+              </label>
+            </article>
+
+            <article className="brew-water-card">
+              <div>
+                <strong>מי לאוטר / שטיפות</strong>
+                <small>
+                  הכמות נשמרת כטקסט, למשל 400+400+250
+                </small>
+              </div>
+              <label>
+                כמות מים
+                <input
+                  value={localValue("lauterWaterAmount")}
+                  onChange={(e) =>
+                    setLocal("lauterWaterAmount", e.target.value)
+                  }
+                  onBlur={(e) =>
+                    void commitWaterField(
+                      "lauterWaterAmount",
+                      e.target.value,
+                    )
+                  }
+                />
+              </label>
+              <label>
+                טמפ׳ °C
+                <input
+                  type="number"
+                  step="0.1"
+                  value={localValue("lauterWaterTemp")}
+                  onChange={(e) =>
+                    setLocal("lauterWaterTemp", e.target.value)
+                  }
+                  onBlur={(e) =>
+                    void commitWaterField(
+                      "lauterWaterTemp",
+                      e.target.value,
+                    )
+                  }
+                />
+              </label>
+            </article>
+          </div>
+        )}
+
         {currentStep.id === "mash" && (
           <>
             <div className="brew-section-title">
@@ -821,6 +1112,21 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   onChange={(e) => setLocal("mashPh", e.target.value)}
                   onBlur={(e) =>
                     void commitMashMeta("mashPh", e.target.value)
+                  }
+                />
+              </label>
+
+              <label>
+                כמות H3PO4 85%
+                <input
+                  type="number"
+                  step="0.1"
+                  value={localValue("mashAcid85")}
+                  onChange={(e) =>
+                    setLocal("mashAcid85", e.target.value)
+                  }
+                  onBlur={(e) =>
+                    void commitMashAcid(e.target.value)
                   }
                 />
               </label>
@@ -879,7 +1185,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     <label>
                       שעה
                       <input
-                        type="time"
+                        type="text"
+                        inputMode="numeric"
+                        dir="ltr"
+                        placeholder="HH:MM"
                         value={localValue(`rinse${index}.time`)}
                         onChange={(e) =>
                           setLocal(
@@ -887,12 +1196,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                             e.target.value,
                           )
                         }
-                        onBlur={(e) =>
-                          void commitRinse(
-                            index,
-                            "time",
-                            e.target.value,
-                          )
+                        onBlur={(e) => {
+                          const value = normalizeUserTime(e.target.value);
+                          if (value === null) {
+                            setMessage(
+                              "יש להזין שעה בפורמט 24 שעות, למשל 08:22 או 1845.",
+                            );
+                            return;
+                          }
+                          setLocal(`rinse${index}.time`, value);
+                          void commitRinse(index, "time", value);
                         }
                       />
                     </label>
