@@ -148,11 +148,36 @@ export default function BrewingView({ brews, tab }: Props) {
         }));
     }
 
+    function findProductionAssignment(batchNumber: string): Fermentor | null {
+        const clean = String(batchNumber || "").replace("#", "").trim();
+        if (!clean) return null;
+        return (
+            brews.find(
+                (tank) =>
+                    String(tank.batchNumber || "").replace("#", "").trim() === clean,
+            ) || null
+        );
+    }
+
     async function createSandbox(tank: Fermentor) {
         const draft = drafts[tank.id] || {
             batchNumber: suggestedBatch,
             style: styles[0] || "IPA",
         };
+        const productionAssignment = findProductionAssignment(draft.batchNumber);
+        if (productionAssignment) {
+            const assignedTank = String(
+                productionAssignment.tankNumber ?? productionAssignment.id,
+            );
+            const isUnstarted = Number(productionAssignment.action) === 0;
+            setMessage(
+                isUnstarted
+                    ? `אצווה ${draft.batchNumber} כבר משויכת למיכל ${assignedTank} ועדיין לא התחילה. לא תיווצר אצווה נוספת — במסלול הפרודקשן זו תהיה פעולת העברת שיוך/החלפה.`
+                    : `אצווה ${draft.batchNumber} כבר קיימת במיכל ${assignedTank} ולכן לא ניתן ליצור אותה שוב.`,
+            );
+            return;
+        }
+
         setMessage("");
         setBusyTankId(tank.id);
         let createdBatch: string | null = null;
@@ -260,6 +285,11 @@ export default function BrewingView({ brews, tab }: Props) {
                                     batchNumber: suggestedBatch,
                                     style: styles[0] || "IPA",
                                 };
+                                const productionAssignment =
+                                    findProductionAssignment(draft.batchNumber);
+                                const reassignmentPossible =
+                                    productionAssignment &&
+                                    Number(productionAssignment.action) === 0;
                                 return (
                                     <article className="brewing-tank-card" key={tank.id}>
                                         <div className="brewing-tank-card-top">
@@ -333,18 +363,34 @@ export default function BrewingView({ brews, tab }: Props) {
                                                         ))}
                                                     </select>
                                                 </label>
-                                                {sandbox && (
+                                                {productionAssignment ? (
+                                                    <div className="brewing-batch-conflict">
+                                                        <strong>
+                                                            אצווה {draft.batchNumber} כבר במיכל{" "}
+                                                            {String(
+                                                                productionAssignment.tankNumber ??
+                                                                    productionAssignment.id,
+                                                            )}
+                                                        </strong>
+                                                        <span>
+                                                            {reassignmentPossible
+                                                                ? "האצווה עדיין לפני בישול. בפרודקשן נציע להעביר/להחליף את השיוך במקום ליצור אצווה כפולה."
+                                                                : "האצווה כבר פעילה ולכן אי אפשר ליצור או להעביר אותה כאצווה חדשה."}
+                                                        </span>
+                                                    </div>
+                                                ) : sandbox ? (
                                                     <small className="brewing-field-note">
                                                         בשלב הזה יצירת Sheet פעילה ל-IPA; שאר המתכונים יחוברו דרך brewRecipes.
                                                     </small>
-                                                )}
+                                                ) : null}
                                                 <button
                                                     type="button"
                                                     onClick={() => void createSandbox(tank)}
                                                     disabled={
                                                         busyTankId === tank.id ||
                                                         !draft.batchNumber ||
-                                                        !draft.style
+                                                        !draft.style ||
+                                                        Boolean(productionAssignment)
                                                     }
                                                 >
                                                     {busyTankId === tank.id
