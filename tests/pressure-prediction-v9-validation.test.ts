@@ -327,3 +327,58 @@ test("V9 validation recognizes legacy three-digit measurement times when checkin
 
   assert.equal(result.caseCount, 0);
 });
+
+
+test("V9 classifies truly closed synthetic intervals by observed CO2 inventory and recovers native kinetics in cross-fit", () => {
+  const batches = Array.from(
+    { length: 20 },
+    (_, index) => exactBatch(`closed-${index}`),
+  );
+
+  const result = runPressureV9PhysicsValidation({
+    batches,
+    seed: 20260921,
+  });
+
+  assert.equal(result.caseCount, 20);
+  assert.equal(result.strictClosedCaseCount, 20);
+  assert.ok(
+    result.cases.every(
+      (item) =>
+        item.inventoryStatus === "closed_consistent" &&
+        item.observedInventoryDeltaVol !== null &&
+        Math.abs(item.observedInventoryDeltaVol) < 0.000001,
+    ),
+  );
+  assert.ok(result.inferredKMedianPerHour !== null);
+  assert.ok(
+    Math.abs(result.inferredKMedianPerHour! - 0.0025) <
+      0.00035,
+    `expected inferred k near 0.0025, got ${result.inferredKMedianPerHour}`,
+  );
+  assert.equal(result.kCrossFitCaseCount, 20);
+  assert.ok(result.kCrossFitCarbonationMae !== null);
+  assert.ok(result.kCrossFitCarbonationMae! < 0.002);
+});
+
+test("V9 observed inventory flags a hidden net gas addition independently of kinetic pressure residual", () => {
+  const batch = exactBatch("hidden-addition");
+  const end = batch.measurements[1];
+  batch.measurements[1] = {
+    ...end,
+    carbonation: Number(end.carbonation) + 0.12,
+    pressure: Number(end.pressure) + 0.20,
+  };
+
+  const result = runPressureV9PhysicsValidation({
+    batches: [batch],
+    seed: 4,
+  });
+
+  assert.equal(result.caseCount, 1);
+  assert.equal(
+    result.cases[0]?.inventoryStatus,
+    "possible_net_addition",
+  );
+  assert.equal(result.strictClosedCaseCount, 0);
+});
