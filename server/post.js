@@ -118,7 +118,10 @@ const POST_MUTATION_ACTIONS = {
   refreshSingleTank: true,
   addFermentationMeasurement: true,
   triggerTankUpdate: true,
-  manualNightSync: true
+  manualNightSync: true,
+  BrewSheetCreate: true,
+  BrewSheetWriteCells: true,
+  BrewSheetTrash: true
 };
 
 function postIdempotencyKey_(action, requestId) {
@@ -522,6 +525,46 @@ function executePostAction_(data) {
       action: "manualNightSync",
       result: result,
       message: result.message || undefined
+    };
+  }
+
+  if (data.action === "BrewSheetCreate") {
+    return {
+      success: true,
+      action: "BrewSheetCreate",
+      result: brewingSheetCreate_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetWriteCells") {
+    return {
+      success: true,
+      action: "BrewSheetWriteCells",
+      result: brewingSheetWriteCells_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetReadRange") {
+    return {
+      success: true,
+      action: "BrewSheetReadRange",
+      result: brewingSheetReadRange_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetTrash") {
+    return {
+      success: true,
+      action: "BrewSheetTrash",
+      result: brewingSheetTrash_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetAcidHistory") {
+    return {
+      success: true,
+      action: "BrewSheetAcidHistory",
+      result: brewingSheetAcidHistory_(data)
     };
   }
 
