@@ -2403,3 +2403,257 @@
         flex-direction: column;
     }
 }
+
+
+/* =========================================================
+   Brewing layout pass: one alignment system for editor + stepper
+   ========================================================= */
+
+.brewing-view .brew-library-card-main strong,
+.brewing-view .brew-library-card > div strong {
+    font-family: inherit !important;
+    font-weight: bold !important;
+}
+
+.brew-recipe-editor .brew-mash-pair {
+    gap: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.brew-recipe-editor .brew-editor-row-mash,
+.brew-recipe-editor .brew-editor-row-mash-fixed,
+.brew-recipe-editor .brew-editor-row-heat {
+    min-height: 66px;
+    align-items: end;
+}
+
+.brew-recipe-editor .brew-editor-row-heat {
+    padding-inline-end: 8px;
+}
+
+.brew-acid-field {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+}
+
+.brew-acid-field label {
+    min-width: 0;
+}
+
+.brew-acid-history-button {
+    min-height: 32px !important;
+    padding: 4px 8px !important;
+    font-size: 0.64rem !important;
+}
+
+.brew-step-marker {
+    position: relative;
+    display: grid !important;
+    place-items: center;
+}
+
+.brew-step-marker b {
+    font-size: 0.66rem;
+    line-height: 1;
+}
+
+.brew-step-marker em {
+    position: absolute;
+    inset-inline-end: -7px;
+    inset-block-start: -6px;
+    display: grid;
+    place-items: center;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 2px;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid currentColor;
+    font-size: 0.52rem;
+    font-style: normal;
+    line-height: 1;
+}
+
+.brew-stage-row > label {
+    min-width: 0;
+}
+
+.brew-stage-row .brew-stage-start,
+.brew-stage-row .brew-stage-end,
+.brew-stage-row .brew-stage-temp,
+.brew-stage-row .brew-stage-ph,
+.brew-stage-row .brew-stage-note {
+    min-width: 0;
+}
+
+.brew-stage-row input,
+.brew-stage-row .brew-time-input {
+    width: 100%;
+    min-width: 0;
+}
+
+.brew-boil-calc-grid {
+    align-items: end;
+}
+
+.brew-acid-history-modal {
+    width: min(920px, calc(100vw - 24px));
+    max-height: min(84vh, 760px);
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 12px;
+    border-radius: var(--radius);
+    background: #fff;
+    box-shadow: var(--shadow-lg);
+}
+
+.brew-acid-history-scroll {
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.brew-acid-history-table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+    font-size: 0.72rem;
+}
+
+.brew-acid-history-table th,
+.brew-acid-history-table td {
+    padding: 9px 8px;
+    border-bottom: 1px solid #eef2f7;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.brew-acid-history-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f8fafc;
+    color: var(--text-muted);
+    font-weight: bold;
+}
+
+.brew-acid-history-table a {
+    color: var(--primary);
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.brew-acid-history-empty {
+    padding: 22px;
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 0.75rem;
+}
+
+@media (min-width: 760px) {
+    .brew-recipe-editor .brew-editor-row-mash,
+    .brew-recipe-editor .brew-editor-row-mash-fixed,
+    .brew-recipe-editor .brew-editor-row-heat {
+        display: grid;
+        grid-template-columns:
+            minmax(220px, 1.6fr)
+            minmax(150px, 0.8fr)
+            minmax(150px, 0.8fr)
+            42px;
+        gap: 8px;
+    }
+
+    .brew-recipe-editor .brew-editor-row-heat {
+        padding-inline-end: 8px;
+    }
+
+    .brew-recipe-editor .brew-editor-row-heat > :nth-child(1) {
+        grid-column: 1;
+    }
+
+    .brew-recipe-editor .brew-editor-row-heat > :nth-child(2) {
+        grid-column: 2;
+    }
+
+    .brew-stage-row,
+    .brew-stage-row-no-end {
+        display: grid;
+        grid-template-columns:
+            minmax(155px, 1.05fr)
+            minmax(185px, 1fr)
+            minmax(185px, 1fr)
+            minmax(125px, 0.72fr)
+            minmax(170px, 1fr);
+        gap: 8px;
+        align-items: end;
+    }
+
+    .brew-stage-row .brew-stage-label {
+        grid-column: 1;
+    }
+
+    .brew-stage-row .brew-stage-start {
+        grid-column: 2;
+    }
+
+    .brew-stage-row .brew-stage-end {
+        grid-column: 3;
+    }
+
+    .brew-stage-row .brew-stage-temp,
+    .brew-stage-row .brew-stage-ph {
+        grid-column: 4;
+    }
+
+    .brew-stage-row .brew-stage-note {
+        grid-column: 5;
+    }
+
+    .brew-rinse-row {
+        display: grid;
+        grid-template-columns:
+            82px
+            minmax(185px, 1.15fr)
+            minmax(105px, 0.72fr)
+            minmax(105px, 0.72fr)
+            minmax(120px, 0.78fr)
+            minmax(105px, 0.72fr);
+        gap: 8px;
+        align-items: end;
+    }
+
+    .brew-rinse-row > strong {
+        grid-column: 1;
+        align-self: center;
+    }
+
+    .brew-boil-calc-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 759px) {
+    .brew-stage-row > *,
+    .brew-stage-row-no-end > * {
+        grid-column: 1 !important;
+    }
+
+    .brew-recipe-editor .brew-editor-row-mash,
+    .brew-recipe-editor .brew-editor-row-mash-fixed,
+    .brew-recipe-editor .brew-editor-row-heat {
+        grid-template-columns: 1fr;
+    }
+
+    .brew-recipe-editor .brew-editor-row-heat {
+        padding-inline-end: 8px;
+    }
+
+    .brew-boil-calc-grid {
+        grid-template-columns: 1fr;
+    }
+}
