@@ -32,6 +32,8 @@ export type PressureV9ShadowSnapshot = {
   measurementId: string;
   stateQuality: ShadowStateQuality;
   confidence: "high" | "medium" | "low";
+  actionable?: boolean;
+  blockedReason?: string | null;
   currentCarbonation: number;
   currentPressure: number;
   currentTemperature: number;
@@ -868,10 +870,14 @@ export async function recordPressureV9Shadow(args: {
     ),
     measurementId,
     stateQuality: state.quality,
-    confidence: confidenceFor({
-      stateQuality: state.quality,
-      estimate,
-    }),
+    confidence: live.actionable
+      ? confidenceFor({
+          stateQuality: state.quality,
+          estimate,
+        })
+      : "low",
+    actionable: live.actionable,
+    blockedReason: live.blockedReason,
     currentCarbonation:
       state.carbonation,
     currentPressure:
