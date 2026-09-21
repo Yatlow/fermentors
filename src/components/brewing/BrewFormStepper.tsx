@@ -1333,13 +1333,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     const text = String(value ?? "").trim();
     if (!text) return "";
 
-    const time = normalizeUserTime(text);
-    if (time !== null && /^\d{1,2}:?\d{2}$/.test(text.replace(".", ":"))) {
-      return time;
-    }
-
     const numeric = Number(text);
     if (Number.isFinite(numeric)) return String(numeric);
+
+    if (text.includes(":") || text.includes(".")) {
+      const time = normalizeUserTime(text);
+      if (time !== null) return time;
+    }
 
     return text.replace(/\s+/g, " ");
   }
