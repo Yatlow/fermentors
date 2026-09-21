@@ -55,7 +55,7 @@ const STEPS: Array<{ id: StepId; label: string }> = [
   { id: "mash", label: "מאש" },
   { id: "lautering", label: "לאוטר" },
   { id: "boil", label: "רתיחה וכשות" },
-  { id: "transfer", label: "WP והוצאה" },
+  { id: "transfer", label: "WP והוצאה לתסיסה" },
   { id: "summary", label: "סיכום" },
 ];
 
