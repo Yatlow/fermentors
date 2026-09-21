@@ -223,6 +223,53 @@ function sheetDateFromIso(value: string): string {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
 }
 
+function shortIsraeliDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  return match ? `${match[3]}/${match[2]}/${match[1].slice(-2)}` : "";
+}
+
+function isoDateFromUserInput(value: string): string | null {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const match = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/.exec(text);
+  if (!match) return null;
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const rawYear = Number(match[3]);
+  const year = match[3].length === 2 ? 2000 + rawYear : rawYear;
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function minutesFromMidnight(value: string): number | null {
+  const normalized = normalizeUserTime(value);
+  if (normalized === null || !normalized) return null;
+  const [hour, minute] = normalized.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function forwardMinutes(from: string, to: string): number | null {
+  const start = minutesFromMidnight(from);
+  const end = minutesFromMidnight(to);
+  if (start === null || end === null) return null;
+  return (end - start + 24 * 60) % (24 * 60);
+}
+
 function syncTimeLabel(value: Date | null): string {
   if (!value) return "טרם";
   return value.toLocaleTimeString("he-IL", {
@@ -412,6 +459,19 @@ function fieldsFromSheetRows(
   const outToFermentorPh = numericText(sheetCell(rows, 40, "H"));
   if (outToFermentorPh) pulled.outToFermentorPh = outToFermentorPh;
 
+  for (let rowOffset = 42; rowOffset <= 45; rowOffset += 1) {
+    const correction = sheetCell(rows, rowOffset, "E");
+    if (!correction) continue;
+
+    correction.split(/\r?\n/).forEach((line) => {
+      const mashMatch = /^הערת מאש:\s*(.*)$/i.exec(line.trim());
+      if (mashMatch) pulled["mashIn.note"] = mashMatch[1].trim();
+
+      const generalMatch = /^הערה כללית:\s*(.*)$/i.exec(line.trim());
+      if (generalMatch) pulled.generalNote = generalMatch[1].trim();
+    });
+  }
+
   for (let index = 1; index <= 7; index += 1) {
     const rowOffset = 18 + (index - 1);
     const time = normalizedTime(sheetCell(rows, rowOffset, "E"));
@@ -455,7 +515,9 @@ function fieldsFromSheetRows(
 
   for (let index = 1; index <= 3; index += 1) {
     const amount = numericText(sheetCell(rows, 14 + index, "A"));
+    const alpha = numericText(sheetCell(rows, 14 + index, "B"));
     if (amount) pulled[`hop${index}.amountGrams`] = amount;
+    if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
   }
 
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
@@ -486,6 +548,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [syncError, setSyncError] = useState("");
   const [validationNotice, setValidationNotice] =
     useState<ValidationNotice | null>(null);
+  const [validationConfirmText, setValidationConfirmText] = useState("");
+  const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
+    null,
+  );
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
   const [heightBaseLiters, setHeightBaseLiters] = useState("");
@@ -700,9 +766,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         "endBoilPlato",
         "endBoilVolume",
         "fermentorSamplePlato",
-        "cumulativeTankVolume",
         "outToFermentorPh",
       ];
+      if (blockIndex > 1 || totalBlocks === 1) {
+        required.push("cumulativeTankVolume");
+      }
       if (blockIndex === 1) required.push("yeastPitchTime");
       return required.filter((key) => !has(key)).length;
     }
@@ -815,7 +883,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     setExecution(next);
   }
 
-  async function commitBrewDate(value: string) {
+  async function commitBrewDate(rawValue: string) {
+    const value = isoDateFromUserInput(rawValue);
+    if (value === null) {
+      setValidationNotice({
+        kind: "error",
+        text: "תאריך הבישול חייב להיות בפורמט DD/MM/YY.",
+      });
+      return;
+    }
+
     const headerRow = blockHeaderRow(run.tankType, currentBlock);
     const display = sheetDateFromIso(value);
     const writes: Array<{
@@ -1101,7 +1178,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
-    if (!approveNumericValue(`${stage.key}.temp`, value)) return;
+    if (!(await approveNumericValue(`${stage.key}.temp`, value))) return;
     const cellValue = value ? `${value}°C` : value;
     await commit(`${stage.key}.temp`, value, [
       { range: stageCell(stage.rowOffset, "G"), value: cellValue },
@@ -1114,24 +1191,62 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         ? `נפח מאש ${nextFields.mashVolume}`
         : "",
       nextFields.mashPh ? `pH ${nextFields.mashPh}` : "",
-      nextFields["mashIn.note"]
-        ? `הערה: ${nextFields["mashIn.note"]}`
-        : "",
     ]
       .filter(Boolean)
       .join("   ");
   }
 
+  async function commitCorrectionNote(
+    key: "mashIn.note" | "generalNote",
+    prefix: "הערת מאש" | "הערה כללית",
+    value: string,
+  ) {
+    const clean = value.trim();
+    const startRow = baseRow + 42;
+    const endRow = baseRow + 45;
+    const rows = run.sheetId
+      ? await readSandboxSheetRange(
+          run.sheetId,
+          `'גיליון1'!E${startRow}:E${endRow}`,
+        )
+      : [];
+
+    const normalizedRows = Array.from({ length: endRow - startRow + 1 }, (_, index) =>
+      String(rows[index]?.[0] || ""),
+    );
+    const prefixPattern = new RegExp(`^${prefix}:\\s*`, "i");
+    const existingIndex = normalizedRows.findIndex((row) =>
+      row.split(/\r?\n/).some((line) => prefixPattern.test(line.trim())),
+    );
+
+    let targetIndex = existingIndex;
+    if (targetIndex < 0) {
+      targetIndex = normalizedRows.findIndex((row) => !row.trim());
+    }
+    if (targetIndex < 0) {
+      targetIndex = normalizedRows.length - 1;
+    }
+
+    const existing = normalizedRows[targetIndex];
+    const lines = existing
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => !prefixPattern.test(line));
+    if (clean) lines.push(`${prefix}: ${clean}`);
+
+    await commit(key, clean, [
+      {
+        range: `'גיליון1'!E${startRow + targetIndex}`,
+        value: lines.join("\n"),
+      },
+    ]);
+  }
+
   async function commitStageNote(stage: StageDef, value: string) {
     const key = `${stage.key}.note`;
     if (stage.key === "mashIn") {
-      const nextFields = { ...fields, [key]: value };
-      await commit(key, value, [
-        {
-          range: stageCell(0, "H"),
-          value: mashMetaText(nextFields),
-        },
-      ]);
+      await commitCorrectionNote("mashIn.note", "הערת מאש", value);
       return;
     }
 
@@ -1149,7 +1264,24 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     await commitStage(stage, "end", value);
   }
 
-  function approveNumericValue(key: string, value: string): boolean {
+  async function askValidationConfirmation(text: string): Promise<boolean> {
+    setValidationConfirmText(text);
+    return new Promise<boolean>((resolve) => {
+      validationConfirmResolver.current = resolve;
+    });
+  }
+
+  function closeValidationConfirmation(approved: boolean) {
+    const resolve = validationConfirmResolver.current;
+    validationConfirmResolver.current = null;
+    setValidationConfirmText("");
+    resolve?.(approved);
+  }
+
+  async function approveNumericValue(
+    key: string,
+    value: string,
+  ): Promise<boolean> {
     const trimmed = value.trim();
     if (!trimmed) return true;
 
@@ -1183,15 +1315,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       key === "fermentorSamplePlato"
     ) {
       const minPlato = key === "lrPlato" ? 0 : 3;
-      if (parsed < minPlato || parsed > 30) {
+      const maxPlato = key === "lrPlato" ? 15 : 30;
+      if (parsed < minPlato || parsed > maxPlato) {
         hardError =
           key === "lrPlato"
-            ? `L.R. ${parsed}°P אינו סביר (טווח קשיח 0–30°P).`
+            ? `L.R. ${parsed}°P אינו סביר (טווח קשיח 0–15°P).`
             : `Plato ${parsed} אינו סביר (טווח קשיח 3–30°P).`;
       } else if (key === "frPlato" && (parsed < 8 || parsed > 25)) {
         warning = `F.R. ${parsed}°P חריג ביחס לבישולים האחרונים.`;
-      } else if (key === "lrPlato" && parsed > 10) {
-        warning = `L.R. ${parsed}°P גבוה מאוד ביחס לבישולים האחרונים (נמדדו גם ערכים מתחת ל-1°P, לכן אין חסימה בצד הנמוך).`;
+      } else if (key === "lrPlato" && parsed > 8) {
+        warning = `L.R. ${parsed}°P גבוה ביחס לבישולים הרגילים.`;
       } else if (
         ["kettlePlato", "endBoilPlato", "fermentorSamplePlato"].includes(key) &&
         recipe.targets.endBoilPlato > 0 &&
@@ -1224,28 +1357,36 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         const startVolume = num(fields.kettleVolume || "");
         if (startVolume !== null) {
           const loss = startVolume - parsed;
-          if (parsed > startVolume + 50) {
-            warning = `נפח סוף רתיחה (${parsed}) גבוה מנפח תחילת הרתיחה (${startVolume}).`;
+          if (parsed > startVolume) {
+            hardError = `נפח סוף רתיחה (${parsed}) לא יכול להיות גבוה מנפח תחילת הרתיחה (${startVolume}).`;
           } else if (loss > 300 || loss / startVolume > 0.2) {
             warning = `אובדן של ${Math.round(loss)} ל׳ ברתיחה חריג מאוד.`;
           }
         }
       }
     } else if (key === "cumulativeTankVolume") {
-      if (parsed < 500 || parsed > 6000) {
-        hardError = `נפח מיכל ${parsed} ל׳ אינו סביר (500–6000 ל׳).`;
+      const absoluteMax =
+        run.tankType === "single" ? 1700 : run.tankType === "double" ? 3100 : 4400;
+      if (parsed < 400 || parsed > absoluteMax) {
+        hardError = `נפח מיכל ${parsed} ל׳ אינו סביר למיכל הזה.`;
       }
-      if (currentBlock > 1) {
-        const previous = num(
-          blockFields(currentBlock - 1).cumulativeTankVolume || "",
-        );
-        if (previous !== null) {
-          const added = parsed - previous;
-          if (added <= 0) {
-            warning = `הנפח המצטבר חייב לגדול לעומת בישול ${["A", "B", "C"][currentBlock - 2]} (${previous} ל׳).`;
-          } else if (added < 700 || added > 1700) {
-            warning = `תוספת של ${Math.round(added)} ל׳ מהבישול הקודם חריגה (בדרך כלל כ-700–1700 ל׳).`;
-          }
+
+      const currentEndBoil = num(fields.endBoilVolume || "");
+      const previous =
+        currentBlock > 1
+          ? num(blockFields(currentBlock - 1).cumulativeTankVolume || "")
+          : 0;
+
+      if (!hardError && currentEndBoil !== null && previous !== null) {
+        const added = parsed - previous;
+        const minExpectedAdded = Math.max(0, currentEndBoil - 250);
+        const maxExpectedAdded = currentEndBoil + 50;
+
+        if (added < minExpectedAdded || added > maxExpectedAdded) {
+          hardError =
+            currentBlock > 1
+              ? `נפח מצטבר ${parsed} ל׳ לא מתאים לבישול הנוכחי: מהבישול הקודם היו ${previous} ל׳ וסוף הרתיחה הנוכחי הוא ${currentEndBoil} ל׳. תוספת סבירה היא בערך ${minExpectedAdded}–${maxExpectedAdded} ל׳.`
+              : `נפח תחילת תסיסה ${parsed} ל׳ לא מתאים לנפח סוף הרתיחה ${currentEndBoil} ל׳.`;
         }
       }
     } else if (/^rinse\d+\.amount$/.test(key)) {
@@ -1289,9 +1430,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
 
     if (warning) {
-      const approved = window.confirm(
-        `${warning}\n\nייתכן שהנתון נכון. לשמור אותו בכל זאת?`,
-      );
+      const approved = await askValidationConfirmation(warning);
       if (!approved) {
         setValidationNotice({
           kind: "warning",
@@ -1314,7 +1453,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     field: "mashVolume" | "mashPh",
     value: string,
   ) {
-    if (!approveNumericValue(field, value)) return;
+    if (!(await approveNumericValue(field, value))) return;
     const nextFields = { ...fields, [field]: value };
     await commit(field, value, [
       {
@@ -1325,7 +1464,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitMashAcid(value: string) {
-    if (!approveNumericValue("mashAcid85", value)) return;
+    if (!(await approveNumericValue("mashAcid85", value))) return;
     await commit("mashAcid85", value, [
       {
         range: `'גיליון1'!A${baseRow + 28}`,
@@ -1351,7 +1490,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     const target = mapping[field];
 
     if (field.endsWith("Temp")) {
-      if (!approveNumericValue(field, value)) return;
+      if (!(await approveNumericValue(field, value))) return;
     } else if (value.trim()) {
       const parsedAmount = num(value);
       if (parsedAmount === null || parsedAmount < 0 || parsedAmount > 4000) {
@@ -1394,7 +1533,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitPh(key: string, value: string, range: string) {
-    if (!approveNumericValue(key, value)) return;
+    if (!(await approveNumericValue(key, value))) return;
     await commit(key, value, [
       { range, value: value ? `pH ${value}` : "" },
     ]);
@@ -1439,13 +1578,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
     if (field === "amount") {
-      if (!approveNumericValue(key, value)) return;
+      if (!(await approveNumericValue(key, value))) return;
       return commit(key, value, [
         { range: stageCell(rowOffset, "F"), value: num(value) ?? value },
       ]);
     }
     if (field === "temp") {
-      if (!approveNumericValue(key, value)) return;
+      if (!(await approveNumericValue(key, value))) return;
       return commit(key, value, [
         {
           range: stageCell(rowOffset, "G"),
@@ -1454,7 +1593,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       ]);
     }
 
-    if (!approveNumericValue(key, value)) return;
+    if (!(await approveNumericValue(key, value))) return;
     const nextFields = { ...fields, [key]: value };
     const kettle = nextFields[`rinse${index}.kettle`] || "";
     const grant = nextFields[`rinse${index}.grant`] || "";
@@ -1471,7 +1610,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     rowOffset: number,
     column: "B" | "C",
   ) {
-    if (!approveNumericValue(key, value)) return;
+    if (!(await approveNumericValue(key, value))) return;
     const parsed = num(value);
     const writes: Array<{
       range: string;
@@ -1493,7 +1632,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
       boilHops.forEach((hop, index) => {
         const amountKey = `hop${index + 1}.amountGrams`;
-        if (String(fields[amountKey] || "").trim()) return;
+        if (String(fields[amountKey] || "").trim())) return;
 
         const dose = hopDose(hop, parsed);
         if (dose.grams === null) return;
@@ -1520,7 +1659,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitBoilAcid(value: string) {
-    if (!approveNumericValue("boilAcid85", value)) return;
+    if (!(await approveNumericValue("boilAcid85", value))) return;
     await commit("boilAcid85", value, [
       {
         range: `'גיליון1'!A${baseRow + 29}`,
@@ -1666,7 +1805,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
   async function commitHopAmount(index: number, value: string) {
     const key = `hop${index + 1}.amountGrams`;
-    if (!approveNumericValue(key, value)) return;
+    if (!(await approveNumericValue(key, value))) return;
 
     const parsed = num(value);
     const rounded =
