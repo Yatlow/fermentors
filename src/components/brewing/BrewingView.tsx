@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
-import {
-    loadSandboxRecipes,
-    type BrewRecipe,
-} from "../../SERVICES/brewing/sandboxRecipe";
+import { loadSandboxRecipes } from "../../SERVICES/brewing/sandboxRecipe";
+import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
     assignNextSandboxRunToTank,
     attachSandboxRecipeSnapshot,
