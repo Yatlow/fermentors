@@ -58,8 +58,21 @@ export type PressureV9ShadowSnapshot = {
   geometrySensitivityWidthBar: number | null;
   expectedFutureOperationalLossBar: number;
   operatorActionNote: string | null;
+  actualActions?: PressureV9ShadowAction[];
   createdAt: unknown;
   outcome?: PressureV9ShadowOutcome;
+};
+
+export type PressureV9ShadowAction = {
+  measurementId: string;
+  kind:
+    | "pressure"
+    | "bottom_carbonation"
+    | "yeast_drop"
+    | "ambiguous";
+  targetPressure: number | null;
+  note: string;
+  delayHoursFromCarbonation: number | null;
 };
 
 export type PressureV9ShadowOutcome = {
@@ -359,6 +372,7 @@ function interventionBetween(
   measurements: Measurement[],
   fromId: string,
   toId: string,
+  ignoredIds: Set<string> = new Set(),
 ): string | null {
   const rows = measurements
     .filter((row) => {
@@ -370,6 +384,9 @@ function interventionBetween(
     });
 
   for (const row of rows) {
+    const rowId = String(row.id ?? "");
+    if (ignoredIds.has(rowId)) continue;
+
     const note = String(
       row.notes ?? "",
     );
@@ -453,6 +470,69 @@ function noteContainsPressureAction(
   );
 }
 
+function classifyActionNote(
+  noteValue: unknown,
+): {
+  kind: PressureV9ShadowAction["kind"];
+  targetPressure: number | null;
+} | null {
+  const note = String(noteValue ?? "").trim();
+  if (!note) return null;
+
+  if (/גיזוז מלמטה/i.test(note)) {
+    return {
+      kind: "bottom_carbonation",
+      targetPressure: operatorPressureTargetFromNote(note),
+    };
+  }
+
+  if (/שמרים|שמרי/i.test(note)) {
+    return {
+      kind: "yeast_drop",
+      targetPressure: null,
+    };
+  }
+
+  const targetPressure =
+    operatorPressureTargetFromNote(note);
+  if (targetPressure !== null) {
+    return {
+      kind: "pressure",
+      targetPressure,
+    };
+  }
+
+  if (noteContainsPressureAction(note)) {
+    return {
+      kind: "ambiguous",
+      targetPressure: null,
+    };
+  }
+
+  return null;
+}
+
+function actionDelayHours(
+  carbonationMeasurementId: string,
+  actionMeasurementId: string,
+): number | null {
+  const from =
+    measurementTimeMs(
+      carbonationMeasurementId,
+    );
+  const to =
+    measurementTimeMs(
+      actionMeasurementId,
+    );
+  if (from === null || to === null) {
+    return null;
+  }
+  return Math.max(
+    0,
+    (to - from) / 3600000,
+  );
+}
+
 function makeOutcome(args: {
   previous: PressureV9ShadowSnapshot;
   currentId: string;
@@ -475,52 +555,109 @@ function makeOutcome(args: {
         ) / 3600000
       : null;
 
+  const recordedActions =
+    args.previous.actualActions ?? [];
+  const ignoredActionIds = new Set(
+    recordedActions.map(
+      (action) => action.measurementId,
+    ),
+  );
+
   let contaminationReason =
     interventionBetween(
       args.measurements,
       args.previous.measurementId,
       args.currentId,
+      ignoredActionIds,
     );
 
-  const startNote =
-    args.previous.operatorActionNote;
   let scoringMode:
     PressureV9ShadowOutcome["scoringMode"] =
     "hold";
   let appliedPressure =
     args.previous.currentPressure;
+  let appliedDelayHours = 0;
 
-  if (
-    /גיזוז מלמטה/i.test(
-      String(startNote ?? ""),
-    )
-  ) {
-    contaminationReason =
-      contaminationReason ??
-      "bottom_carbonation_at_start";
-  } else if (
-    /שמרים|שמרי/i.test(
-      String(startNote ?? ""),
-    )
-  ) {
-    contaminationReason =
-      contaminationReason ??
-      "yeast_drop_at_start";
-  } else {
-    const operatorTarget =
-      operatorPressureTargetFromNote(
-        startNote,
-      );
-    if (operatorTarget !== null) {
+  if (recordedActions.length > 0) {
+    const disruptive = recordedActions.find(
+      (action) =>
+        action.kind === "bottom_carbonation" ||
+        action.kind === "yeast_drop" ||
+        action.kind === "ambiguous",
+    );
+
+    const pressureActions = recordedActions.filter(
+      (action) =>
+        action.kind === "pressure" &&
+        action.targetPressure !== null,
+    );
+
+    if (disruptive) {
+      contaminationReason =
+        contaminationReason ??
+        disruptive.kind;
+    } else if (pressureActions.length > 1) {
+      contaminationReason =
+        contaminationReason ??
+        "multiple_pressure_actions";
+    } else if (pressureActions.length === 1) {
+      const action = pressureActions[0];
       scoringMode =
         "operator_pressure_action";
-      appliedPressure = operatorTarget;
-    } else if (
-      noteContainsPressureAction(startNote)
+      appliedPressure =
+        action.targetPressure!;
+      const delay =
+        action.delayHoursFromCarbonation ??
+        actionDelayHours(
+          args.previous.measurementId,
+          action.measurementId,
+        );
+      if (delay === null) {
+        contaminationReason =
+          contaminationReason ??
+          "unknown_action_time";
+      } else {
+        appliedDelayHours = delay;
+      }
+    }
+  } else {
+    // Backwards compatibility for snapshots created before delayed action
+    // linking was introduced.
+    const startNote =
+      args.previous.operatorActionNote;
+
+    if (
+      /גיזוז מלמטה/i.test(
+        String(startNote ?? ""),
+      )
     ) {
       contaminationReason =
         contaminationReason ??
-        "ambiguous_pressure_action_at_start";
+        "bottom_carbonation_at_start";
+    } else if (
+      /שמרים|שמרי/i.test(
+        String(startNote ?? ""),
+      )
+    ) {
+      contaminationReason =
+        contaminationReason ??
+        "yeast_drop_at_start";
+    } else {
+      const operatorTarget =
+        operatorPressureTargetFromNote(
+          startNote,
+        );
+      if (operatorTarget !== null) {
+        scoringMode =
+          "operator_pressure_action";
+        appliedPressure = operatorTarget;
+      } else if (
+        noteContainsPressureAction(startNote)
+      ) {
+        contaminationReason =
+          contaminationReason ??
+          "ambiguous_pressure_action_at_start";
+      }
     }
   }
 
@@ -528,7 +665,8 @@ function makeOutcome(args: {
     contaminationReason === null &&
     elapsedHours !== null &&
     elapsedHours > 0 &&
-    elapsedHours <= 168;
+    elapsedHours <= 168 &&
+    appliedDelayHours <= elapsedHours;
 
   const forecast =
     scorable
@@ -558,6 +696,11 @@ function makeOutcome(args: {
             1,
             Math.ceil(elapsedHours ?? 1),
           ),
+          actionDelayHours:
+            scoringMode ===
+              "operator_pressure_action"
+              ? appliedDelayHours
+              : 0,
         })
       : null;
 
@@ -618,6 +761,141 @@ function makeOutcome(args: {
           )
         : null,
   };
+}
+
+
+export async function recordPressureV9ShadowAction(args: {
+  tank: Fermentor;
+  reading: ReadingToSend;
+}): Promise<boolean> {
+  const batchNumber = String(
+    args.tank.batchNumber ?? "",
+  )
+    .replace("#", "")
+    .trim();
+  const measurementId = String(
+    args.reading.id ?? "",
+  ).trim();
+  const note = String(
+    args.reading.notes ?? "",
+  ).trim();
+
+  if (
+    !batchNumber ||
+    !measurementId ||
+    !note
+  ) {
+    return false;
+  }
+
+  const classified =
+    classifyActionNote(note);
+  if (!classified) return false;
+
+  const tankNumber =
+    finite(args.tank.tankNumber);
+  if (tankNumber === null) return false;
+
+  const shadowRef = doc(
+    db,
+    "scheduledCellarRecommendations",
+    `v9-shadow-${String(args.tank.id)}`,
+  );
+  const shadowDoc = await getDoc(shadowRef);
+  if (!shadowDoc.exists()) {
+    return false;
+  }
+
+  const rawEntries =
+    shadowDoc.data().entries;
+  if (
+    !rawEntries ||
+    typeof rawEntries !== "object" ||
+    Array.isArray(rawEntries)
+  ) {
+    return false;
+  }
+
+  const entries =
+    rawEntries as Record<
+      string,
+      PressureV9ShadowSnapshot
+    >;
+
+  const openEntry =
+    Object.entries(entries)
+      .filter(
+        ([, value]) =>
+          value &&
+          value.batchNumber ===
+            batchNumber &&
+          !value.outcome &&
+          String(
+            value.measurementId ?? "",
+          ) <= measurementId,
+      )
+      .sort((a, b) =>
+        String(
+          b[1].measurementId ?? "",
+        ).localeCompare(
+          String(
+            a[1].measurementId ?? "",
+          ),
+        ),
+      )[0];
+
+  if (!openEntry) return false;
+
+  const [entryKey, snapshot] =
+    openEntry;
+  const previousActions =
+    snapshot.actualActions ?? [];
+
+  if (
+    previousActions.some(
+      (action) =>
+        action.measurementId ===
+          measurementId &&
+        action.note === note,
+    )
+  ) {
+    return true;
+  }
+
+  const action: PressureV9ShadowAction = {
+    measurementId,
+    kind: classified.kind,
+    targetPressure:
+      classified.targetPressure,
+    note,
+    delayHoursFromCarbonation:
+      actionDelayHours(
+        snapshot.measurementId,
+        measurementId,
+      ),
+  };
+
+  const nextEntries = {
+    ...entries,
+    [entryKey]: {
+      ...snapshot,
+      actualActions: [
+        ...previousActions,
+        action,
+      ],
+    },
+  };
+
+  await setDoc(shadowRef, {
+    kind: "v9_shadow",
+    status: "v9_shadow",
+    tankId: String(args.tank.id),
+    tankNumber,
+    updatedAt: serverTimestamp(),
+    entries: nextEntries,
+  });
+
+  return true;
 }
 
 export async function recordPressureV9Shadow(args: {
