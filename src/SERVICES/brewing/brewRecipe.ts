@@ -67,7 +67,9 @@ export const DEFAULT_IPA_RECIPE: BrewRecipe = {
     steps: [
       { id: "mashIn", label: "מאש אין", targetTemp: 63 },
       { id: "rest1", label: "מנוחה 1", targetTemp: 63, minutes: 30 },
+      { id: "heat1", label: "חימום 1", targetTemp: 72 },
       { id: "rest2", label: "מנוחה 2", targetTemp: 72, minutes: 15 },
+      { id: "heat2", label: "חימום 2", targetTemp: 78 },
       { id: "mashOut", label: "מאש אווט", targetTemp: 78 },
     ],
   },
