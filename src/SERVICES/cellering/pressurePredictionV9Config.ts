@@ -1,4 +1,4 @@
-export const PRESSURE_V9_MODEL_VERSION = "9.1-shadow-2026-09-21";
+export const PRESSURE_V9_MODEL_VERSION = "9.1-shadow-geometry-guard-2026-09-21";
 
 // Frozen from the chronological out-of-time run:
 // train through 2026-03-29, validation through 2026-07-05,
@@ -18,3 +18,8 @@ export const PRESSURE_V9_HISTORICAL_REFERENCE = {
 // Prospective checkpoints are evidence counters for the admin monitor only.
 export const PRESSURE_V9_SHADOW_INITIAL_CHECKPOINT = 10;
 export const PRESSURE_V9_SHADOW_STRONGER_CHECKPOINT = 15;
+
+// If a ±10% vessel-volume uncertainty changes the recommended pressure by
+// more than this amount, the recommendation is not operationally actionable.
+// We still expose the raw physics result in the private monitor for diagnosis.
+export const PRESSURE_V9_MAX_GEOMETRY_SENSITIVITY_BAR = 0.30;
