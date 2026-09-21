@@ -9,7 +9,27 @@ export function loadSandboxRecipe(): BrewRecipe {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return cloneRecipe(DEFAULT_IPA_RECIPE);
     const parsed = JSON.parse(raw) as BrewRecipe;
-    return parsed?.id === "ipa" ? parsed : cloneRecipe(DEFAULT_IPA_RECIPE);
+    if (parsed?.id !== "ipa") return cloneRecipe(DEFAULT_IPA_RECIPE);
+    return {
+      ...cloneRecipe(DEFAULT_IPA_RECIPE),
+      ...parsed,
+      mash: {
+        ...cloneRecipe(DEFAULT_IPA_RECIPE).mash,
+        ...(parsed.mash || {}),
+      },
+      lautering: {
+        ...cloneRecipe(DEFAULT_IPA_RECIPE).lautering,
+        ...(parsed.lautering || {}),
+      },
+      targets: {
+        ...cloneRecipe(DEFAULT_IPA_RECIPE).targets,
+        ...(parsed.targets || {}),
+      },
+      yeast: {
+        ...cloneRecipe(DEFAULT_IPA_RECIPE).yeast,
+        ...(parsed.yeast || {}),
+      },
+    };
   } catch {
     return cloneRecipe(DEFAULT_IPA_RECIPE);
   }
