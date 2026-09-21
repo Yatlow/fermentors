@@ -79,10 +79,10 @@ export default function BrewingView({ brews, tab }: Props) {
     );
 
     const visibleSanitizedTanks = useMemo(
-        () =>
-            sandbox && demoTank.action === 5
-                ? [demoTankAsFermentor, ...sanitizedTanks]
-                : sanitizedTanks,
+        () => {
+            if (!sandbox) return sanitizedTanks;
+            return demoTank.action === 5 ? [demoTankAsFermentor] : [];
+        },
         [sandbox, demoTank.action, demoTankAsFermentor, sanitizedTanks]
     );
 
