@@ -55,7 +55,6 @@ export default function BrewingView({ brews, tab }: Props) {
     const [suggestedBatch, setSuggestedBatch] = useState<string>("");
     const [demoTank, setDemoTank] = useState<SandboxDemoTank>(() => loadSandboxDemoTank());
     const [selectedRun, setSelectedRun] = useState<SandboxBrewRun | null>(null);
-    const [openingBatch, setOpeningBatch] = useState<string | null>(null);
     const [showCreate, setShowCreate] = useState(false);
     const [planningHints, setPlanningHints] = useState<PlannedBrewHint[]>([]);
     const [planningHintsAvailable, setPlanningHintsAvailable] = useState(false);
@@ -504,31 +503,16 @@ export default function BrewingView({ brews, tab }: Props) {
                                                     type="button"
                                                     disabled={
                                                         pending ||
-                                                        !run.sheetId ||
-                                                        openingBatch === run.batchNumber
+                                                        !run.sheetId
                                                     }
-                                                    onClick={async () => {
-                                                        setOpeningBatch(run.batchNumber);
+                                                    onClick={() => {
                                                         setMessage("");
-                                                        try {
-                                                            await ensureSandboxSheetAccess();
-                                                            setSelectedRun(run);
-                                                        } catch (error) {
-                                                            setMessage(
-                                                                error instanceof Error
-                                                                    ? error.message
-                                                                    : "פתיחת טופס הבישול נכשלה.",
-                                                            );
-                                                        } finally {
-                                                            setOpeningBatch(null);
-                                                        }
+                                                        setSelectedRun(run);
                                                     }}
                                                 >
                                                     {pending
                                                         ? "ממתינה למיכל מחוטא"
-                                                        : openingBatch === run.batchNumber
-                                                            ? "מתחבר ל-Sheet..."
-                                                            : "מילוי טופס בישול"}
+                                                        : "מילוי טופס בישול"}
                                                 </button>
                                                 <button
                                                     type="button"
