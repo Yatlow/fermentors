@@ -282,6 +282,10 @@ function fieldsFromSheetRows(
   if (mashInWaterAmount) pulled.lauterWaterAmount = mashInWaterAmount;
   if (mashInWaterTemp) pulled.lauterWaterTemp = mashInWaterTemp;
 
+  if (!pulled["transferLt.start"] && pulled["heat2.end"]) {
+    pulled["transferLt.start"] = pulled["heat2.end"];
+  }
+
   const mashMeta = sheetCell(rows, 0, "H");
   const mashVolume =
     mashMeta.match(/נפח\s*מאש\s*([\d.,]+)/i)?.[1] || "";
@@ -516,14 +520,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       ].filter((key) => !hasField(key)).length;
     }
 
-    return missingItems.length;
+    return (["water", "mash", "lautering", "boil", "transfer"] as StepId[])
+      .reduce((sum, id) => sum + stepMissingCount(id), 0);
   }
 
   function isStepComplete(stepId: StepId): boolean {
-    if (stepId === "summary") {
-      return (["water", "mash", "lautering", "boil", "transfer"] as StepId[])
-        .every((id) => stepMissingCount(id) === 0);
-    }
     return stepMissingCount(stepId) === 0;
   }
 
@@ -1442,6 +1443,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       <input
                         type="number"
                         value={localValue(`rinse${index}.amount`) || "150"}
+                        onFocus={(e) => e.currentTarget.select()}
                         onChange={(e) =>
                           setLocal(
                             `rinse${index}.amount`,
