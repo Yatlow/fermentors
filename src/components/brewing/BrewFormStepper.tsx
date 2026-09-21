@@ -1059,6 +1059,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
+    if (!approveNumericValue(`${stage.key}.temp`, value)) return;
     const cellValue = value ? `${value}°C` : value;
     await commit(`${stage.key}.temp`, value, [
       { range: stageCell(stage.rowOffset, "G"), value: cellValue },
@@ -1136,8 +1137,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       key === "endBoilPlato" ||
       key === "fermentorSamplePlato"
     ) {
-      if (parsed < 3 || parsed > 30) {
-        hardError = `Plato ${parsed} אינו סביר (טווח קשיח 3–30°P).`;
+      const minPlato = key === "lrPlato" ? 0 : 3;
+      if (parsed < minPlato || parsed > 30) {
+        hardError =
+          key === "lrPlato"
+            ? `L.R. ${parsed}°P אינו סביר (טווח קשיח 0–30°P).`
+            : `Plato ${parsed} אינו סביר (טווח קשיח 3–30°P).`;
+      } else if (key === "frPlato" && (parsed < 8 || parsed > 25)) {
+        warning = `F.R. ${parsed}°P חריג ביחס לבישולים האחרונים.`;
+      } else if (key === "lrPlato" && parsed > 10) {
+        warning = `L.R. ${parsed}°P גבוה מאוד ביחס לבישולים האחרונים (נמדדו גם ערכים מתחת ל-1°P, לכן אין חסימה בצד הנמוך).`;
       } else if (
         ["kettlePlato", "endBoilPlato", "fermentorSamplePlato"].includes(key) &&
         recipe.targets.endBoilPlato > 0 &&
@@ -1193,6 +1202,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             warning = `תוספת של ${Math.round(added)} ל׳ מהבישול הקודם חריגה (בדרך כלל כ-700–1700 ל׳).`;
           }
         }
+      }
+    } else if (/^rinse\d+\.amount$/.test(key)) {
+      if (parsed < 0 || parsed > 500) {
+        hardError = `כמות שטיפה ${parsed} ל׳ אינה סבירה (0–500 ל׳).`;
+      } else if (parsed > 300) {
+        warning = `כמות שטיפה ${parsed} ל׳ חריגה ביחס לשטיפות הרגילות.`;
       }
     } else if (/^rinse\d+\.(kettle|grant)$/.test(key)) {
       if (parsed < 0 || parsed > 2500) {
@@ -1278,6 +1293,17 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       lauterWaterTemp: { rowOffset: 9, column: "C" },
     } as const;
     const target = mapping[field];
+
+    if (field.endsWith("Temp")) {
+      if (!approveNumericValue(field, value)) return;
+    } else if (value.trim()) {
+      const parsedAmount = num(value);
+      if (parsedAmount === null || parsedAmount < 0 || parsedAmount > 4000) {
+        setMessage(`⚠ כמות מים "${value}" אינה סבירה (0–4000 ל׳). הנתון לא נשמר.`);
+        return;
+      }
+    }
+
     const writes: Array<{
       range: string;
       value: string | number | boolean | null;
@@ -1354,6 +1380,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
     if (field === "amount") {
+      if (!approveNumericValue(key, value)) return;
       return commit(key, value, [
         { range: stageCell(rowOffset, "F"), value: num(value) ?? value },
       ]);
