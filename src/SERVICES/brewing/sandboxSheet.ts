@@ -140,12 +140,25 @@ async function deleteSandboxFile(fileId: string) {
 
 export async function deleteSandboxBrewSheet(fileId: string): Promise<void> {
   if (!fileId || runtimeConfig.deployEnv !== "preview") return;
+
   const response = await googleFetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`,
-    { method: "DELETE" },
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+      fileId,
+    )}?supportsAllDrives=true&fields=id,trashed`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ trashed: true }),
+    },
   );
-  if (!response.ok && response.status !== 404) {
-    await requireOk(response, "מחיקת Sheet ה-Sandbox נכשלה");
+
+  if (response.status === 404) return;
+  await requireOk(response, "מחיקת Sheet ה-Sandbox מה-Drive נכשלה");
+
+  const payload = await response.json().catch(() => null);
+  if (payload?.trashed !== true) {
+    throw new Error(
+      "Google Drive לא אישר שה-Sheet הועבר לאשפה. האצווה לא נמחקה מהאפליקציה.",
+    );
   }
 }
 
@@ -279,6 +292,29 @@ export async function createSandboxBrewSheet(input: {
     await deleteSandboxFile(fileId);
     throw error;
   }
+}
+
+
+export async function readSandboxSheetRange(
+  fileId: string,
+  range: string,
+): Promise<string[][]> {
+  if (!fileId || runtimeConfig.deployEnv !== "preview") {
+    throw new Error("קריאה מ-Sheet זמינה רק ב-Preview.");
+  }
+
+  const response = await googleFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      fileId,
+    )}/values/${encodeURIComponent(
+      range,
+    )}?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`,
+    { method: "GET" },
+  );
+
+  await requireOk(response, "קריאת נתוני הבישול מה-Sheet נכשלה");
+  const payload = await response.json();
+  return Array.isArray(payload?.values) ? payload.values : [];
 }
 
 
