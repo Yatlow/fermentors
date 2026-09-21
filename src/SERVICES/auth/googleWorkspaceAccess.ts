@@ -59,18 +59,27 @@ export function getRememberedGoogleWorkspaceToken(): string | null {
 
   try {
     const storedToken =
-      localStorage.getItem(SESSION_TOKEN_KEY) || "";
+      localStorage.getItem(SESSION_TOKEN_KEY) ||
+      sessionStorage.getItem(SESSION_TOKEN_KEY) ||
+      "";
     const expiresAt = Number(
-      localStorage.getItem(SESSION_TOKEN_EXPIRY_KEY) || 0,
+      localStorage.getItem(SESSION_TOKEN_EXPIRY_KEY) ||
+      sessionStorage.getItem(SESSION_TOKEN_EXPIRY_KEY) ||
+      0,
     );
 
     if (storedToken && expiresAt > Date.now()) {
       accessToken = storedToken;
       accessTokenExpiresAt = expiresAt;
+      localStorage.setItem(SESSION_TOKEN_KEY, storedToken);
+      localStorage.setItem(
+        SESSION_TOKEN_EXPIRY_KEY,
+        String(expiresAt),
+      );
       return storedToken;
     }
   } catch {
-    // localStorage may be unavailable in hardened/private contexts.
+    // Browser storage may be unavailable in hardened/private contexts.
   }
 
   clearGoogleWorkspaceToken();
@@ -84,6 +93,8 @@ export function clearGoogleWorkspaceToken() {
   try {
     localStorage.removeItem(SESSION_TOKEN_KEY);
     localStorage.removeItem(SESSION_TOKEN_EXPIRY_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_EXPIRY_KEY);
   } catch {
     // Ignore storage cleanup failures.
   }
