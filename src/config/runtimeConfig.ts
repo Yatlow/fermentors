@@ -12,6 +12,11 @@ export const runtimeConfig = {
   deployEnv: env("VITE_DEPLOY_ENV", "production"),
   brewingSandbox: {
     folderId: env("VITE_BREW_SANDBOX_FOLDER_ID", ""),
+    templates: {
+      single: env("VITE_BREW_SANDBOX_TEMPLATE_SINGLE_ID", ""),
+      double: env("VITE_BREW_SANDBOX_TEMPLATE_DOUBLE_ID", ""),
+      triple: env("VITE_BREW_SANDBOX_TEMPLATE_TRIPLE_ID", ""),
+    },
   },
   firebase: {
     apiKey: env("VITE_FIREBASE_API_KEY", "AIzaSyAzmFTjWuLZjNzYDVKM9kK_xNEm37jiuGY"),
