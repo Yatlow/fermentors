@@ -1,5 +1,6 @@
 import {
   DEFAULT_INGREDIENT_LIBRARY,
+  type IngredientCategory,
   type IngredientDefinition,
 } from "./ingredientLibrary";
 import { isBrewingSandbox } from "./brewingSandbox";
@@ -71,4 +72,73 @@ export function saveSandboxIngredients(
     window.localStorage.setItem(KEY, JSON.stringify(next));
   }
   return next;
+}
+
+
+export type CreateSandboxIngredientInput = {
+  name: string;
+  category: IngredientCategory;
+  supplier?: string;
+  lotNumber?: string;
+  alpha?: number;
+  bbe?: string;
+};
+
+function slugIngredient(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9א-ת_-]/g, "") ||
+    `ingredient-${Date.now()}`
+  );
+}
+
+export function createSandboxIngredient(
+  input: CreateSandboxIngredientInput,
+): {
+  ingredient: IngredientDefinition;
+  ingredients: IngredientDefinition[];
+} {
+  const current = loadSandboxIngredients();
+  const baseId = slugIngredient(input.name);
+  let id = baseId;
+  if (current.some((item) => item.id === id)) {
+    id = `${baseId}-${Date.now()}`;
+  }
+
+  const ingredient: IngredientDefinition = {
+    id,
+    name: input.name.trim(),
+    category: input.category,
+    lots: [
+      {
+        id: `${id}-current`,
+        lotNumber: input.lotNumber?.trim() || "",
+        supplier: input.supplier?.trim() || undefined,
+        alpha:
+          input.category === "hop" &&
+          Number.isFinite(Number(input.alpha))
+            ? Number(input.alpha)
+            : undefined,
+        bbe:
+          input.category === "yeast"
+            ? input.bbe?.trim() || undefined
+            : undefined,
+        status: "current",
+        active: true,
+      },
+    ],
+  };
+
+  const ingredients = saveSandboxIngredients([
+    ...current,
+    ingredient,
+  ]);
+
+  return {
+    ingredient: clone(ingredient),
+    ingredients,
+  };
 }
