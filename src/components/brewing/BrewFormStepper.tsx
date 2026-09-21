@@ -228,6 +228,18 @@ function shortIsraeliDate(value: string): string {
   return match ? `${match[3]}/${match[2]}/${match[1].slice(-2)}` : "";
 }
 
+function formatIsraeliDateTyping(value: string): string {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+
+  const yearDigits =
+    digits.length <= 6 ? digits.slice(4, 6) : digits.slice(4, 8);
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${yearDigits}`;
+}
+
 function isoDateFromUserInput(value: string): string | null {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -573,6 +585,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       ? STEPS
       : STEPS.filter((step) => step.id !== "summary");
   const currentStep = visibleSteps[Math.min(activeStep, visibleSteps.length - 1)];
+  const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
   const brewMaterials = useMemo(() => {
     const ids = [
@@ -829,7 +842,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         "fermentorSamplePlato",
         "outToFermentorPh",
       ];
-      if (blockIndex > 1 || totalBlocks === 1) {
+      if (
+        blockIndex > 1 ||
+        totalBlocks === 1 ||
+        (blockIndex === 1 && !isIpaStyle)
+      ) {
         required.push("cumulativeTankVolume");
       }
       if (blockIndex === 1) required.push("yeastPitchTime");
@@ -1344,6 +1361,67 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     resolve?.(approved);
   }
 
+  function dilutionValidation(
+    endVolumeOverride?: number | null,
+    endPlatoOverride?: number | null,
+  ): { hardError: string; warning: string } {
+    const startVolume = num(fields.kettleVolume || "");
+    const startPlato = num(fields.kettlePlato || "");
+    const endVolume =
+      endVolumeOverride === undefined
+        ? num(fields.endBoilVolume || "")
+        : endVolumeOverride;
+    const endPlato =
+      endPlatoOverride === undefined
+        ? num(fields.endBoilPlato || "")
+        : endPlatoOverride;
+
+    if (
+      startVolume === null ||
+      endVolume === null ||
+      endVolume <= startVolume
+    ) {
+      return { hardError: "", warning: "" };
+    }
+
+    if (startPlato === null || endPlato === null) {
+      return {
+        hardError: "",
+        warning:
+          `נפח סוף הרתיחה (${endVolume} ל׳) גבוה מנפח תחילת הרתיחה (${startVolume} ל׳). זה אפשרי בדילול; לאחר הזנת Plato סוף רתיחה תיבדק התאמת הדילול.`,
+      };
+    }
+
+    if (endPlato >= startPlato) {
+      return {
+        hardError:
+          `הנפח עלה מ-${startVolume} ל-${endVolume} ל׳ אבל ה-Plato לא ירד (${startPlato}→${endPlato}). הנתונים לא נראים כמו דילול.`,
+        warning: "",
+      };
+    }
+
+    const expected = (startPlato * startVolume) / endVolume;
+    const delta = Math.abs(endPlato - expected);
+
+    if (delta > 0.8) {
+      return {
+        hardError:
+          `הנפח גדל ונראה שהיה דילול, אבל לפי ${startVolume} ל׳ ב-${startPlato}°P ה-Plato הצפוי אחרי ${endVolume} ל׳ הוא בערך ${expected.toFixed(2)}°P. הוזן ${endPlato}°P.`,
+        warning: "",
+      };
+    }
+
+    if (delta > 0.35) {
+      return {
+        hardError: "",
+        warning:
+          `הדילול אפשרי, אבל ה-Plato הצפוי לפי מאזן הסוכר הוא כ-${expected.toFixed(2)}°P והוזן ${endPlato}°P.`,
+      };
+    }
+
+    return { hardError: "", warning: "" };
+  }
+
   async function approveNumericValue(
     key: string,
     value: string,
@@ -1400,6 +1478,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         warning = `הערך ${parsed}°P רחוק ביותר מ-3°P מיעד סוף הרתיחה ${recipe.targets.endBoilPlato}°P.`;
       }
 
+      if (key === "endBoilPlato") {
+        const dilution = dilutionValidation(undefined, parsed);
+        if (dilution.hardError) hardError = dilution.hardError;
+        else if (dilution.warning) warning = dilution.warning;
+      }
+
       if (
         key === "fermentorSamplePlato" &&
         num(fields.endBoilPlato || "") !== null &&
@@ -1425,7 +1509,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         if (startVolume !== null) {
           const loss = startVolume - parsed;
           if (parsed > startVolume) {
-            hardError = `נפח סוף רתיחה (${parsed}) לא יכול להיות גבוה מנפח תחילת הרתיחה (${startVolume}).`;
+            const dilution = dilutionValidation(parsed, undefined);
+            if (dilution.hardError) hardError = dilution.hardError;
+            else if (dilution.warning) warning = dilution.warning;
           } else if (loss > 300 || loss / startVolume > 0.2) {
             warning = `אובדן של ${Math.round(loss)} ל׳ ברתיחה חריג מאוד.`;
           }
@@ -2906,6 +2992,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   placeholder="DD/MM/YY"
                   required
                   defaultValue={shortIsraeliDate(localValue("brewDate"))}
+                  onInput={(e) => {
+                    e.currentTarget.value = formatIsraeliDateTyping(
+                      e.currentTarget.value,
+                    );
+                  }}
                   onBlur={(e) => void commitBrewDate(e.target.value)}
                 />
               </label>
@@ -3742,7 +3833,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                 <div className="brew-volume-with-action">
                   <input
                     type="number"
-                    required={currentBlock > 1 || totalBlocks === 1}
+                    required={
+                      currentBlock > 1 ||
+                      totalBlocks === 1 ||
+                      (currentBlock === 1 && !isIpaStyle)
+                    }
                     value={localValue("cumulativeTankVolume")}
                     onChange={(e) =>
                       setLocal("cumulativeTankVolume", e.target.value)
