@@ -153,12 +153,15 @@ export default function BrewingView({ brews, tab }: Props) {
                     const value = Number(String(tank.batchNumber || "").replace("#", "").trim());
                     return Number.isFinite(value) ? Math.max(current, value) : current;
                 }, 0);
-                const maxSandbox = sandboxRuns.reduce((current, run) => {
-                    const value = Number(run.batchNumber);
-                    return Number.isFinite(value) ? Math.max(current, value) : current;
-                }, 0);
-                const max = Math.max(maxHistory, maxAssigned, maxSandbox);
-                if (max > 0) setSuggestedBatch(String(max + 1));
+                const max = Math.max(maxHistory, maxAssigned);
+                if (max > 0) {
+                    const sandboxUsed = new Set(
+                        sandboxRuns.map((run) => Number(run.batchNumber)),
+                    );
+                    let candidate = max + 1;
+                    while (sandboxUsed.has(candidate)) candidate += 1;
+                    setSuggestedBatch(String(candidate));
+                }
             })
             .catch(() => undefined);
         return () => {
