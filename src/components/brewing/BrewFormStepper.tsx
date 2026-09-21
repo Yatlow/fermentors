@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadSandboxExecution,
@@ -48,6 +48,11 @@ type SyncMismatch = {
   label: string;
   appValue: string;
   sheetValue: string;
+};
+
+type ValidationNotice = {
+  kind: "warning" | "error";
+  text: string;
 };
 
 type StepId =
@@ -273,6 +278,39 @@ function num(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function roundToFive(value: number): number {
+  return Math.round(value / 5) * 5;
+}
+
+function tankHeightCalibration(
+  tankNumberValue: string,
+  tankType: SandboxBrewRun["tankType"],
+): { base: number; cmPer100: number; label: string; note?: string } | null {
+  const tankNumber = Number(tankNumberValue);
+
+  if (tankNumber === 6) {
+    return { base: 1300, cmPer100: 7.6, label: "מיכל 6" };
+  }
+
+  if (tankType === "double") {
+    return { base: 1250, cmPer100: 9, label: "מיכל כפול" };
+  }
+
+  if (tankType === "triple") {
+    if (tankNumber === 11) {
+      return {
+        base: 2250,
+        cmPer100: 5,
+        label: "מיכל משולש 11",
+        note: "ברירת המחדל כוללת את תיקון ה־50 ל׳ של מיכל 11",
+      };
+    }
+    return { base: 2300, cmPer100: 5, label: "מיכל משולש" };
+  }
+
+  return null;
+}
+
 function normalizedTime(value: unknown): string {
   const text = String(value ?? "").trim();
   const match = text.match(
@@ -446,8 +484,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const [syncMismatchCount, setSyncMismatchCount] = useState<number | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
   const [syncError, setSyncError] = useState("");
+  const [validationNotice, setValidationNotice] =
+    useState<ValidationNotice | null>(null);
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
+  const [heightBaseLiters, setHeightBaseLiters] = useState("");
+  const initialProductionPullKey = useRef("");
   const ingredientLibrary = useMemo(
     () => loadSandboxIngredients(),
     [],
@@ -866,7 +908,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         if (!String(fields[amountKey] || "").trim()) {
           const dose = hopDose(hop);
           if (dose.grams !== null) {
-            const grams = String(Math.round(dose.grams));
+            const grams = String(roundToFive(dose.grams));
             nextExecution = setSandboxExecutionField(
               nextExecution,
               currentBlock,
@@ -1113,7 +1155,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
     const parsed = num(trimmed);
     if (parsed === null) {
-      setMessage("הערך חייב להיות מספר.");
+      setValidationNotice({
+        kind: "error",
+        text: "הערך חייב להיות מספר. הנתון לא נשמר.",
+      });
       return false;
     }
 
@@ -1236,7 +1281,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
 
     if (hardError) {
-      setMessage(`⚠ ${hardError} הנתון לא נשמר — בדוק שאין TYPO.`);
+      setValidationNotice({
+        kind: "error",
+        text: `${hardError} הנתון לא נשמר — בדוק שאין TYPO.`,
+      });
       return false;
     }
 
@@ -1245,12 +1293,20 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         `${warning}\n\nייתכן שהנתון נכון. לשמור אותו בכל זאת?`,
       );
       if (!approved) {
-        setMessage("השמירה בוטלה כדי לאפשר תיקון הנתון.");
+        setValidationNotice({
+          kind: "warning",
+          text: `${warning} השמירה בוטלה כדי לאפשר תיקון.`,
+        });
         return false;
       }
+      setValidationNotice({
+        kind: "warning",
+        text: `${warning} הנתון נשמר לאחר אישור.`,
+      });
+      return true;
     }
 
-    setMessage("");
+    setValidationNotice(null);
     return true;
   }
 
@@ -1299,7 +1355,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     } else if (value.trim()) {
       const parsedAmount = num(value);
       if (parsedAmount === null || parsedAmount < 0 || parsedAmount > 4000) {
-        setMessage(`⚠ כמות מים "${value}" אינה סבירה (0–4000 ל׳). הנתון לא נשמר.`);
+        setValidationNotice({
+          kind: "error",
+          text: `כמות מים "${value}" אינה סבירה (0–4000 ל׳). הנתון לא נשמר.`,
+        });
         return;
       }
     }
@@ -1439,7 +1498,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         const dose = hopDose(hop, parsed);
         if (dose.grams === null) return;
 
-        const grams = String(Math.round(dose.grams));
+        const grams = String(roundToFive(dose.grams));
         nextExecution = setSandboxExecutionField(
           nextExecution,
           currentBlock,
@@ -1608,10 +1667,15 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   async function commitHopAmount(index: number, value: string) {
     const key = `hop${index + 1}.amountGrams`;
     if (!approveNumericValue(key, value)) return;
-    await commit(key, value, [
+
+    const parsed = num(value);
+    const rounded =
+      parsed === null ? "" : String(roundToFive(parsed));
+
+    await commit(key, rounded, [
       {
         range: `'גיליון1'!A${baseRow + 15 + index}`,
-        value: num(value) ?? "",
+        value: rounded === "" ? "" : Number(rounded),
       },
     ]);
   }
@@ -1758,6 +1822,37 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     return key;
   }
 
+  function isStandbyRinseDifference(
+    key: string,
+    localFields: Record<string, string>,
+    sheetFields: Record<string, string>,
+  ): boolean {
+    const match = /^rinse(\d+)\.amount$/.exec(key);
+    if (!match) return false;
+
+    const index = match[1];
+    const evidenceKeys = [
+      `rinse${index}.time`,
+      `rinse${index}.temp`,
+      `rinse${index}.kettle`,
+      `rinse${index}.grant`,
+    ];
+    const hasRealRinse = evidenceKeys.some(
+      (evidenceKey) =>
+        String(localFields[evidenceKey] || "").trim() !== "" ||
+        String(sheetFields[evidenceKey] || "").trim() !== "",
+    );
+    if (hasRealRinse) return false;
+
+    const localAmount = String(localFields[key] || "").trim();
+    const sheetAmount = String(sheetFields[key] || "").trim();
+
+    return (
+      (localAmount === "150" && sheetAmount === "") ||
+      (sheetAmount === "150" && localAmount === "")
+    );
+  }
+
   function syncComparable(value: unknown): string {
     const text = String(value ?? "").trim();
     if (!text) return "";
@@ -1824,6 +1919,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         ]);
 
         keys.forEach((key) => {
+          if (isStandbyRinseDifference(key, localFields, pulled)) {
+            return;
+          }
+
           const appValue = syncComparable(localFields[key]);
           const sheetValue = syncComparable(pulled[key]);
           if (appValue !== sheetValue) {
@@ -1929,6 +2028,21 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       setPulling(false);
     }
   }
+
+  useEffect(() => {
+    if (
+      run.source !== "production" ||
+      !run.sheetId ||
+      initialProductionPullKey.current === run.batchNumber
+    ) {
+      return;
+    }
+
+    initialProductionPullKey.current = run.batchNumber;
+    void syncFromSheet();
+    // Intentionally pull once when a real batch is opened for editing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run.batchNumber, run.sheetId, run.source]);
 
   async function selectBlock(index: number) {
     setExecution(setSandboxExecutionActiveBlock(execution, index));
@@ -2214,6 +2328,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         </div>
       </div>
 
+      {run.source === "production" && (
+        <div className="brew-real-data-banner" role="status">
+          <strong>נתוני אמת</strong>
+          <span>
+            עריכה כאן כותבת ישירות ל-Sheet המקורי של אצווה {run.batchNumber}.
+            ACTION / Stage של המיכל אינם משתנים מהמסך הזה.
+          </span>
+        </div>
+      )}
+
       {syncError && (
         <div className="brewing-message brewing-message-error">
           סנכרון ל-Sheet נכשל: {syncError}
@@ -2331,6 +2455,23 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             <h3>{currentStep.label}</h3>
           </div>
         </div>
+
+        {validationNotice && (
+          <div
+            className={`brew-validation-notice ${validationNotice.kind}`}
+            role="alert"
+          >
+            <span>{validationNotice.kind === "error" ? "⛔" : "⚠️"}</span>
+            <strong>{validationNotice.text}</strong>
+            <button
+              type="button"
+              aria-label="סגור הודעת ולידציה"
+              onClick={() => setValidationNotice(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         {currentStep.id === "water" && (
           <div className="brew-prep-step">
@@ -2947,7 +3088,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       const suggested =
                         dose.grams === null
                           ? ""
-                          : String(Math.round(dose.grams));
+                          : String(roundToFive(dose.grams));
                       return (
                         <>
                           <label>
@@ -3131,7 +3272,14 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     type="button"
                     className="brew-button-secondary"
                     onClick={() => {
+                      const calibration = tankHeightCalibration(
+                        String(run.tankNumber),
+                        run.tankType,
+                      );
                       setHeightCm("");
+                      setHeightBaseLiters(
+                        calibration ? String(calibration.base) : "",
+                      );
                       setHeightCalcOpen(true);
                     }}
                   >
@@ -3247,7 +3395,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     : "השוואת חומצה ברתיחה"}{" "}
                   · {run.style}
                 </h2>
-                <p>3 אצוות אחרונות · עד 9 בישולים · נשמר מקומית לטעינה חוזרת מהירה</p>
+                <p>3 אצוות אחרונות · עד 9 בישולים</p>
               </div>
               <button
                 type="button"
@@ -3277,6 +3425,14 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   <span>pH הוצאה לבישול</span>
                   <strong>{localValue("outToBoilPh") || "—"}</strong>
                 </div>
+                <div>
+                  <span>נפח רתיחה</span>
+                  <strong>
+                    {localValue("kettleVolume")
+                      ? localValue("kettleVolume") + " ל׳"
+                      : "—"}
+                  </strong>
+                </div>
               </div>
             )}
 
@@ -3305,6 +3461,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       <th>pH הוצאה לבישול</th>
                       {acidHistoryMode === "boil" && (
                         <>
+                          <th>נפח רתיחה</th>
                           <th>pH תחילת רתיחה</th>
                           <th>מ״ל חומצה ברתיחה</th>
                           <th>pH בהוצאה לתסיסה</th>
@@ -3331,6 +3488,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                         <td>{row.outToBoilPh || "—"}</td>
                         {acidHistoryMode === "boil" && (
                           <>
+                            <td>{row.kettleVolume ? row.kettleVolume + " ל׳" : "—"}</td>
                             <td>{row.boilPh || "—"}</td>
                             <td>{row.boilAcidMl || "—"}</td>
                             <td>{row.outToFermentorPh || "—"}</td>
@@ -3363,28 +3521,15 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             aria-labelledby="brew-height-calc-title"
           >
             {(() => {
-              const tankNumber = Number(run.tankNumber);
-              const spec =
-                tankNumber === 6
-                  ? { base: 1300, cmPer100: 7.6, adjustment: 0, label: "מיכל 6" }
-                  : run.tankType === "double"
-                    ? { base: 1250, cmPer100: 9, adjustment: 0, label: "מיכל כפול" }
-                    : run.tankType === "triple"
-                      ? {
-                          base: 2300,
-                          cmPer100: 5,
-                          adjustment: tankNumber === 11 ? -50 : 0,
-                          label: tankNumber === 11 ? "מיכל משולש 11" : "מיכל משולש",
-                        }
-                      : null;
+              const spec = tankHeightCalibration(
+                String(run.tankNumber),
+                run.tankType,
+              );
               const height = num(heightCm);
+              const base = num(heightBaseLiters);
               const calculated =
-                spec && height !== null
-                  ? Math.round(
-                      spec.base +
-                        (100 * height) / spec.cmPer100 +
-                        spec.adjustment,
-                    )
+                spec && height !== null && base !== null
+                  ? Math.round(base + (100 * height) / spec.cmPer100)
                   : null;
 
               return (
@@ -3394,7 +3539,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       <h2 id="brew-height-calc-title">מחשבון גובה מיכל {run.tankNumber}</h2>
                       <p>
                         {spec
-                          ? `${spec.label} · בסיס ${spec.base} ל׳ · כל ${spec.cmPer100} ס״מ = 100 ל׳${spec.adjustment ? " · תיקון -50 ל׳" : ""}`
+                          ? `${spec.label} · כל ${spec.cmPer100} ס״מ = 100 ל׳${spec.note ? ` · ${spec.note}` : ""}`
                           : "אין במסמך הכיול נוסחת גובה למיכל בודד."}
                       </p>
                     </div>
@@ -3411,6 +3556,17 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   {spec && (
                     <>
                       <div className="brew-boil-calc-fields">
+                        <label>
+                          בסיס נפח (ל׳)
+                          <input
+                            type="number"
+                            step="1"
+                            value={heightBaseLiters}
+                            onChange={(e) =>
+                              setHeightBaseLiters(e.target.value)
+                            }
+                          />
+                        </label>
                         <label>
                           גובה מדידה (ס״מ)
                           <input
@@ -3450,6 +3606,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                           const value = String(calculated);
                           setHeightCalcOpen(false);
                           setHeightCm("");
+                          setHeightBaseLiters("");
                           setLocal("cumulativeTankVolume", value);
                           void commitSugar(
                             "cumulativeTankVolume",
