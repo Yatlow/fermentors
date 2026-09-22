@@ -140,20 +140,6 @@ function layoutFor(tankType: TankType) {
 }
 
 
-async function deleteSandboxFile(fileId: string) {
-  try {
-    const response = await googleFetch(
-      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`,
-      { method: "DELETE" },
-    );
-    if (!response.ok && response.status !== 404) {
-      console.warn("Failed to remove orphan sandbox Sheet", response.status);
-    }
-  } catch (error) {
-    console.warn("Failed to remove orphan sandbox Sheet", error);
-  }
-}
-
 export async function deleteSandboxBrewSheet(fileId: string): Promise<void> {
   if (!fileId || runtimeConfig.deployEnv !== "preview") return;
   await serverTrashBrewSheet(fileId);
