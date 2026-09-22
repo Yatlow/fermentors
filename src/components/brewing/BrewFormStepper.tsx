@@ -1407,7 +1407,7 @@ export default function BrewFormStepper({
     );
   }
 
-  async function writeSheet(
+  function writeSheet(
     key: string,
     writes: Array<{ range: string; value: string | number | boolean | null }>,
   ) {
@@ -1415,22 +1415,22 @@ export default function BrewFormStepper({
 
     setSyncing(key);
     setMessage("");
-    try {
-      await writeSandboxSheetCells(run.sheetId, writes);
-      setLastPushAt(new Date());
-      setSyncMismatchCount(null);
-      setSyncMismatches([]);
-      setSyncError("");
-    } catch (error) {
-      const detail =
-        error instanceof Error
-          ? error.message
-          : "שמירת הנתון ב-Sheet נכשלה.";
-      setSyncError(detail);
-      setMessage(detail);
-    } finally {
-      setSyncing("");
-    }
+    void writeSandboxSheetCells(run.sheetId, writes)
+      .then(() => {
+        setLastPushAt(new Date());
+        setSyncMismatchCount(null);
+        setSyncMismatches([]);
+        setSyncError("");
+      })
+      .catch((error) => {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : "שמירת הנתון ב-Sheet נכשלה.";
+        setSyncError(detail);
+        setMessage(detail);
+      })
+      .finally(() => setSyncing(""));
   }
 
   async function commit(
@@ -1445,7 +1445,7 @@ export default function BrewFormStepper({
       value,
     );
     setExecution(next);
-    await writeSheet(key, writes);
+    writeSheet(key, writes);
   }
 
   function localValue(key: string) {
@@ -3808,16 +3808,16 @@ export default function BrewFormStepper({
               בישול {currentBlock}/{totalBlocks} · מתכון v{recipe.version}
             </span>
             {syncing ? (
-              <BeerLoader size="spinner" message="אפליקציה ← Sheet…" />
+              <BeerLoader size="spinner" message="שומר ל-Sheet…" />
             ) : pulling ? (
-              <BeerLoader size="spinner" message="Sheet ← אפליקציה…" />
+              <BeerLoader size="spinner" message="קורא מה-Sheet…" />
             ) : (
               <div className="brew-sync-directions">
                 <span>
-                  Sheet ← אפליקציה: {syncTimeLabel(lastPushAt)}
+                  כתיבה ל-Sheet: {syncTimeLabel(lastPushAt)}
                 </span>
                 <span>
-                  אפליקציה ← Sheet: {syncTimeLabel(lastPullAt)}
+                  קריאה מה-Sheet: {syncTimeLabel(lastPullAt)}
                 </span>
                 <span
                   className={
