@@ -878,8 +878,8 @@ export default function BrewingView({ brews, tab }: Props) {
                         <div>
                             <h2>אצוות בישול</h2>
                             <p>
-                                אצוות Sandbox לצד אצוות אמת. באצוות אמת העריכה מעדכנת
-                                את ה-Sheet המקורי בלבד ואינה משנה ACTION / Stage.
+                                אצוות אמת במיכלים וב-Drive. העריכה מעדכנת את ה-Sheet
+                                המקורי; מיכל 20 נשאר סביבת דמו נפרדת.
                             </p>
                         </div>
                         <div className="brewing-heading-actions">
@@ -922,7 +922,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
                     {sandbox && sandboxRuns.length > 0 && (
                         <>
-                            <h3 className="brewing-subheading">אצוות Sandbox</h3>
+                            <h3 className="brewing-subheading">אצוות דמו · מיכל 20</h3>
                             <div className="brewing-tank-grid">
                                 {sandboxRuns.map((run) => {
                                     const pending =
