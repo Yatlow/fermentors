@@ -1185,6 +1185,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitStageStart(stage: StageDef, value: string) {
+    if (rejectTimelineTime(`${stage.key}.start`, value)) return;
+
     let nextExecution = setSandboxExecutionField(
       execution,
       currentBlock,
@@ -1250,6 +1252,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     value: string,
   ) {
     if (field === "end") {
+      if (rejectTimelineTime(`${stage.key}.end`, value)) return;
+
       let nextExecution = setSandboxExecutionField(
         execution,
         currentBlock,
@@ -1406,6 +1410,17 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     if (/Ph$/i.test(key) || key === "mashPh" || key === "boilPh") {
       if (parsed > 7) return `pH ${parsed} אינו ערך סביר לבישול (מקסימום 7).`;
       if (parsed < 0) return `pH ${parsed} אינו ערך סביר.`;
+    }
+
+    if (
+      ["hltWaterAmount", "lauterWaterAmount"].includes(key) &&
+      (parsed < 0 || parsed > 4000)
+    ) {
+      return `כמות מים ${parsed} ל׳ אינה סבירה (0–4000 ל׳).`;
+    }
+
+    if (/^hop\d+\.alphaOverride$/.test(key) && (parsed < 1 || parsed > 25)) {
+      return `Alpha ${parsed}% אינו סביר לכשות (1–25%).`;
     }
 
     if (
@@ -1969,34 +1984,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     const key = `rinse${index}.${field}`;
 
     if (field === "time") {
-      const previousTime =
-        index > 1 ? String(fields[`rinse${index - 1}.time`] || "") : "";
-      const nextTime =
-        index < 7 ? String(fields[`rinse${index + 1}.time`] || "") : "";
-
-      if (previousTime) {
-        const delta = forwardMinutes(previousTime, value);
-        if (delta !== null && delta > 180) {
-          restoreCommittedField(key);
-          setValidationNotice({
-            kind: "error",
-            text: `שעת שטיפה ${index} (${value}) מוקדמת משטיפה ${index - 1} (${previousTime}). הנתון לא נשמר.`,
-          });
-          return;
-        }
-      }
-
-      if (nextTime) {
-        const deltaToNext = forwardMinutes(value, nextTime);
-        if (deltaToNext !== null && deltaToNext > 180) {
-          restoreCommittedField(key);
-          setValidationNotice({
-            kind: "error",
-            text: `שעת שטיפה ${index} (${value}) מאוחרת משטיפה ${index + 1} (${nextTime}). הנתון לא נשמר.`,
-          });
-          return;
-        }
-      }
+      if (rejectTimelineTime(key, value)) return;
 
       let nextExecution = setSandboxExecutionField(
         execution,
@@ -2129,6 +2117,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
+    if (rejectTimelineTime("boil.start", value)) return;
+
     let nextExecution = setSandboxExecutionField(
       execution,
       currentBlock,
@@ -2215,6 +2205,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       });
       return;
     }
+    if (rejectTimelineTime(key, value)) return;
+
     await commit(key, value, [
       { range: stageCell(rowOffset, "E"), value },
     ]);
@@ -2355,6 +2347,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
+    if (rejectTimelineTime("endBoilTime", value)) return;
+
     const wpEnd = addMinutesToTime(value, 20);
     let nextExecution = setSandboxExecutionField(
       execution,
@@ -2398,6 +2392,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       });
       return;
     }
+    if (rejectTimelineTime("yeastPitchTime", value)) return;
+
     await commit("yeastPitchTime", value, [
       {
         range: `'גיליון1'!G${fermentationStartingRow(run.tankType)}`,
@@ -2728,6 +2724,21 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   function setLocal(key: string, value: string) {
+    const hardError = immediateHardNumericError(key, value);
+    if (hardError) {
+      setValidationNotice({
+        kind: "error",
+        key,
+        text: `${hardError} הנתון לא יישמר.`,
+      });
+    } else {
+      setValidationNotice((previous) =>
+        previous?.kind === "error" && previous.key === key
+          ? null
+          : previous,
+      );
+    }
+
     const blockKey = String(currentBlock);
     setExecution((previous) => ({
       ...previous,
