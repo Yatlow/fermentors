@@ -17,7 +17,7 @@ import {
 } from "../../SERVICES/planning/planningEngine";
 import { futureTanks, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import {
-  normalizePackagingEmptyTankOrder,
+  normalizeEmptyTankFlagsForSchedule,
   tankReleases,
   validateProduction,
   validateBrewReleases,
@@ -134,7 +134,7 @@ export default function PlanningBoard({
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
-    const effectiveNext = normalizePackagingEmptyTankOrder(confirmedNext);
+    const effectiveNext = normalizeEmptyTankFlagsForSchedule(confirmedNext);
     const all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     const error = validatePlanningWeek(effectiveNext, settings, all, today);
     if (error) throw new Error(error);
