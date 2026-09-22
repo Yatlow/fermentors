@@ -667,7 +667,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
             setMessage(
                 isSanitized
-                    ? `✓ אצווה ${run.batchNumber} נוצרה ושויכה למיכל ${run.tankNumber} ב-Sandbox.`
+                    ? `✓ אצווה ${run.batchNumber} נוצרה ושויכה למיכל ${run.tankNumber} .`
                     : `✓ אצווה ${run.batchNumber} נוצרה. היא ממתינה לשיבוץ למיכל ${run.tankNumber} עד שהמיכל יהיה מחוטא.`,
             );
             setSuggestedBatch(String(Number(run.batchNumber) + 1));
@@ -681,7 +681,7 @@ export default function BrewingView({ brews, tab }: Props) {
             setCreateModalError(
                 error instanceof Error
                     ? error.message
-                    : "יצירת אצוות Sandbox וה-Sheet נכשלה.",
+                    : "יצירת אצווה וה-Sheet נכשלה.",
             );
         } finally {
             setBusyTankId(null);
@@ -698,7 +698,7 @@ export default function BrewingView({ brews, tab }: Props) {
             }
             deleteSandboxBrewRun(run.batchNumber);
             setSandboxRuns(loadSandboxBrewRuns());
-            setMessage(`אצוות Sandbox ${run.batchNumber} וה-Sheet שלה נמחקו.`);
+            setMessage(`אצווה ${run.batchNumber} וה-Sheet שלה נמחקו.`);
         } catch (error) {
             setMessage(
                 error instanceof Error
