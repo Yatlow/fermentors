@@ -1,3 +1,6 @@
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { auth, db } from "../../firebase";
+
 export type BrewExecutionBlock = {
   fields: Record<string, string>;
 };
@@ -95,4 +98,38 @@ export function setSandboxExecutionReviewedSteps(
   reviewedSteps: Record<string, boolean>,
 ): BrewExecution {
   return saveSandboxExecution({ ...execution, reviewedSteps: { ...reviewedSteps } });
+}
+
+
+export async function loadBrewingExecutionFromFirestore(
+  batchNumber: string,
+): Promise<BrewExecution | null> {
+  const clean = String(batchNumber || "").replace("#", "").trim();
+  if (!clean) return null;
+  const snapshot = await getDoc(doc(db, "brews", clean));
+  if (!snapshot.exists()) return null;
+  const data = snapshot.data() as { brewingExecution?: BrewExecution };
+  const remote = data.brewingExecution;
+  if (!remote || remote.batchNumber !== clean || !remote.blocks) return null;
+  return saveSandboxExecution(remote);
+}
+
+export async function saveBrewingExecutionToFirestore(
+  execution: BrewExecution,
+): Promise<void> {
+  const clean = String(execution.batchNumber || "").replace("#", "").trim();
+  if (!clean) return;
+  await setDoc(
+    doc(db, "brews", clean),
+    {
+      brewingExecution: cleanForRemoteExecution(execution),
+      brewingExecutionUpdatedAt: serverTimestamp(),
+      brewingExecutionUpdatedBy: auth.currentUser?.uid || "",
+    },
+    { merge: true },
+  );
+}
+
+function cleanForRemoteExecution(execution: BrewExecution): BrewExecution {
+  return JSON.parse(JSON.stringify(execution)) as BrewExecution;
 }
