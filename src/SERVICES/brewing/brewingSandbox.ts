@@ -16,6 +16,9 @@ export type SandboxBrewRun = {
     action?: string | number | null;
     brewSheetEditRevision?: number | null;
     brewSheetEditRange?: string | null;
+    brewSheetEditValue?: string | null;
+    brewSheetEditOldValue?: string | null;
+    brewSheetEditSheetName?: string | null;
     brewProgress?: {
         blockIndex?: number | null;
         stageName?: string | null;
