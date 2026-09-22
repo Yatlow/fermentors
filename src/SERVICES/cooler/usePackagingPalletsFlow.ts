@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     submitPackagingRecord,
-    createPalletsForPlan,
+    replacePalletsForPlan,
     computePalletQuantity,
     type PackagingType,
     type PackagingPalletPlan,
@@ -263,8 +263,11 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
                         .filter((r) => r.jobIndex === jobIndex)
                         .map((r) => ({ quantity: r.quantity, subLabel: r.subLabel }));
 
+                    // Default pallets already exist from submitPackagingRecord.
+                    // Only a fully valid user split may replace them; replacement
+                    // is one atomic Firestore batch, so failure keeps defaults.
                     await savePackagingPalletSplits(runtime.palletPlan.operationId, splits);
-                    const ids = await createPalletsForPlan(runtime.palletPlan, splits);
+                    const ids = await replacePalletsForPlan(runtime.palletPlan, splits);
                     return { ids, operationId: runtime.palletPlan.operationId };
                 })
             );
