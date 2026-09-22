@@ -3034,7 +3034,6 @@ export default function BrewFormStepper({
 
   useEffect(() => {
     if (
-      run.source !== "production" ||
       !run.sheetId ||
       initialProductionPullKey.current === run.batchNumber
     ) {
@@ -3043,9 +3042,10 @@ export default function BrewFormStepper({
 
     initialProductionPullKey.current = run.batchNumber;
     void syncFromSheet(true);
-    // Intentionally pull once when a real batch is opened for editing.
+    // Pull once whenever a Sheet-backed brew form is opened. For a live
+    // production brew this also positions the stepper at the current stage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run.batchNumber, run.sheetId, run.source]);
+  }, [run.batchNumber, run.sheetId]);
 
   async function selectBlock(index: number) {
     setExecution(setSandboxExecutionActiveBlock(execution, index));
