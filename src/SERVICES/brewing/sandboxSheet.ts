@@ -176,20 +176,97 @@ export async function readSandboxSheetRange(
   return Array.isArray(result.values) ? result.values : [];
 }
 
-export async function writeSandboxSheetCells(
-  fileId: string,
-  data: Array<{ range: string; value: string | number | boolean | null }>,
-): Promise<void> {
-  if (!fileId || runtimeConfig.deployEnv !== "preview") {
-    throw new Error("כתיבה ל-Sheet זמינה רק ב-Preview.");
+type SheetWrite = { range: string; value: string | number | boolean | null };
+
+type SheetOutbox = {
+  pending: Map<string, SheetWrite>;
+  timer: ReturnType<typeof setTimeout> | null;
+  inFlight: boolean;
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
+};
+
+const sheetOutboxes = new Map<string, SheetOutbox>();
+const SHEET_WRITE_DEBOUNCE_MS = 650;
+
+function getSheetOutbox(fileId: string): SheetOutbox {
+  let outbox = sheetOutboxes.get(fileId);
+  if (!outbox) {
+    outbox = { pending: new Map(), timer: null, inFlight: false, waiters: [] };
+    sheetOutboxes.set(fileId, outbox);
   }
-  const result = await serverWriteBrewSheetCells(
-    fileId,
-    data.map((item) => ({ range: item.range, value: item.value })),
-  );
-  if (result.updated !== data.length) {
-    throw new Error(
-      `Google Sheets אישר רק ${result.updated} מתוך ${data.length} כתיבות. הנתונים נשארו מסומנים כלא מסונכרנים.`,
-    );
+  return outbox;
+}
+
+async function flushSheetOutbox(fileId: string): Promise<void> {
+  const outbox = getSheetOutbox(fileId);
+  if (outbox.inFlight || outbox.pending.size === 0) return;
+
+  if (outbox.timer) {
+    clearTimeout(outbox.timer);
+    outbox.timer = null;
+  }
+
+  const writes = Array.from(outbox.pending.values());
+  outbox.pending.clear();
+  const waiters = outbox.waiters.splice(0);
+  outbox.inFlight = true;
+
+  try {
+    const result = await serverWriteBrewSheetCells(fileId, writes);
+    if (result.updated !== writes.length) {
+      throw new Error(
+        `Google Sheets אישר רק ${result.updated} מתוך ${writes.length} כתיבות.`,
+      );
+    }
+    waiters.forEach(({ resolve }) => resolve());
+  } catch (error) {
+    // Put failed cells back unless a newer value for the same range is already queued.
+    writes.forEach((write) => {
+      if (!outbox.pending.has(write.range)) outbox.pending.set(write.range, write);
+    });
+    waiters.forEach(({ reject }) => reject(error));
+  } finally {
+    outbox.inFlight = false;
+    if (outbox.pending.size > 0) {
+      outbox.timer = setTimeout(() => void flushSheetOutbox(fileId), 2000);
+    }
   }
 }
+
+export function queueSandboxSheetCells(
+  fileId: string,
+  data: SheetWrite[],
+): Promise<void> {
+  if (!fileId || runtimeConfig.deployEnv !== "preview") {
+    return Promise.reject(new Error("כתיבה ל-Sheet אינה זמינה."));
+  }
+  if (data.length === 0) return Promise.resolve();
+
+  const outbox = getSheetOutbox(fileId);
+  data.forEach((write) => outbox.pending.set(write.range, write));
+
+  const promise = new Promise<void>((resolve, reject) => {
+    outbox.waiters.push({ resolve, reject });
+  });
+
+  if (outbox.timer) clearTimeout(outbox.timer);
+  outbox.timer = setTimeout(() => void flushSheetOutbox(fileId), SHEET_WRITE_DEBOUNCE_MS);
+  return promise;
+}
+
+export async function flushSandboxSheetWrites(fileId: string): Promise<void> {
+  const outbox = getSheetOutbox(fileId);
+  if (outbox.timer) {
+    clearTimeout(outbox.timer);
+    outbox.timer = null;
+  }
+  await flushSheetOutbox(fileId);
+}
+
+export async function writeSandboxSheetCells(
+  fileId: string,
+  data: SheetWrite[],
+): Promise<void> {
+  await queueSandboxSheetCells(fileId, data);
+}
+
