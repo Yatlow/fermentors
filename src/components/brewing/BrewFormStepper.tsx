@@ -16,6 +16,10 @@ import {
   readSandboxSheetRange,
   writeSandboxSheetCells,
 } from "../../SERVICES/brewing/sandboxSheet";
+import {
+  serverEnsureBrewSheetEditTrigger,
+  serverRemoveBrewSheetEditTrigger,
+} from "../../SERVICES/brewing/brewingSheetServer";
 import BeerLoader from "../general/Loading";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
 import {
@@ -1030,6 +1034,21 @@ export default function BrewFormStepper({
       cancelled = true;
     };
   }, [run.batchNumber]);
+
+  useEffect(() => {
+    if (!run.sheetId || run.source !== "production") return;
+
+    if (Number(run.action) === 0) {
+      void serverEnsureBrewSheetEditTrigger(run.sheetId).catch((error) =>
+        console.warn("Failed ensuring brew Sheet edit trigger", error),
+      );
+      return;
+    }
+
+    void serverRemoveBrewSheetEditTrigger(run.sheetId).catch((error) =>
+      console.warn("Failed removing brew Sheet edit trigger", error),
+    );
+  }, [run.sheetId, run.source, run.action]);
 
   useEffect(() => {
     if (!firestoreHydrated) return;
