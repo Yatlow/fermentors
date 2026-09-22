@@ -2939,7 +2939,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                     step="0.1"
                     required
                     className={
-                      hasField(`${stage.key}.temp`) ? "" : "brew-input-missing"
+                      isCurrentStepReviewed() &&
+                      !hasField(`${stage.key}.temp`)
+                        ? "brew-input-missing"
+                        : ""
                     }
                     value={
                       localValue(`${stage.key}.temp`) ||
@@ -3133,25 +3136,39 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           (index) => {
             const missing = blockMissingCount(index);
             const complete = missing === 0;
+            const reviewedMissing =
+              !complete && blockHasReviewedMissing(index);
             return (
               <button
                 type="button"
                 key={index}
                 className={[
                   currentBlock === index ? "active" : "",
-                  complete ? "complete" : "warning",
+                  complete ? "complete" : reviewedMissing ? "warning" : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 title={
                   complete
                     ? `בישול ${(["A", "B", "C"] as const)[index - 1]} הושלם`
-                    : `חסרים ${missing} נתונים בבישול ${(["A", "B", "C"] as const)[index - 1]}`
+                    : reviewedMissing
+                      ? `חסרים ${missing} נתונים בבישול ${(["A", "B", "C"] as const)[index - 1]}`
+                      : `בישול ${(["A", "B", "C"] as const)[index - 1]} טרם נבדק`
                 }
-                onClick={() => void selectBlock(index)}
+                onClick={() => {
+                  if (index > currentBlock) {
+                    markStepsReviewed(
+                      currentBlock,
+                      visibleSteps.map((step) => step.id),
+                    );
+                  }
+                  void selectBlock(index);
+                }}
               >
                 <span>בישול {(["A", "B", "C"] as const)[index - 1]}</span>
-                <em>{complete ? "✓" : `⚠ ${missing}`}</em>
+                <em>
+                  {complete ? "✓" : reviewedMissing ? `⚠ ${missing}` : ""}
+                </em>
               </button>
             );
           },
@@ -3162,6 +3179,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         {visibleSteps.map((step, index) => {
           const complete = isStepComplete(step.id);
           const missing = stepMissingCount(step.id);
+          const reviewed = isStepReviewedForBlock(currentBlock, step.id);
+          const reviewedMissing = reviewed && !complete;
 
           return (
             <button
@@ -3169,20 +3188,25 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               key={step.id}
               className={[
                 index === activeStep ? "active" : "",
-                complete ? "complete" : "warning",
+                complete ? "complete" : reviewedMissing ? "warning" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
               title={
                 complete
                   ? `${step.label}: הושלם`
-                  : `${step.label}: חסרים ${missing} נתונים`
+                  : reviewedMissing
+                    ? `${step.label}: חסרים ${missing} נתונים`
+                    : `${step.label}: טרם נבדק`
               }
-              onClick={() => setActiveStep(index)}
+              onClick={() => {
+                markForwardNavigation(index);
+                setActiveStep(index);
+              }}
             >
               <span className="brew-step-marker" aria-hidden="true">
                 <b>{index + 1}</b>
-                <em>{complete ? "✓" : "⚠"}</em>
+                <em>{complete ? "✓" : reviewedMissing ? "⚠" : ""}</em>
               </span>
               <strong>{step.label}</strong>
             </button>
@@ -3190,7 +3214,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         })}
       </nav>
 
-      <section className="brew-step-panel">
+      <section
+        className={[
+          "brew-step-panel",
+          isCurrentStepReviewed() && !isStepComplete(currentStep.id)
+            ? "brew-show-missing"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className="brew-step-panel-head">
           <div>
             <span>
@@ -3332,7 +3365,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             <article
               className={[
                 "brew-material-confirmation",
-                !hasField("materialsConfirmed") ? "brew-required-missing" : "",
+                isStepReviewedForBlock(currentBlock, "water") &&
+                !hasField("materialsConfirmed")
+                  ? "brew-required-missing"
+                  : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
@@ -3539,13 +3575,6 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   }
                 />
               </label>
-              <button
-                type="button"
-                className="brew-button-secondary"
-                onClick={() => setBoilCalcOpen(true)}
-              >
-                מחשבון נפח רתיחה
-              </button>
             </div>
 
             <div className="brew-lauter-subsection">
@@ -3707,6 +3736,16 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                   </div>
                 ))}
               </div>
+            </div>
+
+            <div className="brew-lauter-calc-row">
+              <button
+                type="button"
+                className="brew-button-secondary"
+                onClick={() => setBoilCalcOpen(true)}
+              >
+                מחשבון נפח רתיחה
+              </button>
             </div>
 
             <div className="brew-lauter-end-transfer">
@@ -3883,7 +3922,9 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                               step="1"
                               required
                               className={
-                                hasField(amountKey) ? "" : "brew-input-missing"
+                                isCurrentStepReviewed() && !hasField(amountKey)
+                                  ? "brew-input-missing"
+                                  : ""
                               }
                               value={localValue(amountKey) || suggested}
                               onFocus={(e) => e.currentTarget.select()}
@@ -4647,6 +4688,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             const isLastVisibleStep =
               activeStep >= visibleSteps.length - 1;
 
+            markStepsReviewed(currentBlock, [currentStep.id]);
+
             if (!isLastVisibleStep) {
               setActiveStep((value) =>
                 Math.min(visibleSteps.length - 1, value + 1),
@@ -4655,6 +4698,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
             }
 
             if (currentBlock < totalBlocks) {
+              markStepsReviewed(
+                currentBlock,
+                visibleSteps.map((step) => step.id),
+              );
               void selectBlock(currentBlock + 1);
               return;
             }
