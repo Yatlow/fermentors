@@ -4,8 +4,20 @@ import {
     serverListBrewDriveHistory,
     type BrewingDriveHistoryRow,
 } from "../../SERVICES/brewing/brewingSheetServer";
-import { loadSandboxRecipes } from "../../SERVICES/brewing/sandboxRecipe";
-import { loadSandboxIngredients } from "../../SERVICES/brewing/sandboxIngredients";
+import {
+    loadSandboxRecipes,
+    replaceSandboxRecipes,
+} from "../../SERVICES/brewing/sandboxRecipe";
+import {
+    loadSandboxIngredients,
+    saveSandboxIngredients,
+} from "../../SERVICES/brewing/sandboxIngredients";
+import {
+    loadSharedBrewingLibrary,
+    publishSharedBrewingLibrary,
+    saveSharedBrewingIngredients,
+    saveSharedBrewingRecipes,
+} from "../../SERVICES/brewing/sharedBrewingLibrary";
 import {
     getCurrentWeekPlannedBrewHints,
     type PlannedBrewHint,
@@ -162,6 +174,10 @@ export default function BrewingView({ brews, tab }: Props) {
     const sandbox = isBrewingSandbox();
     const [sandboxRuns, setSandboxRuns] = useState<SandboxBrewRun[]>(() => loadSandboxBrewRuns());
     const [recipes, setRecipes] = useState<BrewRecipe[]>(() => loadSandboxRecipes());
+    const [ingredients, setIngredients] = useState(() => loadSandboxIngredients());
+    const [sharedLibraryReady, setSharedLibraryReady] = useState(false);
+    const [sharedLibraryLoading, setSharedLibraryLoading] = useState(false);
+    const [publishingSharedLibrary, setPublishingSharedLibrary] = useState(false);
     const [busyTankId, setBusyTankId] = useState<string | null>(null);
     const [message, setMessage] = useState<string>("");
     const [suggestedBatch, setSuggestedBatch] = useState<string>("");
@@ -286,6 +302,66 @@ export default function BrewingView({ brews, tab }: Props) {
             })
             .slice(0, query ? 30 : 12);
     }, [productionHistory, currentProductionBatchNumbers, historyQuery]);
+
+    useEffect(() => {
+        if (!sandbox) return;
+
+        let cancelled = false;
+        setSharedLibraryLoading(true);
+
+        loadSharedBrewingLibrary()
+            .then((library) => {
+                if (cancelled || !library.hasRemoteLibrary) return;
+
+                const nextRecipes = replaceSandboxRecipes(library.recipes);
+                const nextIngredients = saveSandboxIngredients(library.ingredients);
+                setRecipes(nextRecipes);
+                setIngredients(nextIngredients);
+                setSharedLibraryReady(true);
+            })
+            .catch((error) => {
+                console.warn("Failed loading shared brewing library", error);
+            })
+            .finally(() => {
+                if (!cancelled) setSharedLibraryLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [sandbox]);
+
+    useEffect(() => {
+        if (!sandbox || !sharedLibraryReady) return;
+
+        const timeout = window.setTimeout(() => {
+            void saveSharedBrewingIngredients(ingredients).catch((error) => {
+                console.error("Failed saving shared ingredient library", error);
+            });
+        }, 800);
+
+        return () => window.clearTimeout(timeout);
+    }, [sandbox, sharedLibraryReady, ingredients]);
+
+    async function publishLibrary() {
+        setPublishingSharedLibrary(true);
+        setMessage("");
+        try {
+            await publishSharedBrewingLibrary(recipes, ingredients);
+            replaceSandboxRecipes(recipes);
+            saveSandboxIngredients(ingredients);
+            setSharedLibraryReady(true);
+            setMessage("✓ ספריית המתכונים וחומרי הגלם פורסמה ל-Firestore.");
+        } catch (error) {
+            setMessage(
+                error instanceof Error
+                    ? error.message
+                    : "פרסום ספריית הבישול ל-Firestore נכשל.",
+            );
+        } finally {
+            setPublishingSharedLibrary(false);
+        }
+    }
 
     useEffect(() => {
         if (!sandbox) return;
@@ -719,8 +795,30 @@ export default function BrewingView({ brews, tab }: Props) {
                 <section className="brewing-panel">
                     {sandbox ? (
                         <BrewingLibrary
+                            recipes={recipes}
+                            ingredients={ingredients}
+                            sharedLibraryReady={sharedLibraryReady}
+                            publishingSharedLibrary={
+                                publishingSharedLibrary || sharedLibraryLoading
+                            }
+                            onPublishSharedLibrary={() => void publishLibrary()}
                             onRecipesChange={(next) => {
                                 setRecipes(next);
+                                replaceSandboxRecipes(next);
+                                if (sharedLibraryReady) {
+                                    void saveSharedBrewingRecipes(next).catch(
+                                        (error) => {
+                                            console.error(
+                                                "Failed saving shared recipe library",
+                                                error,
+                                            );
+                                        },
+                                    );
+                                }
+                            }}
+                            onIngredientsChange={(next) => {
+                                setIngredients(next);
+                                saveSandboxIngredients(next);
                             }}
                         />
                     ) : (
@@ -736,6 +834,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 <BrewFormStepper
                     run={selectedRun}
                     recipe={selectedRecipe}
+                    ingredients={ingredients}
                     onClose={() => setSelectedRun(null)}
                 />
             )}
