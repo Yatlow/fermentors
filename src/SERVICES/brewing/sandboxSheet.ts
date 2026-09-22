@@ -1,10 +1,7 @@
 import { runtimeConfig } from "../../config/runtimeConfig";
 import type { SandboxDemoTank } from "./brewingSandbox";
 import type { BrewRecipe } from "./brewRecipe";
-import {
-  activeLot,
-  type IngredientDefinition,
-} from "./ingredientLibrary";
+import type { IngredientDefinition } from "./ingredientLibrary";
 import {
   serverCreateBrewSheet,
   serverReadBrewSheetRange,
@@ -35,83 +32,6 @@ async function readSheetValues(
   return Array.isArray(result.values) ? result.values : [];
 }
 
-type DiscoveredProductionLayout = {
-  blockHeaderRows: number[];
-  grainRows: number[];
-  hopHeaderRows: number[];
-  yeastRows: number[];
-  mashStageRows: Array<{ stageIndex: number; row: number }>;
-  fermentationHeaderRow: number | null;
-};
-
-async function discoverProductionLayout(
-  fileId: string,
-): Promise<DiscoveredProductionLayout> {
-  const rows = await readSheetValues(fileId);
-  const value = (rowIndex: number, columnIndex: number) =>
-    String(rows[rowIndex]?.[columnIndex] ?? "").trim();
-
-  const blockHeaderRows: number[] = [];
-  const grainRows: number[] = [];
-  const hopHeaderRows: number[] = [];
-  const yeastRows: number[] = [];
-  const mashStageRows: Array<{ stageIndex: number; row: number }> = [];
-  let fermentationHeaderRow: number | null = null;
-
-  rows.forEach((_, rowIndex) => {
-    const a = value(rowIndex, 0);
-    const b = value(rowIndex, 1);
-    const c = value(rowIndex, 2);
-    const d = value(rowIndex, 3);
-    const f = value(rowIndex, 5);
-
-    if (b === "סוג:" && d === "אצווה:") {
-      blockHeaderRows.push(rowIndex + 1);
-    }
-
-    if (/^הכנסת לתת$/i.test(d)) {
-      grainRows.push(rowIndex + 1);
-    }
-
-    if (/אחוז.*אלפה|אחוז.*אלפא/i.test(b) && /סוג/i.test(c)) {
-      hopHeaderRows.push(rowIndex + 1);
-    }
-
-    if (
-      /^כמות$/i.test(a) &&
-      /^סוג$/i.test(b) &&
-      /אצווה|מקור/i.test(c)
-    ) {
-      yeastRows.push(rowIndex + 2);
-    }
-
-    const mashStageMatch = /^(?:השריה|חימום)\s*(\d+)$/i.exec(d);
-    if (mashStageMatch) {
-      mashStageRows.push({
-        stageIndex: Number(mashStageMatch[1]),
-        row: rowIndex + 1,
-      });
-    }
-
-    if (
-      /^סוג:$/i.test(a) &&
-      /^אצווה:$/i.test(c) &&
-      /מספר מיכל/i.test(f)
-    ) {
-      fermentationHeaderRow = rowIndex + 1;
-    }
-  });
-
-  return {
-    blockHeaderRows,
-    grainRows,
-    hopHeaderRows,
-    yeastRows,
-    mashStageRows,
-    fermentationHeaderRow,
-  };
-}
-
 function layoutFor(tankType: TankType) {
   if (tankType === "single") {
     return {
@@ -139,6 +59,10 @@ function layoutFor(tankType: TankType) {
   };
 }
 
+
+function tankLabel(tankType: TankType) {
+  return tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
+}
 
 export async function deleteSandboxBrewSheet(fileId: string): Promise<void> {
   if (!fileId || runtimeConfig.deployEnv !== "preview") return;
