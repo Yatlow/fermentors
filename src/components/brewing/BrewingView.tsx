@@ -924,7 +924,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 </section>
             )}
 
-            {tab === "form" && selectedRun && sandbox && selectedRecipe && (
+            {tab === "form" && selectedRun && selectedRecipe && (
                 <BrewFormStepper
                     run={selectedRun}
                     recipe={selectedRecipe}
