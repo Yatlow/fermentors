@@ -550,6 +550,40 @@ function fieldsFromSheetRows(
 
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
 
+  for (let index = 0; index < 5; index += 1) {
+    const grainName = sheetCell(rows, 4 + index, "B");
+    const grainSupplier = sheetCell(rows, 4 + index, "C");
+    if (grainName || grainSupplier) {
+      pulled[`sheetRawMaterial.grain${index + 1}`] = [
+        grainName,
+        grainSupplier,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+  }
+
+  for (let index = 0; index < 3; index += 1) {
+    const alpha = cell(15 + index, "B");
+    const hopName = cell(15 + index, "C");
+    if (hopName) {
+      pulled[`sheetRawMaterial.hop${index + 1}`] = [
+        hopName,
+        alpha ? `aa ${numericText(alpha) || alpha}%` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+  }
+
+  const yeastName = cell(23, "B");
+  const yeastLot = cell(23, "C");
+  if (yeastName || yeastLot) {
+    pulled["sheetRawMaterial.yeast"] = [yeastName, yeastLot]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
   if (recipe) {
     const expectedMaterials: Array<{
       ingredientId: string;
@@ -723,6 +757,22 @@ export default function BrewFormStepper({
       } satisfies IngredientDefinition;
     });
   }, [recipe, ingredientLibrary, fields]);
+
+  const sheetRawMaterials = useMemo(
+    () =>
+      Object.entries(fields)
+        .filter(
+          ([key, value]) =>
+            key.startsWith("sheetRawMaterial.") &&
+            String(value || "").trim() !== "",
+        )
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => ({
+          key,
+          value: String(value),
+        })),
+    [fields],
+  );
 
   const boilHops = useMemo(
     () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 3),
@@ -2671,6 +2721,7 @@ export default function BrewFormStepper({
       key === "materialsConfirmed" ||
       key.startsWith("materialLot.") ||
       key.startsWith("sheetMaterial.") ||
+      key.startsWith("sheetRawMaterial.") ||
       /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
       /^hop[1-3]\.(amountGrams|alphaOverride)$/.test(key) ||
       /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
@@ -3660,12 +3711,26 @@ export default function BrewFormStepper({
               </div>
 
               <div className="brew-material-list">
-                {brewMaterials.length === 0 && (
-                  <div className="brew-material-empty">
-                    לא נמצאו חומרי הגלם של המתכון בספרייה במכשיר הזה.
-                    אפשר להמשיך, אבל לא ניתן לאשר lot עד שהספרייה תסונכרן.
-                  </div>
-                )}
+                {brewMaterials.length === 0 &&
+                  sheetRawMaterials.length === 0 && (
+                    <div className="brew-material-empty">
+                      לא נמצאו חומרי גלם לא במתכון ולא ב-Sheet.
+                    </div>
+                  )}
+
+                {brewMaterials.length === 0 &&
+                  sheetRawMaterials.map((item) => (
+                    <div
+                      className="brew-material-row brew-material-row-readonly"
+                      key={item.key}
+                    >
+                      <span>
+                        <strong>{item.value}</strong>
+                        <small>נקרא מה-Sheet</small>
+                      </span>
+                    </div>
+                  ))}
+
                 {brewMaterials.map((ingredient) => {
                   const selected = selectedMaterialLot(ingredient);
                   return (
