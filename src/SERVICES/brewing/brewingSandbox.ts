@@ -13,6 +13,13 @@ export type SandboxBrewRun = {
     createdAt: string;
     source: "manual" | "planning" | "production";
     started: boolean;
+    action?: string | number | null;
+    brewProgress?: {
+        blockIndex?: number | null;
+        stageName?: string | null;
+        stageStartTimeText?: string | null;
+        stageEndTimeText?: string | null;
+    } | null;
     sheetId?: string;
     sheetUrl?: string;
     sheetName?: string;
