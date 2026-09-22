@@ -27,6 +27,7 @@ import { addDays, parseDate, sameStyle } from "../../SERVICES/planning/planningE
 import {
     assignNextSandboxRunToTank,
     attachSandboxRecipeSnapshot,
+    batchNumberExistsInProduction,
     attachSandboxSheet,
     createSandboxBrewRun,
     deleteSandboxBrewRun,
@@ -43,6 +44,7 @@ import {
     createSandboxBrewSheet,
     deleteSandboxBrewSheet,
     ensureSandboxSheetAccess,
+    productionBrewSheetExists,
 } from "../../SERVICES/brewing/sandboxSheet";
 import BrewingLibrary from "./BrewingLibrary";
 import CreateBrewModal from "./CreateBrewModal";
@@ -538,9 +540,10 @@ export default function BrewingView({ brews, tab }: Props) {
             return;
         }
 
-        if (sandbox && draft.style !== "IPA") {
+        const isDemoTank = tank.id === demoTank.id;
+        if (isDemoTank && draft.style !== "IPA") {
             setCreateModalError(
-                "בשלב ה-Sandbox הראשון יצירת Sheet פעילה ל-IPA בלבד.",
+                "במיכל הדמו יצירת Sheet פעילה ל-IPA בלבד.",
             );
             return;
         }
@@ -551,6 +554,78 @@ export default function BrewingView({ brews, tab }: Props) {
         if (!recipe) {
             setCreateModalError("לא נמצא מתכון לסגנון שנבחר.");
             return;
+        }
+
+        if (!isDemoTank) {
+            setMessage("");
+            setCreateModalError("");
+            setBusyTankId(tank.id);
+
+            try {
+                if (await batchNumberExistsInProduction(draft.batchNumber)) {
+                    throw new Error(
+                        `אצווה ${draft.batchNumber} כבר קיימת ב-Firestore.`,
+                    );
+                }
+
+                if (await productionBrewSheetExists(draft.batchNumber)) {
+                    throw new Error(
+                        `כבר קיים ב-Drive טופס בישול לאצווה ${draft.batchNumber}.`,
+                    );
+                }
+
+                await ensureSandboxSheetAccess();
+                const sheet = await createSandboxBrewSheet({
+                    batchNumber: draft.batchNumber,
+                    style: draft.style,
+                    tankNumber: String(tank.tankNumber ?? tank.id),
+                    tankType: tankTypeKey(tank.tankNumber, draft.style),
+                    recipe,
+                    ingredients,
+                    production: true,
+                });
+
+                const sanitized = Number(tank.action) === 5;
+                setMessage(
+                    sanitized
+                        ? `✓ אצווה ${draft.batchNumber} נוצרה כטופס אמיתי בתיקיית הבישולים. מיכל ${String(
+                              tank.tankNumber ?? tank.id,
+                          )} מחוטא, ולכן ACTION 5 יוכל לשבץ אותה במחזור הקרוב.`
+                        : `✓ אצווה ${draft.batchNumber} נוצרה כטופס אמיתי וממתינה בתיקיית הבישולים עד שמיכל ${String(
+                              tank.tankNumber ?? tank.id,
+                          )} יהיה מחוטא.`,
+                );
+                setProductionHistory((current) => [
+                    {
+                        id: sheet.id,
+                        fileId: sheet.id,
+                        fileName: sheet.name,
+                        batchNumber: draft.batchNumber,
+                        beerStyle: draft.style,
+                        brewDate: "",
+                        sheetUrl: sheet.url,
+                        tankNumber: String(tank.tankNumber ?? tank.id),
+                        tankType: tankTypeKey(tank.tankNumber, draft.style),
+                    },
+                    ...current.filter(
+                        (item) =>
+                            String(item.batchNumber) !==
+                            String(draft.batchNumber),
+                    ),
+                ]);
+                setSuggestedBatch(String(Number(draft.batchNumber) + 1));
+                setShowCreate(false);
+                return;
+            } catch (error) {
+                setCreateModalError(
+                    error instanceof Error
+                        ? error.message
+                        : "יצירת אצוות הבישול האמיתית נכשלה.",
+                );
+                return;
+            } finally {
+                setBusyTankId(null);
+            }
         }
 
         const isSanitized = Number(tank.action) === 5;
@@ -697,50 +772,8 @@ export default function BrewingView({ brews, tab }: Props) {
                                     >
                                         {style.displayLabel || "—"}
                                     </span>
-                                    {run ? (
-                                        <div className="brewing-action-zero-progress">
-                                            {tank.brewProgress?.stageName ? (
-                                                <>
-                                                    <span
-                                                        className="brewing-action-zero-live-dot"
-                                                        aria-hidden="true"
-                                                    />
-                                                    <strong>
-                                                        {tank.brewProgress?.blockIndex
-                                                            ? `בישול ${String.fromCharCode(
-                                                                  64 +
-                                                                      Number(
-                                                                          tank.brewProgress
-                                                                              .blockIndex,
-                                                                      ),
-                                                              )}`
-                                                            : "בישול"}
-                                                    </strong>
-                                                    <span>
-                                                        {tank.brewProgress.stageName}
-                                                    </span>
-                                                    {tank.brewProgress
-                                                        .stageStartTimeText && (
-                                                        <small>
-                                                            {
-                                                                tank.brewProgress
-                                                                    .stageStartTimeText
-                                                            }
-                                                            {tank.brewProgress
-                                                                .stageEndTimeText
-                                                                ? ` – ${tank.brewProgress.stageEndTimeText}`
-                                                                : ""}
-                                                        </small>
-                                                    )}
-                                                </>
-                                            ) : (
-                                                <small>עדיין לא בבישול</small>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <small>
-                                            חריגת נתונים · בישול חדש ללא Sheet
-                                        </small>
+                                    {!run && (
+                                        <small>ללא Sheet משויך</small>
                                     )}
                                 </button>
                             );
@@ -759,8 +792,8 @@ export default function BrewingView({ brews, tab }: Props) {
 
             {sandbox && (
                 <div className="brewing-preview-note" role="status">
-                    PR Preview · עריכת אצוות אמת פעילה. יצירת אצווה חדשה עדיין משתמשת
-                    ב-Sandbox עד שנעביר גם את פעולת היצירה לנתוני אמת.
+                    PR Preview · אצוות במיכלים ויצירת אצוות למיכלים אמיתיים עובדות מול
+                    נתוני אמת. רק מיכל דמו 20 נשאר Sandbox.
                 </div>
             )}
 
