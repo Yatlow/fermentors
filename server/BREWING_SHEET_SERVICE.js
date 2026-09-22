@@ -438,6 +438,22 @@ function brewingSheetAcidHistory_(data) {
 // ============================================================
 
 const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
+const BREWING_EDIT_TANK_PREFIX_ = "brew_edit_tank:";
+
+function brewingSheetRememberEditTank_(spreadsheetId, tankNumber) {
+  const fileId = String(spreadsheetId || "").trim();
+  const tank = String(tankNumber || "").trim();
+  if (!fileId || !tank) return;
+  PropertiesService.getScriptProperties().setProperty(BREWING_EDIT_TANK_PREFIX_ + fileId, tank);
+}
+
+function brewingSheetKnownEditTank_(spreadsheetId) {
+  return String(
+    PropertiesService.getScriptProperties().getProperty(
+      BREWING_EDIT_TANK_PREFIX_ + String(spreadsheetId || "").trim()
+    ) || ""
+  ).trim();
+}
 
 function brewingSheetTriggerSourceId_(trigger) {
   try {
@@ -449,6 +465,7 @@ function brewingSheetTriggerSourceId_(trigger) {
 
 function brewingSheetEnsureEditTrigger_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  if (data.tankNumber) brewingSheetRememberEditTank_(fileId, data.tankNumber);
   const triggers = ScriptApp.getProjectTriggers();
   const existing = triggers.find(function (trigger) {
     return (
@@ -485,6 +502,8 @@ function brewingSheetRemoveEditTrigger_(data) {
     }
   });
 
+  PropertiesService.getScriptProperties().deleteProperty(BREWING_EDIT_TANK_PREFIX_ + fileId);
+
   return {
     spreadsheetId: fileId,
     removed: removed,
@@ -503,7 +522,10 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
       const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
       if (!fileId) return;
       activeSheetIds.add(fileId);
-      brewingSheetEnsureEditTrigger_({ spreadsheetId: fileId });
+      brewingSheetEnsureEditTrigger_({
+        spreadsheetId: fileId,
+        tankNumber: fermentor.tankNumber || (entry && entry.id) || ""
+      });
     } catch (error) {
       Logger.log(
         "Failed ensuring brew edit trigger for tank " +
@@ -581,6 +603,12 @@ function brewingSheetOnEdit_(event) {
   if (!spreadsheetId) return;
 
   try {
+    // Fast path: the reconciliation cycle remembers the tank for every active
+    // brew Sheet. Publish the edit signal before doing the expensive full
+    // fermentor lookup/stage parse, so an open app can react within seconds.
+    const knownTank = brewingSheetKnownEditTank_(spreadsheetId);
+    if (knownTank) brewingSheetPublishEditRevision_(knownTank, event);
+
     const fermentor = brewingSheetFindFermentorForSheet_(spreadsheetId);
 
     // The Sheet may still have a trigger briefly after the tank left ACTION 0.
@@ -595,7 +623,10 @@ function brewingSheetOnEdit_(event) {
     // fermentor document and reuses its canonical full-Sheet parser to pull the
     // changed value into brewingExecution/Firestore without waiting for the
     // hourly safety reconciliation.
-    brewingSheetPublishEditRevision_(fermentor.tankNumber, event);
+    if (!knownTank) {
+      brewingSheetRememberEditTank_(spreadsheetId, fermentor.tankNumber);
+      brewingSheetPublishEditRevision_(fermentor.tankNumber, event);
+    }
 
     const stageInfo = extractBrewStageInfo(spreadsheetId, fermentor);
     if (!stageInfo || !stageInfo.lastBlock) return;
