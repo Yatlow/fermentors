@@ -169,8 +169,8 @@ export async function readSandboxSheetRange(
   fileId: string,
   range: string,
 ): Promise<string[][]> {
-  if (!fileId || runtimeConfig.deployEnv !== "preview") {
-    throw new Error("קריאה מ-Sheet זמינה רק ב-Preview.");
+  if (!fileId) {
+    throw new Error("חסר מזהה Sheet לקריאה.");
   }
   const result = await serverReadBrewSheetRange(fileId, range);
   const values = Array.isArray(result.values) ? result.values : [];
@@ -335,8 +335,8 @@ export function queueSandboxSheetCells(
   fileId: string,
   data: SheetWrite[],
 ): Promise<void> {
-  if (!fileId || runtimeConfig.deployEnv !== "preview") {
-    return Promise.reject(new Error("כתיבה ל-Sheet אינה זמינה."));
+  if (!fileId) {
+    return Promise.reject(new Error("חסר מזהה Sheet לכתיבה."));
   }
   if (data.length === 0) return Promise.resolve();
 
