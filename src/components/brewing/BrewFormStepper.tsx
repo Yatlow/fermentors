@@ -1266,7 +1266,6 @@ export default function BrewFormStepper({
       const required = [
         "transferLt.start",
         "transferLt.end",
-        "transferLt.temp",
         "restLt.start",
         "restLt.end",
         "circulation.start",
@@ -1274,6 +1273,7 @@ export default function BrewFormStepper({
         "outToBoil.start",
         "outToBoilPh",
         "endTransfer.start",
+        "lrPlato",
         "rinse1.time",
         "rinse1.temp",
         "rinse1.kettle",
@@ -1352,6 +1352,14 @@ export default function BrewFormStepper({
 
   function isCurrentStepReviewed() {
     return isStepReviewedForBlock(currentBlock, currentStep.id);
+  }
+
+  function displayedFieldValue(key: string, fallback = "") {
+    return localValue(key) || fallback;
+  }
+
+  function isDisplayedRequiredFieldMissing(key: string, fallback = "") {
+    return isCurrentStepReviewed() && !String(displayedFieldValue(key, fallback)).trim();
   }
 
   function markStepsReviewed(blockIndex: number, stepIds: StepId[]) {
@@ -3417,6 +3425,12 @@ export default function BrewFormStepper({
     }
 
     initialProductionPullKey.current = run.batchNumber;
+    if (execution.activeBlockIndex > 1) {
+      markStepsReviewed(
+        execution.activeBlockIndex - 1,
+        visibleSteps.map((step) => step.id),
+      );
+    }
     void syncFromSheet(true);
     // Pull once whenever a Sheet-backed brew form is opened. For a live
     // production brew this also positions the stepper at the current stage.
@@ -3667,10 +3681,10 @@ export default function BrewFormStepper({
                         ? "brew-input-missing"
                         : ""
                     }
-                    value={
-                      localValue(`${stage.key}.temp`) ||
-                      (stage.key === "transferLt" ? "77.5" : "")
-                    }
+                    value={displayedFieldValue(
+                      `${stage.key}.temp`,
+                      stage.key === "transferLt" ? "77.5" : "",
+                    )}
                     onFocus={(e) => e.currentTarget.select()}
                     onChange={(e) =>
                       setLocal(`${stage.key}.temp`, e.target.value)
@@ -4525,6 +4539,12 @@ export default function BrewFormStepper({
                   <input
                     type="number"
                     step="0.01"
+                    required
+                    className={
+                      isCurrentStepReviewed() && !hasField("lrPlato")
+                        ? "brew-input-missing"
+                        : ""
+                    }
                     value={localValue("lrPlato")}
                     onChange={(e) => setLocal("lrPlato", e.target.value)}
                     onBlur={(e) =>
