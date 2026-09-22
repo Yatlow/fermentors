@@ -3670,17 +3670,18 @@ export default function BrewFormStepper({
     const revision = Number(run.brewSheetEditRevision || 0);
     if (!revision) return;
 
-    // On first render the normal hydration pull below already reconciles the
-    // Sheet. Only subsequent onEdit revisions need an extra immediate pull.
+    // Initial hydration below establishes the dynamic row map. If an edit
+    // revision is already present when the form mounts, remember it; a newer
+    // revision will then be consumed as a single-cell delta.
     if (lastHandledSheetEditRevision.current === null) {
       lastHandledSheetEditRevision.current = revision;
-      // If this revision arrived after the form mounted, consume the delta
-      // instead of discarding the first real Sheet edit.
-      const firstDelta = applySheetEditDelta(execution);
-      if (firstDelta) {
-        setExecution(firstDelta);
-        resetSandboxSheetBaseline(run.sheetId);
-        void saveBrewingExecutionToFirestore(firstDelta);
+      if (initialProductionPullKey.current === run.batchNumber) {
+        const firstDelta = applySheetEditDelta(execution);
+        if (firstDelta) {
+          setExecution(firstDelta);
+          resetSandboxSheetBaseline(run.sheetId);
+          void saveBrewingExecutionToFirestore(firstDelta);
+        }
       }
       return;
     }
