@@ -419,27 +419,35 @@ function fieldsFromSheetRows(
   usesGrant: boolean,
   recipe?: BrewRecipe,
   ingredientLibrary: IngredientDefinition[] = [],
+  baseOffset = 0,
 ): Record<string, string> {
   const pulled: Record<string, string> = {};
+  const cell = (
+    rowOffset: number,
+    column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
+  ) => sheetCell(rows, baseOffset + rowOffset, column);
+
+  const brewDate = isoDateFromSheet(sheetCell(rows, 0, "H"));
+  if (brewDate) pulled.brewDate = brewDate;
 
   TIMELINE_STAGES.forEach((stage) => {
-    const start = normalizedTime(sheetCell(rows, stage.rowOffset, "E"));
-    const end = normalizedTime(sheetCell(rows, stage.rowOffset, "F"));
-    const temp = numericText(sheetCell(rows, stage.rowOffset, "G"));
+    const start = normalizedTime(cell(stage.rowOffset, "E"));
+    const end = normalizedTime(cell(stage.rowOffset, "F"));
+    const temp = numericText(cell(stage.rowOffset, "G"));
     if (start) pulled[`${stage.key}.start`] = start;
     if (end) pulled[`${stage.key}.end`] = end;
     if (stage.showTemp && temp) pulled[`${stage.key}.temp`] = temp;
 
     if (stage.showNote && stage.key !== "mashIn") {
-      const note = sheetCell(rows, stage.rowOffset, "H");
+      const note = cell(stage.rowOffset, "H");
       if (note) pulled[`${stage.key}.note`] = note;
     }
   });
 
-  const hltAmount = sheetCell(rows, 8, "B");
-  const hltTemp = numericText(sheetCell(rows, 8, "C"));
-  const mashInWaterAmount = sheetCell(rows, 9, "B");
-  const mashInWaterTemp = sheetCell(rows, 9, "C");
+  const hltAmount = cell(8, "B");
+  const hltTemp = numericText(cell(8, "C"));
+  const mashInWaterAmount = cell(9, "B");
+  const mashInWaterTemp = cell(9, "C");
   if (hltAmount) pulled.hltWaterAmount = hltAmount;
   if (hltTemp) pulled.hltWaterTemp = hltTemp;
   if (mashInWaterAmount) pulled.lauterWaterAmount = mashInWaterAmount;
@@ -449,7 +457,7 @@ function fieldsFromSheetRows(
     pulled["transferLt.start"] = pulled["heat2.end"];
   }
 
-  const mashMeta = sheetCell(rows, 0, "H");
+  const mashMeta = cell(0, "H");
   const mashVolume =
     mashMeta.match(/נפח\s*מאש\s*([\d.,]+)/i)?.[1] || "";
   const mashPh =
@@ -460,26 +468,26 @@ function fieldsFromSheetRows(
     mashMeta.match(/הערה:\s*(.+)$/i)?.[1]?.trim() || "";
   if (mashInNote) pulled["mashIn.note"] = mashInNote;
 
-  const mashAcid = numericText(sheetCell(rows, 28, "A"));
+  const mashAcid = numericText(cell(28, "A"));
   if (mashAcid) pulled.mashAcid85 = mashAcid;
 
-  const boilAcid = numericText(sheetCell(rows, 29, "A"));
+  const boilAcid = numericText(cell(29, "A"));
   if (boilAcid) pulled.boilAcid85 = boilAcid;
 
-  const outToBoilPh = numericText(sheetCell(rows, 15, "H"));
+  const outToBoilPh = numericText(cell(15, "H"));
   if (outToBoilPh) pulled.outToBoilPh = outToBoilPh;
 
-  const boilCell = sheetCell(rows, 28, "F");
+  const boilCell = cell(28, "F");
   if (!normalizedTime(boilCell)) {
     const boilPh = numericText(boilCell);
     if (boilPh) pulled.boilPh = boilPh;
   }
 
-  const outToFermentorPh = numericText(sheetCell(rows, 40, "H"));
+  const outToFermentorPh = numericText(cell(40, "H"));
   if (outToFermentorPh) pulled.outToFermentorPh = outToFermentorPh;
 
   for (let rowOffset = 42; rowOffset <= 45; rowOffset += 1) {
-    const correction = sheetCell(rows, rowOffset, "E");
+    const correction = cell(rowOffset, "E");
     if (!correction) continue;
 
     correction.split(/\r?\n/).forEach((line) => {
@@ -493,10 +501,10 @@ function fieldsFromSheetRows(
 
   for (let index = 1; index <= 7; index += 1) {
     const rowOffset = 18 + (index - 1);
-    const time = normalizedTime(sheetCell(rows, rowOffset, "E"));
-    const amount = numericText(sheetCell(rows, rowOffset, "F"));
-    const temp = numericText(sheetCell(rows, rowOffset, "G"));
-    const volumeText = sheetCell(rows, rowOffset, "H");
+    const time = normalizedTime(cell(rowOffset, "E"));
+    const amount = numericText(cell(rowOffset, "F"));
+    const temp = numericText(cell(rowOffset, "G"));
+    const volumeText = cell(rowOffset, "H");
 
     if (time) pulled[`rinse${index}.time`] = time;
     if (amount) pulled[`rinse${index}.amount`] = amount;
@@ -528,13 +536,13 @@ function fieldsFromSheetRows(
   ];
 
   sugarFields.forEach(([key, rowOffset, column]) => {
-    const value = numericText(sheetCell(rows, rowOffset, column));
+    const value = numericText(cell(rowOffset, column));
     if (value) pulled[key] = value;
   });
 
   for (let index = 1; index <= 3; index += 1) {
-    const amount = numericText(sheetCell(rows, 14 + index, "A"));
-    const alpha = numericText(sheetCell(rows, 14 + index, "B"));
+    const amount = numericText(cell(14 + index, "A"));
+    const alpha = numericText(cell(14 + index, "B"));
     if (amount) pulled[`hop${index}.amountGrams`] = amount;
     if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
   }
@@ -574,8 +582,8 @@ function fieldsFromSheetRows(
       expectedMaterials.push({
         ingredientId: recipe.yeast.ingredientId,
         source: [
-          sheetCell(rows, 23, "B"),
-          sheetCell(rows, 23, "C"),
+          cell(23, "B"),
+          cell(23, "C"),
         ].join(" "),
       });
     }
@@ -2663,26 +2671,18 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
       for (let index = 1; index <= totalBlocks; index += 1) {
         const row = blockBaseRow(run.tankType, index);
+        const headerRow = blockHeaderRow(run.tankType, index);
         const rows = await readSandboxSheetRange(
           run.sheetId,
-          `'גיליון1'!A${row}:H${row + 48}`,
+          `'גיליון1'!A${headerRow}:H${row + 48}`,
         );
         const pulled = fieldsFromSheetRows(
           rows,
           recipe.lautering.usesGrant,
           recipe,
           ingredientLibrary,
+          row - headerRow,
         );
-
-        const headerRow = blockHeaderRow(run.tankType, index);
-        const dateRows = await readSandboxSheetRange(
-          run.sheetId,
-          `'גיליון1'!H${headerRow}:H${headerRow}`,
-        );
-        const brewDate = isoDateFromSheet(
-          String(dateRows[0]?.[0] || ""),
-        );
-        if (brewDate) pulled.brewDate = brewDate;
 
         if (index === 1) {
           const fermentationRow = fermentationStartingRow(run.tankType);
@@ -2794,26 +2794,18 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
       for (let index = 1; index <= totalBlocks; index += 1) {
         const row = blockBaseRow(run.tankType, index);
+        const headerRow = blockHeaderRow(run.tankType, index);
         const rows = await readSandboxSheetRange(
           run.sheetId,
-          `'גיליון1'!A${row}:H${row + 48}`,
+          `'גיליון1'!A${headerRow}:H${row + 48}`,
         );
         const pulled = fieldsFromSheetRows(
           rows,
           recipe.lautering.usesGrant,
           recipe,
           ingredientLibrary,
+          row - headerRow,
         );
-
-        const headerRow = blockHeaderRow(run.tankType, index);
-        const dateRows = await readSandboxSheetRange(
-          run.sheetId,
-          `'גיליון1'!H${headerRow}:H${headerRow}`,
-        );
-        const brewDate = isoDateFromSheet(
-          String(dateRows[0]?.[0] || ""),
-        );
-        if (brewDate) pulled.brewDate = brewDate;
 
         if (index === 1) {
           const fermentationRow = fermentationStartingRow(run.tankType);
