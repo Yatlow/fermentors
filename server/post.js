@@ -120,7 +120,10 @@ const POST_MUTATION_ACTIONS = {
   triggerTankUpdate: true,
   manualNightSync: true,
   BrewSheetCreate: true,
-  BrewSheetWriteCells: true,
+  // Cell writes are already conflict-guarded by expectedValue in
+  // brewingSheetWriteCells_. Keeping them in the long-lived generic
+  // idempotency cache can strand the UI behind an "in_progress" record after
+  // a lost ContentService response. Let each debounced batch execute normally.
   BrewSheetTrash: true,
   BrewSheetEnsureEditTrigger: true,
   BrewSheetRemoveEditTrigger: true
