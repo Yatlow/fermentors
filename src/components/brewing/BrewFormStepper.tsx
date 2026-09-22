@@ -594,6 +594,8 @@ function fieldsFromSheetRows(
       const cleanSource = source.trim().toLowerCase();
       if (!cleanSource) return;
 
+      pulled[`sheetMaterial.${ingredientId}`] = source.trim();
+
       const ingredient = ingredientLibrary.find(
         (item) => item.id === ingredientId,
       );
@@ -679,18 +681,44 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
   const brewMaterials = useMemo(() => {
-    const ids = [
-      ...recipe.grains.map((item) => item.ingredientId),
+    const refs = [
+      ...recipe.grains.map((item) => ({
+        id: item.ingredientId,
+        category: "grain" as const,
+      })),
       ...recipe.hops
         .filter((item) => item.purpose !== "dryHop")
-        .map((item) => item.ingredientId),
-      recipe.yeast.ingredientId,
-    ].filter(Boolean);
+        .map((item) => ({
+          id: item.ingredientId,
+          category: "hop" as const,
+        })),
+      ...(recipe.yeast.ingredientId
+        ? [
+            {
+              id: recipe.yeast.ingredientId,
+              category: "yeast" as const,
+            },
+          ]
+        : []),
+    ].filter((item) => !!item.id);
 
-    return Array.from(new Set(ids))
-      .map((id) => ingredientLibrary.find((item) => item.id === id))
-      .filter((item): item is IngredientDefinition => !!item);
-  }, [recipe, ingredientLibrary]);
+    const unique = Array.from(
+      new Map(refs.map((item) => [item.id, item])).values(),
+    );
+
+    return unique.map(({ id, category }) => {
+      const ingredient = ingredientLibrary.find((item) => item.id === id);
+      if (ingredient) return ingredient;
+
+      const sheetLabel = String(fields[`sheetMaterial.${id}`] || "").trim();
+      return {
+        id,
+        name: sheetLabel || id,
+        category,
+        lots: [],
+      } satisfies IngredientDefinition;
+    });
+  }, [recipe, ingredientLibrary, fields]);
 
   const boilHops = useMemo(
     () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 3),
@@ -2553,6 +2581,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       key === "generalNote" ||
       key === "materialsConfirmed" ||
       key.startsWith("materialLot.") ||
+      key.startsWith("sheetMaterial.") ||
       /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
       /^hop[1-3]\.(amountGrams|alphaOverride)$/.test(key) ||
       /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
@@ -3569,6 +3598,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       </span>
                       <select
                         value={selected?.id || ""}
+                        disabled={ingredient.lots.length === 0}
                         onChange={(e) =>
                           selectMaterialLot(
                             ingredient.id,
@@ -3576,26 +3606,32 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                           )
                         }
                       >
-                        {ingredient.lots.map((lot) => (
-                          <option key={lot.id} value={lot.id}>
-                            {[
-                              lot.lotNumber || "ללא מספר lot",
-                              lot.supplier || "",
-                              lot.alpha !== undefined
-                                ? "aa " + lot.alpha + "%"
-                                : "",
-                              lot.status === "current"
-                                ? "בשימוש"
-                                : lot.status === "next"
-                                  ? "ממתין לשימוש"
-                                  : lot.status === "ended"
-                                    ? "נגמר"
-                                    : "",
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
+                        {ingredient.lots.length === 0 ? (
+                          <option value="">
+                            מופיע ב-Sheet · חסר בספרייה במכשיר
                           </option>
-                        ))}
+                        ) : (
+                          ingredient.lots.map((lot) => (
+                            <option key={lot.id} value={lot.id}>
+                              {[
+                                lot.lotNumber || "ללא מספר lot",
+                                lot.supplier || "",
+                                lot.alpha !== undefined
+                                  ? "aa " + lot.alpha + "%"
+                                  : "",
+                                lot.status === "current"
+                                  ? "בשימוש"
+                                  : lot.status === "next"
+                                    ? "ממתין לשימוש"
+                                    : lot.status === "ended"
+                                      ? "נגמר"
+                                      : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </option>
+                          ))
+                        )}
                       </select>
                     </label>
                   );
@@ -3611,7 +3647,10 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
                       : "btn-primary"
                   }
                   onClick={() => void confirmMaterials()}
-                  disabled={!!syncing}
+                  disabled={
+                    !!syncing ||
+                    brewMaterials.some((ingredient) => ingredient.lots.length === 0)
+                  }
                 >
                   {hasField("materialsConfirmed")
                     ? "✓ חומרי הגלם אושרו — אשר מחדש"
