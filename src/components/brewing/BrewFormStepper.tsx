@@ -561,24 +561,28 @@ function fieldsFromSheetRows(
     column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
   ) => (rowIndex >= 0 ? sheetCell(rows, rowIndex, column) : "");
 
+  const dynamicColumnIndex = {
+    A: 0,
+    B: 1,
+    C: 2,
+    D: 3,
+    E: 4,
+    F: 5,
+    G: 6,
+    H: 7,
+  } as const;
+
   const findRow = (
-    column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
+    column: keyof typeof dynamicColumnIndex,
     pattern: RegExp,
     start = 0,
   ) =>
     rows.findIndex(
       (row, rowIndex) =>
         rowIndex >= start &&
-        pattern.test(String(row[{
-          A: 0,
-          B: 1,
-          C: 2,
-          D: 3,
-          E: 4,
-          F: 5,
-          G: 6,
-          H: 7,
-        }[column]] ?? "").trim()),
+        pattern.test(
+          String(row[dynamicColumnIndex[column]] ?? "").trim(),
+        ),
     );
 
   const stagePatterns: Array<{
