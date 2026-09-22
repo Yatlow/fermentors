@@ -214,7 +214,7 @@ export async function callAppsScriptPost<T>(
             // already completed. Retry with the SAME requestId so the server-side
             // idempotency guard turns this into a safe confirmation request.
             if (error instanceof AppsScriptInvalidResponseError || error instanceof AppsScriptTimeoutError) {
-                await sleep(10);
+                await sleep(500);
             } else {
                 await sleep(retryDelayMs);
             }
