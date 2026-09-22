@@ -315,7 +315,7 @@ export function usePlanning(
     options?: { allowClosedWeek?: boolean },
   ) {
     if (!auth.currentUser) throw new Error("יש להתחבר מחדש");
-    await runTransaction(db, async (tx) => {
+    const saved = await runTransaction(db, async (tx) => {
       if (
         collectionName === "planningWeeks" &&
         weekIsClosed(id) &&
@@ -330,8 +330,56 @@ export function usePlanning(
         throw new Error(
           "התכנון עודכן במכשיר אחר. סגור את העריכה ופתח מחדש כדי לקבל את העדכון.",
         );
+      // Older planningWeeks documents may predate fields that are mandatory in
+      // the current rules, or may still contain retired top-level fields. Rewriting
+      // such a document with a raw spread makes an otherwise valid schedule edit
+      // fail as "Missing or insufficient permissions". Canonicalize WeekPlan writes
+      // to the exact schema accepted by Firestore while preserving current optional
+      // planning/calendar fields.
+      const persistedValue =
+        collectionName === "planningWeeks"
+          ? (() => {
+              const week = value as WeekPlan & {
+                deliveries?: unknown;
+                deliveryDates?: unknown;
+                dismissedRecommendations?: unknown;
+                allowExceptions?: unknown;
+                changeReason?: unknown;
+                calendarEvents?: unknown;
+                calendarNotes?: unknown;
+              };
+              return {
+                id: week.id,
+                packaging: Array.isArray(week.packaging) ? week.packaging : [],
+                brews: Array.isArray(week.brews) ? week.brews : [],
+                note: typeof week.note === "string" ? week.note : "",
+                maxRuns: [0, 1, 2, 3, 4, 5].includes(Number(week.maxRuns))
+                  ? Number(week.maxRuns)
+                  : settings.preferredRuns,
+                ...(Array.isArray(week.deliveries) ? { deliveries: week.deliveries } : {}),
+                ...(Array.isArray(week.deliveryDates) ? { deliveryDates: week.deliveryDates } : {}),
+                ...(Array.isArray(week.dismissedRecommendations)
+                  ? { dismissedRecommendations: week.dismissedRecommendations }
+                  : {}),
+                ...(typeof week.allowExceptions === "boolean"
+                  ? { allowExceptions: week.allowExceptions }
+                  : {}),
+                ...(typeof week.changeReason === "string"
+                  ? { changeReason: week.changeReason }
+                  : {}),
+                ...(Array.isArray(week.calendarEvents)
+                  ? { calendarEvents: week.calendarEvents }
+                  : {}),
+                ...(week.calendarNotes &&
+                typeof week.calendarNotes === "object" &&
+                !Array.isArray(week.calendarNotes)
+                  ? { calendarNotes: week.calendarNotes }
+                  : {}),
+              };
+            })()
+          : value;
       const next = {
-        ...value,
+        ...persistedValue,
         createdAt: snap.exists()
           ? (snap.data()?.createdAt ?? null)
           : serverTimestamp(),
@@ -344,23 +392,18 @@ export function usePlanning(
       tx.set(revisionRef, next);
 
       if (collectionName === "planningWeeks") {
-        const week = value as WeekPlan;
+        const week = persistedValue as WeekPlan;
         const queueRef = doc(db, "brewPlanningQueue", id);
         const queueBrews = (Array.isArray(week.brews) ? week.brews : [])
           .map((brew) => {
-            const item = brew as typeof brew & {
-              batchNumber?: string | number;
-            };
-            const batchNumber = String(
-              item.batchNumber ?? "",
-            ).replace("#", "").trim();
+            const batchNumber = String(brew.batchNumber ?? "").replace("#", "").trim();
             if (!batchNumber) return null;
             return {
-              id: String(item.id || ""),
+              id: String(brew.id || ""),
               batchNumber,
-              style: String(item.style || ""),
-              tankId: String(item.tankId || ""),
-              date: String(item.date || ""),
+              style: String(brew.style || ""),
+              tankId: String(brew.tankId || ""),
+              date: String(brew.date || ""),
             };
           })
           .filter((brew): brew is NonNullable<typeof brew> => !!brew);
@@ -373,7 +416,22 @@ export function usePlanning(
           updatedBy: auth.currentUser!.uid,
         });
       }
+      return next;
     });
+
+    // Do not make the board wait for the listener round-trip. Firestore normally
+    // emits the local write immediately, but a transaction followed by a
+    // serverTimestamp/revision transform can leave the currently mounted view on
+    // the previous WeekPlan until the snapshot is delivered. Apply the committed
+    // plan optimistically; the onSnapshot listener remains authoritative and will
+    // reconcile it on the next event.
+    if (collectionName === "planningWeeks") {
+      const savedWeek = saved as unknown as WeekPlan;
+      setPlans((current) => [
+        ...current.filter((plan) => plan.id !== id),
+        savedWeek,
+      ].sort((a, b) => a.id.localeCompare(b.id)));
+    }
   }
 
   async function moveCalendarEvent(
