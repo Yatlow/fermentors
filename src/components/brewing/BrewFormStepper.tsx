@@ -548,7 +548,7 @@ function fieldsFromSheetRows(
     if (value) pulled[key] = value;
   });
 
-  for (let index = 1; index <= 3; index += 1) {
+  for (let index = 1; index <= 4; index += 1) {
     const amount = numericText(cell(14 + index, "A"));
     const alpha = numericText(cell(14 + index, "B"));
     if (amount) pulled[`hop${index}.amountGrams`] = amount;
@@ -1602,7 +1602,7 @@ export default function BrewFormStepper({
           `materialLot.${ingredient.id}`,
           lot.id,
         );
-        const row = baseRow + 15 + index;
+        const row = rawHopSheetRow(index);
         writes.push({
           range: `'גיליון1'!C${row}`,
           value: `${index + 1})${ingredient.name}${lot.lotNumber ? ` ${lot.lotNumber}` : ""}`,
@@ -1684,11 +1684,56 @@ export default function BrewFormStepper({
     await writeSheet("materialsConfirmed", writes);
   }
 
+  function sheetRowFromMeta(key: string, fallbackRow: number): number {
+    const value = Number(fields[key]);
+    return Number.isFinite(value) && value > 0 ? value : fallbackRow;
+  }
+
+  function rawHopSheetRow(index: number): number {
+    return sheetRowFromMeta(
+      `__sheetRow.rawHop.${index + 1}`,
+      baseRow + 15 + index,
+    );
+  }
+
+  function sugarSheetRow(key: string, fallbackOffset: number): number {
+    return sheetRowFromMeta(
+      `__sheetRow.sugar.${key}`,
+      baseRow + fallbackOffset,
+    );
+  }
+
+  function acidSheetRow(
+    type: "mash" | "boil",
+    fallbackOffset: number,
+  ): number {
+    return sheetRowFromMeta(
+      `__sheetRow.acid.${type}`,
+      baseRow + fallbackOffset,
+    );
+  }
+
   function stageCell(
     rowOffset: number,
     column: "E" | "F" | "G" | "H",
   ) {
-    return `'גיליון1'!${column}${baseRow + rowOffset}`;
+    const stage = TIMELINE_STAGES.find((item) => item.rowOffset === rowOffset);
+    let row = baseRow + rowOffset;
+
+    if (stage) {
+      row = sheetRowFromMeta(
+        `__sheetRow.stage.${stage.key}`,
+        row,
+      );
+    } else if (rowOffset >= 18 && rowOffset <= 24) {
+      const rinseIndex = rowOffset - 17;
+      row = sheetRowFromMeta(
+        `__sheetRow.rinse.${rinseIndex}`,
+        row,
+      );
+    }
+
+    return `'גיליון1'!${column}${row}`;
   }
 
   function knownDuration(stage: StageDef): number | null {
@@ -2368,7 +2413,7 @@ export default function BrewFormStepper({
     if (!(await approveNumericValue("mashAcid85", value))) return;
     await commit("mashAcid85", value, [
       {
-        range: `'גיליון1'!A${baseRow + 28}`,
+        range: `'גיליון1'!A${acidSheetRow("mash", 28)}`,
         value: num(value) ?? value,
       },
     ]);
@@ -2621,7 +2666,10 @@ export default function BrewFormStepper({
       value: string | number | boolean | null;
     }> = [
       {
-        range: `'גיליון1'!${column}${baseRow + rowOffset}`,
+        range: `'גיליון1'!${column}${sugarSheetRow(
+          key,
+          rowOffset,
+        )}`,
         value: parsed === null ? "" : parsed,
       },
     ];
@@ -2649,7 +2697,7 @@ export default function BrewFormStepper({
           grams,
         );
         writes.push({
-          range: `'גיליון1'!A${baseRow + 15 + index}`,
+          range: `'גיליון1'!A${rawHopSheetRow(index)}`,
           value: Number(grams),
         });
       });
@@ -2666,7 +2714,7 @@ export default function BrewFormStepper({
     if (!(await approveNumericValue("boilAcid85", value))) return;
     await commit("boilAcid85", value, [
       {
-        range: `'גיליון1'!A${baseRow + 29}`,
+        range: `'גיליון1'!A${acidSheetRow("boil", 29)}`,
         value: num(value) ?? value,
       },
     ]);
@@ -2712,8 +2760,9 @@ export default function BrewFormStepper({
         `hop${index + 1}.start`,
         time,
       );
+      const hopStage = BOIL_STAGES[index + 1];
       writes.push({
-        range: stageCell(30 + index * 2, "E"),
+        range: stageCell(hopStage?.rowOffset ?? 30 + index * 2, "E"),
         value: time,
       });
     });
@@ -2842,7 +2891,7 @@ export default function BrewFormStepper({
 
     await commit(key, rounded, [
       {
-        range: `'גיליון1'!A${baseRow + 15 + index}`,
+        range: `'גיליון1'!A${rawHopSheetRow(index)}`,
         value: rounded === "" ? "" : Number(rounded),
       },
     ]);
@@ -2872,7 +2921,7 @@ export default function BrewFormStepper({
       value: string | number | boolean | null;
     }> = [
       {
-        range: `'גיליון1'!B${baseRow + 15 + index}`,
+        range: `'גיליון1'!B${rawHopSheetRow(index)}`,
         value: parsed ?? "",
       },
     ];
@@ -2899,7 +2948,7 @@ export default function BrewFormStepper({
         String(grams),
       );
       writes.push({
-        range: `'גיליון1'!A${baseRow + 15 + index}`,
+        range: `'גיליון1'!A${rawHopSheetRow(index)}`,
         value: grams,
       });
     }
@@ -3018,8 +3067,8 @@ export default function BrewFormStepper({
       key.startsWith("sheetMaterial.") ||
       key.startsWith("sheetRawMaterial.") ||
       /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
-      /^hop[1-3]\.(amountGrams|alphaOverride)$/.test(key) ||
-      /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
+      /^hop[1-4]\.(amountGrams|alphaOverride)$/.test(key) ||
+      /^(mashIn|rest1|heat1|rest2|heat2|rest3|heat3|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|hop4|wp|outToFermentor)\.(start|end|temp|note)$/.test(
         key,
       )
     );
