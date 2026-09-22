@@ -598,11 +598,51 @@ export default function BrewingView({ brews, tab }: Props) {
                                     >
                                         {style.displayLabel || "—"}
                                     </span>
-                                    <small>
-                                        {run
-                                            ? tank.brewProgress?.stageName || "בישול חדש"
-                                            : "חריגת נתונים · בישול חדש ללא Sheet"}
-                                    </small>
+                                    {run ? (
+                                        <div className="brewing-action-zero-progress">
+                                            {tank.brewProgress?.stageName ? (
+                                                <>
+                                                    <span
+                                                        className="brewing-action-zero-live-dot"
+                                                        aria-hidden="true"
+                                                    />
+                                                    <strong>
+                                                        {tank.brewProgress?.blockIndex
+                                                            ? `בישול ${String.fromCharCode(
+                                                                  64 +
+                                                                      Number(
+                                                                          tank.brewProgress
+                                                                              .blockIndex,
+                                                                      ),
+                                                              )}`
+                                                            : "בישול"}
+                                                    </strong>
+                                                    <span>
+                                                        {tank.brewProgress.stageName}
+                                                    </span>
+                                                    {tank.brewProgress
+                                                        .stageStartTimeText && (
+                                                        <small>
+                                                            {
+                                                                tank.brewProgress
+                                                                    .stageStartTimeText
+                                                            }
+                                                            {tank.brewProgress
+                                                                .stageEndTimeText
+                                                                ? ` – ${tank.brewProgress.stageEndTimeText}`
+                                                                : ""}
+                                                        </small>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <small>עדיין לא בבישול</small>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <small>
+                                            חריגת נתונים · בישול חדש ללא Sheet
+                                        </small>
+                                    )}
                                 </button>
                             );
                         })}
