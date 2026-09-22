@@ -105,6 +105,12 @@ function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
             typeof tank.brewSheetEditRevision === "number" ? tank.brewSheetEditRevision : null,
         brewSheetEditRange:
             typeof tank.brewSheetEditRange === "string" ? tank.brewSheetEditRange : null,
+        brewSheetEditValue:
+            typeof tank.brewSheetEditValue === "string" ? tank.brewSheetEditValue : null,
+        brewSheetEditOldValue:
+            typeof tank.brewSheetEditOldValue === "string" ? tank.brewSheetEditOldValue : null,
+        brewSheetEditSheetName:
+            typeof tank.brewSheetEditSheetName === "string" ? tank.brewSheetEditSheetName : null,
         brewProgress: tank.brewProgress
             ? {
                   blockIndex: tank.brewProgress.blockIndex,
@@ -236,6 +242,8 @@ export default function BrewingView({ brews, tab }: Props) {
             liveRun.action !== selectedRun.action ||
             liveRun.brewSheetEditRevision !== selectedRun.brewSheetEditRevision ||
             liveRun.brewSheetEditRange !== selectedRun.brewSheetEditRange ||
+            liveRun.brewSheetEditValue !== selectedRun.brewSheetEditValue ||
+            liveRun.brewSheetEditSheetName !== selectedRun.brewSheetEditSheetName ||
             liveRun.brewProgress?.stageName !== selectedRun.brewProgress?.stageName ||
             liveRun.brewProgress?.stageStartTimeText !== selectedRun.brewProgress?.stageStartTimeText ||
             liveRun.brewProgress?.stageEndTimeText !== selectedRun.brewProgress?.stageEndTimeText;
