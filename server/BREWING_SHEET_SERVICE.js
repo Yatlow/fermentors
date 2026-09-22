@@ -56,16 +56,10 @@ function brewingSheetAssertAllowedFile_(fileId) {
   const id = brewingSheetExtractId_(fileId);
   if (!id) throw new Error("Missing spreadsheetId");
 
-  // Do not scan the entire brewing Drive folder on the request path. Existing
-  // production Sheets are already referenced by Firestore and the caller is
-  // authenticated as an approved Firebase user. Opening by id is the fastest
-  // authorization check available here: inaccessible/non-Sheet ids fail below.
-  try {
-    SpreadsheetApp.openById(id);
-    return id;
-  } catch (error) {
-    throw new Error("Brew Sheet is not accessible: " + error.message);
-  }
+  // Do not scan the entire brewing Drive folder on the request path. The caller
+  // is already an approved Firebase user; SpreadsheetApp.openById() below is
+  // the actual access check and avoids a second expensive open here.
+  return id;
 }
 
 function brewingSheetCellValue_(value) {
