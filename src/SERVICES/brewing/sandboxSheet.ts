@@ -24,14 +24,6 @@ export type AccessibleBrewSheet = {
   modifiedTime?: string;
 };
 
-async function readSheetValues(
-  fileId: string,
-  range = "'גיליון1'!A1:H200",
-): Promise<string[][]> {
-  const result = await serverReadBrewSheetRange(fileId, range);
-  return Array.isArray(result.values) ? result.values : [];
-}
-
 function layoutFor(tankType: TankType) {
   if (tankType === "single") {
     return {
