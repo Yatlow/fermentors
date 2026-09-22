@@ -2000,7 +2000,7 @@ export default function BrewFormStepper({
         const stableStage =
           stage &&
           stage.targetRecipeStepId &&
-          !/^heat/i.test(stage.key);
+          /^rest\d+$/i.test(stage.key);
         const target = stableStage
           ? recipe.mash.steps.find(
               (step) => step.id === stage!.targetRecipeStepId,
