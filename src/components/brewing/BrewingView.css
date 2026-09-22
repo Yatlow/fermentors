@@ -3803,6 +3803,15 @@
     background: #eab308;
 }
 
+.brew-material-row-readonly {
+    grid-template-columns: 1fr;
+    align-items: center;
+    padding: 7px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-sm);
+    background: #fff;
+}
+
 .brew-material-empty {
     padding: 8px 9px;
     border: 1px solid #fde68a;
