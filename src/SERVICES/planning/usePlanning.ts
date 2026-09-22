@@ -330,8 +330,56 @@ export function usePlanning(
         throw new Error(
           "התכנון עודכן במכשיר אחר. סגור את העריכה ופתח מחדש כדי לקבל את העדכון.",
         );
+      // Older planningWeeks documents may predate fields that are mandatory in
+      // the current rules, or may still contain retired top-level fields. Rewriting
+      // such a document with a raw spread makes an otherwise valid schedule edit
+      // fail as "Missing or insufficient permissions". Canonicalize WeekPlan writes
+      // to the exact schema accepted by Firestore while preserving current optional
+      // planning/calendar fields.
+      const persistedValue =
+        collectionName === "planningWeeks"
+          ? (() => {
+              const week = value as WeekPlan & {
+                deliveries?: unknown;
+                deliveryDates?: unknown;
+                dismissedRecommendations?: unknown;
+                allowExceptions?: unknown;
+                changeReason?: unknown;
+                calendarEvents?: unknown;
+                calendarNotes?: unknown;
+              };
+              return {
+                id: week.id,
+                packaging: Array.isArray(week.packaging) ? week.packaging : [],
+                brews: Array.isArray(week.brews) ? week.brews : [],
+                note: typeof week.note === "string" ? week.note : "",
+                maxRuns: [0, 1, 2, 3, 4, 5].includes(Number(week.maxRuns))
+                  ? Number(week.maxRuns)
+                  : settings.preferredRuns,
+                ...(Array.isArray(week.deliveries) ? { deliveries: week.deliveries } : {}),
+                ...(Array.isArray(week.deliveryDates) ? { deliveryDates: week.deliveryDates } : {}),
+                ...(Array.isArray(week.dismissedRecommendations)
+                  ? { dismissedRecommendations: week.dismissedRecommendations }
+                  : {}),
+                ...(typeof week.allowExceptions === "boolean"
+                  ? { allowExceptions: week.allowExceptions }
+                  : {}),
+                ...(typeof week.changeReason === "string"
+                  ? { changeReason: week.changeReason }
+                  : {}),
+                ...(Array.isArray(week.calendarEvents)
+                  ? { calendarEvents: week.calendarEvents }
+                  : {}),
+                ...(week.calendarNotes &&
+                typeof week.calendarNotes === "object" &&
+                !Array.isArray(week.calendarNotes)
+                  ? { calendarNotes: week.calendarNotes }
+                  : {}),
+              };
+            })()
+          : value;
       const next = {
-        ...value,
+        ...persistedValue,
         createdAt: snap.exists()
           ? (snap.data()?.createdAt ?? null)
           : serverTimestamp(),
