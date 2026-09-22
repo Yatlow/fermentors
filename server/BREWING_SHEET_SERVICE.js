@@ -492,6 +492,41 @@ function brewingSheetRemoveEditTrigger_(data) {
   };
 }
 
+function brewingSheetReconcileEditTriggers_(fermentorEntries) {
+  const activeSheetIds = new Set();
+
+  (fermentorEntries || []).forEach(function (entry) {
+    const fermentor = entry && entry.data ? entry.data : entry;
+    if (!fermentor || parseAction(fermentor.action) !== 0 || !fermentor.sheetUrl) return;
+
+    try {
+      const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
+      if (!fileId) return;
+      activeSheetIds.add(fileId);
+      brewingSheetEnsureEditTrigger_({ spreadsheetId: fileId });
+    } catch (error) {
+      Logger.log(
+        "Failed ensuring brew edit trigger for tank " +
+        String(fermentor.tankNumber || (entry && entry.id) || "?") +
+        ": " +
+        error.message
+      );
+    }
+  });
+
+  // Clean up only triggers owned by this feature. This also handles tanks that
+  // moved out of ACTION 0 while the app was closed.
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() !== BREWING_EDIT_TRIGGER_HANDLER_) return;
+    const fileId = brewingSheetTriggerSourceId_(trigger);
+    if (fileId && !activeSheetIds.has(fileId)) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  return { active: activeSheetIds.size };
+}
+
 function brewingSheetFindFermentorForSheet_(spreadsheetId) {
   const targetId = brewingSheetExtractId_(spreadsheetId);
   const fermentors = getAllFermentorsFromFirebase();
