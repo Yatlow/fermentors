@@ -173,3 +173,24 @@ export async function serverLoadBrewAcidHistory(
   });
   return unwrapAppsScriptResult(response, "טעינת היסטוריית הבישולים נכשלה.");
 }
+
+
+export async function serverEnsureBrewSheetEditTrigger(spreadsheetId: string) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{ spreadsheetId: string; installed: boolean; active: boolean }>
+  >({
+    action: "BrewSheetEnsureEditTrigger",
+    spreadsheetId,
+  });
+  return unwrapAppsScriptResult(response, "הפעלת סנכרון העריכה של Sheet הבישול נכשלה.");
+}
+
+export async function serverRemoveBrewSheetEditTrigger(spreadsheetId: string) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{ spreadsheetId: string; removed: number; active: boolean }>
+  >({
+    action: "BrewSheetRemoveEditTrigger",
+    spreadsheetId,
+  });
+  return unwrapAppsScriptResult(response, "הסרת סנכרון העריכה של Sheet הבישול נכשלה.");
+}
