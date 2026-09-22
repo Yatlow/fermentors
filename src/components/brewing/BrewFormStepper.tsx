@@ -157,6 +157,7 @@ const BOIL_STAGES: StageDef[] = [
   { key: "hop1", label: "הוספת כשות 1", rowOffset: 30, showEnd: false },
   { key: "hop2", label: "הוספת כשות 2", rowOffset: 32, showEnd: false },
   { key: "hop3", label: "הוספת כשות 3", rowOffset: 34, showEnd: false },
+  { key: "hop4", label: "הוספת כשות 4", rowOffset: 36, showEnd: false },
 ];
 
 const WP_STAGE: StageDef = {
@@ -892,12 +893,10 @@ export default function BrewFormStepper({
         id: item.ingredientId,
         category: "grain" as const,
       })),
-      ...recipe.hops
-        .filter((item) => item.purpose !== "dryHop")
-        .map((item) => ({
-          id: item.ingredientId,
-          category: "hop" as const,
-        })),
+      ...recipe.hops.map((item) => ({
+        id: item.ingredientId,
+        category: "hop" as const,
+      })),
       ...(recipe.yeast.ingredientId
         ? [
             {
@@ -943,7 +942,12 @@ export default function BrewFormStepper({
   );
 
   const boilHops = useMemo(
-    () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 3),
+    () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 4),
+    [recipe.hops],
+  );
+
+  const dryHops = useMemo(
+    () => recipe.hops.filter((hop) => hop.purpose === "dryHop"),
     [recipe.hops],
   );
 
@@ -1536,6 +1540,24 @@ export default function BrewFormStepper({
           }
         }
       });
+
+    dryHops.forEach((hop) => {
+      const ingredient = ingredientLibrary.find(
+        (item) => item.id === hop.ingredientId,
+      );
+      if (!ingredient) return;
+      const lot = selectedMaterialLot(ingredient);
+      if (!lot) return;
+
+      nextExecution = setSandboxExecutionField(
+        nextExecution,
+        currentBlock,
+        `materialLot.${ingredient.id}`,
+        lot.id,
+      );
+      // Do not pre-fill the reserved raw-hop row in the Sheet. The cellar
+      // dry-hop action writes the actual grams + AA + hop type at execution time.
+    });
 
     const yeast = ingredientLibrary.find(
       (item) => item.id === recipe.yeast.ingredientId,
