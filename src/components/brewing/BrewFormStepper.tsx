@@ -115,6 +115,24 @@ const MASH_STAGES: StageDef[] = [
     showNote: true,
     targetRecipeStepId: "heat2",
   },
+  {
+    key: "rest3",
+    label: "השריה 3",
+    // Synthetic fallback offsets keep these keys unique. Real three-rest
+    // Sheets are written through the discovered row metadata.
+    rowOffset: 100,
+    showTemp: true,
+    showNote: true,
+    targetRecipeStepId: "rest3",
+  },
+  {
+    key: "heat3",
+    label: "חימום 3",
+    rowOffset: 102,
+    showTemp: true,
+    showNote: true,
+    targetRecipeStepId: "heat3",
+  },
 ];
 
 const LAUTER_STAGES: StageDef[] = [
@@ -3509,7 +3527,14 @@ export default function BrewFormStepper({
   function renderStageRows(stages: StageDef[]) {
     return (
       <div className="brew-stage-list">
-        {stages.map((stage) => {
+        {stages
+          .filter((stage) => {
+            if (stage.key !== "rest3" && stage.key !== "heat3") return true;
+            return recipe.mash.steps.some(
+              (step) => step.id === stage.targetRecipeStepId,
+            );
+          })
+          .map((stage) => {
           const target = stage.targetRecipeStepId
             ? recipe.mash.steps.find(
                 (step) => step.id === stage.targetRecipeStepId,
