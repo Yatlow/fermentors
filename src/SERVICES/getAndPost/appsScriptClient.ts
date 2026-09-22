@@ -80,7 +80,34 @@ async function fetchWithTimeout(
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        return await fetch(url, { ...init, signal: controller.signal });
+        // Apps Script web apps answer POSTs with a 302 to script.googleusercontent.com.
+        // Safari can fail that cross-origin POST redirect as a network-level
+        // "Load failed". Follow the redirect as a GET ourselves instead.
+        const response = await fetch(url, {
+            ...init,
+            redirect: "manual",
+            signal: controller.signal,
+        });
+
+        if (
+            response.type === "opaqueredirect" ||
+            response.status === 301 ||
+            response.status === 302 ||
+            response.status === 303 ||
+            response.status === 307 ||
+            response.status === 308
+        ) {
+            const redirectUrl = response.headers.get("location");
+            if (!redirectUrl) {
+                throw new Error("Google Apps Script redirect URL is unavailable.");
+            }
+            return await fetch(redirectUrl, {
+                method: "GET",
+                signal: controller.signal,
+            });
+        }
+
+        return response;
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
             throw new AppsScriptTimeoutError(timeoutMs);
