@@ -975,9 +975,7 @@ export default function BrewFormStepper({
   const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
     null,
   );
-  const [reviewedSteps, setReviewedSteps] = useState<Record<string, boolean>>(
-    () => execution.reviewedSteps || {},
-  );
+  const reviewedSteps = execution.reviewedSteps || {};
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
   const [heightBaseLiters, setHeightBaseLiters] = useState("");
@@ -1347,16 +1345,14 @@ export default function BrewFormStepper({
 
   function markStepsReviewed(blockIndex: number, stepIds: StepId[]) {
     if (!stepIds.length) return;
-    setReviewedSteps((previous) => {
-      const next = { ...previous };
+    setExecution((current) => {
+      const next = { ...(current.reviewedSteps || {}) };
       stepIds.forEach((stepId) => {
         if (stepId !== "summary") {
           next[reviewedKey(blockIndex, stepId)] = true;
         }
       });
-      const saved = setSandboxExecutionReviewedSteps(execution, next);
-      setExecution(saved);
-      return next;
+      return setSandboxExecutionReviewedSteps(current, next);
     });
   }
 
