@@ -86,6 +86,15 @@ function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
         createdAt: new Date(0).toISOString(),
         source: "production",
         started: Number(tank.action) !== 0,
+        action: tank.action,
+        brewProgress: tank.brewProgress
+            ? {
+                  blockIndex: tank.brewProgress.blockIndex,
+                  stageName: tank.brewProgress.stageName,
+                  stageStartTimeText: tank.brewProgress.stageStartTimeText,
+                  stageEndTimeText: tank.brewProgress.stageEndTimeText,
+              }
+            : null,
         sheetId,
         sheetUrl,
         sheetName: "",
@@ -121,18 +130,32 @@ function productionRunFromSummary(
 }
 
 function productionTankStatus(tank: Fermentor): string {
-    const stageName = String(tank.brewProgress?.stageName || "").trim();
-    if (stageName) return stageName;
-
     const action = Number(tank.action);
+    if (action === 1) {
+        const stageName = String(tank.stage?.name || "").trim();
+        return stageName === "קר" ? "קר" : "חם / בתסיסה";
+    }
+
     const labels: Record<number, string> = {
         0: "בישול חדש",
-        1: "בתסיסה",
         3: "מלוכלך / ריק",
         4: "נקי",
         5: "מחוטא",
     };
     return labels[action] || `ACTION ${String(tank.action ?? "—")}`;
+}
+
+function productionTankStageClass(tank: Fermentor): string {
+    const action = Number(tank.action);
+    if (action === 1) {
+        return String(tank.stage?.name || "").trim() === "קר"
+            ? "brew-tank-stage-cold"
+            : "brew-tank-stage-hot";
+    }
+    if (action === 3) return "brew-tank-stage-dirty";
+    if (action === 4) return "brew-tank-stage-clean";
+    if (action === 5) return "brew-tank-stage-sanitized";
+    return "brew-tank-stage-default";
 }
 
 export default function BrewingView({ brews, tab }: Props) {
@@ -853,7 +876,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     {otherProductionTanks.length > 0 && (
                         <>
                             <h3 className="brewing-subheading">
-                                אצוות אמת — ACTION 1/3/4/5
+                                אצוות במיכל
                             </h3>
                             <div className="brewing-real-data-note">
                                 <strong>זה מידע אמיתי.</strong>
@@ -874,7 +897,9 @@ export default function BrewingView({ brews, tab }: Props) {
 
                                     return (
                                         <article
-                                            className="brewing-tank-card brewing-production-card"
+                                            className={`brewing-tank-card brewing-production-card ${productionTankStageClass(
+                                                tank,
+                                            )}`}
                                             key={tank.id}
                                         >
                                             <div className="brewing-tank-card-top">
