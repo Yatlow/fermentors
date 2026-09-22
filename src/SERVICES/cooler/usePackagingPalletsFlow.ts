@@ -6,7 +6,6 @@ import {
     type PackagingType,
     type PackagingPalletPlan,
     markPackagingPalletsCompleted,
-    savePackagingPalletSplits,
 } from "../getAndPost/packagingMasterSheetLogger";
 import {
     getDefaultPalletSplit,
@@ -266,7 +265,6 @@ export function usePackagingPalletsFlow(jobs: PackagingJobInput[]) {
                     // Default pallets already exist from submitPackagingRecord.
                     // Only a fully valid user split may replace them; replacement
                     // is one atomic Firestore batch, so failure keeps defaults.
-                    await savePackagingPalletSplits(runtime.palletPlan.operationId, splits);
                     const ids = await replacePalletsForPlan(runtime.palletPlan, splits);
                     return { ids, operationId: runtime.palletPlan.operationId };
                 })
