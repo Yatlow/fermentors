@@ -3,6 +3,12 @@ import { weeklyDemand, type Product, type Settings } from "./planningEngine";
 import { isCoreStyle } from "./planningPresentation";
 import { projectedPallets } from "./truckPlanner";
 
+export function nominalPlanningUnits(product: Product, physicalUnits: number): number {
+  const size = product.type === "crates" ? 84 : 20;
+  const units = Math.max(0, physicalUnits);
+  return units > 0 ? Math.ceil(units / size) * size : 0;
+}
+
 function manifestForQuantities(products: Product[], quantities: Map<string, number>, key: string) {
   return products.flatMap((p) =>
     projectedPallets(p, quantities.get(p.id) ?? 0, `${key}:${p.id}`).map((x) => x.pallet),
@@ -20,7 +26,7 @@ export function buildShipmentRecommendation(settings: Settings, rows: Map<string
     // The weekly decision is made in pallet slots. A physical partial pallet still
     // occupies one pallet position, so when it is the last stock available we let
     // it represent one planned pallet instead of making the planner enter fractions.
-    available.set(p.id, units > 0 ? Math.ceil(units / palletSize(p)) : 0);
+    available.set(p.id, nominalPlanningUnits(p, units) / palletSize(p));
   }
 
   const coverAfter = (p: Product) => {
