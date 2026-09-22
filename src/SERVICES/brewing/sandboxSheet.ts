@@ -100,6 +100,100 @@ function tankLabel(tankType: TankType) {
   return tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
 }
 
+
+type ProductionStyleConfig = {
+  folderId: string;
+  templates: Partial<Record<TankType, string>>;
+};
+
+const PRODUCTION_STYLE_CONFIG: Record<string, ProductionStyleConfig> = {
+  ipa: {
+    folderId:
+      "0B6DbCIATIM92fnNfeTl3MmhQMUlZY0NYSERPbmk2b2RQZUlyNmJSbUpoS1NTdkVmZnNuNGM",
+    templates: {
+      single: "1qqYHpIhokc7mEsCHW2bhM6LDGrmh4CN0l937nYnonOw",
+      double: "1M-IFhJL-JwphQDEKsAHFCpCR8zz4zXXgaXkCZ2hpXtY",
+      triple: "1I8P0aoD7WEo0AYZcYebhFzCGdik5TzgPnNq2SgPEzkI",
+    },
+  },
+  pale: {
+    folderId:
+      "0B6DbCIATIM92fmRXeGpLLW8wMEx5dlRxYlJVQVJPcWZOaEkzNmt2al9lTHVRVUZhVExPckE",
+    templates: {
+      single: "1RXFzcnWVjCZx2Iv72Kl_DuD3fJHyNCnGX_VSSIeJvJI",
+      double: "1PBnf9yt_kPSdNYrOgDp1qH6HBJMAFNSDaDKCmLAc2hU",
+      triple: "1S5xQOqr5V6YgHQUw06RxQlfcqEOVKJWtJDFispwVcpo",
+    },
+  },
+  wheat: {
+    folderId:
+      "0B6DbCIATIM92fk5kczA1bmtSUUkyejlvYXdNQlhfTUp2VWYyTUNVclo0ZGFsRDNRY0NiS00",
+    templates: {
+      single: "1wKKFQLRTkfdV0v2Xc4YHqMK-OyG6chJ10biGg8JFeOg",
+      double: "1vUa42VH9sqHoOtyulOt3bZ-mLXHvIBcTkFZwE3S6GaA",
+      triple: "13CCd_hcZWCnhGPz2fvAi0tuc3jL5VOQ4-DCPIZslgNQ",
+    },
+  },
+  stout: {
+    folderId:
+      "0B6DbCIATIM92fmljZWo5M0g2ZjFWM05GVWZqTGx1MHhDWEd6YThiMkNFSUpXNnZjVC1yRms",
+    templates: {
+      single: "1Vy0DT3-pkamca18w2W8ifue_9aHFq5raVHDnzaTlaQ4",
+    },
+  },
+  lager: {
+    folderId:
+      "0B6DbCIATIM92fld5WHIyN3lYaEh5NFllY2trdl93ZlB3WDhicllVY3FhV0pGd1JZbXl3dTg",
+    templates: {
+      single: "1aGXFYutLe77oKiF7sQrc9umMt7sKRcVZbFwesR71THU",
+      double: "1xfdZzGaOE4p8OFn-W3jj-pheYmpApFgiWnMrcFtX988",
+      triple: "1CHkAlXZGeovmHFq_PrRV4CETXxb8xPlOcAUMST-xWWc",
+    },
+  },
+  hoppy: {
+    folderId: "1sQtiZKhHST52SsJW2A_vd1zBLZsqEezz",
+    templates: {
+      double: "19AXQ7MMPVLsCI9ufYZp07R5aJFWL5lvn3PvgvyMmgng",
+      triple: "1O5lelBhQR7otZOTtOakLkxz3lCx2Qk7DVY_IsgYgq2I",
+    },
+  },
+};
+
+function productionStyleKey(style: string): keyof typeof PRODUCTION_STYLE_CONFIG {
+  const normalized = String(style || "").trim().toLowerCase();
+  if (normalized === "ipa" || normalized.includes("אייפיאיי")) return "ipa";
+  if (normalized.includes("פייל") || normalized.includes("pale")) return "pale";
+  if (normalized.includes("חיטה") || normalized.includes("wheat")) return "wheat";
+  if (normalized.includes("סטאוט") || normalized.includes("stout")) return "stout";
+  if (
+    normalized.includes("הופי") ||
+    normalized.includes("hoppy") ||
+    normalized.includes("ניו לאגר")
+  ) {
+    return "hoppy";
+  }
+  if (normalized.includes("לאגר") || normalized.includes("lager")) return "lager";
+
+  throw new Error(
+    `לא הוגדרה תיקיית Drive / תבנית קיימת לסגנון "${style}".`,
+  );
+}
+
+function productionDriveTarget(style: string, tankType: TankType) {
+  const key = productionStyleKey(style);
+  const config = PRODUCTION_STYLE_CONFIG[key];
+  const templateId = config.templates[tankType];
+  if (!templateId) {
+    throw new Error(
+      `לא קיימת בתיקיית ${style} תבנית ${tankLabel(tankType)} לשימוש ביצירת אצווה.`,
+    );
+  }
+  return {
+    folderId: config.folderId,
+    templateId,
+  };
+}
+
 function layoutFor(tankType: TankType) {
   if (tankType === "single") {
     return {
@@ -189,18 +283,19 @@ export async function createSandboxBrewSheet(input: {
     throw new Error("ב-Sandbox הדמו יצירת Sheet פעילה ל-IPA בלבד.");
   }
 
-  const folderId = input.production
-    ? runtimeConfig.brewFolderId
+  const productionTarget = input.production
+    ? productionDriveTarget(input.style, input.tankType)
+    : null;
+  const folderId = productionTarget
+    ? productionTarget.folderId
     : runtimeConfig.brewingSandbox.folderId;
   if (!folderId) {
-    throw new Error(
-      input.production
-        ? "לא הוגדרה תיקיית הבישולים הראשית."
-        : "לא הוגדרה תיקיית Sandbox ב-Drive.",
-    );
+    throw new Error("לא הוגדרה תיקיית Sandbox ב-Drive.");
   }
 
-  const templateId = templateIdFor(input.tankType);
+  const templateId = productionTarget
+    ? productionTarget.templateId
+    : templateIdFor(input.tankType);
   const typeSuffix =
     input.tankType === "single" ? "" : " " + tankLabel(input.tankType);
   const name = input.production
@@ -269,14 +364,32 @@ export async function createSandboxBrewSheet(input: {
 
     if (input.recipe && input.ingredients) {
       layout.blockHeaderRows.forEach((headerRow) => {
+        const firstGrainRow = headerRow + 5;
+
+        // Existing production templates contain example/raw-material rows.
+        // Clear the ingredient slots before applying the selected recipe so
+        // stale template values can never survive next to the new recipe.
+        for (let slot = 0; slot < 5; slot += 1) {
+          const row = firstGrainRow + slot;
+          data.push(
+            { range: `'גיליון1'!A${row}`, values: [[""]] },
+            { range: `'גיליון1'!B${row}`, values: [[""]] },
+            { range: `'גיליון1'!C${row}`, values: [[""]] },
+          );
+        }
+
         input.recipe!.grains.forEach((grain, grainIndex) => {
           const ingredient = input.ingredients!.find(
             (item) => item.id === grain.ingredientId,
           );
-          if (!ingredient) return;
+          if (!ingredient) {
+            throw new Error(
+              `חומר הגלם "${grain.ingredientId}" מהמתכון לא נמצא בספריית חומרי הגלם.`,
+            );
+          }
 
           const lot = activeLot(ingredient);
-          const row = headerRow + 4 + grainIndex;
+          const row = firstGrainRow + grainIndex;
           const typeAndLot = [
             ingredient.name,
             lot?.lotNumber ? `#${lot.lotNumber}` : "",
