@@ -4162,3 +4162,78 @@
         padding: 7px;
     }
 }
+
+
+/* ACTION 0 cards: summary row + live-progress row */
+
+.brewing-action-zero-heading {
+    justify-content: flex-start;
+}
+
+.brewing-action-zero-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+}
+
+.brewing-action-zero-main {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    min-width: 0;
+}
+
+.brewing-action-zero-main > strong {
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.brewing-action-zero-main > span:not(.brewing-style-tag) {
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.brewing-action-zero-main .brewing-style-tag {
+    margin-inline-start: auto;
+    flex: 0 0 auto;
+}
+
+.brewing-action-zero-progress {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding-top: 5px;
+    border-top: 1px solid #e2e8f0;
+}
+
+@media (max-width: 699px) {
+    .brewing-action-zero-heading {
+        display: block;
+    }
+
+    .brewing-action-zero-main {
+        gap: 5px;
+    }
+
+    .brewing-action-zero-main > strong,
+    .brewing-action-zero-main > span:not(.brewing-style-tag) {
+        font-size: 0.63rem;
+    }
+
+    .brewing-action-zero-progress {
+        display: grid;
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 3px 5px;
+        padding-top: 5px;
+    }
+
+    .brewing-action-zero-progress small {
+        grid-column: auto;
+        width: auto;
+        margin: 0;
+    }
+}
