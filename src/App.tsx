@@ -11,11 +11,6 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { auth, db, googleProvider } from "./firebase";
-import {
-    clearGoogleWorkspaceToken,
-    configureGoogleWorkspaceProvider,
-    rememberGoogleWorkspaceCredential,
-} from "./SERVICES/auth/googleWorkspaceAccess";
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
 
@@ -255,17 +250,12 @@ function App() {
     }, [user, isApproved]);
 
     function login() {
-        configureGoogleWorkspaceProvider(googleProvider);
         signInWithPopup(auth, googleProvider)
-            .then((result) => {
-                rememberGoogleWorkspaceCredential(result);
-            })
             .catch((e) => console.error(e));
         console.log("Initiated Google sign-in popup");
     }
 
     function logout() {
-        clearGoogleWorkspaceToken();
         signOut(auth);
     }
 
