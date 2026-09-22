@@ -304,8 +304,14 @@ function doPost(e) {
 
     const data = JSON.parse(e.postData.contents);
 
+    const authStartedAt = Date.now();
     const authenticatedUser = authenticateFirebaseRequest_(data.idToken);
+    const authMs = Date.now() - authStartedAt;
     delete data.idToken;
+
+    if (data.action === "BrewSheetPing" || data.action === "BrewSheetReadRange") {
+      console.log(data.action + " auth timing " + authMs + "ms");
+    }
 
     logToSheet(
       "Authenticated action: " + data.action +
@@ -336,6 +342,17 @@ function doPost(e) {
 
 
 function executePostAction_(data) {
+  if (data.action === "BrewSheetPing") {
+    return {
+      success: true,
+      action: "BrewSheetPing",
+      result: {
+        ok: true,
+        serverTime: new Date().toISOString()
+      }
+    };
+  }
+
   if (data.action === "CheckBatchAssignment") {
     const tankID = String(data.tankID || "").trim();
     const requestedBatch = Number(data.requestedBatch);
