@@ -121,7 +121,9 @@ const POST_MUTATION_ACTIONS = {
   manualNightSync: true,
   BrewSheetCreate: true,
   BrewSheetWriteCells: true,
-  BrewSheetTrash: true
+  BrewSheetTrash: true,
+  BrewSheetEnsureEditTrigger: true,
+  BrewSheetRemoveEditTrigger: true
 };
 
 function postIdempotencyKey_(action, requestId) {
@@ -566,6 +568,22 @@ function executePostAction_(data) {
       success: true,
       action: "BrewSheetReadRange",
       result: brewingSheetReadRange_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetEnsureEditTrigger") {
+    return {
+      success: true,
+      action: "BrewSheetEnsureEditTrigger",
+      result: brewingSheetEnsureEditTrigger_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetRemoveEditTrigger") {
+    return {
+      success: true,
+      action: "BrewSheetRemoveEditTrigger",
+      result: brewingSheetRemoveEditTrigger_(data)
     };
   }
 
