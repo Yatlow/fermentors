@@ -511,7 +511,7 @@ export async function createSandboxBrewSheet(input: {
         .filter((hop) => hop.purpose !== "dryHop")
         .slice(0, 3);
 
-      discoveredLayout.hopHeaderRows.forEach((headerRow, blockIndex) => {
+      discoveredLayout.hopHeaderRows.forEach((headerRow) => {
         boilHops.forEach((hop, hopIndex) => {
           const ingredient = input.ingredients!.find(
             (item) => item.id === hop.ingredientId,
