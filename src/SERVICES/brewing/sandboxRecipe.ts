@@ -208,6 +208,12 @@ function persist(recipes: BrewRecipe[]) {
   }
 }
 
+export function replaceSandboxRecipes(recipes: BrewRecipe[]): BrewRecipe[] {
+  const next = recipes.map((recipe) => normalizeRecipe(cloneRecipe(recipe)));
+  persist(next);
+  return next.map(cloneRecipe);
+}
+
 export function loadSandboxRecipes(): BrewRecipe[] {
   if (!isBrewingSandbox()) return [cloneRecipe(DEFAULT_IPA_RECIPE)];
 
