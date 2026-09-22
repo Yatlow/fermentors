@@ -260,7 +260,6 @@ export default function BrewingView({ brews, tab }: Props) {
 
     const selectedRecipe = useMemo(() => {
         if (!selectedRun) return null;
-        if (selectedRun.recipeSnapshot) return selectedRun.recipeSnapshot;
 
         const matching =
             recipes.find((item) => sameStyle(item.style, selectedRun.style)) ||
@@ -270,8 +269,18 @@ export default function BrewingView({ brews, tab }: Props) {
                     selectedRun.style.trim().toLowerCase(),
             );
 
+        const snapshot = selectedRun.recipeSnapshot;
+        const snapshotHasMaterials =
+            !!snapshot &&
+            (snapshot.grains.length > 0 ||
+                snapshot.hops.length > 0 ||
+                !!snapshot.yeast.ingredientId);
+
+        if (snapshotHasMaterials) return snapshot;
         if (matching) return matching;
-        return selectedRun.source === "production" ? null : recipes[0] || null;
+        return selectedRun.source === "production"
+            ? null
+            : snapshot || recipes[0] || null;
     }, [recipes, selectedRun]);
 
     const currentProductionBatchNumbers = useMemo(
