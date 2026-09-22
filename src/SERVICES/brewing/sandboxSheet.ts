@@ -1,16 +1,16 @@
 import { runtimeConfig } from "../../config/runtimeConfig";
-import { auth } from "../../firebase";
-import {
-  clearGoogleWorkspaceToken,
-  ensureGoogleWorkspaceToken,
-  getRememberedGoogleWorkspaceToken,
-} from "../auth/googleWorkspaceAccess";
 import type { SandboxDemoTank } from "./brewingSandbox";
 import type { BrewRecipe } from "./brewRecipe";
 import {
   activeLot,
   type IngredientDefinition,
 } from "./ingredientLibrary";
+import {
+  serverCreateBrewSheet,
+  serverReadBrewSheetRange,
+  serverTrashBrewSheet,
+  serverWriteBrewSheetCells,
+} from "./brewingSheetServer";
 
 type TankType = SandboxDemoTank["tankType"];
 
@@ -27,63 +27,12 @@ export type AccessibleBrewSheet = {
   modifiedTime?: string;
 };
 
-async function requestWriteToken(
-  forceConsent = false,
-): Promise<string> {
-  if (!forceConsent) {
-    const existing = getRememberedGoogleWorkspaceToken();
-    if (existing) return existing;
-  }
-
-  const user = auth.currentUser;
-  if (!user) {
-    throw new Error(
-      "צריך להתחבר מחדש לפני יצירת Sheet.",
-    );
-  }
-
-  return ensureGoogleWorkspaceToken(user, forceConsent);
-}
-
-async function googleFetch(
-  url: string,
-  init: RequestInit,
-  retry = true,
-): Promise<Response> {
-  const token = await requestWriteToken(false);
-  const headers = new Headers(init.headers || {});
-  headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-
-  const response = await fetch(url, { ...init, headers });
-  if (response.status === 401 && retry) {
-    clearGoogleWorkspaceToken();
-    // The scopes were already granted at the application's Google login.
-    // Re-authenticate the same account without forcing the consent screen again.
-    const fresh = await requestWriteToken(false);
-    headers.set("Authorization", `Bearer ${fresh}`);
-    return fetch(url, { ...init, headers });
-  }
-  return response;
-}
-
 async function readSheetValues(
   fileId: string,
   range = "'גיליון1'!A1:H200",
 ): Promise<string[][]> {
-  const response = await googleFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-      fileId,
-    )}/values/${encodeURIComponent(
-      range,
-    )}?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`,
-    { method: "GET" },
-  );
-  await requireOk(response, "קריאת מבנה טופס הבישול נכשלה");
-  const payload = await response.json();
-  return Array.isArray(payload?.values) ? payload.values : [];
+  const result = await serverReadBrewSheetRange(fileId, range);
+  return Array.isArray(result.values) ? result.values : [];
 }
 
 type DiscoveredProductionLayout = {
@@ -468,33 +417,14 @@ async function deleteSandboxFile(fileId: string) {
 
 export async function deleteSandboxBrewSheet(fileId: string): Promise<void> {
   if (!fileId || runtimeConfig.deployEnv !== "preview") return;
-
-  const response = await googleFetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
-      fileId,
-    )}?supportsAllDrives=true&fields=id,trashed`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ trashed: true }),
-    },
-  );
-
-  if (response.status === 404) return;
-  await requireOk(response, "מחיקת Sheet ה-Sandbox מה-Drive נכשלה");
-
-  const payload = await response.json().catch(() => null);
-  if (payload?.trashed !== true) {
-    throw new Error(
-      "Google Drive לא אישר שה-Sheet הועבר לאשפה. האצווה לא נמחקה מהאפליקציה.",
-    );
-  }
+  await serverTrashBrewSheet(fileId);
 }
 
 export async function ensureSandboxSheetAccess(): Promise<void> {
   if (runtimeConfig.deployEnv !== "preview") {
     throw new Error("הרשאת Sandbox זמינה רק ב-Preview.");
   }
-  await requestWriteToken(false);
+  // Access is authenticated by the Firebase ID token in appsScriptClient.
 }
 
 export async function createSandboxBrewSheet(input: {
@@ -916,21 +846,9 @@ export async function readSandboxSheetRange(
   if (!fileId || runtimeConfig.deployEnv !== "preview") {
     throw new Error("קריאה מ-Sheet זמינה רק ב-Preview.");
   }
-
-  const response = await googleFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-      fileId,
-    )}/values/${encodeURIComponent(
-      range,
-    )}?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`,
-    { method: "GET" },
-  );
-
-  await requireOk(response, "קריאת נתוני הבישול מה-Sheet נכשלה");
-  const payload = await response.json();
-  return Array.isArray(payload?.values) ? payload.values : [];
+  const result = await serverReadBrewSheetRange(fileId, range);
+  return Array.isArray(result.values) ? result.values : [];
 }
-
 
 export async function writeSandboxSheetCells(
   fileId: string,
@@ -939,28 +857,13 @@ export async function writeSandboxSheetCells(
   if (!fileId || runtimeConfig.deployEnv !== "preview") {
     throw new Error("כתיבה ל-Sheet זמינה רק ב-Preview.");
   }
-
-  const response = await googleFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}/values:batchUpdate?includeValuesInResponse=true&responseValueRenderOption=FORMATTED_VALUE`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        valueInputOption: "USER_ENTERED",
-        data: data.map((item) => ({
-          range: item.range,
-          values: [[item.value ?? ""]],
-        })),
-      }),
-    },
+  const result = await serverWriteBrewSheetCells(
+    fileId,
+    data.map((item) => ({ range: item.range, value: item.value })),
   );
-
-  await requireOk(response, "כתיבת נתוני הבישול ל-Sheet נכשלה");
-  const payload = await response.json().catch(() => null);
-  const responses = Array.isArray(payload?.responses) ? payload.responses : [];
-
-  if (responses.length !== data.length) {
+  if (result.updated !== data.length) {
     throw new Error(
-      `Google Sheets אישר רק ${responses.length} מתוך ${data.length} כתיבות. הנתונים נשארו מסומנים כלא מסונכרנים.`,
+      `Google Sheets אישר רק ${result.updated} מתוך ${data.length} כתיבות. הנתונים נשארו מסומנים כלא מסונכרנים.`,
     );
   }
 }
