@@ -706,7 +706,7 @@ b {
     background: transparent;
     color: inherit;
 
-    font-family: Arial, sans-serif;
+    font-family: inherit;
     font-size: 15px;
     font-weight: bold;
     line-height: 1;
