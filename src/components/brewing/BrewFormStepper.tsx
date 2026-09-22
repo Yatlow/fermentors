@@ -1233,23 +1233,36 @@ export default function BrewFormStepper({
       return;
     }
 
-    const previousBlockDate =
-      currentBlock > 1
-        ? String(blockFields(currentBlock - 1).brewDate || "").trim()
-        : "";
-    const comparisonDate =
-      previousBlockDate || (currentBlock === 1 ? previousBatchDate : "");
+    const dateCandidates: Array<{
+      date: string;
+      label: string;
+    }> = [];
 
-    if (comparisonDate && value < comparisonDate) {
-      const label =
-        currentBlock > 1
-          ? `בישול ${(["A", "B", "C"] as const)[currentBlock - 2]}`
-          : "האצווה הקודמת";
+    if (previousBatchDate) {
+      dateCandidates.push({
+        date: previousBatchDate,
+        label: "האצווה הקודמת",
+      });
+    }
+
+    for (let index = 1; index < currentBlock; index += 1) {
+      const blockDate = String(blockFields(index).brewDate || "").trim();
+      if (!blockDate) continue;
+      dateCandidates.push({
+        date: blockDate,
+        label: `בישול ${(["A", "B", "C"] as const)[index - 1]}`,
+      });
+    }
+
+    dateCandidates.sort((a, b) => b.date.localeCompare(a.date));
+    const minimumDate = dateCandidates[0];
+
+    if (minimumDate && value < minimumDate.date) {
       setValidationNotice({
         kind: "error",
         key: "brewDate",
         text:
-          `תאריך הבישול ${shortIsraeliDate(value)} מוקדם מתאריך ${label} (${shortIsraeliDate(comparisonDate)}). הנתון לא נשמר.`,
+          `תאריך הבישול ${shortIsraeliDate(value)} מוקדם מתאריך ${minimumDate.label} (${shortIsraeliDate(minimumDate.date)}). הנתון לא נשמר.`,
       });
       return;
     }
