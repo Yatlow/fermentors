@@ -1499,7 +1499,6 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
           : 0;
       if (currentEndBoil !== null && previous !== null) {
         const added = parsed - previous;
-        const minExpectedAdded = Math.max(0, currentEndBoil - 250);
         const maxExpectedAdded = currentEndBoil + 50;
         if (added > maxExpectedAdded) {
           return `נפח מצטבר ${parsed} ל׳ גבוה מדי ביחס לנפח סוף הרתיחה הנוכחי (${currentEndBoil} ל׳).`;
