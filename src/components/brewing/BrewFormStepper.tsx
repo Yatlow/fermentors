@@ -857,9 +857,7 @@ function fieldsFromSheetRows(
       });
     }
 
-    let confirmedCount = 0;
-
-    expectedMaterials.forEach(({ ingredientId, source }) => {
+     expectedMaterials.forEach(({ ingredientId, source }) => {
       const cleanSource = source.trim().toLowerCase();
       if (!cleanSource) return;
 
@@ -884,13 +882,14 @@ function fieldsFromSheetRows(
       if (!matchingLot) return;
 
       pulled[`materialLot.${ingredient.id}`] = matchingLot.id;
-      confirmedCount += 1;
     });
 
     const materialsRequiredForThisBlock =
       blockIndex === 1
         ? expectedMaterials
-        : expectedMaterials.filter((ingredient) => ingredient.category !== "yeast");
+        : expectedMaterials.filter(
+            ({ ingredientId }) => ingredientId !== recipe.yeast.ingredientId,
+          );
 
     if (
       materialsRequiredForThisBlock.length > 0 &&
