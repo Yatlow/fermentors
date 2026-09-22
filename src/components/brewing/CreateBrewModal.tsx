@@ -327,7 +327,7 @@ export default function CreateBrewModal({
 
         {selectedTank && !isDemoTank && (
           <div className="brew-real-data-banner">
-            <strong>נתוני אמת</strong>
+
             <span>
               הפעולה יוצרת עכשיו Sheet אמיתי בתיקיית הבישולים של המפעל.
             </span>
