@@ -315,7 +315,7 @@ export function usePlanning(
     options?: { allowClosedWeek?: boolean },
   ) {
     if (!auth.currentUser) throw new Error("יש להתחבר מחדש");
-    await runTransaction(db, async (tx) => {
+    const saved = await runTransaction(db, async (tx) => {
       if (
         collectionName === "planningWeeks" &&
         weekIsClosed(id) &&
@@ -390,7 +390,22 @@ export function usePlanning(
       const revisionRef = doc(ref, "revisions", String(next.revision));
       tx.set(ref, next);
       tx.set(revisionRef, next);
+      return next;
     });
+
+    // Do not make the board wait for the listener round-trip. Firestore normally
+    // emits the local write immediately, but a transaction followed by a
+    // serverTimestamp/revision transform can leave the currently mounted view on
+    // the previous WeekPlan until the snapshot is delivered. Apply the committed
+    // plan optimistically; the onSnapshot listener remains authoritative and will
+    // reconcile it on the next event.
+    if (collectionName === "planningWeeks") {
+      const savedWeek = saved as unknown as WeekPlan;
+      setPlans((current) => [
+        ...current.filter((plan) => plan.id !== id),
+        savedWeek,
+      ].sort((a, b) => a.id.localeCompare(b.id)));
+    }
   }
 
   async function moveCalendarEvent(
