@@ -1698,7 +1698,7 @@ export default function BrewFormStepper({
     const yeast = ingredientLibrary.find(
       (item) => item.id === recipe.yeast.ingredientId,
     );
-    if (yeast) {
+    if (currentBlock === 1 && yeast) {
       const lot = selectedMaterialLot(yeast);
       if (lot) {
         nextExecution = setSandboxExecutionField(
@@ -1708,11 +1708,19 @@ export default function BrewFormStepper({
           lot.id,
         );
         const row = baseRow + 23;
+        const yeastAmount =
+          Math.max(0, Number(recipe.yeast.gramsPerBrew || 0)) * totalBlocks +
+          Math.max(0, Number(recipe.yeast.extraPerBatch || 0));
         writes.push(
+          { range: `'גיליון1'!A${row}`, value: yeastAmount || "" },
           { range: `'גיליון1'!B${row}`, value: yeast.name },
           {
             range: `'גיליון1'!C${row}`,
-            value: [lot.lotNumber, lot.supplier].filter(Boolean).join(" · "),
+            value: [
+              lot.lotNumber,
+              lot.supplier,
+              lot.bbe ? `BBE ${lot.bbe}` : "",
+            ].filter(Boolean).join(" · "),
           },
         );
       }
@@ -3565,7 +3573,8 @@ export default function BrewFormStepper({
 
     const minutes = forwardMinutes(start, end);
     if (minutes === null || minutes > 8 * 60) return "";
-    return `מהוצאה לבישול עד סוף העברה: ${minutes} דק׳`;
+    const hours = Math.round((minutes / 60) * 100) / 100;
+    return `מהוצאה לבישול עד סוף העברה: ${hours} שעות`;
   }
 
   function renderStageRows(stages: StageDef[]) {
@@ -3833,16 +3842,6 @@ export default function BrewFormStepper({
         </div>
       </div>
 
-      {run.source === "production" && (
-        <div className="brew-real-data-banner" role="status">
-          <strong>נתוני אמת</strong>
-          <span>
-            עריכה כאן כותבת ישירות ל-Sheet המקורי של אצווה {run.batchNumber}.
-            ACTION / Stage של המיכל אינם משתנים מהמסך הזה.
-          </span>
-        </div>
-      )}
-
       {syncError && (
         <div className="brewing-message brewing-message-error">
           סנכרון ל-Sheet נכשל: {syncError}
@@ -4013,9 +4012,7 @@ export default function BrewFormStepper({
             <article className="brew-prep-date-card">
               <div>
                 <strong>תאריך בישול</strong>
-                <small>
-                  זה תאריך הבישול בפועל של בישול {["A", "B", "C"][currentBlock - 1]} — לא תאריך יצירת ה-Sheet.
-                </small>
+                
               </div>
               <label>
                 תאריך
@@ -4235,7 +4232,6 @@ export default function BrewFormStepper({
                   }
                   onClick={() => void confirmMaterials()}
                   disabled={
-                    !!syncing ||
                     brewMaterials.length === 0 ||
                     brewMaterials.some((ingredient) => ingredient.lots.length === 0)
                   }
@@ -4244,9 +4240,7 @@ export default function BrewFormStepper({
                     ? "✓ חומרי הגלם אושרו — אשר מחדש"
                     : "אשר אצוות חומרי גלם"}
                 </button>
-                <small>
-                  האישור כותב את ה-lot / ספק / aa הרלוונטיים גם ל-Sheet.
-                </small>
+                
               </div>
             </article>
           </div>
@@ -4385,11 +4379,7 @@ export default function BrewFormStepper({
               <div className="brew-section-title">
                 <div>
                   <h4>שטיפות</h4>
-                  <span>
-                    {recipe.lautering.usesGrant
-                      ? "נפח ב-Kettle + Grant"
-                      : "נפח ב-Kettle"}
-                  </span>
+
                 </div>
                 <small>
                   שטיפה חדשה נפתחת אוטומטית כשהקודמת מלאה
