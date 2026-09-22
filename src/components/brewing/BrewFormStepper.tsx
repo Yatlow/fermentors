@@ -14,6 +14,7 @@ import {
 import type { SandboxBrewRun } from "../../SERVICES/brewing/brewingSandbox";
 import {
   readSandboxSheetRange,
+  resetSandboxSheetBaseline,
   writeSandboxSheetCells,
 } from "../../SERVICES/brewing/sandboxSheet";
 import {
@@ -3497,6 +3498,10 @@ export default function BrewFormStepper({
     try {
       let nextExecution = execution;
 
+      // A pull is authoritative for Sheet-backed fields. Drop any cached
+      // expectedValue snapshot first so the full read below becomes the new
+      // conflict baseline, including cells edited directly in Google Sheets.
+      resetSandboxSheetBaseline(run.sheetId);
       const fullSheetRows = await readSandboxSheetRange(
         run.sheetId,
         "'גיליון1'!A1:H220",
