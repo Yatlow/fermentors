@@ -486,7 +486,7 @@ function fieldsFromSheetRows(
   const outToFermentorPh = numericText(cell(40, "H"));
   if (outToFermentorPh) pulled.outToFermentorPh = outToFermentorPh;
 
-  for (let rowOffset = 42; rowOffset <= 45; rowOffset += 1) {
+  for (let rowOffset = 42; rowOffset <= 47; rowOffset += 1) {
     const correction = cell(rowOffset, "E");
     if (!correction) continue;
 
@@ -559,8 +559,8 @@ function fieldsFromSheetRows(
       expectedMaterials.push({
         ingredientId: grain.ingredientId,
         source: [
-          sheetCell(rows, index, "B"),
-          sheetCell(rows, index, "C"),
+          sheetCell(rows, 4 + index, "B"),
+          sheetCell(rows, 4 + index, "C"),
         ].join(" "),
       });
     });
@@ -572,8 +572,8 @@ function fieldsFromSheetRows(
         expectedMaterials.push({
           ingredientId: hop.ingredientId,
           source: [
-            sheetCell(rows, 15 + index, "B"),
-            sheetCell(rows, 15 + index, "C"),
+            cell(15 + index, "B"),
+            cell(15 + index, "C"),
           ].join(" "),
         });
       });
