@@ -91,6 +91,7 @@ type DiscoveredProductionLayout = {
   grainRows: number[];
   hopHeaderRows: number[];
   yeastRows: number[];
+  mashStageRows: Array<{ stageIndex: number; row: number }>;
   fermentationHeaderRow: number | null;
 };
 
@@ -105,6 +106,7 @@ async function discoverProductionLayout(
   const grainRows: number[] = [];
   const hopHeaderRows: number[] = [];
   const yeastRows: number[] = [];
+  const mashStageRows: Array<{ stageIndex: number; row: number }> = [];
   let fermentationHeaderRow: number | null = null;
 
   rows.forEach((_, rowIndex) => {
@@ -134,6 +136,14 @@ async function discoverProductionLayout(
       yeastRows.push(rowIndex + 2);
     }
 
+    const mashStageMatch = /^(?:השריה|חימום)\s*(\d+)$/i.exec(d);
+    if (mashStageMatch) {
+      mashStageRows.push({
+        stageIndex: Number(mashStageMatch[1]),
+        row: rowIndex + 1,
+      });
+    }
+
     if (
       /^סוג:$/i.test(a) &&
       /^אצווה:$/i.test(c) &&
@@ -148,6 +158,7 @@ async function discoverProductionLayout(
     grainRows,
     hopHeaderRows,
     yeastRows,
+    mashStageRows,
     fermentationHeaderRow,
   };
 }
@@ -187,6 +198,12 @@ function tankLabel(tankType: TankType) {
 type ProductionStyleConfig = {
   folderId: string;
   templates: Partial<Record<TankType, string>>;
+};
+
+const PRODUCTION_MASTER_TEMPLATE_IDS: Record<TankType, string> = {
+  single: "1OUXheZt_jgup7MVVCHdxRybQc8vUC7S3dDFga4dKSsg",
+  double: "1tn0PmHUTfbWQyHj4ujI14L1cvijVYKJhfRxb2C1JhpI",
+  triple: "14Eq3C6tWRVNTa8kTRLVGW5tF1jfx0Yk7NDU5MOpPW_o",
 };
 
 const PRODUCTION_STYLE_CONFIG: Record<string, ProductionStyleConfig> = {
@@ -242,7 +259,9 @@ const PRODUCTION_STYLE_CONFIG: Record<string, ProductionStyleConfig> = {
   },
 };
 
-function productionStyleKey(style: string): keyof typeof PRODUCTION_STYLE_CONFIG {
+function productionStyleKey(
+  style: string,
+): keyof typeof PRODUCTION_STYLE_CONFIG | null {
   const normalized = String(style || "").trim().toLowerCase();
   if (normalized === "ipa" || normalized.includes("אייפיאיי")) return "ipa";
   if (normalized.includes("פייל") || normalized.includes("pale")) return "pale";
@@ -256,25 +275,153 @@ function productionStyleKey(style: string): keyof typeof PRODUCTION_STYLE_CONFIG
     return "hoppy";
   }
   if (normalized.includes("לאגר") || normalized.includes("lager")) return "lager";
-
-  throw new Error(
-    `לא הוגדרה תיקיית Drive / תבנית קיימת לסגנון "${style}".`,
-  );
+  return null;
 }
 
-function productionDriveTarget(style: string, tankType: TankType) {
-  const key = productionStyleKey(style);
-  const config = PRODUCTION_STYLE_CONFIG[key];
-  const templateId = config.templates[tankType];
-  if (!templateId) {
+function escapeDriveQuery(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+async function ensureProductionStyleFolder(style: string): Promise<string> {
+  const styleKey = productionStyleKey(style);
+  if (styleKey) return PRODUCTION_STYLE_CONFIG[styleKey].folderId;
+
+  const rootFolderId = runtimeConfig.brewFolderId;
+  if (!rootFolderId) {
+    throw new Error("לא הוגדרה תיקיית הבישולים הראשית.");
+  }
+
+  const cleanStyle = String(style || "").trim();
+  if (!cleanStyle) throw new Error("חסר שם סגנון ליצירת תיקיית הבישול.");
+
+  const escapedName = escapeDriveQuery(cleanStyle);
+  const escapedParent = escapeDriveQuery(rootFolderId);
+  const query = [
+    "mimeType = 'application/vnd.google-apps.folder'",
+    "trashed = false",
+    `'${escapedParent}' in parents`,
+    `name = '${escapedName}'`,
+  ].join(" and ");
+
+  const searchResponse = await googleFetch(
+    "https://www.googleapis.com/drive/v3/files" +
+      `?q=${encodeURIComponent(query)}` +
+      "&pageSize=10&fields=files(id,name)",
+    { method: "GET" },
+  );
+  await requireOk(searchResponse, "חיפוש תיקיית הסגנון ב-Drive נכשל");
+  const searchPayload = await searchResponse.json();
+  const existing = Array.isArray(searchPayload?.files)
+    ? searchPayload.files[0]
+    : null;
+  if (existing?.id) return String(existing.id);
+
+  const createResponse = await googleFetch(
+    "https://www.googleapis.com/drive/v3/files?fields=id,name",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: cleanStyle,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [rootFolderId],
+      }),
+    },
+  );
+  await requireOk(createResponse, "יצירת תיקיית הסגנון ב-Drive נכשלה");
+  const created = await createResponse.json();
+  const folderId = String(created?.id || "");
+  if (!folderId) throw new Error("Google Drive לא החזיר מזהה לתיקיית הסגנון.");
+  return folderId;
+}
+
+async function productionDriveTarget(style: string, tankType: TankType) {
+  const styleKey = productionStyleKey(style);
+  const legacyTemplateId = styleKey
+    ? PRODUCTION_STYLE_CONFIG[styleKey].templates[tankType] || null
+    : null;
+  const masterTemplateId = PRODUCTION_MASTER_TEMPLATE_IDS[tankType];
+
+  return {
+    folderId: await ensureProductionStyleFolder(style),
+    templateIds: [masterTemplateId, legacyTemplateId].filter(
+      (value, index, values): value is string =>
+        !!value && values.indexOf(value) === index,
+    ),
+  };
+}
+
+async function firstSheetId(fileId: string): Promise<number> {
+  const response = await googleFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      fileId,
+    )}?fields=sheets.properties(sheetId,title)`,
+    { method: "GET" },
+  );
+  await requireOk(response, "קריאת מזהה גיליון ה-Master נכשלה");
+  const payload = await response.json();
+  const sheets = Array.isArray(payload?.sheets) ? payload.sheets : [];
+  const main =
+    sheets.find(
+      (sheet: Record<string, any>) =>
+        String(sheet?.properties?.title || "") === "גיליון1",
+    ) || sheets[0];
+  const sheetId = Number(main?.properties?.sheetId);
+  if (!Number.isFinite(sheetId)) {
+    throw new Error("לא נמצא גיליון ראשי בטופס הבישול.");
+  }
+  return sheetId;
+}
+
+async function applyMashStageVisibility(
+  fileId: string,
+  layout: DiscoveredProductionLayout,
+  recipe?: BrewRecipe,
+) {
+  if (!recipe) return;
+
+  const restCount = recipe.mash.steps.filter(
+    (step) =>
+      /^rest\d+$/i.test(String(step.id || "")) ||
+      /^(?:מנוחה|השריה)\s*\d+$/i.test(String(step.label || "").trim()),
+  ).length;
+
+  if (restCount > 3) {
     throw new Error(
-      `לא קיימת בתיקיית ${style} תבנית ${tankLabel(tankType)} לשימוש ביצירת אצווה.`,
+      `המתכון כולל ${restCount} מנוחות מאש. ה-Master הנוכחי תומך עד 3 מנוחות.`,
     );
   }
-  return {
-    folderId: config.folderId,
-    templateId,
-  };
+
+  const rowsToConfigure = layout.mashStageRows.filter(
+    (item) => item.stageIndex >= 2,
+  );
+  if (!rowsToConfigure.length) return;
+
+  const sheetId = await firstSheetId(fileId);
+  const requests = rowsToConfigure.map((item) => ({
+    updateDimensionProperties: {
+      range: {
+        sheetId,
+        dimension: "ROWS",
+        startIndex: item.row - 1,
+        endIndex: item.row + 1,
+      },
+      properties: {
+        hiddenByUser: item.stageIndex > restCount,
+      },
+      fields: "hiddenByUser",
+    },
+  }));
+
+  const response = await googleFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      fileId,
+    )}:batchUpdate`,
+    {
+      method: "POST",
+      body: JSON.stringify({ requests }),
+    },
+  );
+  await requireOk(response, "התאמת מספר מנוחות המאש ב-Sheet נכשלה");
 }
 
 function layoutFor(tankType: TankType) {
@@ -367,7 +514,7 @@ export async function createSandboxBrewSheet(input: {
   }
 
   const productionTarget = input.production
-    ? productionDriveTarget(input.style, input.tankType)
+    ? await productionDriveTarget(input.style, input.tankType)
     : null;
   const folderId = productionTarget
     ? productionTarget.folderId
@@ -376,26 +523,49 @@ export async function createSandboxBrewSheet(input: {
     throw new Error("לא הוגדרה תיקיית Sandbox ב-Drive.");
   }
 
-  const templateId = productionTarget
-    ? productionTarget.templateId
-    : templateIdFor(input.tankType);
+  const templateIds = productionTarget
+    ? productionTarget.templateIds
+    : [templateIdFor(input.tankType)];
   const typeSuffix =
     input.tankType === "single" ? "" : " " + tankLabel(input.tankType);
   const name = input.production
     ? input.style + typeSuffix + " " + input.batchNumber + "#"
     : "[SANDBOX] IPA " + tankLabel(input.tankType) + " " + input.batchNumber + "#";
 
-  const copyResponse = await googleFetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(templateId)}/copy?supportsAllDrives=true&fields=id,name,webViewLink`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name,
-        parents: [folderId],
-      }),
-    },
+  let copyResponse: Response | null = null;
+  let copiedFromTemplate = "";
+  for (const templateId of templateIds) {
+    const response = await googleFetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        templateId,
+      )}/copy?supportsAllDrives=true&fields=id,name,webViewLink`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          parents: [folderId],
+        }),
+      },
+    );
+
+    if (response.ok) {
+      copyResponse = response;
+      copiedFromTemplate = templateId;
+      break;
+    }
+
+    copyResponse = response;
+  }
+
+  if (!copyResponse) {
+    throw new Error("לא נמצא Master ליצירת טופס הבישול.");
+  }
+  await requireOk(
+    copyResponse,
+    input.production
+      ? "העתקת ה-Master נכשלה וגם ה-Template ההיסטורי לא היה זמין"
+      : "יצירת העתק של טופס הבישול נכשלה",
   );
-  await requireOk(copyResponse, "יצירת העתק של טופס הבישול נכשלה");
   const copied = await copyResponse.json();
   const fileId = String(copied.id || "");
   if (!fileId) throw new Error("Google לא החזיר מזהה לקובץ החדש.");
@@ -424,6 +594,10 @@ export async function createSandboxBrewSheet(input: {
     const discoveredLayout = input.production
       ? await discoverProductionLayout(fileId)
       : null;
+
+    if (input.production && discoveredLayout) {
+      await applyMashStageVisibility(fileId, discoveredLayout, input.recipe);
+    }
     const blockHeaderRows =
       discoveredLayout?.blockHeaderRows.length
         ? discoveredLayout.blockHeaderRows
@@ -460,12 +634,18 @@ export async function createSandboxBrewSheet(input: {
         // Existing production templates contain example/raw-material rows.
         // Clear the ingredient slots before applying the selected recipe so
         // stale template values can never survive next to the new recipe.
-        for (let slot = 0; slot < 5; slot += 1) {
+        for (let slot = 0; slot < 6; slot += 1) {
           const row = firstGrainRow + slot;
           data.push(
             { range: `'גיליון1'!A${row}`, values: [[""]] },
             { range: `'גיליון1'!B${row}`, values: [[""]] },
             { range: `'גיליון1'!C${row}`, values: [[""]] },
+          );
+        }
+
+        if (input.recipe!.grains.length > 6) {
+          throw new Error(
+            "ה-Master תומך כרגע עד 6 סוגי לתת בבישול אחד.",
           );
         }
 
@@ -512,6 +692,15 @@ export async function createSandboxBrewSheet(input: {
         .slice(0, 3);
 
       discoveredLayout.hopHeaderRows.forEach((headerRow) => {
+        for (let slot = 0; slot < 3; slot += 1) {
+          const row = headerRow + 1 + slot;
+          data.push(
+            { range: `'גיליון1'!A${row}`, values: [[""]] },
+            { range: `'גיליון1'!B${row}`, values: [[""]] },
+            { range: `'גיליון1'!C${row}`, values: [[""]] },
+          );
+        }
+
         boilHops.forEach((hop, hopIndex) => {
           const ingredient = input.ingredients!.find(
             (item) => item.id === hop.ingredientId,
@@ -548,6 +737,15 @@ export async function createSandboxBrewSheet(input: {
       const yeast = input.ingredients.find(
         (item) => item.id === input.recipe!.yeast.ingredientId,
       );
+
+      discoveredLayout.yeastRows.forEach((row) => {
+        data.push(
+          { range: `'גיליון1'!A${row}`, values: [[""]] },
+          { range: `'גיליון1'!B${row}`, values: [[""]] },
+          { range: `'גיליון1'!C${row}`, values: [[""]] },
+        );
+      });
+
       if (yeast) {
         const lot = activeLot(yeast);
         discoveredLayout.yeastRows.forEach((row) => {
@@ -615,6 +813,17 @@ export async function createSandboxBrewSheet(input: {
       },
     );
     await requireOk(valuesResponse, "מילוי פרטי האצווה ב-Sheet נכשל");
+
+    if (input.production) {
+      console.info("Brew Sheet created", {
+        batchNumber: input.batchNumber,
+        style: input.style,
+        tankType: input.tankType,
+        templateId: copiedFromTemplate,
+        usedMaster:
+          copiedFromTemplate === PRODUCTION_MASTER_TEMPLATE_IDS[input.tankType],
+      });
+    }
 
     return {
       id: fileId,
