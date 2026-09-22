@@ -3562,9 +3562,9 @@
     font-size: 0.58rem;
 }
 
-.brewing-view input:required:invalid,
-.brewing-view select:required:invalid,
-.brewing-view textarea:required:invalid {
+.brew-show-missing input:required:invalid,
+.brew-show-missing select:required:invalid,
+.brew-show-missing textarea:required:invalid {
     border-color: #ef4444;
     box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.08);
     background: #fffafa;
@@ -3686,5 +3686,96 @@
 
     .brew-validation-confirm-modal .brew-modal-actions {
         grid-template-columns: 1fr 1fr;
+    }
+}
+
+
+/* Brewing reviewed-step and live validation UX */
+
+.brew-validation-notice {
+    position: fixed;
+    z-index: 1200;
+    inset-inline: 12px;
+    bottom: 76px;
+    width: min(680px, calc(100vw - 24px));
+    margin-inline: auto;
+    box-sizing: border-box;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+}
+
+.brew-step-progress button:not(.active):not(.complete):not(.warning),
+.brew-block-tabs button:not(.active):not(.complete):not(.warning) {
+    border-color: var(--border-color);
+    background: #fff;
+    color: var(--text-main);
+}
+
+.brew-step-progress button:not(.complete):not(.warning) .brew-step-marker em,
+.brew-block-tabs button:not(.complete):not(.warning) em {
+    display: none;
+}
+
+.brew-lauter-calc-row {
+    display: flex;
+    justify-content: flex-start;
+    margin: 8px 0;
+}
+
+.brewing-action-zero-progress {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding-top: 2px;
+    color: #334155;
+    font-size: 0.6rem;
+}
+
+.brewing-action-zero-progress > strong {
+    color: #1e3a8a;
+    font-size: 0.61rem;
+}
+
+.brewing-action-zero-progress > span:not(.brewing-action-zero-live-dot) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.brewing-action-zero-progress small {
+    margin-inline-start: auto;
+    direction: ltr;
+    white-space: nowrap;
+    color: #475569;
+}
+
+.brewing-action-zero-live-dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+@media (max-width: 699px) {
+    .brew-validation-notice {
+        inset-inline: 8px;
+        bottom: calc(76px + env(safe-area-inset-bottom));
+        width: calc(100vw - 16px);
+    }
+
+    .brew-lauter-calc-row button {
+        width: 100%;
+    }
+
+    .brewing-action-zero-progress {
+        flex-wrap: wrap;
+    }
+
+    .brewing-action-zero-progress small {
+        width: 100%;
+        margin-inline-start: 12px;
     }
 }
