@@ -69,6 +69,89 @@ async function googleFetch(
   return response;
 }
 
+async function readSheetValues(
+  fileId: string,
+  range = "'גיליון1'!A1:H200",
+): Promise<string[][]> {
+  const response = await googleFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      fileId,
+    )}/values/${encodeURIComponent(
+      range,
+    )}?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`,
+    { method: "GET" },
+  );
+  await requireOk(response, "קריאת מבנה טופס הבישול נכשלה");
+  const payload = await response.json();
+  return Array.isArray(payload?.values) ? payload.values : [];
+}
+
+type DiscoveredProductionLayout = {
+  blockHeaderRows: number[];
+  grainRows: number[];
+  hopHeaderRows: number[];
+  yeastRows: number[];
+  fermentationHeaderRow: number | null;
+};
+
+async function discoverProductionLayout(
+  fileId: string,
+): Promise<DiscoveredProductionLayout> {
+  const rows = await readSheetValues(fileId);
+  const value = (rowIndex: number, columnIndex: number) =>
+    String(rows[rowIndex]?.[columnIndex] ?? "").trim();
+
+  const blockHeaderRows: number[] = [];
+  const grainRows: number[] = [];
+  const hopHeaderRows: number[] = [];
+  const yeastRows: number[] = [];
+  let fermentationHeaderRow: number | null = null;
+
+  rows.forEach((_, rowIndex) => {
+    const a = value(rowIndex, 0);
+    const b = value(rowIndex, 1);
+    const c = value(rowIndex, 2);
+    const d = value(rowIndex, 3);
+    const f = value(rowIndex, 5);
+
+    if (b === "סוג:" && d === "אצווה:") {
+      blockHeaderRows.push(rowIndex + 1);
+    }
+
+    if (/^הכנסת לתת$/i.test(d)) {
+      grainRows.push(rowIndex + 1);
+    }
+
+    if (/אחוז.*אלפה|אחוז.*אלפא/i.test(b) && /סוג/i.test(c)) {
+      hopHeaderRows.push(rowIndex + 1);
+    }
+
+    if (
+      /^כמות$/i.test(a) &&
+      /^סוג$/i.test(b) &&
+      /אצווה|מקור/i.test(c)
+    ) {
+      yeastRows.push(rowIndex + 2);
+    }
+
+    if (
+      /^סוג:$/i.test(a) &&
+      /^אצווה:$/i.test(c) &&
+      /מספר מיכל/i.test(f)
+    ) {
+      fermentationHeaderRow = rowIndex + 1;
+    }
+  });
+
+  return {
+    blockHeaderRows,
+    grainRows,
+    hopHeaderRows,
+    yeastRows,
+    fermentationHeaderRow,
+  };
+}
+
 async function requireOk(response: Response, fallback: string) {
   if (response.ok) return response;
   let detail = "";
@@ -337,7 +420,14 @@ export async function createSandboxBrewSheet(input: {
     await requireOk(propertiesResponse, "עדכון אזור הזמן של ה-Sheet נכשל");
 
     const date = "";
-    const layout = layoutFor(input.tankType);
+    const fallbackLayout = layoutFor(input.tankType);
+    const discoveredLayout = input.production
+      ? await discoverProductionLayout(fileId)
+      : null;
+    const blockHeaderRows =
+      discoveredLayout?.blockHeaderRows.length
+        ? discoveredLayout.blockHeaderRows
+        : fallbackLayout.blockHeaderRows;
     const styleLabel =
       input.tankType === "single"
         ? input.style
@@ -351,7 +441,7 @@ export async function createSandboxBrewSheet(input: {
       { range: "'גיליון1'!H1", values: [[date]] },
     ];
 
-    layout.blockHeaderRows.forEach((row, index) => {
+    blockHeaderRows.forEach((row, index) => {
       data.push(
         { range: `'גיליון1'!C${row}`, values: [[styleLabel]] },
         {
@@ -363,8 +453,9 @@ export async function createSandboxBrewSheet(input: {
     });
 
     if (input.recipe && input.ingredients) {
-      layout.blockHeaderRows.forEach((headerRow) => {
-        const firstGrainRow = headerRow + 5;
+      blockHeaderRows.forEach((headerRow, blockIndex) => {
+        const firstGrainRow =
+          discoveredLayout?.grainRows[blockIndex] || headerRow + 5;
 
         // Existing production templates contain example/raw-material rows.
         // Clear the ingredient slots before applying the selected recipe so
@@ -415,28 +506,103 @@ export async function createSandboxBrewSheet(input: {
       });
     }
 
+    if (input.recipe && input.ingredients && discoveredLayout) {
+      const boilHops = input.recipe.hops
+        .filter((hop) => hop.purpose !== "dryHop")
+        .slice(0, 3);
+
+      discoveredLayout.hopHeaderRows.forEach((headerRow, blockIndex) => {
+        boilHops.forEach((hop, hopIndex) => {
+          const ingredient = input.ingredients!.find(
+            (item) => item.id === hop.ingredientId,
+          );
+          if (!ingredient) {
+            throw new Error(
+              `הכשות "${hop.ingredientId}" מהמתכון לא נמצאה בספריית חומרי הגלם.`,
+            );
+          }
+          const lot = activeLot(ingredient);
+          const row = headerRow + 1 + hopIndex;
+          const alpha =
+            lot?.alpha ??
+            (Number.isFinite(Number(hop.aa)) ? Number(hop.aa) : undefined);
+
+          data.push(
+            { range: `'גיליון1'!A${row}`, values: [[""]] },
+            {
+              range: `'גיליון1'!B${row}`,
+              values: [[alpha !== undefined ? Number(alpha) : ""]],
+            },
+            {
+              range: `'גיליון1'!C${row}`,
+              values: [[
+                `${hopIndex + 1})${ingredient.name}${
+                  lot?.lotNumber ? ` ${lot.lotNumber}` : ""
+                }`,
+              ]],
+            },
+          );
+        });
+      });
+
+      const yeast = input.ingredients.find(
+        (item) => item.id === input.recipe!.yeast.ingredientId,
+      );
+      if (yeast) {
+        const lot = activeLot(yeast);
+        discoveredLayout.yeastRows.forEach((row) => {
+          data.push(
+            {
+              range: `'גיליון1'!A${row}`,
+              values: [[
+                input.recipe!.yeast.gramsPerBrew
+                  ? `${input.recipe!.yeast.gramsPerBrew}g`
+                  : "",
+              ]],
+            },
+            { range: `'גיליון1'!B${row}`, values: [[yeast.name]] },
+            {
+              range: `'גיליון1'!C${row}`,
+              values: [[
+                [lot?.lotNumber, lot?.supplier].filter(Boolean).join(" · "),
+              ]],
+            },
+          );
+        });
+      }
+    }
+
+    const fermentationHeaderRow =
+      discoveredLayout?.fermentationHeaderRow ||
+      fallbackLayout.fermentationHeaderRow;
+
     data.push(
       {
-        range: `'גיליון1'!B${layout.fermentationHeaderRow}`,
+        range: `'גיליון1'!B${fermentationHeaderRow}`,
         values: [[styleLabel]],
       },
       {
-        range: `'גיליון1'!D${layout.fermentationHeaderRow}`,
+        range: `'גיליון1'!D${fermentationHeaderRow}`,
         values: [[input.batchNumber]],
       },
       {
-        range: `'גיליון1'!G${layout.fermentationHeaderRow}`,
+        range: `'גיליון1'!G${fermentationHeaderRow}`,
         values: [[input.tankNumber]],
       },
-      {
-        range: `'גיליון1'!B${layout.startingPlatoRow}`,
-        values: [[date]],
-      },
-      {
-        range: `'גיליון1'!D${layout.startingPlatoRow}`,
-        values: [[layout.startingPlatoFormula]],
-      },
     );
+
+    if (!input.production) {
+      data.push(
+        {
+          range: `'גיליון1'!B${fallbackLayout.startingPlatoRow}`,
+          values: [[date]],
+        },
+        {
+          range: `'גיליון1'!D${fallbackLayout.startingPlatoRow}`,
+          values: [[fallbackLayout.startingPlatoFormula]],
+        },
+      );
+    }
 
     const valuesResponse = await googleFetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}/values:batchUpdate`,
