@@ -465,12 +465,17 @@ function extractBrew(spreadSheetId) {
     }
   }
 
-  const brewDayRow = findRowContaining(values, "יום בישול");
-  if (brewDayRow !== -1) {
-    const col = findColumnContaining(values[brewDayRow], "יום בישול");
-    if (col !== -1) {
-      const brewDate = String(values[brewDayRow][col + 1] || "").trim();
-      brew.brewDate = brew.brewDate ? brew.brewDate : brewDate || null;
+  // Legacy sheets keep the date next to "יום בישול". Master-based sheets
+  // keep the canonical brew date in H1. Prefer the canonical header value
+  // already read above and only fall back to the legacy marker when needed.
+  if (!brew.brewDate) {
+    const brewDayRow = findRowContaining(values, "יום בישול");
+    if (brewDayRow !== -1) {
+      const col = findColumnContaining(values[brewDayRow], "יום בישול");
+      if (col !== -1) {
+        const brewDate = String(values[brewDayRow][col + 1] || "").trim();
+        brew.brewDate = brewDate || null;
+      }
     }
   }
 
