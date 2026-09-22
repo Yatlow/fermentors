@@ -113,7 +113,8 @@ export default function CreateBrewModal({
   const selectedTank =
     sortedTanks.find((tank) => tank.id === tankId) || null;
   const isSanitized = Number(selectedTank?.action) === 5;
-  const queue = selectedTank
+  const isDemoTank = selectedTank?.id === demoTank.id;
+  const queue = selectedTank && isDemoTank
     ? sandboxRuns
         .filter(
           (run) =>
@@ -324,10 +325,20 @@ export default function CreateBrewModal({
           </div>
         )}
 
+        {selectedTank && !isDemoTank && (
+          <div className="brew-real-data-banner">
+            <strong>נתוני אמת</strong>
+            <span>
+              הפעולה יוצרת עכשיו Sheet אמיתי בתיקיית הבישולים של המפעל.
+            </span>
+          </div>
+        )}
+
         {selectedTank && !isSanitized && (
           <div className="brewing-assignment-warning">
             האצווה תיווצר עכשיו, אבל תישאר ממתינה לשיבוץ עד
             שהמיכל יהיה בסטטוס מחוטא.
+            {!isDemoTank && " ה-Sheet האמיתי עצמו משמש כתור עבור ACTION 5."}
           </div>
         )}
 
