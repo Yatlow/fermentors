@@ -1185,7 +1185,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   }
 
   async function commitStageStart(stage: StageDef, value: string) {
-    if (rejectTimelineTime(`${stage.key}.start`, value)) return;
+    if (
+      rejectTimelineTime(`${stage.key}.start`, value, {
+        ignoreNext: knownDuration(stage) !== null,
+      })
+    ) {
+      return;
+    }
 
     let nextExecution = setSandboxExecutionField(
       execution,
@@ -1252,7 +1258,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     value: string,
   ) {
     if (field === "end") {
-      if (rejectTimelineTime(`${stage.key}.end`, value)) return;
+      if (
+        rejectTimelineTime(`${stage.key}.end`, value, {
+          ignoreNext: true,
+        })
+      ) {
+        return;
+      }
 
       let nextExecution = setSandboxExecutionField(
         execution,
@@ -1919,7 +1931,11 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     return result;
   }
 
-  function validateTimelineTime(key: string, value: string): string {
+  function validateTimelineTime(
+    key: string,
+    value: string,
+    options: { ignoreNext?: boolean } = {},
+  ): string {
     if (!value) return "";
     const order = timelineOrder();
     const currentIndex = order.findIndex((item) => item.key === key);
@@ -1952,7 +1968,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       }
     }
 
-    if (next) {
+    if (next && !options.ignoreNext) {
       const delta = forwardMinutes(value, next.value);
       if (delta !== null && delta > maxForwardMinutes) {
         return `${order[currentIndex].label} (${value}) מאוחר מ-${next.label} (${next.value}).`;
@@ -1962,8 +1978,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     return "";
   }
 
-  function rejectTimelineTime(key: string, value: string): boolean {
-    const error = validateTimelineTime(key, value);
+  function rejectTimelineTime(
+    key: string,
+    value: string,
+    options: { ignoreNext?: boolean } = {},
+  ): boolean {
+    const error = validateTimelineTime(key, value, options);
     if (!error) return false;
 
     restoreCommittedField(key);
@@ -2117,7 +2137,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
-    if (rejectTimelineTime("boil.start", value)) return;
+    if (
+      rejectTimelineTime("boil.start", value, {
+        ignoreNext: true,
+      })
+    ) {
+      return;
+    }
 
     let nextExecution = setSandboxExecutionField(
       execution,
@@ -2347,7 +2373,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       return;
     }
 
-    if (rejectTimelineTime("endBoilTime", value)) return;
+    if (
+      rejectTimelineTime("endBoilTime", value, {
+        ignoreNext: true,
+      })
+    ) {
+      return;
+    }
 
     const wpEnd = addMinutesToTime(value, 20);
     let nextExecution = setSandboxExecutionField(
