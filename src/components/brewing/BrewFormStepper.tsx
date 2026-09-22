@@ -3676,8 +3676,10 @@ export default function BrewFormStepper({
                     step="0.1"
                     required
                     className={
-                      isCurrentStepReviewed() &&
-                      !hasField(`${stage.key}.temp`)
+                      isDisplayedRequiredFieldMissing(
+                        `${stage.key}.temp`,
+                        stage.key === "transferLt" ? "77.5" : "",
+                      )
                         ? "brew-input-missing"
                         : ""
                     }
