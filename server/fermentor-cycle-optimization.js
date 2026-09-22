@@ -161,6 +161,9 @@ function runFermentorCycle() {
       return getAllFermentorsFromFirestore(projectId);
     });
     Logger.log("Fermentors fetched once: " + fermentors.length);
+    const triggerStats = fcTimed_("brew edit triggers", function () {
+      return brewingSheetReconcileEditTriggers_(fermentors);
+    });
     const syncStats = fcTimed_("sync total", function () {
       return syncFermentorsFromSheets_(projectId, fermentors);
     });
@@ -173,7 +176,8 @@ function runFermentorCycle() {
     Logger.log("Sync -> " + JSON.stringify(syncStats));
     Logger.log("Action -> " + JSON.stringify(actionStats));
     return { durationSeconds: duration, fermentorsCount: fermentors.length,
-      sheetReads: FC_CYCLE_CONTEXT_.sheetReads, sync: syncStats, action: actionStats };
+      sheetReads: FC_CYCLE_CONTEXT_.sheetReads, brewEditTriggers: triggerStats,
+      sync: syncStats, action: actionStats };
   } finally {
     FC_CYCLE_CONTEXT_ = null;
     fcReleaseCycleLease_(leaseToken);
