@@ -689,10 +689,12 @@ export async function createSandboxBrewSheet(input: {
     if (input.recipe && input.ingredients && discoveredLayout) {
       const boilHops = input.recipe.hops
         .filter((hop) => hop.purpose !== "dryHop")
-        .slice(0, 3);
+        .slice(0, 4);
 
       discoveredLayout.hopHeaderRows.forEach((headerRow) => {
-        for (let slot = 0; slot < 3; slot += 1) {
+        // Five raw-hop slots: up to four hot-side additions plus one
+        // reserved slot that cellar dry-hop reporting can fill later.
+        for (let slot = 0; slot < 5; slot += 1) {
           const row = headerRow + 1 + slot;
           data.push(
             { range: `'גיליון1'!A${row}`, values: [[""]] },
