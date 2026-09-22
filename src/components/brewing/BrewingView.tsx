@@ -342,18 +342,6 @@ export default function BrewingView({ brews, tab }: Props) {
         };
     }, [sandbox]);
 
-    useEffect(() => {
-        if (!sandbox || !sharedLibraryReady) return;
-
-        const timeout = window.setTimeout(() => {
-            void saveSharedBrewingIngredients(ingredients).catch((error) => {
-                console.error("Failed saving shared ingredient library", error);
-            });
-        }, 800);
-
-        return () => window.clearTimeout(timeout);
-    }, [sandbox, sharedLibraryReady, ingredients]);
-
     async function publishLibrary() {
         setPublishingSharedLibrary(true);
         setMessage("");
@@ -781,6 +769,38 @@ export default function BrewingView({ brews, tab }: Props) {
                                     >
                                         {style.displayLabel || "—"}
                                     </span>
+                                    {run && (
+                                        <div className="brewing-action-zero-progress">
+                                            {run.brewProgress?.stageName ? (
+                                                <>
+                                                    <span className="brewing-action-zero-live-dot" />
+                                                    <strong>
+                                                        {run.brewProgress.blockIndex
+                                                            ? `בישול ${String.fromCharCode(
+                                                                  64 +
+                                                                      Number(
+                                                                          run.brewProgress.blockIndex,
+                                                                      ),
+                                                              )}`
+                                                            : "בישול"}
+                                                    </strong>
+                                                    <span>
+                                                        {run.brewProgress.stageName}
+                                                    </span>
+                                                    {run.brewProgress.stageStartTimeText && (
+                                                        <small>
+                                                            {run.brewProgress.stageStartTimeText}
+                                                            {run.brewProgress.stageEndTimeText
+                                                                ? `–${run.brewProgress.stageEndTimeText}`
+                                                                : ""}
+                                                        </small>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <small>עדיין לא בבישול</small>
+                                            )}
+                                        </div>
+                                    )}
                                     {!run && (
                                         <small>ללא Sheet משויך</small>
                                     )}
@@ -861,6 +881,19 @@ export default function BrewingView({ brews, tab }: Props) {
                             onIngredientsChange={(next) => {
                                 setIngredients(next);
                                 saveSandboxIngredients(next);
+                                if (sharedLibraryReady) {
+                                    void saveSharedBrewingIngredients(next).catch(
+                                        (error) => {
+                                            console.error(
+                                                "Failed saving shared ingredient library",
+                                                error,
+                                            );
+                                            setMessage(
+                                                "שמירת חומרי הגלם ב-Firestore נכשלה.",
+                                            );
+                                        },
+                                    );
+                                }
                             }}
                         />
                     ) : (
