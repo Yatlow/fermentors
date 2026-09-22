@@ -887,9 +887,16 @@ function fieldsFromSheetRows(
       confirmedCount += 1;
     });
 
+    const materialsRequiredForThisBlock =
+      blockIndex === 1
+        ? expectedMaterials
+        : expectedMaterials.filter((ingredient) => ingredient.category !== "yeast");
+
     if (
-      expectedMaterials.length > 0 &&
-      confirmedCount === expectedMaterials.length
+      materialsRequiredForThisBlock.length > 0 &&
+      materialsRequiredForThisBlock.every((ingredient) =>
+        Boolean(pulled[`materialLot.${ingredient.id}`]),
+      )
     ) {
       pulled.materialsConfirmed = "yes";
     }
@@ -3800,16 +3807,16 @@ export default function BrewFormStepper({
               בישול {currentBlock}/{totalBlocks} · מתכון v{recipe.version}
             </span>
             {syncing ? (
-              <BeerLoader size="spinner" message="אפליקציה → Sheet…" />
+              <BeerLoader size="spinner" message="אפליקציה ← Sheet…" />
             ) : pulling ? (
-              <BeerLoader size="spinner" message="Sheet → אפליקציה…" />
+              <BeerLoader size="spinner" message="Sheet ← אפליקציה…" />
             ) : (
               <div className="brew-sync-directions">
                 <span>
-                  אפליקציה ← Sheet: {syncTimeLabel(lastPushAt)}
+                  Sheet ← אפליקציה: {syncTimeLabel(lastPushAt)}
                 </span>
                 <span>
-                  Sheet ← אפליקציה: {syncTimeLabel(lastPullAt)}
+                  אפליקציה ← Sheet: {syncTimeLabel(lastPullAt)}
                 </span>
                 <span
                   className={
@@ -3890,15 +3897,6 @@ export default function BrewFormStepper({
           </div>
         </details>
       )}
-
-      <div className="brew-sync-explainer">
-        <span>
-          ✓ / ⚠ ב-Stepper מציינים שלמות נתונים בלבד — לא מצב סנכרון.
-        </span>
-        <span>
-          כתיבה: אפליקציה → Sheet אוטומטית. "בדוק התאמה" קורא בלי לשנות דבר; "משוך מה-Sheet" מעדכן את האפליקציה מהגיליון.
-        </span>
-      </div>
 
       <div className="brew-block-tabs">
         {Array.from({ length: totalBlocks }, (_, index) => index + 1).map(
