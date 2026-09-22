@@ -729,8 +729,7 @@ export default function BrewingView({ brews, tab }: Props) {
             {tab === "form" && !selectedRun && actionZeroProductionTanks.length > 0 && (
                 <section className="brewing-action-zero-strip" aria-label="מיכלים ב-ACTION 0">
                     <div className="brewing-action-zero-heading">
-                        <strong>מיכלים „בישול חדש”</strong>
-                        <span>נתוני אמת</span>
+                        <strong>מיכלים בישול חדש</strong>
                     </div>
                     <div className="brewing-action-zero-list">
                         {actionZeroProductionTanks.map((tank) => {
@@ -756,19 +755,21 @@ export default function BrewingView({ brews, tab }: Props) {
                                         setSelectedRun(run);
                                     }}
                                 >
-                                    <strong>
-                                        מיכל {String(tank.tankNumber ?? tank.id)}
-                                    </strong>
-                                    <span>
-                                        {tank.batchNumber
-                                            ? `#${String(tank.batchNumber)}`
-                                            : "ללא אצווה"}
-                                    </span>
-                                    <span
-                                        className={`brewing-style-tag ${style.className}`}
-                                    >
-                                        {style.displayLabel || "—"}
-                                    </span>
+                                    <div className="brewing-action-zero-main">
+                                        <strong>
+                                            מיכל {String(tank.tankNumber ?? tank.id)}
+                                        </strong>
+                                        <span>
+                                            {tank.batchNumber
+                                                ? `#${String(tank.batchNumber)}`
+                                                : "ללא אצווה"}
+                                        </span>
+                                        <span
+                                            className={`brewing-style-tag ${style.className}`}
+                                        >
+                                            {style.displayLabel || "—"}
+                                        </span>
+                                    </div>
                                     {run && (
                                         <div className="brewing-action-zero-progress">
                                             {run.brewProgress?.stageName ? (
