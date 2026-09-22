@@ -350,12 +350,12 @@ export default function BrewingView({ brews, tab }: Props) {
             replaceSandboxRecipes(recipes);
             saveSandboxIngredients(ingredients);
             setSharedLibraryReady(true);
-            setMessage("✓ ספריית המתכונים וחומרי הגלם פורסמה ל-Firestore.");
+            setMessage("✓ ספריית המתכונים וחומרי הגלם נשמרה.");
         } catch (error) {
             setMessage(
                 error instanceof Error
                     ? error.message
-                    : "פרסום ספריית הבישול ל-Firestore נכשל.",
+                    : "שמירת ספריית הבישול נכשלה.",
             );
         } finally {
             setPublishingSharedLibrary(false);
@@ -820,13 +820,6 @@ export default function BrewingView({ brews, tab }: Props) {
                 </div>
             )}
 
-            {sandbox && (
-                <div className="brewing-preview-note" role="status">
-                    PR Preview · אצוות במיכלים ויצירת אצוות למיכלים אמיתיים עובדות מול
-                    נתוני אמת. רק מיכל דמו 20 נשאר Sandbox.
-                </div>
-            )}
-
             {message && <div className="brewing-message">{message}</div>}
 
             {tab === "form" && sandbox && !selectedRun && (
@@ -890,7 +883,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                                 error,
                                             );
                                             setMessage(
-                                                "שמירת חומרי הגלם ב-Firestore נכשלה.",
+                                                "שמירת חומרי הגלם נכשלה.",
                                             );
                                         },
                                     );
@@ -900,7 +893,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     ) : (
                         <>
                             <h2>מתכונים וחומרי גלם</h2>
-                            <p>הספריות יתחברו ל-Firestore לפני העלאה לפרודקשן.</p>
+                            <p>ספריית המתכונים וחומרי הגלם אינה זמינה כרגע.</p>
                         </>
                     )}
                 </section>
@@ -921,8 +914,7 @@ export default function BrewingView({ brews, tab }: Props) {
                         <div>
                             <h2>אצוות בישול</h2>
                             <p>
-                                אצוות אמת במיכלים וב-Drive. העריכה מעדכנת את ה-Sheet
-                                המקורי; מיכל 20 נשאר סביבת דמו נפרדת.
+                                אצוות במיכלים ואצוות קודמות. העריכה מעדכנת את ה-Sheet המקורי.
                             </p>
                         </div>
                         <div className="brewing-heading-actions">
@@ -1053,13 +1045,6 @@ export default function BrewingView({ brews, tab }: Props) {
                             <h3 className="brewing-subheading">
                                 אצוות במיכל
                             </h3>
-                            <div className="brewing-real-data-note">
-                                <strong>זה מידע אמיתי.</strong>
-                                <span>
-                                    פתיחת אצווה מושכת את הנתונים מה-Sheet הקיים.
-                                    כל שמירה בטופס נכתבת חזרה לאותו Sheet.
-                                </span>
-                            </div>
                             <div className="brewing-tank-grid">
                                 {otherProductionTanks.map((tank) => {
                                     const run = productionRunFromTank(tank);
@@ -1111,7 +1096,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                                         ? "חסר מתכון תואם"
                                                         : sandbox
                                                           ? "עריכת נתוני בישול"
-                                                          : "עריכה זמינה ב-Preview"}
+                                                          : "עריכת נתוני בישול"}
                                                 </button>
                                             </div>
                                         </article>
