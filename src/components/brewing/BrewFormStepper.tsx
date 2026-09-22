@@ -176,7 +176,6 @@ const BOIL_STAGES: StageDef[] = [
   { key: "hop1", label: "הוספת כשות 1", rowOffset: 30, showEnd: false },
   { key: "hop2", label: "הוספת כשות 2", rowOffset: 32, showEnd: false },
   { key: "hop3", label: "הוספת כשות 3", rowOffset: 34, showEnd: false },
-  { key: "hop4", label: "הוספת כשות 4", rowOffset: 36, showEnd: false },
 ];
 
 const WP_STAGE: StageDef = {
