@@ -3594,6 +3594,49 @@ export default function BrewFormStepper({
     }
   }
 
+  function applySheetEditDelta(current: BrewExecution): BrewExecution | null {
+    const range = String(run.brewSheetEditRange || "").replace(/^[^!]+!/, "").replace(/\$/g, "");
+    const match = /^([A-H])(\d+)$/.exec(range);
+    if (!match) return null;
+
+    const column = match[1];
+    const row = Number(match[2]);
+    const rawValue = String(run.brewSheetEditValue ?? "");
+    let next = current;
+
+    for (let index = 1; index <= totalBlocks; index += 1) {
+      const fields = next.blocks[String(index)]?.fields || {};
+      const set = (key: string, value: string) => {
+        next = setSandboxExecutionField(next, index, key, value);
+      };
+
+      for (let rinse = 1; rinse <= 7; rinse += 1) {
+        if (Number(fields[`__sheetRow.rinse.${rinse}`] || 0) !== row) continue;
+        if (column === "E") set(`rinse${rinse}.time`, normalizedTime(rawValue) || "");
+        else if (column === "F") set(`rinse${rinse}.amount`, numericText(rawValue));
+        else if (column === "G") set(`rinse${rinse}.temp`, numericText(rawValue));
+        else if (column === "H") {
+          const parts = rawValue.split("+").map((part) => numericText(part));
+          set(`rinse${rinse}.kettle`, parts[0] || "");
+          if (recipe.lautering.usesGrant) set(`rinse${rinse}.grant`, parts[1] || "");
+        } else return null;
+        return next;
+      }
+
+      for (const stage of TIMELINE_STAGES) {
+        if (Number(fields[`__sheetRow.stage.${stage.key}`] || 0) !== row) continue;
+        if (column === "E") set(`${stage.key}.start`, normalizedTime(rawValue) || "");
+        else if (column === "F") set(`${stage.key}.end`, normalizedTime(rawValue) || "");
+        else if (column === "G" && stage.showTemp) set(`${stage.key}.temp`, numericText(rawValue));
+        else if (column === "H" && stage.showNote) set(`${stage.key}.note`, rawValue.trim());
+        else return null;
+        return next;
+      }
+    }
+
+    return null;
+  }
+
   useEffect(() => {
     if (!firestoreHydrated || !run.sheetId || run.source !== "production") return;
 
@@ -3609,6 +3652,14 @@ export default function BrewFormStepper({
     if (lastHandledSheetEditRevision.current === revision) return;
 
     lastHandledSheetEditRevision.current = revision;
+    const deltaExecution = applySheetEditDelta(execution);
+    if (deltaExecution) {
+      setExecution(deltaExecution);
+      resetSandboxSheetBaseline(run.sheetId);
+      void saveBrewingExecutionToFirestore(deltaExecution);
+      return;
+    }
+    // Unknown/legacy cell: preserve correctness with the existing full pull.
     void syncFromSheet(false, { silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreHydrated, run.sheetId, run.source, run.brewSheetEditRevision]);
