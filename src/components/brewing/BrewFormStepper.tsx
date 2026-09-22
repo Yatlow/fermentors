@@ -1000,6 +1000,7 @@ export default function BrewFormStepper({
   );
   const [hopRecalcVolume, setHopRecalcVolume] = useState<number | null>(null);
   const initialProductionPullKey = useRef("");
+  const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
   const ingredientLibrary = ingredients;
@@ -3587,6 +3588,25 @@ export default function BrewFormStepper({
       if (!silent) setPulling(false);
     }
   }
+
+  useEffect(() => {
+    if (!firestoreHydrated || !run.sheetId || run.source !== "production") return;
+
+    const revision = Number(run.brewSheetEditRevision || 0);
+    if (!revision) return;
+
+    // On first render the normal hydration pull below already reconciles the
+    // Sheet. Only subsequent onEdit revisions need an extra immediate pull.
+    if (lastHandledSheetEditRevision.current === null) {
+      lastHandledSheetEditRevision.current = revision;
+      return;
+    }
+    if (lastHandledSheetEditRevision.current === revision) return;
+
+    lastHandledSheetEditRevision.current = revision;
+    void syncFromSheet(false, { silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestoreHydrated, run.sheetId, run.source, run.brewSheetEditRevision]);
 
   useEffect(() => {
     if (
