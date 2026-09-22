@@ -139,7 +139,7 @@ export async function callAppsScriptPost<T>(
     // the mutation twice.
     const retries = Math.max(0, options.retries ?? 1);
     const retryDelayMs = Math.max(0, options.retryDelayMs ?? 150);
-    const timeoutMs = Math.max(1000, options.timeoutMs ?? 15000);
+    const timeoutMs = Math.max(1000, options.timeoutMs ?? 30000);
 
     const action = String(payload.action || "request");
     const requestId =
@@ -240,7 +240,7 @@ export async function callAppsScriptGet<T>(
     return callAppsScriptPost<T>(params, {
         retries: options.retries ?? 1,
         retryDelayMs: options.retryDelayMs ?? 150,
-        timeoutMs: options.timeoutMs ?? 15000,
+        timeoutMs: options.timeoutMs ?? 30000,
     });
 }
 
