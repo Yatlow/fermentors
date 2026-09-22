@@ -180,19 +180,32 @@ export async function createSandboxBrewSheet(input: {
   tankType: TankType;
   recipe?: BrewRecipe;
   ingredients?: IngredientDefinition[];
+  production?: boolean;
 }): Promise<SandboxSheetResult> {
   if (runtimeConfig.deployEnv !== "preview") {
-    throw new Error("יצירת Sheet ב-Sandbox זמינה רק ב-Preview.");
+    throw new Error("יצירת Sheet מענף הפיתוח זמינה רק ב-Preview.");
   }
-  if (input.style !== "IPA") {
-    throw new Error("בשלב ה-Sandbox הראשון יצירת Sheet פעילה ל-IPA בלבד.");
+  if (!input.production && input.style !== "IPA") {
+    throw new Error("ב-Sandbox הדמו יצירת Sheet פעילה ל-IPA בלבד.");
   }
 
-  const folderId = runtimeConfig.brewingSandbox.folderId;
-  if (!folderId) throw new Error("לא הוגדרה תיקיית Sandbox ב-Drive.");
+  const folderId = input.production
+    ? runtimeConfig.brewFolderId
+    : runtimeConfig.brewingSandbox.folderId;
+  if (!folderId) {
+    throw new Error(
+      input.production
+        ? "לא הוגדרה תיקיית הבישולים הראשית."
+        : "לא הוגדרה תיקיית Sandbox ב-Drive.",
+    );
+  }
 
   const templateId = templateIdFor(input.tankType);
-  const name = `[SANDBOX] IPA ${tankLabel(input.tankType)} ${input.batchNumber}#`;
+  const typeSuffix =
+    input.tankType === "single" ? "" : " " + tankLabel(input.tankType);
+  const name = input.production
+    ? input.style + typeSuffix + " " + input.batchNumber + "#"
+    : "[SANDBOX] IPA " + tankLabel(input.tankType) + " " + input.batchNumber + "#";
 
   const copyResponse = await googleFetch(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(templateId)}/copy?supportsAllDrives=true&fields=id,name,webViewLink`,
@@ -231,11 +244,13 @@ export async function createSandboxBrewSheet(input: {
     const date = "";
     const layout = layoutFor(input.tankType);
     const styleLabel =
-      input.tankType === "single" ? "IPA" : `IPA ${tankLabel(input.tankType)}`;
+      input.tankType === "single"
+        ? input.style
+        : input.style + " " + tankLabel(input.tankType);
     const suffixes = ["A", "B", "C"];
 
     const data: Array<{ range: string; values: unknown[][] }> = [
-      { range: "'גיליון1'!B1", values: [["IPA"]] },
+      { range: "'גיליון1'!B1", values: [[input.style]] },
       { range: "'גיליון1'!D1", values: [[input.tankNumber]] },
       { range: "'גיליון1'!F1", values: [[input.batchNumber]] },
       { range: "'גיליון1'!H1", values: [[date]] },
@@ -335,6 +350,32 @@ export async function createSandboxBrewSheet(input: {
   }
 }
 
+
+export async function productionBrewSheetExists(
+  batchNumber: string,
+): Promise<boolean> {
+  const clean = String(batchNumber || "").replace("#", "").trim();
+  if (!/^\d+$/.test(clean)) return false;
+
+  const q =
+    "mimeType = 'application/vnd.google-apps.spreadsheet'" +
+    " and trashed = false" +
+    " and name contains '" + clean + "'";
+  const response = await googleFetch(
+    "https://www.googleapis.com/drive/v3/files?q=" +
+      encodeURIComponent(q) +
+      "&pageSize=100&fields=files(id,name)",
+    { method: "GET" },
+  );
+  await requireOk(response, "בדיקת מספר האצווה ב-Drive נכשלה");
+  const payload = await response.json();
+  const files = Array.isArray(payload?.files) ? payload.files : [];
+  const exactBatch = new RegExp("(^|\\D)" + clean + "(?:#|\\D|$)");
+
+  return files.some((file: Record<string, unknown>) =>
+    exactBatch.test(String(file.name || "")),
+  );
+}
 
 export async function searchAccessibleBrewSheetsByStyle(
   style: string,
