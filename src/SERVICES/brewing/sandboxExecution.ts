@@ -153,11 +153,17 @@ export async function saveBrewingProgressToFirestore(
     return;
   }
 
+  // Update only the client-owned progress leaves. Replacing the whole map
+  // would erase server-owned fields such as headerCount, blockStarts and the
+  // canonical timestamp values written by extractBrewStageInfo().
   await updateDoc(doc(db, "fermentors", cleanTankId), {
-    brewProgress: {
-      ...progress,
-      dateAssumed: false,
-    },
+    "brewProgress.blockCount": progress.blockCount,
+    "brewProgress.blockIndex": progress.blockIndex,
+    "brewProgress.stageCode": progress.stageCode,
+    "brewProgress.stageName": progress.stageName,
+    "brewProgress.stageStartTimeText": progress.stageStartTimeText ?? null,
+    "brewProgress.stageEndTimeText": progress.stageEndTimeText ?? null,
+    "brewProgress.dateAssumed": false,
     brewProgressUpdatedAt: serverTimestamp(),
     brewProgressUpdatedBy: auth.currentUser?.uid || "",
   });
