@@ -318,10 +318,9 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
     guardedWrites.forEach((write) => baseline.set(write.range, normalizeSheetValue(write.value)));
     waiters.forEach(({ resolve }) => resolve());
   } catch (error) {
-    // Put failed cells back unless a newer value for the same range is already queued.
-    writes.forEach((write) => {
-      if (!outbox.pending.has(write.range)) outbox.pending.set(write.range, write);
-    });
+    // A failed browser→Apps Script request must not become an endless retry
+    // loop. The value is already persisted to Firestore; surface the bridge
+    // error and let a later user edit/reconciliation retry with a fresh request.
     waiters.forEach(({ reject }) => reject(error));
   } finally {
     outbox.inFlight = false;
