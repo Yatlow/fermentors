@@ -101,6 +101,10 @@ function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
         source: "production",
         started: Number(tank.action) !== 0,
         action: tank.action,
+        brewSheetEditRevision:
+            typeof tank.brewSheetEditRevision === "number" ? tank.brewSheetEditRevision : null,
+        brewSheetEditRange:
+            typeof tank.brewSheetEditRange === "string" ? tank.brewSheetEditRange : null,
         brewProgress: tank.brewProgress
             ? {
                   blockIndex: tank.brewProgress.blockIndex,
