@@ -1244,10 +1244,21 @@ export default function BrewFormStepper({
 
     if (stepId === "mash") {
       const required = ["mashVolume", "mashPh", "mashAcid85"];
-      MASH_STAGES.forEach((stage) => {
-        required.push(`${stage.key}.start`, `${stage.key}.end`);
-        if (stage.showTemp) required.push(`${stage.key}.temp`);
-      });
+      // Count only mash stages that are actually rendered for this recipe.
+      // Master recipes may have 2 or 3 rests; hidden rest3/heat3 fields must
+      // never create an invisible "missing" warning.
+      MASH_STAGES
+        .filter(
+          (stage) =>
+            (stage.key !== "rest3" && stage.key !== "heat3") ||
+            recipe.mash.steps.some(
+              (recipeStep) => recipeStep.id === stage.targetRecipeStepId,
+            ),
+        )
+        .forEach((stage) => {
+          required.push(`${stage.key}.start`, `${stage.key}.end`);
+          if (stage.showTemp) required.push(`${stage.key}.temp`);
+        });
       return required.filter((key) => !has(key)).length;
     }
 
