@@ -40,6 +40,7 @@ type StageDef = {
   showTemp?: boolean;
   showNote?: boolean;
   showEnd?: boolean;
+  startLabel?: string;
   defaultMinutes?: number;
   targetRecipeStepId?: string;
 };
@@ -169,6 +170,7 @@ const END_TRANSFER_STAGE: StageDef = {
   label: "סוף העברה",
   rowOffset: 26,
   showEnd: false,
+  startLabel: "שעה",
 };
 
 const BOIL_STAGES: StageDef[] = [
@@ -979,6 +981,9 @@ export default function BrewFormStepper({
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
   const [heightBaseLiters, setHeightBaseLiters] = useState("");
+  const [boilTargetPlato, setBoilTargetPlato] = useState(
+    String(recipe.targets.endBoilPlato || ""),
+  );
   const initialProductionPullKey = useRef("");
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
@@ -1148,20 +1153,22 @@ export default function BrewFormStepper({
   const boilRecommendation = useMemo(() => {
     const volume = num(fields.boilSampleVolume || "1200");
     const plato = num(fields.boilSamplePlato || "");
+    const targetPlato = num(boilTargetPlato);
     const evaporationFactor = num(fields.boilEvaporationFactor || "100");
     if (
       volume === null ||
       plato === null ||
       evaporationFactor === null ||
-      !recipe.targets.endBoilPlato
+      targetPlato === null || targetPlato <= 0
     ) {
       return null;
     }
     return (
-      (volume * plato) / recipe.targets.endBoilPlato +
+      (volume * plato) / targetPlato +
       evaporationFactor
     );
   }, [
+    boilTargetPlato,
     fields.boilSampleVolume,
     fields.boilSamplePlato,
     fields.boilEvaporationFactor,
@@ -1305,7 +1312,6 @@ export default function BrewFormStepper({
         "outToFermentor.end",
         "endBoilPlato",
         "endBoilVolume",
-        "fermentorSamplePlato",
         "outToFermentorPh",
       ];
       if (
@@ -1313,7 +1319,7 @@ export default function BrewFormStepper({
         totalBlocks === 1 ||
         (blockIndex === 1 && !isIpaStyle)
       ) {
-        required.push("cumulativeTankVolume");
+        required.push("fermentorSamplePlato", "cumulativeTankVolume");
       }
       if (blockIndex === 1) required.push("yeastPitchTime");
       return required.filter((key) => !has(key)).length;
@@ -3068,7 +3074,7 @@ export default function BrewFormStepper({
 
   async function applyBoilRecommendation() {
     if (boilRecommendation === null) return;
-    const value = String(Math.round(boilRecommendation));
+    const value = String(roundToFive(boilRecommendation));
     setBoilCalcOpen(false);
     setLocal("kettleVolume", value);
     await commitSugar("kettleVolume", value, 38, "C");
@@ -5379,7 +5385,7 @@ export default function BrewFormStepper({
               <div>
                 <h2 id="brew-boil-calc-title">מחשבון נפח רתיחה</h2>
                 <p>
-                  יעד סוף רתיחה: {recipe.targets.endBoilPlato}°P
+                  יעד המתכון: {recipe.targets.endBoilPlato}°P · ניתן לשינוי לבישול הנוכחי
                 </p>
               </div>
               <button
@@ -5393,6 +5399,15 @@ export default function BrewFormStepper({
             </div>
 
             <div className="brew-boil-calc-fields">
+              <label>
+                Plato יעד סוף רתיחה
+                <input
+                  type="number"
+                  step="0.01"
+                  value={boilTargetPlato}
+                  onChange={(e) => setBoilTargetPlato(e.target.value)}
+                />
+              </label>
               <label>
                 נפח בזמן הדגימה
                 <input
@@ -5433,8 +5448,9 @@ export default function BrewFormStepper({
               <strong>
                 {boilRecommendation === null
                   ? "—"
-                  : Math.round(boilRecommendation) + " ל׳"}
+                  : roundToFive(boilRecommendation) + " ל׳"}
               </strong>
+              {boilRecommendation !== null && <small>מעוגל ל־5 ל׳</small>}
             </div>
 
             <div className="brew-modal-actions">
