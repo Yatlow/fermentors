@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadSandboxExecution,
+  loadBrewingExecutionFromFirestore,
+  saveBrewingExecutionToFirestore,
   replaceSandboxExecutionBlockFields,
   setSandboxExecutionActiveBlock,
   setSandboxExecutionField,
@@ -993,6 +995,8 @@ export default function BrewFormStepper({
   );
   const [hopRecalcVolume, setHopRecalcVolume] = useState<number | null>(null);
   const initialProductionPullKey = useRef("");
+  const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydratedFromFirestore = useRef(false);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1008,6 +1012,37 @@ export default function BrewFormStepper({
       ? STEPS
       : STEPS.filter((step) => step.id !== "summary");
   const currentStep = visibleSteps[Math.min(activeStep, visibleSteps.length - 1)];
+
+  useEffect(() => {
+    let cancelled = false;
+    hydratedFromFirestore.current = false;
+    loadBrewingExecutionFromFirestore(run.batchNumber)
+      .then((remote) => {
+        if (cancelled) return;
+        if (remote) setExecution(remote);
+      })
+      .catch((error) => console.warn("Failed loading brewing execution", error))
+      .finally(() => {
+        if (!cancelled) hydratedFromFirestore.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [run.batchNumber]);
+
+  useEffect(() => {
+    if (!hydratedFromFirestore.current) return;
+    if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
+    firestoreSaveTimer.current = setTimeout(() => {
+      void saveBrewingExecutionToFirestore(execution).catch((error) =>
+        console.warn("Failed saving brewing execution", error),
+      );
+    }, 250);
+    return () => {
+      if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
+    };
+  }, [execution]);
+
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
   const brewMaterials = useMemo(() => {
@@ -3477,9 +3512,15 @@ export default function BrewFormStepper({
         visibleSteps.map((step) => step.id),
       );
     }
-    void syncFromSheet(true);
-    // Pull once whenever a Sheet-backed brew form is opened. For a live
-    // production brew this also positions the stepper at the current stage.
+
+    // Firestore/local execution renders immediately. The Sheet is only a
+    // reconciliation source; never block opening the form on Apps Script.
+    const timer = window.setTimeout(() => void syncFromSheet(true), 0);
+    const interval = window.setInterval(() => void syncFromSheet(false), 5 * 60 * 1000);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.batchNumber, run.sheetId]);
 
