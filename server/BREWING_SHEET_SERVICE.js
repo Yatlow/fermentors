@@ -52,35 +52,20 @@ function brewingSheetRememberCreated_(fileId) {
   );
 }
 
-function brewingSheetKnownCandidateIds_() {
-  const ids = {};
-
-  try {
-    if (typeof getBrewFolderCandidatesCached === "function") {
-      const candidates = getBrewFolderCandidatesCached() || [];
-      candidates.forEach(function (candidate) {
-        const id = String(candidate.fileId || "").trim();
-        if (id) ids[id] = true;
-      });
-    }
-  } catch (error) {
-    logToSheet("BrewSheet candidate validation warning: " + error.message);
-  }
-
-  return ids;
-}
-
 function brewingSheetAssertAllowedFile_(fileId) {
   const id = brewingSheetExtractId_(fileId);
   if (!id) throw new Error("Missing spreadsheetId");
 
-  const props = PropertiesService.getScriptProperties();
-  if (props.getProperty(BREWING_CREATED_FILE_PREFIX_ + id)) return id;
-
-  const known = brewingSheetKnownCandidateIds_();
-  if (known[id]) return id;
-
-  throw new Error("Brew Sheet is not in the approved brewing workspace");
+  // Do not scan the entire brewing Drive folder on the request path. Existing
+  // production Sheets are already referenced by Firestore and the caller is
+  // authenticated as an approved Firebase user. Opening by id is the fastest
+  // authorization check available here: inaccessible/non-Sheet ids fail below.
+  try {
+    SpreadsheetApp.openById(id);
+    return id;
+  } catch (error) {
+    throw new Error("Brew Sheet is not accessible: " + error.message);
+  }
 }
 
 function brewingSheetCellValue_(value) {
