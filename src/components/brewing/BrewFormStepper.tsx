@@ -3803,6 +3803,7 @@ export default function BrewFormStepper({
                   onClick={() => void confirmMaterials()}
                   disabled={
                     !!syncing ||
+                    brewMaterials.length === 0 ||
                     brewMaterials.some((ingredient) => ingredient.lots.length === 0)
                   }
                 >
