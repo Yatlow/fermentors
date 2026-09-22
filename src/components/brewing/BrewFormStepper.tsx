@@ -3632,6 +3632,33 @@ export default function BrewFormStepper({
         else return null;
         return next;
       }
+
+      for (let hop = 1; hop <= 5; hop += 1) {
+        if (Number(fields[`__sheetRow.rawHop.${hop}`] || 0) !== row) continue;
+        if (column === "A") set(`hop${hop}.amountGrams`, numericText(rawValue));
+        else if (column === "B") set(`hop${hop}.alphaOverride`, numericText(rawValue));
+        else if (column === "C") set(`hop${hop}.label`, rawValue.trim());
+        else return null;
+        return next;
+      }
+
+      for (const key of ["kettlePlato", "endBoilPlato", "fermentorSamplePlato"]) {
+        if (Number(fields[`__sheetRow.sugar.${key}`] || 0) !== row) continue;
+        if (column === "B") set(key, numericText(rawValue));
+        else if (column === "C" && key === "kettlePlato") set("kettleVolume", numericText(rawValue));
+        else if (column === "C" && key === "endBoilPlato") set("endBoilVolume", numericText(rawValue));
+        else return null;
+        return next;
+      }
+
+      if (Number(fields["__sheetRow.acid.mash"] || 0) === row && column === "A") {
+        set("mashAcid85", numericText(rawValue));
+        return next;
+      }
+      if (Number(fields["__sheetRow.acid.boil"] || 0) === row && column === "A") {
+        set("boilAcid85", numericText(rawValue));
+        return next;
+      }
     }
 
     return null;
@@ -3647,6 +3674,14 @@ export default function BrewFormStepper({
     // Sheet. Only subsequent onEdit revisions need an extra immediate pull.
     if (lastHandledSheetEditRevision.current === null) {
       lastHandledSheetEditRevision.current = revision;
+      // If this revision arrived after the form mounted, consume the delta
+      // instead of discarding the first real Sheet edit.
+      const firstDelta = applySheetEditDelta(execution);
+      if (firstDelta) {
+        setExecution(firstDelta);
+        resetSandboxSheetBaseline(run.sheetId);
+        void saveBrewingExecutionToFirestore(firstDelta);
+      }
       return;
     }
     if (lastHandledSheetEditRevision.current === revision) return;
