@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 
 export type BrewExecutionBlock = {
@@ -132,4 +132,35 @@ export async function saveBrewingExecutionToFirestore(
 
 function cleanForRemoteExecution(execution: BrewExecution): BrewExecution {
   return JSON.parse(JSON.stringify(execution)) as BrewExecution;
+}
+
+
+export type BrewingProgressUpdate = {
+  blockCount: number;
+  blockIndex: number;
+  stageCode: number;
+  stageName: string;
+  stageStartTimeText?: string | null;
+  stageEndTimeText?: string | null;
+};
+
+export async function saveBrewingProgressToFirestore(
+  tankId: string,
+  progress: BrewingProgressUpdate,
+): Promise<void> {
+  const cleanTankId = String(tankId || "").trim();
+  if (!cleanTankId || cleanTankId.startsWith("history-") || cleanTankId.startsWith("sandbox-")) {
+    return;
+  }
+
+  await updateDoc(doc(db, "fermentors", cleanTankId), {
+    brewProgress: {
+      ...progress,
+      stageStartTime: progress.stageStartTimeText || null,
+      stageEndTime: progress.stageEndTimeText || null,
+      dateAssumed: false,
+    },
+    brewProgressUpdatedAt: serverTimestamp(),
+    brewProgressUpdatedBy: auth.currentUser?.uid || "",
+  });
 }
