@@ -14,6 +14,8 @@ export type SandboxBrewRun = {
     source: "manual" | "planning" | "production";
     started: boolean;
     action?: string | number | null;
+    brewSheetEditRevision?: number | null;
+    brewSheetEditRange?: string | null;
     brewProgress?: {
         blockIndex?: number | null;
         stageName?: string | null;
