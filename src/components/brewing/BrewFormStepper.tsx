@@ -53,6 +53,7 @@ type SyncMismatch = {
 type ValidationNotice = {
   kind: "warning" | "error";
   text: string;
+  key?: string;
 };
 
 type StepId =
@@ -230,9 +231,13 @@ function shortIsraeliDate(value: string): string {
 
 function formatIsraeliDateTyping(value: string): string {
   const digits = String(value || "").replace(/\D/g, "").slice(0, 8);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) {
+  if (digits.length < 2) return digits;
+  if (digits.length === 2) return `${digits}/`;
+  if (digits.length < 4) {
     return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  if (digits.length === 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/`;
   }
 
   const yearDigits =
@@ -564,6 +569,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
   const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
     null,
   );
+  const [reviewedSteps, setReviewedSteps] = useState<Record<string, boolean>>({});
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
   const [heightBaseLiters, setHeightBaseLiters] = useState("");
@@ -874,6 +880,49 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
   function isStepComplete(stepId: StepId): boolean {
     return stepMissingCount(stepId) === 0;
+  }
+
+  function reviewedKey(blockIndex: number, stepId: StepId) {
+    return `${blockIndex}:${stepId}`;
+  }
+
+  function isStepReviewedForBlock(blockIndex: number, stepId: StepId) {
+    return reviewedSteps[reviewedKey(blockIndex, stepId)] === true;
+  }
+
+  function isCurrentStepReviewed() {
+    return isStepReviewedForBlock(currentBlock, currentStep.id);
+  }
+
+  function markStepsReviewed(blockIndex: number, stepIds: StepId[]) {
+    if (!stepIds.length) return;
+    setReviewedSteps((previous) => {
+      const next = { ...previous };
+      stepIds.forEach((stepId) => {
+        if (stepId !== "summary") {
+          next[reviewedKey(blockIndex, stepId)] = true;
+        }
+      });
+      return next;
+    });
+  }
+
+  function blockHasReviewedMissing(blockIndex: number) {
+    return (["water", "mash", "lautering", "boil", "transfer"] as StepId[]).some(
+      (stepId) =>
+        isStepReviewedForBlock(blockIndex, stepId) &&
+        stepMissingCountForBlock(blockIndex, stepId) > 0,
+    );
+  }
+
+  function markForwardNavigation(targetStepIndex: number) {
+    if (targetStepIndex <= activeStep) return;
+    markStepsReviewed(
+      currentBlock,
+      visibleSteps
+        .slice(activeStep, targetStepIndex)
+        .map((step) => step.id),
+    );
   }
 
   async function writeSheet(
@@ -1347,6 +1396,98 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     await commitStage(stage, "end", value);
   }
 
+  function immediateHardNumericError(key: string, value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+
+    const parsed = num(trimmed);
+    if (parsed === null) return "";
+
+    if (/Ph$/i.test(key) || key === "mashPh" || key === "boilPh") {
+      if (parsed > 7) return `pH ${parsed} אינו ערך סביר לבישול (מקסימום 7).`;
+      if (parsed < 0) return `pH ${parsed} אינו ערך סביר.`;
+    }
+
+    if (
+      (key === "mashAcid85" || key === "boilAcid85") &&
+      (parsed < 0 || parsed > 300)
+    ) {
+      return `כמות חומצה ${parsed} מ״ל אינה סבירה (0–300 מ״ל).`;
+    }
+
+    if (key === "lrPlato" && (parsed < 0 || parsed > 15)) {
+      return `L.R. ${parsed}°P אינו סביר (טווח קשיח 0–15°P).`;
+    }
+
+    if (
+      ["frPlato", "kettlePlato", "endBoilPlato", "fermentorSamplePlato"].includes(
+        key,
+      ) &&
+      (parsed < 0 || parsed > 30)
+    ) {
+      return `Plato ${parsed} אינו סביר (מקסימום 30°P).`;
+    }
+
+    if (key === "mashVolume" && parsed > 2000) {
+      return `נפח מאש ${parsed} ל׳ אינו סביר (מקסימום 2000 ל׳).`;
+    }
+
+    if (
+      (key === "kettleVolume" || key === "endBoilVolume") &&
+      parsed > 2500
+    ) {
+      return `נפח ${parsed} ל׳ אינו סביר (מקסימום 2500 ל׳).`;
+    }
+
+    if (/^rinse\d+\.amount$/.test(key) && (parsed < 0 || parsed > 500)) {
+      return `כמות שטיפה ${parsed} ל׳ אינה סבירה (0–500 ל׳).`;
+    }
+
+    if (
+      /^rinse\d+\.(kettle|grant)$/.test(key) &&
+      (parsed < 0 || parsed > 2500)
+    ) {
+      return `נפח שטיפה ${parsed} ל׳ אינו סביר.`;
+    }
+
+    if (/^hop\d+\.amountGrams$/.test(key) && (parsed < 0 || parsed > 5000)) {
+      return `כמות כשות ${parsed} גרם אינה סבירה.`;
+    }
+
+    if ((/Temp$/.test(key) || key.endsWith(".temp")) && (parsed < 0 || parsed > 100)) {
+      return `טמפרטורה ${parsed}°C אינה סבירה.`;
+    }
+
+    if (key === "cumulativeTankVolume") {
+      const absoluteMax =
+        run.tankType === "single" ? 1700 : run.tankType === "double" ? 3100 : 4400;
+      if (parsed > absoluteMax) {
+        return `נפח מיכל ${parsed} ל׳ אינו סביר למיכל הזה.`;
+      }
+
+      const currentEndBoil = num(fields.endBoilVolume || "");
+      const previous =
+        currentBlock > 1
+          ? num(blockFields(currentBlock - 1).cumulativeTankVolume || "")
+          : 0;
+      if (currentEndBoil !== null && previous !== null) {
+        const added = parsed - previous;
+        const minExpectedAdded = Math.max(0, currentEndBoil - 250);
+        const maxExpectedAdded = currentEndBoil + 50;
+        if (added > maxExpectedAdded) {
+          return `נפח מצטבר ${parsed} ל׳ גבוה מדי ביחס לנפח סוף הרתיחה הנוכחי (${currentEndBoil} ל׳).`;
+        }
+      }
+    }
+
+    if (key === "endBoilVolume") {
+      const dilution = dilutionValidation(parsed, undefined);
+      if (dilution.hardError) return dilution.hardError;
+    }
+
+    return "";
+  }
+
   async function askValidationConfirmation(text: string): Promise<boolean> {
     setValidationConfirmText(text);
     return new Promise<boolean>((resolve) => {
@@ -1725,6 +1866,98 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     await commit(key, value, [
       { range, value: value ? `pH ${value}` : "" },
     ]);
+  }
+
+  function timelineOrder(): Array<{ key: string; label: string }> {
+    const result: Array<{ key: string; label: string }> = [];
+
+    [...MASH_STAGES, ...LAUTER_STAGES].forEach((stage) => {
+      result.push({ key: `${stage.key}.start`, label: `${stage.label} – התחלה` });
+      if (stage.showEnd !== false) {
+        result.push({ key: `${stage.key}.end`, label: `${stage.label} – סיום` });
+      }
+    });
+
+    for (let index = 1; index <= 7; index += 1) {
+      result.push({ key: `rinse${index}.time`, label: `שטיפה ${index}` });
+    }
+
+    result.push({ key: "endTransfer.start", label: "סוף העברה" });
+    result.push({ key: "boil.start", label: "תחילת רתיחה" });
+
+    boilHops.forEach((_, index) => {
+      result.push({
+        key: `hop${index + 1}.start`,
+        label: `כשות ${index + 1}`,
+      });
+    });
+
+    result.push({ key: "endBoilTime", label: "סוף רתיחה" });
+    result.push({ key: "wp.start", label: "תחילת WP" });
+    result.push({ key: "wp.end", label: "סוף WP" });
+    result.push({ key: "outToFermentor.start", label: "תחילת הוצאה לתסיסה" });
+    if (currentBlock === 1) {
+      result.push({ key: "yeastPitchTime", label: "הוספת שמרים" });
+    }
+    result.push({ key: "outToFermentor.end", label: "סיום הוצאה לתסיסה" });
+
+    return result;
+  }
+
+  function validateTimelineTime(key: string, value: string): string {
+    if (!value) return "";
+    const order = timelineOrder();
+    const currentIndex = order.findIndex((item) => item.key === key);
+    if (currentIndex < 0) return "";
+
+    let previous: { key: string; label: string; value: string } | null = null;
+    for (let index = currentIndex - 1; index >= 0; index -= 1) {
+      const candidate = String(fields[order[index].key] || "").trim();
+      if (candidate) {
+        previous = { ...order[index], value: candidate };
+        break;
+      }
+    }
+
+    let next: { key: string; label: string; value: string } | null = null;
+    for (let index = currentIndex + 1; index < order.length; index += 1) {
+      const candidate = String(fields[order[index].key] || "").trim();
+      if (candidate) {
+        next = { ...order[index], value: candidate };
+        break;
+      }
+    }
+
+    const maxForwardMinutes = 20 * 60;
+
+    if (previous) {
+      const delta = forwardMinutes(previous.value, value);
+      if (delta !== null && delta > maxForwardMinutes) {
+        return `${order[currentIndex].label} (${value}) מוקדם מ-${previous.label} (${previous.value}).`;
+      }
+    }
+
+    if (next) {
+      const delta = forwardMinutes(value, next.value);
+      if (delta !== null && delta > maxForwardMinutes) {
+        return `${order[currentIndex].label} (${value}) מאוחר מ-${next.label} (${next.value}).`;
+      }
+    }
+
+    return "";
+  }
+
+  function rejectTimelineTime(key: string, value: string): boolean {
+    const error = validateTimelineTime(key, value);
+    if (!error) return false;
+
+    restoreCommittedField(key);
+    setValidationNotice({
+      kind: "error",
+      key,
+      text: `${error} הנתון לא נשמר.`,
+    });
+    return true;
   }
 
   async function commitRinse(
