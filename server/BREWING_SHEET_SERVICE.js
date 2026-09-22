@@ -395,7 +395,11 @@ function brewingSheetAcidHistory_(data) {
 
   const batches = Object.keys(byBatch)
     .map(Number)
-    .sort(function (a, b) { return b - a; })
+    .sort(function (a, b) {
+      if (a === currentBatch) return -1;
+      if (b === currentBatch) return 1;
+      return b - a;
+    })
     .slice(0, 4);
 
   const rows = [];
