@@ -553,11 +553,800 @@ function fieldsFromSheetRows(
     if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
   }
 
+  // Production Sheets are not row-identical between styles (Wheat, IPA,
+  // Lager, etc.). Prefer the visible action/section labels over fixed offsets.
+  // The fixed-offset values above remain a fallback for old/irregular sheets.
+  const rowValue = (
+    rowIndex: number,
+    column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
+  ) => (rowIndex >= 0 ? sheetCell(rows, rowIndex, column) : "");
+
+  const findRow = (
+    column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
+    pattern: RegExp,
+    start = 0,
+  ) =>
+    rows.findIndex(
+      (row, rowIndex) =>
+        rowIndex >= start &&
+        pattern.test(String(row[{
+          A: 0,
+          B: 1,
+          C: 2,
+          D: 3,
+          E: 4,
+          F: 5,
+          G: 6,
+          H: 7,
+        }[column]] ?? "").trim()),
+    );
+
+  const stagePatterns: Array<{
+    key: string;
+    pattern: RegExp;
+    showTemp?: boolean;
+    showNote?: boolean;
+  }> = [
+    { key: "mashIn", pattern: /^הכנסת לתת$/i, showTemp: true },
+    { key: "rest1", pattern: /^השריה\s*1$/i, showTemp: true, showNote: true },
+    { key: "heat1", pattern: /^חימום\s*1$/i, showTemp: true, showNote: true },
+    { key: "rest2", pattern: /^השריה\s*2$/i, showTemp: true, showNote: true },
+    { key: "heat2", pattern: /^חימום\s*2$/i, showTemp: true, showNote: true },
+    { key: "transferLt", pattern: /^העברה\s+ל.*L\.?T\.?/i, showTemp: true },
+    { key: "restLt", pattern: /^מנוחה\s*L\.?T\.?/i },
+    { key: "circulation", pattern: /^סחרור/i },
+    { key: "outToBoil", pattern: /^הוצאה לבישול$/i },
+    { key: "endTransfer", pattern: /^סוף העברה$/i },
+    { key: "boil", pattern: /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i },
+    { key: "hop1", pattern: /^הוספת כ(?:ש|ש)ות?\s*1$/i },
+    { key: "hop2", pattern: /^הוספת כ(?:ש|ש)ות?\s*2$/i },
+    { key: "hop3", pattern: /^הוספת כ(?:ש|ש)ות?\s*3$/i },
+    { key: "wp", pattern: /סוף רתיחה.*תחילת\s*WP/i },
+    { key: "outToFermentor", pattern: /^הוצאה לתסיסה$/i },
+  ];
+
+  stagePatterns.forEach((stage) => {
+    const rowIndex = findRow("D", stage.pattern);
+    if (rowIndex < 0) return;
+
+    const startCell = rowValue(rowIndex, "E");
+    const endCell = rowValue(rowIndex, "F");
+    const start = normalizedTime(startCell);
+    const end = normalizedTime(endCell);
+
+    if (start) pulled[`${stage.key}.start`] = start;
+    if (end) pulled[`${stage.key}.end`] = end;
+
+    // Some legacy Sheets store "start-end" in the start cell.
+    if (stage.key === "outToFermentor" && startCell.includes("-")) {
+      const parts = startCell.split("-").map((part) => normalizedTime(part));
+      if (parts[0]) pulled["outToFermentor.start"] = parts[0];
+      if (parts[1]) pulled["outToFermentor.end"] = parts[1];
+    }
+
+    if (stage.showTemp) {
+      const temp = numericText(rowValue(rowIndex, "G"));
+      if (temp) pulled[`${stage.key}.temp`] = temp;
+    }
+    if (stage.showNote) {
+      const note = rowValue(rowIndex, "H");
+      if (note) pulled[`${stage.key}.note`] = note;
+    }
+  });
+
+  const hltRow = findRow("A", /^HLT$/i);
+  if (hltRow >= 0) {
+    const amount = numericText(rowValue(hltRow, "B"));
+    const temp = numericText(rowValue(hltRow, "C"));
+    if (amount) pulled.hltWaterAmount = amount;
+    if (temp) pulled.hltWaterTemp = temp;
+  }
+
+  const mashWaterRow = findRow("A", /^MASH\s*IN$/i);
+  if (mashWaterRow >= 0) {
+    const cells = ["B", "C", "D"] as const;
+    const numericParts = cells
+      .map((column) => rowValue(mashWaterRow, column))
+      .filter(Boolean)
+      .flatMap((value) => value.match(/-?\d+(?:[.,]\d+)?/g) || [])
+      .map((value) => Number(value.replace(",", ".")))
+      .filter(Number.isFinite);
+
+    // The first large number on MASH IN rows is the mash-water volume.
+    const amount = numericParts.find((value) => value >= 100);
+    if (amount !== undefined) pulled.lauterWaterAmount = String(amount);
+  }
+
+  const mashInRow = findRow("D", /^הכנסת לתת$/i);
+  const rest1Row = findRow("D", /^השריה\s*1$/i);
+  if (mashInRow >= 0) {
+    const end = rest1Row > mashInRow ? rest1Row : Math.min(rows.length, mashInRow + 5);
+    const mashNotes = rows
+      .slice(mashInRow, end + 1)
+      .map((_, index) => rowValue(mashInRow + index, "H"))
+      .filter(Boolean)
+      .join(" ");
+
+    const volume =
+      mashNotes.match(/(?:כמות|נפח)\s*(?:ב)?מאש\s*([\d.,]+)/i)?.[1] || "";
+    const ph = mashNotes.match(/pH\s*([\d.,]+)/i)?.[1] || "";
+    if (volume) pulled.mashVolume = volume.replace(",", ".");
+    if (ph) pulled.mashPh = ph.replace(",", ".");
+  }
+
+  const acidRows = rows
+    .map((_, rowIndex) => ({
+      rowIndex,
+      type: rowValue(rowIndex, "C"),
+      amount: numericText(rowValue(rowIndex, "A")),
+    }))
+    .filter((item) => /H3PO4/i.test(item.type) && !!item.amount);
+  if (acidRows[0]?.amount) pulled.mashAcid85 = acidRows[0].amount;
+  if (acidRows[1]?.amount) pulled.boilAcid85 = acidRows[1].amount;
+
+  const outToBoilRow = findRow("D", /^הוצאה לבישול$/i);
+  if (outToBoilRow >= 0) {
+    const ph = numericText(rowValue(outToBoilRow, "H"));
+    if (ph) pulled.outToBoilPh = ph;
+  }
+
+  const boilRow = findRow("D", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i);
+  if (boilRow >= 0) {
+    const ph = numericText(rowValue(boilRow, "F"));
+    if (ph) pulled.boilPh = ph;
+  }
+
+  for (let index = 1; index <= 7; index += 1) {
+    const rinseRow = findRow("D", new RegExp(`^שטיפה\\s*${index}import { useEffect, useMemo, useRef, useState } from "react";
+import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
+import {
+  loadSandboxExecution,
+  replaceSandboxExecutionBlockFields,
+  setSandboxExecutionActiveBlock,
+  setSandboxExecutionField,
+  type BrewExecution,
+} from "../../SERVICES/brewing/sandboxExecution";
+import type { SandboxBrewRun } from "../../SERVICES/brewing/brewingSandbox";
+import {
+  readSandboxSheetRange,
+  writeSandboxSheetCells,
+} from "../../SERVICES/brewing/sandboxSheet";
+import BeerLoader from "../general/Loading";
+import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
+import {
+  activeLot,
+  type IngredientDefinition,
+  type IngredientLot,
+} from "../../SERVICES/brewing/ingredientLibrary";
+import {
+  loadMashAcidHistoryPreview,
+  type MashAcidHistoryRow,
+} from "../../SERVICES/brewing/mashAcidHistory";
+import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
+
+type Props = {
+  run: SandboxBrewRun;
+  recipe: BrewRecipe;
+  ingredients: IngredientDefinition[];
+  onClose: () => void;
+};
+
+type StageDef = {
+  key: string;
+  label: string;
+  rowOffset: number;
+  showTemp?: boolean;
+  showNote?: boolean;
+  showEnd?: boolean;
+  defaultMinutes?: number;
+  targetRecipeStepId?: string;
+};
+
+type SyncMismatch = {
+  blockIndex: number;
+  key: string;
+  label: string;
+  appValue: string;
+  sheetValue: string;
+};
+
+type ValidationNotice = {
+  kind: "warning" | "error";
+  text: string;
+  key?: string;
+};
+
+type StepId =
+  | "water"
+  | "mash"
+  | "lautering"
+  | "boil"
+  | "transfer"
+  | "summary";
+
+const STEPS: Array<{ id: StepId; label: string }> = [
+  { id: "water", label: "תאריך, מים וחומרי גלם" },
+  { id: "mash", label: "מאש" },
+  { id: "lautering", label: "לאוטר" },
+  { id: "boil", label: "רתיחה וכשות" },
+  { id: "transfer", label: "WP והוצאה לתסיסה" },
+  { id: "summary", label: "סיכום" },
+];
+
+const MASH_STAGES: StageDef[] = [
+  {
+    key: "mashIn",
+    label: "הכנסת לתת",
+    rowOffset: 0,
+    showTemp: true,
+    showNote: true,
+    targetRecipeStepId: "mashIn",
+  },
+  {
+    key: "rest1",
+    label: "השריה 1",
+    rowOffset: 2,
+    showTemp: true,
+    showNote: true,
+    targetRecipeStepId: "rest1",
+  },
+  {
+    key: "heat1",
+    label: "חימום 1",
+    rowOffset: 4,
+    showTemp: true,
+    showNote: true,
+    targetRecipeStepId: "heat1",
+  },
+  {
+    key: "rest2",
+    label: "השריה 2",
+    rowOffset: 6,
+    showTemp: true,
+    showNote: true,
+    targetRecipeStepId: "rest2",
+  },
+  {
+    key: "heat2",
+    label: "חימום 2",
+    rowOffset: 8,
+    showTemp: true,
+    showNote: true,
+    targetRecipeStepId: "heat2",
+  },
+];
+
+const LAUTER_STAGES: StageDef[] = [
+  {
+    key: "transferLt",
+    label: "העברה ל-L.T.",
+    rowOffset: 10,
+    showTemp: true,
+    targetRecipeStepId: "mashOut",
+  },
+  {
+    key: "restLt",
+    label: "מנוחה L.T.",
+    rowOffset: 12,
+    defaultMinutes: 10,
+  },
+  {
+    key: "circulation",
+    label: "סחרור L.T.",
+    rowOffset: 14,
+    defaultMinutes: 10,
+  },
+  {
+    key: "outToBoil",
+    label: "הוצאה לבישול",
+    rowOffset: 15,
+    showEnd: false,
+  },
+];
+
+const END_TRANSFER_STAGE: StageDef = {
+  key: "endTransfer",
+  label: "סוף העברה",
+  rowOffset: 26,
+  showEnd: false,
+};
+
+const BOIL_STAGES: StageDef[] = [
+  { key: "boil", label: "תחילת רתיחה", rowOffset: 28, showEnd: false },
+  { key: "hop1", label: "הוספת כשות 1", rowOffset: 30, showEnd: false },
+  { key: "hop2", label: "הוספת כשות 2", rowOffset: 32, showEnd: false },
+  { key: "hop3", label: "הוספת כשות 3", rowOffset: 34, showEnd: false },
+];
+
+const WP_STAGE: StageDef = {
+  key: "wp",
+  label: "WP",
+  rowOffset: 38,
+  defaultMinutes: 20,
+};
+
+const OUT_STAGE: StageDef = {
+  key: "outToFermentor",
+  label: "הוצאה לתסיסה",
+  rowOffset: 40,
+};
+
+const TIMELINE_STAGES: StageDef[] = [
+  ...MASH_STAGES,
+  ...LAUTER_STAGES,
+  END_TRANSFER_STAGE,
+  ...BOIL_STAGES,
+  WP_STAGE,
+  OUT_STAGE,
+];
+
+function blockBaseRow(
+  tankType: SandboxBrewRun["tankType"],
+  blockIndex: number,
+): number {
+  const rows =
+    tankType === "single" ? [9] : tankType === "double" ? [9, 59] : [9, 59, 106];
+  return rows[blockIndex - 1] || rows[0];
+}
+
+function getBlockCount(tankType: SandboxBrewRun["tankType"]) {
+  return tankType === "single" ? 1 : tankType === "double" ? 2 : 3;
+}
+
+function blockHeaderRow(
+  tankType: SandboxBrewRun["tankType"],
+  blockIndex: number,
+): number {
+  const rows =
+    tankType === "single"
+      ? [4]
+      : tankType === "double"
+        ? [4, 54]
+        : [4, 54, 102];
+  return rows[blockIndex - 1] || rows[0];
+}
+
+function fermentationStartingRow(
+  tankType: SandboxBrewRun["tankType"],
+): number {
+  return tankType === "single" ? 59 : tankType === "double" ? 106 : 156;
+}
+
+function isoDateFromSheet(value: string): string {
+  const text = String(value || "").trim();
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(text);
+  if (!match) return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+
+  const year =
+    match[3].length === 2
+      ? String(2000 + Number(match[3]))
+      : match[3];
+  return `${year}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+}
+
+function sheetDateFromIso(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
+}
+
+function shortIsraeliDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  return match ? `${match[3]}/${match[2]}/${match[1].slice(-2)}` : "";
+}
+
+function formatIsraeliDateTyping(value: string): string {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 8);
+  if (digits.length < 2) return digits;
+  if (digits.length === 2) return `${digits}/`;
+  if (digits.length < 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  if (digits.length === 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/`;
+  }
+
+  const yearDigits =
+    digits.length <= 6 ? digits.slice(4, 6) : digits.slice(4, 8);
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${yearDigits}`;
+}
+
+function isoDateFromUserInput(value: string): string | null {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const match = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/.exec(text);
+  if (!match) return null;
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const rawYear = Number(match[3]);
+  const year = match[3].length === 2 ? 2000 + rawYear : rawYear;
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function minutesFromMidnight(value: string): number | null {
+  const normalized = normalizeUserTime(value);
+  if (normalized === null || !normalized) return null;
+  const [hour, minute] = normalized.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function forwardMinutes(from: string, to: string): number | null {
+  const start = minutesFromMidnight(from);
+  const end = minutesFromMidnight(to);
+  if (start === null || end === null) return null;
+  return (end - start + 24 * 60) % (24 * 60);
+}
+
+function syncTimeLabel(value: Date | null): string {
+  if (!value) return "טרם";
+  return value.toLocaleTimeString("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function hhmmNow() {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+}
+
+function addMinutesToTime(value: string, minutes: number): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) return value;
+  const total = (Number(match[1]) * 60 + Number(match[2]) + minutes) % (24 * 60);
+  const normalized = total < 0 ? total + 24 * 60 : total;
+  const hour = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function normalizeUserTime(value: string): string | null {
+  const text = value.trim().replace(".", ":");
+  if (!text) return "";
+
+  const compact = /^(\d{3,4})$/.exec(text);
+  const candidate = compact
+    ? `${compact[1].slice(0, -2)}:${compact[1].slice(-2)}`
+    : text;
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(candidate);
+  if (!match) return null;
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function num(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roundToFive(value: number): number {
+  return Math.round(value / 5) * 5;
+}
+
+function tankHeightCalibration(
+  tankNumberValue: string,
+  tankType: SandboxBrewRun["tankType"],
+): { base: number; cmPer100: number; label: string; note?: string } | null {
+  const tankNumber = Number(tankNumberValue);
+
+  if (tankNumber === 6) {
+    return { base: 1300, cmPer100: 7.6, label: "מיכל 6" };
+  }
+
+  if (tankType === "double") {
+    return { base: 1250, cmPer100: 9, label: "מיכל כפול" };
+  }
+
+  if (tankType === "triple") {
+    if (tankNumber === 11) {
+      return {
+        base: 2250,
+        cmPer100: 5,
+        label: "מיכל משולש 11",
+        note: "ברירת המחדל כוללת את תיקון ה־50 ל׳ של מיכל 11",
+      };
+    }
+    return { base: 2300, cmPer100: 5, label: "מיכל משולש" };
+  }
+
+  return null;
+}
+
+function normalizedTime(value: unknown): string {
+  const text = String(value ?? "").trim();
+  const match = text.match(
+    /(?:^|\s)(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?(?:\s|$)/i,
+  );
+  if (!match) return "";
+
+  let hour = Number(match[1]);
+  const suffix = String(match[3] || "").toUpperCase();
+  if (suffix === "PM" && hour < 12) hour += 12;
+  if (suffix === "AM" && hour === 12) hour = 0;
+
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
+}
+
+function numericText(value: unknown): string {
+  const text = String(value ?? "").replace(",", ".").trim();
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  return match ? match[0] : "";
+}
+
+function sheetCell(
+  rows: string[][],
+  rowOffset: number,
+  column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
+): string {
+  const columnIndex = {
+    A: 0,
+    B: 1,
+    C: 2,
+    D: 3,
+    E: 4,
+    F: 5,
+    G: 6,
+    H: 7,
+  }[column];
+  return String(rows[rowOffset]?.[columnIndex] ?? "").trim();
+}
+
+function fieldsFromSheetRows(
+  rows: string[][],
+  usesGrant: boolean,
+  recipe?: BrewRecipe,
+  ingredientLibrary: IngredientDefinition[] = [],
+  baseOffset = 0,
+): Record<string, string> {
+  const pulled: Record<string, string> = {};
+  const cell = (
+    rowOffset: number,
+    column: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H",
+  ) => sheetCell(rows, baseOffset + rowOffset, column);
+
+  const brewDate = isoDateFromSheet(sheetCell(rows, 0, "H"));
+  if (brewDate) pulled.brewDate = brewDate;
+
+  TIMELINE_STAGES.forEach((stage) => {
+    const start = normalizedTime(cell(stage.rowOffset, "E"));
+    const end = normalizedTime(cell(stage.rowOffset, "F"));
+    const temp = numericText(cell(stage.rowOffset, "G"));
+    if (start) pulled[`${stage.key}.start`] = start;
+    if (end) pulled[`${stage.key}.end`] = end;
+    if (stage.showTemp && temp) pulled[`${stage.key}.temp`] = temp;
+
+    if (stage.showNote && stage.key !== "mashIn") {
+      const note = cell(stage.rowOffset, "H");
+      if (note) pulled[`${stage.key}.note`] = note;
+    }
+  });
+
+  const hltAmount = numericText(cell(8, "B"));
+  const hltTemp = numericText(cell(8, "C"));
+  const mashInWaterAmount = numericText(cell(9, "B"));
+  const mashInWaterTemp = numericText(cell(9, "C"));
+  if (hltAmount) pulled.hltWaterAmount = hltAmount;
+  if (hltTemp) pulled.hltWaterTemp = hltTemp;
+  if (mashInWaterAmount) pulled.lauterWaterAmount = mashInWaterAmount;
+  if (mashInWaterTemp) pulled.lauterWaterTemp = mashInWaterTemp;
+
+  if (!pulled["transferLt.start"] && pulled["heat2.end"]) {
+    pulled["transferLt.start"] = pulled["heat2.end"];
+  }
+
+  const mashMeta = cell(0, "H");
+  const mashVolume =
+    mashMeta.match(/נפח\s*מאש\s*([\d.,]+)/i)?.[1] || "";
+  const mashPh =
+    mashMeta.match(/pH\s*([\d.,]+)/i)?.[1] || "";
+  if (mashVolume) pulled.mashVolume = mashVolume.replace(",", ".");
+  if (mashPh) pulled.mashPh = mashPh.replace(",", ".");
+  const mashInNote =
+    mashMeta.match(/הערה:\s*(.+)$/i)?.[1]?.trim() || "";
+  if (mashInNote) pulled["mashIn.note"] = mashInNote;
+
+  const mashAcid = numericText(cell(28, "A"));
+  if (mashAcid) pulled.mashAcid85 = mashAcid;
+
+  const boilAcid = numericText(cell(29, "A"));
+  if (boilAcid) pulled.boilAcid85 = boilAcid;
+
+  const outToBoilPh = numericText(cell(15, "H"));
+  if (outToBoilPh) pulled.outToBoilPh = outToBoilPh;
+
+  const boilCell = cell(28, "F");
+  if (!normalizedTime(boilCell)) {
+    const boilPh = numericText(boilCell);
+    if (boilPh) pulled.boilPh = boilPh;
+  }
+
+  const outToFermentorPh = numericText(cell(40, "H"));
+  if (outToFermentorPh) pulled.outToFermentorPh = outToFermentorPh;
+
+  for (let rowOffset = 42; rowOffset <= 47; rowOffset += 1) {
+    const correction = cell(rowOffset, "E");
+    if (!correction) continue;
+
+    correction.split(/\r?\n/).forEach((line) => {
+      const mashMatch = /^הערת מאש:\s*(.*)$/i.exec(line.trim());
+      if (mashMatch) pulled["mashIn.note"] = mashMatch[1].trim();
+
+      const generalMatch = /^הערה כללית:\s*(.*)$/i.exec(line.trim());
+      if (generalMatch) pulled.generalNote = generalMatch[1].trim();
+    });
+  }
+
+  for (let index = 1; index <= 7; index += 1) {
+    const rowOffset = 18 + (index - 1);
+    const time = normalizedTime(cell(rowOffset, "E"));
+    const amount = numericText(cell(rowOffset, "F"));
+    const temp = numericText(cell(rowOffset, "G"));
+    const volumeText = cell(rowOffset, "H");
+
+    if (time) pulled[`rinse${index}.time`] = time;
+    if (amount) pulled[`rinse${index}.amount`] = amount;
+    if (temp) pulled[`rinse${index}.temp`] = temp;
+
+    if (volumeText) {
+      const parts = volumeText
+        .split("+")
+        .map((part) => numericText(part))
+        .filter(Boolean);
+      if (parts[0]) pulled[`rinse${index}.kettle`] = parts[0];
+      if (usesGrant && parts[1]) {
+        pulled[`rinse${index}.grant`] = parts[1];
+      }
+    }
+  }
+
+  const sugarFields: Array<
+    [string, number, "B" | "C"]
+  > = [
+    ["frPlato", 36, "B"],
+    ["lrPlato", 37, "B"],
+    ["kettlePlato", 38, "B"],
+    ["kettleVolume", 38, "C"],
+    ["endBoilPlato", 39, "B"],
+    ["endBoilVolume", 39, "C"],
+    ["fermentorSamplePlato", 40, "B"],
+    ["cumulativeTankVolume", 40, "C"],
+  ];
+
+  sugarFields.forEach(([key, rowOffset, column]) => {
+    const value = numericText(cell(rowOffset, column));
+    if (value) pulled[key] = value;
+  });
+
+  for (let index = 1; index <= 3; index += 1) {
+    const amount = numericText(cell(14 + index, "A"));
+    const alpha = numericText(cell(14 + index, "B"));
+    if (amount) pulled[`hop${index}.amountGrams`] = amount;
+    if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
+  }
+
+, "i"));
+    if (rinseRow < 0) continue;
+
+    const time = normalizedTime(rowValue(rinseRow, "E"));
+    const amount = numericText(rowValue(rinseRow, "F"));
+    const temp = numericText(rowValue(rinseRow, "G"));
+    const volumeText = rowValue(rinseRow, "H");
+    if (time) pulled[`rinse${index}.time`] = time;
+    if (amount) pulled[`rinse${index}.amount`] = amount;
+    if (temp) pulled[`rinse${index}.temp`] = temp;
+
+    const parts = volumeText
+      .split("+")
+      .map((part) => numericText(part))
+      .filter(Boolean);
+    if (parts[0]) pulled[`rinse${index}.kettle`] = parts[0];
+    if (usesGrant && parts[1]) pulled[`rinse${index}.grant`] = parts[1];
+  }
+
+  const sugarLabels: Array<[string, RegExp]> = [
+    ["frPlato", /^F\.R\.?\s*$/i],
+    ["lrPlato", /^L\.R\.?\s*$/i],
+    ["kettlePlato", /^סיר בישול/i],
+    ["endBoilPlato", /^סוף רתיחה$/i],
+    ["fermentorSamplePlato", /^תחילת תסיסה$/i],
+  ];
+  sugarLabels.forEach(([key, pattern]) => {
+    const rowIndex = findRow("A", pattern);
+    if (rowIndex < 0) return;
+    const plato = numericText(rowValue(rowIndex, "B"));
+    if (plato) pulled[key] = plato;
+
+    if (key === "kettlePlato") {
+      const volume = numericText(rowValue(rowIndex, "C"));
+      if (volume) pulled.kettleVolume = volume;
+    } else if (key === "endBoilPlato") {
+      const volume = numericText(rowValue(rowIndex, "C"));
+      if (volume) pulled.endBoilVolume = volume;
+    } else if (key === "fermentorSamplePlato") {
+      const volume = numericText(rowValue(rowIndex, "C"));
+      if (volume) pulled.cumulativeTankVolume = volume;
+      const ph = numericText(rowValue(rowIndex, "H"));
+      if (ph) pulled.outToFermentorPh = ph;
+    }
+  });
+
+  const wpRow = findRow("D", /סוף רתיחה.*תחילת\s*WP/i);
+  const outRow = findRow("D", /^הוצאה לתסיסה$/i);
+  if (wpRow >= 0) {
+    const wpStart = normalizedTime(rowValue(wpRow, "E"));
+    if (wpStart) {
+      pulled["wp.start"] = wpStart;
+      pulled.endBoilTime = wpStart;
+    }
+  }
+  if (outRow >= 0) {
+    const outStartCell = rowValue(outRow, "E");
+    const outEndCell = rowValue(outRow, "F");
+    const outStart = normalizedTime(outStartCell);
+    const outEnd = normalizedTime(outEndCell);
+    if (outStart) {
+      pulled["outToFermentor.start"] = outStart;
+      if (!pulled["wp.end"]) pulled["wp.end"] = outStart;
+    }
+    if (outEnd) pulled["outToFermentor.end"] = outEnd;
+    if (!outEnd && outStartCell.includes("-")) {
+      const range = outStartCell.split("-").map((part) => normalizedTime(part));
+      if (range[0]) pulled["outToFermentor.start"] = range[0];
+      if (range[1]) pulled["outToFermentor.end"] = range[1];
+    }
+  }
+
+  const correctionRow = findRow("D", /^תיקונים$/i);
+  if (correctionRow >= 0) {
+    for (
+      let rowIndex = correctionRow;
+      rowIndex < Math.min(rows.length, correctionRow + 7);
+      rowIndex += 1
+    ) {
+      const correction = rowValue(rowIndex, "E");
+      if (!correction) continue;
+      correction.split(/\r?\n/).forEach((line) => {
+        const mashMatch = /^הערת מאש:\s*(.*)$/i.exec(line.trim());
+        if (mashMatch) pulled["mashIn.note"] = mashMatch[1].trim();
+        const generalMatch = /^הערה כללית:\s*(.*)$/i.exec(line.trim());
+        if (generalMatch) pulled.generalNote = generalMatch[1].trim();
+      });
+    }
+  }
+
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
 
   for (let index = 0; index < 5; index += 1) {
-    const grainName = sheetCell(rows, 4 + index, "B");
-    const grainSupplier = sheetCell(rows, 4 + index, "C");
+    const grainName = sheetCell(rows, 5 + index, "B");
+    const grainSupplier = sheetCell(rows, 5 + index, "C");
     if (grainName || grainSupplier) {
       pulled[`sheetRawMaterial.grain${index + 1}`] = [
         grainName,
@@ -599,8 +1388,8 @@ function fieldsFromSheetRows(
       expectedMaterials.push({
         ingredientId: grain.ingredientId,
         source: [
-          sheetCell(rows, 4 + index, "B"),
-          sheetCell(rows, 4 + index, "C"),
+          sheetCell(rows, 5 + index, "B"),
+          sheetCell(rows, 5 + index, "C"),
         ].join(" "),
       });
     });
