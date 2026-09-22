@@ -26,6 +26,7 @@ import {
 import { openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../../SERVICES/planning/planningPresentation";
 import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
+import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import {
     brewLitersForSize,
@@ -200,8 +201,20 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function packagingDependencyQty(p: Product, qty: number) {
-        const fromExpectedBrewery = safeShipmentQty(p);
-        return Math.max(0, Math.min(qty - fromExpectedBrewery, sameWeekPackagingQty(p)));
+        // Shipment decisions are pallet-slot decisions. A partial pallet that
+        // already exists before this week can cover one nominal pallet slot,
+        // so its nominal gap must not be attributed to packaging later this week.
+        const openingNominalCapacity = nominalPlanningUnits(
+            p,
+            safeShipmentQty(p),
+        );
+        return Math.max(
+            0,
+            Math.min(
+                qty - openingNominalCapacity,
+                sameWeekPackagingQty(p),
+            ),
+        );
     }
 
     function expectedShipmentCover(p: Product) {

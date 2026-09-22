@@ -187,6 +187,40 @@ export function tankReleases(
   });
 }
 
+export function normalizeEmptyTankFlagsForSchedule(
+  plan: WeekPlan,
+): WeekPlan {
+  const packaging = plan.packaging.map((run) => ({ ...run }));
+  const groups = new Map<string, Array<{ index: number; date?: string }>>();
+
+  packaging.forEach((run, index) => {
+    if (!run.tankId) return;
+    const group = groups.get(run.tankId) ?? [];
+    group.push({ index, date: run.date });
+    groups.set(run.tankId, group);
+  });
+
+  for (const group of groups.values()) {
+    const hadExplicitEmpty = group.some(
+      ({ index }) => packaging[index].emptyTank === true,
+    );
+    if (!hadExplicitEmpty) continue;
+
+    const ordered = [...group].sort(
+      (a, b) =>
+        (a.date ?? "9999-99-99").localeCompare(b.date ?? "9999-99-99") ||
+        a.index - b.index,
+    );
+    const lastIndex = ordered[ordered.length - 1]?.index;
+
+    group.forEach(({ index }) => {
+      packaging[index].emptyTank = index === lastIndex;
+    });
+  }
+
+  return { ...plan, packaging };
+}
+
 export function validateProduction(
   plans: WeekPlan[],
   settings: Settings,
