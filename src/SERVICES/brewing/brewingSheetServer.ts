@@ -83,6 +83,19 @@ export async function serverWriteBrewSheetCells(
   return result;
 }
 
+export async function serverPingBrewSheetBridge() {
+  const startedAt = performance.now();
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{ ok: boolean; serverTime: string }>
+  >({ action: "BrewSheetPing" }, { retries: 0, timeoutMs: 15000 });
+  const result = unwrapAppsScriptResult(response, "בדיקת Apps Script נכשלה.");
+  console.info("[brewing-sheet] PING done", {
+    ms: Math.round(performance.now() - startedAt),
+    serverTime: result.serverTime,
+  });
+  return result;
+}
+
 export async function serverReadBrewSheetRange(
   spreadsheetId: string,
   range: string,
@@ -94,6 +107,7 @@ export async function serverReadBrewSheetRange(
       spreadsheetId: string;
       range: string;
       values: string[][];
+      timing?: { openMs: number; readMs: number; totalMs: number };
     }>
   >({
     action: "BrewSheetReadRange",
@@ -106,6 +120,7 @@ export async function serverReadBrewSheetRange(
     range,
     rows: result.values?.length || 0,
     ms: Math.round(performance.now() - startedAt),
+    serverTiming: result.timing,
   });
   return result;
 }
