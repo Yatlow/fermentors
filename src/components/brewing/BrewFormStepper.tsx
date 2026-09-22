@@ -417,6 +417,8 @@ function sheetCell(
 function fieldsFromSheetRows(
   rows: string[][],
   usesGrant: boolean,
+  recipe?: BrewRecipe,
+  ingredientLibrary: IngredientDefinition[] = [],
 ): Record<string, string> {
   const pulled: Record<string, string> = {};
 
@@ -538,6 +540,81 @@ function fieldsFromSheetRows(
   }
 
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
+
+  if (recipe) {
+    const expectedMaterials: Array<{
+      ingredientId: string;
+      source: string;
+    }> = [];
+
+    recipe.grains.forEach((grain, index) => {
+      expectedMaterials.push({
+        ingredientId: grain.ingredientId,
+        source: [
+          sheetCell(rows, index, "B"),
+          sheetCell(rows, index, "C"),
+        ].join(" "),
+      });
+    });
+
+    recipe.hops
+      .filter((hop) => hop.purpose !== "dryHop")
+      .slice(0, 3)
+      .forEach((hop, index) => {
+        expectedMaterials.push({
+          ingredientId: hop.ingredientId,
+          source: [
+            sheetCell(rows, 15 + index, "B"),
+            sheetCell(rows, 15 + index, "C"),
+          ].join(" "),
+        });
+      });
+
+    if (recipe.yeast.ingredientId) {
+      expectedMaterials.push({
+        ingredientId: recipe.yeast.ingredientId,
+        source: [
+          sheetCell(rows, 23, "B"),
+          sheetCell(rows, 23, "C"),
+        ].join(" "),
+      });
+    }
+
+    let confirmedCount = 0;
+
+    expectedMaterials.forEach(({ ingredientId, source }) => {
+      const cleanSource = source.trim().toLowerCase();
+      if (!cleanSource) return;
+
+      const ingredient = ingredientLibrary.find(
+        (item) => item.id === ingredientId,
+      );
+      if (!ingredient) return;
+
+      const matchingLot =
+        ingredient.lots.find((lot) => {
+          const lotNumber = String(lot.lotNumber || "").trim().toLowerCase();
+          return lotNumber && cleanSource.includes(lotNumber);
+        }) ||
+        ingredient.lots.find((lot) => {
+          const supplier = String(lot.supplier || "").trim().toLowerCase();
+          return supplier && cleanSource.includes(supplier);
+        }) ||
+        (ingredient.lots.length === 1 ? ingredient.lots[0] : undefined);
+
+      if (!matchingLot) return;
+
+      pulled[`materialLot.${ingredient.id}`] = matchingLot.id;
+      confirmedCount += 1;
+    });
+
+    if (
+      expectedMaterials.length > 0 &&
+      confirmedCount === expectedMaterials.length
+    ) {
+      pulled.materialsConfirmed = "yes";
+    }
+  }
 
   return pulled;
 }
@@ -2466,6 +2543,8 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
       key === "cumulativeTankVolume" ||
       key === "endBoilTime" ||
       key === "generalNote" ||
+      key === "materialsConfirmed" ||
+      key.startsWith("materialLot.") ||
       /^rinse[1-7]\.(time|amount|temp|kettle|grant)$/.test(key) ||
       /^hop[1-3]\.(amountGrams|alphaOverride)$/.test(key) ||
       /^(mashIn|rest1|heat1|rest2|heat2|transferLt|restLt|circulation|outToBoil|endTransfer|boil|hop1|hop2|hop3|wp|outToFermentor)\.(start|end|temp|note)$/.test(
@@ -2586,11 +2665,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         const row = blockBaseRow(run.tankType, index);
         const rows = await readSandboxSheetRange(
           run.sheetId,
-          `'גיליון1'!A${row}:H${row + 45}`,
+          `'גיליון1'!A${row}:H${row + 48}`,
         );
         const pulled = fieldsFromSheetRows(
           rows,
           recipe.lautering.usesGrant,
+          recipe,
+          ingredientLibrary,
         );
 
         const headerRow = blockHeaderRow(run.tankType, index);
@@ -2661,7 +2742,48 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
   }
 
-  async function syncFromSheet() {
+  function stepIndexFromLiveProgress(stageName: string): number {
+    const name = stageName.trim();
+    if (!name) return 0;
+
+    if (
+      /WP|ווירפול|תסיסה/.test(name)
+    ) {
+      return 4;
+    }
+
+    if (/רתיחה|כשות/.test(name)) return 3;
+
+    if (
+      /L\.T|לאוטר|סחרור|שטיפה|הוצאה לבישול|סוף העברה|העברה ל/.test(name)
+    ) {
+      return 2;
+    }
+
+    if (/לתת|מאש|השריה|חימום/.test(name)) return 1;
+
+    return 0;
+  }
+
+  function positionAtLiveBrew(nextExecution: BrewExecution): BrewExecution {
+    if (Number(run.action) !== 0) return nextExecution;
+
+    const progressBlock = Number(run.brewProgress?.blockIndex);
+    const blockIndex =
+      Number.isFinite(progressBlock) &&
+      progressBlock >= 1 &&
+      progressBlock <= totalBlocks
+        ? progressBlock
+        : nextExecution.activeBlockIndex;
+
+    const stageName = String(run.brewProgress?.stageName || "").trim();
+    const stepIndex = stepIndexFromLiveProgress(stageName);
+
+    setActiveStep(stepIndex);
+    return setSandboxExecutionActiveBlock(nextExecution, blockIndex);
+  }
+
+  async function syncFromSheet(positionAfterPull = false) {
     if (!run.sheetId) return;
 
     setPulling(true);
@@ -2674,11 +2796,13 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
         const row = blockBaseRow(run.tankType, index);
         const rows = await readSandboxSheetRange(
           run.sheetId,
-          `'גיליון1'!A${row}:H${row + 45}`,
+          `'גיליון1'!A${row}:H${row + 48}`,
         );
         const pulled = fieldsFromSheetRows(
           rows,
           recipe.lautering.usesGrant,
+          recipe,
+          ingredientLibrary,
         );
 
         const headerRow = blockHeaderRow(run.tankType, index);
@@ -2705,14 +2829,23 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
 
         const existing =
           nextExecution.blocks[String(index)]?.fields || {};
+        const localOnlyFields = Object.fromEntries(
+          Object.entries(existing).filter(
+            ([key]) => !isSheetBackedExecutionKey(key),
+          ),
+        );
         nextExecution = replaceSandboxExecutionBlockFields(
           nextExecution,
           index,
           {
-            ...existing,
+            ...localOnlyFields,
             ...pulled,
           },
         );
+      }
+
+      if (positionAfterPull) {
+        nextExecution = positionAtLiveBrew(nextExecution);
       }
 
       setExecution(nextExecution);
@@ -2743,7 +2876,7 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
     }
 
     initialProductionPullKey.current = run.batchNumber;
-    void syncFromSheet();
+    void syncFromSheet(true);
     // Intentionally pull once when a real batch is opened for editing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.batchNumber, run.sheetId, run.source]);
@@ -3417,6 +3550,12 @@ export default function BrewFormStepper({ run, recipe, onClose }: Props) {
               </div>
 
               <div className="brew-material-list">
+                {brewMaterials.length === 0 && (
+                  <div className="brew-material-empty">
+                    לא נמצאו חומרי הגלם של המתכון בספרייה במכשיר הזה.
+                    אפשר להמשיך, אבל לא ניתן לאשר lot עד שהספרייה תסונכרן.
+                  </div>
+                )}
                 {brewMaterials.map((ingredient) => {
                   const selected = selectedMaterialLot(ingredient);
                   return (
