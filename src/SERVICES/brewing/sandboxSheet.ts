@@ -325,7 +325,7 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
   } finally {
     outbox.inFlight = false;
     if (outbox.pending.size > 0) {
-      outbox.timer = setTimeout(() => void flushSheetOutbox(fileId), 2000);
+      outbox.timer = setTimeout(() => void flushSheetOutbox(fileId), SHEET_WRITE_DEBOUNCE_MS);
     }
   }
 }
