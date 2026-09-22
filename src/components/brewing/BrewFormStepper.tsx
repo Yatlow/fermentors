@@ -215,9 +215,14 @@ function fermentationStartingRow(
 
 function isoDateFromSheet(value: string): string {
   const text = String(value || "").trim();
-  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(text);
   if (!match) return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
-  return `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+
+  const year =
+    match[3].length === 2
+      ? String(2000 + Number(match[3]))
+      : match[3];
+  return `${year}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
 }
 
 function sheetDateFromIso(value: string): string {
