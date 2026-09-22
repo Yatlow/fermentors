@@ -2,6 +2,7 @@ import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverT
 import { auth, db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
+    replacePackagingOperationPallets,
     getDefaultPalletSplit,
     type CustomPalletSplitEntry,
 } from "../cooler/Palletservice";
@@ -494,6 +495,13 @@ export async function submitPackagingRecord(
         tankNumber,
     };
 
+    // Safe-by-default: create the standard pallet split as soon as the
+    // packaging record exists. If the browser closes or the user abandons the
+    // editor, physical inventory is still represented in Firestore.
+    const defaultSplits = getDefaultPalletSplit(palletPlan.itemType, palletPlan.quantity);
+    await savePackagingPalletSplits(operationId, defaultSplits);
+    await createPalletsForPlan(palletPlan, defaultSplits);
+
     if (outboxPersisted) {
         syncPackagingSheetInBackground(operationId, payload);
     } else {
@@ -578,6 +586,23 @@ export async function createPalletsForPlan(
         sourceTankNumber: plan.sourceTankNumber,
         operationId: plan.operationId,
         splits: remainingSplits,
+    });
+}
+
+/** Replace the already-created safe default with a user-approved valid split. */
+export async function replacePalletsForPlan(
+    plan: PackagingPalletPlan,
+    splits: CustomPalletSplitEntry[]
+): Promise<string[]> {
+    return replacePackagingOperationPallets({
+        itemType: plan.itemType,
+        expectedTotalQuantity: plan.quantity,
+        beerStyle: plan.beerStyle,
+        batchNumber: plan.batchNumber,
+        expiryDateStr: plan.expiryDateStr,
+        sourceTankNumber: plan.sourceTankNumber,
+        operationId: plan.operationId,
+        splits,
     });
 }
 
