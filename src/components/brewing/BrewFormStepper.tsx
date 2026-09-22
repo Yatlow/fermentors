@@ -553,11 +553,174 @@ function fieldsFromSheetRows(
     if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
   }
 
+  // Different beer-style templates do not share the IPA row offsets.
+  // Re-read important values by the visible row labels and override the
+  // fixed-offset fallback above when a matching label is present.
+  const colIndex = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7 } as const;
+  const dynamicValue = (rowIndex: number, column: keyof typeof colIndex) =>
+    rowIndex >= 0 ? String(rows[rowIndex]?.[colIndex[column]] ?? "").trim() : "";
+  const findDynamicRow = (
+    column: keyof typeof colIndex,
+    pattern: RegExp,
+  ) => rows.findIndex((row) => pattern.test(String(row[colIndex[column]] ?? "").trim()));
+
+  const dynamicStages: Array<{
+    key: string;
+    pattern: RegExp;
+    temp?: boolean;
+    note?: boolean;
+  }> = [
+    { key: "mashIn", pattern: /^הכנסת לתת$/i, temp: true },
+    { key: "rest1", pattern: /^השריה\s*1$/i, temp: true, note: true },
+    { key: "heat1", pattern: /^חימום\s*1$/i, temp: true, note: true },
+    { key: "rest2", pattern: /^השריה\s*2$/i, temp: true, note: true },
+    { key: "heat2", pattern: /^חימום\s*2$/i, temp: true, note: true },
+    { key: "transferLt", pattern: /^העברה\s+ל.*L\.?T\.?/i, temp: true },
+    { key: "restLt", pattern: /^מנוחה\s*L\.?T\.?/i },
+    { key: "circulation", pattern: /^סחרור/i },
+    { key: "outToBoil", pattern: /^הוצאה לבישול$/i },
+    { key: "endTransfer", pattern: /^סוף העברה$/i },
+    { key: "boil", pattern: /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i },
+    { key: "hop1", pattern: /^הוספת כ(?:שות|שת)\s*1$/i },
+    { key: "hop2", pattern: /^הוספת כ(?:שות|שת)\s*2$/i },
+    { key: "hop3", pattern: /^הוספת כ(?:שות|שת)\s*3$/i },
+    { key: "wp", pattern: /סוף רתיחה.*תחילת\s*WP/i },
+    { key: "outToFermentor", pattern: /^הוצאה לתסיסה$/i },
+  ];
+
+  dynamicStages.forEach((stage) => {
+    const rowIndex = findDynamicRow("D", stage.pattern);
+    if (rowIndex < 0) return;
+    const startCell = dynamicValue(rowIndex, "E");
+    const endCell = dynamicValue(rowIndex, "F");
+    const start = normalizedTime(startCell);
+    const end = normalizedTime(endCell);
+    if (start) pulled[stage.key + ".start"] = start;
+    if (end) pulled[stage.key + ".end"] = end;
+    if (stage.key === "outToFermentor" && startCell.includes("-")) {
+      const pieces = startCell.split("-").map((part) => normalizedTime(part));
+      if (pieces[0]) pulled["outToFermentor.start"] = pieces[0];
+      if (pieces[1]) pulled["outToFermentor.end"] = pieces[1];
+    }
+    if (stage.temp) {
+      const temp = numericText(dynamicValue(rowIndex, "G"));
+      if (temp) pulled[stage.key + ".temp"] = temp;
+    }
+    if (stage.note) {
+      const note = dynamicValue(rowIndex, "H");
+      if (note) pulled[stage.key + ".note"] = note;
+    }
+  });
+
+  const hltRow = findDynamicRow("A", /^HLT$/i);
+  if (hltRow >= 0) {
+    const amount = numericText(dynamicValue(hltRow, "B"));
+    const temp = numericText(dynamicValue(hltRow, "C"));
+    if (amount) pulled.hltWaterAmount = amount;
+    if (temp) pulled.hltWaterTemp = temp;
+  }
+
+  const mashWaterRow = findDynamicRow("A", /^MASH\s*IN$/i);
+  if (mashWaterRow >= 0) {
+    const candidates = ["B", "C", "D"]
+      .flatMap((column) => dynamicValue(mashWaterRow, column as "B" | "C" | "D").match(/-?\d+(?:[.,]\d+)?/g) || [])
+      .map((value) => Number(value.replace(",", ".")))
+      .filter(Number.isFinite);
+    const amount = candidates.find((value) => value >= 100);
+    if (amount !== undefined) pulled.lauterWaterAmount = String(amount);
+  }
+
+  const mashInRow = findDynamicRow("D", /^הכנסת לתת$/i);
+  const firstRestRow = findDynamicRow("D", /^השריה\s*1$/i);
+  if (mashInRow >= 0) {
+    const endRow = firstRestRow > mashInRow ? firstRestRow : Math.min(rows.length - 1, mashInRow + 4);
+    const mashText = rows
+      .slice(mashInRow, endRow + 1)
+      .map((_, offset) => dynamicValue(mashInRow + offset, "H"))
+      .filter(Boolean)
+      .join(" ");
+    const volume = mashText.match(/(?:כמות|נפח)\s*(?:ב)?מאש\s*([\d.,]+)/i)?.[1];
+    const ph = mashText.match(/pH\s*([\d.,]+)/i)?.[1];
+    if (volume) pulled.mashVolume = volume.replace(",", ".");
+    if (ph) pulled.mashPh = ph.replace(",", ".");
+  }
+
+  const outToBoilRow = findDynamicRow("D", /^הוצאה לבישול$/i);
+  if (outToBoilRow >= 0) {
+    const ph = numericText(dynamicValue(outToBoilRow, "H"));
+    if (ph) pulled.outToBoilPh = ph;
+  }
+
+  const boilRow = findDynamicRow("D", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i);
+  if (boilRow >= 0) {
+    const ph = numericText(dynamicValue(boilRow, "F"));
+    if (ph) pulled.boilPh = ph;
+  }
+
+  for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
+    const rinseRow = findDynamicRow("D", new RegExp("^שטיפה\\s*" + rinseIndex + "$", "i"));
+    if (rinseRow < 0) continue;
+    const time = normalizedTime(dynamicValue(rinseRow, "E"));
+    const amount = numericText(dynamicValue(rinseRow, "F"));
+    const temp = numericText(dynamicValue(rinseRow, "G"));
+    const volumeText = dynamicValue(rinseRow, "H");
+    if (time) pulled["rinse" + rinseIndex + ".time"] = time;
+    if (amount) pulled["rinse" + rinseIndex + ".amount"] = amount;
+    if (temp) pulled["rinse" + rinseIndex + ".temp"] = temp;
+    const parts = volumeText.split("+").map((part) => numericText(part)).filter(Boolean);
+    if (parts[0]) pulled["rinse" + rinseIndex + ".kettle"] = parts[0];
+    if (usesGrant && parts[1]) pulled["rinse" + rinseIndex + ".grant"] = parts[1];
+  }
+
+  const sugarLabels: Array<[string, RegExp]> = [
+    ["frPlato", /^F\.R\.?\s*$/i],
+    ["lrPlato", /^L\.R\.?\s*$/i],
+    ["kettlePlato", /^סיר בישול/i],
+    ["endBoilPlato", /^סוף רתיחה$/i],
+    ["fermentorSamplePlato", /^תחילת תסיסה$/i],
+  ];
+  sugarLabels.forEach(([key, pattern]) => {
+    const rowIndex = findDynamicRow("A", pattern);
+    if (rowIndex < 0) return;
+    const plato = numericText(dynamicValue(rowIndex, "B"));
+    if (plato) pulled[key] = plato;
+    const volume = numericText(dynamicValue(rowIndex, "C"));
+    if (key === "kettlePlato" && volume) pulled.kettleVolume = volume;
+    if (key === "endBoilPlato" && volume) pulled.endBoilVolume = volume;
+    if (key === "fermentorSamplePlato" && volume) pulled.cumulativeTankVolume = volume;
+  });
+
+  const acidRows = rows
+    .map((_, rowIndex) => ({
+      rowIndex,
+      type: dynamicValue(rowIndex, "C"),
+      amount: numericText(dynamicValue(rowIndex, "A")),
+    }))
+    .filter((item) => /H3PO4/i.test(item.type) && !!item.amount);
+  if (acidRows[0]?.amount) pulled.mashAcid85 = acidRows[0].amount;
+  if (acidRows[1]?.amount) pulled.boilAcid85 = acidRows[1].amount;
+
+  const wpRow = findDynamicRow("D", /סוף רתיחה.*תחילת\s*WP/i);
+  if (wpRow >= 0) {
+    const time = normalizedTime(dynamicValue(wpRow, "E"));
+    if (time) { pulled["wp.start"] = time; pulled.endBoilTime = time; }
+  }
+  const outRow = findDynamicRow("D", /^הוצאה לתסיסה$/i);
+  if (outRow >= 0) {
+    const startCell = dynamicValue(outRow, "E");
+    const start = normalizedTime(startCell);
+    const end = normalizedTime(dynamicValue(outRow, "F"));
+    if (start) { pulled["outToFermentor.start"] = start; if (!pulled["wp.end"]) pulled["wp.end"] = start; }
+    if (end) pulled["outToFermentor.end"] = end;
+    const ph = numericText(dynamicValue(outRow, "H"));
+    if (ph) pulled.outToFermentorPh = ph;
+  }
+
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
 
   for (let index = 0; index < 5; index += 1) {
-    const grainName = sheetCell(rows, 4 + index, "B");
-    const grainSupplier = sheetCell(rows, 4 + index, "C");
+    const grainName = sheetCell(rows, 5 + index, "B");
+    const grainSupplier = sheetCell(rows, 5 + index, "C");
     if (grainName || grainSupplier) {
       pulled[`sheetRawMaterial.grain${index + 1}`] = [
         grainName,
@@ -599,8 +762,8 @@ function fieldsFromSheetRows(
       expectedMaterials.push({
         ingredientId: grain.ingredientId,
         source: [
-          sheetCell(rows, 4 + index, "B"),
-          sheetCell(rows, 4 + index, "C"),
+          sheetCell(rows, 5 + index, "B"),
+          sheetCell(rows, 5 + index, "C"),
         ].join(" "),
       });
     });
