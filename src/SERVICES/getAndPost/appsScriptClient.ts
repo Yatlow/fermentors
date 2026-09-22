@@ -71,7 +71,28 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function fetchWithTimeout(\n    url: string,\n    init: RequestInit,\n    timeoutMs: number\n): Promise<Response> {\n    const controller = new AbortController();\n    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);\n\n    try {\n        // Apps Script ContentService redirects successful responses to googleusercontent.com.\n        // Safari intentionally hides Location for manual cross-origin redirects, so let\n        // fetch follow the redirect normally.\n        return await fetch(url, { ...init, redirect: "follow", signal: controller.signal });\n    } catch (error) {\n        if (error instanceof DOMException && error.name === "AbortError") {\n            throw new AppsScriptTimeoutError(timeoutMs);\n        }\n        throw error;\n    } finally {\n        window.clearTimeout(timeoutId);\n    }\n}\n
+async function fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number
+): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        // Apps Script ContentService redirects successful responses to googleusercontent.com.
+        // Safari intentionally hides Location for manual cross-origin redirects, so let
+        // fetch follow the redirect normally.
+        return await fetch(url, { ...init, redirect: "follow", signal: controller.signal });
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            throw new AppsScriptTimeoutError(timeoutMs);
+        }
+        throw error;
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
+}
 async function parseAppsScriptResponse<T>(response: Response): Promise<T> {
     const text = await response.text();
 
