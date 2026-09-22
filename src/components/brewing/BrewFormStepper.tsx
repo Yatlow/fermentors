@@ -3465,11 +3465,25 @@ export default function BrewFormStepper({
             ([key]) => !isSheetBackedExecutionKey(key),
           ),
         );
+
+        // A Sheet pull must not erase an explicit material confirmation merely
+        // because the legacy Sheet cannot reconstruct every lot identifier.
+        // B/C also intentionally have no separate yeast confirmation.
+        const preservedMaterialFields = Object.fromEntries(
+          Object.entries(existing).filter(([key, value]) => {
+            if (!String(value || "").trim()) return false;
+            if (key === "materialsConfirmed") return true;
+            if (!key.startsWith("materialLot.")) return false;
+            return !pulled[key];
+          }),
+        );
+
         nextExecution = replaceSandboxExecutionBlockFields(
           nextExecution,
           index,
           {
             ...localOnlyFields,
+            ...preservedMaterialFields,
             ...pulled,
           },
         );
