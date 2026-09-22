@@ -6659,3 +6659,16 @@ body {
     direction: ltr;
     text-align: center;
 }
+
+
+/* IOS FORM FOCUS ZOOM GUARD
+   Safari zooms focused form controls whose computed font size is below 16px. */
+@media (max-width: 700px) {
+    @supports (-webkit-touch-callout: none) {
+        input,
+        select,
+        textarea {
+            font-size: 16px !important;
+        }
+    }
+}
