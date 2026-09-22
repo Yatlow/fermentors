@@ -68,17 +68,31 @@ function brewingSheetCellValue_(value) {
 }
 
 function brewingSheetReadRange_(data) {
+  const startedAt = Date.now();
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   const range = String(data.range || "").trim();
   if (!range) throw new Error("Missing range");
 
+  const openStartedAt = Date.now();
   const ss = SpreadsheetApp.openById(fileId);
+  const openMs = Date.now() - openStartedAt;
+
+  const readStartedAt = Date.now();
   const values = ss.getRange(range).getDisplayValues();
+  const readMs = Date.now() - readStartedAt;
+
+  const timing = {
+    openMs: openMs,
+    readMs: readMs,
+    totalMs: Date.now() - startedAt
+  };
+  console.log("BrewSheetReadRange timing " + JSON.stringify(timing));
 
   return {
     spreadsheetId: fileId,
     range: range,
-    values: values
+    values: values,
+    timing: timing
   };
 }
 
