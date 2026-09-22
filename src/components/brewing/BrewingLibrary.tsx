@@ -3,7 +3,6 @@ import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   createSandboxRecipe,
   deleteSandboxRecipe,
-  loadSandboxRecipes,
   saveSandboxRecipe,
 } from "../../SERVICES/brewing/sandboxRecipe";
 import {
@@ -14,7 +13,6 @@ import {
 } from "../../SERVICES/brewing/ingredientLibrary";
 import {
   createSandboxIngredient,
-  loadSandboxIngredients,
   saveSandboxIngredients,
   type CreateSandboxIngredientInput,
 } from "../../SERVICES/brewing/sandboxIngredients";
@@ -22,7 +20,13 @@ import BrewRecipeEditor from "./BrewRecipeEditor";
 import IngredientLotsModal from "./IngredientLotsModal";
 
 type Props = {
-  onRecipesChange?: (recipes: BrewRecipe[]) => void;
+  recipes: BrewRecipe[];
+  ingredients: IngredientDefinition[];
+  onRecipesChange: (recipes: BrewRecipe[]) => void;
+  onIngredientsChange: (ingredients: IngredientDefinition[]) => void;
+  sharedLibraryReady?: boolean;
+  publishingSharedLibrary?: boolean;
+  onPublishSharedLibrary?: () => void;
 };
 
 type LibrarySection = "recipes" | "ingredients";
@@ -34,12 +38,16 @@ const CATEGORY_LABELS: Record<IngredientCategory, string> = {
   other: "אחר",
 };
 
-export default function BrewingLibrary({ onRecipesChange }: Props) {
+export default function BrewingLibrary({
+  recipes,
+  ingredients,
+  onRecipesChange,
+  onIngredientsChange,
+  sharedLibraryReady = false,
+  publishingSharedLibrary = false,
+  onPublishSharedLibrary,
+}: Props) {
   const [section, setSection] = useState<LibrarySection>("recipes");
-  const [recipes, setRecipes] = useState<BrewRecipe[]>(() => loadSandboxRecipes());
-  const [ingredients, setIngredients] = useState<IngredientDefinition[]>(() =>
-    loadSandboxIngredients(),
-  );
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [showNewRecipe, setShowNewRecipe] = useState(false);
   const [newRecipeName, setNewRecipeName] = useState("");
@@ -56,6 +64,14 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     saveSandboxIngredients(ingredients);
   }, [ingredients]);
 
+  function updateIngredients(
+    updater: (current: IngredientDefinition[]) => IngredientDefinition[],
+  ) {
+    const next = updater(ingredients);
+    saveSandboxIngredients(next);
+    onIngredientsChange(next);
+  }
+
   const selectedRecipe = useMemo(
     () => recipes.find((recipe) => recipe.id === selectedRecipeId) || null,
     [recipes, selectedRecipeId],
@@ -63,10 +79,11 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
 
   function saveRecipe(recipe: BrewRecipe) {
     const saved = saveSandboxRecipe(recipe);
-    const next = loadSandboxRecipes();
-    setRecipes(next);
+    const next = recipes.some((item) => item.id === saved.id)
+      ? recipes.map((item) => (item.id === saved.id ? saved : item))
+      : [...recipes, saved];
     setSelectedRecipeId(null);
-    onRecipesChange?.(next);
+    onRecipesChange(next);
     setMessage(`${saved.style} נשמר כגרסה ${saved.version}.`);
   }
 
@@ -74,9 +91,8 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     const name = newRecipeName.trim();
     if (!name) return;
     const created = createSandboxRecipe(name);
-    const next = loadSandboxRecipes();
-    setRecipes(next);
-    onRecipesChange?.(next);
+    const next = [...recipes.filter((item) => item.id !== created.id), created];
+    onRecipesChange(next);
     setNewRecipeName("");
     setShowNewRecipe(false);
     setSelectedRecipeId(created.id);
@@ -89,9 +105,8 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
       return;
     }
     deleteSandboxRecipe(recipe.id);
-    const next = loadSandboxRecipes();
-    setRecipes(next);
-    onRecipesChange?.(next);
+    const next = recipes.filter((item) => item.id !== recipe.id);
+    onRecipesChange(next);
     setDeleteRecipeId(null);
     setMessage(`${recipe.style} נמחק מספריית המתכונים. אצוות קיימות לא משתנות.`);
   }
@@ -101,7 +116,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     field: "name" | "supplier" | "lotNumber" | "alpha" | "bbe",
     value: string,
   ) {
-    setIngredients((current) =>
+    updateIngredients((current) =>
       current.map((ingredient) => {
         if (ingredient.id !== ingredientId) return ingredient;
         if (field === "name") return { ...ingredient, name: value };
@@ -152,7 +167,8 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     input: CreateSandboxIngredientInput,
   ): IngredientDefinition {
     const result = createSandboxIngredient(input, ingredients);
-    setIngredients(result.ingredients);
+    saveSandboxIngredients(result.ingredients);
+    onIngredientsChange(result.ingredients);
     setMessage(`${result.ingredient.name} נוסף לספריית חומרי הגלם.`);
     return result.ingredient;
   }
@@ -181,7 +197,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
       | "startedDate",
     value: string,
   ) {
-    setIngredients((current) =>
+    updateIngredients((current) =>
       current.map((ingredient) =>
         ingredient.id !== ingredientId
           ? ingredient
@@ -227,7 +243,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     lotId: string,
     status: IngredientLotStatus,
   ) {
-    setIngredients((current) =>
+    updateIngredients((current) =>
       current.map((ingredient) => {
         if (ingredient.id !== ingredientId) return ingredient;
 
@@ -262,7 +278,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
   }
 
   function addIngredientLot(ingredientId: string) {
-    setIngredients((current) =>
+    updateIngredients((current) =>
       current.map((ingredient) =>
         ingredient.id !== ingredientId
           ? ingredient
@@ -298,7 +314,7 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
     );
     const removesIngredient = source?.lots.length === 1;
 
-    setIngredients((current) =>
+    updateIngredients((current) =>
       current.flatMap((ingredient) => {
         if (ingredient.id !== ingredientId) return [ingredient];
 
@@ -335,6 +351,40 @@ export default function BrewingLibrary({ onRecipesChange }: Props) {
 
   return (
     <section className="brewing-library">
+      {onPublishSharedLibrary && (
+        <div
+          className={[
+            "brew-library-share-status",
+            sharedLibraryReady ? "ready" : "pending",
+          ].join(" ")}
+        >
+          <div>
+            <strong>
+              {sharedLibraryReady
+                ? "ספריית Firestore פעילה"
+                : "הספרייה עדיין מקומית למכשיר הזה"}
+            </strong>
+            <span>
+              {sharedLibraryReady
+                ? "מתכונים וחומרי גלם מסונכרנים בין המחשב למובייל."
+                : "בצע פרסום חד־פעמי מהמכשיר שבו הספרייה המעודכנת נמצאת."}
+            </span>
+          </div>
+          {!sharedLibraryReady && (
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={publishingSharedLibrary}
+              onClick={onPublishSharedLibrary}
+            >
+              {publishingSharedLibrary
+                ? "מעלה ל-Firestore…"
+                : "פרסם ספרייה ל-Firestore"}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="brewing-library-tabs">
         <button
           type="button"
