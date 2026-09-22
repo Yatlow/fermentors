@@ -895,7 +895,7 @@ function fieldsFromSheetRows(
     if (
       materialsRequiredForThisBlock.length > 0 &&
       materialsRequiredForThisBlock.every((ingredient) =>
-        Boolean(pulled[`materialLot.${ingredient.id}`]),
+        Boolean(pulled[`materialLot.${ingredient.ingredientId}`]),
       )
     ) {
       pulled.materialsConfirmed = "yes";
