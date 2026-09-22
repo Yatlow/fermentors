@@ -427,6 +427,7 @@ function fieldsFromSheetRows(
   recipe?: BrewRecipe,
   ingredientLibrary: IngredientDefinition[] = [],
   baseOffset = 0,
+  sheetStartRow = 1,
 ): Record<string, string> {
   const pulled: Record<string, string> = {};
   const cell = (
@@ -576,6 +577,8 @@ function fieldsFromSheetRows(
     { key: "heat1", pattern: /^חימום\s*1$/i, temp: true, note: true },
     { key: "rest2", pattern: /^השריה\s*2$/i, temp: true, note: true },
     { key: "heat2", pattern: /^חימום\s*2$/i, temp: true, note: true },
+    { key: "rest3", pattern: /^השריה\s*3$/i, temp: true, note: true },
+    { key: "heat3", pattern: /^חימום\s*3$/i, temp: true, note: true },
     { key: "transferLt", pattern: /^העברה\s+ל.*L\.?T\.?/i, temp: true },
     { key: "restLt", pattern: /^מנוחה\s*L\.?T\.?/i },
     { key: "circulation", pattern: /^סחרור/i },
@@ -592,6 +595,9 @@ function fieldsFromSheetRows(
   dynamicStages.forEach((stage) => {
     const rowIndex = findDynamicRow("D", stage.pattern);
     if (rowIndex < 0) return;
+    pulled[`__sheetRow.stage.${stage.key}`] = String(
+      sheetStartRow + rowIndex,
+    );
     const startCell = dynamicValue(rowIndex, "E");
     const endCell = dynamicValue(rowIndex, "F");
     const start = normalizedTime(startCell);
@@ -612,6 +618,29 @@ function fieldsFromSheetRows(
       if (note) pulled[stage.key + ".note"] = note;
     }
   });
+
+  const rawHopHeaderRow = rows.findIndex((row) => {
+    const a = String(row[0] ?? "").trim();
+    const b = String(row[1] ?? "").trim();
+    const c = String(row[2] ?? "").trim();
+    return /^כמות$/i.test(a) && /אחוז.*אלפ/i.test(b) && /סוג/i.test(c);
+  });
+  if (rawHopHeaderRow >= 0) {
+    for (let index = 1; index <= 5; index += 1) {
+      pulled[`__sheetRow.rawHop.${index}`] = String(
+        sheetStartRow + rawHopHeaderRow + index,
+      );
+      const amount = numericText(dynamicValue(rawHopHeaderRow + index, "A"));
+      const alpha = numericText(dynamicValue(rawHopHeaderRow + index, "B"));
+      const label = dynamicValue(rawHopHeaderRow + index, "C");
+      if (amount) pulled[`hop${index}.amountGrams`] = amount;
+      if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
+      if (label) pulled[`sheetRawMaterial.hop${index}`] = [
+        label,
+        alpha ? `aa ${alpha}%` : "",
+      ].filter(Boolean).join(" · ");
+    }
+  }
 
   const hltRow = findDynamicRow("A", /^HLT$/i);
   if (hltRow >= 0) {
@@ -661,6 +690,9 @@ function fieldsFromSheetRows(
   for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
     const rinseRow = findDynamicRow("D", new RegExp("^שטיפה\\s*" + rinseIndex + "$", "i"));
     if (rinseRow < 0) continue;
+    pulled[`__sheetRow.rinse.${rinseIndex}`] = String(
+      sheetStartRow + rinseRow,
+    );
     const time = normalizedTime(dynamicValue(rinseRow, "E"));
     const amount = numericText(dynamicValue(rinseRow, "F"));
     const temp = numericText(dynamicValue(rinseRow, "G"));
@@ -683,6 +715,9 @@ function fieldsFromSheetRows(
   sugarLabels.forEach(([key, pattern]) => {
     const rowIndex = findDynamicRow("A", pattern);
     if (rowIndex < 0) return;
+    pulled[`__sheetRow.sugar.${key}`] = String(
+      sheetStartRow + rowIndex,
+    );
     const plato = numericText(dynamicValue(rowIndex, "B"));
     if (plato) pulled[key] = plato;
     const volume = numericText(dynamicValue(rowIndex, "C"));
@@ -698,8 +733,18 @@ function fieldsFromSheetRows(
       amount: numericText(dynamicValue(rowIndex, "A")),
     }))
     .filter((item) => /H3PO4/i.test(item.type) && !!item.amount);
-  if (acidRows[0]?.amount) pulled.mashAcid85 = acidRows[0].amount;
-  if (acidRows[1]?.amount) pulled.boilAcid85 = acidRows[1].amount;
+  if (acidRows[0]) {
+    pulled[`__sheetRow.acid.mash`] = String(
+      sheetStartRow + acidRows[0].rowIndex,
+    );
+    if (acidRows[0].amount) pulled.mashAcid85 = acidRows[0].amount;
+  }
+  if (acidRows[1]) {
+    pulled[`__sheetRow.acid.boil`] = String(
+      sheetStartRow + acidRows[1].rowIndex,
+    );
+    if (acidRows[1].amount) pulled.boilAcid85 = acidRows[1].amount;
+  }
 
   const wpRow = findDynamicRow("D", /סוף רתיחה.*תחילת\s*WP/i);
   if (wpRow >= 0) {
@@ -831,6 +876,53 @@ function fieldsFromSheetRows(
   }
 
   return pulled;
+}
+
+type SheetBlockBounds = {
+  headerRow: number;
+  baseRow: number;
+  endRow: number;
+};
+
+function discoverSheetBlocks(
+  rows: string[][],
+  totalBlocks: number,
+): SheetBlockBounds[] {
+  const headerIndexes = rows
+    .map((row, index) => ({
+      index,
+      b: String(row[1] ?? "").trim(),
+      d: String(row[3] ?? "").trim(),
+    }))
+    .filter((row) => row.b === "סוג:" && row.d === "אצווה:")
+    .map((row) => row.index);
+
+  return headerIndexes.slice(0, totalBlocks).map((headerIndex, blockIndex) => {
+    const nextHeader = headerIndexes[blockIndex + 1] ?? rows.length;
+    let baseIndex = -1;
+    for (let index = headerIndex; index < nextHeader; index += 1) {
+      if (/^הכנסת לתת$/i.test(String(rows[index]?.[3] ?? "").trim())) {
+        baseIndex = index;
+        break;
+      }
+    }
+    if (baseIndex < 0) baseIndex = headerIndex + 5;
+    return {
+      headerRow: headerIndex + 1,
+      baseRow: baseIndex + 1,
+      endRow: nextHeader,
+    };
+  });
+}
+
+function fermentationYeastTimeFromFullSheet(rows: string[][]): string {
+  const rowIndex = rows.findIndex((row) =>
+    /^יום בישול/i.test(String(row[0] ?? "").trim()) &&
+    /שעת הוספת שמרים/i.test(String(row[4] ?? "").trim()),
+  );
+  return rowIndex >= 0
+    ? normalizedTime(String(rows[rowIndex]?.[6] ?? ""))
+    : "";
 }
 
 export default function BrewFormStepper({
@@ -3041,30 +3133,34 @@ export default function BrewFormStepper({
     try {
       const mismatchDetails: SyncMismatch[] = [];
 
+      const fullSheetRows = await readSandboxSheetRange(
+        run.sheetId,
+        "'גיליון1'!A1:H220",
+      );
+      const discoveredBlocks = discoverSheetBlocks(
+        fullSheetRows,
+        totalBlocks,
+      );
+
       for (let index = 1; index <= totalBlocks; index += 1) {
-        const row = blockBaseRow(run.tankType, index);
-        const headerRow = blockHeaderRow(run.tankType, index);
-        const rows = await readSandboxSheetRange(
-          run.sheetId,
-          `'גיליון1'!A${headerRow}:H${row + 48}`,
-        );
+        const discovered = discoveredBlocks[index - 1];
+        const fallbackBase = blockBaseRow(run.tankType, index);
+        const fallbackHeader = blockHeaderRow(run.tankType, index);
+        const headerRow = discovered?.headerRow ?? fallbackHeader;
+        const baseRowForSheet = discovered?.baseRow ?? fallbackBase;
+        const endRow = discovered?.endRow ?? baseRowForSheet + 48;
+        const rows = fullSheetRows.slice(headerRow - 1, endRow);
         const pulled = fieldsFromSheetRows(
           rows,
           recipe.lautering.usesGrant,
           recipe,
           ingredientLibrary,
-          row - headerRow,
+          baseRowForSheet - headerRow,
+          headerRow,
         );
 
         if (index === 1) {
-          const fermentationRow = fermentationStartingRow(run.tankType);
-          const yeastRows = await readSandboxSheetRange(
-            run.sheetId,
-            `'גיליון1'!G${fermentationRow}:G${fermentationRow}`,
-          );
-          const yeastTime = normalizedTime(
-            String(yeastRows[0]?.[0] || ""),
-          );
+          const yeastTime = fermentationYeastTimeFromFullSheet(fullSheetRows);
           if (yeastTime) pulled.yeastPitchTime = yeastTime;
         }
 
@@ -3164,30 +3260,34 @@ export default function BrewFormStepper({
     try {
       let nextExecution = execution;
 
+      const fullSheetRows = await readSandboxSheetRange(
+        run.sheetId,
+        "'גיליון1'!A1:H220",
+      );
+      const discoveredBlocks = discoverSheetBlocks(
+        fullSheetRows,
+        totalBlocks,
+      );
+
       for (let index = 1; index <= totalBlocks; index += 1) {
-        const row = blockBaseRow(run.tankType, index);
-        const headerRow = blockHeaderRow(run.tankType, index);
-        const rows = await readSandboxSheetRange(
-          run.sheetId,
-          `'גיליון1'!A${headerRow}:H${row + 48}`,
-        );
+        const discovered = discoveredBlocks[index - 1];
+        const fallbackBase = blockBaseRow(run.tankType, index);
+        const fallbackHeader = blockHeaderRow(run.tankType, index);
+        const headerRow = discovered?.headerRow ?? fallbackHeader;
+        const baseRowForSheet = discovered?.baseRow ?? fallbackBase;
+        const endRow = discovered?.endRow ?? baseRowForSheet + 48;
+        const rows = fullSheetRows.slice(headerRow - 1, endRow);
         const pulled = fieldsFromSheetRows(
           rows,
           recipe.lautering.usesGrant,
           recipe,
           ingredientLibrary,
-          row - headerRow,
+          baseRowForSheet - headerRow,
+          headerRow,
         );
 
         if (index === 1) {
-          const fermentationRow = fermentationStartingRow(run.tankType);
-          const yeastRows = await readSandboxSheetRange(
-            run.sheetId,
-            `'גיליון1'!G${fermentationRow}:G${fermentationRow}`,
-          );
-          const yeastTime = normalizedTime(
-            String(yeastRows[0]?.[0] || ""),
-          );
+          const yeastTime = fermentationYeastTimeFromFullSheet(fullSheetRows);
           if (yeastTime) pulled.yeastPitchTime = yeastTime;
         }
 
