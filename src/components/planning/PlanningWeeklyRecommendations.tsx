@@ -183,8 +183,27 @@ export default function PlanningWeeklyRecommendations({
         try { return calcTruckSlots(manifest); } catch { return Infinity; }
     }
 
-    const sameWeekPackagingQty = (p: Product) => currentPackagingRemainingQty(p.id);
-    const safeShipmentQty = (p: Product) => Math.max(0, model.weekStartRows.get(p.id)?.breweryUnits ?? 0);
+    const shipmentDispatchDate = (productId: string) =>
+        (current.deliveries ?? [])
+            .filter((delivery) => delivery.productId === productId && delivery.quantity > 0)
+            .map((delivery) => delivery.dispatchDate)
+            .filter(Boolean)
+            .sort()[0] ?? addDays(week, 1);
+
+    const sameWeekPackagingQty = (p: Product) => {
+        const dispatchDate = shipmentDispatchDate(p.id);
+        return currentOpenPackaging
+            .filter(
+                (run) =>
+                    run.productId === p.id &&
+                    !!run.date &&
+                    run.date <= dispatchDate,
+            )
+            .reduce((sum, run) => sum + run.remaining, 0);
+    };
+
+    const safeShipmentQty = (p: Product) =>
+        Math.max(0, model.weekStartRows.get(p.id)?.breweryUnits ?? 0);
 
     function maxShipmentQty(p: Product) {
         const units = safeShipmentQty(p) + sameWeekPackagingQty(p);
