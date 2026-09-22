@@ -3285,6 +3285,17 @@ export default function BrewFormStepper({
         ]);
 
         keys.forEach((key) => {
+          if (
+            index > 1 &&
+            (
+              key === "materialsConfirmed" ||
+              key === "sheetRawMaterial.yeast" ||
+              key === `materialLot.${recipe.yeast.ingredientId}` ||
+              key === `sheetMaterial.${recipe.yeast.ingredientId}`
+            )
+          ) {
+            return;
+          }
           if (isStandbyRinseDifference(key, localFields, pulled)) {
             return;
           }
@@ -3573,8 +3584,9 @@ export default function BrewFormStepper({
 
     const minutes = forwardMinutes(start, end);
     if (minutes === null || minutes > 8 * 60) return "";
-    const hours = Math.round((minutes / 60) * 100) / 100;
-    return `מהוצאה לבישול עד סוף העברה: ${hours} שעות`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `מהוצאה לבישול עד סוף העברה: ${String(hours).padStart(2, "0")}:${String(remainingMinutes).padStart(2, "0")}`;
   }
 
   function renderStageRows(stages: StageDef[]) {
@@ -3625,7 +3637,7 @@ export default function BrewFormStepper({
               </div>
 
               <label className="brew-stage-start">
-                התחלה
+                {stage.startLabel || "התחלה"}
                 <div className="brew-time-input">
                   <input
                     type="text"
@@ -3794,10 +3806,10 @@ export default function BrewFormStepper({
             ) : (
               <div className="brew-sync-directions">
                 <span>
-                  אפליקציה → Sheet: {syncTimeLabel(lastPushAt)}
+                  אפליקציה ← Sheet: {syncTimeLabel(lastPushAt)}
                 </span>
                 <span>
-                  Sheet → אפליקציה: {syncTimeLabel(lastPullAt)}
+                  Sheet ← אפליקציה: {syncTimeLabel(lastPullAt)}
                 </span>
                 <span
                   className={
