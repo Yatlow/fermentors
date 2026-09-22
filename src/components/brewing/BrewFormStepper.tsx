@@ -3514,8 +3514,9 @@ export default function BrewFormStepper({
     }
 
     // Firestore/local execution renders immediately. The Sheet is only a
-    // reconciliation source; never block opening the form on Apps Script.
-    const timer = window.setTimeout(() => void syncFromSheet(true), 0);
+    // reconciliation source. Give Firestore a moment to hydrate before the
+    // background Sheet check, and keep external/manual Sheet edits reconciled.
+    const timer = window.setTimeout(() => void syncFromSheet(true), 1500);
     const interval = window.setInterval(() => void syncFromSheet(false), 5 * 60 * 1000);
     return () => {
       window.clearTimeout(timer);
