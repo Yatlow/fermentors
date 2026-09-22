@@ -222,6 +222,27 @@ export default function BrewingView({ brews, tab }: Props) {
         );
     }, [brews, demoTankAsFermentor, sandbox]);
 
+    useEffect(() => {
+        if (!selectedRun || selectedRun.source !== "production" || selectedRun.tankId.startsWith("history-")) {
+            return;
+        }
+
+        const tank = brews.find((item) => item.id === selectedRun.tankId);
+        if (!tank) return;
+        const liveRun = productionRunFromTank(tank);
+        if (!liveRun) return;
+
+        const changed =
+            liveRun.action !== selectedRun.action ||
+            liveRun.brewSheetEditRevision !== selectedRun.brewSheetEditRevision ||
+            liveRun.brewSheetEditRange !== selectedRun.brewSheetEditRange ||
+            liveRun.brewProgress?.stageName !== selectedRun.brewProgress?.stageName ||
+            liveRun.brewProgress?.stageStartTimeText !== selectedRun.brewProgress?.stageStartTimeText ||
+            liveRun.brewProgress?.stageEndTimeText !== selectedRun.brewProgress?.stageEndTimeText;
+
+        if (changed) setSelectedRun(liveRun);
+    }, [brews, selectedRun]);
+
     const editableProductionTanks = useMemo(
         () =>
             brews
