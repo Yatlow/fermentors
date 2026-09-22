@@ -539,6 +539,41 @@ function brewingSheetFindFermentorForSheet_(spreadsheetId) {
   }) || null;
 }
 
+function brewingSheetPublishEditRevision_(tankNumber, event) {
+  const fermentorId = String(tankNumber || "").trim();
+  if (!fermentorId) return;
+
+  const range = event && event.range ? event.range.getA1Notation() : "";
+  const revision = Date.now();
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId) +
+    "?updateMask.fieldPaths=brewSheetEditRevision&updateMask.fieldPaths=brewSheetEditRange";
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({
+      fields: {
+        brewSheetEditRevision: { integerValue: String(revision) },
+        brewSheetEditRange: { stringValue: String(range || "") }
+      }
+    }),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error(
+      "Failed publishing Sheet edit revision for tank " +
+      fermentorId + ": " + code + " " + response.getContentText()
+    );
+  }
+}
+
 function brewingSheetOnEdit_(event) {
   if (!event || !event.source) return;
 
@@ -555,6 +590,12 @@ function brewingSheetOnEdit_(event) {
       brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
       return;
     }
+
+    // Publish every manual edit immediately. The open app listens to the
+    // fermentor document and reuses its canonical full-Sheet parser to pull the
+    // changed value into brewingExecution/Firestore without waiting for the
+    // hourly safety reconciliation.
+    brewingSheetPublishEditRevision_(fermentor.tankNumber, event);
 
     const stageInfo = extractBrewStageInfo(spreadsheetId, fermentor);
     if (!stageInfo || !stageInfo.lastBlock) return;
