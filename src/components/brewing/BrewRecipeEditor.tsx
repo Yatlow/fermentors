@@ -371,19 +371,33 @@ export default function BrewRecipeEditor({
 
   function addHop() {
     const ingredientId = hopOptions[0]?.id || "";
-    setRecipe((current) => ({
-      ...current,
-      hops: [
-        ...current.hops,
-        {
-          id: `hop-${Date.now()}`,
-          ingredientId,
-          purpose: "aroma",
-          gramsPerLiter: 0,
-          boilMinutes: 10,
-        },
-      ],
-    }));
+    setRecipe((current) => {
+      const hotSideCount = current.hops.filter(
+        (hop) => hop.purpose !== "dryHop",
+      ).length;
+      const hasDryHop = current.hops.some(
+        (hop) => hop.purpose === "dryHop",
+      );
+
+      if (hotSideCount >= 3 && hasDryHop) return current;
+
+      const purpose: BrewHopPurpose =
+        hotSideCount >= 3 ? "dryHop" : "aroma";
+
+      return {
+        ...current,
+        hops: [
+          ...current.hops,
+          {
+            id: `hop-${Date.now()}`,
+            ingredientId,
+            purpose,
+            gramsPerLiter: 0,
+            ...(purpose === "dryHop" ? {} : { boilMinutes: 10 }),
+          },
+        ],
+      };
+    });
   }
 
   function selectCreatedIngredient(
@@ -712,11 +726,20 @@ export default function BrewRecipeEditor({
 
       <section className="brew-editor-section">
         <div className="brew-section-title">
-          <h3>כשות</h3>
+          <div>
+            <h3>כשות</h3>
+            <small>
+              עד 3 הכנסות בבישול + דרייהופ אחד בשלב התסיסה
+            </small>
+          </div>
           <button
             type="button"
             className="brew-action-button brew-action-button-add"
             onClick={addHop}
+            disabled={
+              recipe.hops.filter((hop) => hop.purpose !== "dryHop").length >= 3 &&
+              recipe.hops.some((hop) => hop.purpose === "dryHop")
+            }
           >
             + כשות
           </button>
@@ -777,10 +800,42 @@ export default function BrewRecipeEditor({
                     });
                   }}
                 >
-                  <option value="bitterness">מרירות</option>
-                  <option value="aroma">ארומה</option>
-                  <option value="whirlpool">ווירפול</option>
-                  <option value="dryHop">דרייהופ</option>
+                  <option
+                    value="bitterness"
+                    disabled={
+                      hop.purpose === "dryHop" &&
+                      recipe.hops.filter((item) => item.purpose !== "dryHop").length >= 3
+                    }
+                  >
+                    מרירות
+                  </option>
+                  <option
+                    value="aroma"
+                    disabled={
+                      hop.purpose === "dryHop" &&
+                      recipe.hops.filter((item) => item.purpose !== "dryHop").length >= 3
+                    }
+                  >
+                    ארומה
+                  </option>
+                  <option
+                    value="whirlpool"
+                    disabled={
+                      hop.purpose === "dryHop" &&
+                      recipe.hops.filter((item) => item.purpose !== "dryHop").length >= 3
+                    }
+                  >
+                    ווירפול
+                  </option>
+                  <option
+                    value="dryHop"
+                    disabled={
+                      hop.purpose !== "dryHop" &&
+                      recipe.hops.some((item) => item.purpose === "dryHop")
+                    }
+                  >
+                    דרייהופ
+                  </option>
                 </select>
               </label>
               <label>
