@@ -566,13 +566,28 @@ function brewingSheetPublishEditRevision_(tankNumber, event) {
   if (!fermentorId) return;
 
   const range = event && event.range ? event.range.getA1Notation() : "";
+  const sheetName = event && event.range ? event.range.getSheet().getName() : "";
   const revision = Date.now();
+  const editedValue =
+    event && Object.prototype.hasOwnProperty.call(event, "value")
+      ? String(event.value == null ? "" : event.value)
+      : event && event.range
+        ? String(event.range.getDisplayValue() || "")
+        : "";
+  const oldValue =
+    event && Object.prototype.hasOwnProperty.call(event, "oldValue")
+      ? String(event.oldValue == null ? "" : event.oldValue)
+      : "";
   const url =
     "https://firestore.googleapis.com/v1/projects/" +
     FIREBASE_PROJECT_ID +
     "/databases/(default)/documents/fermentors/" +
     encodeURIComponent(fermentorId) +
-    "?updateMask.fieldPaths=brewSheetEditRevision&updateMask.fieldPaths=brewSheetEditRange";
+    "?updateMask.fieldPaths=brewSheetEditRevision" +
+    "&updateMask.fieldPaths=brewSheetEditRange" +
+    "&updateMask.fieldPaths=brewSheetEditValue" +
+    "&updateMask.fieldPaths=brewSheetEditOldValue" +
+    "&updateMask.fieldPaths=brewSheetEditSheetName";
 
   const response = UrlFetchApp.fetch(url, {
     method: "patch",
@@ -581,7 +596,10 @@ function brewingSheetPublishEditRevision_(tankNumber, event) {
     payload: JSON.stringify({
       fields: {
         brewSheetEditRevision: { integerValue: String(revision) },
-        brewSheetEditRange: { stringValue: String(range || "") }
+        brewSheetEditRange: { stringValue: String(range || "") },
+        brewSheetEditValue: { stringValue: editedValue },
+        brewSheetEditOldValue: { stringValue: oldValue },
+        brewSheetEditSheetName: { stringValue: sheetName }
       }
     }),
     muteHttpExceptions: true
