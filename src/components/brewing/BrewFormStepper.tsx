@@ -984,6 +984,7 @@ export default function BrewFormStepper({
   const [boilTargetPlato, setBoilTargetPlato] = useState(
     String(recipe.targets.endBoilPlato || ""),
   );
+  const [hopRecalcVolume, setHopRecalcVolume] = useState<number | null>(null);
   const initialProductionPullKey = useRef("");
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
@@ -2701,6 +2702,7 @@ export default function BrewFormStepper({
     value: string,
     rowOffset: number,
     column: "B" | "C",
+    options: { skipHopPrompt?: boolean; forceHopRecalc?: boolean } = {},
   ) {
     if (!(await approveNumericValue(key, value))) return;
     const parsed = num(value);
@@ -2717,6 +2719,17 @@ export default function BrewFormStepper({
       },
     ];
 
+    if (
+      key === "kettleVolume" &&
+      parsed !== null &&
+      !options.skipHopPrompt &&
+      boilHops.some((_, index) => String(fields[`hop${index + 1}.amountGrams`] || "").trim())
+    ) {
+      setHopRecalcVolume(parsed);
+      await commitSugar(key, value, rowOffset, column, { skipHopPrompt: true });
+      return;
+    }
+
     if (key === "kettleVolume" && parsed !== null) {
       let nextExecution = setSandboxExecutionField(
         execution,
@@ -2727,7 +2740,7 @@ export default function BrewFormStepper({
 
       boilHops.forEach((hop, index) => {
         const amountKey = `hop${index + 1}.amountGrams`;
-        if (String(fields[amountKey] || "").trim()) return;
+        if (!options.forceHopRecalc && String(fields[amountKey] || "").trim()) return;
 
         const dose = hopDose(hop, parsed);
         if (dose.grams === null) return;
@@ -5242,6 +5255,42 @@ export default function BrewFormStepper({
         </div>
       )}
 
+      {hopRecalcVolume !== null && (
+        <div className="brew-modal-backdrop" role="presentation">
+          <section className="brew-validation-confirm-modal" role="dialog" aria-modal="true">
+            <div className="brew-modal-header">
+              <div>
+                <h2>לעדכן את כמויות הכשות?</h2>
+                <p>נפח הרתיחה השתנה ל־{hopRecalcVolume} ל׳. שינוי הנפח משפיע על חישוב הכשות.</p>
+              </div>
+            </div>
+            <div className="brew-modal-actions">
+              <button
+                type="button"
+                className="brew-button-secondary"
+                onClick={() => setHopRecalcVolume(null)}
+              >
+                לא, להשאיר כמויות קיימות
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  const volume = hopRecalcVolume;
+                  setHopRecalcVolume(null);
+                  void commitSugar("kettleVolume", String(volume), 38, "C", {
+                    skipHopPrompt: true,
+                    forceHopRecalc: true,
+                  });
+                }}
+              >
+                כן, לחשב כשות מחדש
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {heightCalcOpen && (
         <div
           className="brew-modal-backdrop"
@@ -5267,7 +5316,7 @@ export default function BrewFormStepper({
               const base = num(heightBaseLiters);
               const calculated =
                 spec && height !== null && base !== null
-                  ? Math.round(base + (100 * height) / spec.cmPer100)
+                  ? roundToFive(base + (100 * height) / spec.cmPer100)
                   : null;
 
               return (
@@ -5322,6 +5371,7 @@ export default function BrewFormStepper({
                         <strong>
                           {calculated === null ? "—" : `${calculated} ל׳`}
                         </strong>
+                        {calculated !== null && <small>מעוגל ל־5 ל׳</small>}
                       </div>
                     </>
                   )}
