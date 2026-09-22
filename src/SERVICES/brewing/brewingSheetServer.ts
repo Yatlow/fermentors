@@ -55,6 +55,8 @@ export async function serverWriteBrewSheetCells(
   spreadsheetId: string,
   writes: BrewingSheetWrite[],
 ) {
+  const startedAt = performance.now();
+  console.info("[brewing-sheet] WRITE start", { spreadsheetId, cells: writes.length });
   const response = await callAppsScriptPost<
     AppsScriptEnvelope<{
       spreadsheetId: string;
@@ -72,13 +74,21 @@ export async function serverWriteBrewSheetCells(
     spreadsheetId,
     writes,
   });
-  return unwrapAppsScriptResult(response, "כתיבה ל-Sheet הבישול נכשלה.");
+  const result = unwrapAppsScriptResult(response, "כתיבה ל-Sheet הבישול נכשלה.");
+  console.info("[brewing-sheet] WRITE done", {
+    spreadsheetId,
+    cells: writes.length,
+    ms: Math.round(performance.now() - startedAt),
+  });
+  return result;
 }
 
 export async function serverReadBrewSheetRange(
   spreadsheetId: string,
   range: string,
 ) {
+  const startedAt = performance.now();
+  console.info("[brewing-sheet] READ start", { spreadsheetId, range });
   const response = await callAppsScriptPost<
     AppsScriptEnvelope<{
       spreadsheetId: string;
@@ -90,7 +100,14 @@ export async function serverReadBrewSheetRange(
     spreadsheetId,
     range,
   });
-  return unwrapAppsScriptResult(response, "קריאה מ-Sheet הבישול נכשלה.");
+  const result = unwrapAppsScriptResult(response, "קריאה מ-Sheet הבישול נכשלה.");
+  console.info("[brewing-sheet] READ done", {
+    spreadsheetId,
+    range,
+    rows: result.values?.length || 0,
+    ms: Math.round(performance.now() - startedAt),
+  });
+  return result;
 }
 
 export async function serverTrashBrewSheet(spreadsheetId: string) {
