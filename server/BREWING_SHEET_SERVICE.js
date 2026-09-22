@@ -431,3 +431,129 @@ function brewingSheetAcidHistory_(data) {
 
   return rows.slice(0, 9);
 }
+
+
+// ============================================================
+// ACTIVE BREW SHEET EDIT TRIGGERS
+// ============================================================
+
+const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
+
+function brewingSheetTriggerSourceId_(trigger) {
+  try {
+    return String(trigger.getTriggerSourceId() || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function brewingSheetEnsureEditTrigger_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const triggers = ScriptApp.getProjectTriggers();
+  const existing = triggers.find(function (trigger) {
+    return (
+      trigger.getHandlerFunction() === BREWING_EDIT_TRIGGER_HANDLER_ &&
+      brewingSheetTriggerSourceId_(trigger) === fileId
+    );
+  });
+
+  if (!existing) {
+    ScriptApp.newTrigger(BREWING_EDIT_TRIGGER_HANDLER_)
+      .forSpreadsheet(fileId)
+      .onEdit()
+      .create();
+  }
+
+  return {
+    spreadsheetId: fileId,
+    installed: !existing,
+    active: true
+  };
+}
+
+function brewingSheetRemoveEditTrigger_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  let removed = 0;
+
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (
+      trigger.getHandlerFunction() === BREWING_EDIT_TRIGGER_HANDLER_ &&
+      brewingSheetTriggerSourceId_(trigger) === fileId
+    ) {
+      ScriptApp.deleteTrigger(trigger);
+      removed++;
+    }
+  });
+
+  return {
+    spreadsheetId: fileId,
+    removed: removed,
+    active: false
+  };
+}
+
+function brewingSheetFindFermentorForSheet_(spreadsheetId) {
+  const targetId = brewingSheetExtractId_(spreadsheetId);
+  const fermentors = getAllFermentorsFromFirebase();
+
+  return fermentors.find(function (fermentor) {
+    return (
+      brewingSheetExtractId_(fermentor.sheetUrl) === targetId &&
+      parseAction(fermentor.action) === 0
+    );
+  }) || null;
+}
+
+function brewingSheetOnEdit_(event) {
+  if (!event || !event.source) return;
+
+  const spreadsheetId = String(event.source.getId() || "").trim();
+  if (!spreadsheetId) return;
+
+  try {
+    const fermentor = brewingSheetFindFermentorForSheet_(spreadsheetId);
+
+    // The Sheet may still have a trigger briefly after the tank left ACTION 0.
+    // Remove it lazily as well, so a missed client cleanup cannot leave stale
+    // production triggers behind.
+    if (!fermentor) {
+      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+      return;
+    }
+
+    const stageInfo = extractBrewStageInfo(spreadsheetId, fermentor);
+    if (!stageInfo || !stageInfo.lastBlock) return;
+
+    updateFermentorBrewProgress(fermentor.tankNumber, stageInfo);
+
+    // Preserve the existing ACTION-0 completion semantics. A manual Sheet edit
+    // can therefore finish the brew exactly like the scheduled reconciliation.
+    if (stageInfo.beerVolume !== null && stageInfo.beerVolume !== undefined) {
+      updateFermentorAction(fermentor.tankNumber, 1);
+      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+      return;
+    }
+
+    if (stageInfo.hasUnstartedHeader) return;
+
+    const outStage = stageInfo.lastBlock.stages.find(function (stage) {
+      return stage.code === STAGE_CODE_OUT_TO_FERMENTOR;
+    });
+
+    if (
+      outStage &&
+      outStage.startDateTime &&
+      Date.now() - outStage.startDateTime.getTime() >= ACTION_0_GRACE_MS
+    ) {
+      updateFermentorAction(fermentor.tankNumber, 1);
+      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+    }
+  } catch (error) {
+    console.log(
+      "brewingSheetOnEdit_ failed for " +
+      spreadsheetId +
+      ": " +
+      (error && error.message ? error.message : error)
+    );
+  }
+}
