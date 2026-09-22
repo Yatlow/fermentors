@@ -996,7 +996,7 @@ export default function BrewFormStepper({
   const [hopRecalcVolume, setHopRecalcVolume] = useState<number | null>(null);
   const initialProductionPullKey = useRef("");
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hydratedFromFirestore = useRef(false);
+  const [firestoreHydrated, setFirestoreHydrated] = useState(false);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1015,7 +1015,7 @@ export default function BrewFormStepper({
 
   useEffect(() => {
     let cancelled = false;
-    hydratedFromFirestore.current = false;
+    setFirestoreHydrated(false);
     loadBrewingExecutionFromFirestore(run.batchNumber)
       .then((remote) => {
         if (cancelled) return;
@@ -1023,7 +1023,7 @@ export default function BrewFormStepper({
       })
       .catch((error) => console.warn("Failed loading brewing execution", error))
       .finally(() => {
-        if (!cancelled) hydratedFromFirestore.current = true;
+        if (!cancelled) setFirestoreHydrated(true);
       });
     return () => {
       cancelled = true;
@@ -1031,7 +1031,7 @@ export default function BrewFormStepper({
   }, [run.batchNumber]);
 
   useEffect(() => {
-    if (!hydratedFromFirestore.current) return;
+    if (!firestoreHydrated) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
       void saveBrewingExecutionToFirestore(execution).catch((error) =>
@@ -1041,7 +1041,7 @@ export default function BrewFormStepper({
     return () => {
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     };
-  }, [execution]);
+  }, [execution, firestoreHydrated]);
 
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
@@ -3418,11 +3418,17 @@ export default function BrewFormStepper({
     return setSandboxExecutionActiveBlock(nextExecution, blockIndex);
   }
 
-  async function syncFromSheet(positionAfterPull = false) {
+  async function syncFromSheet(
+    positionAfterPull = false,
+    options: { silent?: boolean } = {},
+  ) {
     if (!run.sheetId) return;
 
-    setPulling(true);
-    setMessage("");
+    const silent = Boolean(options.silent);
+    if (!silent) {
+      setPulling(true);
+      setMessage("");
+    }
 
     try {
       let nextExecution = execution;
@@ -3498,21 +3504,30 @@ export default function BrewFormStepper({
       setSyncMismatchCount(null);
       setSyncMismatches([]);
       setSyncError("");
-      setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
+      // Persist reconciliation explicitly; do not rely on a later render/effect.
+      await saveBrewingExecutionToFirestore(nextExecution);
+      if (!silent) {
+        setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
+      }
     } catch (error) {
       const detail =
         error instanceof Error
           ? error.message
           : "סנכרון הנתונים מה-Sheet נכשל.";
-      setSyncError(detail);
-      setMessage(detail);
+      if (!silent) {
+        setSyncError(detail);
+        setMessage(detail);
+      } else {
+        console.warn("Background Sheet reconciliation failed", error);
+      }
     } finally {
-      setPulling(false);
+      if (!silent) setPulling(false);
     }
   }
 
   useEffect(() => {
     if (
+      !firestoreHydrated ||
       !run.sheetId ||
       initialProductionPullKey.current === run.batchNumber
     ) {
@@ -3527,17 +3542,17 @@ export default function BrewFormStepper({
       );
     }
 
-    // Firestore/local execution renders immediately. The Sheet is only a
-    // reconciliation source. Give Firestore a moment to hydrate before the
-    // background Sheet check, and keep external/manual Sheet edits reconciled.
-    const timer = window.setTimeout(() => void syncFromSheet(true), 1500);
-    const interval = window.setInterval(() => void syncFromSheet(false), 5 * 60 * 1000);
-    return () => {
-      window.clearTimeout(timer);
-      window.clearInterval(interval);
-    };
+    // Firestore is the operational source: render it first, then reconcile
+    // the legacy Sheet silently in the background. Any pulled changes are
+    // persisted back to Firestore by syncFromSheet itself.
+    void syncFromSheet(true, { silent: true });
+    const interval = window.setInterval(
+      () => void syncFromSheet(false, { silent: true }),
+      5 * 60 * 1000,
+    );
+    return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run.batchNumber, run.sheetId]);
+  }, [firestoreHydrated, run.batchNumber, run.sheetId]);
 
   async function selectBlock(index: number) {
     setExecution(setSandboxExecutionActiveBlock(execution, index));
