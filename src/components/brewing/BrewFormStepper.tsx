@@ -4,6 +4,7 @@ import {
   loadSandboxExecution,
   loadBrewingExecutionFromFirestore,
   saveBrewingExecutionToFirestore,
+  saveBrewingProgressToFirestore,
   replaceSandboxExecutionBlockFields,
   setSandboxExecutionActiveBlock,
   setSandboxExecutionField,
@@ -1847,6 +1848,37 @@ export default function BrewFormStepper({
     return index >= 0 ? TIMELINE_STAGES[index + 1] || null : null;
   }
 
+  function stageCodeFor(stage: StageDef): number {
+    if (MASH_STAGES.some((item) => item.key === stage.key)) return 1;
+    if (
+      LAUTER_STAGES.some((item) => item.key === stage.key) ||
+      stage.key === END_TRANSFER_STAGE.key
+    ) return 2;
+    if (
+      BOIL_STAGES.some((item) => item.key === stage.key) ||
+      stage.key === WP_STAGE.key ||
+      stage.key === OUT_STAGE.key
+    ) return 3;
+    return 0;
+  }
+
+  function publishLiveProgress(
+    stage: StageDef,
+    startTime: string | null,
+    endTime: string | null = null,
+  ) {
+    void saveBrewingProgressToFirestore(run.tankId, {
+      blockCount: totalBlocks,
+      blockIndex: currentBlock,
+      stageCode: stageCodeFor(stage),
+      stageName: stage.label,
+      stageStartTimeText: startTime,
+      stageEndTimeText: endTime,
+    }).catch((error) =>
+      console.warn("Failed saving live brewing progress", error),
+    );
+  }
+
   async function commitStageStart(stage: StageDef, value: string) {
     if (
       rejectTimelineTime(`${stage.key}.start`, value, {
@@ -1912,6 +1944,11 @@ export default function BrewFormStepper({
     }
 
     setExecution(nextExecution);
+    publishLiveProgress(
+      stage,
+      value || null,
+      String(nextExecution.blocks[String(currentBlock)]?.fields?.[`${stage.key}.end`] || "") || null,
+    );
     await writeSheet(`${stage.key}.start`, writes);
   }
 
@@ -1980,6 +2017,11 @@ export default function BrewFormStepper({
       }
 
       setExecution(nextExecution);
+      publishLiveProgress(
+        stage,
+        String(nextExecution.blocks[String(currentBlock)]?.fields?.[`${stage.key}.start`] || "") || null,
+        value || null,
+      );
       await writeSheet(`${stage.key}.end`, writes);
       return;
     }
