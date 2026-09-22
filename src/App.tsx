@@ -311,6 +311,7 @@ function App() {
             (snapshot) => {
                 const nextSpecs: SpecChart = {};
                 snapshot.docs.forEach((firebaseDoc) => {
+                    if (firebaseDoc.id.startsWith("brewing")) return;
                     nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;
                 });
                 setSpecs(nextSpecs);
