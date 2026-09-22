@@ -2,11 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultSettings, emptyWeek, type Product, type Tank } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
-import { buildShipmentRecommendation } from "../src/SERVICES/planning/shipmentRecommendation";
+import {
+  buildShipmentRecommendation,
+  nominalPlanningUnits,
+} from "../src/SERVICES/planning/shipmentRecommendation";
 import { shipmentDecisionPickOptions } from "../src/SERVICES/planning/shipmentDecisionPicking";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
-import { brewLitersForSize, brewSizeLabel, tankReleases } from "../src/SERVICES/planning/productionCycle";
+import {
+  brewLitersForSize,
+  brewSizeLabel,
+  normalizeEmptyTankFlagsForSchedule,
+  tankReleases,
+} from "../src/SERVICES/planning/productionCycle";
 
 const today = "2026-09-13";
 const product: Product = {
@@ -52,6 +60,46 @@ test("a partial physical pallet counts as one whole planning pallet", () => {
   ]));
   assert.equal(result.recommendation[0]?.quantity, 84);
   assert.equal(result.recommendation[0]?.pallets, 1);
+});
+
+test("same-week packaging dependency uses nominal pallet capacity of opening stock", () => {
+  assert.equal(nominalPlanningUnits(kegProduct, 13), 20);
+  assert.equal(nominalPlanningUnits(kegProduct, 40), 40);
+  assert.equal(nominalPlanningUnits(product, 56), 84);
+});
+
+test("tank empty flag follows the later scheduled split regardless of package type", () => {
+  const week = {
+    ...emptyWeek("2026-09-27"),
+    packaging: [
+      {
+        id: "bottles",
+        productId: product.id,
+        quantity: 56,
+        tankId: "tank-wheat",
+        date: "2026-09-30",
+        emptyTank: false,
+      },
+      {
+        id: "kegs",
+        productId: kegProduct.id,
+        quantity: 50,
+        tankId: "tank-wheat",
+        date: "2026-09-28",
+        emptyTank: true,
+      },
+    ],
+  };
+
+  const normalized = normalizeEmptyTankFlagsForSchedule(week);
+  assert.equal(
+    normalized.packaging.find((run) => run.id === "kegs")?.emptyTank,
+    false,
+  );
+  assert.equal(
+    normalized.packaging.find((run) => run.id === "bottles")?.emptyTank,
+    true,
+  );
 });
 
 test("shipment picking treats a partial as a nominal pallet only when needed", () => {
