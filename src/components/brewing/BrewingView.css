@@ -3925,3 +3925,127 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+
+
+/* Brewing mobile compact batches and form controls */
+
+.brewing-view,
+.brewing-view *,
+.brew-modal-backdrop,
+.brew-modal-backdrop * {
+    font-family: inherit !important;
+}
+
+.brew-library-share-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 1px solid #fde68a;
+    border-radius: var(--radius);
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.brew-library-share-status.ready {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #166534;
+}
+
+.brew-library-share-status > div {
+    display: grid;
+    gap: 2px;
+}
+
+.brew-library-share-status strong {
+    font-size: 0.72rem;
+}
+
+.brew-library-share-status span {
+    font-size: 0.64rem;
+    line-height: 1.4;
+}
+
+@media (max-width: 699px) {
+    .brew-recipe-editor .brew-editor-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+    }
+
+    .brew-recipe-editor .brew-editor-actions button {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .brew-library-share-status {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .brew-library-share-status button {
+        width: 100%;
+    }
+
+    .brewing-action-zero-chip {
+        min-width: 126px;
+        padding: 6px 7px;
+        gap: 2px 5px;
+    }
+
+    .brewing-action-zero-chip > strong,
+    .brewing-action-zero-chip > span:not(.brewing-style-tag) {
+        font-size: 0.63rem;
+    }
+}
+
+@media (max-width: 520px) {
+    .brewing-tank-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+    }
+
+    .brewing-tank-card {
+        gap: 6px;
+        padding: 7px 8px;
+    }
+
+    .brewing-tank-card-top {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .brewing-tank-card-top strong {
+        font-size: 0.72rem;
+    }
+
+    .brewing-tank-meta {
+        gap: 2px;
+        padding: 4px 5px;
+        font-size: 0.61rem;
+    }
+
+    .brewing-card-actions {
+        grid-template-columns: 1fr;
+        gap: 5px;
+    }
+
+    .brewing-card-actions > * {
+        width: 100%;
+        min-width: 0;
+        padding-inline: 5px !important;
+        font-size: 0.61rem !important;
+    }
+
+    .brew-lot-date-field {
+        grid-column: 1 / -1;
+    }
+
+    .brew-lot-date-field input[type="date"] {
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+    }
+}
