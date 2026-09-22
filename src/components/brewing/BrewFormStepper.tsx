@@ -1848,18 +1848,20 @@ export default function BrewFormStepper({
     return index >= 0 ? TIMELINE_STAGES[index + 1] || null : null;
   }
 
-  function stageCodeFor(stage: StageDef): number {
-    if (MASH_STAGES.some((item) => item.key === stage.key)) return 1;
-    if (
-      LAUTER_STAGES.some((item) => item.key === stage.key) ||
-      stage.key === END_TRANSFER_STAGE.key
-    ) return 2;
-    if (
-      BOIL_STAGES.some((item) => item.key === stage.key) ||
-      stage.key === WP_STAGE.key ||
-      stage.key === OUT_STAGE.key
-    ) return 3;
-    return 0;
+  function stageCodeFor(stage: StageDef): number | null {
+    if (stage.key === "mashIn") return 10;
+    if (/^rest\d+$/.test(stage.key)) return 20;
+    if (/^heat\d+$/.test(stage.key)) return 30;
+    if (stage.key === "transferLt") return 40;
+    if (stage.key === "restLt") return 50;
+    if (stage.key === "circulation") return 60;
+    if (stage.key === "outToBoil") return 70;
+    if (stage.key === "endTransfer") return 90;
+    if (stage.key === "boil") return 100;
+    if (stage.key === "outToFermentor") return 120;
+    // Hop/WP rows are useful UI milestones but are not part of the legacy
+    // server stage-code contract. Keep their name without inventing a code.
+    return null;
   }
 
   function publishLiveProgress(
@@ -3590,7 +3592,7 @@ export default function BrewFormStepper({
     void syncFromSheet(true, { silent: true });
     const interval = window.setInterval(
       () => void syncFromSheet(false, { silent: true }),
-      5 * 60 * 1000,
+      60 * 60 * 1000,
     );
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
