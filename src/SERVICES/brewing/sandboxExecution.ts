@@ -138,7 +138,7 @@ function cleanForRemoteExecution(execution: BrewExecution): BrewExecution {
 export type BrewingProgressUpdate = {
   blockCount: number;
   blockIndex: number;
-  stageCode: number;
+  stageCode: number | null;
   stageName: string;
   stageStartTimeText?: string | null;
   stageEndTimeText?: string | null;
@@ -156,8 +156,6 @@ export async function saveBrewingProgressToFirestore(
   await updateDoc(doc(db, "fermentors", cleanTankId), {
     brewProgress: {
       ...progress,
-      stageStartTime: progress.stageStartTimeText || null,
-      stageEndTime: progress.stageEndTimeText || null,
       dateAssumed: false,
     },
     brewProgressUpdatedAt: serverTimestamp(),
