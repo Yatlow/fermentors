@@ -190,7 +190,7 @@ export default function IngredientLotsModal({
                     </label>
                   )}
 
-                  <label>
+                  <label className="brew-lot-date-field">
                     תאריך קבלה
                     <input
                       type="date"
@@ -206,7 +206,7 @@ export default function IngredientLotsModal({
                     />
                   </label>
 
-                  <label>
+                  <label className="brew-lot-date-field">
                     התחלת שימוש
                     <input
                       type="date"
