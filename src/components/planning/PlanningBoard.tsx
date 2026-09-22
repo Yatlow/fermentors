@@ -16,7 +16,12 @@ import {
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
 import { futureTanks, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
-import { tankReleases, validateProduction, validateBrewReleases } from "../../SERVICES/planning/productionCycle";
+import {
+  normalizeEmptyTankFlagsForSchedule,
+  tankReleases,
+  validateProduction,
+  validateBrewReleases,
+} from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import PlanningBrewAssignmentEditor from "./PlanningBrewAssignmentEditor";
@@ -128,7 +133,10 @@ export default function PlanningBoard({
 
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
-    const effectiveNext = confirmBrews ? confirmAssignedBrews(next) : next;
+    const scheduledNext = normalizeEmptyTankFlagsForSchedule(next);
+    const effectiveNext = confirmBrews
+      ? confirmAssignedBrews(scheduledNext)
+      : scheduledNext;
     const all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     const error = validatePlanningWeek(effectiveNext, settings, all, today);
     if (error) throw new Error(error);
