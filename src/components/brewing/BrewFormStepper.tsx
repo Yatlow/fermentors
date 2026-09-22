@@ -5,6 +5,7 @@ import {
   replaceSandboxExecutionBlockFields,
   setSandboxExecutionActiveBlock,
   setSandboxExecutionField,
+  setSandboxExecutionReviewedSteps,
   type BrewExecution,
 } from "../../SERVICES/brewing/sandboxExecution";
 import type { SandboxBrewRun } from "../../SERVICES/brewing/brewingSandbox";
@@ -975,7 +976,9 @@ export default function BrewFormStepper({
   const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
     null,
   );
-  const [reviewedSteps, setReviewedSteps] = useState<Record<string, boolean>>({});
+  const [reviewedSteps, setReviewedSteps] = useState<Record<string, boolean>>(
+    () => execution.reviewedSteps || {},
+  );
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
   const [heightBaseLiters, setHeightBaseLiters] = useState("");
@@ -1052,7 +1055,7 @@ export default function BrewFormStepper({
   );
 
   const boilHops = useMemo(
-    () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 4),
+    () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 3),
     [recipe.hops],
   );
 
@@ -1352,6 +1355,8 @@ export default function BrewFormStepper({
           next[reviewedKey(blockIndex, stepId)] = true;
         }
       });
+      const saved = setSandboxExecutionReviewedSteps(execution, next);
+      setExecution(saved);
       return next;
     });
   }
@@ -3580,6 +3585,11 @@ export default function BrewFormStepper({
                     dir="ltr"
                     placeholder="HH:MM"
                     required
+                    className={
+                      isCurrentStepReviewed() && !hasField(`${stage.key}.start`)
+                        ? "brew-input-missing"
+                        : ""
+                    }
                     value={localValue(`${stage.key}.start`)}
                     onChange={(e) =>
                       setLocal(`${stage.key}.start`, e.target.value)
@@ -3611,6 +3621,11 @@ export default function BrewFormStepper({
                       dir="ltr"
                       placeholder="HH:MM"
                       required
+                      className={
+                        isCurrentStepReviewed() && !hasField(`${stage.key}.end`)
+                          ? "brew-input-missing"
+                          : ""
+                      }
                       value={localValue(`${stage.key}.end`)}
                       onChange={(e) =>
                         setLocal(`${stage.key}.end`, e.target.value)
@@ -4222,6 +4237,11 @@ export default function BrewFormStepper({
                 <input
                   type="number"
                   required
+                  className={
+                    isCurrentStepReviewed() && !hasField("mashVolume")
+                      ? "brew-input-missing"
+                      : ""
+                  }
                   value={localValue("mashVolume")}
                   onChange={(e) =>
                     setLocal("mashVolume", e.target.value)
@@ -4238,6 +4258,11 @@ export default function BrewFormStepper({
                   type="number"
                   step="0.01"
                   required
+                  className={
+                    isCurrentStepReviewed() && !hasField("mashPh")
+                      ? "brew-input-missing"
+                      : ""
+                  }
                   value={localValue("mashPh")}
                   onChange={(e) => setLocal("mashPh", e.target.value)}
                   onBlur={(e) =>
@@ -4253,6 +4278,11 @@ export default function BrewFormStepper({
                     type="number"
                     step="0.1"
                     required
+                    className={
+                      isCurrentStepReviewed() && !hasField("mashAcid85")
+                        ? "brew-input-missing"
+                        : ""
+                    }
                     value={localValue("mashAcid85")}
                     onChange={(e) =>
                       setLocal("mashAcid85", e.target.value)
