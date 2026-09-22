@@ -242,6 +242,11 @@ async function ensureWriteBaselines(fileId: string, writes: SheetWrite[]): Promi
   }));
 }
 
+export function resetSandboxSheetBaseline(fileId: string): void {
+  if (!fileId) return;
+  sheetBaselines.delete(fileId);
+}
+
 export function rememberSandboxSheetRange(
   fileId: string,
   range: string,
