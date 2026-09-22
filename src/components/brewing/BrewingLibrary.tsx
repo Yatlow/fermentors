@@ -361,7 +361,7 @@ export default function BrewingLibrary({
           <div>
             <strong>
               {sharedLibraryReady
-                ? "ספריית Firestore פעילה"
+                ? "הספרייה מסונכרנת"
                 : "הספרייה עדיין מקומית למכשיר הזה"}
             </strong>
             <span>
@@ -378,8 +378,8 @@ export default function BrewingLibrary({
               onClick={onPublishSharedLibrary}
             >
               {publishingSharedLibrary
-                ? "מעלה ל-Firestore…"
-                : "פרסם ספרייה ל-Firestore"}
+                ? "שומר…"
+                : "סנכרן ספרייה"}
             </button>
           )}
         </div>
