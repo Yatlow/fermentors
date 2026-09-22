@@ -6,6 +6,7 @@ export type BrewExecution = {
   batchNumber: string;
   activeBlockIndex: number;
   blocks: Record<string, BrewExecutionBlock>;
+  reviewedSteps?: Record<string, boolean>;
   updatedAt: string;
 };
 
@@ -14,6 +15,7 @@ function emptyExecution(batchNumber: string): BrewExecution {
     batchNumber,
     activeBlockIndex: 1,
     blocks: {},
+    reviewedSteps: {},
     updatedAt: new Date().toISOString(),
   };
 }
@@ -86,4 +88,11 @@ export function replaceSandboxExecutionBlockFields(
       },
     },
   });
+}
+
+export function setSandboxExecutionReviewedSteps(
+  execution: BrewExecution,
+  reviewedSteps: Record<string, boolean>,
+): BrewExecution {
+  return saveSandboxExecution({ ...execution, reviewedSteps: { ...reviewedSteps } });
 }
