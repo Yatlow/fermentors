@@ -388,7 +388,7 @@ function brewingSheetAcidHistory_(data) {
     if (fileName.toLowerCase().indexOf(style) === -1) return;
 
     const batch = Number(candidate.batch || brewingSheetBatchFromName_(fileName));
-    if (!Number.isFinite(batch) || batch === currentBatch) return;
+    if (!Number.isFinite(batch)) return;
 
     if (!byBatch[batch]) byBatch[batch] = candidate;
   });
@@ -396,7 +396,7 @@ function brewingSheetAcidHistory_(data) {
   const batches = Object.keys(byBatch)
     .map(Number)
     .sort(function (a, b) { return b - a; })
-    .slice(0, 12);
+    .slice(0, 4);
 
   const rows = [];
   let batchesWithData = 0;
