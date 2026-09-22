@@ -6674,3 +6674,13 @@ b {
     direction: ltr;
     text-align: center;
 }
+
+
+/* Prevent iOS Safari from auto-zooming focused form controls. */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
