@@ -173,10 +173,96 @@ export async function readSandboxSheetRange(
     throw new Error("קריאה מ-Sheet זמינה רק ב-Preview.");
   }
   const result = await serverReadBrewSheetRange(fileId, range);
-  return Array.isArray(result.values) ? result.values : [];
+  const values = Array.isArray(result.values) ? result.values : [];
+  rememberSandboxSheetRange(fileId, range, values);
+  return values;
 }
 
-type SheetWrite = { range: string; value: string | number | boolean | null };
+type SheetCellValue = string | number | boolean | null;
+type SheetWrite = { range: string; value: SheetCellValue; expectedValue?: SheetCellValue };
+
+const sheetBaselines = new Map<string, Map<string, string>>();
+
+function normalizeSheetValue(value: SheetCellValue | undefined): string {
+  return String(value == null ? "" : value).trim();
+}
+
+function baselineFor(fileId: string) {
+  let baseline = sheetBaselines.get(fileId);
+  if (!baseline) {
+    baseline = new Map();
+    sheetBaselines.set(fileId, baseline);
+  }
+  return baseline;
+}
+
+function a1Cell(range: string): { sheet: string; col: string; row: number } | null {
+  const match = range.match(/^(?:(.+)!)?\$?([A-Z]+)\$?(\d+)$/i);
+  if (!match) return null;
+  return { sheet: match[1] || "", col: match[2].toUpperCase(), row: Number(match[3]) };
+}
+
+async function ensureWriteBaselines(fileId: string, writes: SheetWrite[]): Promise<SheetWrite[]> {
+  const baseline = baselineFor(fileId);
+  const missing = writes.filter((write) => !baseline.has(write.range));
+  if (missing.length) {
+    const cells = missing.map((write) => a1Cell(write.range));
+    if (cells.some((cell) => !cell)) throw new Error("לא ניתן לאמת את מצב ה-Sheet לפני הכתיבה.");
+
+    const sheetNames = new Set(cells.map((cell) => cell!.sheet));
+    const cols = cells.map((cell) => cell!.col.charCodeAt(0) - 64);
+    if (sheetNames.size !== 1 || cols.some((col) => col < 1 || col > 26)) {
+      // Rare fallback: read each cell. Correctness is more important than batching here.
+      await Promise.all(missing.map(async (write) => {
+        const values = await readSandboxSheetRange(fileId, write.range);
+        baseline.set(write.range, normalizeSheetValue(values[0]?.[0]));
+      }));
+    } else {
+      const rows = cells.map((cell) => cell!.row);
+      const minRow = Math.min(...rows);
+      const maxRow = Math.max(...rows);
+      const minCol = Math.min(...cols);
+      const maxCol = Math.max(...cols);
+      const colName = (n: number) => String.fromCharCode(64 + n);
+      const sheet = cells[0]!.sheet;
+      const readRange = `${sheet ? `${sheet}!` : ""}${colName(minCol)}${minRow}:${colName(maxCol)}${maxRow}`;
+      const values = await readSandboxSheetRange(fileId, readRange);
+      missing.forEach((write) => {
+        const cell = a1Cell(write.range)!;
+        const row = cell.row - minRow;
+        const col = cell.col.charCodeAt(0) - 64 - minCol;
+        baseline.set(write.range, normalizeSheetValue(values[row]?.[col]));
+      });
+    }
+  }
+
+  return writes.map((write) => ({
+    ...write,
+    expectedValue: baseline.get(write.range) ?? "",
+  }));
+}
+
+export function rememberSandboxSheetRange(
+  fileId: string,
+  range: string,
+  values: string[][],
+): void {
+  const match = range.match(/^(?:(.+)!)?\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i);
+  if (!match) return;
+  const startCol = match[2].toUpperCase().charCodeAt(0) - 64;
+  const startRow = Number(match[3]);
+  const endCol = match[4].toUpperCase().charCodeAt(0) - 64;
+  const endRow = Number(match[5]);
+  if (startCol < 1 || endCol > 26) return;
+  const sheet = match[1] ? `${match[1]}!` : "";
+  const baseline = baselineFor(fileId);
+  for (let row = startRow; row <= endRow; row += 1) {
+    for (let col = startCol; col <= endCol; col += 1) {
+      const cellRange = `${sheet}${String.fromCharCode(64 + col)}${row}`;
+      baseline.set(cellRange, normalizeSheetValue(values[row - startRow]?.[col - startCol]));
+    }
+  }
+}
 
 type SheetOutbox = {
   pending: Map<string, SheetWrite>;
@@ -212,12 +298,24 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
   outbox.inFlight = true;
 
   try {
-    const result = await serverWriteBrewSheetCells(fileId, writes);
-    if (result.updated !== writes.length) {
+    const guardedWrites = await ensureWriteBaselines(fileId, writes);
+    const result = await serverWriteBrewSheetCells(fileId, guardedWrites);
+    if (result.hasConflict || result.conflicts?.length) {
+      const conflict = result.conflicts?.[0];
+      if (conflict) baselineFor(fileId).set(conflict.range, normalizeSheetValue(conflict.actualValue));
       throw new Error(
-        `Google Sheets אישר רק ${result.updated} מתוך ${writes.length} כתיבות.`,
+        conflict
+          ? `ה-Sheet השתנה מחוץ לאפליקציה ב-${conflict.range}. הערך באפליקציה לא דרס את הערך "${conflict.actualValue}".`
+          : "ה-Sheet השתנה מחוץ לאפליקציה. הכתיבה נעצרה כדי לא לדרוס נתונים.",
       );
     }
+    if (result.updated !== guardedWrites.length) {
+      throw new Error(
+        `Google Sheets אישר רק ${result.updated} מתוך ${guardedWrites.length} כתיבות.`,
+      );
+    }
+    const baseline = baselineFor(fileId);
+    guardedWrites.forEach((write) => baseline.set(write.range, normalizeSheetValue(write.value)));
     waiters.forEach(({ resolve }) => resolve());
   } catch (error) {
     // Put failed cells back unless a newer value for the same range is already queued.
