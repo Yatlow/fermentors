@@ -135,6 +135,26 @@ export async function serverTrashBrewSheet(spreadsheetId: string) {
   return unwrapAppsScriptResult(response, "מחיקת Sheet הבישול נכשלה.");
 }
 
+export async function serverRenameBrewSheet(input: {
+  spreadsheetId: string;
+  oldBatchNumber: string;
+  newBatchNumber: string;
+  style: string;
+}) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{
+      spreadsheetId: string;
+      batchNumber: string;
+      style: string;
+      name: string;
+    }>
+  >({
+    action: "BrewSheetRenameBatch",
+    ...input,
+  });
+  return unwrapAppsScriptResult(response, "עדכון פרטי אצוות הבישול ב-Sheet נכשל.");
+}
+
 export type BrewingDriveHistoryRow = {
   id: string;
   fileId: string;
