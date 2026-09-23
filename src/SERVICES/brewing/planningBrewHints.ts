@@ -66,12 +66,19 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
     // Iterate next week first so stale current-week metadata cannot mask the
     // actual upcoming brew (style/tank/date).
     const seen = new Set<string>();
-    const hints = [...next.hints, ...current.hints].filter((hint) => {
-      const key = String(hint.batchNumber).replace("#", "").trim();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    const hints = [...next.hints, ...current.hints]
+      .filter((hint) => {
+        const key = String(hint.batchNumber).replace("#", "").trim();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      // A planned-brew card is actionable only from today onward. Historical
+      // current-week rows belong to planning history/actuals and must never be
+      // offered as a new brew, even if a stale queue document still contains
+      // them. This also makes old queue pollution harmless without mutating a
+      // closed planning week.
+      .filter((hint) => !hint.date || hint.date >= today);
 
     return { weekId, hints, available: true };
   } catch {
