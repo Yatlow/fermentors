@@ -4302,3 +4302,27 @@
 .brewing-pending-card {
     border-style: dashed;
 }
+
+
+.brewing-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, 0.48);
+    backdrop-filter: blur(3px);
+}
+
+.brewing-confirm-modal {
+    width: min(420px, 100%);
+    background: #fff;
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+}
+
+.brewing-confirm-modal h3 { margin: 0 0 8px; }
+.brewing-confirm-modal p { margin: 0; line-height: 1.55; }
+.brewing-confirm-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
