@@ -2853,14 +2853,18 @@ export default function BrewFormStepper({
       },
     ];
 
-    if (
+    const previousKettleVolume = num(fields.kettleVolume || "");
+    const kettleVolumeActuallyChanged =
+      parsed !== null && previousKettleVolume !== null && parsed !== previousKettleVolume;
+    const shouldOfferHopRecalc =
       key === "kettleVolume" &&
-      currentBlock > 1 &&
-      parsed !== null &&
-      String(parsed) !== String(num(fields.kettleVolume) ?? "") &&
+      kettleVolumeActuallyChanged &&
       !options.skipHopPrompt &&
-      boilHops.some((_, index) => String(fields[`hop${index + 1}.amountGrams`] || "").trim())
-    ) {
+      // A: first entry from empty must never prompt; later real edits should.
+      // B/C: same rule naturally applies because previousKettleVolume must exist.
+      boilHops.length > 0;
+
+    if (shouldOfferHopRecalc) {
       setHopRecalcVolume(parsed);
       await commitSugar(key, value, rowOffset, column, { skipHopPrompt: true });
       return;
@@ -3489,17 +3493,27 @@ export default function BrewFormStepper({
   function positionAtLiveBrew(nextExecution: BrewExecution): BrewExecution {
     if (Number(run.action) !== 0) return nextExecution;
 
+    // The user's saved position is authoritative when reopening the form.
+    // Live Sheet progress is only a fallback for older executions that do not
+    // yet have an explicit active block/step saved.
+    const hasSavedPosition = Number.isFinite(nextExecution.activeStepIndex);
+    if (hasSavedPosition) {
+      setActiveStepState(Math.max(0, nextExecution.activeStepIndex || 0));
+      return nextExecution;
+    }
+
     const progressBlock = Number(run.brewProgress?.blockIndex);
     const blockIndex =
-      Number.isFinite(progressBlock) &&
-      progressBlock >= 1 &&
-      progressBlock <= totalBlocks
+      Number.isFinite(progressBlock) && progressBlock >= 1 && progressBlock <= totalBlocks
         ? progressBlock
         : nextExecution.activeBlockIndex;
-
     const stageName = String(run.brewProgress?.stageName || "").trim();
-    if (stageName) setActiveStep(stepIndexFromLiveProgress(stageName));
-    return setSandboxExecutionActiveBlock(nextExecution, blockIndex);
+    const stepIndex = stageName ? stepIndexFromLiveProgress(stageName) : 0;
+    setActiveStepState(stepIndex);
+    return setSandboxExecutionActiveStep(
+      setSandboxExecutionActiveBlock(nextExecution, blockIndex),
+      stepIndex,
+    );
   }
 
   async function syncFromSheet(
@@ -4640,18 +4654,14 @@ export default function BrewFormStepper({
 
         {currentStep.id === "lautering" && (
           <>
-            <div className="brew-lauter-mashout-context">
-              <div>
-                <span>חימום למאש אווט</span>
-                <strong>
-                  {localValue("heat2.start") || "—"}–{localValue("heat2.end") || "—"}
-                </strong>
-              </div>
+            <div className="brew-step-context-bar">
+              <span>חימום למאש אווט</span>
+              <strong>
+                {localValue("heat2.start") || "—"}–{localValue("heat2.end") || "—"}
+              </strong>
               <small>
                 יעד{" "}
-                {recipe.mash.steps.find((step) => step.id === "mashOut")
-                  ?.targetTemp ?? "—"}
-                °C · התצוגה מגיעה משלב המאש ואינה ניתנת לעריכה כאן
+                {recipe.mash.steps.find((step) => step.id === "mashOut")?.targetTemp ?? "—"}°C
               </small>
             </div>
 
