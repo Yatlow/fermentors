@@ -60,3 +60,11 @@ assert.match(rules, /hasOnly\(\[[^\]]*'palletRevision'[^\]]*\]\)/,
   "packagingOperations rules must allow palletRevision written by replacement batch");
 
 console.log("Packaging pallet default-first regression tests passed.");
+
+
+assert.match(logger, /shipmentPlanningQueue/,
+  "shipment reservation must use approved-user operational planning projection");
+assert.doesNotMatch(logger, /collection\(db, "planningWeeks"\)/,
+  "shipment reservation must not read planner-only planningWeeks");
+assert.match(rules, /match \/shipmentPlanningQueue\/\{weekId\}[\s\S]*allow read: if isApprovedUser\(\)/,
+  "shipment planning projection must be readable by approved brewery users");
