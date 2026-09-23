@@ -1,4 +1,13 @@
-import { doc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import { db } from "../../firebase";
 import { serverLoadBrewAcidHistory } from "./brewingSheetServer";
 
@@ -92,40 +101,40 @@ function rowFromExecution(
 }
 
 async function loadFirestoreAcidHistory(
-  currentBatchNumber: string,
+  style: string,
 ): Promise<MashAcidHistoryRow[]> {
-  const current = Number(String(currentBatchNumber || "").replace("#", ""));
-  if (!Number.isFinite(current)) return [];
-
-  // New brewing workflow writes every live brew block to brews/{batch}.
-  // Probe a small recent window in parallel; legacy batches simply return no
-  // brewingExecution and are filled by the Sheets fallback below.
-  const batchNumbers = Array.from({ length: 8 }, (_, index) => current - index)
-    .filter((batch) => batch > 0);
-  const snapshots = await Promise.all(
-    batchNumbers.map((batch) => getDoc(doc(db, "brews", String(batch)))),
+  const snapshot = await getDocs(
+    query(
+      collection(db, "brewAcidHistory"),
+      where("styleKey", "==", String(style || "").trim().toLowerCase()),
+      orderBy("sortKey", "desc"),
+      limit(9),
+    ),
   );
+  return snapshot.docs.map((item) => item.data() as MashAcidHistoryRow);
+}
 
-  const rows: MashAcidHistoryRow[] = [];
-  snapshots.forEach((snapshot, index) => {
-    if (!snapshot.exists()) return;
-    const execution = snapshot.data()?.brewingExecution as
-      | { blocks?: Record<string, { fields?: Record<string, string> }> }
-      | undefined;
-    if (!execution?.blocks) return;
-    const batchNumber = String(batchNumbers[index]);
-    (["1", "2", "3"] as const).forEach((blockKey, blockIndex) => {
-      const fields = execution.blocks?.[blockKey]?.fields;
-      if (!fields) return;
-      const row = rowFromExecution(
-        batchNumber,
-        ["A", "B", "C"][blockIndex] as "A" | "B" | "C",
-        fields,
+async function persistLegacyRows(
+  style: string,
+  rows: MashAcidHistoryRow[],
+): Promise<void> {
+  const styleKey = String(style || "").trim().toLowerCase();
+  await Promise.all(
+    rows.map((row) => {
+      const batch = Number(String(row.batchNumber).replace("#", ""));
+      const letterRank = { A: 1, B: 2, C: 3 }[row.brewLetter] || 0;
+      return setDoc(
+        doc(db, "brewAcidHistory", `${row.batchNumber}-${row.brewLetter}`),
+        {
+          ...row,
+          styleKey,
+          sortKey: Number.isFinite(batch) ? batch * 10 + letterRank : 0,
+          source: "legacy-sheet",
+        },
+        { merge: true },
       );
-      if (row) rows.push(row);
-    });
-  });
-  return rows;
+    }),
+  );
 }
 
 export async function loadMashAcidHistoryPreview(
@@ -150,7 +159,7 @@ export async function loadMashAcidHistoryPreview(
   }
 
   const firestoreRows = withoutCurrentBrew(
-    await loadFirestoreAcidHistory(currentBatchNumber),
+    await loadFirestoreAcidHistory(style),
   );
 
   // Once the recent comparison set exists in Firestore, do not touch Drive.
@@ -168,6 +177,15 @@ export async function loadMashAcidHistoryPreview(
       currentBatchNumber,
     )) as MashAcidHistoryRow[],
   );
+
+  // Migration path: a legacy Sheet is paid for only once. After a successful
+  // fallback, persist its compact comparison rows so future opens are a single
+  // indexed Firestore query.
+  if (legacyRows.length) {
+    void persistLegacyRows(style, legacyRows).catch((error) =>
+      console.warn("Failed caching legacy acid history in Firestore", error),
+    );
+  }
 
   const seen = new Set<string>();
   const merged = [...firestoreRows, ...legacyRows].filter((row) => {
