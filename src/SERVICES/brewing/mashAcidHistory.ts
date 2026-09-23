@@ -29,8 +29,19 @@ export type MashAcidHistoryRow = {
 const CACHE_PREFIX = "fermentors:brewing:acid-history:v5:";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
+
+function acidStyleAliases(style: string): string[] {
+  const key = String(style || "").trim().toLowerCase().replace(/\s+(משולש|כפול|בודד)$/, "");
+  if (key === "חיטה" || key === "wheat") return ["חיטה", "wheat"];
+  if (key === "פייל" || key === "pale" || key === "pale ale") return ["פייל", "pale", "pale ale"];
+  if (key === "הופי" || key === "hoppy") return ["הופי", "hoppy"];
+  if (key === "לאגר" || key === "lager") return ["לאגר", "lager"];
+  if (key === "סטאוט" || key === "stout") return ["סטאוט", "stout"];
+  if (key === "ipa") return ["ipa"];
+  return [key];
+}
 function cacheKey(style: string) {
-  return CACHE_PREFIX + String(style || "").trim().toLowerCase();
+  return CACHE_PREFIX + acidStyleAliases(style)[0];
 }
 
 function loadCached(style: string): MashAcidHistoryRow[] | null {
@@ -71,7 +82,7 @@ async function loadFirestoreAcidHistory(
   const snapshot = await getDocs(
     query(
       collection(db, "brewAcidHistory"),
-      where("styleKey", "==", String(style || "").trim().toLowerCase()),
+      where("styleKey", "in", acidStyleAliases(style)),
       limit(30),
     ),
   );
@@ -85,7 +96,7 @@ async function persistLegacyRows(
   style: string,
   rows: MashAcidHistoryRow[],
 ): Promise<void> {
-  const styleKey = String(style || "").trim().toLowerCase();
+  const styleKey = acidStyleAliases(style)[0];
   await Promise.all(
     rows.map((row) => {
       const batch = Number(String(row.batchNumber).replace("#", ""));
