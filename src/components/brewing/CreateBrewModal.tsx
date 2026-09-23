@@ -14,6 +14,7 @@ type Props = {
   recipes: BrewRecipe[];
   suggestedBatch: string;
   sandboxRuns: SandboxBrewRun[];
+  createdBatchNumbers?: string[];
   demoTank: SandboxDemoTank;
   busyTankId: string | null;
   planningHints: PlannedBrewHint[];
@@ -69,6 +70,7 @@ export default function CreateBrewModal({
   recipes,
   suggestedBatch,
   sandboxRuns,
+  createdBatchNumbers = [],
   demoTank,
   busyTankId,
   planningHints,
@@ -195,6 +197,9 @@ export default function CreateBrewModal({
                       String(run.batchNumber)
                         .replace("#", "")
                         .trim() === cleanBatch,
+                  ) ||
+                  createdBatchNumbers.some(
+                    (batch) => String(batch).replace("#", "").trim() === cleanBatch,
                   );
 
                 return (
