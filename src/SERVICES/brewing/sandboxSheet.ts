@@ -317,7 +317,11 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
       // exactly the value this request wanted to write (common after Sheet→Firestore
       // sync or a previous request completed while the tab was hidden/closing).
       const realConflicts = conflicts.filter(
-        (conflict) => normalizeSheetValue(conflict.actualValue) !== normalizeSheetValue(conflict.proposedValue),
+        (conflict) =>
+          normalizeSheetValue(conflict.actualValue) !==
+          normalizeSheetValue(
+            conflict.proposedValue as SheetCellValue | undefined,
+          ),
       );
       if (realConflicts.length) {
         const conflict = realConflicts[0];
