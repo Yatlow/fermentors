@@ -51,7 +51,8 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
   hints: PlannedBrewHint[];
   available: boolean;
 }> {
-  const weekId = weekStart(dateKey(new Date()));
+  const today = dateKey(new Date());
+  const weekId = weekStart(today);
   const nextWeekId = addDays(weekId, 7);
 
   try {
