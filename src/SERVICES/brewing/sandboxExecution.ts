@@ -114,6 +114,56 @@ export async function loadBrewingExecutionFromFirestore(
   return saveSandboxExecution(remote);
 }
 
+function acidHistoryFields(fields: Record<string, string>) {
+  return {
+    brewDate: String(fields.brewDate || ""),
+    mashPh: String(fields.mashPh || ""),
+    mashVolume: String(fields.mashVolume || ""),
+    acidMl: String(fields.mashAcid85 || ""),
+    outToBoilPh: String(fields.outToBoilPh || ""),
+    boilPh: String(fields.boilPh || ""),
+    kettleVolume: String(fields.kettleVolume || ""),
+    boilAcidMl: String(fields.boilAcid85 || ""),
+    outToFermentorPh: String(fields.outToFermentorPh || ""),
+  };
+}
+
+export async function saveBrewAcidHistoryToFirestore(
+  execution: BrewExecution,
+  style: string,
+): Promise<void> {
+  const clean = String(execution.batchNumber || "").replace("#", "").trim();
+  const batch = Number(clean);
+  if (!clean || !Number.isFinite(batch)) return;
+  const styleKey = String(style || "").trim().toLowerCase();
+  if (!styleKey) return;
+
+  await Promise.all(
+    (["1", "2", "3"] as const).map(async (blockKey, blockIndex) => {
+      const fields = execution.blocks?.[blockKey]?.fields;
+      if (!fields) return;
+      const compact = acidHistoryFields(fields);
+      if (!Object.values(compact).some(Boolean)) return;
+      const brewLetter = ["A", "B", "C"][blockIndex] as "A" | "B" | "C";
+      await setDoc(
+        doc(db, "brewAcidHistory", `${clean}-${brewLetter}`),
+        {
+          batchNumber: clean,
+          brewLetter,
+          ...compact,
+          sheetName: "",
+          sheetUrl: "",
+          styleKey,
+          sortKey: batch * 10 + blockIndex + 1,
+          source: "brewing-workflow",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }),
+  );
+}
+
 export async function saveBrewingExecutionToFirestore(
   execution: BrewExecution,
 ): Promise<void> {
