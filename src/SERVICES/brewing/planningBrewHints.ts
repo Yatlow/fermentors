@@ -60,8 +60,13 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
       loadWeekHints(nextWeekId),
     ]);
 
+    // If the same future batch number exists in both week projections, the
+    // later week is authoritative. This can happen when an older current-week
+    // queue still contains stale identities from before a brew was completed.
+    // Iterate next week first so stale current-week metadata cannot mask the
+    // actual upcoming brew (style/tank/date).
     const seen = new Set<string>();
-    const hints = [...current.hints, ...next.hints].filter((hint) => {
+    const hints = [...next.hints, ...current.hints].filter((hint) => {
       const key = String(hint.batchNumber).replace("#", "").trim();
       if (!key || seen.has(key)) return false;
       seen.add(key);
