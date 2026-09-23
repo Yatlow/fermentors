@@ -204,6 +204,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [planningHintsAvailable, setPlanningHintsAvailable] = useState(false);
     const [planningHintsLoading, setPlanningHintsLoading] = useState(false);
     const [createModalError, setCreateModalError] = useState("");
+    const [quickCreateHint, setQuickCreateHint] = useState<PlannedBrewHint | null>(null);
     const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
     const [editingTankId, setEditingTankId] = useState<string | null>(null);
     const [productionHistory, setProductionHistory] =
@@ -968,11 +969,17 @@ export default function BrewingView({ brews, tab }: Props) {
                     onClearError={() => setCreateModalError("")}
                     onClose={() => {
                         setCreateModalError("");
+                        setQuickCreateHint(null);
                         setShowCreate(false);
                     }}
                     onDemoTankTypeChange={(value) =>
                         setDemoTank(setSandboxDemoTankType(value))
                     }
+                    initialDraft={quickCreateHint ? {
+                        batchNumber: quickCreateHint.batchNumber,
+                        style: quickCreateHint.style,
+                        tankId: quickCreateHint.tankId,
+                    } : undefined}
                     onCreate={createSandbox}
                 />
             )}
@@ -1061,6 +1068,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                         key={`quick-${hint.batchNumber}-${hint.tankId}-${hint.date}`}
                                         className="brewing-planned-quick-card"
                                         onClick={() => {
+                                            setQuickCreateHint(hint);
                                             setSuggestedBatch(String(hint.batchNumber));
                                             setShowCreate(true);
                                         }}
@@ -1097,6 +1105,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                     className="btn-primary brewing-create-button"
                                     onClick={() => {
                                         setCreateModalError("");
+                                        setQuickCreateHint(null);
                                         setShowCreate(true);
                                     }}
                                 >
