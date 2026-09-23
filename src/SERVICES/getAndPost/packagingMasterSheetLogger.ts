@@ -85,6 +85,7 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
 
     const expectedQuantity = Math.max(0, Math.round(Number(operation.quantity ?? 0)));
     const batchNumber = String(operation.batchNumber ?? "").trim();
+    if (!batchNumber) throw new Error("לפעולת האריזה חסר מספר אצווה ולכן לא ניתן לבצע התאמה אוטומטית.");
     const beerStyle = String(operation.beerStyle ?? "").trim();
     const itemType = operation.itemType as PalletItemType;
     const expiryDateStr = String(operation.expiryDateStr ?? "").trim();
@@ -112,15 +113,22 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
     const batchPallets = batchNumber
         ? await getDocs(query(collection(db, "pallets"), where("batchNumber", "==", batchNumber)))
         : null;
-    const matchingPallets = (batchPallets?.docs ?? []).filter((palletDoc) => {
+    const exactPhysicalPallets = (batchPallets?.docs ?? []).filter((palletDoc) => {
         const pallet = palletDoc.data();
         if (pallet.zone === "shipped") return false;
         if (pallet.itemType !== itemType) return false;
         if (String(pallet.beerStyle ?? "").trim() !== beerStyle) return false;
         if (expiryDateStr && String(pallet.expiryDateStr ?? "").trim() !== expiryDateStr) return false;
-        const linkedOperation = String(pallet.packagingOperationId ?? "").trim();
-        return !linkedOperation || linkedOperation === operationId;
+        return true;
     });
+    const conflictingLinks = exactPhysicalPallets.filter((palletDoc) => {
+        const linkedOperation = String(palletDoc.data().packagingOperationId ?? "").trim();
+        return linkedOperation && linkedOperation !== operationId;
+    });
+    if (conflictingLinks.length > 0) {
+        throw new Error("נמצאו משטחים תואמים שכבר מקושרים לפעולת אריזה אחרת. לא בוצע שינוי אוטומטי.");
+    }
+    const matchingPallets = exactPhysicalPallets;
 
     const inventoryQuantity = matchingPallets.reduce(
         (sum, palletDoc) => sum + Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
