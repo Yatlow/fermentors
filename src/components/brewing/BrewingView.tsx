@@ -669,7 +669,6 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         setCreateModalError("");
         setBusyTankId(tank.id);
-        let createdBatch: string | null = null;
 
         try {
             const run = await createSandboxBrewRun({
@@ -685,45 +684,48 @@ export default function BrewingView({ brews, tab }: Props) {
                 recipeSnapshot: recipe,
                 assignmentStatus: isSanitized ? "assigned" : "pending_sanitization",
             });
-            createdBatch = run.batchNumber;
 
-            await ensureSandboxSheetAccess();
-
-            const sheet = await createSandboxBrewSheet({
-                batchNumber: run.batchNumber,
-                style: run.style,
-                tankNumber: run.tankNumber,
-                tankType: run.tankType,
-                recipe,
-                ingredients: loadSandboxIngredients(),
-            });
-
-            attachSandboxSheet(run.batchNumber, sheet);
+            // The sandbox run is the fast, durable-enough local acknowledgement.
+            // Do not keep the creation modal hostage while Drive copies the Sheet.
             setSandboxRuns(loadSandboxBrewRuns());
-
             if (tank.id === demoTank.id && isSanitized) {
                 setDemoTank(markSandboxDemoTankBrewing());
             }
-
-            setMessage(
-                isSanitized
-                    ? `✓ אצווה ${run.batchNumber} נוצרה ושויכה למיכל ${run.tankNumber} .`
-                    : `✓ אצווה ${run.batchNumber} נוצרה. היא ממתינה לשיבוץ למיכל ${run.tankNumber} עד שהמיכל יהיה מחוטא.`,
-            );
             setSuggestedBatch(String(Number(run.batchNumber) + 1));
             setShowCreate(false);
-            setCreateModalError("");
+            setBusyTankId(null);
+            setMessage(`✓ אצווה ${run.batchNumber} נוצרה. ה-Sheet נבנה ברקע…`);
+
+            void (async () => {
+                try {
+                    await ensureSandboxSheetAccess();
+                    const sheet = await createSandboxBrewSheet({
+                        batchNumber: run.batchNumber,
+                        style: run.style,
+                        tankNumber: run.tankNumber,
+                        tankType: run.tankType,
+                        recipe,
+                        ingredients: loadSandboxIngredients(),
+                    });
+                    attachSandboxSheet(run.batchNumber, sheet);
+                    setSandboxRuns(loadSandboxBrewRuns());
+                    setMessage(
+                        isSanitized
+                            ? `✓ אצווה ${run.batchNumber} מוכנה ושויכה למיכל ${run.tankNumber}.`
+                            : `✓ אצווה ${run.batchNumber} מוכנה וממתינה לשיבוץ למיכל ${run.tankNumber}.`,
+                    );
+                } catch (error) {
+                    setMessage(
+                        `אצווה ${run.batchNumber} נוצרה, אבל יצירת ה-Sheet ברקע נכשלה: ${
+                            error instanceof Error ? error.message : "שגיאה לא ידועה"
+                        }`,
+                    );
+                }
+            })();
         } catch (error) {
-            if (createdBatch) {
-                deleteSandboxBrewRun(createdBatch);
-                setSandboxRuns(loadSandboxBrewRuns());
-            }
             setCreateModalError(
-                error instanceof Error
-                    ? error.message
-                    : "יצירת אצווה וה-Sheet נכשלה.",
+                error instanceof Error ? error.message : "יצירת האצווה נכשלה.",
             );
-        } finally {
             setBusyTankId(null);
         }
     }
