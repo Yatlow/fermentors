@@ -796,6 +796,14 @@ export default function BrewingView({ brews, tab }: Props) {
                     });
                     await deleteDoc(oldBrewRef);
                 }
+                // Creation metadata is also keyed by the original batch number.
+                // Once the Sheet exists these records are no longer needed; leaving
+                // them behind makes recreating the original planned batch hit the
+                // create-only Firestore rule and surface as "Missing permissions".
+                await Promise.allSettled([
+                    deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
+                    deleteDoc(doc(db, "pendingBrews", run.batchNumber)),
+                ]);
             } else {
                 const brewRef = doc(db, "brews", run.batchNumber);
                 const brewSnapshot = await getDoc(brewRef);
