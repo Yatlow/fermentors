@@ -1854,16 +1854,18 @@ export default function BrewFormStepper({
     let row = baseRow + rowOffset;
 
     if (stage) {
-      row = sheetRowFromMeta(
-        `__sheetRow.stage.${stage.key}`,
-        row,
-      );
+      row = sheetRowFromMeta(`__sheetRow.stage.${stage.key}`, row);
     } else if (rowOffset >= 18 && rowOffset <= 24) {
       const rinseIndex = rowOffset - 17;
-      row = sheetRowFromMeta(
-        `__sheetRow.rinse.${rinseIndex}`,
-        row,
-      );
+      row = sheetRowFromMeta(`__sheetRow.rinse.${rinseIndex}`, row);
+    }
+
+    // Never let a fallback offset spill from the final brew block into the
+    // fermentation table. Triple templates have a shorter C block than A/B;
+    // only discovered row metadata is allowed near that boundary.
+    const fermentationRow = fermentationStartingRow(run.tankType);
+    if (row >= fermentationRow) {
+      throw new Error(`כתיבת בישול נחסמה: ${column}${row} נמצא בתוך דף התסיסה.`);
     }
 
     return `'גיליון1'!${column}${row}`;
