@@ -131,6 +131,7 @@ export function buildBrewSheetInitialWrites(input: {
     });
   }
   if (input.recipe && input.ingredients) {
+    const ingredients = input.ingredients;
     const hopStarts = input.tankType === "triple" ? [24, 74, 122] : input.tankType === "double" ? [24, 74] : [24];
     const kettleHops = input.recipe.hops.filter((hop) => hop.purpose !== "dryHop");
     hopStarts.forEach((startRow) => {
@@ -145,7 +146,7 @@ export function buildBrewSheetInitialWrites(input: {
           );
           continue;
         }
-        const ingredient = input.ingredients.find((item) => item.id === hop.ingredientId);
+        const ingredient = ingredients.find((item) => item.id === hop.ingredientId);
         const lot = ingredient ? activeLot(ingredient) : undefined;
         const ingredientLabel = ingredient?.name || hop.ingredientId;
         const lotSuffix = lot?.lotNumber ? ` #${lot.lotNumber}` : "";
