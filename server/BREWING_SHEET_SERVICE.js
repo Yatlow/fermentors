@@ -19,12 +19,32 @@ const BREWING_CREATED_FILE_PREFIX_ = "brewing_created_file:";
 
 function brewingSheetConfig_() {
   const props = PropertiesService.getScriptProperties();
+
+  // Keep the new brewing workflow on the same Drive source of truth as the
+  // existing brewery service. Script Properties may override these values, but
+  // a deployment must not become unusable merely because the new properties
+  // were never provisioned.
+  const existingBrewFolderId =
+    typeof BREW_FOLDER_ID !== "undefined" ? String(BREW_FOLDER_ID || "").trim() : "";
+
   return {
-    folderId: String(props.getProperty("BREWING_DESTINATION_FOLDER_ID") || "").trim(),
+    folderId: String(
+      props.getProperty("BREWING_DESTINATION_FOLDER_ID") ||
+      existingBrewFolderId
+    ).trim(),
     templates: {
-      single: String(props.getProperty("BREWING_TEMPLATE_SINGLE_ID") || "").trim(),
-      double: String(props.getProperty("BREWING_TEMPLATE_DOUBLE_ID") || "").trim(),
-      triple: String(props.getProperty("BREWING_TEMPLATE_TRIPLE_ID") || "").trim()
+      single: String(
+        props.getProperty("BREWING_TEMPLATE_SINGLE_ID") ||
+        "1qqYHpIhokc7mEsCHW2bhM6LDGrmh4CN0l937nYnonOw"
+      ).trim(),
+      double: String(
+        props.getProperty("BREWING_TEMPLATE_DOUBLE_ID") ||
+        "1M-IFhJL-JwphQDEKsAHFCpCR8zz4zXXgaXkCZ2hpXtY"
+      ).trim(),
+      triple: String(
+        props.getProperty("BREWING_TEMPLATE_TRIPLE_ID") ||
+        "1I8P0aoD7WEo0AYZcYebhFzCGdik5TzgPnNq2SgPEzkI"
+      ).trim()
     }
   };
 }
