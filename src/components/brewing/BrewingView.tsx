@@ -1030,12 +1030,17 @@ export default function BrewingView({ brews, tab }: Props) {
             )}
 
             {tab === "form" && !selectedRun && (
-                <section className="brewing-planned-quick">
-                    <div className="brewing-planned-quick-heading">
-                        <strong>בישולים מתוכננים</strong>
-                        <small>השבוע והשבוע הבא</small>
+                <section className="brewing-panel brewing-planned-quick">
+                    <div className="brewing-panel-heading">
+                        <div>
+                            <h2>בישולים מתוכננים</h2>
+                            <p>השבוע והשבוע הבא · לחץ על אצווה כדי ליצור אותה</p>
+                        </div>
+                        {!planningHintsLoading && planningHintsAvailable && planningHints.length > 0 && (
+                            <span className="brewing-count">{planningHints.length}</span>
+                        )}
                     </div>
-                    <div className="brewing-planned-quick-list">
+                    <div className="brewing-tank-grid brewing-planned-quick-list">
                         {planningHintsLoading && <small>טוען בישולים מתוכננים…</small>}
                         {!planningHintsLoading && !planningHintsAvailable && (
                             <small>לא ניתן לטעון כרגע את תכנון הבישולים.</small>
@@ -1057,7 +1062,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                     <button
                                         type="button"
                                         key={`quick-${hint.batchNumber}-${hint.tankId}-${hint.date}`}
-                                        className="brewing-planned-quick-card"
+                                        className="brewing-tank-card brewing-planned-quick-card"
                                         onClick={() => {
                                             setQuickCreateHint(hint);
                                             setSuggestedBatch(String(hint.batchNumber));
