@@ -614,6 +614,104 @@ function brewingSheetPublishEditRevision_(tankNumber, event) {
   }
 }
 
+
+function brewingSheetFirestoreString_(value) {
+  return { stringValue: String(value == null ? "" : value) };
+}
+
+function brewingSheetPersistExecutionCell_(fermentor, event) {
+  if (!fermentor || !event || !event.range) return false;
+  const batch = String(fermentor.batchNumber || "").replace("#", "").trim();
+  if (!batch) return false;
+
+  const range = event.range;
+  // Single-cell edits are the normal fast path. Multi-cell pastes keep the
+  // revision signal and are reconciled by the full parser instead of risking a
+  // partial canonical write.
+  if (range.getNumRows() !== 1 || range.getNumColumns() !== 1) return false;
+
+  const row = range.getRow();
+  const col = range.getColumn();
+  const sheet = range.getSheet();
+  const value = String(range.getDisplayValue() || "").trim();
+  const data = sheet.getDataRange().getDisplayValues();
+
+  // Find the nearest brew header above the edited row. Templates may move rows,
+  // so block identity is discovered from labels, never absolute row numbers.
+  const headers = findBrewBlockStarts(data);
+  let blockIndex = 0;
+  let blockStart = -1;
+  headers.forEach(function (header, index) {
+    if (header.row <= row - 1) {
+      blockIndex = index + 1;
+      blockStart = header.row;
+    }
+  });
+  if (!blockIndex || blockStart < 0) return false;
+
+  const label = String((data[row - 1] || [])[3] || "").trim();
+  let key = "";
+
+  const stagePatterns = [
+    ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\s*1$/i],
+    ["heat1", /^חימום\s*1$/i], ["rest2", /^השריה\s*2$/i],
+    ["heat2", /^חימום\s*2$/i], ["rest3", /^השריה\s*3$/i],
+    ["heat3", /^חימום\s*3$/i], ["transferLt", /^העברה\s+ל.*L\.?T\.?/i],
+    ["restLt", /^מנוחה\s*L\.?T\.?/i], ["circulation", /^סחרור/i],
+    ["outToBoil", /^הוצאה לבישול$/i], ["endTransfer", /^סוף העברה$/i],
+    ["boil", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i],
+    ["hop1", /^הוספת כ(?:שות|שת)\s*1$/i], ["hop2", /^הוספת כ(?:שות|שת)\s*2$/i],
+    ["hop3", /^הוספת כ(?:שות|שת)\s*3$/i], ["wp", /סוף רתיחה.*תחילת\s*WP/i],
+    ["outToFermentor", /^הוצאה לתסיסה$/i]
+  ];
+  for (let i = 0; i < stagePatterns.length && !key; i++) {
+    if (!stagePatterns[i][1].test(label)) continue;
+    if (col === 5) key = stagePatterns[i][0] + ".start";
+    else if (col === 6) key = stagePatterns[i][0] + ".end";
+    else if (col === 7) key = stagePatterns[i][0] + ".temp";
+    else if (col === 8) key = stagePatterns[i][0] + ".note";
+  }
+
+  const rinse = /^שטיפה\s*(\d+)$/i.exec(label);
+  if (!key && rinse) {
+    if (col === 5) key = "rinse" + rinse[1] + ".time";
+    else if (col === 6) key = "rinse" + rinse[1] + ".amount";
+    else if (col === 7) key = "rinse" + rinse[1] + ".temp";
+    else if (col === 8) key = "rinse" + rinse[1] + ".kettle";
+  }
+  if (!key) return false;
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/brews/" + encodeURIComponent(batch) +
+    "?updateMask.fieldPaths=brewingExecution.blocks." + blockIndex + ".fields.%60" +
+    encodeURIComponent(key) + "%60" +
+    "&updateMask.fieldPaths=brewingExecution.batchNumber" +
+    "&updateMask.fieldPaths=brewingExecution.updatedAt";
+
+  const document = { fields: { brewingExecution: { mapValue: { fields: {
+    batchNumber: brewingSheetFirestoreString_(batch),
+    updatedAt: brewingSheetFirestoreString_(new Date().toISOString()),
+    blocks: { mapValue: { fields: {} } }
+  } } } } };
+  const blockFields = {};
+  blockFields[key] = brewingSheetFirestoreString_(value);
+  document.fields.brewingExecution.mapValue.fields.blocks.mapValue.fields[String(blockIndex)] =
+    { mapValue: { fields: { fields: { mapValue: { fields: blockFields } } } } };
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch", contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify(document), muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error("Failed persisting brew execution cell for batch " + batch +
+      ": " + code + " " + response.getContentText());
+  }
+  return true;
+}
+
 function brewingSheetOnEdit_(event) {
   if (!event || !event.source) return;
 
@@ -645,6 +743,9 @@ function brewingSheetOnEdit_(event) {
       brewingSheetRememberEditTank_(spreadsheetId, fermentor.tankNumber);
       brewingSheetPublishEditRevision_(fermentor.tankNumber, event);
     }
+
+    // Persist the canonical execution even when no browser is open.
+    brewingSheetPersistExecutionCell_(fermentor, event);
 
     const stageInfo = extractBrewStageInfo(spreadsheetId, fermentor);
     if (!stageInfo || !stageInfo.lastBlock) return;
