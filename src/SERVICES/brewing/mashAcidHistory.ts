@@ -60,15 +60,9 @@ export async function loadMashAcidHistoryPreview(
   currentBatchNumber: string,
   forceRefresh = false,
 ): Promise<MashAcidHistoryRow[]> {
-  const currentBatch = String(currentBatchNumber || "").replace("#", "").trim();
-
   if (!forceRefresh) {
     const cached = loadCached(style);
-    if (cached) {
-      return cached.filter(
-        (row) => String(row.batchNumber).replace("#", "").trim() !== currentBatch,
-      );
-    }
+    if (cached) return cached;
   }
 
   const rows = (await serverLoadBrewAcidHistory(
@@ -76,9 +70,6 @@ export async function loadMashAcidHistoryPreview(
     currentBatchNumber,
   )) as MashAcidHistoryRow[];
 
-  const previousRows = rows.filter(
-    (row) => String(row.batchNumber).replace("#", "").trim() !== currentBatch,
-  );
-  saveCached(style, previousRows);
-  return previousRows;
+  saveCached(style, rows);
+  return rows;
 }
