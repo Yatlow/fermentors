@@ -279,30 +279,7 @@ service cloud.firestore {
           'fileId', 'fileName', 'sheetUrl', 'createdAt'
         ])
         && request.resource.data.batchNumber == batchId
-        && batchId.matches('^[0-9]+
-      allow read: if isApprovedUser();
-      allow create, update: if isBreweryPlanner()
-        && request.resource.data.keys().hasOnly([
-          'id', 'revision', 'brews', 'updatedAt', 'updatedBy'
-        ])
-        && request.resource.data.id == weekId
-        && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.revision is int
-        && request.resource.data.revision >= 1
-        && request.resource.data.brews is list
-        && request.resource.data.brews.size() <= 30
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
-    }
-
-    match /planningSnapshots/{snapshotId} {
-      allow read: if isBreweryPlanner();
-      allow write: if false;
-    }
-  }
-}
-)
+        && batchId.matches('^[0-9]+$')
         && request.resource.data.beerStyle is string
         && request.resource.data.tankNumber is string
         && request.resource.data.fileId is string
