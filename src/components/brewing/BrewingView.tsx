@@ -1045,13 +1045,20 @@ export default function BrewingView({ brews, tab }: Props) {
                 />
             )}
 
-            {tab === "form" && !selectedRun && planningHints.length > 0 && (
+            {tab === "form" && !selectedRun && (
                 <section className="brewing-planned-quick">
                     <div className="brewing-planned-quick-heading">
                         <strong>בישולים מתוכננים</strong>
                         <small>השבוע והשבוע הבא</small>
                     </div>
                     <div className="brewing-planned-quick-list">
+                        {planningHintsLoading && <small>טוען בישולים מתוכננים…</small>}
+                        {!planningHintsLoading && !planningHintsAvailable && (
+                            <small>לא ניתן לטעון כרגע את תכנון הבישולים.</small>
+                        )}
+                        {!planningHintsLoading && planningHintsAvailable && planningHints.length === 0 && (
+                            <small>לא נמצאו בישולים מתוכננים לשבוע הזה או לשבוע הבא.</small>
+                        )}
                         {planningHints
                             .filter((hint) => {
                                 const clean = String(hint.batchNumber).replace("#", "").trim();
