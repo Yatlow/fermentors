@@ -587,15 +587,24 @@ function brewStageBlockStartsArray_(blockStarts) {
 // ----------------------------------------------------------
 
 function brewStageFindBeerVolume_(values) {
-  const location = brewStageFindExactCell_(values, "נפח:");
-  if (!location) return null;
+  // Brew templates vary slightly. Locate the fermentation-sheet volume row by
+  // its visible label instead of requiring the exact literal "נפח:".
+  // Accept "נפח", "נפח:" and harmless whitespace/RTL-mark variations.
+  for (let r = 0; r < values.length; r++) {
+    const row = values[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      const label = String(row[c] || "")
+        .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+        .trim();
+      if (!/^נפח\s*:?$/.test(label)) continue;
 
-  const row = values[location.row] || [];
-
-  // Prefer the next cell, but tolerate merged/template variations.
-  for (let c = location.col + 1; c < Math.min(row.length, location.col + 4); c++) {
-    const n = brewStageExtractNumber_(row[c]);
-    if (n !== null) return n;
+      // Prefer cells to the right. Merged cells/template spacing can put the
+      // numeric value two or three columns away.
+      for (let valueCol = c + 1; valueCol < Math.min(row.length, c + 5); valueCol++) {
+        const n = brewStageExtractNumber_(row[valueCol]);
+        if (n !== null && n > 0) return n;
+      }
+    }
   }
 
   return null;
