@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
@@ -782,6 +782,27 @@ export default function BrewingView({ brews, tab }: Props) {
                 throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
             }
             await serverRenameBrewSheet({ spreadsheetId: run.sheetId, oldBatchNumber: run.batchNumber, newBatchNumber: nextBatch, style: nextStyle });
+            // brews/{batch} is keyed by the batch number, so a rename must
+            // migrate the canonical document too. Otherwise the old id becomes
+            // an orphan and deleting the renamed batch cannot remove it.
+            if (nextBatch !== run.batchNumber) {
+                const oldBrewRef = doc(db, "brews", run.batchNumber);
+                const oldBrewSnapshot = await getDoc(oldBrewRef);
+                if (oldBrewSnapshot.exists()) {
+                    await setDoc(doc(db, "brews", nextBatch), {
+                        ...oldBrewSnapshot.data(),
+                        batchNumber: nextBatch,
+                        beerStyle: nextStyle,
+                    });
+                    await deleteDoc(oldBrewRef);
+                }
+            } else {
+                const brewRef = doc(db, "brews", run.batchNumber);
+                const brewSnapshot = await getDoc(brewRef);
+                if (brewSnapshot.exists()) {
+                    await updateDoc(brewRef, { beerStyle: nextStyle });
+                }
+            }
             await updateDoc(doc(db, "fermentors", tank.id), { batchNumber: nextBatch, beerStyle: nextStyle });
             setEditBatchDraft(null);
             setMessage(`✓ אצווה ${run.batchNumber} עודכנה ל-${nextBatch} · ${nextStyle}.`);
