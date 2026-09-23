@@ -120,7 +120,17 @@ function brewingSheetWriteCells_(data) {
     const rangeText = String(item && item.range || "").trim();
     if (!rangeText) throw new Error("Write is missing range");
 
-    const range = ss.getRange(rangeText);
+    // A1 ranges are generated from template metadata and historically use
+    // 'גיליון1'. Production brew files may have a renamed tab. Resolve the
+    // requested tab when present and otherwise fall back to the file's single
+    // actual sheet, just like the read path.
+    const bang = rangeText.lastIndexOf("!");
+    const rawSheetName = bang >= 0 ? rangeText.slice(0, bang) : "";
+    const a1 = bang >= 0 ? rangeText.slice(bang + 1) : rangeText;
+    const sheetName = rawSheetName.replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
+    const sheet = (sheetName ? ss.getSheetByName(sheetName) : null) || ss.getSheets()[0];
+    if (!sheet) throw new Error("Brew Sheet has no sheets");
+    const range = sheet.getRange(a1);
 
     if (
       item &&
