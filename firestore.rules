@@ -284,7 +284,11 @@ service cloud.firestore {
         && request.resource.data.attempts == 0
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
-      allow update, delete: if false;
+      allow update: if false;
+      // Cleanup is allowed only to an approved brewery user. Creation-job
+      // documents are operational metadata and must disappear with a deleted
+      // unstarted batch so the same batch can be recreated cleanly.
+      allow delete: if isApprovedUser();
     }
 
     match /pendingBrews/{batchId} {
