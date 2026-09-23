@@ -8,6 +8,7 @@ import {
   saveBrewingProgressToFirestore,
   replaceSandboxExecutionBlockFields,
   setSandboxExecutionActiveBlock,
+  setSandboxExecutionActiveStep,
   setSandboxExecutionField,
   setSandboxExecutionReviewedSteps,
   type BrewExecution,
@@ -970,7 +971,7 @@ export default function BrewFormStepper({
   const [execution, setExecution] = useState<BrewExecution>(() =>
     loadSandboxExecution(run.batchNumber),
   );
-  const [activeStep, setActiveStep] = useState(0);
+  const [activeStep, setActiveStepState] = useState(() => Math.max(0, loadSandboxExecution(run.batchNumber).activeStepIndex || 0));
   const [syncing, setSyncing] = useState("");
   const [pulling, setPulling] = useState(false);
   const [message, setMessage] = useState("");
@@ -1021,13 +1022,25 @@ export default function BrewFormStepper({
       : STEPS.filter((step) => step.id !== "summary");
   const currentStep = visibleSteps[Math.min(activeStep, visibleSteps.length - 1)];
 
+  function setActiveStep(value: number | ((current: number) => number)) {
+    setActiveStepState((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      const bounded = Math.max(0, Math.min(visibleSteps.length - 1, next));
+      setExecution((executionCurrent) => setSandboxExecutionActiveStep(executionCurrent, bounded));
+      return bounded;
+    });
+  }
+
   useEffect(() => {
     let cancelled = false;
     setFirestoreHydrated(false);
     loadBrewingExecutionFromFirestore(run.batchNumber)
       .then((remote) => {
         if (cancelled) return;
-        if (remote) setExecution(remote);
+        if (remote) {
+          setExecution(remote);
+          setActiveStepState(Math.max(0, remote.activeStepIndex || 0));
+        }
       })
       .catch((error) => console.warn("Failed loading brewing execution", error))
       .finally(() => {
@@ -2839,7 +2852,9 @@ export default function BrewFormStepper({
 
     if (
       key === "kettleVolume" &&
+      currentBlock > 1 &&
       parsed !== null &&
+      String(parsed) !== String(num(fields.kettleVolume) ?? "") &&
       !options.skipHopPrompt &&
       boilHops.some((_, index) => String(fields[`hop${index + 1}.amountGrams`] || "").trim())
     ) {
@@ -3480,9 +3495,7 @@ export default function BrewFormStepper({
         : nextExecution.activeBlockIndex;
 
     const stageName = String(run.brewProgress?.stageName || "").trim();
-    const stepIndex = stepIndexFromLiveProgress(stageName);
-
-    setActiveStep(stepIndex);
+    if (stageName) setActiveStep(stepIndexFromLiveProgress(stageName));
     return setSandboxExecutionActiveBlock(nextExecution, blockIndex);
   }
 
@@ -3733,8 +3746,8 @@ export default function BrewFormStepper({
   }, [firestoreHydrated, run.batchNumber, run.sheetId]);
 
   async function selectBlock(index: number) {
-    setExecution(setSandboxExecutionActiveBlock(execution, index));
-    setActiveStep(0);
+    setExecution(setSandboxExecutionActiveStep(setSandboxExecutionActiveBlock(execution, index), 0));
+    setActiveStepState(0);
     setMessage("");
   }
 
@@ -4308,7 +4321,7 @@ export default function BrewFormStepper({
                   dir="ltr"
                   placeholder="DD/MM/YY"
                   required
-                  defaultValue={shortIsraeliDate(localValue("brewDate"))}
+                  defaultValue={shortIsraeliDate(localValue("brewDate") || new Date().toISOString().slice(0, 10))}
                   onInput={(e) => {
                     e.currentTarget.value = formatIsraeliDateTyping(
                       e.currentTarget.value,
@@ -4364,6 +4377,7 @@ export default function BrewFormStepper({
               <article className="brew-water-card">
                 <div>
                   <strong>MASH IN / מי מאש</strong>
+                  <small>יעד לפי המתכון: {recipe.mash.waterLiters} ל׳</small>
                 </div>
                 <label>
                   כמות מים
@@ -4541,13 +4555,8 @@ export default function BrewFormStepper({
                 <strong>
                   {blockFields(currentBlock - 1)["outToFermentor.end"] || "—"}
                 </strong>
-                <small>תזכורת מהבישול הקודם לפני הכנסת לתת</small>
               </div>
             )}
-
-            <div className="brew-section-title">
-              <span>מי מאש יעד: {recipe.mash.waterLiters} ל׳</span>
-            </div>
 
             {renderStageRows([MASH_STAGES[0]])}
 
@@ -4848,7 +4857,6 @@ export default function BrewFormStepper({
                     }
                   />
                 </label>
-                <small>מדידת L.R. ליד סוף ההעברה</small>
               </div>
             </div>
           </>
@@ -4859,7 +4867,6 @@ export default function BrewFormStepper({
             <div className="brew-step-context-bar">
               <span>סוף העברה</span>
               <strong>{localValue("endTransfer.start") || "—"}</strong>
-              <small>מוצג משלב הלאוטר · ללא עריכה כאן</small>
             </div>
 
             <div className="brew-boil-opening-grid">
