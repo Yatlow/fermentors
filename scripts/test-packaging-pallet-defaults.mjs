@@ -45,8 +45,13 @@ assert.match(logger, /PACKAGING_LOG_COLLECTION[\s\S]*reportMatches[\s\S]*invento
   "recovery must verify the packaging report before reconciling physical pallet inventory");
 assert.match(logger, /inventoryQuantity > expectedQuantity[\s\S]*עמימות/,
   "recovery must stop instead of mutating ambiguous excess inventory");
-assert.match(logger, /packagingSource: "manual"[\s\S]*createPalletsForPlan\(plan, splits\)/,
-  "existing physical pallets must be linked before only the genuine remainder is created");
+assert.doesNotMatch(
+  logger.slice(
+    logger.indexOf("export async function recoverPackagingOperation"),
+    logger.indexOf("export async function markPackagingPalletsCompleted")
+  ),
+  /createPalletsForPlan\(/,
+  "reconciliation must never create missing physical pallets automatically");
 assert.match(syncStatus, /בדוק והשלם אריזה/,
   "dashboard recovery action must describe reconciliation rather than blind pallet recreation");
 assert.match(rules, /hasOnly\(\[[^\]]*'palletRevision'[^\]]*\]\)/,
