@@ -999,6 +999,9 @@ export default function BrewFormStepper({
     String(recipe.targets.endBoilPlato || ""),
   );
   const [hopRecalcVolume, setHopRecalcVolume] = useState<number | null>(null);
+  // onChange updates execution immediately, so onBlur cannot use `fields` to
+  // discover the previously committed kettle volume. Keep that value separately.
+  const committedKettleVolumeRef = useRef<Record<number, number | null>>({});
   const initialProductionPullKey = useRef("");
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2849,7 +2852,12 @@ export default function BrewFormStepper({
       },
     ];
 
-    const previousKettleVolume = num(fields.kettleVolume || "");
+    const blockKey = currentBlock;
+    const storedCommittedVolume = committedKettleVolumeRef.current[blockKey];
+    const previousKettleVolume =
+      storedCommittedVolume !== undefined
+        ? storedCommittedVolume
+        : num(loadSandboxExecution(run.batchNumber).blocks[String(currentBlock)]?.fields?.kettleVolume || "");
     const kettleVolumeActuallyChanged =
       parsed !== null && previousKettleVolume !== null && parsed !== previousKettleVolume;
     const shouldOfferHopRecalc =
@@ -2861,12 +2869,15 @@ export default function BrewFormStepper({
       boilHops.length > 0;
 
     if (shouldOfferHopRecalc) {
+      // Persist the new volume, but defer hop recalculation until the user
+      // explicitly chooses it in the modal.
       setHopRecalcVolume(parsed);
       await commitSugar(key, value, rowOffset, column, { skipHopPrompt: true });
       return;
     }
 
     if (key === "kettleVolume" && parsed !== null) {
+      committedKettleVolumeRef.current[blockKey] = parsed;
       let nextExecution = setSandboxExecutionField(
         execution,
         currentBlock,
