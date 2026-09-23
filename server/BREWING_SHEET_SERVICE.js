@@ -623,6 +623,114 @@ function brewingSheetPublishEditRevision_(tankNumber, event) {
 }
 
 
+
+function brewingSheetBackfill1597() {
+  const batch = "1597";
+  const fermentor = brewingSheetFindFermentorForBatch_(batch);
+  if (!fermentor) throw new Error("Active fermentor for batch 1597 was not found");
+
+  const spreadsheetId = brewingSheetExtractId_(fermentor.sheetUrl || fermentor.spreadsheetId || "");
+  if (!spreadsheetId) throw new Error("Sheet id for batch 1597 was not found");
+
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = ss.getSheets()[0];
+  const values = sheet.getDataRange().getDisplayValues();
+  const starts = findBrewBlockStarts(values);
+  if (!starts.length) throw new Error("No brew blocks found in batch 1597 Sheet");
+
+  const execution = {
+    batchNumber: batch,
+    activeBlockIndex: 1,
+    blocks: {},
+    reviewedSteps: {},
+    updatedAt: new Date().toISOString()
+  };
+
+  starts.forEach(function (start, idx) {
+    const end = idx + 1 < starts.length ? starts[idx + 1] - 1 : values.length - 1;
+    const fields = {};
+    for (let r = start; r <= end; r++) {
+      const row = values[r] || [];
+      const label = String(row[3] || "").trim();
+      const stagePatterns = [
+        ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\\s*1$/i], ["heat1", /^חימום\\s*1$/i],
+        ["rest2", /^השריה\\s*2$/i], ["heat2", /^חימום\\s*2$/i], ["rest3", /^השריה\\s*3$/i],
+        ["heat3", /^חימום\\s*3$/i], ["transferLt", /^העברה\\s+ל.*L\\.?T\\.?/i],
+        ["restLt", /^מנוחה\\s*L\\.?T\\.?/i], ["circulation", /^סחרור/i],
+        ["outToBoil", /^הוצאה לבישול$/i], ["endTransfer", /^סוף העברה$/i],
+        ["boil", /^(?:תחילת\\s+)?רתיחה(?:\\s+100°?C)?$/i],
+        ["hop1", /^הוספת כ(?:שות|שת)\\s*1$/i], ["hop2", /^הוספת כ(?:שות|שת)\\s*2$/i],
+        ["hop3", /^הוספת כ(?:שות|שת)\\s*3$/i], ["wp", /סוף רתיחה.*תחילת\\s*WP/i],
+        ["outToFermentor", /^הוצאה לתסיסה$/i]
+      ];
+      stagePatterns.forEach(function (entry) {
+        if (!entry[1].test(label)) return;
+        if (row[4]) fields[entry[0] + ".start"] = String(row[4]).trim();
+        if (row[5]) fields[entry[0] + ".end"] = String(row[5]).trim();
+        if (row[6]) fields[entry[0] + ".temp"] = String(row[6]).trim().replace(/[^0-9.,-]/g, "");
+        if (row[7]) fields[entry[0] + ".note"] = String(row[7]).trim();
+        fields["__sheetRow.stage." + entry[0]] = String(r + 1);
+      });
+      const rinse = /^שטיפה\\s*(\\d+)$/i.exec(label);
+      if (rinse) {
+        const n = rinse[1];
+        if (row[4]) fields["rinse" + n + ".time"] = String(row[4]).trim();
+        if (row[5]) fields["rinse" + n + ".amount"] = String(row[5]).trim().replace(/[^0-9.,-]/g, "");
+        if (row[6]) fields["rinse" + n + ".temp"] = String(row[6]).trim().replace(/[^0-9.,-]/g, "");
+        if (row[7]) fields["rinse" + n + ".kettle"] = String(row[7]).trim().split("+")[0].replace(/[^0-9.,-]/g, "");
+        fields["__sheetRow.rinse." + n] = String(r + 1);
+      }
+    }
+    execution.blocks[String(idx + 1)] = { fields: fields };
+    if (Object.keys(fields).some(function (k) { return k.indexOf("__sheetRow.") !== 0; })) {
+      execution.activeBlockIndex = idx + 1;
+    }
+  });
+
+  const url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/brews/" + batch +
+    "?updateMask.fieldPaths=brewingExecution&updateMask.fieldPaths=brewingExecutionUpdatedAt";
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({ fields: {
+      brewingExecution: brewStageToFirestoreValue_(execution),
+      brewingExecutionUpdatedAt: { timestampValue: new Date().toISOString() }
+    }}),
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error("1597 backfill failed: " + response.getResponseCode() + " " + response.getContentText());
+  }
+  console.log("1597 brewingExecution backfilled from Sheet");
+  return execution;
+}
+
+function brewingSheetFindFermentorForBatch_(batchNumber) {
+  const url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors";
+  const response = UrlFetchApp.fetch(url, {
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return null;
+  const body = JSON.parse(response.getContentText() || "{}");
+  const docs = body.documents || [];
+  for (let i = 0; i < docs.length; i++) {
+    const fields = docs[i].fields || {};
+    const rawBatch = fields.batchNumber && (fields.batchNumber.stringValue || fields.batchNumber.integerValue);
+    if (String(rawBatch || "").replace("#", "").trim() !== String(batchNumber)) continue;
+    return {
+      tankNumber: String((fields.tankNumber && (fields.tankNumber.stringValue || fields.tankNumber.integerValue)) || ""),
+      batchNumber: String(rawBatch || ""),
+      sheetUrl: String((fields.sheetUrl && fields.sheetUrl.stringValue) || "")
+    };
+  }
+  return null;
+}
+
 function brewingSheetFirestoreString_(value) {
   return { stringValue: String(value == null ? "" : value) };
 }
