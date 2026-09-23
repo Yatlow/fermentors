@@ -890,14 +890,25 @@ export default function BrewingView({ brews, tab }: Props) {
                 deleteDoc(doc(db, "pendingBrews", run.batchNumber)),
                 deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
             ]).catch(() => undefined);
-            const previousRun = productionHistory
-                .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
-                .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== run.batchNumber)
-                .filter((item) => !!String(item.brewDate || "").trim())
-                .sort((a, b) => {
-                    const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
-                    return Number.isFinite(batchDelta) && batchDelta !== 0 ? batchDelta : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
-                })[0];
+            const cellarBatch = String(
+                (tank.cellarState as { batchNumber?: string | number } | undefined)?.batchNumber || "",
+            ).replace("#", "").trim();
+            const previousRun =
+                (cellarBatch
+                    ? productionHistory.find(
+                          (item) => String(item.batchNumber || "").replace("#", "").trim() === cellarBatch,
+                      )
+                    : undefined) ||
+                productionHistory
+                    .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
+                    .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== run.batchNumber)
+                    .filter((item) => !!String(item.brewDate || "").trim())
+                    .sort((a, b) => {
+                        const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
+                        return Number.isFinite(batchDelta) && batchDelta !== 0
+                            ? batchDelta
+                            : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
+                    })[0];
             await updateDoc(doc(db, "fermentors", tank.id), {
                 batchNumber: previousRun?.batchNumber || "",
                 beerStyle: previousRun?.beerStyle || "",
@@ -984,12 +995,11 @@ export default function BrewingView({ brews, tab }: Props) {
                                     : null;
 
                             return (
-                                <>
+                                <div className="brewing-action-zero-item" key={tank.id}>
                                 <button
                                     type="button"
                                     className="brewing-action-zero-chip"
-                                    key={tank.id}
-                                    disabled={!run || !recipe}
+                                    disabled={!run || !recipe>
                                     onClick={() => {
                                         if (!run) return;
                                         setMessage("");
@@ -1066,7 +1076,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                         </button>
                                     </div>
                                 )}
-                                </>
+                                </div>
                             );
                         })}
                     </div>
