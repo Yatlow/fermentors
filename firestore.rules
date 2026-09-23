@@ -272,28 +272,11 @@ service cloud.firestore {
     }
 
     match /brewSheetCreationJobs/{batchId} {
+      // This is an operational outbox. The authenticated brewery client only
+      // enqueues/deletes jobs; the worker owns subsequent state transitions.
       allow read: if isApprovedUser();
-      allow create: if isApprovedUser()
-        && request.resource.data.keys().hasOnly([
-          'batchNumber', 'style', 'tankNumber', 'tankType', 'name',
-          'initialWritesJson', 'state', 'attempts', 'createdAt', 'updatedAt'
-        ])
-        && request.resource.data.batchNumber == batchId
-        && request.resource.data.batchNumber is string
-        && batchId.matches('^[0-9]+$')
-        && request.resource.data.style is string
-        && request.resource.data.tankNumber is string
-        && request.resource.data.tankType in ['single', 'double', 'triple']
-        && request.resource.data.name is string
-        && request.resource.data.initialWritesJson is string
-        && request.resource.data.state == 'queued'
-        && request.resource.data.attempts == 0
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time;
+      allow create: if isApprovedUser();
       allow update: if false;
-      // Cleanup is allowed only to an approved brewery user. Creation-job
-      // documents are operational metadata and must disappear with a deleted
-      // unstarted batch so the same batch can be recreated cleanly.
       allow delete: if isApprovedUser();
     }
 
