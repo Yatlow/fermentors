@@ -1283,24 +1283,16 @@ export default function BrewFormStepper({
 
   const missingItems = useMemo(() => {
     const labels: Array<[StepId, string]> = [
-      ["water", "תאריך, מים וחומרי גלם"],
-      ["mash", "מאש"],
-      ["lautering", "לאוטר"],
-      ["boil", "רתיחה וכשות"],
-      ["transfer", "WP והוצאה לתסיסה"],
+      ["water", "תאריך, מים וחומרי גלם"], ["mash", "מאש"], ["lautering", "לאוטר"],
+      ["boil", "רתיחה וכשות"], ["transfer", "WP והוצאה לתסיסה"],
     ];
-    return labels
-      .map(([id, label]) => ({
-        label,
-        count: stepMissingCountForBlock(currentBlock, id),
-      }))
+    return Array.from({ length: totalBlocks }, (_, index) => index + 1)
+      .flatMap((blockIndex) => labels.map(([id, label]) => ({
+        label: totalBlocks > 1 ? "בישול " + (["A", "B", "C"] as const)[blockIndex - 1] + " · " + label : label,
+        count: stepMissingCountForBlock(blockIndex, id),
+      })))
       .filter((item) => item.count > 0);
-  }, [
-    execution.blocks,
-    currentBlock,
-    boilHops.length,
-    recipe.lautering.usesGrant,
-  ]);
+  }, [execution.blocks, totalBlocks, boilHops.length, recipe.lautering.usesGrant]);
 
   function blockFields(blockIndex: number): Record<string, string> {
     return execution.blocks[String(blockIndex)]?.fields || {};
@@ -5308,8 +5300,8 @@ export default function BrewFormStepper({
 
             <div className="brew-summary-missing">
               <h4>
-                {stepMissingCount("summary") > 0
-                  ? `חסרים ${stepMissingCount("summary")} נתונים`
+                {missingItems.length > 0
+                  ? "חסרים " + missingItems.reduce((sum, item) => sum + item.count, 0) + " נתונים"
                   : "כל נתוני הבישול הושלמו"}
               </h4>
 
