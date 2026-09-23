@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
+    serverRenameBrewSheet,
+    serverTrashBrewSheet,
     type BrewingDriveHistoryRow,
 } from "../../SERVICES/brewing/brewingSheetServer";
 import {
@@ -201,6 +205,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [planningHintsLoading, setPlanningHintsLoading] = useState(false);
     const [createModalError, setCreateModalError] = useState("");
     const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
+    const [editingTankId, setEditingTankId] = useState<string | null>(null);
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
@@ -745,6 +750,77 @@ export default function BrewingView({ brews, tab }: Props) {
         }
     }
 
+    async function editUnstartedProductionBatch(tank: Fermentor) {
+        if (Number(tank.action) !== 0) return;
+        const run = productionRunFromTank(tank);
+        if (!run?.sheetId) return;
+
+        const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\D/g, "").trim();
+        if (!nextBatch) return;
+        const nextStyle = window.prompt("סגנון", run.style)?.trim();
+        if (!nextStyle) return;
+        if (nextBatch === run.batchNumber && nextStyle === run.style) return;
+
+        setEditingTankId(tank.id);
+        setMessage("");
+        try {
+            if (
+                nextBatch !== run.batchNumber &&
+                (await batchNumberExistsInProduction(nextBatch) ||
+                    await productionBrewSheetExists(nextBatch))
+            ) {
+                throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
+            }
+
+            await serverRenameBrewSheet({
+                spreadsheetId: run.sheetId,
+                oldBatchNumber: run.batchNumber,
+                newBatchNumber: nextBatch,
+                style: nextStyle,
+            });
+            await updateDoc(doc(db, "fermentors", tank.id), {
+                batchNumber: nextBatch,
+                beerStyle: nextStyle,
+            });
+            setMessage(`✓ אצווה ${run.batchNumber} עודכנה ל-${nextBatch} · ${nextStyle}.`);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "עדכון האצווה נכשל.");
+        } finally {
+            setEditingTankId(null);
+        }
+    }
+
+    async function deleteUnstartedProductionBatch(tank: Fermentor) {
+        if (Number(tank.action) !== 0) return;
+        const run = productionRunFromTank(tank);
+        if (!run?.sheetId) return;
+        if (!window.confirm(`למחוק את אצווה ${run.batchNumber}? הפעולה תעביר את ה-Sheet לפח.`)) return;
+
+        setDeletingBatch(run.batchNumber);
+        setMessage("");
+        try {
+            await serverTrashBrewSheet(run.sheetId);
+            await updateDoc(doc(db, "fermentors", tank.id), {
+                batchNumber: "",
+                beerStyle: "",
+                brewDate: "",
+                sheetUrl: "",
+                action: 5,
+                tankStatus: false,
+            });
+            setSelectedRun(null);
+            setMessage(`✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
+        } catch (error) {
+            setMessage(
+                error instanceof Error
+                    ? `האצווה לא נמחקה: ${error.message}`
+                    : "מחיקת האצווה נכשלה.",
+            );
+        } finally {
+            setDeletingBatch(null);
+        }
+    }
+
     function resetDemoAndAssignQueue() {
         setDemoTank(resetSandboxDemoTank());
         const assigned = assignNextSandboxRunToTank("20");
@@ -839,6 +915,31 @@ export default function BrewingView({ brews, tab }: Props) {
                                     )}
                                     {!run && (
                                         <small>ללא Sheet משויך</small>
+                                    )}
+                                    {run && Number(tank.action) === 0 && !run.brewProgress?.stageName && (
+                                        <span className="brewing-prebrew-actions">
+                                            <button
+                                                type="button"
+                                                disabled={editingTankId === tank.id}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void editUnstartedProductionBatch(tank);
+                                                }}
+                                            >
+                                                ערוך אצווה
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="brewing-danger-button"
+                                                disabled={deletingBatch === run.batchNumber}
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    void deleteUnstartedProductionBatch(tank);
+                                                }}
+                                            >
+                                                מחק
+                                            </button>
+                                        </span>
                                     )}
                                 </button>
                             );
@@ -941,6 +1042,46 @@ export default function BrewingView({ brews, tab }: Props) {
                     ingredients={ingredients}
                     onClose={() => setSelectedRun(null)}
                 />
+            )}
+
+            {tab === "form" && sandbox && !selectedRun && planningHints.length > 0 && (
+                <section className="brewing-planned-quick">
+                    <div className="brewing-planned-quick-heading">
+                        <strong>בישולים מתוכננים</strong>
+                        <small>השבוע והשבוע הבא</small>
+                    </div>
+                    <div className="brewing-planned-quick-list">
+                        {planningHints
+                            .filter((hint) => {
+                                const clean = String(hint.batchNumber).replace("#", "").trim();
+                                return !brews.some(
+                                    (tank) =>
+                                        String(tank.batchNumber || "").replace("#", "").trim() === clean,
+                                );
+                            })
+                            .map((hint) => {
+                                const tank = allTanks.find((item) => item.id === hint.tankId);
+                                return (
+                                    <button
+                                        type="button"
+                                        key={`quick-${hint.batchNumber}-${hint.tankId}-${hint.date}`}
+                                        className="brewing-planned-quick-card"
+                                        onClick={() => {
+                                            setSuggestedBatch(String(hint.batchNumber));
+                                            setShowCreate(true);
+                                        }}
+                                    >
+                                        <strong>#{hint.batchNumber} · {hint.style}</strong>
+                                        <span>
+                                            {tank?.tankNumber ? `מיכל ${tank.tankNumber}` : "ללא מיכל"}
+                                            {hint.date ? ` · ${hint.date}` : ""}
+                                        </span>
+                                        <small>צור אצווה</small>
+                                    </button>
+                                );
+                            })}
+                    </div>
+                </section>
             )}
 
             {tab === "form" && !selectedRun && (
