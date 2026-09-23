@@ -1,4 +1,4 @@
-import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, setDoc, Timestamp, updateDoc, serverTimestamp, runTransaction, query, where, deleteDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import {
     createPalletsFromCustomSplit,
@@ -79,6 +79,80 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
     if (!snapshot.exists()) throw new Error("פעולת האריזה לא נמצאה");
     const operation = snapshot.data();
     if (operation.state === "completed") return [];
+    if (operation.state !== "awaiting_pallets") {
+        throw new Error("פעולת האריזה אינה במצב שמאפשר השלמה");
+    }
+
+    const expectedQuantity = Math.max(0, Math.round(Number(operation.quantity ?? 0)));
+    const batchNumber = String(operation.batchNumber ?? "").trim();
+    const beerStyle = String(operation.beerStyle ?? "").trim();
+    const itemType = operation.itemType as PalletItemType;
+    const expiryDateStr = String(operation.expiryDateStr ?? "").trim();
+
+    // The packaging log is the durable business report. Never repair inventory
+    // from an operation document alone: the two records must agree first.
+    const reportSnap = await getDoc(doc(db, PACKAGING_LOG_COLLECTION, operationId));
+    if (!reportSnap.exists()) {
+        throw new Error("לא נמצא דוח האריזה התואם. לא בוצע שינוי במשטחים.");
+    }
+    const report = reportSnap.data();
+    const reportItemType = report.packagingType === "kegs" ? "kegs" : "crates";
+    const reportMatches =
+        Math.round(Number(report.quantity ?? 0)) === expectedQuantity &&
+        String(report.batchNumber ?? "").trim() === batchNumber &&
+        String(report.beerStyle ?? "").trim() === beerStyle &&
+        reportItemType === itemType;
+    if (!reportMatches) {
+        throw new Error("דוח האריזה ופעולת האריזה אינם תואמים. לא בוצע שינוי במשטחים.");
+    }
+
+    // Reconcile against the physical active inventory for the exact batch,
+    // item type, style and expiry. This deliberately includes pallets already
+    // placed in the cooler as well as pallets still waiting for placement.
+    const batchPallets = batchNumber
+        ? await getDocs(query(collection(db, "pallets"), where("batchNumber", "==", batchNumber)))
+        : null;
+    const matchingPallets = (batchPallets?.docs ?? []).filter((palletDoc) => {
+        const pallet = palletDoc.data();
+        if (pallet.zone === "shipped") return false;
+        if (pallet.itemType !== itemType) return false;
+        if (String(pallet.beerStyle ?? "").trim() !== beerStyle) return false;
+        if (expiryDateStr && String(pallet.expiryDateStr ?? "").trim() !== expiryDateStr) return false;
+        const linkedOperation = String(pallet.packagingOperationId ?? "").trim();
+        return !linkedOperation || linkedOperation === operationId;
+    });
+
+    const inventoryQuantity = matchingPallets.reduce(
+        (sum, palletDoc) => sum + Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
+        0
+    );
+    if (inventoryQuantity > expectedQuantity) {
+        throw new Error(
+            `נמצאו ${inventoryQuantity} פריטים פעילים שמתאימים לדוח של ${expectedQuantity}. קיימת עמימות ולכן לא בוצע שינוי אוטומטי.`
+        );
+    }
+
+    // If the physical inventory already equals the packaging report, missing
+    // operation links are bookkeeping only. Link them; do not create pallets.
+    if (inventoryQuantity === expectedQuantity) {
+        const unlinked = matchingPallets.filter(
+            (palletDoc) => !String(palletDoc.data().packagingOperationId ?? "").trim()
+        );
+        if (unlinked.length > 0) {
+            const batch = writeBatch(db);
+            unlinked.forEach((palletDoc) => {
+                batch.update(palletDoc.ref, {
+                    packagingOperationId: operationId,
+                    packagingSource: "manual",
+                    packagingAppliedQuantity: Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
+                    updatedAt: serverTimestamp(),
+                });
+            });
+            await batch.commit();
+        }
+        await markPackagingPalletsCompleted(operationId);
+        return [];
+    }
 
     const splits = Array.isArray(operation.palletSplits)
         ? operation.palletSplits.map((split: any) => ({
@@ -87,16 +161,37 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         })).filter((split: CustomPalletSplitEntry) => split.quantity > 0)
         : [];
     if (splits.length === 0) {
-        throw new Error("לפעולת האריזה אין חלוקת משטחים שמורה ולכן לא ניתן לשחזר אותה אוטומטית");
+        throw new Error(
+            `דוח האריזה הוא ${expectedQuantity}, אך נמצאו רק ${inventoryQuantity} פריטים ואין חלוקת משטחים שמורה להשלמה.`
+        );
+    }
+
+    // Existing unlinked physical pallets are linked before creating only the
+    // genuinely missing remainder. createPalletsForPlan treats these as manual
+    // coverage and consumes them from the saved split.
+    const unlinked = matchingPallets.filter(
+        (palletDoc) => !String(palletDoc.data().packagingOperationId ?? "").trim()
+    );
+    if (unlinked.length > 0) {
+        const batch = writeBatch(db);
+        unlinked.forEach((palletDoc) => {
+            batch.update(palletDoc.ref, {
+                packagingOperationId: operationId,
+                packagingSource: "manual",
+                packagingAppliedQuantity: Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
+                updatedAt: serverTimestamp(),
+            });
+        });
+        await batch.commit();
     }
 
     const plan: PackagingPalletPlan = {
         operationId,
-        itemType: operation.itemType,
-        quantity: Math.round(Number(operation.quantity ?? 0)),
-        beerStyle: String(operation.beerStyle ?? ""),
+        itemType,
+        quantity: expectedQuantity,
+        beerStyle,
         batchNumber: operation.batchNumber ?? null,
-        expiryDateStr: String(operation.expiryDateStr ?? ""),
+        expiryDateStr,
         sourceTankNumber: operation.tankNumber ?? null,
         tankNumber: operation.tankNumber ?? null,
     };
