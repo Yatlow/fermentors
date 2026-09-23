@@ -88,13 +88,15 @@ function syncCalendarToFirestore() {
     });
 
     const brewQueueSync = calendarSyncBrewPlanningQueue_();
+    const shipmentQueueSync = calendarSyncShipmentPlanningQueue_();
     Logger.log(
       "Calendar sync complete: " + savedCount + " event(s), brew queues=" +
-      brewQueueSync.syncedWeeks
+      brewQueueSync.syncedWeeks + ", shipment queues=" + shipmentQueueSync.syncedWeeks
     );
     return {
       savedCount: savedCount,
-      brewPlanningQueue: brewQueueSync
+      brewPlanningQueue: brewQueueSync,
+      shipmentPlanningQueue: shipmentQueueSync
     };
 
   } finally {
@@ -617,4 +619,111 @@ function cleanOldCalendarEvents() {
 
   Logger.log("Calendar cleanup deleted " + writes.length + " event(s).");
   return { deletedCount: writes.length };
+}
+
+function calendarSyncShipmentPlanningQueue_() {
+  const now = new Date();
+  const weekIds = [];
+  for (let offset = 0; offset < 12; offset++) {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset * 7);
+    weekIds.push(calendarShipmentWeekStartKey_(date));
+  }
+  let syncedWeeks = 0;
+  let syncedDeliveries = 0;
+  weekIds.forEach(function (weekId) {
+    const plan = calendarShipmentReadFirestoreDocument_("planningWeeks", weekId);
+    if (!plan) return;
+    const deliveries = (Array.isArray(plan.deliveries) ? plan.deliveries : [])
+      .filter(function (delivery) {
+        return delivery && Number(delivery.quantity || 0) > 0 &&
+          String(delivery.productId || "").trim() !== "" &&
+          String(delivery.dispatchDate || "").trim() !== "";
+      })
+      .map(function (delivery) {
+        return {
+          productId: String(delivery.productId || ""),
+          quantity: Number(delivery.quantity || 0),
+          dispatchDate: String(delivery.dispatchDate || "")
+        };
+      });
+    calendarShipmentWriteFirestoreDocument_("shipmentPlanningQueue", weekId, {
+      id: weekId,
+      revision: Number(plan.revision || 1),
+      deliveries: deliveries,
+      updatedAt: new Date().toISOString(),
+      updatedBy: "calendar-sync"
+    });
+    syncedWeeks++;
+    syncedDeliveries += deliveries.length;
+  });
+  return { syncedWeeks: syncedWeeks, syncedDeliveries: syncedDeliveries };
+}
+
+function calendarShipmentWeekStartKey_(date) {
+  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  local.setDate(local.getDate() - local.getDay());
+  return Utilities.formatDate(local, Session.getScriptTimeZone(), "yyyy-MM-dd");
+}
+
+function calendarShipmentReadFirestoreDocument_(collectionId, documentId) {
+  const url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/" + encodeURIComponent(collectionId) + "/" + encodeURIComponent(documentId);
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() === 404) return null;
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error("Shipment planning read failed: " + response.getResponseCode() + " " + response.getContentText());
+  }
+  return calendarShipmentFromFirestoreFields_((JSON.parse(response.getContentText()).fields) || {});
+}
+
+function calendarShipmentWriteFirestoreDocument_(collectionId, documentId, data) {
+  const url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/" + encodeURIComponent(collectionId) + "/" + encodeURIComponent(documentId);
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({ fields: calendarShipmentToFirestoreFields_(data) }),
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error("Shipment planning queue write failed: " + response.getResponseCode() + " " + response.getContentText());
+  }
+}
+
+function calendarShipmentFromFirestoreFields_(fields) {
+  const out = {};
+  Object.keys(fields || {}).forEach(function (key) { out[key] = calendarShipmentFromFirestoreValue_(fields[key]); });
+  return out;
+}
+
+function calendarShipmentFromFirestoreValue_(value) {
+  if (!value) return null;
+  if (Object.prototype.hasOwnProperty.call(value, "stringValue")) return value.stringValue;
+  if (Object.prototype.hasOwnProperty.call(value, "integerValue")) return Number(value.integerValue);
+  if (Object.prototype.hasOwnProperty.call(value, "doubleValue")) return Number(value.doubleValue);
+  if (Object.prototype.hasOwnProperty.call(value, "booleanValue")) return value.booleanValue;
+  if (Object.prototype.hasOwnProperty.call(value, "nullValue")) return null;
+  if (value.arrayValue) return (value.arrayValue.values || []).map(calendarShipmentFromFirestoreValue_);
+  if (value.mapValue) return calendarShipmentFromFirestoreFields_(value.mapValue.fields || {});
+  return null;
+}
+
+function calendarShipmentToFirestoreFields_(data) {
+  const fields = {};
+  Object.keys(data || {}).forEach(function (key) { fields[key] = calendarShipmentToFirestoreValue_(data[key]); });
+  return fields;
+}
+
+function calendarShipmentToFirestoreValue_(value) {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(calendarShipmentToFirestoreValue_) } };
+  if (typeof value === "object") return { mapValue: { fields: calendarShipmentToFirestoreFields_(value) } };
+  if (typeof value === "boolean") return { booleanValue: value };
+  if (typeof value === "number") return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
+  return { stringValue: String(value) };
 }
