@@ -98,29 +98,14 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
 
   const orderedBrews = useMemo(() => {
     const current = draft.brews as BrewPlanWithMeta[];
-    const actualByPlanId = new Map<string, string>();
 
-    current.forEach((brew) => {
-      const source = brews.find((item) => item.id === brew.tankId);
-      if (!source?.batchNumber || !source.beerStyle) return;
-
-      const brewed = parseDate(source.brewDate);
-      const isCurrentWeekBatch =
-        Number(source.action) === 0 ||
-        (!!brewed && brewed >= initial.id && brewed <= weekEnd);
-
-      if (
-        isCurrentWeekBatch &&
-        sameStyle(source.beerStyle, brew.style)
-      ) {
-        actualByPlanId.set(brew.id, String(source.batchNumber));
-      }
-    });
-
+    // A planned brew owns its identity. Never infer its batch number from the
+    // batch currently occupying the assigned tank: that tank may still contain
+    // a previous week's brew (for example 1596/1597) while the next brew
+    // (1598/1599/1600) is already planned for it.
     const reserved = new Set<number>();
     current.forEach((brew) => {
-      const actual = actualByPlanId.get(brew.id);
-      const value = Number(actual || brew.batchNumber);
+      const value = Number(String(brew.batchNumber || "").replace("#", "").trim());
       if (Number.isFinite(value) && value > 0) reserved.add(value);
     });
 
@@ -130,10 +115,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
     ) + 1;
 
     return current.map((brew) => {
-      const actual = actualByPlanId.get(brew.id);
-      if (actual) return { ...brew, batchNumber: actual };
-
-      const existing = String(brew.batchNumber || "").trim();
+      const existing = String(brew.batchNumber || "").replace("#", "").trim();
       if (existing) return { ...brew, batchNumber: existing };
 
       while (reserved.has(next)) next += 1;
@@ -142,7 +124,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
       next += 1;
       return { ...brew, batchNumber };
     });
-  }, [draft.brews, batchBase, brews, initial.id, weekEnd]);
+  }, [draft.brews, batchBase]);
   const selectedBrew = orderedBrews[selectedIndex] ?? null;
 
   const allWeekTanks = useMemo(() => releases
