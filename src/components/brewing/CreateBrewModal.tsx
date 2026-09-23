@@ -325,15 +325,6 @@ export default function CreateBrewModal({
           </div>
         )}
 
-        {selectedTank && !isDemoTank && (
-          <div className="brew-real-data-banner">
-
-            <span>
-              הפעולה יוצרת עכשיו Sheet אמיתי בתיקיית הבישולים של המפעל.
-            </span>
-          </div>
-        )}
-
         {selectedTank && !isSanitized && (
           <div className="brewing-assignment-warning">
             האצווה תיווצר עכשיו, אבל תישאר ממתינה לשיבוץ עד
