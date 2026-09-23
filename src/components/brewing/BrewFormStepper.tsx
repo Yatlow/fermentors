@@ -983,7 +983,6 @@ export default function BrewFormStepper({
   const [boilCalcOpen, setBoilCalcOpen] = useState(false);
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
-  const [syncMismatchCount, setSyncMismatchCount] = useState<number | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
   const [syncError, setSyncError] = useState("");
   const [validationNotice, setValidationNotice] =
@@ -1491,7 +1490,6 @@ export default function BrewFormStepper({
     void writeSandboxSheetCells(run.sheetId, writes)
       .then(() => {
         setLastPushAt(new Date());
-        setSyncMismatchCount(null);
         setSyncMismatches([]);
         setSyncError("");
       })
@@ -3351,20 +3349,6 @@ export default function BrewFormStepper({
     );
   }
 
-  function syncComparable(value: unknown): string {
-    const text = String(value ?? "").trim();
-    if (!text) return "";
-
-    const numeric = Number(text);
-    if (Number.isFinite(numeric)) return String(numeric);
-
-    if (text.includes(":") || text.includes(".")) {
-      const time = normalizeUserTime(text);
-      if (time !== null) return time;
-    }
-
-    return text.replace(/\s+/g, " ");
-  }
 
 
   function stepIndexFromLiveProgress(stageName: string): number {
@@ -3503,7 +3487,6 @@ export default function BrewFormStepper({
 
       setExecution(nextExecution);
       setLastPullAt(new Date());
-      setSyncMismatchCount(null);
       setSyncMismatches([]);
       setSyncError("");
       // Persist reconciliation explicitly; do not rely on a later render/effect.
