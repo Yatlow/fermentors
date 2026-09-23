@@ -162,51 +162,11 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
         return [];
     }
 
-    const splits = Array.isArray(operation.palletSplits)
-        ? operation.palletSplits.map((split: any) => ({
-            quantity: Math.round(Number(split?.quantity ?? 0)),
-            subLabel: split?.subLabel ?? null,
-        })).filter((split: CustomPalletSplitEntry) => split.quantity > 0)
-        : [];
-    if (splits.length === 0) {
-        throw new Error(
-            `דוח האריזה הוא ${expectedQuantity}, אך נמצאו רק ${inventoryQuantity} פריטים ואין חלוקת משטחים שמורה להשלמה.`
-        );
-    }
-
-    // Existing unlinked physical pallets are linked before creating only the
-    // genuinely missing remainder. createPalletsForPlan treats these as manual
-    // coverage and consumes them from the saved split.
-    const unlinked = matchingPallets.filter(
-        (palletDoc) => !String(palletDoc.data().packagingOperationId ?? "").trim()
+    const unit = itemType === "kegs" ? "חביות" : "ארגזים";
+    const missingQuantity = expectedQuantity - inventoryQuantity;
+    throw new Error(
+        `דוח האריזה הוא ${expectedQuantity} ${unit}, ובמשטחים הפעילים נמצאו ${inventoryQuantity}. חסרים ${missingQuantity}; לא נוצרו משטחים אוטומטית. יש לבדוק את המלאי לפני השלמה.`
     );
-    if (unlinked.length > 0) {
-        const batch = writeBatch(db);
-        unlinked.forEach((palletDoc) => {
-            batch.update(palletDoc.ref, {
-                packagingOperationId: operationId,
-                packagingSource: "manual",
-                packagingAppliedQuantity: Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
-                updatedAt: serverTimestamp(),
-            });
-        });
-        await batch.commit();
-    }
-
-    const plan: PackagingPalletPlan = {
-        operationId,
-        itemType,
-        quantity: expectedQuantity,
-        beerStyle,
-        batchNumber: operation.batchNumber ?? null,
-        expiryDateStr,
-        sourceTankNumber: operation.tankNumber ?? null,
-        tankNumber: operation.tankNumber ?? null,
-    };
-    const ids = await createPalletsForPlan(plan, splits);
-    await reserveNewPalletsForNearestShipment(ids);
-    await markPackagingPalletsCompleted(operationId);
-    return ids;
 }
 
 export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
