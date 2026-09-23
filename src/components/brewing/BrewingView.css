@@ -4404,3 +4404,20 @@
 .brewing-edit-batch-modal label { display: grid; gap: 6px; margin-block: 10px; font-weight: 700; }
 .brewing-edit-batch-modal input,
 .brewing-edit-batch-modal select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface, #fff); color: inherit; font: inherit; }
+
+/* ACTION-0 tank controls follow the same card pattern: content above, actions below. */
+.brewing-action-zero-item {
+    flex-direction: column;
+}
+.brewing-action-zero-item .brewing-action-zero-chip {
+    width: 100%;
+}
+.brewing-action-zero-item .brewing-prebrew-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 4px 0 0;
+}
+.brewing-action-zero-item .brewing-prebrew-actions button {
+    width: 100%;
+}
