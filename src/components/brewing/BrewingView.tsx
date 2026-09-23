@@ -1012,7 +1012,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                 <button
                                     type="button"
                                     className="brewing-action-zero-chip"
-                                    disabled={!run || !recipe>
+                                    disabled={!run || !recipe}
                                     onClick={() => {
                                         if (!run) return;
                                         setMessage("");
