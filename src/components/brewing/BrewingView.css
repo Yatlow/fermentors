@@ -4237,3 +4237,41 @@
         margin: 0;
     }
 }
+
+
+/* Planned brews use the same visual language as the brewing tank area. */
+.brewing-planned-quick {
+    margin-bottom: 12px;
+}
+
+.brewing-planned-quick-list > small {
+    grid-column: 1 / -1;
+    padding: 12px 8px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.brewing-planned-quick-card {
+    width: 100%;
+    min-height: 86px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    color: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+
+.brewing-planned-quick-card::before {
+    background: #f59e0b;
+}
+
+.brewing-planned-quick-card > strong {
+    font-size: 0.8rem;
+}
+
+.brewing-planned-quick-card > span,
+.brewing-planned-quick-card > small {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+}
