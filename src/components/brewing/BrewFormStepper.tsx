@@ -983,8 +983,6 @@ export default function BrewFormStepper({
   const [boilCalcOpen, setBoilCalcOpen] = useState(false);
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
-  const [lastVerifyAt, setLastVerifyAt] = useState<Date | null>(null);
-  const [checkingSync, setCheckingSync] = useState(false);
   const [syncMismatchCount, setSyncMismatchCount] = useState<number | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
   const [syncError, setSyncError] = useState("");
@@ -3368,104 +3366,6 @@ export default function BrewFormStepper({
     return text.replace(/\s+/g, " ");
   }
 
-  async function verifySheetSync() {
-    if (!run.sheetId) return;
-
-    setCheckingSync(true);
-    setSyncError("");
-    setMessage("");
-
-    try {
-      const mismatchDetails: SyncMismatch[] = [];
-
-      const fullSheetRows = await readSandboxSheetRange(
-        run.sheetId,
-        "'גיליון1'!A1:H220",
-      );
-      const discoveredBlocks = discoverSheetBlocks(
-        fullSheetRows,
-        totalBlocks,
-      );
-
-      for (let index = 1; index <= totalBlocks; index += 1) {
-        const discovered = discoveredBlocks[index - 1];
-        const fallbackBase = blockBaseRow(run.tankType, index);
-        const fallbackHeader = blockHeaderRow(run.tankType, index);
-        const headerRow = discovered?.headerRow ?? fallbackHeader;
-        const baseRowForSheet = discovered?.baseRow ?? fallbackBase;
-        const endRow = discovered?.endRow ?? baseRowForSheet + 48;
-        const rows = fullSheetRows.slice(headerRow - 1, endRow);
-        const pulled = fieldsFromSheetRows(
-          rows,
-          recipe.lautering.usesGrant,
-          recipe,
-          ingredientLibrary,
-          baseRowForSheet - headerRow,
-          headerRow,
-          index,
-        );
-
-        if (index === 1) {
-          const yeastTime = fermentationYeastTimeFromFullSheet(fullSheetRows);
-          if (yeastTime) pulled.yeastPitchTime = yeastTime;
-        }
-
-        const localFields =
-          execution.blocks[String(index)]?.fields || {};
-        const keys = new Set([
-          ...Object.keys(localFields).filter(isSheetBackedExecutionKey),
-          ...Object.keys(pulled).filter(isSheetBackedExecutionKey),
-        ]);
-
-        keys.forEach((key) => {
-          if (
-            index > 1 &&
-            (
-              key === "materialsConfirmed" ||
-              key === "sheetRawMaterial.yeast" ||
-              key === `materialLot.${recipe.yeast.ingredientId}` ||
-              key === `sheetMaterial.${recipe.yeast.ingredientId}`
-            )
-          ) {
-            return;
-          }
-          if (isStandbyRinseDifference(key, localFields, pulled)) {
-            return;
-          }
-
-          const appValue = syncComparable(localFields[key]);
-          const sheetValue = syncComparable(pulled[key]);
-          if (appValue !== sheetValue) {
-            mismatchDetails.push({
-              blockIndex: index,
-              key,
-              label: syncFieldLabel(key),
-              appValue: appValue || "—",
-              sheetValue: sheetValue || "—",
-            });
-          }
-        });
-      }
-
-      setSyncMismatchCount(mismatchDetails.length);
-      setSyncMismatches(mismatchDetails);
-      setLastVerifyAt(new Date());
-      setMessage(
-        mismatchDetails.length === 0
-          ? "✓ בדיקת התאמה מלאה: הנתונים באפליקציה וב-Sheet תואמים."
-          : `נמצאו ${mismatchDetails.length} פערים בין האפליקציה ל-Sheet — הפירוט מופיע מתחת.`,
-      );
-    } catch (error) {
-      const detail =
-        error instanceof Error
-          ? error.message
-          : "בדיקת ההתאמה מול ה-Sheet נכשלה.";
-      setSyncError(detail);
-      setMessage(detail);
-    } finally {
-      setCheckingSync(false);
-    }
-  }
 
   function stepIndexFromLiveProgress(stageName: string): number {
     const name = stageName.trim();
