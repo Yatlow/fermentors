@@ -275,7 +275,7 @@ service cloud.firestore {
       // This is an operational outbox. The authenticated brewery client only
       // enqueues/deletes jobs; the worker owns subsequent state transitions.
       allow read: if isApprovedUser();
-      allow create: if isApprovedUser();
+      allow create: if isLoggedIn();
       allow update: if false;
       allow delete: if isApprovedUser();
     }
