@@ -73,11 +73,13 @@ async function loadFirestoreAcidHistory(
     query(
       collection(db, "brewAcidHistory"),
       where("styleKey", "==", String(style || "").trim().toLowerCase()),
-      orderBy("sortKey", "desc"),
-      limit(9),
+      limit(30),
     ),
   );
-  return snapshot.docs.map((item) => item.data() as MashAcidHistoryRow);
+  return snapshot.docs
+    .map((item) => item.data() as MashAcidHistoryRow & { sortKey?: number })
+    .sort((a, b) => Number(b.sortKey || 0) - Number(a.sortKey || 0))
+    .slice(0, 9);
 }
 
 async function persistLegacyRows(
