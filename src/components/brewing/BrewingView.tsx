@@ -859,7 +859,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     tankNumber: run.tankNumber === "—" ? "" : run.tankNumber,
                     tankType: run.tankType,
                     fileId: run.sheetId,
-                    fileName: run.sheetName || "",
+                    fileName: "",
                     sheetUrl: run.sheetUrl,
                     createdAt: serverTimestamp(),
                 });
