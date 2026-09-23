@@ -211,8 +211,12 @@ export function calculateCellarHealthScore(
     );
 }
 
-export function healthBand(score: number): "healthy" | "warning" | "critical" {
+export type HealthBand = "healthy" | "good" | "warning" | "poor" | "critical";
+
+export function healthBand(score: number): HealthBand {
     if (score >= 90) return "healthy";
-    if (score >= 70) return "warning";
+    if (score >= 75) return "good";
+    if (score >= 60) return "warning";
+    if (score >= 40) return "poor";
     return "critical";
 }

@@ -414,6 +414,78 @@ export async function createPalletsFromCustomSplit(params: CreatePalletsFromCust
     return ids;
 }
 
+export async function replacePackagingOperationPallets(params: CreatePalletsFromCustomSplitParams): Promise<string[]> {
+    const { itemType, expectedTotalQuantity, beerStyle, batchNumber, expiryDateStr, sourceTankNumber, operationId, splits } = params;
+    if (!operationId) throw new Error("חסר מזהה פעולת אריזה");
+
+    const expectedTotal = Math.round(expectedTotalQuantity);
+    const sanitized = splits
+        .map((s) => ({
+            quantity: Math.round(s.quantity),
+            subLabel: s.subLabel?.trim() || null,
+        }))
+        .filter((s) => s.quantity > 0);
+
+    const actualTotal = sanitized.reduce((sum, s) => sum + s.quantity, 0);
+    if (actualTotal !== expectedTotal) {
+        const unit = itemType === "kegs" ? "חביות" : "ארגזים";
+        throw new Error(`סך כל המשטחים (${actualTotal} ${unit}) לא תואם לכמות שדווחה בפועל (${expectedTotal} ${unit}).`);
+    }
+    const maxPerPallet = maxPerPalletFor(itemType);
+    if (sanitized.some((s) => s.quantity > maxPerPallet)) {
+        const unit = itemType === "kegs" ? "חביות" : "ארגזים";
+        throw new Error(`משטח בודד יכול להכיל עד ${maxPerPallet} ${unit}`);
+    }
+
+    const linked = await getDocsFromServer(query(
+        collection(db, PALLETS_COLLECTION),
+        where("packagingOperationId", "==", operationId),
+    ));
+    const operationRef = doc(db, "packagingOperations", operationId);
+    const refs = sanitized.map((_, index) =>
+        doc(db, PALLETS_COLLECTION, `pkg_${operationId}_approved_${index + 1}`)
+    );
+    const batch = writeBatch(db);
+
+    linked.docs.forEach((existing) => {
+        const data = existing.data();
+        // Never silently delete a pallet that has already left the editable
+        // pending state. At that point changing the split needs manual handling.
+        if (data.zone !== "pending") {
+            throw new Error("לא ניתן לשנות חלוקת משטחים אחרי שאחד המשטחים כבר שובץ או הועבר");
+        }
+        batch.delete(existing.ref);
+    });
+
+    sanitized.forEach((entry, index) => {
+        batch.set(refs[index], {
+            ...palletCreateData({
+                itemType,
+                beerStyle,
+                subLabel: entry.subLabel,
+                quantity: entry.quantity,
+                expiryDateStr: expiryDateStr || null,
+                batchNumber: batchNumber == null ? null : String(batchNumber),
+                sourceTankNumber: sourceTankNumber ?? null,
+            }),
+            packagingOperationId: operationId,
+            packagingSplitIndex: index,
+            packagingAppliedQuantity: entry.quantity,
+            packagingSource: "approved",
+        });
+    });
+    batch.update(operationRef, {
+        palletSplits: sanitized,
+        palletRevision: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+    });
+
+    // One atomic batch: the valid custom split replaces the safe default.
+    // A failed commit leaves the default pallets untouched.
+    await batch.commit();
+    return refs.map((ref) => ref.id);
+}
+
 export function subscribeToZone(zone: PalletZone, cb: (pallets: Pallet[]) => void) {
     if (!isActivePalletZone(zone)) {
         const q = query(collection(db, PALLETS_COLLECTION), where("zone", "==", zone));
