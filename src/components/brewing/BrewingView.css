@@ -4326,3 +4326,26 @@
 .brewing-confirm-modal h3 { margin: 0 0 8px; }
 .brewing-confirm-modal p { margin: 0; line-height: 1.55; }
 .brewing-confirm-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+/* Unified carry-over/context banners between brewing steps. */
+.brew-step-context-bar,
+.brew-lauter-mashout-context,
+.brew-acid-current-context > div {
+    border: 1px solid #dbeafe;
+    border-radius: var(--radius-sm);
+    background: #f8fbff;
+    box-shadow: none;
+}
+
+.brew-step-context-bar,
+.brew-lauter-mashout-context {
+    padding: 9px 10px;
+}
+
+.brew-step-context-bar small,
+.brew-lauter-mashout-context span,
+.brew-lauter-mashout-context small,
+.brew-acid-current-context span {
+    color: var(--text-muted);
+    font-size: 0.64rem;
+}
