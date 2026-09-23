@@ -354,22 +354,41 @@ export default function BrewingView({ brews, tab }: Props) {
         [productionHistory, currentProductionBatchNumbers],
     );
 
+    const pendingBatchNumbers = useMemo(() => {
+        const planned = new Set(
+            planningHints.map((hint) => String(hint.batchNumber).replace("#", "").trim()),
+        );
+        const activeNumbers = brews
+            .map((tank) => Number(String(tank.batchNumber || "").replace("#", "").trim()))
+            .filter(Number.isFinite);
+        const latestActiveBatch = activeNumbers.length ? Math.max(...activeNumbers) : 0;
+
+        return new Set(
+            driveProductionRuns
+                .filter((run) => {
+                    const batch = Number(run.batchNumber);
+                    return planned.has(run.batchNumber) || (Number.isFinite(batch) && batch > latestActiveBatch);
+                })
+                .map((run) => run.batchNumber),
+        );
+    }, [driveProductionRuns, planningHints, brews]);
+
     const pendingProductionRuns = useMemo(
-        () => driveProductionRuns.filter((run) => !run.brewDate),
-        [driveProductionRuns],
+        () => driveProductionRuns.filter((run) => pendingBatchNumbers.has(run.batchNumber)),
+        [driveProductionRuns, pendingBatchNumbers],
     );
 
     const historicalProductionRuns = useMemo(() => {
         const query = historyQuery.trim().toLowerCase();
         return driveProductionRuns
-            .filter((run) => !!run.brewDate)
+            .filter((run) => !pendingBatchNumbers.has(run.batchNumber))
             .filter((run) => {
                 if (!query) return true;
                 return [run.batchNumber, run.style, run.tankNumber, run.brewDate || ""]
                     .some((value) => String(value).toLowerCase().includes(query));
             })
             .slice(0, query ? 30 : 12);
-    }, [driveProductionRuns, historyQuery]);
+    }, [driveProductionRuns, pendingBatchNumbers, historyQuery]);
 
     useEffect(() => {
         if (!sandbox) return;
@@ -1107,51 +1126,6 @@ export default function BrewingView({ brews, tab }: Props) {
             )}
 
             {tab === "form" && !selectedRun && (
-                <section className="brewing-panel brewing-planned-quick">
-                    <div className="brewing-panel-heading">
-                        <div>
-                            <h2>בישולים מתוכננים</h2>
-                            <p>השבוע והשבוע הבא · לחץ על אצווה כדי ליצור אותה</p>
-                        </div>
-                        {!planningHintsLoading && planningHintsAvailable && visiblePlanningHints.length > 0 && (
-                            <span className="brewing-count">{visiblePlanningHints.length}</span>
-                        )}
-                    </div>
-                    <div className="brewing-tank-grid brewing-planned-quick-list">
-                        {planningHintsLoading && <small>טוען בישולים מתוכננים…</small>}
-                        {!planningHintsLoading && !planningHintsAvailable && (
-                            <small>לא ניתן לטעון כרגע את תכנון הבישולים.</small>
-                        )}
-                        {!planningHintsLoading && planningHintsAvailable && visiblePlanningHints.length === 0 && (
-                            <small>לא נמצאו בישולים מתוכננים לשבוע הזה או לשבוע הבא.</small>
-                        )}
-                        {visiblePlanningHints.map((hint) => {
-                                const tank = allTanks.find((item) => item.id === hint.tankId);
-                                return (
-                                    <button
-                                        type="button"
-                                        key={`quick-${hint.batchNumber}-${hint.tankId}-${hint.date}`}
-                                        className="brewing-tank-card brewing-planned-quick-card"
-                                        onClick={() => {
-                                            setQuickCreateHint(hint);
-                                            setSuggestedBatch(String(hint.batchNumber));
-                                            setShowCreate(true);
-                                        }}
-                                    >
-                                        <strong>#{hint.batchNumber} · {hint.style}</strong>
-                                        <span>
-                                            {tank?.tankNumber ? `מיכל ${tank.tankNumber}` : "ללא מיכל"}
-                                            {hint.date ? ` · ${hint.date}` : ""}
-                                        </span>
-                                        <small>צור אצווה</small>
-                                    </button>
-                                );
-                            })}
-                    </div>
-                </section>
-            )}
-
-            {tab === "form" && !selectedRun && (
                 <section className="brewing-panel">
                     <div className="brewing-panel-heading">
                         <div>
@@ -1352,8 +1326,8 @@ export default function BrewingView({ brews, tab }: Props) {
                         <div className="brewing-history-section brewing-pending-section">
                             <div className="brewing-history-heading">
                                 <div>
-                                    <h3 className="brewing-subheading">אצוות עתידיות ממתינות לשיבוץ</h3>
-                                    <small>ה-Sheet כבר נוצר · ניתן לפתוח, לערוך או למחוק עד תחילת הבישול</small>
+                                    <h3 className="brewing-subheading">אצוות עתידיות ממתינות למיכל מחוטא</h3>
+                                    <small>ה-Sheet כבר נוצר · האצווה ממתינה למיכל מחוטא וניתן לפתוח, לערוך או למחוק עד השיבוץ</small>
                                 </div>
                                 <span className="brewing-count">{pendingProductionRuns.length}</span>
                             </div>
@@ -1381,6 +1355,50 @@ export default function BrewingView({ brews, tab }: Props) {
                             </div>
                         </div>
                     )}
+
+                    <div className="brewing-planned-quick brewing-planned-inline">
+                    <div className="brewing-panel-heading brewing-planned-inline-heading">
+                        <div>
+                            <h2>בישולים מתוכננים</h2>
+                            <p>השבוע והשבוע הבא · לחץ על אצווה כדי ליצור אותה</p>
+                        </div>
+                        {!planningHintsLoading && planningHintsAvailable && visiblePlanningHints.length > 0 && (
+                            <span className="brewing-count">{visiblePlanningHints.length}</span>
+                        )}
+                    </div>
+                    <div className="brewing-tank-grid brewing-planned-quick-list">
+                        {(planningHintsLoading || historyLoading) && <small>טוען בישולים מתוכננים…</small>}
+                        {!planningHintsLoading && !historyLoading && !planningHintsAvailable && (
+                            <small>לא ניתן לטעון כרגע את תכנון הבישולים.</small>
+                        )}
+                        {!planningHintsLoading && !historyLoading && planningHintsAvailable && visiblePlanningHints.length === 0 && (
+                            <small>לא נמצאו בישולים מתוכננים לשבוע הזה או לשבוע הבא.</small>
+                        )}
+                        {!historyLoading && visiblePlanningHints.map((hint) => {
+                                const tank = allTanks.find((item) => item.id === hint.tankId);
+                                return (
+                                    <button
+                                        type="button"
+                                        key={`quick-${hint.batchNumber}-${hint.tankId}-${hint.date}`}
+                                        className="brewing-tank-card brewing-planned-quick-card"
+                                        onClick={() => {
+                                            setQuickCreateHint(hint);
+                                            setSuggestedBatch(String(hint.batchNumber));
+                                            setShowCreate(true);
+                                        }}
+                                    >
+                                        <strong>#{hint.batchNumber} · {hint.style}</strong>
+                                        <span>
+                                            {tank?.tankNumber ? `מיכל ${tank.tankNumber}` : "ללא מיכל"}
+                                            {hint.date ? ` · ${hint.date}` : ""}
+                                        </span>
+                                        <small>צור אצווה</small>
+                                    </button>
+                                );
+                            })}
+                    </div>
+                
+                    </div>
 
                     <div className="brewing-history-section">
                         <div className="brewing-history-heading">
