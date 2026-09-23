@@ -916,32 +916,26 @@ export default function BrewingView({ brews, tab }: Props) {
                                     {!run && (
                                         <small>ללא Sheet משויך</small>
                                     )}
-                                    {run && Number(tank.action) === 0 && !run.brewProgress?.stageName && (
-                                        <span className="brewing-prebrew-actions">
-                                            <button
-                                                type="button"
-                                                disabled={editingTankId === tank.id}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    void editUnstartedProductionBatch(tank);
-                                                }}
-                                            >
-                                                ערוך אצווה
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="brewing-danger-button"
-                                                disabled={deletingBatch === run.batchNumber}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    void deleteUnstartedProductionBatch(tank);
-                                                }}
-                                            >
-                                                מחק
-                                            </button>
-                                        </span>
-                                    )}
                                 </button>
+                                {run && Number(tank.action) === 0 && !run.brewProgress?.stageName && (
+                                    <div className="brewing-prebrew-actions">
+                                        <button
+                                            type="button"
+                                            disabled={editingTankId === tank.id}
+                                            onClick={() => void editUnstartedProductionBatch(tank)}
+                                        >
+                                            ערוך אצווה
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="brewing-danger-button"
+                                            disabled={deletingBatch === run.batchNumber}
+                                            onClick={() => void deleteUnstartedProductionBatch(tank)}
+                                        >
+                                            מחק
+                                        </button>
+                                    </div>
+                                )}
                             );
                         })}
                     </div>
