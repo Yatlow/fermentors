@@ -890,16 +890,24 @@ export default function BrewingView({ brews, tab }: Props) {
                 deleteDoc(doc(db, "pendingBrews", run.batchNumber)),
                 deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
             ]).catch(() => undefined);
+            const previousRun = productionHistory
+                .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
+                .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== run.batchNumber)
+                .filter((item) => !!String(item.brewDate || "").trim())
+                .sort((a, b) => {
+                    const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
+                    return Number.isFinite(batchDelta) && batchDelta !== 0 ? batchDelta : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
+                })[0];
             await updateDoc(doc(db, "fermentors", tank.id), {
-                batchNumber: "",
-                beerStyle: "",
-                brewDate: "",
-                sheetUrl: "",
+                batchNumber: previousRun?.batchNumber || "",
+                beerStyle: previousRun?.beerStyle || "",
+                brewDate: previousRun?.brewDate || "",
+                sheetUrl: previousRun?.sheetUrl || "",
                 action: 5,
                 tankStatus: false,
             });
             setSelectedRun(null);
-            setMessage(`✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
+            setMessage(previousRun ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${previousRun.batchNumber} כאצווה האחרונה לצורכי נתוני האריזה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
         } catch (error) {
             setMessage(
                 error instanceof Error
