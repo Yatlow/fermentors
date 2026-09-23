@@ -54,24 +54,25 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    color: #16a34a;
-    background: conic-gradient(currentColor var(--health-score), #e2e8f0 0);
-}
-
-.health-good .health-score-ring {
-    color: #84a90f;
-}
-
-.health-warning .health-score-ring {
-    color: #d97706;
-}
-
-.health-poor .health-score-ring {
-    color: #ea580c;
-}
-
-.health-critical .health-score-ring {
-    color: #dc2626;
+    /*
+     * The score itself clips a fixed 0–100 colour scale. This keeps the ring
+     * cumulative: 50 shows red + red-orange, 80 continues through amber and
+     * yellow-green, and only 90+ reaches green.
+     */
+    background: conic-gradient(
+        #dc2626 0%,
+        #dc2626 39%,
+        #ea580c 40%,
+        #ea580c 59%,
+        #d97706 60%,
+        #d97706 74%,
+        #84a90f 75%,
+        #84a90f 89%,
+        #16a34a 90%,
+        #16a34a var(--health-score),
+        #e2e8f0 var(--health-score),
+        #e2e8f0 100%
+    );
 }
 
 .health-score-ring::after {
