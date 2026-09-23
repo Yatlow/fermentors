@@ -24,18 +24,23 @@ export async function enqueueBrewSheetCreation(input: {
 }) {
   const batchNumber = String(input.batchNumber || "").replace("#", "").trim();
   if (!/^\d+$/.test(batchNumber)) throw new Error("מספר אצווה לא תקין.");
-  await setDoc(doc(db, "brewSheetCreationJobs", batchNumber), {
-    batchNumber,
-    style: input.style,
-    tankNumber: String(input.tankNumber),
-    tankType: input.tankType,
-    name: input.name,
-    initialWritesJson: JSON.stringify(input.initialWrites),
-    state: "queued",
-    attempts: 0,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  try {
+    await setDoc(doc(db, "brewSheetCreationJobs", batchNumber), {
+      batchNumber,
+      style: input.style,
+      tankNumber: String(input.tankNumber),
+      tankType: input.tankType,
+      name: input.name,
+      initialWritesJson: JSON.stringify(input.initialWrites),
+      state: "queued",
+      attempts: 0,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`brewSheetCreationJobs/${batchNumber}: ${message}`);
+  }
   return batchNumber;
 }
 
