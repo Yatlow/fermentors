@@ -407,14 +407,18 @@ function brewingSheetAcidHistory_(data) {
     if (!byBatch[batch]) byBatch[batch] = candidate;
   });
 
+  // The current brew is never useful as an acid/pH comparison target:
+  // its acid decision is exactly what the brewer is trying to make now.
+  // Exclude it before limiting so we open only the three previous Sheets.
   const batches = Object.keys(byBatch)
     .map(Number)
+    .filter(function (batch) {
+      return !Number.isFinite(currentBatch) || batch !== currentBatch;
+    })
     .sort(function (a, b) {
-      if (a === currentBatch) return -1;
-      if (b === currentBatch) return 1;
       return b - a;
     })
-    .slice(0, 4);
+    .slice(0, 3);
 
   const rows = [];
   let batchesWithData = 0;
