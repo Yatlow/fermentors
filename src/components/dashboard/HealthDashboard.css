@@ -11,8 +11,16 @@
     border-color: #fecaca;
 }
 
+.health-dashboard.health-poor {
+    border-color: #fed7aa;
+}
+
 .health-dashboard.health-warning {
     border-color: #fde68a;
+}
+
+.health-dashboard.health-good {
+    border-color: #d9f99d;
 }
 
 .health-dashboard.health-healthy {
@@ -50,8 +58,16 @@
     background: conic-gradient(currentColor var(--health-score), #e2e8f0 0);
 }
 
+.health-good .health-score-ring {
+    color: #84a90f;
+}
+
 .health-warning .health-score-ring {
     color: #d97706;
+}
+
+.health-poor .health-score-ring {
+    color: #ea580c;
 }
 
 .health-critical .health-score-ring {
@@ -362,7 +378,8 @@
 
 .health-completed-actions-list {
     display: grid;
-    gap: 5px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px 12px;
 }
 
 .health-completed-action {
@@ -384,4 +401,11 @@
     grid-column: 1 / -1;
     color: #4b5563;
     font-size: 0.7rem;
+}
+
+
+@media (max-width: 600px) {
+    .health-completed-actions-list {
+        grid-template-columns: 1fr;
+    }
 }
