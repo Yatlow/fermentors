@@ -169,7 +169,7 @@ export default function CreateBrewModal({
 
         {planningHintsAvailable && planningHints.length > 0 && (
           <div className="brew-planning-hint">
-            <strong>בתכנון השבוע — אפשר לבחור כדי למלא:</strong>
+            <strong>בתכנון השבוע והשבוע הבא — יצירה מהירה:</strong>
             <div className="brew-planning-hint-chips">
               {planningHints.map((hint) => {
                 const tank = tanks.find(
@@ -200,7 +200,7 @@ export default function CreateBrewModal({
                     title={
                       alreadyCreated
                         ? "האצווה כבר נוצרה"
-                        : "מלא את פרטי האצווה המתוכננת"
+                        : "העבר את האצווה המתוכננת לטופס; אפשר לשנות אצווה, סגנון או מיכל לפני היצירה"
                     }
                     onClick={() => {
                       if (alreadyCreated) return;
