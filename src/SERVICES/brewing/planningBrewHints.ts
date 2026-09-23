@@ -16,7 +16,7 @@ type BrewPlanWithMeta = {
   date?: string;
 };
 
-async function loadWeekHints(weekId: string): Promise<PlannedBrewHint[]> {
+async function loadWeekHints(weekId: string): Promise<{ hints: PlannedBrewHint[]; source: "planning" | "queue" | "none" }> {
   const queueRef = doc(db, "brewPlanningQueue", weekId);
   let source = await getDoc(queueRef);
   let plannerFallback: BrewPlanWithMeta[] | null = null;
@@ -66,7 +66,7 @@ async function loadWeekHints(weekId: string): Promise<PlannedBrewHint[]> {
     ? plannerBrews
     : queueBrews;
 
-  return brews
+  const hints = brews
     .filter((brew) => !!brew.batchNumber)
     .map((brew) => ({
       batchNumber: String(brew.batchNumber),
@@ -74,6 +74,14 @@ async function loadWeekHints(weekId: string): Promise<PlannedBrewHint[]> {
       tankId: String(brew.tankId || ""),
       date: String(brew.date || ""),
     }));
+  return {
+    hints,
+    source: plannerBrews.some((brew) => !!brew.batchNumber)
+      ? "planning"
+      : queueBrews.length
+        ? "queue"
+        : "none",
+  };
 }
 
 export async function getCurrentWeekPlannedBrewHints(): Promise<{
@@ -91,7 +99,7 @@ export async function getCurrentWeekPlannedBrewHints(): Promise<{
     ]);
 
     const seen = new Set<string>();
-    const hints = [...current, ...next].filter((hint) => {
+    const hints = [...current.hints, ...next.hints].filter((hint) => {
       const key = String(hint.batchNumber).replace("#", "").trim();
       if (!key || seen.has(key)) return false;
       seen.add(key);
