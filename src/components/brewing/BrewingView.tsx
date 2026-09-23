@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { doc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
@@ -209,6 +209,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [editingTankId, setEditingTankId] = useState<string | null>(null);
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
+    const [pendingProductionRows, setPendingProductionRows] = useState<BrewingDriveHistoryRow[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
@@ -339,13 +340,26 @@ export default function BrewingView({ brews, tab }: Props) {
         const created = new Set(
             [
                 ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
-                ...productionHistory.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
+                ...pendingProductionRows.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
             ].filter(Boolean),
         );
         return planningHints.filter(
             (hint) => !created.has(String(hint.batchNumber).replace("#", "").trim()),
         );
-    }, [planningHints, brews, productionHistory]);
+    }, [planningHints, brews, pendingProductionRows]);
+
+    const pendingProductionRuns = useMemo(
+        () => pendingProductionRows
+            .map(productionRunFromSummary)
+            .filter((run): run is SandboxBrewRun => !!run)
+            .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber)),
+        [pendingProductionRows, currentProductionBatchNumbers],
+    );
+
+    const pendingBatchNumbers = useMemo(
+        () => new Set(pendingProductionRuns.map((run) => run.batchNumber)),
+        [pendingProductionRuns],
+    );
 
     const driveProductionRuns = useMemo(
         () => productionHistory
@@ -353,30 +367,6 @@ export default function BrewingView({ brews, tab }: Props) {
             .filter((run): run is SandboxBrewRun => !!run)
             .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber)),
         [productionHistory, currentProductionBatchNumbers],
-    );
-
-    const pendingBatchNumbers = useMemo(() => {
-        const planned = new Set(
-            planningHints.map((hint) => String(hint.batchNumber).replace("#", "").trim()),
-        );
-        const activeNumbers = brews
-            .map((tank) => Number(String(tank.batchNumber || "").replace("#", "").trim()))
-            .filter(Number.isFinite);
-        const latestActiveBatch = activeNumbers.length ? Math.max(...activeNumbers) : 0;
-
-        return new Set(
-            driveProductionRuns
-                .filter((run) => {
-                    const batch = Number(run.batchNumber);
-                    return planned.has(run.batchNumber) || (Number.isFinite(batch) && batch > latestActiveBatch);
-                })
-                .map((run) => run.batchNumber),
-        );
-    }, [driveProductionRuns, planningHints, brews]);
-
-    const pendingProductionRuns = useMemo(
-        () => driveProductionRuns.filter((run) => pendingBatchNumbers.has(run.batchNumber)),
-        [driveProductionRuns, pendingBatchNumbers],
     );
 
     const historicalProductionRuns = useMemo(() => {
@@ -489,29 +479,33 @@ export default function BrewingView({ brews, tab }: Props) {
     }, [sandbox, allTanks, sandboxRuns, demoTank.id]);
 
     useEffect(() => {
+        return onSnapshot(collection(db, "pendingBrews"), (snapshot) => {
+            setPendingProductionRows(snapshot.docs.map((item) => {
+                const data = item.data();
+                return {
+                    id: item.id,
+                    fileId: String(data.fileId || ""),
+                    fileName: String(data.fileName || ""),
+                    batchNumber: String(data.batchNumber || item.id),
+                    beerStyle: String(data.beerStyle || ""),
+                    brewDate: "",
+                    sheetUrl: String(data.sheetUrl || ""),
+                    tankNumber: String(data.tankNumber || ""),
+                    tankType: data.tankType,
+                } as BrewingDriveHistoryRow;
+            }));
+        });
+    }, []);
+
+    useEffect(() => {
         let cancelled = false;
+        // Drive history is deliberately background-only. The operational top
+        // of the page is driven by Firestore and must not wait for this scan.
         setHistoryLoading(true);
         serverListBrewDriveHistory(100)
             .then((rows) => {
                 if (cancelled) return;
                 setProductionHistory(rows);
-                const maxHistory = rows.reduce((current, row) => {
-                    const value = Number(String(row.batchNumber).replace("#", "").trim());
-                    return Number.isFinite(value) ? Math.max(current, value) : current;
-                }, 0);
-                const maxAssigned = brews.reduce((current, tank) => {
-                    const value = Number(String(tank.batchNumber || "").replace("#", "").trim());
-                    return Number.isFinite(value) ? Math.max(current, value) : current;
-                }, 0);
-                const max = Math.max(maxHistory, maxAssigned);
-                if (max > 0) {
-                    const sandboxUsed = new Set(
-                        sandboxRuns.map((run) => Number(run.batchNumber)),
-                    );
-                    let candidate = max + 1;
-                    while (sandboxUsed.has(candidate)) candidate += 1;
-                    setSuggestedBatch(String(candidate));
-                }
             })
             .catch(() => {
                 if (!cancelled) setProductionHistory([]);
@@ -519,10 +513,21 @@ export default function BrewingView({ brews, tab }: Props) {
             .finally(() => {
                 if (!cancelled) setHistoryLoading(false);
             });
-        return () => {
-            cancelled = true;
-        };
-    }, [brews, sandboxRuns]);
+        return () => { cancelled = true; };
+    }, []);
+
+    useEffect(() => {
+        const numbers = [
+            ...brews.map((tank) => Number(String(tank.batchNumber || "").replace("#", "").trim())),
+            ...pendingProductionRows.map((row) => Number(String(row.batchNumber || "").replace("#", "").trim())),
+            ...planningHints.map((hint) => Number(String(hint.batchNumber || "").replace("#", "").trim())),
+        ].filter(Number.isFinite);
+        if (!numbers.length) return;
+        const sandboxUsed = new Set(sandboxRuns.map((run) => Number(run.batchNumber)));
+        let candidate = Math.max(...numbers) + 1;
+        while (sandboxUsed.has(candidate)) candidate += 1;
+        setSuggestedBatch(String(candidate));
+    }, [brews, pendingProductionRows, planningHints, sandboxRuns]);
 
     useEffect(() => {
         let cancelled = false;
@@ -651,6 +656,17 @@ export default function BrewingView({ brews, tab }: Props) {
                               tank.tankNumber ?? tank.id,
                           )} יהיה מחוטא.`,
                 );
+                await setDoc(doc(db, "pendingBrews", String(draft.batchNumber)), {
+                    batchNumber: String(draft.batchNumber),
+                    beerStyle: draft.style,
+                    tankNumber: String(tank.tankNumber ?? tank.id),
+                    tankType: tankTypeKey(tank.tankNumber, draft.style),
+                    fileId: sheet.id,
+                    fileName: sheet.name,
+                    sheetUrl: sheet.url,
+                    createdAt: serverTimestamp(),
+                });
+
                 setProductionHistory((current) => [
                     {
                         id: sheet.id,
@@ -835,6 +851,22 @@ export default function BrewingView({ brews, tab }: Props) {
                 newBatchNumber: nextBatch,
                 style: nextStyle,
             });
+            const pendingRef = doc(db, "pendingBrews", run.batchNumber);
+            if (nextBatch !== run.batchNumber) {
+                await setDoc(doc(db, "pendingBrews", nextBatch), {
+                    batchNumber: nextBatch,
+                    beerStyle: nextStyle,
+                    tankNumber: run.tankNumber === "—" ? "" : run.tankNumber,
+                    tankType: run.tankType,
+                    fileId: run.sheetId,
+                    fileName: run.sheetName || "",
+                    sheetUrl: run.sheetUrl,
+                    createdAt: serverTimestamp(),
+                });
+                await deleteDoc(pendingRef);
+            } else {
+                await updateDoc(pendingRef, { beerStyle: nextStyle });
+            }
             setProductionHistory((current) =>
                 current.map((row) =>
                     String(row.batchNumber).replace("#", "").trim() === run.batchNumber
@@ -857,6 +889,7 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         try {
             await serverTrashBrewSheet(run.sheetId);
+            await deleteDoc(doc(db, "pendingBrews", run.batchNumber));
             setProductionHistory((current) =>
                 current.filter(
                     (row) => String(row.batchNumber).replace("#", "").trim() !== run.batchNumber,
