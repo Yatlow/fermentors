@@ -3815,9 +3815,13 @@ export default function BrewFormStepper({
     setAcidHistoryLoading(true);
     setAcidHistoryError("");
     try {
+      const currentBrewLetter = String.fromCharCode(
+        64 + Math.max(1, Math.min(3, execution.activeBlockIndex || 1)),
+      ) as "A" | "B" | "C";
       const rows = await loadMashAcidHistoryPreview(
         run.style,
         run.batchNumber,
+        currentBrewLetter,
       );
       setAcidHistory(rows);
     } catch (error) {
