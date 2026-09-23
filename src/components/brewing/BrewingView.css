@@ -4275,3 +4275,17 @@
     color: var(--text-muted);
     font-size: 0.68rem;
 }
+
+
+/* Neutral workflow markers: do not reuse fermentor stage colors here. */
+.brewing-history-card::before {
+    background: #64748b;
+}
+
+.brewing-planned-quick-card::before {
+    background: #64748b;
+}
+
+.brewing-planned-quick-card {
+    border-style: dashed;
+}
