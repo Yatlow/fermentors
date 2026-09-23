@@ -57,6 +57,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /brewAcidHistory/{document} {
+      allow read: if isApprovedUser();
+      allow write: if isApprovedUser();
+    }
+
     match /packagingLog/{document} {
       allow read: if isApprovedUser();
       allow write: if isApprovedUser();
