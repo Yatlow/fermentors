@@ -4,6 +4,7 @@ import {
   loadSandboxExecution,
   loadBrewingExecutionFromFirestore,
   saveBrewingExecutionToFirestore,
+  saveBrewAcidHistoryToFirestore,
   saveBrewingProgressToFirestore,
   replaceSandboxExecutionBlockFields,
   setSandboxExecutionActiveBlock,
@@ -1056,14 +1057,17 @@ export default function BrewFormStepper({
     if (!firestoreHydrated) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
-      void saveBrewingExecutionToFirestore(execution).catch((error) =>
-        console.warn("Failed saving brewing execution", error),
+      void Promise.all([
+        saveBrewingExecutionToFirestore(execution),
+        saveBrewAcidHistoryToFirestore(execution, run.style),
+      ]).catch((error) =>
+        console.warn("Failed saving brewing execution/history", error),
       );
     }, 250);
     return () => {
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     };
-  }, [execution, firestoreHydrated]);
+  }, [execution, firestoreHydrated, run.style]);
 
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
