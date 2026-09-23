@@ -886,10 +886,18 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         try {
             await serverTrashBrewSheet(run.sheetId);
-            await Promise.all([
+            // ACTION-0 creation has already materialized a canonical brews/{batch} doc.
+            // Remove every creation-side record so the same planned batch can be
+            // recreated after an unstarted brew is cancelled.
+            const cleanupResults = await Promise.allSettled([
+                deleteDoc(doc(db, "brews", run.batchNumber)),
                 deleteDoc(doc(db, "pendingBrews", run.batchNumber)),
                 deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
-            ]).catch(() => undefined);
+            ]);
+            const failedCleanup = cleanupResults.find((result) => result.status === "rejected");
+            if (failedCleanup?.status === "rejected") {
+                throw failedCleanup.reason;
+            }
             const cellarBatch = String(
                 (tank.cellarState as { batchNumber?: string | number } | undefined)?.batchNumber || "",
             ).replace("#", "").trim();
