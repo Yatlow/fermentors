@@ -23,7 +23,7 @@ export async function enqueueBrewSheetCreation(input: {
   initialWrites: BrewingSheetWrite[];
 }) {
   const batchNumber = String(input.batchNumber || "").replace("#", "").trim();
-  if (!/^\\d+$/.test(batchNumber)) throw new Error("מספר אצווה לא תקין.");
+  if (!/^\d+$/.test(batchNumber)) throw new Error("מספר אצווה לא תקין.");
   await setDoc(doc(db, "brewSheetCreationJobs", batchNumber), {
     batchNumber,
     style: input.style,
