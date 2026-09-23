@@ -7,6 +7,7 @@ import {
     type CustomPalletSplitEntry,
 } from "../cooler/Palletservice";
 import type { PalletItemType } from "../cooler/Pallettypes ";
+import { reserveNewPalletsForNearestShipment } from "../planning/planningShipmentReservations";
 import {
     callAppsScriptPost,
     createAppsScriptRequestId,
@@ -157,6 +158,12 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
             });
             await batch.commit();
         }
+        // Re-run the normal shipment reservation picker after reconciliation.
+        // This does not give reconciled/new pallets priority: the reservation
+        // service evaluates the complete eligible stock pool using FEFO/access.
+        await reserveNewPalletsForNearestShipment(
+            matchingPallets.map((palletDoc) => palletDoc.id)
+        );
         await markPackagingPalletsCompleted(operationId);
         return [];
     }
