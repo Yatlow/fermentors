@@ -232,7 +232,10 @@ function normalizeSheetValue(value: SheetCellValue | undefined): string {
   // 14 -> "14.0%aa" or 1335 -> "ליטר 1335"). Treat those as the same value
   // for optimistic-write reconciliation, while leaving ordinary text exact.
   const numeric = text.replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/);
-  if (numeric && !/[A-Za-z\u0590-\u05ff]/.test(text.replace(numeric[0], "").replace(/%aa/gi, "").replace(/[%°\s]/g, ""))) {
+  const unitlessRemainder = numeric
+    ? text.replace(numeric[0], "").replace(/%aa/gi, "").replace(/ליטר|ק"ג|ק״ג|קג|גרם/gi, "").replace(/[%°\s]/g, "")
+    : text;
+  if (numeric && !/[A-Za-z\u0590-\u05ff]/.test(unitlessRemainder)) {
     const parsed = Number(numeric[0]);
     if (Number.isFinite(parsed)) return `#num:${parsed}`;
   }
