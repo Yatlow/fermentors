@@ -497,6 +497,8 @@ export default function BrewingView({ brews, tab }: Props) {
             // contains the previous batch. Reconciliation here used to turn
             // e.g. planned #1598/#1599 into their current tank batches, after
             // which the "already in production" filter hid them completely.
+            // Keep this marker tied to the planned-brew projection fix so a new
+            // commit always triggers the PR preview workflow.
             setPlanningHints(result.hints);
             setPlanningHintsAvailable(result.available);
         }).finally(() => {
