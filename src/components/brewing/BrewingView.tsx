@@ -209,6 +209,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [quickCreateHint, setQuickCreateHint] = useState<PlannedBrewHint | null>(null);
     const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
     const [editingTankId, setEditingTankId] = useState<string | null>(null);
+    const [editBatchDraft, setEditBatchDraft] = useState<{ tankId: string; batchNumber: string; style: string } | null>(null);
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [pendingProductionRows, setPendingProductionRows] = useState<BrewingDriveHistoryRow[]>([]);
@@ -754,38 +755,35 @@ export default function BrewingView({ brews, tab }: Props) {
         }
     }
 
-    async function editUnstartedProductionBatch(tank: Fermentor) {
+    function editUnstartedProductionBatch(tank: Fermentor) {
         if (Number(tank.action) !== 0) return;
         const run = productionRunFromTank(tank);
-        if (!run?.sheetId) return;
+        if (!run?.sheetId || run.brewProgress?.stageName) return;
+        setEditBatchDraft({ tankId: tank.id, batchNumber: run.batchNumber, style: run.style });
+    }
 
-        const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\D/g, "").trim();
-        if (!nextBatch) return;
-        const nextStyle = window.prompt("סגנון", run.style)?.trim();
-        if (!nextStyle) return;
-        if (nextBatch === run.batchNumber && nextStyle === run.style) return;
-
+    async function saveUnstartedProductionBatchEdit() {
+        if (!editBatchDraft) return;
+        const tank = brews.find((item) => item.id === editBatchDraft.tankId);
+        if (!tank || Number(tank.action) !== 0) return;
+        const run = productionRunFromTank(tank);
+        if (!run?.sheetId || run.brewProgress?.stageName) return;
+        const nextBatch = editBatchDraft.batchNumber.replace(/\D/g, "").trim();
+        const nextStyle = editBatchDraft.style.trim();
+        if (!nextBatch || !nextStyle) return;
+        if (nextBatch === run.batchNumber && nextStyle === run.style) {
+            setEditBatchDraft(null);
+            return;
+        }
         setEditingTankId(tank.id);
         setMessage("");
         try {
-            if (
-                nextBatch !== run.batchNumber &&
-                (await batchNumberExistsInProduction(nextBatch) ||
-                    await productionBrewSheetExists(nextBatch))
-            ) {
+            if (nextBatch !== run.batchNumber && (await batchNumberExistsInProduction(nextBatch) || await productionBrewSheetExists(nextBatch))) {
                 throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
             }
-
-            await serverRenameBrewSheet({
-                spreadsheetId: run.sheetId,
-                oldBatchNumber: run.batchNumber,
-                newBatchNumber: nextBatch,
-                style: nextStyle,
-            });
-            await updateDoc(doc(db, "fermentors", tank.id), {
-                batchNumber: nextBatch,
-                beerStyle: nextStyle,
-            });
+            await serverRenameBrewSheet({ spreadsheetId: run.sheetId, oldBatchNumber: run.batchNumber, newBatchNumber: nextBatch, style: nextStyle });
+            await updateDoc(doc(db, "fermentors", tank.id), { batchNumber: nextBatch, beerStyle: nextStyle });
+            setEditBatchDraft(null);
             setMessage(`✓ אצווה ${run.batchNumber} עודכנה ל-${nextBatch} · ${nextStyle}.`);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "עדכון האצווה נכשל.");
@@ -965,6 +963,19 @@ export default function BrewingView({ brews, tab }: Props) {
 
     return (
         <main className="brewing-view" dir="rtl">
+            {editBatchDraft && (
+                <div className="brewing-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditBatchDraft(null); }}>
+                    <div className="brewing-confirm-modal brewing-edit-batch-modal" role="dialog" aria-modal="true" aria-labelledby="brew-edit-title">
+                        <h3 id="brew-edit-title">עריכת אצווה</h3>
+                        <label>מספר אצווה<input inputMode="numeric" value={editBatchDraft.batchNumber} onChange={(event) => setEditBatchDraft((current) => current ? { ...current, batchNumber: event.target.value.replace(/\D/g, "") } : current)} /></label>
+                        <label>סגנון<select value={editBatchDraft.style} onChange={(event) => setEditBatchDraft((current) => current ? { ...current, style: event.target.value } : current)}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.style}>{recipe.style}</option>)}</select></label>
+                        <div className="brewing-confirm-actions">
+                            <button type="button" onClick={() => setEditBatchDraft(null)}>ביטול</button>
+                            <button type="button" disabled={editingTankId === editBatchDraft.tankId || !editBatchDraft.batchNumber || !editBatchDraft.style} onClick={() => void saveUnstartedProductionBatchEdit()}>{editingTankId === editBatchDraft.tankId ? "שומר…" : "שמור"}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {deleteConfirmation && (
                 <div className="brewing-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteConfirmation(null); }}>
                     <div className="brewing-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="brew-delete-title">
