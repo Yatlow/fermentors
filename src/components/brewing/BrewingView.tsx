@@ -334,6 +334,18 @@ export default function BrewingView({ brews, tab }: Props) {
         [editableProductionTanks],
     );
 
+    const visiblePlanningHints = useMemo(() => {
+        const created = new Set(
+            [
+                ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
+                ...productionHistory.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
+            ].filter(Boolean),
+        );
+        return planningHints.filter(
+            (hint) => !created.has(String(hint.batchNumber).replace("#", "").trim()),
+        );
+    }, [planningHints, brews, productionHistory]);
+
     const historicalProductionRuns = useMemo(() => {
         const query = historyQuery.trim().toLowerCase();
 
@@ -773,6 +785,65 @@ export default function BrewingView({ brews, tab }: Props) {
         }
     }
 
+    async function editPendingProductionBatch(run: SandboxBrewRun) {
+        if (run.brewDate) return;
+        const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\\D/g, "").trim();
+        if (!nextBatch) return;
+        const nextStyle = window.prompt("סגנון", run.style)?.trim();
+        if (!nextStyle) return;
+        if (nextBatch === run.batchNumber && nextStyle === run.style) return;
+
+        setEditingTankId(run.tankId);
+        setMessage("");
+        try {
+            if (
+                nextBatch !== run.batchNumber &&
+                (await batchNumberExistsInProduction(nextBatch) ||
+                    await productionBrewSheetExists(nextBatch))
+            ) {
+                throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
+            }
+            await serverRenameBrewSheet({
+                spreadsheetId: run.sheetId,
+                oldBatchNumber: run.batchNumber,
+                newBatchNumber: nextBatch,
+                style: nextStyle,
+            });
+            setProductionHistory((current) =>
+                current.map((row) =>
+                    String(row.batchNumber).replace("#", "").trim() === run.batchNumber
+                        ? { ...row, batchNumber: nextBatch, beerStyle: nextStyle }
+                        : row,
+                ),
+            );
+            setMessage(`✓ אצווה ${run.batchNumber} עודכנה ל-${nextBatch} · ${nextStyle}.`);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : "עדכון האצווה נכשל.");
+        } finally {
+            setEditingTankId(null);
+        }
+    }
+
+    async function deletePendingProductionBatch(run: SandboxBrewRun) {
+        if (run.brewDate) return;
+        if (!window.confirm(`למחוק את אצווה ${run.batchNumber}? הפעולה תעביר את ה-Sheet לפח.`)) return;
+        setDeletingBatch(run.batchNumber);
+        setMessage("");
+        try {
+            await serverTrashBrewSheet(run.sheetId);
+            setProductionHistory((current) =>
+                current.filter(
+                    (row) => String(row.batchNumber).replace("#", "").trim() !== run.batchNumber,
+                ),
+            );
+            setMessage(`✓ אצווה ${run.batchNumber} נמחקה.`);
+        } catch (error) {
+            setMessage(error instanceof Error ? `האצווה לא נמחקה: ${error.message}` : "מחיקת האצווה נכשלה.");
+        } finally {
+            setDeletingBatch(null);
+        }
+    }
+
     async function deleteUnstartedProductionBatch(tank: Fermentor) {
         if (Number(tank.action) !== 0) return;
         const run = productionRunFromTank(tank);
@@ -1036,8 +1107,8 @@ export default function BrewingView({ brews, tab }: Props) {
                             <h2>בישולים מתוכננים</h2>
                             <p>השבוע והשבוע הבא · לחץ על אצווה כדי ליצור אותה</p>
                         </div>
-                        {!planningHintsLoading && planningHintsAvailable && planningHints.length > 0 && (
-                            <span className="brewing-count">{planningHints.length}</span>
+                        {!planningHintsLoading && planningHintsAvailable && visiblePlanningHints.length > 0 && (
+                            <span className="brewing-count">{visiblePlanningHints.length}</span>
                         )}
                     </div>
                     <div className="brewing-tank-grid brewing-planned-quick-list">
@@ -1045,18 +1116,10 @@ export default function BrewingView({ brews, tab }: Props) {
                         {!planningHintsLoading && !planningHintsAvailable && (
                             <small>לא ניתן לטעון כרגע את תכנון הבישולים.</small>
                         )}
-                        {!planningHintsLoading && planningHintsAvailable && planningHints.length === 0 && (
+                        {!planningHintsLoading && planningHintsAvailable && visiblePlanningHints.length === 0 && (
                             <small>לא נמצאו בישולים מתוכננים לשבוע הזה או לשבוע הבא.</small>
                         )}
-                        {planningHints
-                            .filter((hint) => {
-                                const clean = String(hint.batchNumber).replace("#", "").trim();
-                                return !brews.some(
-                                    (tank) =>
-                                        String(tank.batchNumber || "").replace("#", "").trim() === clean,
-                                );
-                            })
-                            .map((hint) => {
+                        {visiblePlanningHints.map((hint) => {
                                 const tank = allTanks.find((item) => item.id === hint.tankId);
                                 return (
                                     <button
@@ -1283,10 +1346,10 @@ export default function BrewingView({ brews, tab }: Props) {
                         <div className="brewing-history-heading">
                             <div>
                                 <h3 className="brewing-subheading">
-                                    אצוות קודמות לעריכה
+                                    אצוות ב-Drive
                                 </h3>
                                 <small>
-                                    חיפוש מתוך 100 האצוות האחרונות ב-Drive
+                                    אצוות שממתינות לשיבוץ ואצוות קודמות · חיפוש מתוך 100 האחרונות
                                 </small>
                             </div>
                             <input
@@ -1342,18 +1405,36 @@ export default function BrewingView({ brews, tab }: Props) {
                                                 >
                                                     פתח Sheet
                                                 </a>
-                                                <button
-                                                    type="button"
-                                                    disabled={!sandbox || !recipe}
-                                                    onClick={() => {
-                                                        setMessage("");
-                                                        setSelectedRun(run);
-                                                    }}
-                                                >
-                                                    {!recipe
-                                                        ? "חסר מתכון תואם"
-                                                        : "עריכת נתוני בישול"}
-                                                </button>
+                                                {!run.brewDate ? (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            disabled={editingTankId === run.tankId}
+                                                            onClick={() => void editPendingProductionBatch(run)}
+                                                        >
+                                                            ערוך אצווה
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="brewing-danger-button"
+                                                            disabled={deletingBatch === run.batchNumber}
+                                                            onClick={() => void deletePendingProductionBatch(run)}
+                                                        >
+                                                            מחק
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        disabled={!sandbox || !recipe}
+                                                        onClick={() => {
+                                                            setMessage("");
+                                                            setSelectedRun(run);
+                                                        }}
+                                                    >
+                                                        {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
+                                                    </button>
+                                                )}
                                             </div>
                                         </article>
                                     );
