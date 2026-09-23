@@ -725,14 +725,30 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         setDeletingBatch(run.batchNumber);
         try {
+            let sheetDeleteWarning = "";
             if (run.sheetId) {
-                // Existing demo runs may be cleaned up from a production-configured
-                // preview too. serverTrashBrewSheet performs the authenticated check.
-                await deleteSandboxBrewSheet(run.sheetId);
+                // The demo run itself is local test state. A Drive cleanup failure
+                // (for example an expired Apps Script auth session) must not leave
+                // the demo batch stuck in the UI.
+                try {
+                    await deleteSandboxBrewSheet(run.sheetId);
+                } catch (error) {
+                    sheetDeleteWarning =
+                        error instanceof Error ? error.message : "מחיקת ה-Sheet נכשלה.";
+                    console.warn("Demo brew Sheet cleanup failed", {
+                        batchNumber: run.batchNumber,
+                        sheetId: run.sheetId,
+                        error,
+                    });
+                }
             }
             deleteSandboxBrewRun(run.batchNumber);
             setSandboxRuns(loadSandboxBrewRuns());
-            setMessage(`אצווה ${run.batchNumber} וה-Sheet שלה נמחקו.`);
+            setMessage(
+                sheetDeleteWarning
+                    ? `אצווה ${run.batchNumber} נמחקה. ה-Sheet לא נמחק: ${sheetDeleteWarning}`
+                    : `אצווה ${run.batchNumber} וה-Sheet שלה נמחקו.`,
+            );
         } catch (error) {
             setMessage(
                 error instanceof Error
