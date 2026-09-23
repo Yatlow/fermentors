@@ -105,14 +105,26 @@ function processPendingBrewSheetCreationJobs_() {
       });
       const initialWrites = JSON.parse(job.initialWritesJson);
       if (!Array.isArray(initialWrites)) throw new Error("Invalid initialWritesJson");
-      const created = brewingSheetCreate_({
-        batchNumber: job.batchNumber,
-        style: job.style,
-        tankNumber: job.tankNumber,
-        tankType: job.tankType,
-        name: job.name,
-        initialWrites: initialWrites
+      // Idempotency across worker retries: if a previous attempt created the
+      // Drive file but died before publishing Firestore state, adopt that file
+      // instead of creating a duplicate batch Sheet.
+      const existingCandidate = (getBrewFolderCandidatesCached() || []).find(function (candidate) {
+        return String(candidate.batch || brewingSheetBatchFromName_(candidate.fileName)) === job.batchNumber;
       });
+      const created = existingCandidate
+        ? {
+            id: String(existingCandidate.fileId || ""),
+            name: String(existingCandidate.fileName || job.name),
+            url: buildSheetUrl(existingCandidate.fileId)
+          }
+        : brewingSheetCreate_({
+            batchNumber: job.batchNumber,
+            style: job.style,
+            tankNumber: job.tankNumber,
+            tankType: job.tankType,
+            name: job.name,
+            initialWrites: initialWrites
+          });
       brewCreatePublishPending_(job, created);
       brewCreatePatchJob_(jobId, {
         state: "ready",
