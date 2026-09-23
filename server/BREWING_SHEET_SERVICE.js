@@ -78,7 +78,15 @@ function brewingSheetReadRange_(data) {
   const openMs = Date.now() - openStartedAt;
 
   const readStartedAt = Date.now();
-  const values = ss.getRange(range).getDisplayValues();
+  // Spreadsheet has no getRange(); ranges belong to a Sheet. Resolve the
+  // optional quoted sheet name (e.g. 'גיליון1'!A1:H220) explicitly.
+  const bang = range.lastIndexOf("!");
+  const rawSheetName = bang >= 0 ? range.slice(0, bang) : "";
+  const a1 = bang >= 0 ? range.slice(bang + 1) : range;
+  const sheetName = rawSheetName.replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
+  const sheet = sheetName ? ss.getSheetByName(sheetName) : ss.getSheets()[0];
+  if (!sheet) throw new Error("Sheet not found: " + sheetName);
+  const values = sheet.getRange(a1).getDisplayValues();
   const readMs = Date.now() - readStartedAt;
 
   const timing = {
