@@ -1045,7 +1045,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 />
             )}
 
-            {tab === "form" && sandbox && !selectedRun && planningHints.length > 0 && (
+            {tab === "form" && !selectedRun && planningHints.length > 0 && (
                 <section className="brewing-planned-quick">
                     <div className="brewing-planned-quick-heading">
                         <strong>בישולים מתוכננים</strong>
