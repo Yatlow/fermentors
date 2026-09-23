@@ -1281,72 +1281,6 @@ export default function BrewingView({ brews, tab }: Props) {
                         </>
                     )}
 
-                    {otherProductionTanks.length > 0 && (
-                        <>
-                            <h3 className="brewing-subheading">
-                                אצוות במיכל
-                            </h3>
-                            <div className="brewing-tank-grid">
-                                {otherProductionTanks.map((tank) => {
-                                    const run = productionRunFromTank(tank);
-                                    if (!run) return null;
-                                    const style = beerStyleClass(run.style);
-                                    const recipe =
-                                        recipes.find((item) =>
-                                            sameStyle(item.style, run.style),
-                                        ) || null;
-
-                                    return (
-                                        <article
-                                            className={`brewing-tank-card brewing-production-card ${productionTankStageClass(
-                                                tank,
-                                            )}`}
-                                            key={tank.id}
-                                        >
-                                            <div className="brewing-tank-card-top">
-                                                <strong>אצווה {run.batchNumber}</strong>
-                                                <span
-                                                    className={`brewing-style-tag ${style.className}`}
-                                                >
-                                                    {style.displayLabel}
-                                                </span>
-                                            </div>
-                                            <div className="brewing-tank-meta">
-                                                <span>מיכל {run.tankNumber}</span>
-                                                <span>{productionTankStatus(tank)}</span>
-                                                <span>ACTION {String(tank.action ?? "—")}</span>
-                                            </div>
-                                            <div className="brewing-card-actions">
-                                                <a
-                                                    className="brewing-sheet-link"
-                                                    href={run.sheetUrl}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                >
-                                                    פתח Sheet
-                                                </a>
-                                                <button
-                                                    type="button"
-                                                    disabled={!sandbox || !recipe}
-                                                    onClick={() => {
-                                                        setMessage("");
-                                                        setSelectedRun(run);
-                                                    }}
-                                                >
-                                                    {!recipe
-                                                        ? "חסר מתכון תואם"
-                                                        : sandbox
-                                                          ? "עריכת נתוני בישול"
-                                                          : "עריכת נתוני בישול"}
-                                                </button>
-                                            </div>
-                                        </article>
-                                    );
-                                })}
-                            </div>
-                        </>
-                    )}
-
                     {pendingProductionRuns.length > 0 && (
                         <div className="brewing-history-section brewing-pending-section">
                             <div className="brewing-history-heading">
@@ -1424,6 +1358,72 @@ export default function BrewingView({ brews, tab }: Props) {
                     </div>
                 
                     </div>
+
+                    {otherProductionTanks.length > 0 && (
+                        <>
+                            <h3 className="brewing-subheading">
+                                אצוות במיכל
+                            </h3>
+                            <div className="brewing-tank-grid">
+                                {otherProductionTanks.map((tank) => {
+                                    const run = productionRunFromTank(tank);
+                                    if (!run) return null;
+                                    const style = beerStyleClass(run.style);
+                                    const recipe =
+                                        recipes.find((item) =>
+                                            sameStyle(item.style, run.style),
+                                        ) || null;
+
+                                    return (
+                                        <article
+                                            className={`brewing-tank-card brewing-production-card ${productionTankStageClass(
+                                                tank,
+                                            )}`}
+                                            key={tank.id}
+                                        >
+                                            <div className="brewing-tank-card-top">
+                                                <strong>אצווה {run.batchNumber}</strong>
+                                                <span
+                                                    className={`brewing-style-tag ${style.className}`}
+                                                >
+                                                    {style.displayLabel}
+                                                </span>
+                                            </div>
+                                            <div className="brewing-tank-meta">
+                                                <span>מיכל {run.tankNumber}</span>
+                                                <span>{productionTankStatus(tank)}</span>
+                                                <span>ACTION {String(tank.action ?? "—")}</span>
+                                            </div>
+                                            <div className="brewing-card-actions">
+                                                <a
+                                                    className="brewing-sheet-link"
+                                                    href={run.sheetUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                >
+                                                    פתח Sheet
+                                                </a>
+                                                <button
+                                                    type="button"
+                                                    disabled={!sandbox || !recipe}
+                                                    onClick={() => {
+                                                        setMessage("");
+                                                        setSelectedRun(run);
+                                                    }}
+                                                >
+                                                    {!recipe
+                                                        ? "חסר מתכון תואם"
+                                                        : sandbox
+                                                          ? "עריכת נתוני בישול"
+                                                          : "עריכת נתוני בישול"}
+                                                </button>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
 
                     <div className="brewing-history-section">
                         <div className="brewing-history-heading">
