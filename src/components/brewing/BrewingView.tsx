@@ -210,6 +210,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
+    const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
 
     const demoTankAsFermentor = useMemo<Fermentor>(
@@ -851,7 +852,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
     async function deletePendingProductionBatch(run: SandboxBrewRun) {
         if (run.brewDate || !run.sheetId) return;
-        if (!window.confirm(`למחוק את אצווה ${run.batchNumber}? הפעולה תעביר את ה-Sheet לפח.`)) return;
+        setDeleteConfirmation(null);
         setDeletingBatch(run.batchNumber);
         setMessage("");
         try {
@@ -873,7 +874,7 @@ export default function BrewingView({ brews, tab }: Props) {
         if (Number(tank.action) !== 0) return;
         const run = productionRunFromTank(tank);
         if (!run?.sheetId) return;
-        if (!window.confirm(`למחוק את אצווה ${run.batchNumber}? הפעולה תעביר את ה-Sheet לפח.`)) return;
+        setDeleteConfirmation(null);
 
         setDeletingBatch(run.batchNumber);
         setMessage("");
@@ -914,8 +915,32 @@ export default function BrewingView({ brews, tab }: Props) {
         }
     }
 
+    async function confirmDeleteProductionBatch() {
+        if (!deleteConfirmation) return;
+        const tank = brews.find((item) =>
+            String(item.batchNumber || "").replace("#", "").trim() === deleteConfirmation.batchNumber &&
+            Number(item.action) === 0
+        );
+        if (tank) await deleteUnstartedProductionBatch(tank);
+        else await deletePendingProductionBatch(deleteConfirmation);
+    }
+
     return (
         <main className="brewing-view" dir="rtl">
+            {deleteConfirmation && (
+                <div className="brewing-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteConfirmation(null); }}>
+                    <div className="brewing-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="brew-delete-title">
+                        <h3 id="brew-delete-title">מחיקת אצווה {deleteConfirmation.batchNumber}</h3>
+                        <p>ה-Sheet של האצווה יועבר לפח. הפעולה מיועדת רק לאצווה שעדיין לא התחילה בבישול.</p>
+                        <div className="brewing-confirm-actions">
+                            <button type="button" onClick={() => setDeleteConfirmation(null)}>ביטול</button>
+                            <button type="button" className="brewing-danger-button" disabled={deletingBatch === deleteConfirmation.batchNumber} onClick={() => void confirmDeleteProductionBatch()}>
+                                {deletingBatch === deleteConfirmation.batchNumber ? "מוחק…" : "מחק אצווה"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {tab === "form" && !selectedRun && actionZeroProductionTanks.length > 0 && (
                 <section className="brewing-action-zero-strip" aria-label="מיכלים ב-ACTION 0">
                     <div className="brewing-action-zero-heading">
@@ -1010,7 +1035,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                             type="button"
                                             className="brewing-danger-button"
                                             disabled={deletingBatch === run.batchNumber}
-                                            onClick={() => void deleteUnstartedProductionBatch(tank)}
+                                            onClick={() => run && setDeleteConfirmation(run)}
                                         >
                                             מחק
                                         </button>
@@ -1347,7 +1372,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                             <div className="brewing-card-actions">
                                                 <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
                                                 <button type="button" disabled={editingTankId === run.tankId} onClick={() => void editPendingProductionBatch(run)}>ערוך אצווה</button>
-                                                <button type="button" className="brewing-danger-button" disabled={deletingBatch === run.batchNumber} onClick={() => void deletePendingProductionBatch(run)}>מחק</button>
+                                                <button type="button" className="brewing-danger-button" disabled={deletingBatch === run.batchNumber} onClick={() => setDeleteConfirmation(run)}>מחק</button>
                                             </div>
                                         </article>
                                     );
