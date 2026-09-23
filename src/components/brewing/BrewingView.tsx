@@ -849,6 +849,14 @@ export default function BrewingView({ brews, tab }: Props) {
 
     async function deletePendingProductionBatch(run: SandboxBrewRun) {
         if (run.brewDate || !run.sheetId) return;
+        const liveTank = brews.find((item) =>
+            String(item.batchNumber || "").replace("#", "").trim() === run.batchNumber,
+        );
+        if (liveTank) {
+            setMessage(`אי אפשר למחוק את אצווה ${run.batchNumber} מרשימת הממתינות: היא כבר משויכת למיכל. מחיקה מותרת רק כל עוד המיכל ב-ACTION 0 והבישול טרם התחיל.`);
+            setDeleteConfirmation(null);
+            return;
+        }
         setDeleteConfirmation(null);
         setDeletingBatch(run.batchNumber);
         setMessage("");
@@ -878,6 +886,10 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         try {
             await serverTrashBrewSheet(run.sheetId);
+            await Promise.all([
+                deleteDoc(doc(db, "pendingBrews", run.batchNumber)),
+                deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
+            ]).catch(() => undefined);
             await updateDoc(doc(db, "fermentors", tank.id), {
                 batchNumber: "",
                 beerStyle: "",
@@ -915,12 +927,19 @@ export default function BrewingView({ brews, tab }: Props) {
 
     async function confirmDeleteProductionBatch() {
         if (!deleteConfirmation) return;
-        const tank = brews.find((item) =>
-            String(item.batchNumber || "").replace("#", "").trim() === deleteConfirmation.batchNumber &&
-            Number(item.action) === 0
+        const assignedTank = brews.find((item) =>
+            String(item.batchNumber || "").replace("#", "").trim() === deleteConfirmation.batchNumber,
         );
-        if (tank) await deleteUnstartedProductionBatch(tank);
-        else await deletePendingProductionBatch(deleteConfirmation);
+        if (assignedTank) {
+            if (Number(assignedTank.action) !== 0 || deleteConfirmation.brewProgress?.stageName) {
+                setDeleteConfirmation(null);
+                setMessage(`אי אפשר למחוק את אצווה ${deleteConfirmation.batchNumber}: הבישול כבר התחיל.`);
+                return;
+            }
+            await deleteUnstartedProductionBatch(assignedTank);
+            return;
+        }
+        await deletePendingProductionBatch(deleteConfirmation);
     }
 
     return (
