@@ -125,6 +125,7 @@ const POST_MUTATION_ACTIONS = {
   // idempotency cache can strand the UI behind an "in_progress" record after
   // a lost ContentService response. Let each debounced batch execute normally.
   BrewSheetTrash: true,
+  BrewSheetRenameBatch: true,
   BrewSheetEnsureEditTrigger: true,
   BrewSheetRemoveEditTrigger: true
 };
@@ -595,6 +596,14 @@ function executePostAction_(data) {
       success: true,
       action: "BrewSheetTrash",
       result: brewingSheetTrash_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetRenameBatch") {
+    return {
+      success: true,
+      action: "BrewSheetRenameBatch",
+      result: brewingSheetRenameBatch_(data)
     };
   }
 
