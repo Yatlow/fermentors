@@ -854,6 +854,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                     : null;
 
                             return (
+                                <>
                                 <button
                                     type="button"
                                     className="brewing-action-zero-chip"
@@ -935,6 +936,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                         </button>
                                     </div>
                                 )}
+                                </>
                             );
                         })}
                     </div>
