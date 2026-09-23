@@ -83,15 +83,11 @@ export async function createSandboxBrewSheet(input: {
   if (runtimeConfig.deployEnv !== "preview") {
     throw new Error("יצירת Sheet מענף הפיתוח זמינה רק ב-Preview.");
   }
-  if (!input.production && input.style !== "IPA") {
-    throw new Error("ב-Sandbox הדמו יצירת Sheet פעילה ל-IPA בלבד.");
-  }
-
   const typeSuffix =
     input.tankType === "single" ? "" : " " + tankLabel(input.tankType);
   const name = input.production
     ? input.style + typeSuffix + " " + input.batchNumber + "#"
-    : "[SANDBOX] IPA " + tankLabel(input.tankType) + " " + input.batchNumber + "#";
+    : "[SANDBOX] " + input.style + " " + tankLabel(input.tankType) + " " + input.batchNumber + "#";
 
   const layout = layoutFor(input.tankType);
   const styleLabel =
