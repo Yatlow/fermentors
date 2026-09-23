@@ -30,6 +30,7 @@ const flow = fs.readFileSync("src/SERVICES/cooler/usePackagingPalletsFlow.ts", "
 const service = fs.readFileSync("src/SERVICES/cooler/Palletservice.ts", "utf8");
 const syncStatus = fs.readFileSync("src/components/dashboard/SheetSyncStatus.tsx", "utf8");
 const rules = fs.readFileSync("firestore.rules", "utf8");
+const shipmentReservations = fs.readFileSync("src/SERVICES/planning/planningShipmentReservations.ts", "utf8");
 
 assert.match(logger, /await createPalletsForPlan\(palletPlan, defaultSplits\)/,
   "submitPackagingRecord must create safe default pallets immediately");
@@ -62,9 +63,9 @@ assert.match(rules, /hasOnly\(\[[^\]]*'palletRevision'[^\]]*\]\)/,
 console.log("Packaging pallet default-first regression tests passed.");
 
 
-assert.match(logger, /shipmentPlanningQueue/,
+assert.match(shipmentReservations, /shipmentPlanningQueue/,
   "shipment reservation must use approved-user operational planning projection");
-assert.doesNotMatch(logger, /collection\(db, "planningWeeks"\)/,
+assert.doesNotMatch(shipmentReservations, /collection\(db, "planningWeeks"\)/,
   "shipment reservation must not read planner-only planningWeeks");
 assert.match(rules, /match \/shipmentPlanningQueue\/\{weekId\}[\s\S]*allow read: if isApprovedUser\(\)/,
   "shipment planning projection must be readable by approved brewery users");
