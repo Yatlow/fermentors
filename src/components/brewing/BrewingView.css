@@ -4289,3 +4289,16 @@
 .brewing-planned-quick-card {
     border-style: dashed;
 }
+
+
+.brewing-pending-section {
+    margin-top: 14px;
+}
+
+.brewing-pending-card::before {
+    background: #64748b;
+}
+
+.brewing-pending-card {
+    border-style: dashed;
+}
