@@ -786,7 +786,7 @@ export default function BrewingView({ brews, tab }: Props) {
     }
 
     async function editPendingProductionBatch(run: SandboxBrewRun) {
-        if (run.brewDate) return;
+        if (run.brewDate || !run.sheetId) return;
         const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\\D/g, "").trim();
         if (!nextBatch) return;
         const nextStyle = window.prompt("סגנון", run.style)?.trim();
@@ -825,7 +825,7 @@ export default function BrewingView({ brews, tab }: Props) {
     }
 
     async function deletePendingProductionBatch(run: SandboxBrewRun) {
-        if (run.brewDate) return;
+        if (run.brewDate || !run.sheetId) return;
         if (!window.confirm(`למחוק את אצווה ${run.batchNumber}? הפעולה תעביר את ה-Sheet לפח.`)) return;
         setDeletingBatch(run.batchNumber);
         setMessage("");
