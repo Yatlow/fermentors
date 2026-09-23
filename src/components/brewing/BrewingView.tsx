@@ -592,9 +592,11 @@ export default function BrewingView({ brews, tab }: Props) {
 
         const isDemoTank = tank.id === demoTank.id;
 
-        const recipe =
-            recipes.find((item) => item.style === draft.style) ||
-            recipes.find((item) => item.id === "ipa");
+        const selectedStyleKey = String(draft.style || "").trim().toLowerCase();
+        const recipe = recipes.find((item) =>
+            String(item.style || "").trim().toLowerCase() === selectedStyleKey ||
+            String(item.id || "").trim().toLowerCase() === selectedStyleKey,
+        );
         if (!recipe) {
             setCreateModalError("לא נמצא מתכון לסגנון שנבחר.");
             return;
