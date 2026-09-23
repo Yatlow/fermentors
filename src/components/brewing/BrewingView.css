@@ -3523,6 +3523,22 @@
     scrollbar-width: thin;
 }
 
+.brewing-action-zero-item {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    background: var(--surface, #fff);
+    padding: 4px;
+}
+
+.brewing-action-zero-item .brewing-action-zero-chip {
+    border: 0;
+    border-radius: calc(var(--radius-md) - 4px);
+}
+
 .brewing-action-zero-chip {
     display: grid;
     grid-template-columns: auto auto;
@@ -3585,11 +3601,14 @@
         align-items: stretch;
     }
 
-    .brewing-action-zero-list > .brewing-prebrew-actions {
-        position: sticky;
-        inset-inline-end: 0;
-        background: var(--surface, #fff);
-        z-index: 1;
+    .brewing-action-zero-item {
+        max-width: min(100%, 430px);
+    }
+
+    .brewing-action-zero-item .brewing-prebrew-actions {
+        position: static;
+        background: transparent;
+        padding-inline: 2px;
     }
 }
 
