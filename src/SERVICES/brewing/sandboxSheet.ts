@@ -71,7 +71,7 @@ export async function ensureSandboxSheetAccess(): Promise<void> {
   // Access is authenticated by the Firebase ID token in appsScriptClient.
 }
 
-export async function createSandboxBrewSheet(input: {
+export function buildBrewSheetInitialWrites(input: {
   batchNumber: string;
   style: string;
   tankNumber: string;
@@ -79,16 +79,7 @@ export async function createSandboxBrewSheet(input: {
   recipe?: BrewRecipe;
   ingredients?: IngredientDefinition[];
   production?: boolean;
-}): Promise<SandboxSheetResult> {
-  if (runtimeConfig.deployEnv !== "preview") {
-    throw new Error("יצירת Sheet מענף הפיתוח זמינה רק ב-Preview.");
-  }
-  const typeSuffix =
-    input.tankType === "single" ? "" : " " + tankLabel(input.tankType);
-  const name = input.production
-    ? input.style + typeSuffix + " " + input.batchNumber + "#"
-    : "[SANDBOX] " + input.style + " " + tankLabel(input.tankType) + " " + input.batchNumber + "#";
-
+}) {
   const layout = layoutFor(input.tankType);
   const styleLabel =
     input.tankType === "single"
@@ -152,6 +143,28 @@ export async function createSandboxBrewSheet(input: {
     );
   }
 
+  return writes;
+}
+
+export async function createSandboxBrewSheet(input: {
+  batchNumber: string;
+  style: string;
+  tankNumber: string;
+  tankType: TankType;
+  recipe?: BrewRecipe;
+  ingredients?: IngredientDefinition[];
+  production?: boolean;
+}): Promise<SandboxSheetResult> {
+  if (runtimeConfig.deployEnv !== "preview") {
+    throw new Error("יצירת Sheet מענף הפיתוח זמינה רק ב-Preview.");
+  }
+  const typeSuffix =
+    input.tankType === "single" ? "" : " " + tankLabel(input.tankType);
+  const name = input.production
+    ? input.style + typeSuffix + " " + input.batchNumber + "#"
+    : "[SANDBOX] " + input.style + " " + tankLabel(input.tankType) + " " + input.batchNumber + "#";
+
+  const writes = buildBrewSheetInitialWrites(input);
   const created = await serverCreateBrewSheet({
     batchNumber: input.batchNumber,
     style: input.style,
