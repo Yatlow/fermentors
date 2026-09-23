@@ -59,20 +59,23 @@
      * cumulative: 50 shows red + red-orange, 80 continues through amber and
      * yellow-green, and only 90+ reaches green.
      */
-    background: conic-gradient(
-        #dc2626 0%,
-        #dc2626 39%,
-        #ea580c 40%,
-        #ea580c 59%,
-        #d97706 60%,
-        #d97706 74%,
-        #84a90f 75%,
-        #84a90f 89%,
-        #16a34a 90%,
-        #16a34a var(--health-score),
-        #e2e8f0 var(--health-score),
-        #e2e8f0 100%
-    );
+    /*
+     * Keep the filled arc geometrically equal to the score, while its colour
+     * progresses continuously across the 0–100 scale. A transparent mask
+     * starts exactly at --health-score, revealing the neutral track beneath.
+     */
+    background:
+        conic-gradient(
+            transparent 0 var(--health-score),
+            #e2e8f0 var(--health-score) 100%
+        ),
+        conic-gradient(
+            #dc2626 0%,
+            #ea580c 40%,
+            #d97706 60%,
+            #84a90f 75%,
+            #16a34a 90% 100%
+        );
 }
 
 .health-score-ring::after {
