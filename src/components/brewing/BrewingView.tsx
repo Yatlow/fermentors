@@ -346,24 +346,30 @@ export default function BrewingView({ brews, tab }: Props) {
         );
     }, [planningHints, brews, productionHistory]);
 
-    const historicalProductionRuns = useMemo(() => {
-        const query = historyQuery.trim().toLowerCase();
-
-        return productionHistory
+    const driveProductionRuns = useMemo(
+        () => productionHistory
             .map(productionRunFromSummary)
             .filter((run): run is SandboxBrewRun => !!run)
-            .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber))
+            .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber)),
+        [productionHistory, currentProductionBatchNumbers],
+    );
+
+    const pendingProductionRuns = useMemo(
+        () => driveProductionRuns.filter((run) => !run.brewDate),
+        [driveProductionRuns],
+    );
+
+    const historicalProductionRuns = useMemo(() => {
+        const query = historyQuery.trim().toLowerCase();
+        return driveProductionRuns
+            .filter((run) => !!run.brewDate)
             .filter((run) => {
                 if (!query) return true;
-                return [
-                    run.batchNumber,
-                    run.style,
-                    run.tankNumber,
-                    run.brewDate || "",
-                ].some((value) => String(value).toLowerCase().includes(query));
+                return [run.batchNumber, run.style, run.tankNumber, run.brewDate || ""]
+                    .some((value) => String(value).toLowerCase().includes(query));
             })
             .slice(0, query ? 30 : 12);
-    }, [productionHistory, currentProductionBatchNumbers, historyQuery]);
+    }, [driveProductionRuns, historyQuery]);
 
     useEffect(() => {
         if (!sandbox) return;
@@ -1342,110 +1348,77 @@ export default function BrewingView({ brews, tab }: Props) {
                         </>
                     )}
 
+                    {pendingProductionRuns.length > 0 && (
+                        <div className="brewing-history-section brewing-pending-section">
+                            <div className="brewing-history-heading">
+                                <div>
+                                    <h3 className="brewing-subheading">אצוות עתידיות ממתינות לשיבוץ</h3>
+                                    <small>ה-Sheet כבר נוצר · ניתן לפתוח, לערוך או למחוק עד תחילת הבישול</small>
+                                </div>
+                                <span className="brewing-count">{pendingProductionRuns.length}</span>
+                            </div>
+                            <div className="brewing-tank-grid">
+                                {pendingProductionRuns.map((run) => {
+                                    const style = beerStyleClass(run.style);
+                                    return (
+                                        <article className="brewing-tank-card brewing-pending-card" key={`pending-${run.batchNumber}`}>
+                                            <div className="brewing-tank-card-top">
+                                                <strong>אצווה {run.batchNumber}</strong>
+                                                <span className={`brewing-style-tag ${style.className}`}>{style.displayLabel}</span>
+                                            </div>
+                                            <div className="brewing-tank-meta">
+                                                <span>{run.tankNumber === "—" ? "מיכל לא ידוע" : `מיועד למיכל ${run.tankNumber}`}</span>
+                                                <span>ממתינה לשיבוץ</span>
+                                            </div>
+                                            <div className="brewing-card-actions">
+                                                <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
+                                                <button type="button" disabled={editingTankId === run.tankId} onClick={() => void editPendingProductionBatch(run)}>ערוך אצווה</button>
+                                                <button type="button" className="brewing-danger-button" disabled={deletingBatch === run.batchNumber} onClick={() => void deletePendingProductionBatch(run)}>מחק</button>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="brewing-history-section">
                         <div className="brewing-history-heading">
                             <div>
-                                <h3 className="brewing-subheading">
-                                    אצוות ב-Drive
-                                </h3>
-                                <small>
-                                    אצוות שממתינות לשיבוץ ואצוות קודמות · חיפוש מתוך 100 האחרונות
-                                </small>
+                                <h3 className="brewing-subheading">אצוות קודמות</h3>
+                                <small>חיפוש מתוך 100 האצוות האחרונות ב-Drive</small>
                             </div>
-                            <input
-                                type="search"
-                                value={historyQuery}
-                                placeholder="אצווה / סגנון / מיכל / תאריך"
-                                onChange={(event) =>
-                                    setHistoryQuery(event.target.value)
-                                }
-                            />
+                            <input type="search" value={historyQuery} placeholder="אצווה / סגנון / מיכל / תאריך" onChange={(event) => setHistoryQuery(event.target.value)} />
                         </div>
-
                         {historyLoading ? (
-                            <div className="brewing-history-loader">
-                                <BeerLoader size="small" message="טוען אצוות…" />
-                            </div>
+                            <div className="brewing-history-loader"><BeerLoader size="small" message="טוען אצוות…" /></div>
                         ) : historicalProductionRuns.length > 0 ? (
                             <div className="brewing-tank-grid">
                                 {historicalProductionRuns.map((run) => {
                                     const style = beerStyleClass(run.style);
-                                    const recipe =
-                                        recipes.find((item) =>
-                                            sameStyle(item.style, run.style),
-                                        ) || null;
-
+                                    const recipe = recipes.find((item) => sameStyle(item.style, run.style)) || null;
                                     return (
-                                        <article
-                                            className="brewing-tank-card brewing-history-card"
-                                            key={`history-${run.batchNumber}`}
-                                        >
+                                        <article className="brewing-tank-card brewing-history-card" key={`history-${run.batchNumber}`}>
                                             <div className="brewing-tank-card-top">
                                                 <strong>אצווה {run.batchNumber}</strong>
-                                                <span
-                                                    className={`brewing-style-tag ${style.className}`}
-                                                >
-                                                    {style.displayLabel}
-                                                </span>
+                                                <span className={`brewing-style-tag ${style.className}`}>{style.displayLabel}</span>
                                             </div>
                                             <div className="brewing-tank-meta">
-                                                <span>
-                                                    {run.tankNumber === "—"
-                                                        ? "מיכל לא ידוע"
-                                                        : `מיכל ${run.tankNumber}`}
-                                                </span>
-                                                <span>{run.brewDate || "ללא תאריך"}</span>
+                                                <span>{run.tankNumber === "—" ? "מיכל לא ידוע" : `מיכל ${run.tankNumber}`}</span>
+                                                <span>{run.brewDate}</span>
                                             </div>
                                             <div className="brewing-card-actions">
-                                                <a
-                                                    className="brewing-sheet-link"
-                                                    href={run.sheetUrl}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                >
-                                                    פתח Sheet
-                                                </a>
-                                                {!run.brewDate ? (
-                                                    <>
-                                                        <button
-                                                            type="button"
-                                                            disabled={editingTankId === run.tankId}
-                                                            onClick={() => void editPendingProductionBatch(run)}
-                                                        >
-                                                            ערוך אצווה
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            className="brewing-danger-button"
-                                                            disabled={deletingBatch === run.batchNumber}
-                                                            onClick={() => void deletePendingProductionBatch(run)}
-                                                        >
-                                                            מחק
-                                                        </button>
-                                                    </>
-                                                ) : (
-                                                    <button
-                                                        type="button"
-                                                        disabled={!sandbox || !recipe}
-                                                        onClick={() => {
-                                                            setMessage("");
-                                                            setSelectedRun(run);
-                                                        }}
-                                                    >
-                                                        {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
-                                                    </button>
-                                                )}
+                                                <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
+                                                <button type="button" disabled={!sandbox || !recipe} onClick={() => { setMessage(""); setSelectedRun(run); }}>
+                                                    {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
+                                                </button>
                                             </div>
                                         </article>
                                     );
                                 })}
                             </div>
                         ) : (
-                            <div className="brewing-empty">
-                                {historyQuery
-                                    ? "לא נמצאה אצווה תואמת עם Sheet לעריכה."
-                                    : "לא נמצאו אצוות קודמות עם Sheet זמין לעריכה."}
-                            </div>
+                            <div className="brewing-empty">{historyQuery ? "לא נמצאה אצווה קודמת תואמת." : "לא נמצאו אצוות קודמות."}</div>
                         )}
                     </div>
 
