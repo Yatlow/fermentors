@@ -177,7 +177,7 @@ test("actionable recommendations reduce the index until they disappear", () => {
     assert.equal(score, 18);
     assert.equal(healthBand(score), "critical");
     assert.equal(healthBand(95), "healthy");
-    assert.equal(healthBand(75), "warning");
+    assert.equal(healthBand(75), "good");
 });
 
 test("zero completed work stays at zero even with many recommendations", () => {
