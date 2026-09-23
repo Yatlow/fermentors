@@ -205,6 +205,11 @@ service cloud.firestore {
         && request.resource.data.get('stylePlanning', {}) is map;
     }
 
+    match /shipmentPlanningQueue/{weekId} {
+      allow read: if isApprovedUser();
+      allow write: if false;
+    }
+
     match /planningWeeks/{weekId} {
       allow read: if isBreweryPlanner();
       allow create: if isBreweryPlanner() && validPlanningRevision()
