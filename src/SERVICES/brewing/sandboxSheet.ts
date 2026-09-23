@@ -309,13 +309,22 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
     const guardedWrites = await ensureWriteBaselines(fileId, writes);
     const result = await serverWriteBrewSheetCells(fileId, guardedWrites);
     if (result.hasConflict || result.conflicts?.length) {
-      const conflict = result.conflicts?.[0];
-      if (conflict) baselineFor(fileId).set(conflict.range, normalizeSheetValue(conflict.actualValue));
-      throw new Error(
-        conflict
-          ? `ה-Sheet השתנה מחוץ לאפליקציה ב-${conflict.range}. הערך באפליקציה לא דרס את הערך "${conflict.actualValue}".`
-          : "ה-Sheet השתנה מחוץ לאפליקציה. הכתיבה נעצרה כדי לא לדרוס נתונים.",
+      const conflicts = result.conflicts || [];
+      const baseline = baselineFor(fileId);
+      conflicts.forEach((conflict) => baseline.set(conflict.range, normalizeSheetValue(conflict.actualValue)));
+
+      // A stale baseline is not an external edit when the Sheet already contains
+      // exactly the value this request wanted to write (common after Sheet→Firestore
+      // sync or a previous request completed while the tab was hidden/closing).
+      const realConflicts = conflicts.filter(
+        (conflict) => normalizeSheetValue(conflict.actualValue) !== normalizeSheetValue(conflict.proposedValue),
       );
+      if (realConflicts.length) {
+        const conflict = realConflicts[0];
+        throw new Error(
+          `ה-Sheet השתנה מחוץ לאפליקציה ב-${conflict.range}. הערך באפליקציה לא דרס את הערך "${conflict.actualValue}".`,
+        );
+      }
     }
     if (result.updated !== guardedWrites.length) {
       throw new Error(
