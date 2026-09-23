@@ -128,7 +128,10 @@ export default function CreateBrewModal({
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     : [];
 
-  const busy = !!selectedTank && busyTankId === selectedTank.id;
+  // Creation is a global operation for this modal. Once any tank is busy,
+  // lock every control so changing the selected tank cannot re-enable the
+  // create button while the Sheet request is still in flight.
+  const busy = busyTankId !== null;
 
   return (
     <div
