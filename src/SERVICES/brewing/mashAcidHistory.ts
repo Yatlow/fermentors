@@ -16,7 +16,7 @@ export type MashAcidHistoryRow = {
   sheetUrl: string;
 };
 
-const CACHE_PREFIX = "fermentors:brewing:acid-history:v4:";
+const CACHE_PREFIX = "fermentors:brewing:acid-history:v5:";
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 function cacheKey(style: string) {
@@ -58,11 +58,22 @@ function saveCached(style: string, rows: MashAcidHistoryRow[]) {
 export async function loadMashAcidHistoryPreview(
   style: string,
   currentBatchNumber: string,
+  currentBrewLetter: "A" | "B" | "C",
   forceRefresh = false,
 ): Promise<MashAcidHistoryRow[]> {
+  const currentBatch = String(currentBatchNumber || "").replace("#", "").trim();
+  const withoutCurrentBrew = (rows: MashAcidHistoryRow[]) =>
+    rows.filter(
+      (row) =>
+        !(
+          String(row.batchNumber).replace("#", "").trim() === currentBatch &&
+          row.brewLetter === currentBrewLetter
+        ),
+    );
+
   if (!forceRefresh) {
     const cached = loadCached(style);
-    if (cached) return cached;
+    if (cached) return withoutCurrentBrew(cached);
   }
 
   const rows = (await serverLoadBrewAcidHistory(
@@ -71,5 +82,5 @@ export async function loadMashAcidHistoryPreview(
   )) as MashAcidHistoryRow[];
 
   saveCached(style, rows);
-  return rows;
+  return withoutCurrentBrew(rows);
 }
