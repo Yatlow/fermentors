@@ -5426,6 +5426,23 @@ export default function BrewFormStepper({
               </button>
             </div>
 
+            {acidHistoryMode === "mash" && (
+              <div className="brew-acid-current-context">
+                <div>
+                  <span>pH מאש נוכחי</span>
+                  <strong>{localValue("mashPh") || "—"}</strong>
+                </div>
+                <div>
+                  <span>נפח מאש נוכחי</span>
+                  <strong>
+                    {localValue("mashVolume")
+                      ? localValue("mashVolume") + " ל׳"
+                      : "—"}
+                  </strong>
+                </div>
+              </div>
+            )}
+
             {acidHistoryMode === "boil" && (
               <div className="brew-acid-current-context">
                 <div>
