@@ -1519,8 +1519,7 @@ export default function BrewFormStepper({
     const selectedId = localValue(`materialLot.${ingredient.id}`);
     return (
       ingredient.lots.find((lot) => lot.id === selectedId) ||
-      activeLot(ingredient) ||
-      ingredient.lots[0]
+      activeLot(ingredient)
     );
   }
 
