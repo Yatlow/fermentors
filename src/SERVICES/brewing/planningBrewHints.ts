@@ -21,7 +21,7 @@ async function loadWeekHints(weekId: string): Promise<PlannedBrewHint[]> {
   let source = await getDoc(queueRef);
   let plannerFallback: BrewPlanWithMeta[] | null = null;
 
-  if (!source.exists() && auth.currentUser) {
+  if (auth.currentUser) {
     try {
       const planningSnapshot = await getDoc(doc(db, "planningWeeks", weekId));
       if (planningSnapshot.exists()) {
@@ -39,7 +39,7 @@ async function loadWeekHints(weekId: string): Promise<PlannedBrewHint[]> {
             date: String(brew.date || ""),
           }));
 
-        try {
+        if (!source.exists()) try {
           await setDoc(queueRef, {
             id: weekId,
             revision: Number(planningSnapshot.data()?.revision || 1),
@@ -58,11 +58,13 @@ async function loadWeekHints(weekId: string): Promise<PlannedBrewHint[]> {
     }
   }
 
-  const brews = source.exists()
-    ? Array.isArray(source.data()?.brews)
-      ? (source.data().brews as BrewPlanWithMeta[])
-      : []
-    : plannerFallback || [];
+  const queueBrews = source.exists() && Array.isArray(source.data()?.brews)
+    ? (source.data().brews as BrewPlanWithMeta[])
+    : [];
+  const plannerBrews = plannerFallback || [];
+  const brews = plannerBrews.some((brew) => !!brew.batchNumber)
+    ? plannerBrews
+    : queueBrews;
 
   return brews
     .filter((brew) => !!brew.batchNumber)
