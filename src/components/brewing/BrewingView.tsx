@@ -23,7 +23,7 @@ import {
     saveSharedBrewingRecipes,
 } from "../../SERVICES/brewing/sharedBrewingLibrary";
 import {
-    getCurrentWeekPlannedBrewHints,
+    subscribeCurrentWeekPlannedBrewHints,
     type PlannedBrewHint,
 } from "../../SERVICES/brewing/planningBrewHints";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
@@ -530,28 +530,17 @@ export default function BrewingView({ brews, tab }: Props) {
     }, [brews, pendingProductionRows, planningHints, sandboxRuns]);
 
     useEffect(() => {
-        let cancelled = false;
         setPlanningHintsLoading(true);
-        getCurrentWeekPlannedBrewHints().then((result) => {
-            if (cancelled) return;
-            // Planning already owns the future batch number. Never replace it
-            // with the tank's current batch merely because the style/tank match:
-            // during the week before a planned brew that tank commonly still
-            // contains the previous batch. Reconciliation here used to turn
-            // e.g. planned #1598/#1599 into their current tank batches, after
-            // which the "already in production" filter hid them completely.
-            // Keep this marker tied to the planned-brew projection fix so a new
-            // commit always triggers the PR preview workflow.
+        let firstValue = true;
+        return subscribeCurrentWeekPlannedBrewHints((result) => {
             setPlanningHints(result.hints);
             setPlanningHintsAvailable(result.available);
-        }).finally(() => {
-            if (!cancelled) setPlanningHintsLoading(false);
+            if (firstValue) {
+                firstValue = false;
+                setPlanningHintsLoading(false);
+            }
         });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [brews]);
+    }, []);
 
     useEffect(() => {
         if (planningHints.length === 0) return;
@@ -1359,14 +1348,14 @@ export default function BrewingView({ brews, tab }: Props) {
                         )}
                     </div>
                     <div className="brewing-tank-grid brewing-planned-quick-list">
-                        {(planningHintsLoading || historyLoading) && <small>טוען בישולים מתוכננים…</small>}
-                        {!planningHintsLoading && !historyLoading && !planningHintsAvailable && (
+                        {planningHintsLoading && <small>טוען בישולים מתוכננים…</small>}
+                        {!planningHintsLoading && !planningHintsAvailable && (
                             <small>לא ניתן לטעון כרגע את תכנון הבישולים.</small>
                         )}
-                        {!planningHintsLoading && !historyLoading && planningHintsAvailable && visiblePlanningHints.length === 0 && (
+                        {!planningHintsLoading && planningHintsAvailable && visiblePlanningHints.length === 0 && (
                             <small>לא נמצאו בישולים מתוכננים לשבוע הזה או לשבוע הבא.</small>
                         )}
-                        {!historyLoading && visiblePlanningHints.map((hint) => {
+                        {visiblePlanningHints.map((hint) => {
                                 const tank = allTanks.find((item) => item.id === hint.tankId);
                                 return (
                                     <button
