@@ -271,6 +271,22 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /brewSheetCreationJobs/{batchId} {
+      allow read: if isApprovedUser();
+      allow create: if isApprovedUser()
+        && request.resource.data.keys().hasOnly([
+          'batchNumber', 'style', 'tankNumber', 'tankType', 'name',
+          'initialWritesJson', 'state', 'attempts', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.batchNumber == batchId
+        && batchId.matches('^[0-9]+$')
+        && request.resource.data.state == 'queued'
+        && request.resource.data.attempts == 0
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update, delete: if false;
+    }
+
     match /pendingBrews/{batchId} {
       allow read: if isApprovedUser();
       allow create, update: if isApprovedUser()
