@@ -918,11 +918,12 @@ export default function BrewingView({ brews, tab }: Props) {
                             : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
                     })[0];
             await updateDoc(doc(db, "fermentors", tank.id), {
-                batchNumber: previousRun?.batchNumber || "",
+                batchNumber: previousRun?.batchNumber || cellarBatch || "",
                 beerStyle: previousRun?.beerStyle || "",
                 brewDate: previousRun?.brewDate || "",
                 sheetUrl: previousRun?.sheetUrl || "",
                 action: 5,
+                stage: 5,
                 tankStatus: false,
             });
             setSelectedRun(null);
@@ -1112,7 +1113,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 </div>
             )}
 
-            {message && <div className="brewing-message">{message}</div>}
+            {message && <div className={`brewing-message ${/נכשלה|לא נמחקה|Missing or insufficient permissions/i.test(message) ? "brewing-message-error" : ""}`}>{message}</div>}
 
             {tab === "form" && !selectedRun && (
                 <CreateBrewModal
