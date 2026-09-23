@@ -4036,7 +4036,28 @@ export default function BrewFormStepper({
   }
 
   return (
-    <section className="brew-stepper">
+    <section className="brew-stepper" style={{ position: "relative" }}>
+      {!firestoreHydrated && (
+        <div
+          className="brew-firestore-loading-overlay"
+          aria-live="polite"
+          aria-busy="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "60vh",
+            background: "rgba(255, 255, 255, 0.86)",
+            backdropFilter: "blur(2px)",
+            borderRadius: "inherit",
+          }}
+        >
+          <BeerLoader size="spinner" message="טוען את נתוני הבישול…" />
+        </div>
+      )}
       <div className="brew-stepper-head">
         <div>
           <button
