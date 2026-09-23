@@ -56,8 +56,11 @@ export type ShipmentReservationSyncResult = {
  * packaging simply fills the nearest still-open planned delivery.
  */
 async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
+  // Operational packaging users are approved brewery users, but they are not
+  // necessarily planners. Read the restricted shipment projection instead of
+  // the full planningWeeks documents (same pattern as brewPlanningQueue).
   const snapshot = await getDocsFromServer(
-    query(collection(db, "planningWeeks"), where("id", ">=", weekStart(today)))
+    query(collection(db, "shipmentPlanningQueue"), where("id", ">=", weekStart(today)))
   );
 
   const lines = snapshot.docs.flatMap((snapshot) => {
