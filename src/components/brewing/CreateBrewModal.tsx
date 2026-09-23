@@ -19,6 +19,7 @@ type Props = {
   planningHints: PlannedBrewHint[];
   planningHintsAvailable: boolean;
   planningHintsLoading: boolean;
+  initialDraft?: { batchNumber: string; style: string; tankId: string };
   error: string;
   onClearError: () => void;
   onClose: () => void;
@@ -73,6 +74,7 @@ export default function CreateBrewModal({
   planningHints,
   planningHintsAvailable,
   planningHintsLoading,
+  initialDraft,
   error,
   onClearError,
   onClose,
@@ -95,18 +97,18 @@ export default function CreateBrewModal({
 
   useEffect(() => {
     if (!open) return;
-    setBatchNumber(suggestedBatch);
-    setTankId((current) =>
-      current && sortedTanks.some((tank) => tank.id === current)
-        ? current
+    setBatchNumber(initialDraft?.batchNumber || suggestedBatch);
+    setTankId(
+      initialDraft?.tankId && sortedTanks.some((tank) => tank.id === initialDraft.tankId)
+        ? initialDraft.tankId
         : sortedTanks[0]?.id || "",
     );
-    setStyle((current) =>
-      current && recipes.some((recipe) => recipe.style === current)
-        ? current
+    setStyle(
+      initialDraft?.style && recipes.some((recipe) => recipe.style === initialDraft.style)
+        ? initialDraft.style
         : recipes[0]?.style || "",
     );
-  }, [open, suggestedBatch, sortedTanks, recipes]);
+  }, [open, suggestedBatch, sortedTanks, recipes, initialDraft]);
 
   if (!open) return null;
 
