@@ -130,6 +130,34 @@ export function buildBrewSheetInitialWrites(input: {
       }
     });
   }
+  if (input.recipe && input.ingredients) {
+    const hopStarts = input.tankType === "triple" ? [24, 74, 122] : input.tankType === "double" ? [24, 74] : [24];
+    const kettleHops = input.recipe.hops.filter((hop) => hop.purpose !== "dryHop");
+    hopStarts.forEach((startRow) => {
+      for (let slot = 0; slot < 5; slot += 1) {
+        const row = startRow + slot;
+        const hop = kettleHops[slot];
+        if (!hop) {
+          writes.push(
+            { range: `'גיליון1'!A${row}`, value: "" },
+            { range: `'גיליון1'!B${row}`, value: "" },
+            { range: `'גיליון1'!C${row}`, value: "" },
+          );
+          continue;
+        }
+        const ingredient = input.ingredients.find((item) => item.id === hop.ingredientId);
+        const lot = ingredient ? activeLot(ingredient) : undefined;
+        const ingredientLabel = ingredient?.name || hop.ingredientId;
+        const lotSuffix = lot?.lotNumber ? ` #${lot.lotNumber}` : "";
+        writes.push(
+          { range: `'גיליון1'!A${row}`, value: 0 },
+          { range: `'גיליון1'!B${row}`, value: hop.aa ?? lot?.alphaAcid ?? "" },
+          { range: `'גיליון1'!C${row}`, value: `${slot + 1})${ingredientLabel}${lotSuffix}` },
+        );
+      }
+    });
+  }
+
   writes.push(
     { range: `'גיליון1'!B${layout.fermentationHeaderRow}`, value: styleLabel },
     { range: `'גיליון1'!D${layout.fermentationHeaderRow}`, value: input.batchNumber },
