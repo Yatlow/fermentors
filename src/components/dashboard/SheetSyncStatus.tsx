@@ -258,7 +258,7 @@ export default function SheetSyncStatus() {
             await recoverPackagingOperation(operationId);
         } catch (error: any) {
             console.error("Failed to recover packaging operation:", error);
-            setRecoveryError(error?.message ?? "שחזור המשטחים נכשל");
+            setRecoveryError(error?.message ?? "בדיקת והשלמת האריזה נכשלה");
         } finally {
             setRecoveringPackagingId(null);
         }
@@ -359,7 +359,7 @@ export default function SheetSyncStatus() {
                             disabled={Boolean(recoveringPackagingId)}
                             onClick={() => recoverPackaging(operation.id)}
                         >
-                            {recoveringPackagingId === operation.id ? "משחזר…" : "שחזר משטחים"}
+                            {recoveringPackagingId === operation.id ? "בודק…" : "בדוק והשלם אריזה"}
                         </button>
                     ))}
                     {recoveryError && <span className="sheet-sync-recovery-error">{recoveryError}</span>}
