@@ -27,7 +27,7 @@ export async function enqueueBrewSheetCreation(input: {
   await setDoc(doc(db, "brewSheetCreationJobs", batchNumber), {
     batchNumber,
     style: input.style,
-    tankNumber: input.tankNumber,
+    tankNumber: String(input.tankNumber),
     tankType: input.tankType,
     name: input.name,
     initialWritesJson: JSON.stringify(input.initialWrites),
