@@ -87,12 +87,125 @@ function syncCalendarToFirestore() {
       );
     });
 
-    Logger.log("Calendar sync complete: " + savedCount + " event(s).");
-    return { savedCount: savedCount };
+    const brewQueueSync = calendarSyncBrewPlanningQueue_();
+    Logger.log(
+      "Calendar sync complete: " + savedCount + " event(s), brew queues=" +
+      brewQueueSync.syncedWeeks
+    );
+    return {
+      savedCount: savedCount,
+      brewPlanningQueue: brewQueueSync
+    };
 
   } finally {
     lock.releaseLock();
   }
+}
+
+
+function calendarSyncBrewPlanningQueue_() {
+  const now = new Date();
+  const currentWeekId = calendarWeekStartKey_(now);
+  const nextWeekDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+  const weekIds = [currentWeekId, calendarWeekStartKey_(nextWeekDate)];
+  let syncedWeeks = 0;
+  let syncedBrews = 0;
+
+  weekIds.forEach(function (weekId) {
+    const plan = calendarReadFirestoreDocument_("planningWeeks", weekId);
+    if (!plan) return;
+
+    const rawBrews = Array.isArray(plan.brews) ? plan.brews : [];
+    const brews = rawBrews
+      .filter(function (brew) {
+        return String(brew && brew.batchNumber || "").replace("#", "").trim() !== "";
+      })
+      .map(function (brew) {
+        return {
+          id: String(brew.id || ""),
+          batchNumber: String(brew.batchNumber || "").replace("#", "").trim(),
+          style: String(brew.style || ""),
+          tankId: String(brew.tankId || ""),
+          date: String(brew.date || "")
+        };
+      });
+
+    calendarWriteDocumentToFirestore_("brewPlanningQueue", weekId, {
+      id: weekId,
+      revision: Number(plan.revision || 1),
+      brews: brews,
+      updatedAt: new Date().toISOString(),
+      updatedBy: "calendar-sync"
+    });
+
+    syncedWeeks++;
+    syncedBrews += brews.length;
+  });
+
+  return { syncedWeeks: syncedWeeks, syncedBrews: syncedBrews };
+}
+
+function calendarWeekStartKey_(date) {
+  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = local.getDay();
+  local.setDate(local.getDate() - day);
+  return Utilities.formatDate(local, Session.getScriptTimeZone(), "yyyy-MM-dd");
+}
+
+function calendarReadFirestoreDocument_(collectionId, documentId) {
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/" + encodeURIComponent(collectionId) +
+    "/" + encodeURIComponent(documentId);
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() === 404) return null;
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error("Calendar planning read failed: " + response.getResponseCode() + " " + response.getContentText());
+  }
+  const body = JSON.parse(response.getContentText());
+  return calendarFromFirestoreFields_(body.fields || {});
+}
+
+function calendarWriteDocumentToFirestore_(collectionId, documentId, data) {
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/" + encodeURIComponent(collectionId) +
+    "/" + encodeURIComponent(documentId);
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({ fields: calendarToFirestoreFields_(data) }),
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error("Calendar planning queue write failed: " + response.getResponseCode() + " " + response.getContentText());
+  }
+}
+
+function calendarFromFirestoreFields_(fields) {
+  const out = {};
+  Object.keys(fields || {}).forEach(function (key) {
+    out[key] = calendarFromFirestoreValue_(fields[key]);
+  });
+  return out;
+}
+
+function calendarFromFirestoreValue_(value) {
+  if (!value) return null;
+  if (Object.prototype.hasOwnProperty.call(value, "stringValue")) return value.stringValue;
+  if (Object.prototype.hasOwnProperty.call(value, "integerValue")) return Number(value.integerValue);
+  if (Object.prototype.hasOwnProperty.call(value, "doubleValue")) return Number(value.doubleValue);
+  if (Object.prototype.hasOwnProperty.call(value, "booleanValue")) return value.booleanValue;
+  if (Object.prototype.hasOwnProperty.call(value, "timestampValue")) return value.timestampValue;
+  if (Object.prototype.hasOwnProperty.call(value, "nullValue")) return null;
+  if (value.arrayValue) return (value.arrayValue.values || []).map(calendarFromFirestoreValue_);
+  if (value.mapValue) return calendarFromFirestoreFields_(value.mapValue.fields || {});
+  return null;
 }
 
 function calendarProcessTankTotals_(events) {
@@ -398,12 +511,37 @@ function calendarToFirestoreFields_(obj) {
         : { doubleValue: value };
     } else if (typeof value === "boolean") {
       fields[key] = { booleanValue: value };
+    } else if (Array.isArray(value)) {
+      fields[key] = {
+        arrayValue: {
+          values: value.map(calendarToFirestoreValue_)
+        }
+      };
+    } else if (typeof value === "object") {
+      fields[key] = { mapValue: { fields: calendarToFirestoreFields_(value) } };
     } else {
       fields[key] = { stringValue: String(value) };
     }
   });
 
   return fields;
+}
+
+function calendarToFirestoreValue_(value) {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? { integerValue: value }
+      : { doubleValue: value };
+  }
+  if (typeof value === "boolean") return { booleanValue: value };
+  if (Array.isArray(value)) {
+    return { arrayValue: { values: value.map(calendarToFirestoreValue_) } };
+  }
+  if (typeof value === "object") {
+    return { mapValue: { fields: calendarToFirestoreFields_(value) } };
+  }
+  return { stringValue: String(value) };
 }
 
 function cleanOldCalendarEvents() {
