@@ -78,8 +78,8 @@ function brewingSheetReadRange_(data) {
   const openMs = Date.now() - openStartedAt;
 
   const readStartedAt = Date.now();
-  // Spreadsheet has no getRange(); ranges belong to a Sheet. Resolve the
-  // optional quoted sheet name (e.g. 'גיליון1'!A1:H220) explicitly.
+  // Avoid opening the same spreadsheet a second time through the advanced
+  // Sheets API. SpreadsheetApp already has it open, so resolve the tab locally.
   const bang = range.lastIndexOf("!");
   const rawSheetName = bang >= 0 ? range.slice(0, bang) : "";
   const a1 = bang >= 0 ? range.slice(bang + 1) : range;
