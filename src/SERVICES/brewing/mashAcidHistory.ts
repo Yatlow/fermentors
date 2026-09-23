@@ -66,40 +66,6 @@ function saveCached(style: string, rows: MashAcidHistoryRow[]) {
   }
 }
 
-function rowFromExecution(
-  batchNumber: string,
-  brewLetter: "A" | "B" | "C",
-  fields: Record<string, string>,
-): MashAcidHistoryRow | null {
-  const row: MashAcidHistoryRow = {
-    batchNumber,
-    brewLetter,
-    brewDate: String(fields.brewDate || ""),
-    mashPh: String(fields.mashPh || ""),
-    mashVolume: String(fields.mashVolume || ""),
-    acidMl: String(fields.mashAcid85 || ""),
-    outToBoilPh: String(fields.outToBoilPh || ""),
-    boilPh: String(fields.boilPh || ""),
-    kettleVolume: String(fields.kettleVolume || ""),
-    boilAcidMl: String(fields.boilAcid85 || ""),
-    outToFermentorPh: String(fields.outToFermentorPh || ""),
-    sheetName: "",
-    sheetUrl: "",
-  };
-  return [
-    row.mashPh,
-    row.mashVolume,
-    row.acidMl,
-    row.outToBoilPh,
-    row.boilPh,
-    row.kettleVolume,
-    row.boilAcidMl,
-    row.outToFermentorPh,
-  ].some(Boolean)
-    ? row
-    : null;
-}
-
 async function loadFirestoreAcidHistory(
   style: string,
 ): Promise<MashAcidHistoryRow[]> {
