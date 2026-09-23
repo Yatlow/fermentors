@@ -16,6 +16,15 @@
 // ============================================================
 
 const BREWING_CREATED_FILE_PREFIX_ = "brewing_created_file:";
+const BREWING_HISTORY_CACHE_KEY_ = "brewing_drive_history_v1";
+
+function brewingSheetInvalidateHistoryCache_() {
+  try {
+    CacheService.getScriptCache().remove(BREWING_HISTORY_CACHE_KEY_);
+  } catch (error) {
+    console.log("Brew history cache invalidation skipped: " + error.message);
+  }
+}
 
 function brewingSheetConfig_() {
   const props = PropertiesService.getScriptProperties();
@@ -220,6 +229,7 @@ function brewingSheetCreate_(data) {
   const fileId = copy.getId();
 
   brewingSheetRememberCreated_(fileId);
+  brewingSheetInvalidateHistoryCache_();
 
   try {
     const ss = SpreadsheetApp.openById(fileId);
@@ -259,6 +269,7 @@ function brewingSheetTrash_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   const file = DriveApp.getFileById(fileId);
   file.setTrashed(true);
+  brewingSheetInvalidateHistoryCache_();
 
   return {
     spreadsheetId: fileId,
@@ -302,6 +313,7 @@ function brewingSheetRenameBatch_(data) {
     : currentName;
   if (replaced !== currentName) file.setName(replaced);
   SpreadsheetApp.flush();
+  brewingSheetInvalidateHistoryCache_();
 
   return { spreadsheetId: fileId, batchNumber: newBatch, style: style, name: file.getName() };
 }
@@ -396,6 +408,15 @@ function brewingSheetTankTypeFromFileName_(fileName) {
 
 function brewingSheetListHistory_(data) {
   const requestedLimit = Number(data && data.limit);
+  try {
+    const cached = CacheService.getScriptCache().get(BREWING_HISTORY_CACHE_KEY_);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) return parsed.slice(0, Number.isFinite(requestedLimit) ? requestedLimit : 100);
+    }
+  } catch (error) {
+    console.log("Brew history cache read skipped: " + error.message);
+  }
   const safeLimit =
     Number.isFinite(requestedLimit)
       ? Math.max(10, Math.min(150, Math.round(requestedLimit)))
@@ -407,7 +428,7 @@ function brewingSheetListHistory_(data) {
   }
 
   const seenBatches = {};
-  return candidates
+  const result = candidates
     .slice()
     .sort(function (a, b) {
       return Number(b.batch || 0) - Number(a.batch || 0);
@@ -444,6 +465,13 @@ function brewingSheetListHistory_(data) {
         tankType: brewingSheetTankTypeFromFileName_(fileName)
       };
     });
+
+  try {
+    CacheService.getScriptCache().put(BREWING_HISTORY_CACHE_KEY_, JSON.stringify(result), 300);
+  } catch (error) {
+    console.log("Brew history cache write skipped: " + error.message);
+  }
+  return result;
 }
 
 function brewingSheetAcidHistory_(data) {
