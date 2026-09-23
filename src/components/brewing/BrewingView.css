@@ -4399,3 +4399,8 @@
     color: var(--text-muted);
     font-size: 0.64rem;
 }
+
+.brewing-edit-batch-modal { max-width: 420px; }
+.brewing-edit-batch-modal label { display: grid; gap: 6px; margin-block: 10px; font-weight: 700; }
+.brewing-edit-batch-modal input,
+.brewing-edit-batch-modal select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface, #fff); color: inherit; font: inherit; }
