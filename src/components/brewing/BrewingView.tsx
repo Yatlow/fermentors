@@ -726,7 +726,8 @@ export default function BrewingView({ brews, tab }: Props) {
         setDeletingBatch(run.batchNumber);
         try {
             if (run.sheetId) {
-                await ensureSandboxSheetAccess();
+                // Existing demo runs may be cleaned up from a production-configured
+                // preview too. serverTrashBrewSheet performs the authenticated check.
                 await deleteSandboxBrewSheet(run.sheetId);
             }
             deleteSandboxBrewRun(run.batchNumber);
