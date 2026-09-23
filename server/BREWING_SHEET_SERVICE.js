@@ -84,8 +84,11 @@ function brewingSheetReadRange_(data) {
   const rawSheetName = bang >= 0 ? range.slice(0, bang) : "";
   const a1 = bang >= 0 ? range.slice(bang + 1) : range;
   const sheetName = rawSheetName.replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
-  const sheet = sheetName ? ss.getSheetByName(sheetName) : ss.getSheets()[0];
-  if (!sheet) throw new Error("Sheet not found: " + sheetName);
+  // Old/new brew templates do not consistently use the same tab name.
+  // The brew file is single-sheet, so a stale requested tab name must not
+  // block reconciliation; fall back to the file's first sheet.
+  const sheet = (sheetName ? ss.getSheetByName(sheetName) : null) || ss.getSheets()[0];
+  if (!sheet) throw new Error("Brew Sheet has no sheets");
   const values = sheet.getRange(a1).getDisplayValues();
   const readMs = Date.now() - readStartedAt;
 
