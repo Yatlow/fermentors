@@ -109,18 +109,16 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
       if (Number.isFinite(value) && value > 0) reserved.add(value);
     });
 
-    let next = Math.max(
-      batchBase,
-      ...Array.from(reserved.values()),
-    ) + 1;
-
+    // Batch numbers are chronological production slots. If this week was
+    // previously polluted by batch identities from an earlier week's tank,
+    // normalize the whole week's sequence from the latest real production
+    // batch instead of preserving those stale numbers on the wrong brew rows.
+    let next = batchBase + 1;
     return current.map((brew) => {
-      const existing = String(brew.batchNumber || "").replace("#", "").trim();
-      if (existing) return { ...brew, batchNumber: existing };
-
-      while (reserved.has(next)) next += 1;
+      while (reserved.has(next) && !current.some(
+        (candidate) => String(candidate.batchNumber || "").replace("#", "").trim() === String(next),
+      )) next += 1;
       const batchNumber = String(next);
-      reserved.add(next);
       next += 1;
       return { ...brew, batchNumber };
     });
