@@ -3562,6 +3562,37 @@
     font-size: 0.58rem;
 }
 
+.brewing-prebrew-actions {
+    flex: 0 0 auto;
+    align-self: stretch;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding-inline: 2px 8px;
+}
+
+.brewing-prebrew-actions button {
+    white-space: nowrap;
+    min-height: 32px;
+    padding: 5px 8px;
+    font: inherit;
+    font-size: 0.64rem;
+    border-radius: var(--radius-sm);
+}
+
+@media (max-width: 640px) {
+    .brewing-action-zero-list {
+        align-items: stretch;
+    }
+
+    .brewing-action-zero-list > .brewing-prebrew-actions {
+        position: sticky;
+        inset-inline-end: 0;
+        background: var(--surface, #fff);
+        z-index: 1;
+    }
+}
+
 .brew-show-missing input:required:invalid,
 .brew-show-missing select:required:invalid,
 .brew-show-missing textarea:required:invalid {
