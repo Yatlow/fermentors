@@ -474,8 +474,19 @@ function brewingSheetListHistory_(data) {
   return result;
 }
 
+function brewingSheetAcidStyleAliases_(value) {
+  const key = String(value || "").trim().toLowerCase().replace(/\\s+(משולש|כפול|בודד)$/, "");
+  if (key === "חיטה" || key === "wheat") return ["חיטה", "wheat"];
+  if (key === "פייל" || key === "pale" || key === "pale ale") return ["פייל", "pale", "pale ale"];
+  if (key === "הופי" || key === "hoppy") return ["הופי", "hoppy"];
+  if (key === "לאגר" || key === "lager") return ["לאגר", "lager"];
+  if (key === "סטאוט" || key === "stout") return ["סטאוט", "stout"];
+  return [key];
+}
+
 function brewingSheetAcidHistory_(data) {
   const style = String(data.style || "").trim().toLowerCase();
+  const styleAliases = brewingSheetAcidStyleAliases_(style);
   const currentBatch = Number(String(data.currentBatchNumber || "").replace("#", ""));
   if (!style) throw new Error("Missing style");
 
@@ -487,7 +498,8 @@ function brewingSheetAcidHistory_(data) {
   const byBatch = {};
   candidates.forEach(function (candidate) {
     const fileName = String(candidate.fileName || "");
-    if (fileName.toLowerCase().indexOf(style) === -1) return;
+    const lowerName = fileName.toLowerCase();
+    if (!styleAliases.some(function (alias) { return lowerName.indexOf(alias) !== -1; })) return;
 
     const batch = Number(candidate.batch || brewingSheetBatchFromName_(fileName));
     if (!Number.isFinite(batch)) return;
