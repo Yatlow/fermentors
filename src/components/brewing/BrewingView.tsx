@@ -725,35 +725,20 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         setDeletingBatch(run.batchNumber);
         try {
-            let sheetDeleteWarning = "";
+            // Never remove the local run first. If Drive deletion fails we keep
+            // the batch visible so the user can retry and we do not create an
+            // orphan Sheet that is hard to find later.
             if (run.sheetId) {
-                // The demo run itself is local test state. A Drive cleanup failure
-                // (for example an expired Apps Script auth session) must not leave
-                // the demo batch stuck in the UI.
-                try {
-                    await deleteSandboxBrewSheet(run.sheetId);
-                } catch (error) {
-                    sheetDeleteWarning =
-                        error instanceof Error ? error.message : "מחיקת ה-Sheet נכשלה.";
-                    console.warn("Demo brew Sheet cleanup failed", {
-                        batchNumber: run.batchNumber,
-                        sheetId: run.sheetId,
-                        error,
-                    });
-                }
+                await deleteSandboxBrewSheet(run.sheetId);
             }
             deleteSandboxBrewRun(run.batchNumber);
             setSandboxRuns(loadSandboxBrewRuns());
-            setMessage(
-                sheetDeleteWarning
-                    ? `אצווה ${run.batchNumber} נמחקה. ה-Sheet לא נמחק: ${sheetDeleteWarning}`
-                    : `אצווה ${run.batchNumber} וה-Sheet שלה נמחקו.`,
-            );
+            setMessage(`אצווה ${run.batchNumber} וה-Sheet שלה נמחקו.`);
         } catch (error) {
+            const detail =
+                error instanceof Error ? error.message : "מחיקת ה-Sheet נכשלה.";
             setMessage(
-                error instanceof Error
-                    ? error.message
-                    : "מחיקת אצוות ה-Sandbox נכשלה.",
+                `אצווה ${run.batchNumber} לא נמחקה כדי לא להשאיר Sheet יתום. ${detail}`,
             );
         } finally {
             setDeletingBatch(null);
