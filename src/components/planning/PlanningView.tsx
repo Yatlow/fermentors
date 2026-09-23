@@ -52,41 +52,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
 
-  const identityAlignedPlans = useMemo(
-    () =>
-      plans.map((plan) => {
-        const weekEnd = addDays(plan.id, 6);
-        return {
-          ...plan,
-          brews: plan.brews.map((brew) => {
-            const source = productionTanks.find(
-              (tank) => tank.id === brew.tankId,
-            );
-            if (!source?.batchNumber || !source.beerStyle) return brew;
-
-            const brewed = parseDate(source.brewDate);
-            const belongsToThisWeek =
-              Number(source.action) === 0 ||
-              (!!brewed &&
-                brewed >= plan.id &&
-                brewed <= weekEnd);
-
-            if (
-              belongsToThisWeek &&
-              sameStyle(source.beerStyle, brew.style)
-            ) {
-              return {
-                ...brew,
-                batchNumber: String(source.batchNumber),
-              };
-            }
-
-            return brew;
-          }),
-        };
-      }),
-    [plans, productionTanks],
-  );
+  // Planning rows already own their batch identity. Do not rewrite a planned
+  // row from whatever batch currently occupies its target tank: a tank can
+  // legitimately still hold last week's fermenting batch while next week's
+  // brew is already planned for it.
+  const identityAlignedPlans = plans;
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
