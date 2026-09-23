@@ -351,37 +351,22 @@ export default function BrewingLibrary({
 
   return (
     <section className="brewing-library">
-      {onPublishSharedLibrary && (
-        <div
-          className={[
-            "brew-library-share-status",
-            sharedLibraryReady ? "ready" : "pending",
-          ].join(" ")}
-        >
+      {onPublishSharedLibrary && !sharedLibraryReady && (
+        <div className="brew-library-share-status pending">
           <div>
-            <strong>
-              {sharedLibraryReady
-                ? "הספרייה מסונכרנת"
-                : "הספרייה עדיין מקומית למכשיר הזה"}
-            </strong>
+            <strong>הספרייה עדיין מקומית למכשיר הזה</strong>
             <span>
-              {sharedLibraryReady
-                ? "מתכונים וחומרי גלם מסונכרנים בין המחשב למובייל."
-                : "בצע פרסום חד־פעמי מהמכשיר שבו הספרייה המעודכנת נמצאת."}
+              בצע פרסום חד־פעמי מהמכשיר שבו הספרייה המעודכנת נמצאת.
             </span>
           </div>
-          {!sharedLibraryReady && (
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={publishingSharedLibrary}
-              onClick={onPublishSharedLibrary}
-            >
-              {publishingSharedLibrary
-                ? "שומר…"
-                : "סנכרן ספרייה"}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={publishingSharedLibrary}
+            onClick={onPublishSharedLibrary}
+          >
+            {publishingSharedLibrary ? "שומר…" : "סנכרן ספרייה"}
+          </button>
         </div>
       )}
 
