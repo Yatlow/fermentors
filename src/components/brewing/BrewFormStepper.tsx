@@ -1067,6 +1067,15 @@ export default function BrewFormStepper({
   }, [run.sheetId, run.source, run.action]);
 
   useEffect(() => {
+    if (!firestoreHydrated || hasField("brewDate")) return;
+    const today = new Date();
+    const iso = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+    void commitBrewDate(shortIsraeliDate(iso));
+    // Default once after hydration; commitBrewDate keeps the existing continuity validation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestoreHydrated, currentBlock]);
+
+  useEffect(() => {
     if (!firestoreHydrated) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
