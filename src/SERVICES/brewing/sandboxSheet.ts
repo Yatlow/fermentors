@@ -1,7 +1,7 @@
 import { runtimeConfig } from "../../config/runtimeConfig";
 import type { SandboxDemoTank } from "./brewingSandbox";
 import type { BrewRecipe } from "./brewRecipe";
-import type { IngredientDefinition } from "./ingredientLibrary";
+import { activeLot, type IngredientDefinition } from "./ingredientLibrary";
 import {
   serverCreateBrewSheet,
   serverReadBrewSheetRange,
@@ -109,6 +109,36 @@ export async function createSandboxBrewSheet(input: {
       { range: `'גיליון1'!H${row}`, value: "" },
     );
   });
+
+  // The Masters are structural templates only. Never inherit recipe quantities
+  // from whichever beer happened to be saved in the template. Material rows
+  // must always come from the selected recipe snapshot.
+  if (input.recipe && input.ingredients) {
+    const grainStarts = input.tankType === "triple" ? [9, 59, 107] : input.tankType === "double" ? [9, 59] : [9];
+    grainStarts.forEach((startRow) => {
+      for (let slot = 0; slot < 5; slot += 1) {
+        const row = startRow + slot;
+        const grain = input.recipe!.grains[slot];
+        if (!grain) {
+          writes.push(
+            { range: `'גיליון1'!A${row}`, value: "" },
+            { range: `'גיליון1'!B${row}`, value: "" },
+            { range: `'גיליון1'!C${row}`, value: "" },
+          );
+          continue;
+        }
+        const ingredient = input.ingredients!.find((item) => item.id === grain.ingredientId);
+        const lot = ingredient ? activeLot(ingredient) : undefined;
+        const ingredientLabel = ingredient?.name || grain.ingredientId;
+        const lotSuffix = lot?.lotNumber ? ` #${lot.lotNumber}` : "";
+        writes.push(
+          { range: `'גיליון1'!A${row}`, value: grain.kgPerBrew },
+          { range: `'גיליון1'!B${row}`, value: ingredientLabel + lotSuffix },
+          { range: `'גיליון1'!C${row}`, value: lot?.supplier || "" },
+        );
+      }
+    });
+  }
   writes.push(
     { range: `'גיליון1'!B${layout.fermentationHeaderRow}`, value: styleLabel },
     { range: `'גיליון1'!D${layout.fermentationHeaderRow}`, value: input.batchNumber },
