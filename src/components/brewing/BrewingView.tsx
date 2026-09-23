@@ -27,7 +27,7 @@ import {
     type PlannedBrewHint,
 } from "../../SERVICES/brewing/planningBrewHints";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
-import { addDays, parseDate, sameStyle } from "../../SERVICES/planning/planningEngine";
+import { sameStyle } from "../../SERVICES/planning/planningEngine";
 import {
     assignNextSandboxRunToTank,
     attachSandboxRecipeSnapshot,
@@ -491,31 +491,13 @@ export default function BrewingView({ brews, tab }: Props) {
         setPlanningHintsLoading(true);
         getCurrentWeekPlannedBrewHints().then((result) => {
             if (cancelled) return;
-            const weekEnd = addDays(result.weekId, 6);
-            const reconciled = result.hints.map((hint) => {
-                const source = brews.find((tank) => tank.id === hint.tankId);
-                if (!source?.batchNumber || !source.beerStyle) return hint;
-
-                const brewed = parseDate(source.brewDate);
-                const belongsToWeek =
-                    Number(source.action) === 0 ||
-                    (!!brewed &&
-                        brewed >= result.weekId &&
-                        brewed <= weekEnd);
-
-                if (
-                    belongsToWeek &&
-                    sameStyle(source.beerStyle, hint.style)
-                ) {
-                    return {
-                        ...hint,
-                        batchNumber: String(source.batchNumber),
-                    };
-                }
-
-                return hint;
-            });
-            setPlanningHints(reconciled);
+            // Planning already owns the future batch number. Never replace it
+            // with the tank's current batch merely because the style/tank match:
+            // during the week before a planned brew that tank commonly still
+            // contains the previous batch. Reconciliation here used to turn
+            // e.g. planned #1598/#1599 into their current tank batches, after
+            // which the "already in production" filter hid them completely.
+            setPlanningHints(result.hints);
             setPlanningHintsAvailable(result.available);
         }).finally(() => {
             if (!cancelled) setPlanningHintsLoading(false);
