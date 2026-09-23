@@ -3,7 +3,6 @@ import {
   doc,
   getDocs,
   limit,
-  orderBy,
   query,
   setDoc,
   where,
