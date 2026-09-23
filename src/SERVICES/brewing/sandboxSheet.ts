@@ -330,7 +330,12 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
         );
       }
     }
-    if (result.updated !== guardedWrites.length) {
+    const resolvedConflictCount = result.conflicts?.filter(
+      (conflict) =>
+        normalizeSheetValue(conflict.actualValue) ===
+        normalizeSheetValue(conflict.proposedValue as SheetCellValue | undefined),
+    ).length || 0;
+    if (result.updated + resolvedConflictCount !== guardedWrites.length) {
       throw new Error(
         `Google Sheets אישר רק ${result.updated} מתוך ${guardedWrites.length} כתיבות.`,
       );
