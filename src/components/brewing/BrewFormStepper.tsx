@@ -4123,47 +4123,13 @@ export default function BrewFormStepper({
                 <span>
                   קריאה מה-Sheet: {syncTimeLabel(lastPullAt)}
                 </span>
-                <span
-                  className={
-                    syncMismatchCount === 0
-                      ? "brew-sync-match"
-                      : syncMismatchCount && syncMismatchCount > 0
-                        ? "brew-sync-mismatch"
-                        : ""
-                  }
-                >
-                  התאמה מלאה:{" "}
-                  {syncMismatchCount === null
-                    ? "לא נבדקה"
-                    : syncMismatchCount === 0
-                      ? `✓ ${syncTimeLabel(lastVerifyAt)}`
-                      : `⚠ ${syncMismatchCount} פערים`}
-                </span>
+
               </div>
             )}
           </div>
         </div>
 
-        <div className="brew-sync-actions">
-          <button
-            type="button"
-            className="brew-button-secondary"
-            disabled={
-              checkingSync || pulling || !!syncing || !run.sheetId
-            }
-            onClick={() => void verifySheetSync()}
-          >
-            {checkingSync ? "בודק התאמה…" : "בדוק התאמה"}
-          </button>
-          <button
-            type="button"
-            className="brew-button-secondary brew-sync-now"
-            disabled={pulling || !!syncing || !run.sheetId}
-            onClick={() => void syncFromSheet()}
-          >
-            ↻ משוך מה-Sheet
-          </button>
-        </div>
+
       </div>
 
       {syncError && (
