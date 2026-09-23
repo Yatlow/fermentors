@@ -977,3 +977,46 @@ function brewingSheetOnEdit_(event) {
     );
   }
 }
+
+
+// Manual diagnostic: verifies the exact Drive write path used by brew creation.
+// Creates a temporary copy of the single-brew template in the real destination
+// folder and immediately trashes it. Does not touch Firestore or create a batch.
+function diagnoseBrewingDriveCopy() {
+  const config = brewingSheetConfig_();
+  const templateId = config.templates && config.templates.single;
+  const folderId = config.folderId;
+
+  if (!templateId) throw new Error("Diagnostic: single template ID is missing");
+  if (!folderId) throw new Error("Diagnostic: destination folder ID is missing");
+
+  console.log("Diagnostic: resolving template");
+  const template = DriveApp.getFileById(templateId);
+  console.log("Diagnostic: template OK: " + template.getName());
+
+  console.log("Diagnostic: resolving destination folder");
+  const folder = DriveApp.getFolderById(folderId);
+  console.log("Diagnostic: destination OK: " + folder.getName());
+
+  let copy = null;
+  try {
+    console.log("Diagnostic: calling File.makeCopy");
+    copy = template.makeCopy(
+      "__BREWING_DRIVE_DIAGNOSTIC__ " + new Date().toISOString(),
+      folder
+    );
+    console.log("Diagnostic: makeCopy OK: " + copy.getId());
+
+    console.log("Diagnostic: trashing temporary copy");
+    copy.setTrashed(true);
+    console.log("Diagnostic: cleanup OK");
+    return "BREWING DRIVE DIAGNOSTIC OK";
+  } catch (error) {
+    console.log(
+      "Diagnostic FAILED" +
+      (copy ? " after copy " + copy.getId() : " before copy completed") +
+      ": " + (error && error.message ? error.message : error)
+    );
+    throw error;
+  }
+}
