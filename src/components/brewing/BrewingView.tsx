@@ -591,12 +591,6 @@ export default function BrewingView({ brews, tab }: Props) {
         }
 
         const isDemoTank = tank.id === demoTank.id;
-        if (isDemoTank && draft.style !== "IPA") {
-            setCreateModalError(
-                "במיכל הדמו יצירת Sheet פעילה ל-IPA בלבד.",
-            );
-            return;
-        }
 
         const recipe =
             recipes.find((item) => item.style === draft.style) ||
