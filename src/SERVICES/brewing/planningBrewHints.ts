@@ -1,5 +1,5 @@
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-import { auth, db } from "../../firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../../firebase";
 import { addDays, dateKey, weekStart } from "../planning/planningEngine";
 
 export type PlannedBrewHint = {
@@ -16,55 +16,14 @@ type BrewPlanWithMeta = {
   date?: string;
 };
 
-async function loadWeekHints(weekId: string): Promise<{ hints: PlannedBrewHint[]; source: "planning" | "queue" | "none" }> {
-  const queueRef = doc(db, "brewPlanningQueue", weekId);
-  let source = await getDoc(queueRef);
-  let plannerFallback: BrewPlanWithMeta[] | null = null;
-
-  if (auth.currentUser) {
-    try {
-      const planningSnapshot = await getDoc(doc(db, "planningWeeks", weekId));
-      if (planningSnapshot.exists()) {
-        const rawBrews = Array.isArray(planningSnapshot.data()?.brews)
-          ? (planningSnapshot.data().brews as BrewPlanWithMeta[])
-          : [];
-        plannerFallback = rawBrews;
-        const projectedBrews = rawBrews
-          .filter((brew) => !!brew.batchNumber)
-          .map((brew) => ({
-            id: String((brew as BrewPlanWithMeta & { id?: string }).id || ""),
-            batchNumber: String(brew.batchNumber),
-            style: String(brew.style || ""),
-            tankId: String(brew.tankId || ""),
-            date: String(brew.date || ""),
-          }));
-
-        if (!source.exists()) try {
-          await setDoc(queueRef, {
-            id: weekId,
-            revision: Number(planningSnapshot.data()?.revision || 1),
-            brews: projectedBrews,
-            updatedAt: serverTimestamp(),
-            updatedBy: auth.currentUser.uid,
-          });
-          source = await getDoc(queueRef);
-        } catch {
-          // Preview may still be running production rules; use the planner
-          // document we already read instead of blocking the creation UI.
-        }
-      }
-    } catch {
-      // Non-planner users use the approved-user projection when available.
-    }
-  }
-
-  const queueBrews = source.exists() && Array.isArray(source.data()?.brews)
+async function loadWeekHints(weekId: string): Promise<{ hints: PlannedBrewHint[]; source: "queue" | "none" }> {
+  // Brewing users intentionally read only the approved-user projection.
+  // planningWeeks itself is planner-only, so probing it here made a normal
+  // employee's planned-brew section depend on a permission-denied fallback.
+  const source = await getDoc(doc(db, "brewPlanningQueue", weekId));
+  const brews = source.exists() && Array.isArray(source.data()?.brews)
     ? (source.data().brews as BrewPlanWithMeta[])
     : [];
-  const plannerBrews = plannerFallback || [];
-  const brews = plannerBrews.some((brew) => !!brew.batchNumber)
-    ? plannerBrews
-    : queueBrews;
 
   const hints = brews
     .filter((brew) => !!brew.batchNumber)
@@ -74,14 +33,8 @@ async function loadWeekHints(weekId: string): Promise<{ hints: PlannedBrewHint[]
       tankId: String(brew.tankId || ""),
       date: String(brew.date || ""),
     }));
-  return {
-    hints,
-    source: plannerBrews.some((brew) => !!brew.batchNumber)
-      ? "planning"
-      : queueBrews.length
-        ? "queue"
-        : "none",
-  };
+
+  return { hints, source: brews.length ? "queue" : "none" };
 }
 
 export async function getCurrentWeekPlannedBrewHints(): Promise<{
