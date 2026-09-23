@@ -45,11 +45,13 @@ import {
     type SandboxDemoTank,
 } from "../../SERVICES/brewing/brewingSandbox";
 import {
+    buildBrewSheetInitialWrites,
     createSandboxBrewSheet,
     deleteSandboxBrewSheet,
     ensureSandboxSheetAccess,
     productionBrewSheetExists,
 } from "../../SERVICES/brewing/sandboxSheet";
+import { enqueueBrewSheetCreation } from "../../SERVICES/brewing/brewSheetCreationOutbox";
 import BrewingLibrary from "./BrewingLibrary";
 import CreateBrewModal from "./CreateBrewModal";
 import BrewFormStepper from "./BrewFormStepper";
@@ -210,6 +212,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [pendingProductionRows, setPendingProductionRows] = useState<BrewingDriveHistoryRow[]>([]);
+    const [queuedCreationBatches, setQueuedCreationBatches] = useState<string[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
@@ -224,6 +227,17 @@ export default function BrewingView({ brews, tab }: Props) {
         }),
         [demoTank]
     );
+
+    useEffect(() => {
+        return onSnapshot(collection(db, "brewSheetCreationJobs"), (snapshot) => {
+            const queued = snapshot.docs
+                .map((item) => item.data() as { batchNumber?: string; state?: string })
+                .filter((job) => job.state === "queued" || job.state === "creating")
+                .map((job) => String(job.batchNumber || "").replace("#", "").trim())
+                .filter(Boolean);
+            setQueuedCreationBatches(queued);
+        });
+    }, []);
 
     const allTanks = useMemo(() => {
         const production = brews
@@ -341,12 +355,13 @@ export default function BrewingView({ brews, tab }: Props) {
             [
                 ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
                 ...pendingProductionRows.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
+                ...queuedCreationBatches,
             ].filter(Boolean),
         );
         return planningHints.filter(
             (hint) => !created.has(String(hint.batchNumber).replace("#", "").trim()),
         );
-    }, [planningHints, brews, pendingProductionRows]);
+    }, [planningHints, brews, pendingProductionRows, queuedCreationBatches]);
 
     const pendingProductionRuns = useMemo(
         () => pendingProductionRows
@@ -614,62 +629,27 @@ export default function BrewingView({ brews, tab }: Props) {
                     );
                 }
 
-                if (await productionBrewSheetExists(draft.batchNumber)) {
-                    throw new Error(
-                        `כבר קיים ב-Drive טופס בישול לאצווה ${draft.batchNumber}.`,
-                    );
-                }
-
-                await ensureSandboxSheetAccess();
-                const sheet = await createSandboxBrewSheet({
+                const tankType = tankTypeKey(tank.tankNumber, draft.style);
+                const typeSuffix = tankType === "single" ? "" : tankType === "double" ? " כפול" : " משולש";
+                const initialWrites = buildBrewSheetInitialWrites({
                     batchNumber: draft.batchNumber,
                     style: draft.style,
                     tankNumber: String(tank.tankNumber ?? tank.id),
-                    tankType: tankTypeKey(tank.tankNumber, draft.style),
+                    tankType,
                     recipe,
                     ingredients,
                     production: true,
                 });
-
-                const sanitized = Number(tank.action) === 5;
-                setMessage(
-                    sanitized
-                        ? `✓ אצווה ${draft.batchNumber} נוצרה כטופס אמיתי בתיקיית הבישולים. מיכל ${String(
-                              tank.tankNumber ?? tank.id,
-                          )} מחוטא, ולכן ACTION 5 יוכל לשבץ אותה במחזור הקרוב.`
-                        : `✓ אצווה ${draft.batchNumber} נוצרה כטופס אמיתי וממתינה בתיקיית הבישולים עד שמיכל ${String(
-                              tank.tankNumber ?? tank.id,
-                          )} יהיה מחוטא.`,
-                );
-                await setDoc(doc(db, "pendingBrews", String(draft.batchNumber)), {
-                    batchNumber: String(draft.batchNumber),
-                    beerStyle: draft.style,
+                await enqueueBrewSheetCreation({
+                    batchNumber: draft.batchNumber,
+                    style: draft.style,
                     tankNumber: String(tank.tankNumber ?? tank.id),
-                    tankType: tankTypeKey(tank.tankNumber, draft.style),
-                    fileId: sheet.id,
-                    fileName: sheet.name,
-                    sheetUrl: sheet.url,
-                    createdAt: serverTimestamp(),
+                    tankType,
+                    name: `${draft.style}${typeSuffix} ${draft.batchNumber}#`,
+                    initialWrites,
                 });
-
-                setProductionHistory((current) => [
-                    {
-                        id: sheet.id,
-                        fileId: sheet.id,
-                        fileName: sheet.name,
-                        batchNumber: draft.batchNumber,
-                        beerStyle: draft.style,
-                        brewDate: "",
-                        sheetUrl: sheet.url,
-                        tankNumber: String(tank.tankNumber ?? tank.id),
-                        tankType: tankTypeKey(tank.tankNumber, draft.style),
-                    },
-                    ...current.filter(
-                        (item) =>
-                            String(item.batchNumber) !==
-                            String(draft.batchNumber),
-                    ),
-                ]);
+                setQueuedCreationBatches((current) => [...new Set([...current, String(draft.batchNumber)])]);
+                setMessage(`✓ אצווה ${draft.batchNumber} נכנסה להכנה. אפשר להמשיך לעבוד — ה-Sheet ייווצר ברקע וישובץ אוטומטית כשהוא מוכן.`);
                 setSuggestedBatch(String(Number(draft.batchNumber) + 1));
                 setShowCreate(false);
                 return;
@@ -1083,7 +1063,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     recipes={recipes}
                     suggestedBatch={suggestedBatch}
                     sandboxRuns={sandboxRuns}
-                    createdBatchNumbers={[...new Set([...brews.map((tank) => String(tank.batchNumber || "")), ...pendingProductionRows.map((row) => String(row.batchNumber || ""))].filter(Boolean))]}
+                    createdBatchNumbers={[...new Set([...brews.map((tank) => String(tank.batchNumber || "")), ...pendingProductionRows.map((row) => String(row.batchNumber || "")), ...queuedCreationBatches].filter(Boolean))]}
                     demoTank={demoTank}
                     busyTankId={busyTankId}
                     planningHints={planningHints}
