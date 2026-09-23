@@ -183,7 +183,17 @@ type SheetWrite = { range: string; value: SheetCellValue; expectedValue?: SheetC
 const sheetBaselines = new Map<string, Map<string, string>>();
 
 function normalizeSheetValue(value: SheetCellValue | undefined): string {
-  return String(value == null ? "" : value).trim();
+  const text = String(value == null ? "" : value).trim();
+  if (!text) return "";
+  // Sheets may render a numeric value with a custom unit/format (for example
+  // 14 -> "14.0%aa" or 1335 -> "ליטר 1335"). Treat those as the same value
+  // for optimistic-write reconciliation, while leaving ordinary text exact.
+  const numeric = text.replace(/,/g, ".").match(/-?\d+(?:\.\d+)?/);
+  if (numeric && !/[A-Za-z\u0590-\u05ff]/.test(text.replace(numeric[0], "").replace(/%aa/gi, "").replace(/[%°\s]/g, ""))) {
+    const parsed = Number(numeric[0]);
+    if (Number.isFinite(parsed)) return `#num:${parsed}`;
+  }
+  return text;
 }
 
 function baselineFor(fileId: string) {
@@ -340,10 +350,25 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
     guardedWrites.forEach((write) => baseline.set(write.range, normalizeSheetValue(write.value)));
     waiters.forEach(({ resolve }) => resolve());
   } catch (error) {
-    // A failed browser→Apps Script request must not become an endless retry
-    // loop. The value is already persisted to Firestore; surface the bridge
-    // error and let a later user edit/reconciliation retry with a fresh request.
-    waiters.forEach(({ reject }) => reject(error));
+    // A lost/late ContentService response does not mean the Sheet write failed.
+    // Re-read the requested cells once; if they already contain the proposed
+    // values, acknowledge the batch instead of showing a false failure.
+    try {
+      const baseline = baselineFor(fileId);
+      const checks = await Promise.all(writes.map(async (write) => {
+        const values = await readSandboxSheetRange(fileId, write.range);
+        const actual = values[0]?.[0] ?? "";
+        baseline.set(write.range, normalizeSheetValue(actual));
+        return normalizeSheetValue(actual) === normalizeSheetValue(write.value);
+      }));
+      if (checks.every(Boolean)) {
+        waiters.forEach(({ resolve }) => resolve());
+      } else {
+        waiters.forEach(({ reject }) => reject(error));
+      }
+    } catch {
+      waiters.forEach(({ reject }) => reject(error));
+    }
   } finally {
     outbox.inFlight = false;
     if (outbox.pending.size > 0) {
