@@ -20,7 +20,16 @@ async function loadWeekHints(weekId: string): Promise<{ hints: PlannedBrewHint[]
   // Brewing users intentionally read only the approved-user projection.
   // planningWeeks itself is planner-only, so probing it here made a normal
   // employee's planned-brew section depend on a permission-denied fallback.
-  const source = await getDoc(doc(db, "brewPlanningQueue", weekId));
+  let source;
+  try {
+    source = await getDoc(doc(db, "brewPlanningQueue", weekId));
+  } catch (error) {
+    // One missing/temporarily unreadable week must not hide the other week.
+    // The caller can still render whatever queue data is available.
+    console.warn("Failed loading planned brew queue", { weekId, error });
+    return { hints: [], source: "none" };
+  }
+
   const brews = source.exists() && Array.isArray(source.data()?.brews)
     ? (source.data().brews as BrewPlanWithMeta[])
     : [];
