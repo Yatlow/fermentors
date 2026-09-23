@@ -859,7 +859,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                     type="button"
                                     className="brewing-action-zero-chip"
                                     key={tank.id}
-                                    disabled={!sandbox || !run || !recipe}
+                                    disabled={!run || !recipe}
                                     onClick={() => {
                                         if (!run) return;
                                         setMessage("");
@@ -953,7 +953,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
             {message && <div className="brewing-message">{message}</div>}
 
-            {tab === "form" && sandbox && !selectedRun && (
+            {tab === "form" && !selectedRun && (
                 <CreateBrewModal
                     open={showCreate}
                     tanks={allTanks}
@@ -1099,19 +1099,17 @@ export default function BrewingView({ brews, tab }: Props) {
                             <span className="brewing-count">
                                 {sandboxRuns.length + editableProductionTanks.length}
                             </span>
-                            {sandbox && (
-                                <button
-                                    type="button"
-                                    className="btn-primary brewing-create-button"
-                                    onClick={() => {
-                                        setCreateModalError("");
-                                        setQuickCreateHint(null);
-                                        setShowCreate(true);
-                                    }}
-                                >
-                                    + יצירת בישול חדש
-                                </button>
-                            )}
+                            <button
+                                type="button"
+                                className="btn-primary brewing-create-button"
+                                onClick={() => {
+                                    setCreateModalError("");
+                                    setQuickCreateHint(null);
+                                    setShowCreate(true);
+                                }}
+                            >
+                                + יצירת בישול חדש
+                            </button>
                         </div>
                     </div>
 
