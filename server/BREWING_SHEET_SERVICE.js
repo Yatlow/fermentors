@@ -407,15 +407,16 @@ function brewingSheetAcidHistory_(data) {
     if (!byBatch[batch]) byBatch[batch] = candidate;
   });
 
-  // The current brew is never useful as an acid/pH comparison target:
-  // its acid decision is exactly what the brewer is trying to make now.
-  // Exclude it before limiting so we open only the three previous Sheets.
+  // Compare against the latest three batches, including the current
+  // batch when it already has completed earlier brew blocks (A/B). The parser
+  // below returns only blocks that actually contain acid/pH history, so the
+  // currently active brew block is naturally excluded while earlier brews from
+  // the same batch remain useful comparison data.
   const batches = Object.keys(byBatch)
     .map(Number)
-    .filter(function (batch) {
-      return !Number.isFinite(currentBatch) || batch !== currentBatch;
-    })
     .sort(function (a, b) {
+      if (a === currentBatch) return -1;
+      if (b === currentBatch) return 1;
       return b - a;
     })
     .slice(0, 3);
