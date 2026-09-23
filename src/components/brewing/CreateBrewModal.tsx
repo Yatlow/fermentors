@@ -329,7 +329,6 @@ export default function CreateBrewModal({
           <div className="brewing-assignment-warning">
             האצווה תיווצר עכשיו, אבל תישאר ממתינה לשיבוץ עד
             שהמיכל יהיה בסטטוס מחוטא.
-            {!isDemoTank && " ה-Sheet האמיתי עצמו משמש כתור עבור ACTION 5."}
           </div>
         )}
 
