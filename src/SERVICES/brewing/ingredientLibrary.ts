@@ -229,8 +229,13 @@ export const DEFAULT_INGREDIENT_LIBRARY: IngredientDefinition[] = [
 export function activeLot(
   ingredient: IngredientDefinition,
 ): IngredientLot | undefined {
+  // Status is authoritative. Legacy data may still carry active=true on a lot
+  // that was later marked ended, so never let that stale flag win.
   return (
-    ingredient.lots.find((lot) => lot.active) ??
-    ingredient.lots.find((lot) => lot.status === "current")
+    ingredient.lots.find((lot) => lot.status === "current") ??
+    ingredient.lots.find((lot) => lot.status === "next") ??
+    ingredient.lots.find((lot) => lot.status === "received") ??
+    ingredient.lots.find((lot) => lot.active && lot.status !== "ended") ??
+    ingredient.lots.find((lot) => lot.status !== "ended")
   );
 }
