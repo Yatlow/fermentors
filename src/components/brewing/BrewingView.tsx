@@ -486,7 +486,7 @@ export default function BrewingView({ brews, tab }: Props) {
     }, [brews, sandboxRuns]);
 
     useEffect(() => {
-        if (!sandbox || !showCreate) return;
+        if (!sandbox) return;
 
         let cancelled = false;
         setPlanningHintsLoading(true);
@@ -525,10 +525,10 @@ export default function BrewingView({ brews, tab }: Props) {
         return () => {
             cancelled = true;
         };
-    }, [sandbox, showCreate, brews]);
+    }, [sandbox, brews]);
 
     useEffect(() => {
-        if (!sandbox || !showCreate || planningHints.length === 0) return;
+        if (!sandbox || planningHints.length === 0) return;
 
         const used = new Set(
             [
@@ -544,7 +544,7 @@ export default function BrewingView({ brews, tab }: Props) {
         if (nextPlanned?.batchNumber) {
             setSuggestedBatch(String(nextPlanned.batchNumber));
         }
-    }, [sandbox, showCreate, planningHints, brews, sandboxRuns]);
+    }, [sandbox, planningHints, brews, sandboxRuns]);
 
     function findProductionAssignment(batchNumber: string): Fermentor | null {
         const clean = String(batchNumber || "").replace("#", "").trim();
