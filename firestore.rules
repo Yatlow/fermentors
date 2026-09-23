@@ -280,57 +280,7 @@ service cloud.firestore {
         ])
         && request.resource.data.batchNumber == batchId
         && request.resource.data.batchNumber is string
-        && batchId.matches('^[0-9]+
-        && request.resource.data.attempts == 0
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time;
-      allow update: if false;
-      // Cleanup is allowed only to an approved brewery user. Creation-job
-      // documents are operational metadata and must disappear with a deleted
-      // unstarted batch so the same batch can be recreated cleanly.
-      allow delete: if isApprovedUser();
-    }
-
-    match /pendingBrews/{batchId} {
-      allow read: if isApprovedUser();
-      allow create, update: if isApprovedUser()
-        && request.resource.data.keys().hasOnly([
-          'batchNumber', 'beerStyle', 'tankNumber', 'tankType',
-          'fileId', 'fileName', 'sheetUrl', 'createdAt'
-        ])
-        && request.resource.data.batchNumber == batchId
         && batchId.matches('^[0-9]+$')
-        && request.resource.data.beerStyle is string
-        && request.resource.data.tankNumber is string
-        && request.resource.data.fileId is string
-        && request.resource.data.sheetUrl is string;
-      allow delete: if isApprovedUser();
-    }
-
-    match /brewPlanningQueue/{weekId} {
-      allow read: if isApprovedUser();
-      allow create, update: if isBreweryPlanner()
-        && request.resource.data.keys().hasOnly([
-          'id', 'revision', 'brews', 'updatedAt', 'updatedBy'
-        ])
-        && request.resource.data.id == weekId
-        && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.revision is int
-        && request.resource.data.revision >= 1
-        && request.resource.data.brews is list
-        && request.resource.data.brews.size() <= 30
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
-    }
-
-    match /planningSnapshots/{snapshotId} {
-      allow read: if isBreweryPlanner();
-      allow write: if false;
-    }
-  }
-}
-)
         && request.resource.data.style is string
         && request.resource.data.tankNumber is string
         && request.resource.data.tankType in ['single', 'double', 'triple']
