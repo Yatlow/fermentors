@@ -10,6 +10,7 @@ export type BrewExecution = {
   activeBlockIndex: number;
   blocks: Record<string, BrewExecutionBlock>;
   reviewedSteps?: Record<string, boolean>;
+  activeStepIndex?: number;
   updatedAt: string;
 };
 
@@ -66,6 +67,13 @@ export function setSandboxExecutionField(
       },
     },
   });
+}
+
+export function setSandboxExecutionActiveStep(
+  execution: BrewExecution,
+  activeStepIndex: number,
+): BrewExecution {
+  return saveSandboxExecution({ ...execution, activeStepIndex });
 }
 
 export function setSandboxExecutionActiveBlock(
