@@ -249,17 +249,6 @@ export default function BrewingView({ brews, tab }: Props) {
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
 
-    useEffect(() => {
-        if (!selectedRun?.sheetId) return;
-        const matchingRecipe =
-            selectedRun.recipeSnapshot ||
-            recipes.find((recipe) => sameStyle(recipe.style, selectedRun.style));
-        const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
-        void prepareBrewPrint(selectedRun, mashRestCount).catch((error) => {
-            console.warn("Brew print pre-generation failed", error);
-        });
-    }, [selectedRun, recipes]);
-
     const demoTankAsFermentor = useMemo<Fermentor>(
         () => ({
             id: demoTank.id,
@@ -476,6 +465,30 @@ export default function BrewingView({ brews, tab }: Props) {
             })
             .slice(0, query ? 30 : 12);
     }, [driveProductionRuns, pendingBatchNumbers, historyQuery]);
+
+    // Pre-generate only PDFs for cards that actually expose a print button.
+    // Do not turn every Sheet in the system into an Apps Script print job.
+    useEffect(() => {
+        if (tab !== "form") return;
+
+        const printableRuns: SandboxBrewRun[] = [];
+        actionZeroProductionTanks.forEach((tank) => {
+            const run = productionRunFromTank(tank);
+            if (run && !run.brewProgress?.stageName) printableRuns.push(run);
+        });
+        printableRuns.push(...pendingProductionRuns, ...historicalProductionRuns);
+
+        const unique = new Map(printableRuns.map((run) => [extractSpreadsheetId(run.sheetId || run.sheetUrl), run]));
+        unique.forEach((run) => {
+            const matchingRecipe =
+                run.recipeSnapshot ||
+                recipes.find((recipe) => sameStyle(recipe.style, run.style));
+            const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
+            void prepareBrewPrint(run, mashRestCount).catch((error) => {
+                console.warn("Brew print pre-generation failed", run.batchNumber, error);
+            });
+        });
+    }, [tab, actionZeroProductionTanks, pendingProductionRuns, historicalProductionRuns, recipes]);
 
     useEffect(() => {
         if (!sandbox) return;
