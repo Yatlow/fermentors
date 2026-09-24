@@ -741,6 +741,26 @@ export default function BrewingView({ brews, tab }: Props) {
                     tankType,
                     name: `${draft.style}${typeSuffix} ${draft.batchNumber}#`,
                     initialWrites,
+                    recipeMaterials: {
+                        grains: recipe.grains.map((grain) => {
+                            const ingredient = ingredients.find((item) => item.id === grain.ingredientId);
+                            const lot = ingredient?.lots?.find((item) => item.active) || ingredient?.lots?.[0];
+                            return {
+                                quantity: grain.kgPerBrew,
+                                label: (ingredient?.name || grain.ingredientId) + (lot?.lotNumber ? ` #${lot.lotNumber}` : ""),
+                                supplier: lot?.supplier || "",
+                            };
+                        }),
+                        hops: recipe.hops.filter((hop) => hop.purpose !== "dryHop").map((hop, index) => {
+                            const ingredient = ingredients.find((item) => item.id === hop.ingredientId);
+                            const lot = ingredient?.lots?.find((item) => item.active) || ingredient?.lots?.[0];
+                            return {
+                                quantity: 0,
+                                alpha: lot?.alpha ?? hop.aa ?? "",
+                                label: `${index + 1})${ingredient?.name || hop.ingredientId}${lot?.lotNumber ? ` #${lot.lotNumber}` : ""}`,
+                            };
+                        }),
+                    },
                     mashRestCount: recipe.mash.steps.some((step) => step.id === "rest3") ? 3 : 2,
                 });
                 
