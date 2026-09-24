@@ -670,10 +670,14 @@ export default function BrewingView({ brews, tab }: Props) {
             setBusyTankId(tank.id);
 
             try {
-                if (await batchNumberExistsInProduction(draft.batchNumber)) {
-                    throw new Error(
-                        `אצווה ${draft.batchNumber} כבר קיימת ב-Firestore.`,
-                    );
+                // Firestore is fast but Drive is the final duplicate guard: a
+                // manually-created Sheet may exist before the 100-row history has
+                // finished loading in the UI.
+                if (
+                    await batchNumberExistsInProduction(draft.batchNumber) ||
+                    await productionBrewSheetExists(draft.batchNumber)
+                ) {
+                    throw new Error(`אצווה ${draft.batchNumber} כבר קיימת.`);
                 }
 
                 const tankType = tankTypeKey(tank.tankNumber, draft.style);
