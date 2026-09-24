@@ -90,6 +90,27 @@ function extractSpreadsheetId(value: unknown): string {
     return match ? match[1] : text;
 }
 
+type BrewPrintPdf = Awaited<ReturnType<typeof serverPrintBrewSheetPdf>>;
+const brewPrintCache = new Map<string, Promise<BrewPrintPdf>>();
+
+function brewPrintKey(run: SandboxBrewRun, mashRestCount: number): string {
+    return [extractSpreadsheetId(run.sheetId || run.sheetUrl), run.batchNumber, run.brewSheetEditRevision ?? "history", mashRestCount].join(":");
+}
+
+function prepareBrewPrint(run: SandboxBrewRun, mashRestCount: number): Promise<BrewPrintPdf> {
+    const spreadsheetId = extractSpreadsheetId(run.sheetId || run.sheetUrl);
+    if (!spreadsheetId) return Promise.reject(new Error("לא נמצא Sheet לאצווה."));
+    const key = brewPrintKey(run, mashRestCount);
+    const existing = brewPrintCache.get(key);
+    if (existing) return existing;
+    const request = serverPrintBrewSheetPdf({
+        spreadsheetId, batchNumber: run.batchNumber, tankNumber: run.tankNumber,
+        style: run.style, tankType: run.tankType, brewDate: run.brewDate, mashRestCount,
+    }).catch((error) => { brewPrintCache.delete(key); throw error; });
+    brewPrintCache.set(key, request);
+    return request;
+}
+
 function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
     const batchNumber = String(tank.batchNumber || "").replace("#", "").trim();
     const style = String(tank.beerStyle || "").trim();
@@ -227,6 +248,17 @@ export default function BrewingView({ brews, tab }: Props) {
     const [printingBatch, setPrintingBatch] = useState<string | null>(null);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
+
+    useEffect(() => {
+        if (!selectedRun?.sheetId) return;
+        const matchingRecipe =
+            selectedRun.recipeSnapshot ||
+            recipes.find((recipe) => sameStyle(recipe.style, selectedRun.style));
+        const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
+        void prepareBrewPrint(selectedRun, mashRestCount).catch((error) => {
+            console.warn("Brew print pre-generation failed", error);
+        });
+    }, [selectedRun, recipes]);
 
     const demoTankAsFermentor = useMemo<Fermentor>(
         () => ({
@@ -833,15 +865,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
             const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
 
-            const pdf = await serverPrintBrewSheetPdf({
-                spreadsheetId,
-                batchNumber: run.batchNumber,
-                tankNumber: run.tankNumber,
-                style: run.style,
-                tankType: run.tankType,
-                brewDate: run.brewDate,
-                mashRestCount,
-            });
+            const pdf = await prepareBrewPrint(run, mashRestCount);
 
             const binary = atob(pdf.base64);
             const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
