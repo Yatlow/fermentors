@@ -352,7 +352,11 @@ function brewingSheetCreate_(data) {
             const hop = (materials.hops || [])[slot];
             const row = firstHop + slot + 1;
             sheet.getRange(row, 1, 1, 3).clearContent();
-            if (hop) sheet.getRange(row, 1, 1, 3).setValues([[hop.quantity, hop.alpha, hop.label]]);
+            if (hop) {
+              // Quantity is intentionally blank when the brew sheet is created.
+              // The brewer records the actual hop weight during the brew.
+              sheet.getRange(row, 1, 1, 3).setValues([["", hop.alpha, hop.label]]);
+            }
           }
         }
 
@@ -592,24 +596,33 @@ function brewingSheetPrintPdf_(data) {
 
         const sugarCol = findLabelColumn(row, /^(?:F\.R\.|L\.R\.)$/i);
         if (sugarCol >= 0) {
+          // Keep the print label visible even before a measurement exists.
           const unitCol = sugarCol + 1;
-          if (unitCol < row.length) row[unitCol] = "°P";
+          if (unitCol < row.length) {
+            const value = String(row[unitCol] || "").trim();
+            row[unitCol] = value
+              ? (/°P$/i.test(value) ? value : value + "°P")
+              : "°P";
+          }
         }
 
         const volumeCol = findLabelColumn(row, /^(?:סיר\s*בישול|סוף\s*רתיחה|תחילת\s*תסיסה)$/i);
         if (volumeCol >= 0) {
-          // Match the original Sheet exactly (see the source form): label in A,
-          // measured Plato in B, volume in C. These are print-only suffixes,
-          // appended to the value instead of occupying/overwriting another cell.
+          // Same geometry as the source form: label in A, Plato in B, volume
+          // in C. Empty fields still show their print-only unit labels.
           const platoValueCol = volumeCol + 1;
           const literValueCol = volumeCol + 2;
           if (platoValueCol < row.length) {
             const value = String(row[platoValueCol] || "").trim();
-            if (value && !/°P$/i.test(value)) row[platoValueCol] = value + "°P";
+            row[platoValueCol] = value
+              ? (/°P$/i.test(value) ? value : value + "°P")
+              : "°P";
           }
           if (literValueCol < row.length) {
             const value = String(row[literValueCol] || "").trim();
-            if (value && !/ליטר$/.test(value)) row[literValueCol] = value + " ליטר";
+            row[literValueCol] = value
+              ? (/ליטר$/.test(value) ? value : value + " ליטר")
+              : "ליטר";
           }
         }
       });
