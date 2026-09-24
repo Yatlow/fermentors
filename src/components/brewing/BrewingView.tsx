@@ -378,14 +378,13 @@ export default function BrewingView({ brews, tab }: Props) {
                 ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
                 ...pendingProductionRows.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
                 ...creationJobs.map((job) => job.batchNumber),
-                ...productionHistory.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
             ].filter(Boolean),
         );
         return planningHints.filter((hint) => {
             const batch = String(hint.batchNumber).replace("#", "").trim();
             return !created.has(batch);
         });
-    }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory]);
+    }, [planningHints, brews, pendingProductionRows, creationJobs]);
 
     const pendingProductionRuns = useMemo(() => {
         const plannedByBatch = new Map(
