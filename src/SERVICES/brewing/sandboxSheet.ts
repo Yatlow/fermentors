@@ -106,7 +106,17 @@ export function buildBrewSheetInitialWrites(input: {
   // must always come from the selected recipe snapshot.
   if (input.recipe && input.ingredients) {
     const grainStarts = input.tankType === "triple" ? [9, 59, 107] : input.tankType === "double" ? [9, 59] : [9];
-    grainStarts.forEach((startRow) => {
+    grainStarts.forEach((startRow, blockIndex) => {
+      // In the triple Master the last brew block shares its first material row
+      // with legacy template content. Clear that row before writing recipe data
+      // so brew C never renders the first grain twice.
+      if (input.tankType === "triple" && blockIndex === grainStarts.length - 1) {
+        writes.push(
+          { range: `'גיליון1'!A${startRow}`, value: "" },
+          { range: `'גיליון1'!B${startRow}`, value: "" },
+          { range: `'גיליון1'!C${startRow}`, value: "" },
+        );
+      }
       for (let slot = 0; slot < 5; slot += 1) {
         const row = startRow + slot;
         const grain = input.recipe!.grains[slot];
@@ -154,7 +164,16 @@ export function buildBrewSheetInitialWrites(input: {
     const ingredients = input.ingredients;
     const hopStarts = input.tankType === "triple" ? [24, 74, 122] : input.tankType === "double" ? [24, 74] : [24];
     const kettleHops = input.recipe.hops.filter((hop) => hop.purpose !== "dryHop");
-    hopStarts.forEach((startRow) => {
+    hopStarts.forEach((startRow, blockIndex) => {
+      // Same legacy overlap exists for the first hop row of brew C. Explicitly
+      // clear it before applying the selected recipe.
+      if (input.tankType === "triple" && blockIndex === hopStarts.length - 1) {
+        writes.push(
+          { range: `'גיליון1'!A${startRow}`, value: "" },
+          { range: `'גיליון1'!B${startRow}`, value: "" },
+          { range: `'גיליון1'!C${startRow}`, value: "" },
+        );
+      }
       for (let slot = 0; slot < 5; slot += 1) {
         const row = startRow + slot;
         const hop = kettleHops[slot];
