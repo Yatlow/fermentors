@@ -225,19 +225,21 @@ function brewingSheetCreate_(data) {
   try {
     // Server-side source of truth: scan Drive while holding the creation lock.
     // This also catches manually-created Sheets and closes the two-client race.
-    const candidates = typeof scanBrewFolderCandidates === "function"
-      ? (scanBrewFolderCandidates() || [])
-      : (typeof getBrewFolderCandidatesCached === "function" ? (getBrewFolderCandidatesCached() || []) : []);
-    const duplicateFound = candidates.some(function (candidate) {
-      const name = String(candidate.fileName || "");
-      const batch = String(candidate.batch || brewingSheetBatchFromName_(name) || "").replace("#", "").trim();
-      if (batch !== batchNumber) return false;
-      try {
-        return !DriveApp.getFileById(candidate.fileId).isTrashed();
-      } catch (error) {
-        return false;
+    // Keep this guard cheap: creation must not recursively scan the whole brew
+    // archive. Drive's folder search checks the exact batch marker directly.
+    const folder = DriveApp.getFolderById(config.folderId);
+    const duplicateFiles = folder.searchFiles(
+      "trashed = false and title contains '" + batchNumber.replace(/'/g, "\\'") + "'"
+    );
+    let duplicateFound = false;
+    while (duplicateFiles.hasNext()) {
+      const candidate = duplicateFiles.next();
+      const parsed = brewingSheetBatchFromName_(candidate.getName());
+      if (String(parsed || "").replace("#", "").trim() === batchNumber) {
+        duplicateFound = true;
+        break;
       }
-    });
+    }
     if (duplicateFound) throw new Error("Batch " + batchNumber + " already has a Brew Sheet");
 
     const style = String(data.style || "").trim();
@@ -246,7 +248,6 @@ function brewingSheetCreate_(data) {
 
     const resolveStartedAt = Date.now();
     const template = DriveApp.getFileById(config.templateId);
-    const folder = DriveApp.getFolderById(config.folderId);
     const resolveMs = Date.now() - resolveStartedAt;
 
     const copyStartedAt = Date.now();
