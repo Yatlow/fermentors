@@ -12,7 +12,23 @@ function brewCreateJobField_(doc, name) {
   return sheetSyncField_(doc, name);
 }
 
-function brewCreatePendingJobs_() {
+function brewCreatePendingJobs_(requestedJobId) {
+  // A direct request should fetch its own document regardless of whether a
+  // concurrent worker already moved it from queued -> creating. This makes the
+  // immediate path able to resume/publish an interrupted creation.
+  if (requestedJobId) {
+    const response = sheetSyncFetch_(
+      sheetSyncDocumentsUrl_("/brewSheetCreationJobs/" + encodeURIComponent(String(requestedJobId))),
+      { method: "get" }
+    );
+    const code = response.getResponseCode();
+    if (code === 404) return [];
+    if (code < 200 || code >= 300) throw new Error("Failed loading brew creation job: HTTP " + code);
+    const document = JSON.parse(response.getContentText() || "{}");
+    const state = String(brewCreateJobField_(document, "state") || "");
+    return state === "queued" || state === "creating" ? [document] : [];
+  }
+
   const response = sheetSyncFetch_(sheetSyncDocumentsUrl_(":runQuery"), {
     method: "post",
     contentType: "application/json",
@@ -85,12 +101,7 @@ function brewCreatePublishPending_(job, created) {
 }
 
 function processPendingBrewSheetCreationJobs_(requestedJobId) {
-  let documents = brewCreatePendingJobs_();
-  if (requestedJobId) {
-    documents = documents.filter(function (document) {
-      return sheetSyncDocumentId_(document) === String(requestedJobId);
-    });
-  }
+  let documents = brewCreatePendingJobs_(requestedJobId);
   const stats = { found: documents.length, ready: 0, failed: 0 };
   if (!documents.length) return stats;
 
@@ -164,8 +175,10 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
       stats.ready++;
     } catch (error) {
       try {
+        // Keep the job retryable. A Drive/Spreadsheet transient must not strand
+        // the batch forever in failed/creating; maintenance will pick it up.
         brewCreatePatchJob_(jobId, {
-          state: "failed",
+          state: "queued",
           attempts: job.attempts + 1,
           updatedAt: new Date().toISOString(),
           lastError: String(error && error.message || error).slice(0, 1000)
