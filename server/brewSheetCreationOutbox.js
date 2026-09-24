@@ -42,19 +42,26 @@ function brewCreatePendingJobs_(requestedJobId) {
             value: { stringValue: "queued" }
           }
         },
-        orderBy: [
-          { field: { fieldPath: "createdAt" }, direction: "ASCENDING" },
-          { field: { fieldPath: "__name__" }, direction: "ASCENDING" }
-        ],
-        limit: BREW_CREATE_JOB_LIMIT_
       }
     })
   });
   const code = response.getResponseCode();
   if (code < 200 || code >= 300) throw new Error("Failed loading brew creation jobs: HTTP " + code);
+  // Keep this query index-free. Combining state == queued with orderBy(createdAt,
+  // __name__) requires a Firestore composite index and caused maintenance HTTP
+  // 400 in production. Queue volume is tiny, so sort the returned jobs here.
   return (JSON.parse(response.getContentText() || "[]") || [])
     .map(function (row) { return row.document || null; })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort(function (a, b) {
+      const aCreated = String(brewCreateJobField_(a, "createdAt") || "");
+      const bCreated = String(brewCreateJobField_(b, "createdAt") || "");
+      if (aCreated !== bCreated) return aCreated < bCreated ? -1 : 1;
+      const aId = sheetSyncDocumentId_(a);
+      const bId = sheetSyncDocumentId_(b);
+      return aId < bId ? -1 : aId > bId ? 1 : 0;
+    })
+    .slice(0, BREW_CREATE_JOB_LIMIT_);
 }
 
 function brewCreatePatchJob_(jobId, fields) {
