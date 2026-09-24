@@ -995,7 +995,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 });
             }
             setSelectedRun(null);
-            setMessage(previousRun ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${previousRun.batchNumber} כאצווה האחרונה לצורכי נתוני האריזה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
+            const restoredBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();\n            setMessage(restoredBatch ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${restoredBatch} וה-state הקודם שלה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
         } catch (error) {
             setMessage(
                 error instanceof Error
