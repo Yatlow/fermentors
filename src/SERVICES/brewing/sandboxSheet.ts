@@ -139,11 +139,18 @@ export function buildBrewSheetInitialWrites(input: {
     const blockStarts = input.tankType === "triple" ? [9, 59, 107] : input.tankType === "double" ? [9, 59] : [9];
     blockStarts.forEach((blockStart) => {
       const shift = blockStart - 9;
-      const rest3 = 19 + shift;
-      const heat3 = 21 + shift;
+      const row19 = 19 + shift;
+      const row21 = 21 + shift;
+      const row23 = 23 + shift;
+      const row25 = 25 + shift;
+      // Rows 19/21 are the LT transfer/rest slots in the standard Master.
+      // A 3-rest mash temporarily uses those two slots, so move the LT labels
+      // down into the next available process rows instead of replacing them.
       writes.push(
-        { range: `'גיליון1'!D${rest3}`, value: hasRest3 ? "השריה 3" : "" },
-        { range: `'גיליון1'!D${heat3}`, value: hasRest3 ? "חימום 3" : "" },
+        { range: `'גיליון1'!D${row19}`, value: hasRest3 ? "השריה 3" : "העברה ל L.T" },
+        { range: `'גיליון1'!D${row21}`, value: hasRest3 ? "חימום 3" : "מנוחת L.T" },
+        { range: `'גיליון1'!D${row23}`, value: hasRest3 ? "העברה ל L.T" : "" },
+        { range: `'גיליון1'!D${row25}`, value: hasRest3 ? "מנוחת L.T" : "" },
       );
     });
   }
