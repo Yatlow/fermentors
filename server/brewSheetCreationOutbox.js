@@ -80,8 +80,8 @@ function brewCreatePublishPending_(job, created) {
   if (code < 200 || code >= 300) throw new Error("Failed publishing pending brew: HTTP " + code);
 }
 
-function processPendingBrewSheetCreationJobs_() {
-  const documents = brewCreatePendingJobs_();
+function processPendingBrewSheetCreationJobs_(requestedJobId) {
+  let documents = brewCreatePendingJobs_();\n  if (requestedJobId) {\n    documents = documents.filter(function (document) {\n      return sheetSyncDocumentId_(document) === String(requestedJobId);\n    });\n  }
   const stats = { found: documents.length, ready: 0, failed: 0 };
   if (!documents.length) return stats;
 
@@ -170,4 +170,16 @@ function processPendingBrewSheetCreationJobs_() {
 
   console.log("Brew creation outbox: " + JSON.stringify(stats));
   return stats;
+}
+
+function processBrewSheetCreationJobNow_(jobId) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    return { queued: true, busy: true };
+  }
+  try {
+    return processPendingBrewSheetCreationJobs_(String(jobId || ""));
+  } finally {
+    lock.releaseLock();
+  }
 }
