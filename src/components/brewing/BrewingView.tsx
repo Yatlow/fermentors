@@ -891,7 +891,16 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         try {
             await serverTrashBrewSheet(run.sheetId);
-            await deleteDoc(doc(db, "pendingBrews", run.batchNumber));
+            // A completed creation job remains in Firestore as state=ready.
+            // Delete it together with the pending batch so this batch number can
+            // be created again later without turning setDoc(create) into an update.
+            const cleanupResults = await Promise.allSettled([
+                deleteDoc(doc(db, "pendingBrews", run.batchNumber)),
+                deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
+                deleteDoc(doc(db, "brews", run.batchNumber)),
+            ]);
+            const failedCleanup = cleanupResults.find((result) => result.status === "rejected");
+            if (failedCleanup?.status === "rejected") throw failedCleanup.reason;
             setProductionHistory((current) =>
                 current.filter(
                     (row) => String(row.batchNumber).replace("#", "").trim() !== run.batchNumber,
