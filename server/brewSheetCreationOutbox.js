@@ -81,7 +81,12 @@ function brewCreatePublishPending_(job, created) {
 }
 
 function processPendingBrewSheetCreationJobs_(requestedJobId) {
-  let documents = brewCreatePendingJobs_();\n  if (requestedJobId) {\n    documents = documents.filter(function (document) {\n      return sheetSyncDocumentId_(document) === String(requestedJobId);\n    });\n  }
+  let documents = brewCreatePendingJobs_();
+  if (requestedJobId) {
+    documents = documents.filter(function (document) {
+      return sheetSyncDocumentId_(document) === String(requestedJobId);
+    });
+  }
   const stats = { found: documents.length, ready: 0, failed: 0 };
   if (!documents.length) return stats;
 
