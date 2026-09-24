@@ -481,50 +481,47 @@ function brewingSheetPrintPdf_(data) {
       const printRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, printColumns);
       printRange.setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
 
-      // Print-only units. The Master already has dedicated unit columns; use
-      // those exact cells instead of searching for a blank cell at the edge.
-      // This keeps the production Sheet untouched.
+      // Print-only units. Batch operations are critical here: the previous
+      // cell-by-cell getRange/setValue/getFontSize loop could take minutes.
       const display = printRange.getDisplayValues();
+      const fontSizes = printRange.getFontSizes();
+      const columnWidths = [];
+      for (let col = 1; col <= printColumns; col++) columnWidths.push(brew.getColumnWidth(col));
+
+      // Units belong in the same cells as the legacy Excel layout. Process
+      // temperature is column E (not F). Sugar/volume units are decorated only
+      // in the exact rows whose labels identify those fields.
       display.forEach(function (row, rowOffset) {
         const rowText = row.join(" ").trim();
-        const sheetRow = firstRow + rowOffset;
-
-        // Process temperatures: unit cell is F in the process table.
         if (/(השריה|חימום)\s*[1-3]|העברה\s*ל?\s*L\.T\.?|מנוחה\s*L\.T\.?|שטיפה\s*[1-7]/i.test(rowText)) {
-          brew.getRange(sheetRow, 6).setValue("°C");
+          row[4] = "°C";
         }
+        if (/F\.R\.|L\.R\./i.test(rowText)) row[1] = "°P";
+        if (/סיר\s*בישול|סוף\s*רתיחה/i.test(rowText)) row[2] = "°P";
 
-        // Sugar / Plato fields use °P, matching the Excel form.
-        if (/F\.R\.|L\.R\.|סיר\s*בישול|סוף\s*רתיחה/i.test(rowText)) {
-          brew.getRange(sheetRow, 3).setValue("°P");
-        }
-
-        // Volume fields use liter in the dedicated unit cell.
-        if (/נפח\s*(מאש|סיר|רתיחה)|כמות\s*במיכל\s*בישול/i.test(rowText)) {
-          brew.getRange(sheetRow, 3).setValue("ליטר");
-        }
+        // Excel volume unit positions: mash volume in the process table and
+        // kettle/transfer volumes in their adjacent unit cell. Never decorate
+        // ingredient rows just because their text happens to contain "כמות".
+        if (/נפח\s*מאש/i.test(rowText)) row[6] = "ליטר";
+        if (/כמות\s*במיכל\s*בישול/i.test(rowText)) row[6] = "ליטר";
       });
+      printRange.setValues(display);
 
-      // Fit text aggressively inside the existing geometry. Printing must not
-      // widen columns or grow rows because each brew must stay on one A4.
-      printRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-      const richValues = printRange.getDisplayValues();
-      richValues.forEach(function (row, r) {
+      // Fit all cells in memory and apply font sizes once.
+      display.forEach(function (row, r) {
         row.forEach(function (value, col) {
           const text = String(value || "").trim();
           if (!text) return;
-          const cell = brew.getRange(firstRow + r, col + 1);
-          const width = Math.max(12, brew.getColumnWidth(col + 1) - 8);
-          const currentSize = Number(cell.getFontSize()) || 10;
-          // Hebrew and mixed Hebrew/Latin strings render wider than the prior
-          // approximation. Use a conservative width and allow 5pt when needed.
+          const width = Math.max(12, columnWidths[col] - 8);
+          const currentSize = Number(fontSizes[r][col]) || 10;
           const estimatedPx = text.length * currentSize * 0.78;
           if (estimatedPx > width) {
-            const fitted = Math.max(5, Math.floor(currentSize * width / estimatedPx));
-            if (fitted < currentSize) cell.setFontSize(fitted);
+            fontSizes[r][col] = Math.max(5, Math.floor(currentSize * width / estimatedPx));
           }
         });
       });
+      printRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+      printRange.setFontSizes(fontSizes);
     });
 
     SpreadsheetApp.flush();
