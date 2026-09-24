@@ -140,15 +140,19 @@ export function buildBrewSheetInitialWrites(input: {
     blockStarts.forEach((blockStart) => {
       const shift = blockStart - 9;
       const row19 = 19 + shift;
+      const row20 = 20 + shift;
       const row21 = 21 + shift;
+      const row22 = 22 + shift;
       const row23 = 23 + shift;
-      // Preserve the Master's actual process layout. In a standard two-rest
-      // brew rows 19/21 are LT transfer/rest. In a three-rest recipe those
-      // same rows become rest 3 / heat 3. Row 23 is always the recirculation
-      // step ("סחרור") before the existing "הוצאה לבישול" row.
+      // Keep the complete hot-side sequence. A three-rest recipe needs two
+      // extra labels, but LT transfer/rest and recirculation must never be
+      // sacrificed. The extractor discovers stages by label, so compacting
+      // these five labels into rows 19-23 remains compatible with reporting.
       writes.push(
         { range: `'גיליון1'!D${row19}`, value: hasRest3 ? "השריה 3" : "העברה ל L.T" },
-        { range: `'גיליון1'!D${row21}`, value: hasRest3 ? "חימום 3" : "מנוחת L.T" },
+        { range: `'גיליון1'!D${row20}`, value: hasRest3 ? "חימום 3" : "" },
+        { range: `'גיליון1'!D${row21}`, value: hasRest3 ? "העברה ל L.T" : "מנוחת L.T" },
+        { range: `'גיליון1'!D${row22}`, value: hasRest3 ? "מנוחת L.T" : "" },
         { range: `'גיליון1'!D${row23}`, value: "סחרור" },
       );
     });
