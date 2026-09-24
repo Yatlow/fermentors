@@ -231,16 +231,31 @@ function brewingSheetCreate_(data) {
     const duplicateFiles = folder.searchFiles(
       "trashed = false and title contains '" + batchNumber.replace(/'/g, "\\'") + "'"
     );
-    let duplicateFound = false;
+    let duplicateFile = null;
     while (duplicateFiles.hasNext()) {
       const candidate = duplicateFiles.next();
       const parsed = brewingSheetBatchFromName_(candidate.getName());
       if (String(parsed || "").replace("#", "").trim() === batchNumber) {
-        duplicateFound = true;
+        duplicateFile = candidate;
         break;
       }
     }
-    if (duplicateFound) throw new Error("Batch " + batchNumber + " already has a Brew Sheet");
+    if (duplicateFile) {
+      // A manually-created Sheet is valid existing work. Return it instead of
+      // creating/writing another template. The outbox can then publish it to
+      // pendingBrews and clear a stale "creating" card without touching its
+      // special layout.
+      return {
+        id: duplicateFile.getId(),
+        name: duplicateFile.getName(),
+        url: duplicateFile.getUrl(),
+        batchNumber: batchNumber,
+        tankNumber: String(data.tankNumber || "").trim(),
+        style: String(data.style || "").trim(),
+        tankType: config.tankType,
+        existing: true
+      };
+    }
 
     const style = String(data.style || "").trim();
     const tankNumber = String(data.tankNumber || "").trim();
