@@ -385,13 +385,36 @@ export default function BrewingView({ brews, tab }: Props) {
         );
     }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory]);
 
-    const pendingProductionRuns = useMemo(
-        () => pendingProductionRows
+    const pendingProductionRuns = useMemo(() => {
+        const plannedByBatch = new Map(
+            planningHints.map((hint) => [String(hint.batchNumber).replace("#", "").trim(), hint]),
+        );
+        const pendingByBatch = new Map(
+            pendingProductionRows.map((row) => [String(row.batchNumber || "").replace("#", "").trim(), row]),
+        );
+
+        // A Sheet may have been created manually in Drive (for example a special
+        // winter template). If planning still says this batch is upcoming, treat
+        // the Drive Sheet as pending rather than historical even without a
+        // pendingBrews document.
+        productionHistory.forEach((row) => {
+            const batch = String(row.batchNumber || "").replace("#", "").trim();
+            const hint = plannedByBatch.get(batch);
+            if (!hint || pendingByBatch.has(batch) || currentProductionBatchNumbers.has(batch)) return;
+            pendingByBatch.set(batch, {
+                ...row,
+                beerStyle: row.beerStyle || hint.style,
+                tankNumber: row.tankNumber || String(
+                    allTanks.find((tank) => tank.id === hint.tankId)?.tankNumber || "",
+                ),
+            });
+        });
+
+        return Array.from(pendingByBatch.values())
             .map(productionRunFromSummary)
             .filter((run): run is SandboxBrewRun => !!run)
-            .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber)),
-        [pendingProductionRows, currentProductionBatchNumbers],
-    );
+            .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber));
+    }, [pendingProductionRows, productionHistory, planningHints, currentProductionBatchNumbers, allTanks]);
 
     const pendingBatchNumbers = useMemo(
         () => new Set(pendingProductionRuns.map((run) => run.batchNumber)),
@@ -753,12 +776,23 @@ export default function BrewingView({ brews, tab }: Props) {
     }
 
     function printBrewCover(run: SandboxBrewRun) {
-        const w = window.open("", "_blank", "noopener,noreferrer");
-        if (!w) { setMessage("הדפדפן חסם את חלון ההדפסה."); return; }
         const esc = (value: unknown) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
         const typeLabel = run.tankType === "single" ? "בודד" : run.tankType === "double" ? "כפול" : "משולש";
-        w.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>דף בישול ${esc(run.batchNumber)}</title><style>@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.page{height:273mm;border:2px solid #222;display:flex;flex-direction:column;justify-content:space-between;padding:16mm}.title{text-align:center;font-size:34pt;font-weight:800;margin-top:8mm}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14mm 18mm;font-size:18pt}.field{border-bottom:2px solid #222;padding:8mm 2mm 3mm}.field b{display:block;font-size:12pt;margin-bottom:3mm}.footer{text-align:center;font-size:11pt}@media print{button{display:none}}</style></head><body><div class="page"><div class="title">דף בישול</div><div class="grid"><div class="field"><b>סוג בירה</b>${esc(run.style)}</div><div class="field"><b>מספר אצווה</b>${esc(run.batchNumber)}</div><div class="field"><b>מיכל</b>${esc(run.tankNumber)}</div><div class="field"><b>גודל בישול</b>${esc(typeLabel)}</div><div class="field"><b>תאריך</b>${esc(run.brewDate || "")}</div><div class="field"><b>מספר בישולים</b>${run.tankType === "triple" ? "3" : run.tankType === "double" ? "2" : "1"}</div></div><div class="footer">Shapiro Beer · Brew Sheet</div></div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script></body></html>`);
-        w.document.close();
+        const frame = document.createElement("iframe");
+        frame.setAttribute("aria-hidden", "true");
+        Object.assign(frame.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
+        document.body.appendChild(frame);
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        if (!doc || !win) { frame.remove(); setMessage("לא ניתן לפתוח את תצוגת ההדפסה."); return; }
+        doc.open();
+        doc.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>דף בישול ${esc(run.batchNumber)}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#111}.page{height:273mm;border:2px solid #222;padding:16mm}.tank{font-size:24pt;font-weight:700}.batch{text-align:center;font-size:86pt;font-weight:800;margin:25mm 0 10mm}.style{text-align:center;font-size:34pt;font-weight:700;margin-bottom:28mm}.field{font-size:20pt;margin:15mm 0;border-bottom:2px solid #222;padding-bottom:4mm}</style></head><body><main class="page"><div class="tank">מס מיכל: ${esc(run.tankNumber)}</div><div class="batch">#${esc(run.batchNumber)}</div><div class="style">${esc(run.style)} ${esc(typeLabel)}</div><div class="field">תאריך בישול: ${esc(run.brewDate || "________________")}</div><div class="field">נפח וסוכר התחלתי: ________________ / ________________</div></main></body></html>`);
+        doc.close();
+        window.setTimeout(() => {
+            win.focus();
+            win.print();
+            window.setTimeout(() => frame.remove(), 1000);
+        }, 150);
     }
 
     async function removeSandboxRun(run: SandboxBrewRun) {
