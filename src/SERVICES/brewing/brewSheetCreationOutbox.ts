@@ -41,7 +41,12 @@ export async function enqueueBrewSheetCreation(input: {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`brewSheetCreationJobs/${batchNumber}: ${message}`);
   }
-  // Fire immediately after the durable Firestore write. Maintenance remains a\n  // fallback only; a failed/closed request leaves the queued job intact.\n  void serverProcessQueuedBrewSheetJob(batchNumber).catch((error) => {\n    console.warn("Immediate brew Sheet worker failed; maintenance will retry", error);\n  });\n  return batchNumber;
+  // Fire immediately after the durable Firestore write. Maintenance remains a
+  // fallback only; a failed/closed request leaves the queued job intact.
+  void serverProcessQueuedBrewSheetJob(batchNumber).catch((error) => {
+    console.warn("Immediate brew Sheet worker failed; maintenance will retry", error);
+  });
+  return batchNumber;
 }
 
 export async function loadOpenBrewSheetCreationJobs(): Promise<BrewSheetCreationJob[]> {
