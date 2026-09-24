@@ -130,33 +130,9 @@ export function buildBrewSheetInitialWrites(input: {
       }
     });
   }
-  if (input.recipe) {
-    // The Master already contains the process labels and must stay blank for
-    // execution data. Only clear/hide the optional third-rest rows when the
-    // selected recipe does not use them; actual times/temperatures are entered
-    // during brewing, not pre-filled when the Sheet is created.
-    const hasRest3 = input.recipe.mash.steps.some((step) => step.id === "rest3");
-    const blockStarts = input.tankType === "triple" ? [9, 59, 107] : input.tankType === "double" ? [9, 59] : [9];
-    blockStarts.forEach((blockStart) => {
-      const shift = blockStart - 9;
-      const row19 = 19 + shift;
-      const row20 = 20 + shift;
-      const row21 = 21 + shift;
-      const row22 = 22 + shift;
-      const row23 = 23 + shift;
-      // Keep the Master's fixed geometry. Rows 19-23 are the five available
-      // hot-side process slots before kettle additions. A 3-rest recipe uses
-      // all five; a normal recipe leaves the optional heat/rest slots blank.
-      // Formatting/borders for populated optional rows are restored server-side.
-      writes.push(
-        { range: `'גיליון1'!D${row19}`, value: hasRest3 ? "השריה 3" : "העברה ל L.T" },
-        { range: `'גיליון1'!D${row20}`, value: hasRest3 ? "חימום 3" : "" },
-        { range: `'גיליון1'!D${row21}`, value: hasRest3 ? "העברה ל L.T" : "מנוחת L.T" },
-        { range: `'גיליון1'!D${row22}`, value: hasRest3 ? "מנוחת L.T" : "" },
-        { range: `'גיליון1'!D${row23}`, value: "סחרור" },
-      );
-    });
-  }
+  // Process geometry belongs to the Master. A three-rest recipe needs two
+  // additional physical rows; the server inserts them after the ordinary
+  // Master has been populated so all downstream cells shift together.
 
   if (input.recipe && input.ingredients) {
     const ingredients = input.ingredients;
@@ -229,6 +205,7 @@ export async function createSandboxBrewSheet(input: {
     tankType: input.tankType,
     name,
     initialWrites: writes,
+    mashRestCount: input.recipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2,
   });
   return { id: created.id, name: created.name, url: created.url };
 }
