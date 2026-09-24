@@ -306,6 +306,69 @@ function brewingSheetCreate_(data) {
       }
     }
 
+    // Resolve material tables from labels in the copied Master, not row numbers.
+    // Each brew block is bounded by its "סוג:"/"אצווה:" header. Within that
+    // block, "הכנסת לתת" identifies the first grain row and "כשות" identifies
+    // the hop table. This survives inserted/deleted Master rows.
+    const materials = data.recipeMaterials;
+    if (materials && (Array.isArray(materials.grains) || Array.isArray(materials.hops))) {
+      const sheet = ss.getSheets()[0];
+      const values = sheet.getDataRange().getDisplayValues();
+      const headers = [];
+      values.forEach(function (row, index) {
+        if (String(row[1] || "").trim() === "סוג:" && String(row[3] || "").trim() === "אצווה:") {
+          headers.push(index);
+        }
+      });
+      const expectedBlocks = config.tankType === "triple" ? 3 : config.tankType === "double" ? 2 : 1;
+      headers.slice(0, expectedBlocks).forEach(function (headerIndex, blockIndex) {
+        const nextHeader = headers[blockIndex + 1] == null ? values.length : headers[blockIndex + 1];
+        let grainRow = -1;
+        let hopHeading = -1;
+        for (let r = headerIndex; r < nextHeader; r++) {
+          const joined = (values[r] || []).join(" ").trim();
+          if (grainRow < 0 && /הכנסת\s+לתת/.test(joined)) grainRow = r;
+          if (hopHeading < 0 && (values[r] || []).some(function (cell) { return String(cell || "").trim() === "כשות"; })) hopHeading = r;
+        }
+
+        if (grainRow >= 0) {
+          // Clear the complete material area from the row immediately after the
+          // grain-table subheader through the detected process start. This also
+          // removes legacy Master values without knowing whether they lived at
+          // 106, 107 or any future row.
+          const firstGrain = grainRow;
+          for (let slot = 0; slot < 5; slot++) {
+            const grain = (materials.grains || [])[slot];
+            const row = firstGrain + slot + 1;
+            sheet.getRange(row, 1, 1, 3).clearContent();
+            if (grain) sheet.getRange(row, 1, 1, 3).setValues([[grain.quantity, grain.label, grain.supplier]]);
+          }
+        }
+
+        if (hopHeading >= 0) {
+          // Heading -> subheader -> first data row.
+          const firstHop = hopHeading + 2;
+          for (let slot = 0; slot < 5; slot++) {
+            const hop = (materials.hops || [])[slot];
+            const row = firstHop + slot + 1;
+            sheet.getRange(row, 1, 1, 3).clearContent();
+            if (hop) sheet.getRange(row, 1, 1, 3).setValues([[hop.quantity, hop.alpha, hop.label]]);
+          }
+        }
+
+        // Legacy Masters can contain numbered acid placeholders. Find the
+        // "תוספות" section semantically and clear only placeholder 3)/4).
+        for (let r = headerIndex; r < nextHeader; r++) {
+          for (let col = 0; col < Math.min(3, (values[r] || []).length); col++) {
+            if (/^[34]\)$/.test(String(values[r][col] || "").trim())) {
+              sheet.getRange(r + 1, col + 1).clearContent();
+            }
+          }
+        }
+      });
+      SpreadsheetApp.flush();
+    }
+
     // Three-rest mash recipes need two real process rows. Do this only after
     // the normal Master values have been written: inserting rows then shifts
     // hops, boil, following brew blocks and fermentation together, preserving
