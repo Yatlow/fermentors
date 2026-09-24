@@ -218,7 +218,29 @@ function brewingSheetCreate_(data) {
   if (!/^\d+$/.test(batchNumber)) throw new Error("Invalid batchNumber");
 
   const config = brewingSheetTemplateForType_(data.tankType);
-  const style = String(data.style || "").trim();
+
+  // Final duplicate guard lives on the server, immediately before copying the
+  // template. Do not rely on the UI history cache: manually-created Sheets and
+  // two clients racing each other must still be blocked.
+  const duplicateLock = LockService.getScriptLock();
+  if (!duplicateLock.tryLock(5000)) throw new Error("Brew Sheet creation is busy; retry");
+  let duplicateFound = false;
+  try {
+    const candidates = typeof scanBrewFolderCandidates === "function"
+      ? (scanBrewFolderCandidates() || [])
+      : (typeof getBrewFolderCandidatesCached === "function" ? (getBrewFolderCandidatesCached() || []) : []);
+    duplicateFound = candidates.some(function (candidate) {
+      const name = String(candidate.fileName || "");
+      const batch = String(candidate.batch || brewingSheetBatchFromName_(name) || "").replace("#", "").trim();
+      if (batch !== batchNumber) return false;
+      try {
+        return !DriveApp.getFileById(candidate.fileId).isTrashed();
+      } catch (error) {
+        return false;
+      }
+    });
+    if (duplicateFound) throw new Error("Batch " + batchNumber + " already has a Brew Sheet");
+    const style = String(data.style || "").trim();
   const tankNumber = String(data.tankNumber || "").trim();
   const name =
     String(data.name || "").trim() ||
@@ -285,6 +307,9 @@ function brewingSheetCreate_(data) {
       style: style,
       tankType: config.tankType
     };
+  } finally {
+    duplicateLock.releaseLock();
+  }
   } catch (error) {
     try {
       copy.setTrashed(true);
