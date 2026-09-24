@@ -101,105 +101,9 @@ export function buildBrewSheetInitialWrites(input: {
     );
   });
 
-  // The Masters are structural templates only. Never inherit recipe quantities
-  // from whichever beer happened to be saved in the template. Material rows
-  // must always come from the selected recipe snapshot.
-  if (input.recipe && input.ingredients) {
-    // Material tables start five rows below each block header. Derive this
-    // from the canonical layout instead of maintaining a second set of magic
-    // row numbers (the old C value was off by one: 107 instead of 106).
-    // C is asymmetric in the Master: its header is row 102 but the first
-    // *writable* grain row is 107. Row 106 contains a legacy/template grain
-    // value, so clear it explicitly and write the recipe from 107 onward.
-    // A/B keep their original starts.
-    const grainStarts =
-      input.tankType === "triple" ? [9, 59, 107] :
-      input.tankType === "double" ? [9, 59] : [9];
-    if (input.tankType === "triple") {
-      writes.push(
-        { range: "'גיליון1'!A106", value: "" },
-        { range: "'גיליון1'!B106", value: "" },
-        { range: "'גיליון1'!C106", value: "" },
-      );
-    }
-    grainStarts.forEach((startRow) => {
-      for (let slot = 0; slot < 5; slot += 1) {
-        const row = startRow + slot;
-        const grain = input.recipe!.grains[slot];
-        if (!grain) {
-          writes.push(
-            { range: `'גיליון1'!A${row}`, value: "" },
-            { range: `'גיליון1'!B${row}`, value: "" },
-            { range: `'גיליון1'!C${row}`, value: "" },
-          );
-          continue;
-        }
-        const ingredient = input.ingredients!.find((item) => item.id === grain.ingredientId);
-        const lot = ingredient ? activeLot(ingredient) : undefined;
-        const ingredientLabel = ingredient?.name || grain.ingredientId;
-        const lotSuffix = lot?.lotNumber ? ` #${lot.lotNumber}` : "";
-        writes.push(
-          { range: `'גיליון1'!A${row}`, value: grain.kgPerBrew },
-          { range: `'גיליון1'!B${row}`, value: ingredientLabel + lotSuffix },
-          { range: `'גיליון1'!C${row}`, value: lot?.supplier || "" },
-        );
-      }
-    });
-  }
-  // Acid labels are template structure, not recipe data. Do not manufacture
-  // a second/third addition here: that was the source of the stray "3" seen
-  // after row insertion. The Master owns the labels and the form writes only
-  // actual acid amounts during brewing.
-  // Old Masters still contain placeholder "3)" / "4)" acid labels. Clear only
-  // those two legacy slots during creation, before any rest-3 row insertion.
-  const acidStarts =
-    input.tankType === "triple" ? [37, 87, 135] :
-    input.tankType === "double" ? [37, 87] : [37];
-  acidStarts.forEach((row) => {
-    writes.push(
-      { range: `'גיליון1'!B${row + 2}`, value: "" },
-      { range: `'גיליון1'!C${row + 2}`, value: "" },
-      { range: `'גיליון1'!B${row + 3}`, value: "" },
-      { range: `'גיליון1'!C${row + 3}`, value: "" },
-    );
-  });
-
-  // Process geometry belongs to the Master. A three-rest recipe needs two
-  // additional physical rows; the server inserts them after the ordinary
-  // Master has been populated so all downstream cells shift together.
-
-  if (input.recipe && input.ingredients) {
-    const ingredients = input.ingredients;
-    // Hop table is twenty rows below the block header. The old hard-coded C
-    // coordinate (122) was likewise one row too low; header 102 => row 121.
-    const hopStarts =
-      input.tankType === "triple" ? [24, 74, 121] :
-      input.tankType === "double" ? [24, 74] : [24];
-    const kettleHops = input.recipe.hops.filter((hop) => hop.purpose !== "dryHop");
-    hopStarts.forEach((startRow) => {
-      for (let slot = 0; slot < 5; slot += 1) {
-        const row = startRow + slot;
-        const hop = kettleHops[slot];
-        if (!hop) {
-          writes.push(
-            { range: `'גיליון1'!A${row}`, value: "" },
-            { range: `'גיליון1'!B${row}`, value: "" },
-            { range: `'גיליון1'!C${row}`, value: "" },
-          );
-          continue;
-        }
-        const ingredient = ingredients.find((item) => item.id === hop.ingredientId);
-        const lot = ingredient ? activeLot(ingredient) : undefined;
-        const ingredientLabel = ingredient?.name || hop.ingredientId;
-        const lotSuffix = lot?.lotNumber ? ` #${lot.lotNumber}` : "";
-        writes.push(
-          { range: `'גיליון1'!A${row}`, value: 0 },
-          { range: `'גיליון1'!B${row}`, value: lot?.alpha ?? hop.aa ?? "" },
-          { range: `'גיליון1'!C${row}`, value: `${slot + 1})${ingredientLabel}${lotSuffix}` },
-        );
-      }
-    });
-  }
+  // Recipe/material placement is resolved by the server from semantic labels
+  // in the copied Master. Do not encode physical row numbers in the client.
+  // This keeps creation stable when rows are added/removed from a Master.
 
   writes.push(
     { range: `'גיליון1'!B${layout.fermentationHeaderRow}`, value: styleLabel },
@@ -243,6 +147,26 @@ export async function createSandboxBrewSheet(input: {
     tankType: input.tankType,
     name,
     initialWrites: writes,
+    recipeMaterials: input.recipe && input.ingredients ? {
+      grains: input.recipe.grains.map((grain) => {
+        const ingredient = input.ingredients!.find((item) => item.id === grain.ingredientId);
+        const lot = ingredient ? activeLot(ingredient) : undefined;
+        return {
+          quantity: grain.kgPerBrew,
+          label: (ingredient?.name || grain.ingredientId) + (lot?.lotNumber ? ` #${lot.lotNumber}` : ""),
+          supplier: lot?.supplier || "",
+        };
+      }),
+      hops: input.recipe.hops.filter((hop) => hop.purpose !== "dryHop").map((hop, index) => {
+        const ingredient = input.ingredients!.find((item) => item.id === hop.ingredientId);
+        const lot = ingredient ? activeLot(ingredient) : undefined;
+        return {
+          quantity: 0,
+          alpha: lot?.alpha ?? hop.aa ?? "",
+          label: `${index + 1})${ingredient?.name || hop.ingredientId}${lot?.lotNumber ? ` #${lot.lotNumber}` : ""}`,
+        };
+      }),
+    } : undefined,
     mashRestCount: input.recipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2,
   });
   return { id: created.id, name: created.name, url: created.url };
