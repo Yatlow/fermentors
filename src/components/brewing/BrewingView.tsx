@@ -223,6 +223,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [creationJobs, setCreationJobs] = useState<Array<{ batchNumber: string; style: string; tankNumber: string; state: string; lastError: string }>>([]);
     const [creationJobsError, setCreationJobsError] = useState("");
     const [historyLoading, setHistoryLoading] = useState(false);
+    const [printingBatch, setPrintingBatch] = useState<string | null>(null);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
 
@@ -782,6 +783,8 @@ export default function BrewingView({ brews, tab }: Props) {
     }
 
     async function printBrewCover(run: SandboxBrewRun) {
+        if (printingBatch) return;
+        setPrintingBatch(run.batchNumber);
         setMessage("מכין דף בישול להדפסה…");
         try {
             const esc = (value: unknown) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
@@ -810,7 +813,7 @@ export default function BrewingView({ brews, tab }: Props) {
 @page{size:A4 portrait;margin:7mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#111}
 .cover,.brew-page{width:196mm;height:283mm;page-break-after:always;break-after:page;overflow:hidden}
 .cover{border:2px solid #222;padding:16mm;text-align:center}.tank{font-size:24pt;font-weight:700;text-align:center}.batch{font-size:86pt;font-weight:800;margin:25mm 0 10mm}.style{font-size:34pt;font-weight:700;margin-bottom:28mm}.field{font-size:18pt;margin:15mm 0;border-bottom:2px solid #222;padding-bottom:4mm;white-space:nowrap}
-.brew-page{direction:rtl;padding:2mm}.brew-label{text-align:center;font-size:15pt;font-weight:700;margin-bottom:2mm}table{border-collapse:collapse;width:100%;height:270mm;table-layout:fixed;font-size:8pt}td{border:0;padding:1px 2px;overflow:hidden;white-space:nowrap;text-overflow:clip;height:5mm}.sheet-row td{border-bottom:0}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(-n+4),.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(n+5){border-bottom:.65px solid #555}.sheet-row.r1 td,.sheet-row.r2 td,.sheet-row.r3 td,.sheet-row.r4 td,.sheet-row.r5 td{border-bottom:0}.sheet-row.r2 td:nth-child(3),.sheet-row.r2 td:nth-child(4),.sheet-row.r2 td:nth-child(7),.sheet-row.r2 td:nth-child(8),.sheet-row.r4 td:nth-child(3),.sheet-row.r4 td:nth-child(4),.sheet-row.r4 td:nth-child(7),.sheet-row.r4 td:nth-child(8){border-bottom:1.2px solid #222}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(4){border-right:1.8px solid #222}.sheet-row.r7 td:nth-child(-n+4),.sheet-row.r24 td:nth-child(-n+4),.sheet-row.r33 td:nth-child(-n+4),.sheet-row.r39 td:nth-child(-n+4),.sheet-row.r7 td:nth-child(n+5),.sheet-row.r24 td:nth-child(n+5),.sheet-row.r33 td:nth-child(n+5),.sheet-row.r39 td:nth-child(n+5){border-bottom:1.3px solid #222;font-weight:700}.brew-page table{transform-origin:top center}
+.brew-page{direction:rtl;padding:2mm}.brew-label{text-align:center;font-size:15pt;font-weight:700;margin-bottom:2mm}table{border-collapse:collapse;width:100%;height:270mm;table-layout:fixed;font-size:8pt}td{border:0;padding:1px 2px;overflow:hidden;white-space:nowrap;text-overflow:clip;height:5mm}.sheet-row td{border-bottom:0}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(-n+4){border-bottom:.65px solid #555}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(n+5){border-bottom:.65px solid #555}.sheet-row.r1 td,.sheet-row.r2 td,.sheet-row.r3 td,.sheet-row.r4 td,.sheet-row.r5 td{border-bottom:0}.sheet-row.r2 td:nth-child(3),.sheet-row.r2 td:nth-child(4),.sheet-row.r2 td:nth-child(7),.sheet-row.r2 td:nth-child(8),.sheet-row.r4 td:nth-child(3),.sheet-row.r4 td:nth-child(4),.sheet-row.r4 td:nth-child(7),.sheet-row.r4 td:nth-child(8){border-bottom:1.2px solid #222}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(4){border-right:1.8px solid #222}.sheet-row.r7 td:nth-child(-n+4),.sheet-row.r24 td:nth-child(-n+4),.sheet-row.r33 td:nth-child(-n+4),.sheet-row.r39 td:nth-child(-n+4),.sheet-row.r7 td:nth-child(n+5),.sheet-row.r24 td:nth-child(n+5),.sheet-row.r33 td:nth-child(n+5),.sheet-row.r39 td:nth-child(n+5){border-bottom:1.3px solid #222;font-weight:700}.brew-page table{transform-origin:top center}
 .brew-page:last-child{page-break-after:auto;break-after:auto}
 </style></head><body><section class="cover"><div class="tank">מס מיכל: ${esc(run.tankNumber)}</div><div class="batch">#${esc(run.batchNumber)}</div><div class="style">${esc(run.style)} ${esc(typeLabel)}</div><div class="field">תאריך בישול: ${esc(run.brewDate || "________________")}</div><div class="field">נפח וסוכר התחלתי: ________________ / ________________</div></section>${blocks.map((block,index)=>tableHtml(block.values || [],index)).join("")}</body></html>`);
             doc.close();
@@ -822,6 +825,8 @@ export default function BrewingView({ brews, tab }: Props) {
             setMessage("");
         } catch (error) {
             setMessage(error instanceof Error ? `הכנת דף הבישול נכשלה: ${error.message}` : "הכנת דף הבישול נכשלה.");
+        } finally {
+            setPrintingBatch(null);
         }
     }
 
@@ -1139,6 +1144,13 @@ export default function BrewingView({ brews, tab }: Props) {
                     </div>
                 </div>
             )}
+            {printingBatch && (
+                <div className="brewing-modal-backdrop" aria-live="polite" aria-busy="true">
+                    <div className="brewing-history-loader">
+                        <BeerLoader size="small" message="מכין דף בישול להדפסה…" />
+                    </div>
+                </div>
+            )}
             {deleteConfirmation && (
                 <div className="brewing-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteConfirmation(null); }}>
                     <div className="brewing-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="brew-delete-title">
@@ -1241,6 +1253,13 @@ export default function BrewingView({ brews, tab }: Props) {
                                             onClick={() => void editUnstartedProductionBatch(tank)}
                                         >
                                             ערוך אצווה
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={printingBatch !== null}
+                                            onClick={() => void printBrewCover(run)}
+                                        >
+                                            {printingBatch === run.batchNumber ? "מכין הדפסה…" : "הדפס דף בישול"}
                                         </button>
                                         <button
                                             type="button"
