@@ -554,7 +554,7 @@ function executePostAction_(data) {
 
   if (data.action === "BrewSheetProcessQueuedJob") {
     const jobId = String(data.jobId || "").replace("#", "").trim();
-    if (!/^\\d+$/.test(jobId)) throw new Error("Invalid brew creation jobId");
+    if (!/^\d+$/.test(jobId)) throw new Error("Invalid brew creation jobId");
     return {
       success: true,
       action: "BrewSheetProcessQueuedJob",
