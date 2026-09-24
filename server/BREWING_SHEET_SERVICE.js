@@ -639,6 +639,16 @@ function brewingSheetRemoveEditTrigger_(data) {
 
 function brewingSheetReconcileEditTriggers_(fermentorEntries) {
   const activeSheetIds = new Set();
+  // ScriptApp.getProjectTriggers() is relatively expensive. Read it exactly
+  // once per cycle and reuse the snapshot for every ACTION-0 tank.
+  const projectTriggers = ScriptApp.getProjectTriggers();
+  const existingBySheetId = new Map();
+
+  projectTriggers.forEach(function (trigger) {
+    if (trigger.getHandlerFunction() !== BREWING_EDIT_TRIGGER_HANDLER_) return;
+    const fileId = brewingSheetTriggerSourceId_(trigger);
+    if (fileId) existingBySheetId.set(fileId, trigger);
+  });
 
   (fermentorEntries || []).forEach(function (entry) {
     const fermentor = entry && entry.data ? entry.data : entry;
@@ -648,10 +658,17 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
       const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
       if (!fileId) return;
       activeSheetIds.add(fileId);
-      brewingSheetEnsureEditTrigger_({
-        spreadsheetId: fileId,
-        tankNumber: fermentor.tankNumber || (entry && entry.id) || ""
-      });
+      brewingSheetRememberEditTank_(
+        fileId,
+        fermentor.tankNumber || (entry && entry.id) || ""
+      );
+      if (!existingBySheetId.has(fileId)) {
+        const created = ScriptApp.newTrigger(BREWING_EDIT_TRIGGER_HANDLER_)
+          .forSpreadsheet(fileId)
+          .onEdit()
+          .create();
+        existingBySheetId.set(fileId, created);
+      }
     } catch (error) {
       Logger.log(
         "Failed ensuring brew edit trigger for tank " +
@@ -662,9 +679,7 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
     }
   });
 
-  // Clean up only triggers owned by this feature. This also handles tanks that
-  // moved out of ACTION 0 while the app was closed.
-  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+  projectTriggers.forEach(function (trigger) {
     if (trigger.getHandlerFunction() !== BREWING_EDIT_TRIGGER_HANDLER_) return;
     const fileId = brewingSheetTriggerSourceId_(trigger);
     if (fileId && !activeSheetIds.has(fileId)) {
