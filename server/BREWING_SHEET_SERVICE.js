@@ -454,10 +454,12 @@ function brewingSheetPrintPdf_(data) {
       // Start at the per-brew header (row 4/54/102 in the Master), not row 1.
       // This deliberately excludes the two global title rows from printing.
       const firstRow = brewHeaderRows[index];
-      const lastRow =
-        index + 1 < brewHeaderRows.length
-          ? brewHeaderRows[index + 1] - 1
-          : fermentationHeaderRow - 1;
+      // Print only the actual brew block. The rows immediately before the
+      // next header include the packaging/volume box from the following
+      // section, which must never leak into a brew page.
+      const masterBlockRows = 50;
+      const blockRows = masterBlockRows + insertedRowsPerBlock;
+      const lastRow = Math.min(firstRow + blockRows - 1, fermentationHeaderRow - 1);
       brew.setRightToLeft(true);
       brew.setHiddenGridlines(true);
 
@@ -471,8 +473,63 @@ function brewingSheetPrintPdf_(data) {
         brew.hideColumns(10, brew.getMaxColumns() - 9);
       }
 
-      brew.getRange(firstRow, 1, lastRow - firstRow + 1, Math.min(9, brew.getMaxColumns()))
-        .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
+      const printColumns = Math.min(9, brew.getMaxColumns());
+      const printRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, printColumns);
+      printRange.setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
+
+      // Print-only temperature suffix. Keep the production Sheet untouched and
+      // decorate only labels that are process-temperature rows. This also
+      // catches the dynamically inserted rest 3 / heat 3 rows.
+      const display = printRange.getDisplayValues();
+      display.forEach(function (row, rowOffset) {
+        const rowText = row.join(" ").trim();
+        const isTemperatureProcessRow =
+          /(השריה|חימום)\s*[1-3]|העברה\s*ל?\s*L\.T\.?|מנוחה\s*L\.T\.?|שטיפה\s*[1-7]/i.test(rowText);
+        if (!isTemperatureProcessRow) return;
+
+        // The Master places the temperature unit in the right-hand process
+        // area. Find an existing degree/unit cell first; otherwise use the
+        // rightmost blank cell in that process half.
+        let targetCol = -1;
+        for (let col = 4; col < row.length; col++) {
+          if (/°?\s*C?$/i.test(String(row[col] || "").trim()) && String(row[col] || "").indexOf("°") !== -1) {
+            targetCol = col;
+            break;
+          }
+        }
+        if (targetCol < 0) {
+          for (let col = row.length - 1; col >= 4; col--) {
+            if (!String(row[col] || "").trim()) {
+              targetCol = col;
+              break;
+            }
+          }
+        }
+        if (targetCol >= 0) {
+          brew.getRange(firstRow + rowOffset, targetCol + 1).setValue("°C");
+        }
+      });
+
+      // Shrink oversized print text instead of widening columns or increasing
+      // row heights. This preserves the one-brew-per-A4 layout.
+      printRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+      const richValues = printRange.getDisplayValues();
+      richValues.forEach(function (row, r) {
+        row.forEach(function (value, col) {
+          const text = String(value || "");
+          if (!text) return;
+          const cell = brew.getRange(firstRow + r, col + 1);
+          const width = brew.getColumnWidth(col + 1);
+          const currentSize = Number(cell.getFontSize()) || 10;
+          // Approximate rendered width conservatively for Rubik/Hebrew/Latin.
+          // Only shrink; never alter the source Sheet or cell dimensions.
+          const estimatedPx = text.length * currentSize * 0.62;
+          if (estimatedPx > width - 4) {
+            const fitted = Math.max(6, Math.floor(currentSize * (width - 4) / estimatedPx));
+            if (fitted < currentSize) cell.setFontSize(fitted);
+          }
+        });
+      });
     });
 
     SpreadsheetApp.flush();
