@@ -21,6 +21,10 @@ export async function enqueueBrewSheetCreation(input: {
   tankType: "single" | "double" | "triple";
   name: string;
   initialWrites: BrewingSheetWrite[];
+  recipeMaterials?: {
+    grains?: Array<{ quantity: number; label: string; supplier: string }>;
+    hops?: Array<{ quantity: number; alpha: string | number; label: string }>;
+  };
   mashRestCount?: number;
 }) {
   const batchNumber = String(input.batchNumber || "").replace("#", "").trim();
@@ -33,6 +37,7 @@ export async function enqueueBrewSheetCreation(input: {
       tankType: input.tankType,
       name: input.name,
       initialWritesJson: JSON.stringify(input.initialWrites),
+      recipeMaterialsJson: JSON.stringify(input.recipeMaterials || {}),
       mashRestCount: Number(input.mashRestCount || 2),
       state: "queued",
       attempts: 0,
