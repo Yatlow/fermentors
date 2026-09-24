@@ -698,6 +698,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     tankType,
                     name: `${draft.style}${typeSuffix} ${draft.batchNumber}#`,
                     initialWrites,
+                    mashRestCount: recipe.mash.steps.some((step) => step.id === "rest3") ? 3 : 2,
                 });
                 
                 setMessage(`✓ אצווה ${draft.batchNumber} נכנסה להכנה. אפשר להמשיך לעבוד — ה-Sheet ייווצר ברקע וישובץ אוטומטית כשהוא מוכן.`);
