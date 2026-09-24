@@ -320,8 +320,14 @@ function brewingSheetCreate_(data) {
         Object.keys(insertedProcessRows).forEach(function (rowText) {
           const row = Number(rowText);
           if (!Number.isFinite(row) || row < 2) return;
-          // Process writing area is A:D. copyFormatToRange is formatting-only.
-          sheet.getRange(row - 1, 1, 1, 4).copyFormatToRange(sheet, 1, 4, row, row);
+          // Do not copy an adjacent row: merged cells in the Master can make
+          // that copy lose the actual writing line. Restore only the horizontal
+          // writing border across A:D and leave values/merges/other formatting
+          // exactly as the Master defines them.
+          sheet.getRange(row, 1, 1, 4).setBorder(
+            null, null, true, null, null, null,
+            "#000000", SpreadsheetApp.BorderStyle.SOLID
+          );
         });
       }
     }
