@@ -108,7 +108,9 @@ export function buildBrewSheetInitialWrites(input: {
     // Material tables start five rows below each block header. Derive this
     // from the canonical layout instead of maintaining a second set of magic
     // row numbers (the old C value was off by one: 107 instead of 106).
-    const grainStarts = layout.blockHeaderRows.map((headerRow) => headerRow + 5);
+    const grainStarts =
+      input.tankType === "triple" ? [9, 59, 106] :
+      input.tankType === "double" ? [9, 59] : [9];
     grainStarts.forEach((startRow) => {
       for (let slot = 0; slot < 5; slot += 1) {
         const row = startRow + slot;
@@ -137,6 +139,19 @@ export function buildBrewSheetInitialWrites(input: {
   // a second/third addition here: that was the source of the stray "3" seen
   // after row insertion. The Master owns the labels and the form writes only
   // actual acid amounts during brewing.
+  // Old Masters still contain placeholder "3)" / "4)" acid labels. Clear only
+  // those two legacy slots during creation, before any rest-3 row insertion.
+  const acidStarts =
+    input.tankType === "triple" ? [37, 87, 135] :
+    input.tankType === "double" ? [37, 87] : [37];
+  acidStarts.forEach((row) => {
+    writes.push(
+      { range: `'גיליון1'!B${row + 2}`, value: "" },
+      { range: `'גיליון1'!C${row + 2}`, value: "" },
+      { range: `'גיליון1'!B${row + 3}`, value: "" },
+      { range: `'גיליון1'!C${row + 3}`, value: "" },
+    );
+  });
 
   // Process geometry belongs to the Master. A three-rest recipe needs two
   // additional physical rows; the server inserts them after the ordinary
@@ -146,7 +161,9 @@ export function buildBrewSheetInitialWrites(input: {
     const ingredients = input.ingredients;
     // Hop table is twenty rows below the block header. The old hard-coded C
     // coordinate (122) was likewise one row too low; header 102 => row 121.
-    const hopStarts = layout.blockHeaderRows.map((headerRow) => headerRow + 19);
+    const hopStarts =
+      input.tankType === "triple" ? [24, 74, 121] :
+      input.tankType === "double" ? [24, 74] : [24];
     const kettleHops = input.recipe.hops.filter((hop) => hop.purpose !== "dryHop");
     hopStarts.forEach((startRow) => {
       for (let slot = 0; slot < 5; slot += 1) {
