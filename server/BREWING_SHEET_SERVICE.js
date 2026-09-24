@@ -543,6 +543,11 @@ function brewingSheetPrintPdf_(data) {
       const printColumns = Math.min(9, brew.getMaxColumns());
       const printRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, printColumns);
       printRange.setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
+      // The raw-material panel is the A:C side of every brew form. Keep the
+      // sheet/page RTL, but render this panel LTR so numbered ingredients,
+      // lots, alpha values and quantities keep their natural order.
+      brew.getRange(firstRow, 1, lastRow - firstRow + 1, Math.min(3, printColumns))
+        .setTextDirection(SpreadsheetApp.TextDirection.LEFT_TO_RIGHT);
 
       // Print-only units. Batch operations are critical here: the previous
       // cell-by-cell getRange/setValue/getFontSize loop could take minutes.
@@ -562,7 +567,7 @@ function brewingSheetPrintPdf_(data) {
         return -1;
       }
       display.forEach(function (row) {
-        const processCol = findLabelColumn(row, /^(?:השריה|חימום)\s*[1-3]$|^העברה\s*ל?\s*L\.T\.?$|^מנוחה\s*L\.T\.?$|^שטיפה\s*[1-7]$/i);
+        const processCol = findLabelColumn(row, /^(?:השריה|חימום)\s*[1-3]$|^הכנסת\s*לתת$|^העברה\s*ל?\s*L\.T\.?$|^מנוחה\s*L\.T\.?$|^שטיפה\s*[1-7]$/i);
         if (processCol >= 0) {
           // Legacy form: temperature unit is three logical cells after the
           // process label. Guard bounds so future narrower Masters stay safe.
@@ -579,7 +584,9 @@ function brewingSheetPrintPdf_(data) {
         const volumeCol = findLabelColumn(row, /^(?:סיר\s*בישול|סוף\s*רתיחה|תחילת\s*תסיסה)$/i);
         if (volumeCol >= 0) {
           const platoUnitCol = volumeCol + 1;
-          const literUnitCol = volumeCol + 3;
+          // Keep "ליטר" one cell farther from the process label. In the RTL
+          // print layout +3 visually collided with סוף רתיחה/תחילת תסיסה.
+          const literUnitCol = volumeCol + 4;
           if (platoUnitCol < row.length) row[platoUnitCol] = "°P";
           if (literUnitCol < row.length) row[literUnitCol] = "ליטר";
         }
