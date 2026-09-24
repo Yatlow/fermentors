@@ -82,7 +82,7 @@ function brewCreatePublishPending_(job, created) {
 
 function processPendingBrewSheetCreationJobs_() {
   const documents = brewCreatePendingJobs_();
-  const stats = { found: documents.length, ready: 0, failed: 0 };
+  const stats = { found: documents.length, ready: 0, failed: 0 };\n  const candidates = documents.length ? (getBrewFolderCandidatesCached() || []).slice() : [];
 
   documents.forEach(function (document) {
     const jobId = sheetSyncDocumentId_(document);
@@ -108,7 +108,7 @@ function processPendingBrewSheetCreationJobs_() {
       // Idempotency across worker retries: if a previous attempt created the
       // Drive file but died before publishing Firestore state, adopt that file
       // instead of creating a duplicate batch Sheet.
-      const existingCandidate = (getBrewFolderCandidatesCached() || []).find(function (candidate) {
+      const existingCandidate = candidates.find(function (candidate) {
         return String(candidate.batch || brewingSheetBatchFromName_(candidate.fileName)) === job.batchNumber;
       });
       const created = existingCandidate
@@ -125,7 +125,7 @@ function processPendingBrewSheetCreationJobs_() {
             name: job.name,
             initialWrites: initialWrites
           });
-      brewCreatePublishPending_(job, created);
+      if (!existingCandidate && created && created.id) {\n        candidates.push({ batch: Number(job.batchNumber), fileId: created.id, fileName: created.name || job.name });\n      }\n      brewCreatePublishPending_(job, created);
       brewCreatePatchJob_(jobId, {
         state: "ready",
         fileId: created.id,
