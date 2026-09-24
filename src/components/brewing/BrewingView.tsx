@@ -213,7 +213,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [pendingProductionRows, setPendingProductionRows] = useState<BrewingDriveHistoryRow[]>([]);
-    const [queuedCreationBatches, setQueuedCreationBatches] = useState<string[]>([]);
+    const [creationJobs, setCreationJobs] = useState<Array<{ batchNumber: string; style: string; tankNumber: string; state: string; lastError: string }>>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
@@ -231,12 +231,17 @@ export default function BrewingView({ brews, tab }: Props) {
 
     useEffect(() => {
         return onSnapshot(collection(db, "brewSheetCreationJobs"), (snapshot) => {
-            const queued = snapshot.docs
-                .map((item) => item.data() as { batchNumber?: string; state?: string })
-                .filter((job) => job.state === "queued" || job.state === "creating")
-                .map((job) => String(job.batchNumber || "").replace("#", "").trim())
-                .filter(Boolean);
-            setQueuedCreationBatches(queued);
+            const jobs = snapshot.docs
+                .map((item) => item.data() as { batchNumber?: string; style?: string; tankNumber?: string; state?: string; lastError?: string })
+                .map((job) => ({
+                    batchNumber: String(job.batchNumber || "").replace("#", "").trim(),
+                    style: String(job.style || "").trim(),
+                    tankNumber: String(job.tankNumber || "").trim(),
+                    state: String(job.state || "").trim(),
+                    lastError: String(job.lastError || "").trim(),
+                }))
+                .filter((job) => job.batchNumber && (job.state === "queued" || job.state === "creating" || job.state === "failed"));
+            setCreationJobs(jobs);
         });
     }, []);
 
@@ -356,13 +361,13 @@ export default function BrewingView({ brews, tab }: Props) {
             [
                 ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
                 ...pendingProductionRows.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
-                ...queuedCreationBatches,
+                ...creationJobs.map((job) => job.batchNumber),
             ].filter(Boolean),
         );
         return planningHints.filter(
             (hint) => !created.has(String(hint.batchNumber).replace("#", "").trim()),
         );
-    }, [planningHints, brews, pendingProductionRows, queuedCreationBatches]);
+    }, [planningHints, brews, pendingProductionRows, creationJobs]);
 
     const pendingProductionRuns = useMemo(
         () => pendingProductionRows
@@ -649,7 +654,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     name: `${draft.style}${typeSuffix} ${draft.batchNumber}#`,
                     initialWrites,
                 });
-                setQueuedCreationBatches((current) => [...new Set([...current, String(draft.batchNumber)])]);
+                
                 setMessage(`✓ אצווה ${draft.batchNumber} נכנסה להכנה. אפשר להמשיך לעבוד — ה-Sheet ייווצר ברקע וישובץ אוטומטית כשהוא מוכן.`);
                 setSuggestedBatch(String(Number(draft.batchNumber) + 1));
                 setShowCreate(false);
@@ -1375,6 +1380,37 @@ export default function BrewingView({ brews, tab }: Props) {
                                 })}
                             </div>
                         </>
+                    )}
+
+                    {creationJobs.length > 0 && (
+                        <div className="brewing-history-section brewing-creation-section">
+                            <div className="brewing-history-heading">
+                                <div>
+                                    <h3 className="brewing-subheading">אצוות ממתינות ליצירת Sheet</h3>
+                                    <small>היצירה מתבצעת ברקע · בסיום האצווה תעבור אוטומטית לרשימת הממתינות</small>
+                                </div>
+                                <span className="brewing-count">{creationJobs.length}</span>
+                            </div>
+                            <div className="brewing-tank-grid">
+                                {creationJobs.map((job) => {
+                                    const style = beerStyleClass(job.style);
+                                    const failed = job.state === "failed";
+                                    return (
+                                        <article className={`brewing-tank-card brewing-creation-card${failed ? " brewing-creation-failed" : ""}`} key={`creation-${job.batchNumber}`}>
+                                            <div className="brewing-tank-card-top">
+                                                <strong>אצווה {job.batchNumber}</strong>
+                                                <span className={`brewing-style-tag ${style.className}`}>{style.displayLabel}</span>
+                                            </div>
+                                            <div className="brewing-tank-meta">
+                                                <span>{job.tankNumber ? `מיועד למיכל ${job.tankNumber}` : "מיכל לא ידוע"}</span>
+                                                <span>{failed ? "יצירת ה-Sheet נכשלה" : job.state === "creating" ? "יוצר Sheet…" : "ממתינה ליצירת Sheet…"}</span>
+                                            </div>
+                                            {failed && job.lastError && <div className="brewing-creation-error">{job.lastError}</div>}
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     )}
 
                     {pendingProductionRuns.length > 0 && (
