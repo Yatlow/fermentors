@@ -4,6 +4,7 @@ import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTime
 import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
+    serverPrintBrewSheetPdf,
     serverRenameBrewSheet,
     serverTrashBrewSheet,
     type BrewingDriveHistoryRow,
@@ -792,80 +793,35 @@ export default function BrewingView({ brews, tab }: Props) {
             const matchingRecipe =
                 run.recipeSnapshot ||
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
-            const hasThirdRest = Boolean(
-                matchingRecipe?.mash.steps.some((step) => step.id === "rest3"),
-            );
-            const blockCount =
-                run.tankType === "triple" ? 3 :
-                run.tankType === "double" ? 2 :
-                1;
-            const lastBrewRow = blockCount * 50 + (hasThirdRest ? blockCount * 2 : 0);
-            const params = new URLSearchParams({
-                format: "pdf",
-                size: "A4",
-                portrait: "true",
-                fitw: "true",
-                sheetnames: "false",
-                printtitle: "false",
-                pagenumbers: "false",
-                gridlines: "false",
-                fzr: "false",
-                gid: "0",
-                range: `A1:I${lastBrewRow}`,
-                top_margin: "0.20",
-                bottom_margin: "0.20",
-                left_margin: "0.20",
-                right_margin: "0.20",
+            const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
+
+            // The server creates one PDF: page 1 is the cover and the following
+            // pages are a copy of the real Google Sheet brew area. This avoids
+            // browser popup races and guarantees one print job.
+            const pdf = await serverPrintBrewSheetPdf({
+                spreadsheetId,
+                batchNumber: run.batchNumber,
+                tankNumber: run.tankNumber,
+                style: run.style,
+                tankType: run.tankType,
+                brewDate: run.brewDate,
+                mashRestCount,
             });
-            const sheetPrintUrl =
-                `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?${params.toString()}`;
 
-            // Keep the cover as page 1, then open the real Sheet PDF for the
-            // brew pages. We deliberately do not recreate the brew grid in
-            // HTML: Google Sheets remains the print source of truth.
-            const typeLabel =
-                run.tankType === "single" ? "בודד" :
-                run.tankType === "double" ? "כפול" :
-                "משולש";
-            const esc = (value: unknown) =>
-                String(value ?? "").replace(/[&<>"]/g, (ch) =>
-                    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch),
-                );
-            const cover = window.open("", "_blank");
-            if (!cover) throw new Error("הדפדפן חסם את חלון ההדפסה.");
-
-            cover.document.open();
-            cover.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8">
-<title>דף בישול #${esc(run.batchNumber)}</title>
-<style>
-@page{size:A4 portrait;margin:12mm}
-*{box-sizing:border-box}
-html,body{margin:0;font-family:Arial,sans-serif;color:#111}
-.cover{height:273mm;border:2px solid #222;padding:16mm;text-align:center}
-.tank{font-size:24pt;font-weight:700}
-.batch{font-size:86pt;font-weight:800;margin:25mm 0 10mm}
-.style{font-size:34pt;font-weight:700;margin-bottom:28mm}
-.field{font-size:18pt;margin:15mm 0;border-bottom:2px solid #222;padding-bottom:4mm;white-space:nowrap}
-.actions{position:fixed;left:16px;bottom:16px;display:flex;gap:8px}
-button,a{font:16px Arial;padding:10px 16px;border:1px solid #aaa;border-radius:8px;background:white;color:#111;text-decoration:none}
-@media print{.actions{display:none}}
-</style></head><body>
-<section class="cover">
-<div class="tank">מס מיכל: ${esc(run.tankNumber)}</div>
-<div class="batch">#${esc(run.batchNumber)}</div>
-<div class="style">${esc(run.style)} ${esc(typeLabel)}</div>
-<div class="field">תאריך בישול: ${esc(run.brewDate || "________________")}</div>
-<div class="field">נפח וסוכר התחלתי: ________________ / ________________</div>
-</section>
-<div class="actions">
-<button onclick="window.print()">הדפס COVER</button>
-<a href="${esc(sheetPrintUrl)}" target="_blank" rel="noopener">פתח דפי בישול A/B/C</a>
-</div>
-</body></html>`);
-            cover.document.close();
-            cover.focus();
-            window.setTimeout(() => cover.print(), 250);
-            window.setTimeout(() => window.open(sheetPrintUrl, "_blank", "noopener,noreferrer"), 500);
+            const binary = atob(pdf.base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                bytes[index] = binary.charCodeAt(index);
+            }
+            const blob = new Blob([bytes], { type: "application/pdf" });
+            const url = URL.createObjectURL(blob);
+            const printWindow = window.open(url, "_blank", "noopener,noreferrer");
+            if (!printWindow) {
+                URL.revokeObjectURL(url);
+                throw new Error("הדפדפן חסם את חלון ההדפסה.");
+            }
+            // Keep the object URL alive while the browser PDF viewer loads it.
+            window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
             setMessage("");
         } catch (error) {
             setMessage(
