@@ -213,7 +213,8 @@ export default function BrewingView({ brews, tab }: Props) {
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [pendingProductionRows, setPendingProductionRows] = useState<BrewingDriveHistoryRow[]>([]);
-    const [creationJobs, setCreationJobs] = useState<Array<{ batchNumber: string; style: string; tankNumber: string; state: string; lastError: string }>>([]);\n    const [creationJobsError, setCreationJobsError] = useState("");
+    const [creationJobs, setCreationJobs] = useState<Array<{ batchNumber: string; style: string; tankNumber: string; state: string; lastError: string }>>([]);
+    const [creationJobsError, setCreationJobsError] = useState("");
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
@@ -995,7 +996,8 @@ export default function BrewingView({ brews, tab }: Props) {
                 });
             }
             setSelectedRun(null);
-            const restoredBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();\n            setMessage(restoredBatch ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${restoredBatch} וה-state הקודם שלה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
+            const restoredBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();
+            setMessage(restoredBatch ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${restoredBatch} וה-state הקודם שלה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
         } catch (error) {
             setMessage(
                 error instanceof Error
