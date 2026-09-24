@@ -341,6 +341,7 @@ function processAction5(
   let nextBrew = findNextPendingBrewForTank_(
     tankNumber,
     currentBatch,
+    fermentor.sheetUrl,
     context.pendingBrews
   );
 
@@ -443,15 +444,31 @@ function getPendingBrewsForAction5_() {
   });
 }
 
-function findNextPendingBrewForTank_(tankNumber, currentBatch, pendingBrews) {
+function findNextPendingBrewForTank_(tankNumber, currentBatch, currentSheetUrl, pendingBrews) {
   const targetTank = normalizeTankNumber(tankNumber);
+  const currentSheetId = typeof brewingSheetExtractId_ === "function"
+    ? brewingSheetExtractId_(currentSheetUrl || "")
+    : String(currentSheetUrl || "").trim();
   return (pendingBrews || [])
     .filter(function (brew) {
       const batch = parseBatchNumber(brew.batchNumber);
-      return batch !== null &&
-        batch > currentBatch &&
+      const pendingSheetUrl = String(brew.sheetUrl || "").trim();
+      const pendingSheetId = typeof brewingSheetExtractId_ === "function"
+        ? brewingSheetExtractId_(pendingSheetUrl)
+        : pendingSheetUrl;
+      // Normally the next batch must be newer. Recovery exception: if a failed
+      // assignment already copied the pending batch number onto an ACTION-5
+      // tank but the tank still points at a different Sheet, allow that exact
+      // batch to finish the atomic 5 -> 0 transition. Never reassign the same
+      // completed Sheet after fermentation.
+      const isNewer = batch !== null && batch > currentBatch;
+      const isInterruptedSameBatch = batch !== null &&
+        batch === currentBatch &&
+        !!pendingSheetId &&
+        pendingSheetId !== currentSheetId;
+      return (isNewer || isInterruptedSameBatch) &&
         tankNumbersEqual(brew.tankNumber, targetTank) &&
-        String(brew.sheetUrl || "").trim();
+        pendingSheetUrl;
     })
     .sort(function (a, b) {
       return parseBatchNumber(a.batchNumber) - parseBatchNumber(b.batchNumber);
