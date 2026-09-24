@@ -284,13 +284,25 @@ function brewingSheetCreate_(data) {
     const writesStartedAt = Date.now();
     let writeCount = 0;
     if (data.initialWrites && Array.isArray(data.initialWrites)) {
+      const batchData = [];
       data.initialWrites.forEach(function (item) {
         const rangeText = String(item.range || "").trim();
         if (!rangeText) return;
-        ss.getRange(rangeText).setValue(brewingSheetCellValue_(item.value));
+        batchData.push({
+          range: rangeText,
+          majorDimension: "ROWS",
+          values: [[brewingSheetCellValue_(item.value)]]
+        });
         writeCount++;
       });
-      SpreadsheetApp.flush();
+      if (batchData.length) {
+        // One Sheets API request instead of dozens of sequential setValue calls.
+        // This is especially important when a second brew is created immediately.
+        Sheets.Spreadsheets.Values.batchUpdate(
+          { valueInputOption: "RAW", data: batchData },
+          fileId
+        );
+      }
     }
     const writesMs = Date.now() - writesStartedAt;
 
