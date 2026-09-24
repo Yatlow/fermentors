@@ -1192,7 +1192,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     recipes={recipes}
                     suggestedBatch={suggestedBatch}
                     sandboxRuns={sandboxRuns}
-                    createdBatchNumbers={[...new Set([...brews.map((tank) => String(tank.batchNumber || "")), ...pendingProductionRows.map((row) => String(row.batchNumber || "")), ...queuedCreationBatches].filter(Boolean))]}
+                    createdBatchNumbers={[...new Set([...brews.map((tank) => String(tank.batchNumber || "")), ...pendingProductionRows.map((row) => String(row.batchNumber || "")), ...creationJobs.map((job) => String(job.batchNumber || ""))].filter(Boolean))]}
                     demoTank={demoTank}
                     busyTankId={busyTankId}
                     planningHints={planningHints}
