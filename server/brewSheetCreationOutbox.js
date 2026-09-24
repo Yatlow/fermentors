@@ -121,6 +121,7 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
       tankType: String(brewCreateJobField_(document, "tankType") || ""),
       name: String(brewCreateJobField_(document, "name") || ""),
       initialWritesJson: String(brewCreateJobField_(document, "initialWritesJson") || "[]"),
+      mashRestCount: Number(brewCreateJobField_(document, "mashRestCount") || 2),
       attempts: Number(brewCreateJobField_(document, "attempts") || 0),
       fileId: String(brewCreateJobField_(document, "fileId") || ""),
       fileName: String(brewCreateJobField_(document, "fileName") || ""),
@@ -155,7 +156,8 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
           tankNumber: job.tankNumber,
           tankType: job.tankType,
           name: job.name,
-          initialWrites: initialWrites
+          initialWrites: initialWrites,
+          mashRestCount: job.mashRestCount
         });
 
         // Persist identity before publishing pendingBrews. Any later retry can
