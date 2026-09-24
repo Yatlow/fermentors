@@ -356,8 +356,33 @@ function brewingSheetCreate_(data) {
           }
         }
 
-        // Legacy Masters can contain numbered acid placeholders. Find the
-        // "תוספות" section semantically and clear only placeholder 3)/4).
+        // Normalize the two phosphoric-acid rows in every brew block. Some
+        // Master variants contain only "1)"/"2)" placeholders while others
+        // already contain H3PO4. Resolve the additions section semantically so
+        // single/double/triple and inserted mash rows all behave identically.
+        let additionsHeading = -1;
+        for (let r = headerIndex; r < nextHeader; r++) {
+          if ((values[r] || []).some(function (cell) { return String(cell || "").trim() === "תוספות"; })) {
+            additionsHeading = r;
+            break;
+          }
+        }
+        if (additionsHeading >= 0) {
+          let acidSlot = 0;
+          for (let r = additionsHeading + 1; r < nextHeader && acidSlot < 2; r++) {
+            const row = values[r] || [];
+            const placeholderCol = row.findIndex(function (cell) {
+              return /^[12]\)(?:H3PO4)?$/i.test(String(cell || "").replace(/\s/g, ""));
+            });
+            if (placeholderCol < 0) continue;
+            sheet.getRange(r + 1, Math.max(1, placeholderCol), 1, 2)
+              .setValues([["85%", (acidSlot + 1) + ")H3PO4"]]);
+            acidSlot++;
+          }
+        }
+
+        // Legacy Masters can contain numbered acid placeholders 3)/4). Clear
+        // those without relying on fixed row coordinates.
         for (let r = headerIndex; r < nextHeader; r++) {
           for (let col = 0; col < Math.min(3, (values[r] || []).length); col++) {
             if (/^[34]\)$/.test(String(values[r][col] || "").trim())) {
