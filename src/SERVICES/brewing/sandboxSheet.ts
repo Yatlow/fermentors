@@ -141,12 +141,10 @@ export function buildBrewSheetInitialWrites(input: {
       const shift = blockStart - 9;
       const rest3 = 19 + shift;
       const heat3 = 21 + shift;
-      if (!hasRest3) {
-        writes.push(
-          { range: `'גיליון1'!D${rest3}`, value: "" },
-          { range: `'גיליון1'!D${heat3}`, value: "" },
-        );
-      }
+      writes.push(
+        { range: `'גיליון1'!D${rest3}`, value: hasRest3 ? "השריה 3" : "" },
+        { range: `'גיליון1'!D${heat3}`, value: hasRest3 ? "חימום 3" : "" },
+      );
     });
   }
 
