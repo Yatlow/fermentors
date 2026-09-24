@@ -35,7 +35,7 @@ export async function serverCreateBrewSheet(input: {
   initialWrites?: BrewingSheetWrite[];
   recipeMaterials?: {
     grains?: Array<{ quantity: number; label: string; supplier: string }>;
-    hops?: Array<{ quantity: number; alpha: string | number; label: string }>;
+    hops?: Array<{ quantity: number | ""; alpha: string | number; label: string }>;
   };
   mashRestCount?: number;
 }) {
