@@ -213,6 +213,7 @@ function brewingSheetTemplateForType_(tankType) {
 }
 
 function brewingSheetCreate_(data) {
+  const startedAt = Date.now();
   const batchNumber = String(data.batchNumber || "").replace("#", "").trim();
   if (!/^\d+$/.test(batchNumber)) throw new Error("Invalid batchNumber");
 
@@ -223,18 +224,30 @@ function brewingSheetCreate_(data) {
     String(data.name || "").trim() ||
     [style || "בישול", batchNumber + "#"].join(" ");
 
+  const resolveStartedAt = Date.now();
   const template = DriveApp.getFileById(config.templateId);
   const folder = DriveApp.getFolderById(config.folderId);
+  const resolveMs = Date.now() - resolveStartedAt;
+
+  const copyStartedAt = Date.now();
   const copy = template.makeCopy(name, folder);
+  const copyMs = Date.now() - copyStartedAt;
   const fileId = copy.getId();
 
   brewingSheetRememberCreated_(fileId);
   brewingSheetInvalidateHistoryCache_();
 
   try {
+    const openStartedAt = Date.now();
     const ss = SpreadsheetApp.openById(fileId);
-    ss.setSpreadsheetTimeZone("Asia/Jerusalem");
+    const openMs = Date.now() - openStartedAt;
 
+    const timezoneStartedAt = Date.now();
+    ss.setSpreadsheetTimeZone("Asia/Jerusalem");
+    const timezoneMs = Date.now() - timezoneStartedAt;
+
+    const writesStartedAt = Date.now();
+    let writeCount = 0;
     // Creation deliberately does NOT set the brew date.
     // The date is entered by the brewer in the first step when brewing begins.
     if (data.initialWrites && Array.isArray(data.initialWrites)) {
@@ -242,8 +255,25 @@ function brewingSheetCreate_(data) {
         const rangeText = String(item.range || "").trim();
         if (!rangeText) return;
         ss.getRange(rangeText).setValue(brewingSheetCellValue_(item.value));
+        writeCount++;
       });
       SpreadsheetApp.flush();
+    }
+    const writesMs = Date.now() - writesStartedAt;
+
+    const timing = {
+      batchNumber: batchNumber,
+      resolveMs: resolveMs,
+      copyMs: copyMs,
+      openMs: openMs,
+      timezoneMs: timezoneMs,
+      writes: writeCount,
+      writesMs: writesMs,
+      totalMs: Date.now() - startedAt
+    };
+    console.log("BrewSheetCreate timing " + JSON.stringify(timing));
+    if (typeof logToSheet === "function") {
+      logToSheet("BrewSheetCreate timing " + JSON.stringify(timing));
     }
 
     return {
