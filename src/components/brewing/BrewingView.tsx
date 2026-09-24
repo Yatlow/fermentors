@@ -378,13 +378,14 @@ export default function BrewingView({ brews, tab }: Props) {
                 ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
                 ...pendingProductionRows.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
                 ...creationJobs.map((job) => job.batchNumber),
+                ...productionHistory.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
             ].filter(Boolean),
         );
         return planningHints.filter((hint) => {
             const batch = String(hint.batchNumber).replace("#", "").trim();
             return !created.has(batch);
         });
-    }, [planningHints, brews, pendingProductionRows, creationJobs]);
+    }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory]);
 
     const pendingProductionRuns = useMemo(() => {
         const plannedByBatch = new Map(
@@ -785,10 +786,14 @@ export default function BrewingView({ brews, tab }: Props) {
         try {
             const esc = (value: unknown) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
             const typeLabel = run.tankType === "single" ? "בודד" : run.tankType === "double" ? "כפול" : "משולש";
-            const blockRanges = run.tankType === "triple" ? ["A1:J50", "A51:J100", "A101:J150"] : run.tankType === "double" ? ["A1:J50", "A51:J100"] : ["A1:J50"];
+            const blockCount = run.tankType === "triple" ? 3 : run.tankType === "double" ? 2 : 1;
             const spreadsheetId = run.sheetId || run.sheetUrl;
             if (!spreadsheetId) throw new Error("לא נמצא Sheet לאצווה.");
-            const blocks = await Promise.all(blockRanges.map((range) => serverReadBrewSheetRange(spreadsheetId, `'גיליון1'!${range}`)));
+            const allRows = await serverReadBrewSheetRange(spreadsheetId, `'גיליון1'!A1:J${blockCount * 50}`);
+            const sourceRows = allRows.values || [];
+            const blocks = Array.from({ length: blockCount }, (_, index) => ({
+                values: sourceRows.slice(index * 50, (index + 1) * 50),
+            }));
             const tableHtml = (values: string[][], index: number) => {
                 const rows = values.map((row, rowIndex) => `<tr class="sheet-row r${rowIndex + 1}">${Array.from({ length: 10 }, (_, col) => `<td>${esc(row[col] ?? "")}</td>`).join("")}</tr>`).join("");
                 return `<section class="brew-page"><div class="brew-label">בישול ${["A","B","C"][index]}</div><table>${rows}</table></section>`;
@@ -805,7 +810,7 @@ export default function BrewingView({ brews, tab }: Props) {
 @page{size:A4 portrait;margin:7mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#111}
 .cover,.brew-page{width:196mm;height:283mm;page-break-after:always;break-after:page;overflow:hidden}
 .cover{border:2px solid #222;padding:16mm;text-align:center}.tank{font-size:24pt;font-weight:700;text-align:center}.batch{font-size:86pt;font-weight:800;margin:25mm 0 10mm}.style{font-size:34pt;font-weight:700;margin-bottom:28mm}.field{font-size:18pt;margin:15mm 0;border-bottom:2px solid #222;padding-bottom:4mm;white-space:nowrap}
-.brew-page{direction:rtl;padding:2mm}.brew-label{text-align:center;font-size:15pt;font-weight:700;margin-bottom:2mm}table{border-collapse:collapse;width:100%;height:270mm;table-layout:fixed;font-size:8pt}td{border:0;padding:1px 2px;overflow:hidden;white-space:nowrap;text-overflow:clip;height:5mm}.sheet-row td{border-bottom:.65px solid #555}.sheet-row.r1 td,.sheet-row.r2 td,.sheet-row.r3 td,.sheet-row.r4 td,.sheet-row.r5 td{border-bottom:0}.sheet-row.r2 td,.sheet-row.r4 td{border-bottom:1.2px solid #222}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(4){border-right:1.8px solid #222}.sheet-row.r7 td,.sheet-row.r24 td,.sheet-row.r33 td,.sheet-row.r39 td{border-bottom:1.3px solid #222;font-weight:700}.brew-page table{transform-origin:top center}
+.brew-page{direction:rtl;padding:2mm}.brew-label{text-align:center;font-size:15pt;font-weight:700;margin-bottom:2mm}table{border-collapse:collapse;width:100%;height:270mm;table-layout:fixed;font-size:8pt}td{border:0;padding:1px 2px;overflow:hidden;white-space:nowrap;text-overflow:clip;height:5mm}.sheet-row td{border-bottom:0}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(-n+4),.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(n+5){border-bottom:.65px solid #555}.sheet-row.r1 td,.sheet-row.r2 td,.sheet-row.r3 td,.sheet-row.r4 td,.sheet-row.r5 td{border-bottom:0}.sheet-row.r2 td,.sheet-row.r4 td{border-bottom:1.2px solid #222}.sheet-row:nth-child(n+7):nth-child(-n+48) td:nth-child(4){border-right:1.8px solid #222}.sheet-row.r7 td,.sheet-row.r24 td,.sheet-row.r33 td,.sheet-row.r39 td{border-bottom:1.3px solid #222;font-weight:700}.brew-page table{transform-origin:top center}
 .brew-page:last-child{page-break-after:auto;break-after:auto}
 </style></head><body><section class="cover"><div class="tank">מס מיכל: ${esc(run.tankNumber)}</div><div class="batch">#${esc(run.batchNumber)}</div><div class="style">${esc(run.style)} ${esc(typeLabel)}</div><div class="field">תאריך בישול: ${esc(run.brewDate || "________________")}</div><div class="field">נפח וסוכר התחלתי: ________________ / ________________</div></section>${blocks.map((block,index)=>tableHtml(block.values || [],index)).join("")}</body></html>`);
             doc.close();
