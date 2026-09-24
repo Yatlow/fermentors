@@ -4421,3 +4421,19 @@
 .brewing-action-zero-item .brewing-prebrew-actions button {
     width: 100%;
 }
+
+
+/* Brew Sheet background creation queue */
+.brewing-creation-card {
+    border-style: dashed;
+}
+.brewing-creation-failed {
+    border-style: solid;
+}
+.brewing-creation-error {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
