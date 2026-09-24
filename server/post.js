@@ -119,7 +119,8 @@ const POST_MUTATION_ACTIONS = {
   addFermentationMeasurement: true,
   triggerTankUpdate: true,
   manualNightSync: true,
-  BrewSheetCreate: true,\n  BrewSheetProcessQueuedJob: true,
+  BrewSheetCreate: true,
+  BrewSheetProcessQueuedJob: true,
   // Cell writes are already conflict-guarded by expectedValue in
   // brewingSheetWriteCells_. Keeping them in the long-lived generic
   // idempotency cache can strand the UI behind an "in_progress" record after
