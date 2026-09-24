@@ -213,7 +213,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [pendingProductionRows, setPendingProductionRows] = useState<BrewingDriveHistoryRow[]>([]);
-    const [creationJobs, setCreationJobs] = useState<Array<{ batchNumber: string; style: string; tankNumber: string; state: string; lastError: string }>>([]);
+    const [creationJobs, setCreationJobs] = useState<Array<{ batchNumber: string; style: string; tankNumber: string; state: string; lastError: string }>>([]);\n    const [creationJobsError, setCreationJobsError] = useState("");
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
@@ -230,19 +230,27 @@ export default function BrewingView({ brews, tab }: Props) {
     );
 
     useEffect(() => {
-        return onSnapshot(collection(db, "brewSheetCreationJobs"), (snapshot) => {
-            const jobs = snapshot.docs
-                .map((item) => item.data() as { batchNumber?: string; style?: string; tankNumber?: string; state?: string; lastError?: string })
-                .map((job) => ({
-                    batchNumber: String(job.batchNumber || "").replace("#", "").trim(),
-                    style: String(job.style || "").trim(),
-                    tankNumber: String(job.tankNumber || "").trim(),
-                    state: String(job.state || "").trim(),
-                    lastError: String(job.lastError || "").trim(),
-                }))
-                .filter((job) => job.batchNumber && (job.state === "queued" || job.state === "creating" || job.state === "failed"));
-            setCreationJobs(jobs);
-        });
+        return onSnapshot(
+            collection(db, "brewSheetCreationJobs"),
+            (snapshot) => {
+                setCreationJobsError("");
+                const jobs = snapshot.docs
+                    .map((item) => item.data() as { batchNumber?: string; style?: string; tankNumber?: string; state?: string; lastError?: string })
+                    .map((job) => ({
+                        batchNumber: String(job.batchNumber || "").replace("#", "").trim(),
+                        style: String(job.style || "").trim(),
+                        tankNumber: String(job.tankNumber || "").trim(),
+                        state: String(job.state || "").trim(),
+                        lastError: String(job.lastError || "").trim(),
+                    }))
+                    .filter((job) => job.batchNumber && (job.state === "queued" || job.state === "creating" || job.state === "failed"));
+                setCreationJobs(jobs);
+            },
+            (error) => {
+                console.error("brewSheetCreationJobs listener failed", error);
+                setCreationJobsError("לא ניתן לטעון כרגע את תור יצירת ה-Sheets.");
+            },
+        );
     }, []);
 
     const allTanks = useMemo(() => {
@@ -1380,6 +1388,10 @@ export default function BrewingView({ brews, tab }: Props) {
                                 })}
                             </div>
                         </>
+                    )}
+
+                    {creationJobsError && (
+                        <div className="brewing-empty brewing-creation-error">{creationJobsError}</div>
                     )}
 
                     {creationJobs.length > 0 && (
