@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import BeerLoader from "../general/Loading";
 import type { Fermentor } from "../../App";
 import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -794,15 +796,30 @@ export default function BrewingView({ brews, tab }: Props) {
             setMessage("הדפדפן חסם את חלון ההדפסה. יש לאפשר חלונות קופצים לאתר.");
             return;
         }
+        let loaderRoot: ReturnType<typeof createRoot> | null = null;
         try {
             printWindow.document.title = `מכין דף בישול ${run.batchNumber}…`;
+            printWindow.document.documentElement.dir = "rtl";
             printWindow.document.body.dir = "rtl";
-            printWindow.document.body.style.fontFamily = "system-ui, sans-serif";
-            printWindow.document.body.style.padding = "32px";
-            printWindow.document.body.textContent = "מכין דף בישול להדפסה…";
+            printWindow.document.body.style.margin = "0";
+            printWindow.document.body.style.minHeight = "100vh";
+
+            // Reuse the app styles and the real BeerLoader component in the
+            // synchronously-opened print tab while Apps Script builds the PDF.
+            document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
+                printWindow.document.head.appendChild(node.cloneNode(true));
+            });
+            loaderRoot = createRoot(printWindow.document.body);
+            loaderRoot.render(
+                <BeerLoader
+                    overlay
+                    size="large"
+                    message={`מכין דף בישול ${run.batchNumber} להדפסה…`}
+                />,
+            );
         } catch {
-            // The placeholder is only feedback; keeping the synchronously-opened
-            // tab alive is what matters for iOS.
+            // The loader is only feedback; keeping the synchronously-opened tab
+            // alive is what matters for iOS.
         }
 
         setPrintingBatch(run.batchNumber);
@@ -832,6 +849,11 @@ export default function BrewingView({ brews, tab }: Props) {
             const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
             const blob = new Blob([bytes], { type: "application/pdf" });
             const url = URL.createObjectURL(blob);
+            try {
+                loaderRoot?.unmount();
+            } catch {
+                // The PDF navigation owns the tab from this point.
+            }
             printWindow.location.replace(url);
 
             // Keep the object URL alive while the native PDF viewer takes over.
