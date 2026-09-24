@@ -808,7 +808,7 @@ function fieldsFromSheetRows(
     }
   }
 
-  for (let index = 0; index < 3; index += 1) {
+  for (let index = 0; index < 5; index += 1) {
     const alpha = cell(15 + index, "B");
     const hopName = cell(15 + index, "C");
     if (hopName) {
@@ -847,7 +847,7 @@ function fieldsFromSheetRows(
 
     recipe.hops
       .filter((hop) => hop.purpose !== "dryHop")
-      .slice(0, 3)
+      .slice(0, 5)
       .forEach((hop, index) => {
         expectedMaterials.push({
           ingredientId: hop.ingredientId,
@@ -1148,7 +1148,7 @@ export default function BrewFormStepper({
   );
 
   const boilHops = useMemo(
-    () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 3),
+    () => recipe.hops.filter((hop) => hop.purpose !== "dryHop").slice(0, 5),
     [recipe.hops],
   );
 
