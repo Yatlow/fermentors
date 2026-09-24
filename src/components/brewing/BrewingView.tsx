@@ -785,6 +785,26 @@ export default function BrewingView({ brews, tab }: Props) {
 
     async function printBrewCover(run: SandboxBrewRun) {
         if (printingBatch) return;
+
+        // iOS/Safari only allows a new tab reliably while we are still inside
+        // the original tap event. Open it synchronously, before the Apps Script
+        // PDF request starts, and navigate that same tab when the PDF is ready.
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) {
+            setMessage("הדפדפן חסם את חלון ההדפסה. יש לאפשר חלונות קופצים לאתר.");
+            return;
+        }
+        try {
+            printWindow.document.title = `מכין דף בישול ${run.batchNumber}…`;
+            printWindow.document.body.dir = "rtl";
+            printWindow.document.body.style.fontFamily = "system-ui, sans-serif";
+            printWindow.document.body.style.padding = "32px";
+            printWindow.document.body.textContent = "מכין דף בישול להדפסה…";
+        } catch {
+            // The placeholder is only feedback; keeping the synchronously-opened
+            // tab alive is what matters for iOS.
+        }
+
         setPrintingBatch(run.batchNumber);
         try {
             const spreadsheetId = extractSpreadsheetId(run.sheetId || run.sheetUrl);
@@ -795,9 +815,9 @@ export default function BrewingView({ brews, tab }: Props) {
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
             const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
 
-            // The server creates one PDF: page 1 is the cover and the following
-            // pages are a copy of the real Google Sheet brew area. This avoids
-            // browser popup races and guarantees one print job.
+            // The server still creates the exact same combined PDF: COVER first,
+            // followed by the real brew Sheet pages. Only the browser opening
+            // flow changes here so mobile Safari does not block the result.
             const pdf = await serverPrintBrewSheetPdf({
                 spreadsheetId,
                 batchNumber: run.batchNumber,
@@ -809,21 +829,20 @@ export default function BrewingView({ brews, tab }: Props) {
             });
 
             const binary = atob(pdf.base64);
-            const bytes = new Uint8Array(binary.length);
-            for (let index = 0; index < binary.length; index += 1) {
-                bytes[index] = binary.charCodeAt(index);
-            }
+            const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
             const blob = new Blob([bytes], { type: "application/pdf" });
             const url = URL.createObjectURL(blob);
-            const printWindow = window.open(url, "_blank", "noopener,noreferrer");
-            if (!printWindow) {
-                URL.revokeObjectURL(url);
-                throw new Error("הדפדפן חסם את חלון ההדפסה.");
-            }
-            // Keep the object URL alive while the browser PDF viewer loads it.
+            printWindow.location.replace(url);
+
+            // Keep the object URL alive while the native PDF viewer takes over.
             window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
             setMessage("");
         } catch (error) {
+            try {
+                printWindow.close();
+            } catch {
+                // Ignore cleanup failures from a browser-owned tab.
+            }
             setMessage(
                 error instanceof Error
                     ? `פתיחת דף הבישול להדפסה נכשלה: ${error.message}`
