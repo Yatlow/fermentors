@@ -791,10 +791,17 @@ export default function BrewingView({ brews, tab }: Props) {
             // Print the real Google Sheet instead of rebuilding it as HTML.
             // Each brew block is 50 rows in the Master; fermentation starts
             // after the final block, so this range prints A/B/C only.
-            const lastBrewRow =
-                run.tankType === "triple" ? 150 :
-                run.tankType === "double" ? 100 :
-                50;
+            const matchingRecipe =
+                run.recipeSnapshot ||
+                recipes.find((recipe) => sameStyle(recipe.style, run.style));
+            const hasThirdRest = Boolean(
+                matchingRecipe?.mash.steps.some((step) => step.id === "rest3"),
+            );
+            const blockCount =
+                run.tankType === "triple" ? 3 :
+                run.tankType === "double" ? 2 :
+                1;
+            const lastBrewRow = blockCount * 50 + (hasThirdRest ? blockCount * 2 : 0);
             const params = new URLSearchParams({
                 format: "pdf",
                 size: "A4",
@@ -806,7 +813,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 gridlines: "false",
                 fzr: "false",
                 gid: "0",
-                range: `A1:J${lastBrewRow}`,
+                range: `A1:I${lastBrewRow}`,
                 top_margin: "0.20",
                 bottom_margin: "0.20",
                 left_margin: "0.20",
