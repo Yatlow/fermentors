@@ -145,7 +145,15 @@ export async function serverPrintBrewSheetPdf(input: {
   >({
     action: "BrewSheetPrintPdf",
     ...input,
-  }, { retries: 0, timeoutMs: 120000 });
+  }, {
+    // Apps Script ContentService occasionally returns an intermediate HTML
+    // response on iOS after a long-running export. Retrying the exact same
+    // requestId is safe and lets the normal Apps Script client recover from
+    // that transient redirect/HTML response.
+    retries: 1,
+    retryDelayMs: 500,
+    timeoutMs: 120000,
+  });
   return unwrapAppsScriptResult(response, "יצירת PDF משולב לבישול נכשלה.");
 }
 
