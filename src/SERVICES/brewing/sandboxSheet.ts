@@ -130,6 +130,35 @@ export function buildBrewSheetInitialWrites(input: {
       }
     });
   }
+  if (input.recipe) {
+    // Mash process rows already exist in every Master. Fill the labels/targets
+    // from the selected recipe, including an optional third rest + heat.
+    // A/B/C blocks start at rows 4/54/102; the mash process begins five rows
+    // later and uses every other row for the next stage.
+    const mashStarts = input.tankType === "triple" ? [9, 59, 107] : input.tankType === "double" ? [9, 59] : [9];
+    const stageRows = [9, 11, 13, 15, 17, 19, 21];
+    const processSteps = input.recipe.mash.steps.filter((step) =>
+      /^(mashIn|rest1|heat1|rest2|heat2|rest3|heat3)$/.test(step.id),
+    );
+    mashStarts.forEach((blockStart) => {
+      const shift = blockStart - 9;
+      stageRows.forEach((baseRow, index) => {
+        const step = processSteps[index];
+        const row = baseRow + shift;
+        if (!step) return;
+        const label =
+          step.id === "mashIn" ? "הכנסת לתת" :
+          step.id.startsWith("rest") ? `השריה ${step.id.replace("rest", "")}` :
+          `חימום ${step.id.replace("heat", "")}`;
+        writes.push(
+          { range: `'גיליון1'!D${row}`, value: label },
+          { range: `'גיליון1'!G${row}`, value: step.targetTemp },
+          { range: `'גיליון1'!H${row}`, value: step.minutes ?? "" },
+        );
+      });
+    });
+  }
+
   if (input.recipe && input.ingredients) {
     const ingredients = input.ingredients;
     const hopStarts = input.tankType === "triple" ? [24, 74, 122] : input.tankType === "double" ? [24, 74] : [24];
