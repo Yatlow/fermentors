@@ -161,7 +161,7 @@ export async function createSandboxBrewSheet(input: {
         const ingredient = input.ingredients!.find((item) => item.id === hop.ingredientId);
         const lot = ingredient ? activeLot(ingredient) : undefined;
         return {
-          quantity: 0,
+          quantity: "",
           alpha: lot?.alpha ?? hop.aa ?? "",
           label: `${index + 1})${ingredient?.name || hop.ingredientId}${lot?.lotNumber ? ` #${lot.lotNumber}` : ""}`,
         };
