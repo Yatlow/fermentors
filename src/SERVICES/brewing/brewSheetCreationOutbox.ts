@@ -21,6 +21,7 @@ export async function enqueueBrewSheetCreation(input: {
   tankType: "single" | "double" | "triple";
   name: string;
   initialWrites: BrewingSheetWrite[];
+  mashRestCount?: number;
 }) {
   const batchNumber = String(input.batchNumber || "").replace("#", "").trim();
   if (!/^\d+$/.test(batchNumber)) throw new Error("מספר אצווה לא תקין.");
@@ -32,6 +33,7 @@ export async function enqueueBrewSheetCreation(input: {
       tankType: input.tankType,
       name: input.name,
       initialWritesJson: JSON.stringify(input.initialWrites),
+      mashRestCount: Number(input.mashRestCount || 2),
       state: "queued",
       attempts: 0,
       createdAt: serverTimestamp(),
