@@ -949,34 +949,51 @@ export default function BrewingView({ brews, tab }: Props) {
             if (failedCleanup?.status === "rejected") {
                 throw failedCleanup.reason;
             }
-            const cellarBatch = String(
-                (tank.cellarState as { batchNumber?: string | number } | undefined)?.batchNumber || "",
-            ).replace("#", "").trim();
-            const previousRun =
-                (cellarBatch
-                    ? productionHistory.find(
-                          (item) => String(item.batchNumber || "").replace("#", "").trim() === cellarBatch,
-                      )
-                    : undefined) ||
-                productionHistory
-                    .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
-                    .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== run.batchNumber)
-                    .filter((item) => !!String(item.brewDate || "").trim())
-                    .sort((a, b) => {
-                        const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
-                        return Number.isFinite(batchDelta) && batchDelta !== 0
-                            ? batchDelta
-                            : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
-                    })[0];
-            await updateDoc(doc(db, "fermentors", tank.id), {
-                batchNumber: previousRun?.batchNumber || cellarBatch || "",
-                beerStyle: previousRun?.beerStyle || "",
-                brewDate: previousRun?.brewDate || "",
-                sheetUrl: previousRun?.sheetUrl || "",
-                action: 5,
-                stage: 5,
-                tankStatus: false,
-            });
+            const cellarState =
+                tank.cellarState && typeof tank.cellarState === "object"
+                    ? tank.cellarState as Record<string, unknown>
+                    : null;
+            if (cellarState) {
+                // Restore the exact state captured by ACTION 5 immediately
+                // before it assigned this unstarted brew.
+                await updateDoc(doc(db, "fermentors", tank.id), {
+                    ...cellarState,
+                    action: 5,
+                    stage: 5,
+                    tankStatus: false,
+                });
+            } else {
+                // Backward-compatible fallback for ACTION-0 assignments created
+                // before cellarState snapshots were introduced.
+                const cellarBatch = String(
+                    (tank.cellarState as { batchNumber?: string | number } | undefined)?.batchNumber || "",
+                ).replace("#", "").trim();
+                const previousRun =
+                    (cellarBatch
+                        ? productionHistory.find(
+                              (item) => String(item.batchNumber || "").replace("#", "").trim() === cellarBatch,
+                          )
+                        : undefined) ||
+                    productionHistory
+                        .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
+                        .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== run.batchNumber)
+                        .filter((item) => !!String(item.brewDate || "").trim())
+                        .sort((a, b) => {
+                            const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
+                            return Number.isFinite(batchDelta) && batchDelta !== 0
+                                ? batchDelta
+                                : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
+                        })[0];
+                await updateDoc(doc(db, "fermentors", tank.id), {
+                    batchNumber: previousRun?.batchNumber || cellarBatch || "",
+                    beerStyle: previousRun?.beerStyle || "",
+                    brewDate: previousRun?.brewDate || "",
+                    sheetUrl: previousRun?.sheetUrl || "",
+                    action: 5,
+                    stage: 5,
+                    tankStatus: false,
+                });
+            }
             setSelectedRun(null);
             setMessage(previousRun ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${previousRun.batchNumber} כאצווה האחרונה לצורכי נתוני האריזה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
         } catch (error) {
