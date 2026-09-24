@@ -789,9 +789,6 @@ export default function BrewingView({ brews, tab }: Props) {
             const spreadsheetId = extractSpreadsheetId(run.sheetId || run.sheetUrl);
             if (!spreadsheetId) throw new Error("לא נמצא Sheet לאצווה.");
 
-            // Print the real Google Sheet instead of rebuilding it as HTML.
-            // Each brew block is 50 rows in the Master; fermentation starts
-            // after the final block, so this range prints A/B/C only.
             const matchingRecipe =
                 run.recipeSnapshot ||
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
@@ -820,13 +817,55 @@ export default function BrewingView({ brews, tab }: Props) {
                 left_margin: "0.20",
                 right_margin: "0.20",
             });
-            const printUrl =
+            const sheetPrintUrl =
                 `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?${params.toString()}`;
 
-            // Opening the PDF export preserves the Master's actual fonts,
-            // borders, merged cells, column widths and row heights. The browser
-            // PDF viewer then provides the normal print dialog.
-            window.open(printUrl, "_blank", "noopener,noreferrer");
+            // Keep the cover as page 1, then open the real Sheet PDF for the
+            // brew pages. We deliberately do not recreate the brew grid in
+            // HTML: Google Sheets remains the print source of truth.
+            const typeLabel =
+                run.tankType === "single" ? "בודד" :
+                run.tankType === "double" ? "כפול" :
+                "משולש";
+            const esc = (value: unknown) =>
+                String(value ?? "").replace(/[&<>"]/g, (ch) =>
+                    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch),
+                );
+            const cover = window.open("", "_blank");
+            if (!cover) throw new Error("הדפדפן חסם את חלון ההדפסה.");
+
+            cover.document.open();
+            cover.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8">
+<title>דף בישול #${esc(run.batchNumber)}</title>
+<style>
+@page{size:A4 portrait;margin:12mm}
+*{box-sizing:border-box}
+html,body{margin:0;font-family:Arial,sans-serif;color:#111}
+.cover{height:273mm;border:2px solid #222;padding:16mm;text-align:center}
+.tank{font-size:24pt;font-weight:700}
+.batch{font-size:86pt;font-weight:800;margin:25mm 0 10mm}
+.style{font-size:34pt;font-weight:700;margin-bottom:28mm}
+.field{font-size:18pt;margin:15mm 0;border-bottom:2px solid #222;padding-bottom:4mm;white-space:nowrap}
+.actions{position:fixed;left:16px;bottom:16px;display:flex;gap:8px}
+button,a{font:16px Arial;padding:10px 16px;border:1px solid #aaa;border-radius:8px;background:white;color:#111;text-decoration:none}
+@media print{.actions{display:none}}
+</style></head><body>
+<section class="cover">
+<div class="tank">מס מיכל: ${esc(run.tankNumber)}</div>
+<div class="batch">#${esc(run.batchNumber)}</div>
+<div class="style">${esc(run.style)} ${esc(typeLabel)}</div>
+<div class="field">תאריך בישול: ${esc(run.brewDate || "________________")}</div>
+<div class="field">נפח וסוכר התחלתי: ________________ / ________________</div>
+</section>
+<div class="actions">
+<button onclick="window.print()">הדפס COVER</button>
+<a href="${esc(sheetPrintUrl)}" target="_blank" rel="noopener">פתח דפי בישול A/B/C</a>
+</div>
+</body></html>`);
+            cover.document.close();
+            cover.focus();
+            window.setTimeout(() => cover.print(), 250);
+            window.setTimeout(() => window.open(sheetPrintUrl, "_blank", "noopener,noreferrer"), 500);
             setMessage("");
         } catch (error) {
             setMessage(
