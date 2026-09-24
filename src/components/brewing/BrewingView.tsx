@@ -466,16 +466,24 @@ export default function BrewingView({ brews, tab }: Props) {
             .slice(0, query ? 30 : 12);
     }, [driveProductionRuns, pendingBatchNumbers, historyQuery]);
 
-    // Only pre-generate the small set of not-yet-started production brews.
-    // Prefetching pending/history cards created several expensive Apps Script
-    // PDF jobs at once and made the PDF the user actually tapped wait behind
-    // them. ACTION-0 is the place where printing is operationally expected.
+    // Pre-generate every not-yet-started brew that currently exposes a print
+    // action: both ACTION-0 tanks and newly-created pending brews. Keeping
+    // history out avoids flooding Apps Script, while restoring the important
+    // behaviour that a fresh brew's PDF is already warm before the user taps.
     useEffect(() => {
         if (tab !== "form") return;
 
-        actionZeroProductionTanks.forEach((tank) => {
-            const run = productionRunFromTank(tank);
-            if (!run || run.brewProgress?.stageName) return;
+        const printableRuns = [
+            ...actionZeroProductionTanks
+                .map(productionRunFromTank)
+                .filter((run): run is SandboxBrewRun => !!run && !run.brewProgress?.stageName),
+            ...pendingProductionRuns,
+        ];
+        const uniqueRuns = Array.from(
+            new Map(printableRuns.map((run) => [run.batchNumber, run])).values(),
+        );
+
+        uniqueRuns.forEach((run) => {
             const matchingRecipe =
                 run.recipeSnapshot ||
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
@@ -484,7 +492,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 console.warn("Brew print pre-generation failed", run.batchNumber, error);
             });
         });
-    }, [tab, actionZeroProductionTanks, recipes]);
+    }, [tab, actionZeroProductionTanks, pendingProductionRuns, recipes]);
 
     useEffect(() => {
         if (!sandbox) return;
