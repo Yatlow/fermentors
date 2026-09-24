@@ -497,11 +497,7 @@ function brewingSheetPrintPdf_(data) {
           row[6] = "°C";
         }
         if (/F\.R\.|L\.R\./i.test(rowText)) row[1] = "°P";
-        if (/סיר\s*בישול|סוף\s*רתיחה/i.test(rowText)) {
-          row[1] = "°P";
-          row[3] = "ליטר";
-        }
-        if (/תחילת\s*תסיסה/i.test(rowText)) {
+        if (/סיר\s*בישול|סוף\s*רתיחה|תחילת\s*תסיסה/i.test(rowText)) {
           row[1] = "°P";
           row[3] = "ליטר";
         }
