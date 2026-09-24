@@ -144,10 +144,10 @@ export function buildBrewSheetInitialWrites(input: {
       const row21 = 21 + shift;
       const row22 = 22 + shift;
       const row23 = 23 + shift;
-      // Keep the complete hot-side sequence. A three-rest recipe needs two
-      // extra labels, but LT transfer/rest and recirculation must never be
-      // sacrificed. The extractor discovers stages by label, so compacting
-      // these five labels into rows 19-23 remains compatible with reporting.
+      // Keep the Master's fixed geometry. Rows 19-23 are the five available
+      // hot-side process slots before kettle additions. A 3-rest recipe uses
+      // all five; a normal recipe leaves the optional heat/rest slots blank.
+      // Formatting/borders for populated optional rows are restored server-side.
       writes.push(
         { range: `'גיליון1'!D${row19}`, value: hasRest3 ? "השריה 3" : "העברה ל L.T" },
         { range: `'גיליון1'!D${row20}`, value: hasRest3 ? "חימום 3" : "" },
