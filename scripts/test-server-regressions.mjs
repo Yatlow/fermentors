@@ -32,7 +32,7 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   Utilities: { sleep() {}, formatDate: () => "2026-09-18" },
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {}, deleteProperty() {} }) },
   Drive: { Changes: {} },
-  DriveApp: {},
+  DriveApp: { getFileById: () => ({ isTrashed: () => false }) },
   MimeType: { GOOGLE_SHEETS: "sheet" },
   parseBatchNumber: (value) => { const n = Number(String(value ?? "").replace("#", "").trim()); return Number.isFinite(n) ? n : null; },
   extractBrew: (id) => ({
