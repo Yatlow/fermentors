@@ -961,7 +961,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     ...cellarState,
                     action: 5,
                     stage: 5,
-                    tankStatus: false,
+                    tankStatus: true,
                     cellarState: deleteField(),
                 });
             } else {
@@ -993,7 +993,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     sheetUrl: previousRun?.sheetUrl || "",
                     action: 5,
                     stage: 5,
-                    tankStatus: false,
+                    tankStatus: true,
                 });
             }
             setSelectedRun(null);
