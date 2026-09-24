@@ -385,6 +385,7 @@ function brewingSheetCreate_(data) {
 
 
 function brewingSheetPrintPdf_(data) {
+  const startedAt = Date.now();
   const sourceId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   const batchNumber = String(data.batchNumber || "").replace("#", "").trim();
   const tankNumber = String(data.tankNumber || "").trim();
@@ -393,13 +394,9 @@ function brewingSheetPrintPdf_(data) {
   const brewDate = String(data.brewDate || "").trim();
   const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
   const mashRestCount = Number(data.mashRestCount || 2);
-  // Master coordinates are intentionally not uniform: the third brew starts
-  // at a different row than the first two. Rest-3 recipes insert four rows
-  // inside every brew block, shifting each following header by four rows.
   const masterHeaderRows =
     tankType === "triple" ? [4, 54, 102] :
-    tankType === "double" ? [4, 54] :
-    [4];
+    tankType === "double" ? [4, 54] : [4];
   const insertedRowsPerBlock = mashRestCount >= 3 ? 4 : 0;
   const brewHeaderRows = masterHeaderRows.map(function (row, index) {
     return row + index * insertedRowsPerBlock;
@@ -409,149 +406,61 @@ function brewingSheetPrintPdf_(data) {
   const fermentationHeaderRow =
     masterFermentationHeaderRow + blockCount * insertedRowsPerBlock;
 
+  // Fast path: never create/copy a temporary Spreadsheet. Export each exact
+  // source range directly as PDF, then return the small PDFs to the browser.
+  // The browser owns the cover and page composition. This removes the slowest
+  // operations from the tap path: SpreadsheetApp.create + copyTo x 3 + flush.
   const source = SpreadsheetApp.openById(sourceId);
   const sourceSheet = source.getSheets()[0];
-  const temp = SpreadsheetApp.create("PRINT " + batchNumber + " " + Date.now());
-  const tempFile = DriveApp.getFileById(temp.getId());
+  const gid = sourceSheet.getSheetId();
+  const token = ScriptApp.getOAuthToken();
+  const parts = [];
 
-  try {
-    // Page 1: a dedicated cover sheet.
-    const cover = temp.getSheets()[0];
-    cover.setName("COVER");
-    cover.setHiddenGridlines(true);
-    cover.setRightToLeft(true);
-    cover.setColumnWidths(1, 8, 90);
-    // A taller cover uses the full A4 aspect ratio instead of occupying only
-    // the upper part of the page. Content stays inset from the outer frame.
-    cover.setRowHeights(1, 44, 22);
-    cover.setRowHeights(10, 9, 30);
-    cover.getRange("A1:H44").setFontFamily("Rubik").setHorizontalAlignment("center")
-      .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
-    cover.getRange("A4:H5").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
-    cover.getRange("A10:H18").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
-      .setVerticalAlignment("middle");
-    const typeLabel = tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
-    cover.getRange("A21:H25").merge().setValue(style + " " + typeLabel).setFontSize(30).setFontWeight("bold")
-      .setVerticalAlignment("middle");
-    cover.getRange("A31:H33").merge().setValue("תאריך בישול: " + (brewDate || "________________"))
-      .setFontSize(17).setVerticalAlignment("middle");
-    cover.getRange("A38:H40").merge().setValue("נפח וסוכר התחלתי: ________________ / ________________")
-      .setFontSize(17).setVerticalAlignment("middle");
-    cover.getRange("A1:H44").setBorder(true, true, true, true, null, null);
-
-    // Put every brew block on its own worksheet. Google exports each worksheet
-    // from a fresh page, and scale=4 below fits that worksheet to exactly one A4.
-    // This prevents a block from starting at the bottom of one page and
-    // continuing on the next page.
-    const brewSheets = [];
-    const firstBrew = sourceSheet.copyTo(temp).setName("BREW 1");
-    brewSheets.push(firstBrew);
-    for (let index = 1; index < blockCount; index++) {
-      brewSheets.push(firstBrew.copyTo(temp).setName("BREW " + (index + 1)));
-    }
-
-    brewSheets.forEach(function (brew, index) {
-      // Start at the per-brew header (row 4/54/102 in the Master), not row 1.
-      // This deliberately excludes the two global title rows from printing.
-      const firstRow = brewHeaderRows[index];
-      // Print only the actual brew block. The rows immediately before the
-      // next header include the packaging/volume box from the following
-      // section, which must never leak into a brew page.
-      // The brew block ends immediately before the next brew header. The
-      // Master has trailing volume/packaging rows in that gap; exclude them.
-      // 47 rows is the real brew form height in the Master, plus any rows
-      // inserted for rest/heat 3.
-      const masterBlockRows = 47;
-      const blockRows = masterBlockRows + insertedRowsPerBlock;
-      const lastRow = Math.min(firstRow + blockRows - 1, fermentationHeaderRow - 1);
-      brew.setRightToLeft(true);
-      brew.setHiddenGridlines(true);
-
-      if (firstRow > 1) {
-        brew.hideRows(1, firstRow - 1);
-      }
-      if (brew.getMaxRows() > lastRow) {
-        brew.hideRows(lastRow + 1, brew.getMaxRows() - lastRow);
-      }
-      if (brew.getMaxColumns() > 9) {
-        brew.hideColumns(10, brew.getMaxColumns() - 9);
-      }
-
-      const printColumns = Math.min(9, brew.getMaxColumns());
-      const printRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, printColumns);
-      printRange.setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
-
-      // Print-only units. Batch operations are critical here: the previous
-      // cell-by-cell getRange/setValue/getFontSize loop could take minutes.
-      const display = printRange.getDisplayValues();
-      const fontSizes = printRange.getFontSizes();
-      const columnWidths = [];
-      for (let col = 1; col <= printColumns; col++) columnWidths.push(brew.getColumnWidth(col));
-
-      // Units belong in the same cells as the legacy Excel layout. Process
-      // temperature is column E (not F). Sugar/volume units are decorated only
-      // in the exact rows whose labels identify those fields.
-      display.forEach(function (row, rowOffset) {
-        const rowText = row.join(" ").trim();
-        if (/(השריה|חימום)\s*[1-3]|העברה\s*ל?\s*L\.T\.?|מנוחה\s*L\.T\.?|שטיפה\s*[1-7]/i.test(rowText)) {
-          row[6] = "°C";
-        }
-        if (/F\.R\.|L\.R\./i.test(rowText)) row[1] = "°P";
-        if (/סיר\s*בישול|סוף\s*רתיחה/i.test(rowText)) {
-          row[1] = "°P";
-          row[3] = "ליטר";
-        }
-        if (/תחילת\s*תסיסה/i.test(rowText)) {
-          row[1] = "°P";
-          row[3] = "ליטר";
-        }
-      });
-      printRange.setValues(display);
-
-      // Fit all cells in memory and apply font sizes once.
-      display.forEach(function (row, r) {
-        row.forEach(function (value, col) {
-          const text = String(value || "").trim();
-          if (!text) return;
-          const width = Math.max(12, columnWidths[col] - 8);
-          const currentSize = Number(fontSizes[r][col]) || 10;
-          const estimatedPx = text.length * currentSize * 0.78;
-          if (estimatedPx > width) {
-            fontSizes[r][col] = Math.max(5, Math.floor(currentSize * width / estimatedPx));
-          }
-        });
-      });
-      printRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-      printRange.setFontSizes(fontSizes);
-    });
-
-    SpreadsheetApp.flush();
-
+  brewHeaderRows.forEach(function (firstRow, index) {
+    const masterBlockRows = 47;
+    const blockRows = masterBlockRows + insertedRowsPerBlock;
+    const lastRow = Math.min(firstRow + blockRows - 1, fermentationHeaderRow - 1);
     const exportUrl =
-      "https://docs.google.com/spreadsheets/d/" + temp.getId() + "/export" +
+      "https://docs.google.com/spreadsheets/d/" + sourceId + "/export" +
       "?format=pdf&size=A4&portrait=true&scale=4" +
       "&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=false&fzr=false" +
-      "&top_margin=0.20&bottom_margin=0.20&left_margin=0.20&right_margin=0.20";
+      "&top_margin=0.20&bottom_margin=0.20&left_margin=0.20&right_margin=0.20" +
+      "&gid=" + gid +
+      "&r1=" + (firstRow - 1) + "&r2=" + lastRow +
+      "&c1=0&c2=9";
+
     const response = UrlFetchApp.fetch(exportUrl, {
-      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      headers: { Authorization: "Bearer " + token },
       muteHttpExceptions: true
     });
     const code = response.getResponseCode();
     if (code < 200 || code >= 300) {
-      throw new Error("PDF export failed: HTTP " + code);
+      throw new Error("PDF export failed for brew " + (index + 1) + ": HTTP " + code);
     }
-    const blob = response.getBlob().setName("brew-" + batchNumber + ".pdf");
-    return {
-      fileName: blob.getName(),
+    const blob = response.getBlob();
+    parts.push({
+      fileName: "brew-" + batchNumber + "-" + (index + 1) + ".pdf",
       mimeType: "application/pdf",
-      base64: Utilities.base64Encode(blob.getBytes()),
-      pages: blockCount + 1
-    };
-  } finally {
-    try { tempFile.setTrashed(true); } catch (cleanupError) {
-      console.log("Print temp cleanup failed: " + cleanupError.message);
-    }
-  }
+      base64: Utilities.base64Encode(blob.getBytes())
+    });
+  });
+
+  const timing = { totalMs: Date.now() - startedAt, parts: parts.length };
+  console.log("BrewSheetPrintPdf fast timing " + JSON.stringify(timing));
+  return {
+    fileName: "brew-" + batchNumber + ".pdf",
+    mimeType: "application/pdf",
+    parts: parts,
+    cover: {
+      batchNumber: batchNumber,
+      tankNumber: tankNumber,
+      style: style,
+      tankType: tankType,
+      brewDate: brewDate
+    },
+    pages: blockCount + 1,
+    timing: timing
+  };
 }
 
 function brewingSheetTrash_(data) {
