@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createRoot } from "react-dom/client";
-import BeerLoader from "../general/Loading";
+
 import type { Fermentor } from "../../App";
 import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -788,38 +787,40 @@ export default function BrewingView({ brews, tab }: Props) {
     async function printBrewCover(run: SandboxBrewRun) {
         if (printingBatch) return;
 
-        // iOS/Safari only allows a new tab reliably while we are still inside
-        // the original tap event. Open it synchronously, before the Apps Script
-        // PDF request starts, and navigate that same tab when the PDF is ready.
+        // Open the tab synchronously while iOS still considers this part of the
+        // user's tap. Keep this page completely self-contained: a new Safari tab
+        // does not reliably inherit the SPA's React/CSS runtime.
         const printWindow = window.open("", "_blank");
         if (!printWindow) {
             setMessage("הדפדפן חסם את חלון ההדפסה. יש לאפשר חלונות קופצים לאתר.");
             return;
         }
-        let loaderRoot: ReturnType<typeof createRoot> | null = null;
         try {
-            printWindow.document.title = `מכין דף בישול ${run.batchNumber}…`;
-            printWindow.document.documentElement.dir = "rtl";
-            printWindow.document.body.dir = "rtl";
-            printWindow.document.body.style.margin = "0";
-            printWindow.document.body.style.minHeight = "100vh";
-
-            // Reuse the app styles and the real BeerLoader component in the
-            // synchronously-opened print tab while Apps Script builds the PDF.
-            document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
-                printWindow.document.head.appendChild(node.cloneNode(true));
-            });
-            loaderRoot = createRoot(printWindow.document.body);
-            loaderRoot.render(
-                <BeerLoader
-                    overlay
-                    size="large"
-                    message={`מכין דף בישול ${run.batchNumber} להדפסה…`}
-                />,
-            );
+            printWindow.document.open();
+            printWindow.document.write(`<!doctype html>
+<html dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>מכין דף בישול…</title>
+<style>
+html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sans-serif;background:#fff}
+.loader{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+.glass{position:relative;width:74px;height:96px;border:5px solid #333;border-top:0;border-radius:0 0 15px 15px;overflow:hidden}
+.beer{position:absolute;left:0;right:0;bottom:0;height:72%;background:#f2b632;animation:fill .9s ease-out}
+.foam{position:absolute;left:-4px;right:-4px;top:18px;height:22px;background:#fff7df;border-radius:50%;animation:bob 1.1s ease-in-out infinite alternate}
+.bubble{position:absolute;width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.7);bottom:12px;animation:rise 1.4s linear infinite}
+.b1{left:16px}.b2{left:36px;animation-delay:.4s}.b3{left:53px;animation-delay:.8s}
+.msg{font-size:18px;font-weight:600;color:#333;text-align:center;padding:0 24px}
+@keyframes fill{from{height:0}to{height:72%}}@keyframes bob{to{transform:translateY(-3px)}}@keyframes rise{to{transform:translateY(-48px);opacity:0}}
+</style>
+</head>
+<body><div class="loader"><div class="glass"><div class="beer"><i class="bubble b1"></i><i class="bubble b2"></i><i class="bubble b3"></i></div><div class="foam"></div></div><div class="msg">מכין דף בישול ${run.batchNumber} להדפסה…</div></div></body>
+</html>`);
+            printWindow.document.close();
         } catch {
-            // The loader is only feedback; keeping the synchronously-opened tab
-            // alive is what matters for iOS.
+            // The placeholder is only feedback; the synchronously-opened tab is
+            // still kept alive for the PDF navigation below.
         }
 
         setPrintingBatch(run.batchNumber);
@@ -832,9 +833,6 @@ export default function BrewingView({ brews, tab }: Props) {
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
             const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
 
-            // The server still creates the exact same combined PDF: COVER first,
-            // followed by the real brew Sheet pages. Only the browser opening
-            // flow changes here so mobile Safari does not block the result.
             const pdf = await serverPrintBrewSheetPdf({
                 spreadsheetId,
                 batchNumber: run.batchNumber,
@@ -849,27 +847,27 @@ export default function BrewingView({ brews, tab }: Props) {
             const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
             const blob = new Blob([bytes], { type: "application/pdf" });
             const url = URL.createObjectURL(blob);
-            try {
-                loaderRoot?.unmount();
-            } catch {
-                // The PDF navigation owns the tab from this point.
-            }
-            printWindow.location.replace(url);
 
-            // Keep the object URL alive while the native PDF viewer takes over.
-            window.setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
+            // Do not close/re-open the tab. On iOS the already-open tab is the
+            // reliable navigation target after the asynchronous server request.
+            printWindow.location.href = url;
+            window.setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
             setMessage("");
         } catch (error) {
+            // Keep the tab open on failures too; closing it made iOS appear to
+            // "lose" the print request. Show the error in that same tab.
+            const detail =
+                error instanceof Error ? error.message : "פתיחת דף הבישול להדפסה נכשלה.";
             try {
-                printWindow.close();
+                printWindow.document.body.innerHTML =
+                    '<div dir="rtl" style="font-family:system-ui;padding:32px;text-align:center">' +
+                    '<h2>הכנת דף הבישול נכשלה</h2><p></p></div>';
+                const paragraph = printWindow.document.querySelector("p");
+                if (paragraph) paragraph.textContent = detail;
             } catch {
-                // Ignore cleanup failures from a browser-owned tab.
+                // The main app still gets the same error below.
             }
-            setMessage(
-                error instanceof Error
-                    ? `פתיחת דף הבישול להדפסה נכשלה: ${error.message}`
-                    : "פתיחת דף הבישול להדפסה נכשלה.",
-            );
+            setMessage(`פתיחת דף הבישול להדפסה נכשלה: ${detail}`);
         } finally {
             setPrintingBatch(null);
         }
