@@ -105,18 +105,11 @@ export function buildBrewSheetInitialWrites(input: {
   // from whichever beer happened to be saved in the template. Material rows
   // must always come from the selected recipe snapshot.
   if (input.recipe && input.ingredients) {
-    const grainStarts = input.tankType === "triple" ? [9, 59, 107] : input.tankType === "double" ? [9, 59] : [9];
-    grainStarts.forEach((startRow, blockIndex) => {
-      // In the triple Master the last brew block shares its first material row
-      // with legacy template content. Clear that row before writing recipe data
-      // so brew C never renders the first grain twice.
-      if (input.tankType === "triple" && blockIndex === grainStarts.length - 1) {
-        writes.push(
-          { range: `'גיליון1'!A${startRow}`, value: "" },
-          { range: `'גיליון1'!B${startRow}`, value: "" },
-          { range: `'גיליון1'!C${startRow}`, value: "" },
-        );
-      }
+    // Material tables start five rows below each block header. Derive this
+    // from the canonical layout instead of maintaining a second set of magic
+    // row numbers (the old C value was off by one: 107 instead of 106).
+    const grainStarts = layout.blockHeaderRows.map((headerRow) => headerRow + 5);
+    grainStarts.forEach((startRow) => {
       for (let slot = 0; slot < 5; slot += 1) {
         const row = startRow + slot;
         const grain = input.recipe!.grains[slot];
@@ -162,18 +155,11 @@ export function buildBrewSheetInitialWrites(input: {
 
   if (input.recipe && input.ingredients) {
     const ingredients = input.ingredients;
-    const hopStarts = input.tankType === "triple" ? [24, 74, 122] : input.tankType === "double" ? [24, 74] : [24];
+    // Hop table is twenty rows below the block header. The old hard-coded C
+    // coordinate (122) was likewise one row too low; header 102 => row 121.
+    const hopStarts = layout.blockHeaderRows.map((headerRow) => headerRow + 19);
     const kettleHops = input.recipe.hops.filter((hop) => hop.purpose !== "dryHop");
-    hopStarts.forEach((startRow, blockIndex) => {
-      // Same legacy overlap exists for the first hop row of brew C. Explicitly
-      // clear it before applying the selected recipe.
-      if (input.tankType === "triple" && blockIndex === hopStarts.length - 1) {
-        writes.push(
-          { range: `'גיליון1'!A${startRow}`, value: "" },
-          { range: `'גיליון1'!B${startRow}`, value: "" },
-          { range: `'גיליון1'!C${startRow}`, value: "" },
-        );
-      }
+    hopStarts.forEach((startRow) => {
       for (let slot = 0; slot < 5; slot += 1) {
         const row = startRow + slot;
         const hop = kettleHops[slot];
