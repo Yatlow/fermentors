@@ -214,3 +214,13 @@ export async function serverRemoveBrewSheetEditTrigger(spreadsheetId: string) {
   });
   return unwrapAppsScriptResult(response, "הסרת סנכרון העריכה של Sheet הבישול נכשלה.");
 }
+
+export async function serverProcessQueuedBrewSheetJob(jobId: string) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{ found?: number; ready?: number; failed?: number; queued?: boolean; busy?: boolean }>
+  >({
+    action: "BrewSheetProcessQueuedJob",
+    jobId,
+  }, { retries: 0, timeoutMs: 120000 });
+  return unwrapAppsScriptResult(response, "הפעלת יצירת ה-Sheet ברקע נכשלה.");
+}
