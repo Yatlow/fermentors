@@ -33,6 +33,7 @@ export async function serverCreateBrewSheet(input: {
   tankType: "single" | "double" | "triple";
   name?: string;
   initialWrites?: BrewingSheetWrite[];
+  mashRestCount?: number;
 }) {
   const response = await callAppsScriptPost<
     AppsScriptEnvelope<{
