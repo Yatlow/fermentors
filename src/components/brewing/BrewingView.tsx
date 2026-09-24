@@ -787,7 +787,9 @@ export default function BrewingView({ brews, tab }: Props) {
             const esc = (value: unknown) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
             const typeLabel = run.tankType === "single" ? "בודד" : run.tankType === "double" ? "כפול" : "משולש";
             const blockRanges = run.tankType === "triple" ? ["A1:J50", "A51:J100", "A101:J150"] : run.tankType === "double" ? ["A1:J50", "A51:J100"] : ["A1:J50"];
-            const blocks = await Promise.all(blockRanges.map((range) => serverReadBrewSheetRange(run.sheetId, `'גיליון1'!${range}`)));
+            const spreadsheetId = run.sheetId || run.sheetUrl;
+            if (!spreadsheetId) throw new Error("לא נמצא Sheet לאצווה.");
+            const blocks = await Promise.all(blockRanges.map((range) => serverReadBrewSheetRange(spreadsheetId, `'גיליון1'!${range}`)));
             const tableHtml = (values: string[][], index: number) => {
                 const rows = values.map((row) => `<tr>${Array.from({ length: 10 }, (_, col) => `<td>${esc(row[col] ?? "")}</td>`).join("")}</tr>`).join("");
                 return `<section class="brew-page"><div class="brew-label">בישול ${["A","B","C"][index]}</div><table>${rows}</table></section>`;
