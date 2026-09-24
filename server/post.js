@@ -642,6 +642,14 @@ function executePostAction_(data) {
     };
   }
 
+  if (data.action === "BrewSheetPrintPdf") {
+    return {
+      success: true,
+      action: "BrewSheetPrintPdf",
+      result: brewingSheetPrintPdf_(data)
+    };
+  }
+
   if (data.action === "BrewSheetTrash") {
     return {
       success: true,
