@@ -494,16 +494,17 @@ function brewingSheetPrintPdf_(data) {
       display.forEach(function (row, rowOffset) {
         const rowText = row.join(" ").trim();
         if (/(השריה|חימום)\s*[1-3]|העברה\s*ל?\s*L\.T\.?|מנוחה\s*L\.T\.?|שטיפה\s*[1-7]/i.test(rowText)) {
-          row[4] = "°C";
+          row[6] = "°C";
         }
         if (/F\.R\.|L\.R\./i.test(rowText)) row[1] = "°P";
-        if (/סיר\s*בישול|סוף\s*רתיחה/i.test(rowText)) row[2] = "°P";
-
-        // Excel volume unit positions: mash volume in the process table and
-        // kettle/transfer volumes in their adjacent unit cell. Never decorate
-        // ingredient rows just because their text happens to contain "כמות".
-        if (/נפח\s*מאש/i.test(rowText)) row[6] = "ליטר";
-        if (/כמות\s*במיכל\s*בישול/i.test(rowText)) row[6] = "ליטר";
+        if (/סיר\s*בישול|סוף\s*רתיחה/i.test(rowText)) {
+          row[1] = "°P";
+          row[3] = "ליטר";
+        }
+        if (/תחילת\s*תסיסה/i.test(rowText)) {
+          row[1] = "°P";
+          row[3] = "ליטר";
+        }
       });
       printRange.setValues(display);
 
