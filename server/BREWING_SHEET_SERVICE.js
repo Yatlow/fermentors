@@ -393,8 +393,21 @@ function brewingSheetPrintPdf_(data) {
   const brewDate = String(data.brewDate || "").trim();
   const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
   const mashRestCount = Number(data.mashRestCount || 2);
-  const blockRows = 50 + (mashRestCount >= 3 ? 4 : 0);
-  const lastBrewRow = blockCount * blockRows;
+  // Master coordinates are intentionally not uniform: the third brew starts
+  // at a different row than the first two. Rest-3 recipes insert four rows
+  // inside every brew block, shifting each following header by four rows.
+  const masterHeaderRows =
+    tankType === "triple" ? [4, 54, 102] :
+    tankType === "double" ? [4, 54] :
+    [4];
+  const insertedRowsPerBlock = mashRestCount >= 3 ? 4 : 0;
+  const brewHeaderRows = masterHeaderRows.map(function (row, index) {
+    return row + index * insertedRowsPerBlock;
+  });
+  const masterFermentationHeaderRow =
+    tankType === "triple" ? 154 : tankType === "double" ? 104 : 57;
+  const fermentationHeaderRow =
+    masterFermentationHeaderRow + blockCount * insertedRowsPerBlock;
 
   const source = SpreadsheetApp.openById(sourceId);
   const sourceSheet = source.getSheets()[0];
@@ -408,21 +421,23 @@ function brewingSheetPrintPdf_(data) {
     cover.setHiddenGridlines(true);
     cover.setRightToLeft(true);
     cover.setColumnWidths(1, 8, 90);
-    cover.setRowHeights(1, 34, 22);
-    cover.setRowHeights(8, 5, 34);
-    cover.getRange("A1:H34").setFontFamily("Rubik").setHorizontalAlignment("center")
+    // A taller cover uses the full A4 aspect ratio instead of occupying only
+    // the upper part of the page. Content stays inset from the outer frame.
+    cover.setRowHeights(1, 44, 22);
+    cover.setRowHeights(10, 9, 30);
+    cover.getRange("A1:H44").setFontFamily("Rubik").setHorizontalAlignment("center")
       .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
-    cover.getRange("A2:H3").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
-    cover.getRange("A7:H13").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
+    cover.getRange("A4:H5").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
+    cover.getRange("A10:H18").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
       .setVerticalAlignment("middle");
     const typeLabel = tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
-    cover.getRange("A15:H18").merge().setValue(style + " " + typeLabel).setFontSize(30).setFontWeight("bold")
+    cover.getRange("A21:H25").merge().setValue(style + " " + typeLabel).setFontSize(30).setFontWeight("bold")
       .setVerticalAlignment("middle");
-    cover.getRange("A22:H23").merge().setValue("תאריך בישול: " + (brewDate || "________________"))
-      .setFontSize(17).setBorder(null, null, true, null, null, null);
-    cover.getRange("A27:H28").merge().setValue("נפח וסוכר התחלתי: ________________ / ________________")
-      .setFontSize(17).setBorder(null, null, true, null, null, null);
-    cover.getRange("A1:H34").setBorder(true, true, true, true, null, null);
+    cover.getRange("A31:H33").merge().setValue("תאריך בישול: " + (brewDate || "________________"))
+      .setFontSize(17).setVerticalAlignment("middle");
+    cover.getRange("A38:H40").merge().setValue("נפח וסוכר התחלתי: ________________ / ________________")
+      .setFontSize(17).setVerticalAlignment("middle");
+    cover.getRange("A1:H44").setBorder(true, true, true, true, null, null);
 
     // Put every brew block on its own worksheet. Google exports each worksheet
     // from a fresh page, and scale=4 below fits that worksheet to exactly one A4.
@@ -436,8 +451,13 @@ function brewingSheetPrintPdf_(data) {
     }
 
     brewSheets.forEach(function (brew, index) {
-      const firstRow = index * blockRows + 1;
-      const lastRow = Math.min(firstRow + blockRows - 1, lastBrewRow);
+      // Start at the per-brew header (row 4/54/102 in the Master), not row 1.
+      // This deliberately excludes the two global title rows from printing.
+      const firstRow = brewHeaderRows[index];
+      const lastRow =
+        index + 1 < brewHeaderRows.length
+          ? brewHeaderRows[index + 1] - 1
+          : fermentationHeaderRow - 1;
       brew.setRightToLeft(true);
       brew.setHiddenGridlines(true);
 
@@ -451,7 +471,6 @@ function brewingSheetPrintPdf_(data) {
         brew.hideColumns(10, brew.getMaxColumns() - 9);
       }
 
-      // Preserve an RTL page and RTL mixed Hebrew/Latin labels in the PDF.
       brew.getRange(firstRow, 1, lastRow - firstRow + 1, Math.min(9, brew.getMaxColumns()))
         .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
     });
