@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
@@ -962,6 +962,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     action: 5,
                     stage: 5,
                     tankStatus: false,
+                    cellarState: deleteField(),
                 });
             } else {
                 // Backward-compatible fallback for ACTION-0 assignments created
