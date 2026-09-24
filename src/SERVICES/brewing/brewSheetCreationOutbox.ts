@@ -1,6 +1,6 @@
 import { collection, doc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import { db } from "../../firebase";
-import type { BrewingSheetWrite } from "./brewingSheetServer";
+import { serverProcessQueuedBrewSheetJob, type BrewingSheetWrite } from "./brewingSheetServer";
 
 export type BrewSheetCreationJob = {
   batchNumber: string;
@@ -41,7 +41,7 @@ export async function enqueueBrewSheetCreation(input: {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`brewSheetCreationJobs/${batchNumber}: ${message}`);
   }
-  return batchNumber;
+  // Fire immediately after the durable Firestore write. Maintenance remains a\n  // fallback only; a failed/closed request leaves the queued job intact.\n  void serverProcessQueuedBrewSheetJob(batchNumber).catch((error) => {\n    console.warn("Immediate brew Sheet worker failed; maintenance will retry", error);\n  });\n  return batchNumber;
 }
 
 export async function loadOpenBrewSheetCreationJobs(): Promise<BrewSheetCreationJob[]> {
