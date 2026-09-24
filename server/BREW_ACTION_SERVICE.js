@@ -181,6 +181,14 @@ function processAction0(fermentor) {
     return;
   }
 
+  // extractBrewStageInfo can take long enough for the user to cancel or
+  // reassign this brew. Never let a stale ACTION-0 iteration write into the
+  // tank after that happened.
+  if (!brewActionTankStillCurrent_(fermentor)) {
+    Logger.log("Tank " + tankNumber + ": ACTION 0 became stale while reading Sheet; skipping writes.");
+    return;
+  }
+
   try {
 
     updateFermentorBrewProgress(
@@ -251,6 +259,33 @@ function processAction0(fermentor) {
   }
 }
 
+
+
+function brewActionTankStillCurrent_(fermentor) {
+  const fermentorId = String(fermentor.tankNumber || fermentor.uid || "").trim();
+  if (!fermentorId) return false;
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId);
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) return false;
+  const fields = (JSON.parse(response.getContentText()) || {}).fields || {};
+  const action = Number((fields.action || {}).integerValue);
+  const batch = parseBatchNumber(
+    (fields.batchNumber || {}).stringValue || (fields.batchNumber || {}).integerValue
+  );
+  const sheetUrl =
+    (fields.sheetUrl || {}).stringValue || "";
+  return action === 0 &&
+    batch === parseBatchNumber(fermentor.batchNumber) &&
+    String(sheetUrl).trim() === String(fermentor.sheetUrl || "").trim();
+}
 
 // ============================================================
 // ACTION 1
@@ -331,6 +366,19 @@ function processAction5(
   // Upload the brew/history first, but deliberately suppress the helper's
   // legacy fermentor side effect. ACTION 5 owns the tank transition and commits
   // all tank fields in one Firestore PATCH below.
+  // A cancellation can trash the Sheet while this maintenance execution is
+  // still holding a stale Drive candidate. Do not resurrect that cancelled brew.
+  try {
+    const nextFileId = brewingSheetExtractId_(nextBrew.sheetUrl);
+    if (nextFileId && DriveApp.getFileById(nextFileId).isTrashed()) {
+      Logger.log("ACTION 5 skipped trashed/cancelled brew " + nextBrew.batchNumber);
+      return;
+    }
+  } catch (fileError) {
+    Logger.log("ACTION 5 candidate no longer available: " + fileError.message);
+    return;
+  }
+
   const uploadedBrew =
     uploadBrewToFirebase(
       nextBrew.sheetUrl,
