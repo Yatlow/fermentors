@@ -310,9 +310,9 @@ function brewingSheetCreate_(data) {
         // row onto every inserted rest3/heat3/LT row. Values are untouched.
         const insertedProcessRows = {};
         data.initialWrites.forEach(function (item) {
-          const match = String(item.range || "").match(/!D(\\d+)$/);
+          const match = String(item.range || "").match(/!D(\d+)$/);
           const label = String(item.value || "").trim();
-          if (match && /^(השריה 3|חימום 3|העברה ל L\\.T|מנוחת L\\.T)$/.test(label)) {
+          if (match && /^(השריה 3|חימום 3|העברה ל L\.T|מנוחת L\.T)$/.test(label)) {
             insertedProcessRows[Number(match[1])] = true;
           }
         });
