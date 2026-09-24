@@ -191,17 +191,45 @@ export type BrewingDriveHistoryRow = {
   tankType: "single" | "double" | "triple";
 };
 
+let brewHistoryCache: { rows: BrewingDriveHistoryRow[]; loadedAt: number; limit: number } | null = null;
+let brewHistoryInFlight: Promise<BrewingDriveHistoryRow[]> | null = null;
+const BREW_HISTORY_CLIENT_CACHE_MS = 30_000;
+
 export async function serverListBrewDriveHistory(limit = 100) {
-  const response = await callAppsScriptPost<
-    AppsScriptEnvelope<BrewingDriveHistoryRow[]>
-  >({
-    action: "BrewSheetListHistory",
-    limit,
-  });
-  return unwrapAppsScriptResult(
-    response,
-    "טעינת היסטוריית הבישולים מ-Drive נכשלה.",
-  );
+  const now = Date.now();
+  if (
+    brewHistoryCache &&
+    now - brewHistoryCache.loadedAt < BREW_HISTORY_CLIENT_CACHE_MS &&
+    brewHistoryCache.limit >= limit
+  ) {
+    return brewHistoryCache.rows.slice(0, limit);
+  }
+  if (brewHistoryInFlight) {
+    const rows = await brewHistoryInFlight;
+    return rows.slice(0, limit);
+  }
+
+  brewHistoryInFlight = (async () => {
+    const response = await callAppsScriptPost<
+      AppsScriptEnvelope<BrewingDriveHistoryRow[]>
+    >({
+      action: "BrewSheetListHistory",
+      limit: Math.max(limit, 100),
+    }, { retries: 0 });
+    const rows = unwrapAppsScriptResult(
+      response,
+      "טעינת היסטוריית הבישולים מ-Drive נכשלה.",
+    );
+    brewHistoryCache = { rows, loadedAt: Date.now(), limit: Math.max(limit, 100) };
+    return rows;
+  })();
+
+  try {
+    const rows = await brewHistoryInFlight;
+    return rows.slice(0, limit);
+  } finally {
+    brewHistoryInFlight = null;
+  }
 }
 
 export async function serverLoadBrewAcidHistory(
