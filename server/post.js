@@ -101,7 +101,8 @@ function flushLogs_() {
 // ============================================================
 
 const POST_IDEMPOTENCY_PREFIX = "post_idempotency:";
-const POST_IDEMPOTENCY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const POST_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const POST_PROPERTY_SOFT_LIMIT = 420000;
 const POST_IDEMPOTENCY_IN_PROGRESS_TTL_MS = 2 * 60 * 1000;
 const POST_IDEMPOTENCY_WAIT_MS = 20000;
 const POST_IDEMPOTENCY_POLL_MS = 250;
@@ -155,6 +156,37 @@ function postReadIdempotencyRecord_(key) {
   }
 }
 
+function postTrimScriptProperties_() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  const disposable = Object.keys(all)
+    .filter(function (key) {
+      return key.indexOf(POST_IDEMPOTENCY_PREFIX) === 0 || key.indexOf(ASYNC_LOG_PREFIX) === 0;
+    })
+    .map(function (key) { return { key: key, value: String(all[key] || "") }; })
+    .sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+  let total = Object.keys(all).reduce(function (sum, key) {
+    return sum + key.length + String(all[key] || "").length;
+  }, 0);
+  while (total > POST_PROPERTY_SOFT_LIMIT && disposable.length) {
+    const item = disposable.shift();
+    props.deleteProperty(item.key);
+    total -= item.key.length + item.value.length;
+  }
+}
+
+function postSetPropertyWithQuotaRecovery_(key, value) {
+  const props = PropertiesService.getScriptProperties();
+  try {
+    props.setProperty(key, value);
+  } catch (error) {
+    const message = String(error && error.message || error);
+    if (!/quota|property|properties|מכסה|נכס/i.test(message)) throw error;
+    postTrimScriptProperties_();
+    props.setProperty(key, value);
+  }
+}
+
 function postClaimIdempotencyRequest_(action, requestId) {
   const key = postIdempotencyKey_(action, requestId);
   const lock = LockService.getScriptLock();
@@ -180,7 +212,7 @@ function postClaimIdempotencyRequest_(action, requestId) {
       return { key: key, state: "in_progress" };
     }
 
-    PropertiesService.getScriptProperties().setProperty(
+    postSetPropertyWithQuotaRecovery_(
       key,
       JSON.stringify({
         state: "in_progress",
@@ -214,7 +246,7 @@ function postWaitForIdempotencyResult_(key) {
 }
 
 function postSaveIdempotencyResult_(key, action, requestId, response) {
-  PropertiesService.getScriptProperties().setProperty(
+  postSetPropertyWithQuotaRecovery_(
     key,
     JSON.stringify({
       state: "done",
