@@ -369,7 +369,9 @@ function processAction5(
   // A cancellation can trash the Sheet while this maintenance execution is
   // still holding a stale Drive candidate. Do not resurrect that cancelled brew.
   try {
-    const nextFileId = brewingSheetExtractId_(nextBrew.sheetUrl);
+    const nextFileId = typeof brewingSheetExtractId_ === "function"
+      ? brewingSheetExtractId_(nextBrew.sheetUrl)
+      : String(nextBrew.sheetUrl || "").trim();
     if (nextFileId && DriveApp.getFileById(nextFileId).isTrashed()) {
       Logger.log("ACTION 5 skipped trashed/cancelled brew " + nextBrew.batchNumber);
       return;
