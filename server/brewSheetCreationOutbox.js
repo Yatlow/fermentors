@@ -26,6 +26,10 @@ function brewCreatePendingJobs_() {
             value: { stringValue: "queued" }
           }
         },
+        orderBy: [
+          { field: { fieldPath: "createdAt" }, direction: "ASCENDING" },
+          { field: { fieldPath: "__name__" }, direction: "ASCENDING" }
+        ],
         limit: BREW_CREATE_JOB_LIMIT_
       }
     })
