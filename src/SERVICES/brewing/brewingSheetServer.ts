@@ -139,16 +139,8 @@ export async function serverPrintBrewSheetPdf(input: {
     AppsScriptEnvelope<{
       fileName: string;
       mimeType: string;
-      parts: Array<{ fileName: string; mimeType: string; base64: string }>;
-      cover: {
-        batchNumber: string;
-        tankNumber: string;
-        style: string;
-        tankType: "single" | "double" | "triple";
-        brewDate: string;
-      };
+      base64: string;
       pages: number;
-      timing?: { totalMs: number; parts: number };
     }>
   >({
     action: "BrewSheetPrintPdf",
