@@ -302,6 +302,27 @@ function brewingSheetCreate_(data) {
           { valueInputOption: "RAW", data: batchData },
           fileId
         );
+
+        // The master has borders for the normal two-rest flow. Wheat/other
+        // three-rest recipes reuse previously blank process rows, so writing
+        // the labels alone leaves them visually floating with no writing line.
+        // Copy the exact bottom-border formatting from the preceding process
+        // row onto every inserted rest3/heat3/LT row. Values are untouched.
+        const insertedProcessRows = {};
+        data.initialWrites.forEach(function (item) {
+          const match = String(item.range || "").match(/!D(\\d+)$/);
+          const label = String(item.value || "").trim();
+          if (match && /^(השריה 3|חימום 3|העברה ל L\\.T|מנוחת L\\.T)$/.test(label)) {
+            insertedProcessRows[Number(match[1])] = true;
+          }
+        });
+        const sheet = ss.getSheets()[0];
+        Object.keys(insertedProcessRows).forEach(function (rowText) {
+          const row = Number(rowText);
+          if (!Number.isFinite(row) || row < 2) return;
+          // Process writing area is A:D. copyFormatToRange is formatting-only.
+          sheet.getRange(row - 1, 1, 1, 4).copyFormatToRange(sheet, 1, 4, row, row);
+        });
       }
     }
     const writesMs = Date.now() - writesStartedAt;
