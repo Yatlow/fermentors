@@ -340,6 +340,13 @@ function brewingSheetCreate_(data) {
       });
       SpreadsheetApp.flush();
     }
+    // New brew Sheets use Rubik throughout while preserving every existing
+    // font size, weight, border, merge and alignment from the Master.
+    // setFontFamily changes only the family, so the Master remains the visual
+    // source of truth for all other formatting.
+    ss.getSheets()[0].getDataRange().setFontFamily("Rubik");
+    SpreadsheetApp.flush();
+
     const writesMs = Date.now() - writesStartedAt;
 
     const timing = {
