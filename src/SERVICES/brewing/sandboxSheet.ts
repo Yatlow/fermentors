@@ -152,7 +152,7 @@ export function buildBrewSheetInitialWrites(input: {
         const lotSuffix = lot?.lotNumber ? ` #${lot.lotNumber}` : "";
         writes.push(
           { range: `'גיליון1'!A${row}`, value: 0 },
-          { range: `'גיליון1'!B${row}`, value: hop.aa ?? lot?.alpha ?? "" },
+          { range: `'גיליון1'!B${row}`, value: lot?.alpha ?? hop.aa ?? "" },
           { range: `'גיליון1'!C${row}`, value: `${slot + 1})${ingredientLabel}${lotSuffix}` },
         );
       }
