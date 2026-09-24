@@ -278,7 +278,7 @@ service cloud.firestore {
       // A job contains only a request to create a Sheet; the worker validates
       // and performs the privileged operation. Keep client updates blocked.
       // Reads/deletes remain restricted below.
-      allow create: if true;
+      allow create: if isApprovedUser();
       allow update: if false;
       allow delete: if isApprovedUser();
     }
