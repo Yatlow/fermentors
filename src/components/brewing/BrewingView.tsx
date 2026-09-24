@@ -224,7 +224,6 @@ export default function BrewingView({ brews, tab }: Props) {
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
-    const [deletedBatchNumbers, setDeletedBatchNumbers] = useState<Set<string>>(() => new Set());
 
     const demoTankAsFermentor = useMemo<Fermentor>(
         () => ({
@@ -383,9 +382,9 @@ export default function BrewingView({ brews, tab }: Props) {
         );
         return planningHints.filter((hint) => {
             const batch = String(hint.batchNumber).replace("#", "").trim();
-            return !created.has(batch) && !deletedBatchNumbers.has(batch);
+            return !created.has(batch);
         });
-    }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory, deletedBatchNumbers]);
+    }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory]);
 
     const pendingProductionRuns = useMemo(() => {
         const plannedByBatch = new Map(
@@ -976,7 +975,6 @@ export default function BrewingView({ brews, tab }: Props) {
                     (row) => String(row.batchNumber).replace("#", "").trim() !== run.batchNumber,
                 ),
             );
-            setDeletedBatchNumbers((current) => new Set(current).add(run.batchNumber));
             setPendingProductionRows((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
             setMessage(`✓ אצווה ${run.batchNumber} נמחקה.`);
         } catch (error) {
@@ -1055,7 +1053,6 @@ export default function BrewingView({ brews, tab }: Props) {
                 });
             }
             setSelectedRun(null);
-            setDeletedBatchNumbers((current) => new Set(current).add(run.batchNumber));
             setPendingProductionRows((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
             setProductionHistory((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
             const restoredBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();
