@@ -543,11 +543,26 @@ function brewingSheetPrintPdf_(data) {
       const printColumns = Math.min(9, brew.getMaxColumns());
       const printRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, printColumns);
       printRange.setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
-      // The raw-material panel is the A:C side of every brew form. Keep the
-      // sheet/page RTL, but render this panel LTR so numbered ingredients,
-      // lots, alpha values and quantities keep their natural order.
-      brew.getRange(firstRow, 1, lastRow - firstRow + 1, Math.min(3, printColumns))
-        .setTextDirection(SpreadsheetApp.TextDirection.LEFT_TO_RIGHT);
+
+      // The A:C raw-material panel contains mixed Hebrew + Latin/numeric text.
+      // Do not force the whole panel LTR: that reverses Hebrew headings. Keep
+      // Hebrew cells RTL and switch only cells whose actual content begins with
+      // Latin text, a number or a numbered ingredient marker.
+      const materialColumns = Math.min(3, printColumns);
+      const materialRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, materialColumns);
+      const materialDisplay = materialRange.getDisplayValues();
+      materialDisplay.forEach(function (row, r) {
+        row.forEach(function (value, col) {
+          const text = String(value || "").trim();
+          if (!text) return;
+          const firstStrongIsLatinOrNumber = /^[0-9A-Za-z#(]/.test(text);
+          materialRange.getCell(r + 1, col + 1).setTextDirection(
+            firstStrongIsLatinOrNumber
+              ? SpreadsheetApp.TextDirection.LEFT_TO_RIGHT
+              : SpreadsheetApp.TextDirection.RIGHT_TO_LEFT
+          );
+        });
+      });
 
       // Print-only units. Batch operations are critical here: the previous
       // cell-by-cell getRange/setValue/getFontSize loop could take minutes.
@@ -583,12 +598,19 @@ function brewingSheetPrintPdf_(data) {
 
         const volumeCol = findLabelColumn(row, /^(?:סיר\s*בישול|סוף\s*רתיחה|תחילת\s*תסיסה)$/i);
         if (volumeCol >= 0) {
-          const platoUnitCol = volumeCol + 1;
-          // Keep "ליטר" one cell farther from the process label. In the RTL
-          // print layout +3 visually collided with סוף רתיחה/תחילת תסיסה.
-          const literUnitCol = volumeCol + 4;
-          if (platoUnitCol < row.length) row[platoUnitCol] = "°P";
-          if (literUnitCol < row.length) row[literUnitCol] = "ליטר";
+          // Match the original Sheet exactly (see the source form): label in A,
+          // measured Plato in B, volume in C. These are print-only suffixes,
+          // appended to the value instead of occupying/overwriting another cell.
+          const platoValueCol = volumeCol + 1;
+          const literValueCol = volumeCol + 2;
+          if (platoValueCol < row.length) {
+            const value = String(row[platoValueCol] || "").trim();
+            if (value && !/°P$/i.test(value)) row[platoValueCol] = value + "°P";
+          }
+          if (literValueCol < row.length) {
+            const value = String(row[literValueCol] || "").trim();
+            if (value && !/ליטר$/.test(value)) row[literValueCol] = value + " ליטר";
+          }
         }
       });
       printRange.setValues(display);
