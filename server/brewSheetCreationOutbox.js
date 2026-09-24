@@ -178,13 +178,9 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
 }
 
 function processBrewSheetCreationJobNow_(jobId) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) {
-    return { queued: true, busy: true };
-  }
-  try {
-    return processPendingBrewSheetCreationJobs_(String(jobId || ""));
-  } finally {
-    lock.releaseLock();
-  }
+  // Do not hold the global ScriptLock while copying/initialising a Sheet.
+  // The durable Firestore job is already the unit of work, and the generic
+  // doPost idempotency layer protects a single request from replay. Holding
+  // ScriptLock here made every unrelated POST wait behind 30-45s Drive work.
+  return processPendingBrewSheetCreationJobs_(String(jobId || ""));
 }
