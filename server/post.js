@@ -119,7 +119,7 @@ const POST_MUTATION_ACTIONS = {
   addFermentationMeasurement: true,
   triggerTankUpdate: true,
   manualNightSync: true,
-  BrewSheetCreate: true,
+  BrewSheetCreate: true,\n  BrewSheetProcessQueuedJob: true,
   // Cell writes are already conflict-guarded by expectedValue in
   // brewingSheetWriteCells_. Keeping them in the long-lived generic
   // idempotency cache can strand the UI behind an "in_progress" record after
@@ -548,6 +548,16 @@ function executePostAction_(data) {
       action: "manualNightSync",
       result: result,
       message: result.message || undefined
+    };
+  }
+
+  if (data.action === "BrewSheetProcessQueuedJob") {
+    const jobId = String(data.jobId || "").replace("#", "").trim();
+    if (!/^\\d+$/.test(jobId)) throw new Error("Invalid brew creation jobId");
+    return {
+      success: true,
+      action: "BrewSheetProcessQueuedJob",
+      result: processBrewSheetCreationJobNow_(jobId)
     };
   }
 
