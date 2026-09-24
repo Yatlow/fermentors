@@ -126,6 +126,29 @@ export async function serverReadBrewSheetRange(
   return result;
 }
 
+export async function serverPrintBrewSheetPdf(input: {
+  spreadsheetId: string;
+  batchNumber: string;
+  tankNumber: string;
+  style: string;
+  tankType: "single" | "double" | "triple";
+  brewDate?: string;
+  mashRestCount?: number;
+}) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{
+      fileName: string;
+      mimeType: string;
+      base64: string;
+      pages: number;
+    }>
+  >({
+    action: "BrewSheetPrintPdf",
+    ...input,
+  }, { retries: 0, timeoutMs: 120000 });
+  return unwrapAppsScriptResult(response, "יצירת PDF משולב לבישול נכשלה.");
+}
+
 export async function serverTrashBrewSheet(spreadsheetId: string) {
   const response = await callAppsScriptPost<
     AppsScriptEnvelope<{ spreadsheetId: string; trashed: boolean }>
