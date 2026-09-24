@@ -61,24 +61,14 @@ function brewActionService() {
 
   Logger.log("Fermentors found: " + fermentors.length);
 
-  const needsCandidates = fermentors.some(function (fermentor) {
-    return parseAction(fermentor.action) === 5;
-  });
-
-  let candidates = [];
-
-  if (needsCandidates) {
-
-    candidates = getBrewFolderCandidatesCached();
-
-    Logger.log(
-      "ACTION 5 candidates prepared ONCE: " +
-      candidates.length
-    );
-  }
-
-  // One extractBrew cache for the entire execution.
-  const brewExtractCache = {};
+  // ACTION 5 now discovers app-created brews from Firestore first.
+  // Keep Drive discovery lazy: only legacy/manual Sheets that are not represented
+  // in pendingBrews should ever trigger the expensive recursive folder scan.
+  const action5Context = {
+    pendingBrews: null,
+    candidates: null,
+    brewExtractCache: {}
+  };
 
   let action0Processed = 0;
   let action1Processed = 0;
@@ -108,8 +98,7 @@ function brewActionService() {
 
         processAction5(
           fermentor,
-          candidates,
-          brewExtractCache
+          action5Context
         );
 
         return;
@@ -321,8 +310,7 @@ function processAction1(fermentor) {
 
 function processAction5(
   fermentor,
-  candidates,
-  brewExtractCache
+  context
 ) {
 
   const tankNumber =
@@ -344,13 +332,34 @@ function processAction5(
     return;
   }
 
-  const nextBrew =
-    findNextBrewForTankRecursive(
+  context = context || { pendingBrews: null, candidates: null, brewExtractCache: {} };
+
+  if (context.pendingBrews === null) {
+    context.pendingBrews = getPendingBrewsForAction5_();
+  }
+
+  let nextBrew = findNextPendingBrewForTank_(
+    tankNumber,
+    currentBatch,
+    context.pendingBrews
+  );
+
+  if (nextBrew) {
+    Logger.log("ACTION 5: using pendingBrews for tank " + tankNumber + " -> batch " + nextBrew.batchNumber);
+  } else {
+    // Legacy/manual Sheets have no pendingBrews document. Only then pay for
+    // Drive Changes + recursive folder discovery, once per execution.
+    if (context.candidates === null) {
+      context.candidates = getBrewFolderCandidatesCached();
+      Logger.log("ACTION 5 legacy Drive candidates prepared: " + context.candidates.length);
+    }
+    nextBrew = findNextBrewForTankRecursive(
       tankNumber,
       currentBatch,
-      candidates,
-      brewExtractCache
+      context.candidates,
+      context.brewExtractCache
     );
+  }
 
   if (!nextBrew) {
 
@@ -400,6 +409,68 @@ function processAction5(
     " -> batch " +
     nextBrew.batchNumber
   );
+}
+
+
+// ============================================================
+// ACTION 5: FIRESTORE-FIRST DISCOVERY
+// ============================================================
+
+function getPendingBrewsForAction5_() {
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/pendingBrews?pageSize=1000";
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error("ACTION 5: failed loading pendingBrews: " + code);
+  }
+
+  const data = JSON.parse(response.getContentText() || "{}");
+  return (data.documents || []).map(function (document) {
+    const fields = document.fields || {};
+    const result = {};
+    Object.keys(fields).forEach(function (key) {
+      result[key] = normalizeFirestoreValue(fields[key]);
+    });
+    return result;
+  });
+}
+
+function findNextPendingBrewForTank_(tankNumber, currentBatch, pendingBrews) {
+  const targetTank = normalizeTankNumber(tankNumber);
+  return (pendingBrews || [])
+    .filter(function (brew) {
+      const batch = parseBatchNumber(brew.batchNumber);
+      return batch !== null &&
+        batch > currentBatch &&
+        tankNumbersEqual(brew.tankNumber, targetTank) &&
+        String(brew.sheetUrl || "").trim();
+    })
+    .sort(function (a, b) {
+      return parseBatchNumber(a.batchNumber) - parseBatchNumber(b.batchNumber);
+    })
+    .map(function (brew) {
+      const batch = parseBatchNumber(brew.batchNumber);
+      return {
+        found: true,
+        batchNumber: String(batch),
+        tankNumber: tankNumber,
+        beerStyle: brew.beerStyle || "",
+        brewDate: brew.brewDate || null,
+        beerVolume: brew.beerVolume || null,
+        startingPlato: brew.startingPlato || null,
+        sheetUrl: String(brew.sheetUrl || ""),
+        fileId: String(brew.fileId || ""),
+        fileName: String(brew.fileName || "")
+      };
+    })[0] || null;
 }
 
 
