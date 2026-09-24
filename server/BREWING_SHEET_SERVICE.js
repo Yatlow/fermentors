@@ -323,12 +323,20 @@ function brewingSheetCreate_(data) {
         const insertAt = baseRow + 10; // immediately before "העברה ל L.T."
         sheet.insertRowsBefore(insertAt, 2);
 
-        // Reuse the established rest/heat row formatting, including writing
-        // lines and alignment, rather than synthesizing borders.
-        sheet.getRange(baseRow + 6, 1, 1, 4)
-          .copyFormatToRange(sheet, 1, 4, insertAt, insertAt);
-        sheet.getRange(baseRow + 8, 1, 1, 4)
-          .copyFormatToRange(sheet, 1, 4, insertAt + 1, insertAt + 1);
+        // Match a real process row, not just its font. The writing area is
+        // E:H in the Master (notes / end / start / temperature), while D is
+        // the operation label. Inserted rows are blank, so copy the established
+        // borders/padding across A:H and then restore only the new labels.
+        sheet.getRange(baseRow + 6, 1, 1, 8)
+          .copyFormatToRange(sheet, 1, 8, insertAt, insertAt);
+        sheet.getRange(baseRow + 8, 1, 1, 8)
+          .copyFormatToRange(sheet, 1, 8, insertAt + 1, insertAt + 1);
+
+        // Keep the same vertical rhythm as the existing mash rows. Newly
+        // inserted rows otherwise inherit Google's default height and look
+        // compressed even when their borders are correct.
+        sheet.setRowHeight(insertAt, sheet.getRowHeight(baseRow + 6));
+        sheet.setRowHeight(insertAt + 1, sheet.getRowHeight(baseRow + 8));
 
         sheet.getRange(insertAt, 4).setValue("השריה 3");
         sheet.getRange(insertAt + 1, 4).setValue("חימום 3");
