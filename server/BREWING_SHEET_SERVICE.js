@@ -321,25 +321,22 @@ function brewingSheetCreate_(data) {
       // Master coordinates. Earlier insertions naturally move later blocks.
       originalBlockStarts.slice().reverse().forEach(function (baseRow) {
         const insertAt = baseRow + 10; // immediately before "העברה ל L.T."
-        sheet.insertRowsBefore(insertAt, 2);
+        sheet.insertRowsBefore(insertAt, 4);
 
-        // Match a real process row, not just its font. The writing area is
-        // E:H in the Master (notes / end / start / temperature), while D is
-        // the operation label. Inserted rows are blank, so copy the established
-        // borders/padding across A:H and then restore only the new labels.
-        sheet.getRange(baseRow + 6, 1, 1, 8)
-          .copyFormatToRange(sheet, 1, 8, insertAt, insertAt);
-        sheet.getRange(baseRow + 8, 1, 1, 8)
-          .copyFormatToRange(sheet, 1, 8, insertAt + 1, insertAt + 1);
-
-        // Keep the same vertical rhythm as the existing mash rows. Newly
-        // inserted rows otherwise inherit Google's default height and look
-        // compressed even when their borders are correct.
+        // Existing mash stages occupy two rows each: the labelled writing row
+        // followed by its spacing row. Copy both pairs so rest3/heat3 have the
+        // exact same visual rhythm before the L.T. transfer.
+        sheet.getRange(baseRow + 6, 1, 2, 8)
+          .copyFormatToRange(sheet, 1, 8, insertAt, insertAt + 1);
+        sheet.getRange(baseRow + 8, 1, 2, 8)
+          .copyFormatToRange(sheet, 1, 8, insertAt + 2, insertAt + 3);
         sheet.setRowHeight(insertAt, sheet.getRowHeight(baseRow + 6));
-        sheet.setRowHeight(insertAt + 1, sheet.getRowHeight(baseRow + 8));
+        sheet.setRowHeight(insertAt + 1, sheet.getRowHeight(baseRow + 7));
+        sheet.setRowHeight(insertAt + 2, sheet.getRowHeight(baseRow + 8));
+        sheet.setRowHeight(insertAt + 3, sheet.getRowHeight(baseRow + 9));
 
         sheet.getRange(insertAt, 4).setValue("השריה 3");
-        sheet.getRange(insertAt + 1, 4).setValue("חימום 3");
+        sheet.getRange(insertAt + 2, 4).setValue("חימום 3");
       });
       SpreadsheetApp.flush();
     }
@@ -389,7 +386,7 @@ function brewingSheetPrintPdf_(data) {
   const brewDate = String(data.brewDate || "").trim();
   const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
   const mashRestCount = Number(data.mashRestCount || 2);
-  const lastBrewRow = blockCount * 50 + (mashRestCount >= 3 ? blockCount * 2 : 0);
+  const lastBrewRow = blockCount * 50 + (mashRestCount >= 3 ? blockCount * 4 : 0);
 
   const source = SpreadsheetApp.openById(sourceId);
   const sourceSheet = source.getSheets()[0];
@@ -406,7 +403,7 @@ function brewingSheetPrintPdf_(data) {
     cover.setColumnWidths(1, 8, 90);
     for (let row = 1; row <= 34; row++) cover.setRowHeight(row, 22);
     cover.setRowHeights(8, 5, 34);
-    cover.getRange("A1:H34").setFontFamily("Arial").setHorizontalAlignment("center");
+    cover.getRange("A1:H34").setFontFamily("Rubik").setHorizontalAlignment("center");
     cover.getRange("A2:H3").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
     cover.getRange("A7:H13").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
       .setVerticalAlignment("middle");
@@ -422,6 +419,7 @@ function brewingSheetPrintPdf_(data) {
     // Pages 2+: copy the actual worksheet, with all formatting/merges/widths,
     // then trim everything after the brew blocks so fermentation is not printed.
     const brew = sourceSheet.copyTo(temp).setName("BREW");
+    brew.setRightToLeft(true);
     if (brew.getMaxRows() > lastBrewRow) {
       brew.deleteRows(lastBrewRow + 1, brew.getMaxRows() - lastBrewRow);
     }
