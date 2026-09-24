@@ -224,6 +224,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [historyLoading, setHistoryLoading] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
+    const [deletedBatchNumbers, setDeletedBatchNumbers] = useState<Set<string>>(() => new Set());
 
     const demoTankAsFermentor = useMemo<Fermentor>(
         () => ({
@@ -380,10 +381,11 @@ export default function BrewingView({ brews, tab }: Props) {
                 ...productionHistory.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
             ].filter(Boolean),
         );
-        return planningHints.filter(
-            (hint) => !created.has(String(hint.batchNumber).replace("#", "").trim()),
-        );
-    }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory]);
+        return planningHints.filter((hint) => {
+            const batch = String(hint.batchNumber).replace("#", "").trim();
+            return !created.has(batch) && !deletedBatchNumbers.has(batch);
+        });
+    }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory, deletedBatchNumbers]);
 
     const pendingProductionRuns = useMemo(() => {
         const plannedByBatch = new Map(
@@ -970,6 +972,8 @@ export default function BrewingView({ brews, tab }: Props) {
                     (row) => String(row.batchNumber).replace("#", "").trim() !== run.batchNumber,
                 ),
             );
+            setDeletedBatchNumbers((current) => new Set(current).add(run.batchNumber));
+            setPendingProductionRows((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
             setMessage(`✓ אצווה ${run.batchNumber} נמחקה.`);
         } catch (error) {
             setMessage(error instanceof Error ? `האצווה לא נמחקה: ${error.message}` : "מחיקת האצווה נכשלה.");
@@ -1047,6 +1051,9 @@ export default function BrewingView({ brews, tab }: Props) {
                 });
             }
             setSelectedRun(null);
+            setDeletedBatchNumbers((current) => new Set(current).add(run.batchNumber));
+            setPendingProductionRows((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
+            setProductionHistory((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
             const restoredBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();
             setMessage(restoredBatch ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${restoredBatch} וה-state הקודם שלה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
         } catch (error) {
