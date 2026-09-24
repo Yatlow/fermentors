@@ -218,18 +218,17 @@ function brewingSheetCreate_(data) {
   if (!/^\d+$/.test(batchNumber)) throw new Error("Invalid batchNumber");
 
   const config = brewingSheetTemplateForType_(data.tankType);
-
-  // Final duplicate guard lives on the server, immediately before copying the
-  // template. Do not rely on the UI history cache: manually-created Sheets and
-  // two clients racing each other must still be blocked.
   const duplicateLock = LockService.getScriptLock();
   if (!duplicateLock.tryLock(5000)) throw new Error("Brew Sheet creation is busy; retry");
-  let duplicateFound = false;
+
+  let copy = null;
   try {
+    // Server-side source of truth: scan Drive while holding the creation lock.
+    // This also catches manually-created Sheets and closes the two-client race.
     const candidates = typeof scanBrewFolderCandidates === "function"
       ? (scanBrewFolderCandidates() || [])
       : (typeof getBrewFolderCandidatesCached === "function" ? (getBrewFolderCandidatesCached() || []) : []);
-    duplicateFound = candidates.some(function (candidate) {
+    const duplicateFound = candidates.some(function (candidate) {
       const name = String(candidate.fileName || "");
       const batch = String(candidate.batch || brewingSheetBatchFromName_(name) || "").replace("#", "").trim();
       if (batch !== batchNumber) return false;
@@ -240,26 +239,24 @@ function brewingSheetCreate_(data) {
       }
     });
     if (duplicateFound) throw new Error("Batch " + batchNumber + " already has a Brew Sheet");
+
     const style = String(data.style || "").trim();
-  const tankNumber = String(data.tankNumber || "").trim();
-  const name =
-    String(data.name || "").trim() ||
-    [style || "בישול", batchNumber + "#"].join(" ");
+    const tankNumber = String(data.tankNumber || "").trim();
+    const name = String(data.name || "").trim() || [style || "בישול", batchNumber + "#"].join(" ");
 
-  const resolveStartedAt = Date.now();
-  const template = DriveApp.getFileById(config.templateId);
-  const folder = DriveApp.getFolderById(config.folderId);
-  const resolveMs = Date.now() - resolveStartedAt;
+    const resolveStartedAt = Date.now();
+    const template = DriveApp.getFileById(config.templateId);
+    const folder = DriveApp.getFolderById(config.folderId);
+    const resolveMs = Date.now() - resolveStartedAt;
 
-  const copyStartedAt = Date.now();
-  const copy = template.makeCopy(name, folder);
-  const copyMs = Date.now() - copyStartedAt;
-  const fileId = copy.getId();
+    const copyStartedAt = Date.now();
+    copy = template.makeCopy(name, folder);
+    const copyMs = Date.now() - copyStartedAt;
+    const fileId = copy.getId();
 
-  brewingSheetRememberCreated_(fileId);
-  brewingSheetInvalidateHistoryCache_();
+    brewingSheetRememberCreated_(fileId);
+    brewingSheetInvalidateHistoryCache_();
 
-  try {
     const openStartedAt = Date.now();
     const ss = SpreadsheetApp.openById(fileId);
     const openMs = Date.now() - openStartedAt;
@@ -270,8 +267,6 @@ function brewingSheetCreate_(data) {
 
     const writesStartedAt = Date.now();
     let writeCount = 0;
-    // Creation deliberately does NOT set the brew date.
-    // The date is entered by the brewer in the first step when brewing begins.
     if (data.initialWrites && Array.isArray(data.initialWrites)) {
       data.initialWrites.forEach(function (item) {
         const rangeText = String(item.range || "").trim();
@@ -294,9 +289,7 @@ function brewingSheetCreate_(data) {
       totalMs: Date.now() - startedAt
     };
     console.log("BrewSheetCreate timing " + JSON.stringify(timing));
-    if (typeof logToSheet === "function") {
-      logToSheet("BrewSheetCreate timing " + JSON.stringify(timing));
-    }
+    if (typeof logToSheet === "function") logToSheet("BrewSheetCreate timing " + JSON.stringify(timing));
 
     return {
       id: fileId,
@@ -307,16 +300,15 @@ function brewingSheetCreate_(data) {
       style: style,
       tankType: config.tankType
     };
-  } finally {
-    duplicateLock.releaseLock();
-  }
   } catch (error) {
-    try {
-      copy.setTrashed(true);
-    } catch (cleanupError) {
-      logToSheet("Failed cleaning orphan Brew Sheet: " + cleanupError.message);
+    if (copy) {
+      try { copy.setTrashed(true); } catch (cleanupError) {
+        logToSheet("Failed cleaning orphan Brew Sheet: " + cleanupError.message);
+      }
     }
     throw error;
+  } finally {
+    duplicateLock.releaseLock();
   }
 }
 
