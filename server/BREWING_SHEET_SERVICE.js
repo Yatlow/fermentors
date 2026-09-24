@@ -393,7 +393,8 @@ function brewingSheetPrintPdf_(data) {
   const brewDate = String(data.brewDate || "").trim();
   const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
   const mashRestCount = Number(data.mashRestCount || 2);
-  const lastBrewRow = blockCount * 50 + (mashRestCount >= 3 ? blockCount * 4 : 0);
+  const blockRows = 50 + (mashRestCount >= 3 ? 4 : 0);
+  const lastBrewRow = blockCount * blockRows;
 
   const source = SpreadsheetApp.openById(sourceId);
   const sourceSheet = source.getSheets()[0];
@@ -401,16 +402,16 @@ function brewingSheetPrintPdf_(data) {
   const tempFile = DriveApp.getFileById(temp.getId());
 
   try {
-    // Page 1: a dedicated cover sheet. Because it is a separate worksheet,
-    // Google PDF export starts the real brew worksheet on the following page.
+    // Page 1: a dedicated cover sheet.
     const cover = temp.getSheets()[0];
     cover.setName("COVER");
     cover.setHiddenGridlines(true);
     cover.setRightToLeft(true);
     cover.setColumnWidths(1, 8, 90);
-    for (let row = 1; row <= 34; row++) cover.setRowHeight(row, 22);
+    cover.setRowHeights(1, 34, 22);
     cover.setRowHeights(8, 5, 34);
-    cover.getRange("A1:H34").setFontFamily("Rubik").setHorizontalAlignment("center");
+    cover.getRange("A1:H34").setFontFamily("Rubik").setHorizontalAlignment("center")
+      .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
     cover.getRange("A2:H3").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
     cover.getRange("A7:H13").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
       .setVerticalAlignment("middle");
@@ -423,22 +424,43 @@ function brewingSheetPrintPdf_(data) {
       .setFontSize(17).setBorder(null, null, true, null, null, null);
     cover.getRange("A1:H34").setBorder(true, true, true, true, null, null);
 
-    // Pages 2+: copy the actual worksheet, with all formatting/merges/widths,
-    // then trim everything after the brew blocks so fermentation is not printed.
-    const brew = sourceSheet.copyTo(temp).setName("BREW");
-    brew.setRightToLeft(true);
-    if (brew.getMaxRows() > lastBrewRow) {
-      brew.deleteRows(lastBrewRow + 1, brew.getMaxRows() - lastBrewRow);
+    // Put every brew block on its own worksheet. Google exports each worksheet
+    // from a fresh page, and scale=4 below fits that worksheet to exactly one A4.
+    // This prevents a block from starting at the bottom of one page and
+    // continuing on the next page.
+    const brewSheets = [];
+    const firstBrew = sourceSheet.copyTo(temp).setName("BREW 1");
+    brewSheets.push(firstBrew);
+    for (let index = 1; index < blockCount; index++) {
+      brewSheets.push(firstBrew.copyTo(temp).setName("BREW " + (index + 1)));
     }
-    if (brew.getMaxColumns() > 9) {
-      brew.deleteColumns(10, brew.getMaxColumns() - 9);
-    }
-    brew.setHiddenGridlines(true);
+
+    brewSheets.forEach(function (brew, index) {
+      const firstRow = index * blockRows + 1;
+      const lastRow = Math.min(firstRow + blockRows - 1, lastBrewRow);
+      brew.setRightToLeft(true);
+      brew.setHiddenGridlines(true);
+
+      if (firstRow > 1) {
+        brew.hideRows(1, firstRow - 1);
+      }
+      if (brew.getMaxRows() > lastRow) {
+        brew.hideRows(lastRow + 1, brew.getMaxRows() - lastRow);
+      }
+      if (brew.getMaxColumns() > 9) {
+        brew.hideColumns(10, brew.getMaxColumns() - 9);
+      }
+
+      // Preserve an RTL page and RTL mixed Hebrew/Latin labels in the PDF.
+      brew.getRange(firstRow, 1, lastRow - firstRow + 1, Math.min(9, brew.getMaxColumns()))
+        .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
+    });
+
     SpreadsheetApp.flush();
 
     const exportUrl =
       "https://docs.google.com/spreadsheets/d/" + temp.getId() + "/export" +
-      "?format=pdf&size=A4&portrait=true&fitw=true" +
+      "?format=pdf&size=A4&portrait=true&scale=4" +
       "&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=false&fzr=false" +
       "&top_margin=0.20&bottom_margin=0.20&left_margin=0.20&right_margin=0.20";
     const response = UrlFetchApp.fetch(exportUrl, {
