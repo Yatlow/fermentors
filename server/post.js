@@ -121,7 +121,10 @@ const POST_MUTATION_ACTIONS = {
   triggerTankUpdate: true,
   manualNightSync: true,
   BrewSheetCreate: true,
-  BrewSheetProcessQueuedJob: true,
+  // Durable Firestore creation jobs are themselves retryable/idempotent. Do not
+  // put the immediate worker behind the global POST ScriptLock: cellar/maintenance
+  // traffic was making the browser worker fail with "idempotency lock busy" and
+  // forcing every new brew to wait for the next maintenance cycle.
   // Cell writes are already conflict-guarded by expectedValue in
   // brewingSheetWriteCells_. Keeping them in the long-lived generic
   // idempotency cache can strand the UI behind an "in_progress" record after
