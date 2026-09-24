@@ -551,18 +551,37 @@ function brewingSheetPrintPdf_(data) {
       const columnWidths = [];
       for (let col = 1; col <= printColumns; col++) columnWidths.push(brew.getColumnWidth(col));
 
-      // Units belong in the same cells as the legacy Excel layout. Process
-      // temperature is column E (not F). Sugar/volume units are decorated only
-      // in the exact rows whose labels identify those fields.
-      display.forEach(function (row, rowOffset) {
-        const rowText = row.join(" ").trim();
-        if (/(השריה|חימום)\s*[1-3]|העברה\s*ל?\s*L\.T\.?|מנוחה\s*L\.T\.?|שטיפה\s*[1-7]/i.test(rowText)) {
-          row[6] = "°C";
+      // Print-only units are positioned relative to the label cell that was
+      // actually found in this Master. Never assume a physical row. RTL affects
+      // visual direction, not the underlying A..I indexes, so the offsets below
+      // are defined from the semantic label itself.
+      function findLabelColumn(row, pattern) {
+        for (let col = 0; col < row.length; col++) {
+          if (pattern.test(String(row[col] || "").trim())) return col;
         }
-        if (/F\.R\.|L\.R\./i.test(rowText)) row[1] = "°P";
-        if (/סיר\s*בישול|סוף\s*רתיחה|תחילת\s*תסיסה/i.test(rowText)) {
-          row[1] = "°P";
-          row[3] = "ליטר";
+        return -1;
+      }
+      display.forEach(function (row) {
+        const processCol = findLabelColumn(row, /^(?:השריה|חימום)\s*[1-3]$|^העברה\s*ל?\s*L\.T\.?$|^מנוחה\s*L\.T\.?$|^שטיפה\s*[1-7]$/i);
+        if (processCol >= 0) {
+          // Legacy form: temperature unit is three logical cells after the
+          // process label. Guard bounds so future narrower Masters stay safe.
+          const tempUnitCol = processCol + 3;
+          if (tempUnitCol < row.length) row[tempUnitCol] = "°C";
+        }
+
+        const sugarCol = findLabelColumn(row, /^(?:F\.R\.|L\.R\.)$/i);
+        if (sugarCol >= 0) {
+          const unitCol = sugarCol + 1;
+          if (unitCol < row.length) row[unitCol] = "°P";
+        }
+
+        const volumeCol = findLabelColumn(row, /^(?:סיר\s*בישול|סוף\s*רתיחה|תחילת\s*תסיסה)$/i);
+        if (volumeCol >= 0) {
+          const platoUnitCol = volumeCol + 1;
+          const literUnitCol = volumeCol + 3;
+          if (platoUnitCol < row.length) row[platoUnitCol] = "°P";
+          if (literUnitCol < row.length) row[literUnitCol] = "ליטר";
         }
       });
       printRange.setValues(display);
