@@ -82,7 +82,8 @@ function brewCreatePublishPending_(job, created) {
 
 function processPendingBrewSheetCreationJobs_() {
   const documents = brewCreatePendingJobs_();
-  const stats = { found: documents.length, ready: 0, failed: 0 };\n  const candidates = documents.length ? (getBrewFolderCandidatesCached() || []).slice() : [];
+  const stats = { found: documents.length, ready: 0, failed: 0 };
+  if (!documents.length) return stats;
 
   documents.forEach(function (document) {
     const jobId = sheetSyncDocumentId_(document);
@@ -93,7 +94,10 @@ function processPendingBrewSheetCreationJobs_() {
       tankType: String(brewCreateJobField_(document, "tankType") || ""),
       name: String(brewCreateJobField_(document, "name") || ""),
       initialWritesJson: String(brewCreateJobField_(document, "initialWritesJson") || "[]"),
-      attempts: Number(brewCreateJobField_(document, "attempts") || 0)
+      attempts: Number(brewCreateJobField_(document, "attempts") || 0),
+      fileId: String(brewCreateJobField_(document, "fileId") || ""),
+      fileName: String(brewCreateJobField_(document, "fileName") || ""),
+      sheetUrl: String(brewCreateJobField_(document, "sheetUrl") || "")
     };
 
     try {
@@ -103,29 +107,43 @@ function processPendingBrewSheetCreationJobs_() {
         updatedAt: new Date().toISOString(),
         lastError: ""
       });
+
       const initialWrites = JSON.parse(job.initialWritesJson);
       if (!Array.isArray(initialWrites)) throw new Error("Invalid initialWritesJson");
-      // Idempotency across worker retries: if a previous attempt created the
-      // Drive file but died before publishing Firestore state, adopt that file
-      // instead of creating a duplicate batch Sheet.
-      const existingCandidate = candidates.find(function (candidate) {
-        return String(candidate.batch || brewingSheetBatchFromName_(candidate.fileName)) === job.batchNumber;
-      });
-      const created = existingCandidate
-        ? {
-            id: String(existingCandidate.fileId || ""),
-            name: String(existingCandidate.fileName || job.name),
-            url: buildSheetUrl(existingCandidate.fileId)
-          }
-        : brewingSheetCreate_({
-            batchNumber: job.batchNumber,
-            style: job.style,
-            tankNumber: job.tankNumber,
-            tankType: job.tankType,
-            name: job.name,
-            initialWrites: initialWrites
-          });
-      if (!existingCandidate && created && created.id) {\n        candidates.push({ batch: Number(job.batchNumber), fileId: created.id, fileName: created.name || job.name });\n      }\n      brewCreatePublishPending_(job, created);
+
+      let created;
+      if (job.fileId) {
+        // Retry an interrupted job directly from its durable fileId. Never scan
+        // the brewing Drive folder to rediscover work already owned by outbox.
+        const file = DriveApp.getFileById(job.fileId);
+        created = {
+          id: job.fileId,
+          name: job.fileName || file.getName(),
+          url: job.sheetUrl || file.getUrl()
+        };
+      } else {
+        created = brewingSheetCreate_({
+          batchNumber: job.batchNumber,
+          style: job.style,
+          tankNumber: job.tankNumber,
+          tankType: job.tankType,
+          name: job.name,
+          initialWrites: initialWrites
+        });
+
+        // Persist identity before publishing pendingBrews. Any later retry can
+        // resume by ID and therefore does not need a Drive folder scan.
+        brewCreatePatchJob_(jobId, {
+          state: "creating",
+          fileId: created.id,
+          fileName: created.name,
+          sheetUrl: created.url,
+          updatedAt: new Date().toISOString(),
+          lastError: ""
+        });
+      }
+
+      brewCreatePublishPending_(job, created);
       brewCreatePatchJob_(jobId, {
         state: "ready",
         fileId: created.id,
@@ -150,6 +168,6 @@ function processPendingBrewSheetCreationJobs_() {
     }
   });
 
-  if (stats.found) console.log("Brew creation outbox: " + JSON.stringify(stats));
+  console.log("Brew creation outbox: " + JSON.stringify(stats));
   return stats;
 }
