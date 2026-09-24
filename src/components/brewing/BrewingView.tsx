@@ -466,31 +466,28 @@ export default function BrewingView({ brews, tab }: Props) {
             .slice(0, query ? 30 : 12);
     }, [driveProductionRuns, pendingBatchNumbers, historyQuery]);
 
-    // Pre-generate every not-yet-started brew that currently exposes a print
-    // action: both ACTION-0 tanks and newly-created pending brews. Keeping
-    // history out avoids flooding Apps Script, while restoring the important
-    // behaviour that a fresh brew's PDF is already warm before the user taps.
+    // Warm only the next operational print, not every printable brew. Warming
+    // the whole pending/ACTION-0 list caused one expensive Apps Script doPost
+    // per batch whenever the brewing screen was opened. The newest pending brew
+    // is the one normally printed immediately after creation; otherwise warm
+    // the first ACTION-0 brew. prepareBrewPrint still caches the result so the
+    // actual print tap reuses this request.
     useEffect(() => {
         if (tab !== "form") return;
 
-        const printableRuns = [
-            ...actionZeroProductionTanks
-                .map(productionRunFromTank)
-                .filter((run): run is SandboxBrewRun => !!run && !run.brewProgress?.stageName),
-            ...pendingProductionRuns,
-        ];
-        const uniqueRuns = Array.from(
-            new Map(printableRuns.map((run) => [run.batchNumber, run])).values(),
-        );
+        const newestPending = pendingProductionRuns.at(-1) || null;
+        const nextActionZero = actionZeroProductionTanks
+            .map(productionRunFromTank)
+            .find((run): run is SandboxBrewRun => !!run && !run.brewProgress?.stageName) || null;
+        const run = newestPending || nextActionZero;
+        if (!run) return;
 
-        uniqueRuns.forEach((run) => {
-            const matchingRecipe =
-                run.recipeSnapshot ||
-                recipes.find((recipe) => sameStyle(recipe.style, run.style));
-            const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
-            void prepareBrewPrint(run, mashRestCount).catch((error) => {
-                console.warn("Brew print pre-generation failed", run.batchNumber, error);
-            });
+        const matchingRecipe =
+            run.recipeSnapshot ||
+            recipes.find((recipe) => sameStyle(recipe.style, run.style));
+        const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
+        void prepareBrewPrint(run, mashRestCount).catch((error) => {
+            console.warn("Brew print pre-generation failed", run.batchNumber, error);
         });
     }, [tab, actionZeroProductionTanks, pendingProductionRuns, recipes]);
 
