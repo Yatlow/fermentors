@@ -379,6 +379,85 @@ function brewingSheetCreate_(data) {
   }
 }
 
+
+function brewingSheetPrintPdf_(data) {
+  const sourceId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const batchNumber = String(data.batchNumber || "").replace("#", "").trim();
+  const tankNumber = String(data.tankNumber || "").trim();
+  const style = String(data.style || "").trim();
+  const tankType = String(data.tankType || "single").trim();
+  const brewDate = String(data.brewDate || "").trim();
+  const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
+  const mashRestCount = Number(data.mashRestCount || 2);
+  const lastBrewRow = blockCount * 50 + (mashRestCount >= 3 ? blockCount * 2 : 0);
+
+  const source = SpreadsheetApp.openById(sourceId);
+  const sourceSheet = source.getSheets()[0];
+  const temp = SpreadsheetApp.create("PRINT " + batchNumber + " " + Date.now());
+  const tempFile = DriveApp.getFileById(temp.getId());
+
+  try {
+    // Page 1: a dedicated cover sheet. Because it is a separate worksheet,
+    // Google PDF export starts the real brew worksheet on the following page.
+    const cover = temp.getSheets()[0];
+    cover.setName("COVER");
+    cover.setHiddenGridlines(true);
+    cover.setRightToLeft(true);
+    cover.setColumnWidths(1, 8, 90);
+    for (let row = 1; row <= 34; row++) cover.setRowHeight(row, 22);
+    cover.setRowHeights(8, 5, 34);
+    cover.getRange("A1:H34").setFontFamily("Arial").setHorizontalAlignment("center");
+    cover.getRange("A2:H3").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
+    cover.getRange("A7:H13").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
+      .setVerticalAlignment("middle");
+    const typeLabel = tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
+    cover.getRange("A15:H18").merge().setValue(style + " " + typeLabel).setFontSize(30).setFontWeight("bold")
+      .setVerticalAlignment("middle");
+    cover.getRange("A22:H23").merge().setValue("תאריך בישול: " + (brewDate || "________________"))
+      .setFontSize(17).setBorder(null, null, true, null, null, null);
+    cover.getRange("A27:H28").merge().setValue("נפח וסוכר התחלתי: ________________ / ________________")
+      .setFontSize(17).setBorder(null, null, true, null, null, null);
+    cover.getRange("A1:H34").setBorder(true, true, true, true, null, null);
+
+    // Pages 2+: copy the actual worksheet, with all formatting/merges/widths,
+    // then trim everything after the brew blocks so fermentation is not printed.
+    const brew = sourceSheet.copyTo(temp).setName("BREW");
+    if (brew.getMaxRows() > lastBrewRow) {
+      brew.deleteRows(lastBrewRow + 1, brew.getMaxRows() - lastBrewRow);
+    }
+    if (brew.getMaxColumns() > 9) {
+      brew.deleteColumns(10, brew.getMaxColumns() - 9);
+    }
+    brew.setHiddenGridlines(true);
+    SpreadsheetApp.flush();
+
+    const exportUrl =
+      "https://docs.google.com/spreadsheets/d/" + temp.getId() + "/export" +
+      "?format=pdf&size=A4&portrait=true&fitw=true" +
+      "&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=false&fzr=false" +
+      "&top_margin=0.20&bottom_margin=0.20&left_margin=0.20&right_margin=0.20";
+    const response = UrlFetchApp.fetch(exportUrl, {
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    const code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      throw new Error("PDF export failed: HTTP " + code);
+    }
+    const blob = response.getBlob().setName("brew-" + batchNumber + ".pdf");
+    return {
+      fileName: blob.getName(),
+      mimeType: "application/pdf",
+      base64: Utilities.base64Encode(blob.getBytes()),
+      pages: blockCount + 1
+    };
+  } finally {
+    try { tempFile.setTrashed(true); } catch (cleanupError) {
+      console.log("Print temp cleanup failed: " + cleanupError.message);
+    }
+  }
+}
+
 function brewingSheetTrash_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   const file = DriveApp.getFileById(fileId);
