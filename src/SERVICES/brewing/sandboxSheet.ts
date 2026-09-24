@@ -142,15 +142,14 @@ export function buildBrewSheetInitialWrites(input: {
       const row19 = 19 + shift;
       const row21 = 21 + shift;
       const row23 = 23 + shift;
-      const row25 = 25 + shift;
-      // Rows 19/21 are the LT transfer/rest slots in the standard Master.
-      // A 3-rest mash temporarily uses those two slots, so move the LT labels
-      // down into the next available process rows instead of replacing them.
+      // Preserve the Master's actual process layout. In a standard two-rest
+      // brew rows 19/21 are LT transfer/rest. In a three-rest recipe those
+      // same rows become rest 3 / heat 3. Row 23 is always the recirculation
+      // step ("סחרור") before the existing "הוצאה לבישול" row.
       writes.push(
         { range: `'גיליון1'!D${row19}`, value: hasRest3 ? "השריה 3" : "העברה ל L.T" },
         { range: `'גיליון1'!D${row21}`, value: hasRest3 ? "חימום 3" : "מנוחת L.T" },
-        { range: `'גיליון1'!D${row23}`, value: hasRest3 ? "העברה ל L.T" : "" },
-        { range: `'גיליון1'!D${row25}`, value: hasRest3 ? "מנוחת L.T" : "" },
+        { range: `'גיליון1'!D${row23}`, value: "סחרור" },
       );
     });
   }
