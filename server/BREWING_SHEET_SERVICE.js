@@ -352,11 +352,7 @@ function brewingSheetCreate_(data) {
             const hop = (materials.hops || [])[slot];
             const row = firstHop + slot + 1;
             sheet.getRange(row, 1, 1, 3).clearContent();
-            if (hop) {
-              // Quantity is intentionally blank when the brew sheet is created.
-              // The brewer records the actual hop weight during the brew.
-              sheet.getRange(row, 1, 1, 3).setValues([["", hop.alpha, hop.label]]);
-            }
+            if (hop) sheet.getRange(row, 1, 1, 3).setValues([[hop.quantity, hop.alpha, hop.label]]);
           }
         }
 
@@ -586,6 +582,16 @@ function brewingSheetPrintPdf_(data) {
         return -1;
       }
       display.forEach(function (row) {
+        // Hop quantities are planning placeholders in the Sheet (typically 0g).
+        // Keep the source Sheet untouched; hide only those placeholders in the
+        // temporary print copy.
+        const hopLabelCol = findLabelColumn(row, /^\d+\).+/);
+        if (hopLabelCol >= 0) {
+          for (let col = 0; col < hopLabelCol; col++) {
+            if (/^0(?:\.0+)?\s*g$/i.test(String(row[col] || "").trim())) row[col] = "";
+          }
+        }
+
         const processCol = findLabelColumn(row, /^(?:השריה|חימום)\s*[1-3]$|^הכנסת\s*לתת$|^העברה\s*ל?\s*L\.T\.?$|^מנוחה\s*L\.T\.?$|^שטיפה\s*[1-7]$/i);
         if (processCol >= 0) {
           // Legacy form: temperature unit is three logical cells after the
