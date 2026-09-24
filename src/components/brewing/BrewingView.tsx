@@ -207,7 +207,13 @@ export default function BrewingView({ brews, tab }: Props) {
     const [planningHintsLoading, setPlanningHintsLoading] = useState(false);
     const [createModalError, setCreateModalError] = useState("");
     const [quickCreateHint, setQuickCreateHint] = useState<PlannedBrewHint | null>(null);
-    const [deletingBatch, setDeletingBatch] = useState<string | null>(null);
+    const [deletingBatches, setDeletingBatches] = useState<Set<string>>(() => new Set());
+    const isDeletingBatch = (batch: string) => deletingBatches.has(batch);
+    const setBatchDeleting = (batch: string, deleting: boolean) => setDeletingBatches((current) => {
+        const next = new Set(current);
+        if (deleting) next.add(batch); else next.delete(batch);
+        return next;
+    });
     const [editingTankId, setEditingTankId] = useState<string | null>(null);
     const [editBatchDraft, setEditBatchDraft] = useState<{ tankId: string; batchNumber: string; style: string } | null>(null);
     const [productionHistory, setProductionHistory] =
@@ -371,12 +377,13 @@ export default function BrewingView({ brews, tab }: Props) {
                 ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
                 ...pendingProductionRows.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
                 ...creationJobs.map((job) => job.batchNumber),
+                ...productionHistory.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
             ].filter(Boolean),
         );
         return planningHints.filter(
             (hint) => !created.has(String(hint.batchNumber).replace("#", "").trim()),
         );
-    }, [planningHints, brews, pendingProductionRows, creationJobs]);
+    }, [planningHints, brews, pendingProductionRows, creationJobs, productionHistory]);
 
     const pendingProductionRuns = useMemo(
         () => pendingProductionRows
@@ -745,9 +752,18 @@ export default function BrewingView({ brews, tab }: Props) {
         }
     }
 
+    function printBrewCover(run: SandboxBrewRun) {
+        const w = window.open("", "_blank", "noopener,noreferrer");
+        if (!w) { setMessage("הדפדפן חסם את חלון ההדפסה."); return; }
+        const esc = (value: unknown) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
+        const typeLabel = run.tankType === "single" ? "בודד" : run.tankType === "double" ? "כפול" : "משולש";
+        w.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>דף בישול ${esc(run.batchNumber)}</title><style>@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;color:#111}.page{height:273mm;border:2px solid #222;display:flex;flex-direction:column;justify-content:space-between;padding:16mm}.title{text-align:center;font-size:34pt;font-weight:800;margin-top:8mm}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14mm 18mm;font-size:18pt}.field{border-bottom:2px solid #222;padding:8mm 2mm 3mm}.field b{display:block;font-size:12pt;margin-bottom:3mm}.footer{text-align:center;font-size:11pt}@media print{button{display:none}}</style></head><body><div class="page"><div class="title">דף בישול</div><div class="grid"><div class="field"><b>סוג בירה</b>${esc(run.style)}</div><div class="field"><b>מספר אצווה</b>${esc(run.batchNumber)}</div><div class="field"><b>מיכל</b>${esc(run.tankNumber)}</div><div class="field"><b>גודל בישול</b>${esc(typeLabel)}</div><div class="field"><b>תאריך</b>${esc(run.brewDate || "")}</div><div class="field"><b>מספר בישולים</b>${run.tankType === "triple" ? "3" : run.tankType === "double" ? "2" : "1"}</div></div><div class="footer">Shapiro Beer · Brew Sheet</div></div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script></body></html>`);
+        w.document.close();
+    }
+
     async function removeSandboxRun(run: SandboxBrewRun) {
         setMessage("");
-        setDeletingBatch(run.batchNumber);
+        setBatchDeleting(run.batchNumber, true);
         try {
             // Never remove the local run first. If Drive deletion fails we keep
             // the batch visible so the user can retry and we do not create an
@@ -765,7 +781,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 `אצווה ${run.batchNumber} לא נמחקה כדי לא להשאיר Sheet יתום. ${detail}`,
             );
         } finally {
-            setDeletingBatch(null);
+            setBatchDeleting(run.batchNumber, false);
         }
     }
 
@@ -901,7 +917,7 @@ export default function BrewingView({ brews, tab }: Props) {
             return;
         }
         setDeleteConfirmation(null);
-        setDeletingBatch(run.batchNumber);
+        setBatchDeleting(run.batchNumber, true);
         setMessage("");
         try {
             await serverTrashBrewSheet(run.sheetId);
@@ -924,7 +940,7 @@ export default function BrewingView({ brews, tab }: Props) {
         } catch (error) {
             setMessage(error instanceof Error ? `האצווה לא נמחקה: ${error.message}` : "מחיקת האצווה נכשלה.");
         } finally {
-            setDeletingBatch(null);
+            setBatchDeleting(run.batchNumber, false);
         }
     }
 
@@ -934,7 +950,7 @@ export default function BrewingView({ brews, tab }: Props) {
         if (!run?.sheetId) return;
         setDeleteConfirmation(null);
 
-        setDeletingBatch(run.batchNumber);
+        setBatchDeleting(run.batchNumber, true);
         setMessage("");
         try {
             await serverTrashBrewSheet(run.sheetId);
@@ -1006,7 +1022,7 @@ export default function BrewingView({ brews, tab }: Props) {
                     : "מחיקת האצווה נכשלה.",
             );
         } finally {
-            setDeletingBatch(null);
+            setBatchDeleting(run.batchNumber, false);
         }
     }
 
@@ -1063,8 +1079,8 @@ export default function BrewingView({ brews, tab }: Props) {
                         <p>ה-Sheet של האצווה יועבר לפח. הפעולה מיועדת רק לאצווה שעדיין לא התחילה בבישול.</p>
                         <div className="brewing-confirm-actions">
                             <button type="button" onClick={() => setDeleteConfirmation(null)}>ביטול</button>
-                            <button type="button" className="brewing-danger-button" disabled={deletingBatch === deleteConfirmation.batchNumber} onClick={() => void confirmDeleteProductionBatch()}>
-                                {deletingBatch === deleteConfirmation.batchNumber ? "מוחק…" : "מחק אצווה"}
+                            <button type="button" className="brewing-danger-button" disabled={isDeletingBatch(deleteConfirmation.batchNumber)} onClick={() => void confirmDeleteProductionBatch()}>
+                                {isDeletingBatch(deleteConfirmation.batchNumber) ? "מוחק…" : "מחק אצווה"}
                             </button>
                         </div>
                     </div>
@@ -1162,7 +1178,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                         <button
                                             type="button"
                                             className="brewing-danger-button"
-                                            disabled={deletingBatch === run.batchNumber}
+                                            disabled={isDeletingBatch(run.batchNumber)}
                                             onClick={() => run && setDeleteConfirmation(run)}
                                         >
                                             מחק
@@ -1393,10 +1409,10 @@ export default function BrewingView({ brews, tab }: Props) {
                                                 <button
                                                     type="button"
                                                     className="brewing-danger-button"
-                                                    disabled={deletingBatch === run.batchNumber}
+                                                    disabled={isDeletingBatch(run.batchNumber)}
                                                     onClick={() => void removeSandboxRun(run)}
                                                 >
-                                                    {deletingBatch === run.batchNumber ? (
+                                                    {isDeletingBatch(run.batchNumber) ? (
                                                         <BeerLoader size="spinner" message="מוחק…" />
                                                     ) : (
                                                         "מחק"
@@ -1469,8 +1485,9 @@ export default function BrewingView({ brews, tab }: Props) {
                                             </div>
                                             <div className="brewing-card-actions">
                                                 <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
+                                                <button type="button" onClick={() => printBrewCover(run)}>הדפס דף בישול</button>
                                                 <button type="button" disabled={editingTankId === run.tankId} onClick={() => void editPendingProductionBatch(run)}>ערוך אצווה</button>
-                                                <button type="button" className="brewing-danger-button" disabled={deletingBatch === run.batchNumber} onClick={() => setDeleteConfirmation(run)}>מחק</button>
+                                                <button type="button" className="brewing-danger-button" disabled={isDeletingBatch(run.batchNumber)} onClick={() => setDeleteConfirmation(run)}>מחק</button>
                                             </div>
                                         </article>
                                     );
@@ -1616,6 +1633,7 @@ export default function BrewingView({ brews, tab }: Props) {
                                             </div>
                                             <div className="brewing-card-actions">
                                                 <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
+                                                <button type="button" onClick={() => printBrewCover(run)}>הדפס דף בישול</button>
                                                 <button type="button" disabled={!sandbox || !recipe} onClick={() => { setMessage(""); setSelectedRun(run); }}>
                                                     {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
                                                 </button>
