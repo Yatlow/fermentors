@@ -1281,6 +1281,13 @@ function updateFermentorForNextBrew_(
 
   const fields = toFirestoreFields(payload);
 
+  // Preserve the complete pre-assignment tank state. If an ACTION-0 brew is
+  // cancelled before it starts, the UI can restore the exact cellar state
+  // rather than reconstructing it from brew history.
+  const cellarStateFields = Object.assign({}, currentFields);
+  delete cellarStateFields.cellarState;
+  fields.cellarState = { mapValue: { fields: cellarStateFields } };
+
   // currentData belongs to the completed batch. Deleting it in the same PATCH
   // prevents a new waiting brew from temporarily inheriting old measurements.
   const masks = [
@@ -1293,6 +1300,7 @@ function updateFermentorForNextBrew_(
     "beerVolume",
     "startingPlato",
     "sheetUrl",
+    "cellarState",
     // Including currentData in the update mask while omitting it from fields
     // deletes the completed batch's measurements atomically.
     "currentData"
