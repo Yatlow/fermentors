@@ -158,7 +158,12 @@ function postReadIdempotencyRecord_(key) {
 function postClaimIdempotencyRequest_(action, requestId) {
   const key = postIdempotencyKey_(action, requestId);
   const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  const lockStartedAt = Date.now();
+  if (!lock.tryLock(1500)) {
+    throw new Error("POST idempotency lock busy; retry shortly.");
+  }
+  const lockWaitMs = Date.now() - lockStartedAt;
+  if (lockWaitMs > 100) console.log("POST idempotency lock wait " + lockWaitMs + "ms action=" + action);
 
   try {
     const existing = postReadIdempotencyRecord_(key);
