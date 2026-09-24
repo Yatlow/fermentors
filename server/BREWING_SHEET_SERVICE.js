@@ -303,33 +303,37 @@ function brewingSheetCreate_(data) {
           fileId
         );
 
-        // The master has borders for the normal two-rest flow. Wheat/other
-        // three-rest recipes reuse previously blank process rows, so writing
-        // the labels alone leaves them visually floating with no writing line.
-        // Copy the exact bottom-border formatting from the preceding process
-        // row onto every inserted rest3/heat3/LT row. Values are untouched.
-        const insertedProcessRows = {};
-        data.initialWrites.forEach(function (item) {
-          const match = String(item.range || "").match(/!D(\d+)$/);
-          const label = String(item.value || "").trim();
-          if (match && /^(השריה 3|חימום 3|העברה ל L\.T|מנוחת L\.T)$/.test(label)) {
-            insertedProcessRows[Number(match[1])] = true;
-          }
-        });
-        const sheet = ss.getSheets()[0];
-        Object.keys(insertedProcessRows).forEach(function (rowText) {
-          const row = Number(rowText);
-          if (!Number.isFinite(row) || row < 2) return;
-          // Do not copy an adjacent row: merged cells in the Master can make
-          // that copy lose the actual writing line. Restore only the horizontal
-          // writing border across A:D and leave values/merges/other formatting
-          // exactly as the Master defines them.
-          sheet.getRange(row, 1, 1, 4).setBorder(
-            null, null, true, null, null, null,
-            "#000000", SpreadsheetApp.BorderStyle.SOLID
-          );
-        });
       }
+    }
+
+    // Three-rest mash recipes need two real process rows. Do this only after
+    // the normal Master values have been written: inserting rows then shifts
+    // hops, boil, following brew blocks and fermentation together, preserving
+    // the original Sheet instead of overwriting the "הוספות/שטיפות/כשות" rows.
+    if (Number(data.mashRestCount || 0) >= 3) {
+      const sheet = ss.getSheets()[0];
+      const originalBlockStarts =
+        config.tankType === "triple" ? [9, 59, 107] :
+        config.tankType === "double" ? [9, 59] :
+        [9];
+
+      // Work bottom-up so each insertion point still refers to the untouched
+      // Master coordinates. Earlier insertions naturally move later blocks.
+      originalBlockStarts.slice().reverse().forEach(function (baseRow) {
+        const insertAt = baseRow + 10; // immediately before "העברה ל L.T."
+        sheet.insertRowsBefore(insertAt, 2);
+
+        // Reuse the established rest/heat row formatting, including writing
+        // lines and alignment, rather than synthesizing borders.
+        sheet.getRange(baseRow + 6, 1, 1, 4)
+          .copyFormatToRange(sheet, 1, 4, insertAt, insertAt);
+        sheet.getRange(baseRow + 8, 1, 1, 4)
+          .copyFormatToRange(sheet, 1, 4, insertAt + 1, insertAt + 1);
+
+        sheet.getRange(insertAt, 4).setValue("השריה 3");
+        sheet.getRange(insertAt + 1, 4).setValue("חימום 3");
+      });
+      SpreadsheetApp.flush();
     }
     const writesMs = Date.now() - writesStartedAt;
 
