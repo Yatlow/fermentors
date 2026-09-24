@@ -481,8 +481,27 @@ function extractBrew(spreadSheetId) {
     }
   }
 
-  const volumeLocation = findCell(values, "נפח:");
-  if (volumeLocation) brew.beerVolume = extractNumber(values[volumeLocation.row][volumeLocation.col + 1]);
+  // Master variants render the fermentation volume label as either "נפח" or
+  // "נפח:" and merged cells may place the value more than one column away.
+  // Discover the visible label and take the first positive numeric value to its
+  // right instead of depending on one literal cell position.
+  volumeSearch:
+  for (let r = 0; r < values.length; r++) {
+    const row = values[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      const label = String(row[c] || "")
+        .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+        .trim();
+      if (!/^נפח\s*:?$/.test(label)) continue;
+      for (let valueCol = c + 1; valueCol < Math.min(row.length, c + 5); valueCol++) {
+        const volume = extractNumber(row[valueCol]);
+        if (volume !== null && volume > 0) {
+          brew.beerVolume = volume;
+          break volumeSearch;
+        }
+      }
+    }
+  }
 
   const statusLocation = findCell(values, "ריק?:");
   if (statusLocation) {
