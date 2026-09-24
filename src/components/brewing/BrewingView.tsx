@@ -787,86 +787,87 @@ export default function BrewingView({ brews, tab }: Props) {
     async function printBrewCover(run: SandboxBrewRun) {
         if (printingBatch) return;
 
-        // Open the tab synchronously while iOS still considers this part of the
-        // user's tap. Keep this page completely self-contained: a new Safari tab
-        // does not reliably inherit the SPA's React/CSS runtime.
         const printWindow = window.open("", "_blank");
         if (!printWindow) {
             setMessage("הדפדפן חסם את חלון ההדפסה. יש לאפשר חלונות קופצים לאתר.");
             return;
         }
+
+        const typeLabel =
+            run.tankType === "single" ? "בודד" :
+            run.tankType === "double" ? "כפול" : "משולש";
+        const coverHtml = `
+<section class="cover">
+  <div class="cover-inner">
+    <div class="tank">מס מיכל: ${run.tankNumber}</div>
+    <div class="batch">#${run.batchNumber}</div>
+    <div class="style">${run.style} ${typeLabel}</div>
+    <div class="date">תאריך בישול: ${run.brewDate || "________________"}</div>
+    <div class="starting">נפח וסוכר התחלתי: ________________ / ________________</div>
+  </div>
+</section>`;
+
         try {
             printWindow.document.open();
-            printWindow.document.write(`<!doctype html>
-<html dir="rtl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>מכין דף בישול…</title>
+            printWindow.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>מכין דף בישול…</title>
 <style>
-html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sans-serif;background:#fff}
-.loader{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+html,body{margin:0;width:100%;height:100%;font-family:Rubik,Arial,sans-serif;background:#fff}
+.loader{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
 .glass{position:relative;width:74px;height:96px;border:5px solid #333;border-top:0;border-radius:0 0 15px 15px;overflow:hidden}
 .beer{position:absolute;left:0;right:0;bottom:0;height:72%;background:#f2b632;animation:fill .9s ease-out}
 .foam{position:absolute;left:-4px;right:-4px;top:18px;height:22px;background:#fff7df;border-radius:50%;animation:bob 1.1s ease-in-out infinite alternate}
-.bubble{position:absolute;width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.7);bottom:12px;animation:rise 1.4s linear infinite}
-.b1{left:16px}.b2{left:36px;animation-delay:.4s}.b3{left:53px;animation-delay:.8s}
 .msg{font-size:18px;font-weight:600;color:#333;text-align:center;padding:0 24px}
-@keyframes fill{from{height:0}to{height:72%}}@keyframes bob{to{transform:translateY(-3px)}}@keyframes rise{to{transform:translateY(-48px);opacity:0}}
-</style>
-</head>
-<body><div class="loader"><div class="glass"><div class="beer"><i class="bubble b1"></i><i class="bubble b2"></i><i class="bubble b3"></i></div><div class="foam"></div></div><div class="msg">מכין דף בישול ${run.batchNumber} להדפסה…</div></div></body>
-</html>`);
+@keyframes fill{from{height:0}to{height:72%}}@keyframes bob{to{transform:translateY(-3px)}}
+</style></head><body><div class="loader"><div class="glass"><div class="beer"></div><div class="foam"></div></div><div class="msg">מכין דף בישול ${run.batchNumber} להדפסה…</div></div></body></html>`);
             printWindow.document.close();
-        } catch {
-            // The placeholder is only feedback; the synchronously-opened tab is
-            // still kept alive for the PDF navigation below.
-        }
+        } catch { /* feedback only */ }
 
         setPrintingBatch(run.batchNumber);
         try {
             const spreadsheetId = extractSpreadsheetId(run.sheetId || run.sheetUrl);
             if (!spreadsheetId) throw new Error("לא נמצא Sheet לאצווה.");
-
-            const matchingRecipe =
-                run.recipeSnapshot ||
-                recipes.find((recipe) => sameStyle(recipe.style, run.style));
+            const matchingRecipe = run.recipeSnapshot || recipes.find((recipe) => sameStyle(recipe.style, run.style));
             const mashRestCount = matchingRecipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2;
-
             const pdf = await serverPrintBrewSheetPdf({
-                spreadsheetId,
-                batchNumber: run.batchNumber,
-                tankNumber: run.tankNumber,
-                style: run.style,
-                tankType: run.tankType,
-                brewDate: run.brewDate,
-                mashRestCount,
+                spreadsheetId, batchNumber: run.batchNumber, tankNumber: run.tankNumber,
+                style: run.style, tankType: run.tankType, brewDate: run.brewDate, mashRestCount,
+            });
+            if (!pdf.parts?.length) throw new Error("לא התקבלו דפי בישול להדפסה.");
+
+            const partUrls = pdf.parts.map((part) => {
+                const binary = atob(part.base64);
+                const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+                return URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
             });
 
-            const binary = atob(pdf.base64);
-            const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-            const blob = new Blob([bytes], { type: "application/pdf" });
-            const url = URL.createObjectURL(blob);
-
-            // Do not close/re-open the tab. On iOS the already-open tab is the
-            // reliable navigation target after the asynchronous server request.
-            printWindow.location.href = url;
-            window.setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+            // The cover is rendered locally and immediately. Each source range
+            // is embedded as its own A4 page; no temporary Google Spreadsheet
+            // is created or copied on the print request.
+            printWindow.document.open();
+            printWindow.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>דף בישול ${run.batchNumber}</title>
+<style>
+@page{size:A4 portrait;margin:0}
+html,body{margin:0;padding:0;background:#fff;font-family:Rubik,Arial,sans-serif}
+.cover,.pdf-page{width:210mm;height:297mm;box-sizing:border-box;break-after:page;page-break-after:always}
+.cover{padding:12mm}.cover-inner{height:100%;border:1.5px solid #222;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;text-align:center;padding:14mm}
+.tank{font-size:22px;font-weight:700}.batch{font-size:68px;font-weight:700;margin-top:34mm}.style{font-size:30px;font-weight:700;margin-top:20mm}.date,.starting{font-size:17px;margin-top:24mm}
+.pdf-page{border:0;display:block}
+.pdf-page:last-child{break-after:auto;page-break-after:auto}
+@media screen{body{background:#eee}.cover,.pdf-page{margin:10px auto;background:#fff;box-shadow:0 2px 12px #999}}
+</style></head><body>${coverHtml}${partUrls.map((url) => `<iframe class="pdf-page" src="${url}#toolbar=0&navpanes=0&scrollbar=0"></iframe>`).join("")}
+<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),350));</script></body></html>`);
+            printWindow.document.close();
+            window.setTimeout(() => partUrls.forEach((url) => URL.revokeObjectURL(url)), 10 * 60 * 1000);
             setMessage("");
         } catch (error) {
-            // Keep the tab open on failures too; closing it made iOS appear to
-            // "lose" the print request. Show the error in that same tab.
-            const detail =
-                error instanceof Error ? error.message : "פתיחת דף הבישול להדפסה נכשלה.";
+            const detail = error instanceof Error ? error.message : "פתיחת דף הבישול להדפסה נכשלה.";
             try {
-                printWindow.document.body.innerHTML =
-                    '<div dir="rtl" style="font-family:system-ui;padding:32px;text-align:center">' +
-                    '<h2>הכנת דף הבישול נכשלה</h2><p></p></div>';
-                const paragraph = printWindow.document.querySelector("p");
-                if (paragraph) paragraph.textContent = detail;
-            } catch {
-                // The main app still gets the same error below.
-            }
+                printWindow.document.body.innerHTML = '<div dir="rtl" style="font-family:system-ui;padding:32px;text-align:center"><h2>הכנת דף הבישול נכשלה</h2><p></p></div>';
+                const p = printWindow.document.querySelector("p");
+                if (p) p.textContent = detail;
+            } catch { /* main app still reports it */ }
             setMessage(`פתיחת דף הבישול להדפסה נכשלה: ${detail}`);
         } finally {
             setPrintingBatch(null);
