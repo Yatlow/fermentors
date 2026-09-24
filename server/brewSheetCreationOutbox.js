@@ -121,6 +121,7 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
       tankType: String(brewCreateJobField_(document, "tankType") || ""),
       name: String(brewCreateJobField_(document, "name") || ""),
       initialWritesJson: String(brewCreateJobField_(document, "initialWritesJson") || "[]"),
+      recipeMaterialsJson: String(brewCreateJobField_(document, "recipeMaterialsJson") || "{}"),
       mashRestCount: Number(brewCreateJobField_(document, "mashRestCount") || 2),
       attempts: Number(brewCreateJobField_(document, "attempts") || 0),
       fileId: String(brewCreateJobField_(document, "fileId") || ""),
@@ -138,6 +139,10 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
 
       const initialWrites = JSON.parse(job.initialWritesJson);
       if (!Array.isArray(initialWrites)) throw new Error("Invalid initialWritesJson");
+      const recipeMaterials = JSON.parse(job.recipeMaterialsJson || "{}");
+      if (!recipeMaterials || typeof recipeMaterials !== "object" || Array.isArray(recipeMaterials)) {
+        throw new Error("Invalid recipeMaterialsJson");
+      }
 
       let created;
       if (job.fileId) {
@@ -157,6 +162,7 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
           tankType: job.tankType,
           name: job.name,
           initialWrites: initialWrites,
+          recipeMaterials: recipeMaterials,
           mashRestCount: job.mashRestCount
         });
 
