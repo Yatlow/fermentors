@@ -371,6 +371,34 @@ function brewingSheetTrash_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   const file = DriveApp.getFileById(fileId);
   file.setTrashed(true);
+
+  // The ACTION-5 candidate snapshot lives in ScriptProperties and can otherwise
+  // keep a just-deleted Sheet visible to BrewSheetListHistory until the next
+  // Drive Changes refresh. Remove this exact file synchronously so the UI can
+  // immediately move the batch back to "בישולים מתוכננים" instead of showing a
+  // ghost "אצווה עתידית".
+  try {
+    if (typeof BREW_CANDIDATES_SNAPSHOT_KEY !== "undefined") {
+      const props = PropertiesService.getScriptProperties();
+      const snapshotJson = props.getProperty(BREW_CANDIDATES_SNAPSHOT_KEY);
+      if (snapshotJson) {
+        const snapshot = JSON.parse(snapshotJson);
+        if (Array.isArray(snapshot)) {
+          const filtered = snapshot.filter(function (candidate) {
+            return String(candidate && candidate.fileId || "") !== fileId;
+          });
+          if (filtered.length !== snapshot.length) {
+            props.setProperty(BREW_CANDIDATES_SNAPSHOT_KEY, JSON.stringify(filtered));
+          }
+        }
+      }
+    }
+  } catch (snapshotError) {
+    // Deletion itself already succeeded. A stale snapshot must never turn a
+    // successful delete into an error response; Drive Changes will reconcile it.
+    console.log("Brew trash snapshot cleanup skipped: " + snapshotError.message);
+  }
+
   brewingSheetInvalidateHistoryCache_();
 
   return {
