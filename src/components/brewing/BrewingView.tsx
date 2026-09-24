@@ -466,20 +466,16 @@ export default function BrewingView({ brews, tab }: Props) {
             .slice(0, query ? 30 : 12);
     }, [driveProductionRuns, pendingBatchNumbers, historyQuery]);
 
-    // Pre-generate only PDFs for cards that actually expose a print button.
-    // Do not turn every Sheet in the system into an Apps Script print job.
+    // Only pre-generate the small set of not-yet-started production brews.
+    // Prefetching pending/history cards created several expensive Apps Script
+    // PDF jobs at once and made the PDF the user actually tapped wait behind
+    // them. ACTION-0 is the place where printing is operationally expected.
     useEffect(() => {
         if (tab !== "form") return;
 
-        const printableRuns: SandboxBrewRun[] = [];
         actionZeroProductionTanks.forEach((tank) => {
             const run = productionRunFromTank(tank);
-            if (run && !run.brewProgress?.stageName) printableRuns.push(run);
-        });
-        printableRuns.push(...pendingProductionRuns, ...historicalProductionRuns);
-
-        const unique = new Map(printableRuns.map((run) => [extractSpreadsheetId(run.sheetId || run.sheetUrl), run]));
-        unique.forEach((run) => {
+            if (!run || run.brewProgress?.stageName) return;
             const matchingRecipe =
                 run.recipeSnapshot ||
                 recipes.find((recipe) => sameStyle(recipe.style, run.style));
@@ -488,7 +484,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 console.warn("Brew print pre-generation failed", run.batchNumber, error);
             });
         });
-    }, [tab, actionZeroProductionTanks, pendingProductionRuns, historicalProductionRuns, recipes]);
+    }, [tab, actionZeroProductionTanks, recipes]);
 
     useEffect(() => {
         if (!sandbox) return;
