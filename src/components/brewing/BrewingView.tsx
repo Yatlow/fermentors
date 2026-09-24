@@ -4,6 +4,7 @@ import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTime
 import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
+    serverReadBrewSheetRange,
     serverRenameBrewSheet,
     serverTrashBrewSheet,
     type BrewingDriveHistoryRow,
@@ -780,24 +781,42 @@ export default function BrewingView({ brews, tab }: Props) {
         }
     }
 
-    function printBrewCover(run: SandboxBrewRun) {
-        const esc = (value: unknown) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
-        const typeLabel = run.tankType === "single" ? "בודד" : run.tankType === "double" ? "כפול" : "משולש";
-        const frame = document.createElement("iframe");
-        frame.setAttribute("aria-hidden", "true");
-        Object.assign(frame.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
-        document.body.appendChild(frame);
-        const doc = frame.contentDocument;
-        const win = frame.contentWindow;
-        if (!doc || !win) { frame.remove(); setMessage("לא ניתן לפתוח את תצוגת ההדפסה."); return; }
-        doc.open();
-        doc.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>דף בישול ${esc(run.batchNumber)}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#111}.page{height:273mm;border:2px solid #222;padding:16mm}.tank{font-size:24pt;font-weight:700}.batch{text-align:center;font-size:86pt;font-weight:800;margin:25mm 0 10mm}.style{text-align:center;font-size:34pt;font-weight:700;margin-bottom:28mm}.field{font-size:20pt;margin:15mm 0;border-bottom:2px solid #222;padding-bottom:4mm}</style></head><body><main class="page"><div class="tank">מס מיכל: ${esc(run.tankNumber)}</div><div class="batch">#${esc(run.batchNumber)}</div><div class="style">${esc(run.style)} ${esc(typeLabel)}</div><div class="field">תאריך בישול: ${esc(run.brewDate || "________________")}</div><div class="field">נפח וסוכר התחלתי: ________________ / ________________</div></main></body></html>`);
-        doc.close();
-        window.setTimeout(() => {
-            win.focus();
-            win.print();
-            window.setTimeout(() => frame.remove(), 1000);
-        }, 150);
+    async function printBrewCover(run: SandboxBrewRun) {
+        setMessage("מכין דף בישול להדפסה…");
+        try {
+            const esc = (value: unknown) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
+            const typeLabel = run.tankType === "single" ? "בודד" : run.tankType === "double" ? "כפול" : "משולש";
+            const blockRanges = run.tankType === "triple" ? ["A1:J50", "A51:J100", "A101:J150"] : run.tankType === "double" ? ["A1:J50", "A51:J100"] : ["A1:J50"];
+            const blocks = await Promise.all(blockRanges.map((range) => serverReadBrewSheetRange(run.sheetId, `'גיליון1'!${range}`)));
+            const tableHtml = (values: string[][], index: number) => {
+                const rows = values.map((row) => `<tr>${Array.from({ length: 10 }, (_, col) => `<td>${esc(row[col] ?? "")}</td>`).join("")}</tr>`).join("");
+                return `<section class="brew-page"><div class="brew-label">בישול ${["A","B","C"][index]}</div><table>${rows}</table></section>`;
+            };
+            const frame = document.createElement("iframe");
+            frame.setAttribute("aria-hidden", "true");
+            Object.assign(frame.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
+            document.body.appendChild(frame);
+            const doc = frame.contentDocument;
+            const win = frame.contentWindow;
+            if (!doc || !win) throw new Error("לא ניתן לפתוח תצוגת הדפסה");
+            doc.open();
+            doc.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>דף בישול ${esc(run.batchNumber)}</title><style>
+@page{size:A4 portrait;margin:7mm}*{box-sizing:border-box}html,body{margin:0;font-family:Arial,sans-serif;color:#111}
+.cover,.brew-page{width:196mm;height:283mm;page-break-after:always;break-after:page;overflow:hidden}
+.cover{border:2px solid #222;padding:16mm;text-align:center}.tank{font-size:24pt;font-weight:700;text-align:center}.batch{font-size:86pt;font-weight:800;margin:25mm 0 10mm}.style{font-size:34pt;font-weight:700;margin-bottom:28mm}.field{font-size:18pt;margin:15mm 0;border-bottom:2px solid #222;padding-bottom:4mm;white-space:nowrap}
+.brew-page{direction:rtl;padding:2mm}.brew-label{text-align:center;font-size:15pt;font-weight:700;margin-bottom:2mm}table{border-collapse:collapse;width:100%;height:270mm;table-layout:fixed;font-size:7.5pt}td{border:1px solid #777;padding:1px 2px;overflow:hidden;white-space:nowrap;text-overflow:clip;height:5mm}
+.brew-page:last-child{page-break-after:auto;break-after:auto}
+</style></head><body><section class="cover"><div class="tank">מס מיכל: ${esc(run.tankNumber)}</div><div class="batch">#${esc(run.batchNumber)}</div><div class="style">${esc(run.style)} ${esc(typeLabel)}</div><div class="field">תאריך בישול: ${esc(run.brewDate || "________________")}</div><div class="field">נפח וסוכר התחלתי: ________________ / ________________</div></section>${blocks.map((block,index)=>tableHtml(block.values || [],index)).join("")}</body></html>`);
+            doc.close();
+            window.setTimeout(() => {
+                win.focus();
+                win.print();
+                window.setTimeout(() => frame.remove(), 1500);
+            }, 250);
+            setMessage("");
+        } catch (error) {
+            setMessage(error instanceof Error ? `הכנת דף הבישול נכשלה: ${error.message}` : "הכנת דף הבישול נכשלה.");
+        }
     }
 
     async function removeSandboxRun(run: SandboxBrewRun) {
