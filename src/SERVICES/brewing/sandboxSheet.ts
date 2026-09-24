@@ -108,9 +108,20 @@ export function buildBrewSheetInitialWrites(input: {
     // Material tables start five rows below each block header. Derive this
     // from the canonical layout instead of maintaining a second set of magic
     // row numbers (the old C value was off by one: 107 instead of 106).
+    // C is asymmetric in the Master: its header is row 102 but the first
+    // *writable* grain row is 107. Row 106 contains a legacy/template grain
+    // value, so clear it explicitly and write the recipe from 107 onward.
+    // A/B keep their original starts.
     const grainStarts =
-      input.tankType === "triple" ? [9, 59, 106] :
+      input.tankType === "triple" ? [9, 59, 107] :
       input.tankType === "double" ? [9, 59] : [9];
+    if (input.tankType === "triple") {
+      writes.push(
+        { range: "'גיליון1'!A106", value: "" },
+        { range: "'גיליון1'!B106", value: "" },
+        { range: "'גיליון1'!C106", value: "" },
+      );
+    }
     grainStarts.forEach((startRow) => {
       for (let slot = 0; slot < 5; slot += 1) {
         const row = startRow + slot;
