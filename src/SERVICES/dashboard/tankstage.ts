@@ -89,10 +89,7 @@ export async function getTankStage(tank: Tank): Promise<TankStageInfo> {
     return STAGE_INFO[4];
   }
 
-  // ACTION 5 is sanitized regardless of tankStatus. Cancellation of an
-  // unstarted brew intentionally restores tankStatus=false, so requiring true
-  // here made the UI fall through to the previous batch's cold measurements.
-  if (tank.action === 5) {
+  if (tank.action === 5 && tank.tankStatus) {
     return STAGE_INFO[5];
   }
 
