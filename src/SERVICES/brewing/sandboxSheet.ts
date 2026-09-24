@@ -130,6 +130,22 @@ export function buildBrewSheetInitialWrites(input: {
       }
     });
   }
+  // Keep the standard phosphoric-acid additions deterministic across all
+  // Masters. The legacy single Master is missing these labels while the
+  // double/triple Masters already contain them.
+  const acidStarts =
+    input.tankType === "triple" ? [37, 87, 135] :
+    input.tankType === "double" ? [37, 87] :
+    [37];
+  acidStarts.forEach((row) => {
+    writes.push(
+      { range: `'גיליון1'!B${row}`, value: "85%" },
+      { range: `'גיליון1'!C${row}`, value: "1)H3PO4" },
+      { range: `'גיליון1'!B${row + 1}`, value: "85%" },
+      { range: `'גיליון1'!C${row + 1}`, value: "2)H3PO4" },
+    );
+  });
+
   // Process geometry belongs to the Master. A three-rest recipe needs two
   // additional physical rows; the server inserts them after the ordinary
   // Master has been populated so all downstream cells shift together.
