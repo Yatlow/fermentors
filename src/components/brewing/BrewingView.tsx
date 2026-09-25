@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { Fermentor } from "../../App";
-import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, deleteField, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
     serverListBrewDriveHistory,
@@ -255,7 +255,10 @@ export default function BrewingView({ brews, tab }: Props) {
 
     useEffect(() => {
         return onSnapshot(
-            collection(db, "brewSheetCreationJobs"),
+            query(
+                collection(db, "brewSheetCreationJobs"),
+                where("state", "in", ["queued", "creating", "failed"]),
+            ),
             (snapshot) => {
                 setCreationJobsError("");
                 const jobs = snapshot.docs
