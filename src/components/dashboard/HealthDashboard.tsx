@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Broom, Undo2 } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -29,6 +30,13 @@ import {
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
+import {
+    ignoreCellarRecommendation,
+    isRecommendationIgnored,
+    restoreIgnoredCellarRecommendation,
+    subscribeIgnoredCellarRecommendationsToday,
+    type IgnoredCellarRecommendation,
+} from "../../SERVICES/cellering/ignoredCellarRecommendations";
 import "./HealthDashboard.css";
 
 type Severity = "critical" | "warning" | "info";
@@ -39,6 +47,10 @@ type HealthAlert = {
     title: string;
     detail: string;
     tankNumber?: string;
+    batchNumber?: string;
+    recommendationKey?: string;
+    importance?: number;
+    dismissible?: boolean;
 };
 
 type Recommendation = {
@@ -46,6 +58,10 @@ type Recommendation = {
     display?: boolean;
     reason?: string;
     importance?: number;
+};
+
+type KeyedRecommendation = Recommendation & {
+    recommendationKey: string;
 };
 
 type CompletedCellarAction = {
@@ -142,32 +158,31 @@ function isInFermentationMeasurementGracePeriod(
 
 function activeRecommendations(
     result: Awaited<ReturnType<typeof calcCelleringRecomendations>>,
-    extras: Recommendation[] = []
-): Recommendation[] {
-    if (!result) return extras.filter(isActionableHealthRecommendation);
-
-    // The index is deliberately an "act today" surface. Future hints stay in
-    // the detailed cellar recommendation view and do not reduce today's score.
-    const candidates: Array<Recommendation | undefined | null> = [
+    extras: Array<{ recommendationKey: string; recommendation: Recommendation }> = []
+): KeyedRecommendation[] {
+    const candidates: Array<{ recommendationKey: string; recommendation?: Recommendation | null }> = [
         ...extras,
-        result.requiresDryHop,
-        result.requiresPresureClose,
-        result.requiresWarmYeastDrop,
-        result.requiresWarmYeastDropCompletion,
-        result.requiersYeastDropAfterCooling,
-        result.requiresColdYeastDropCompletion,
-        result.requiiersWedYeastDropOnThus,
-        result.requiresCarbTest,
-        result.requiredBottomCarbonation,
-        result.requiersDiacytelRest,
-        result.neglectedStatus,
-        result.requiresToCoolDown,
-        result.requiredPressureAdjustment,
+        { recommendationKey: "dryHop", recommendation: result?.requiresDryHop },
+        { recommendationKey: "pressureClose", recommendation: result?.requiresPresureClose },
+        { recommendationKey: "warmYeastDrop", recommendation: result?.requiresWarmYeastDrop },
+        { recommendationKey: "warmYeastDropCompletion", recommendation: result?.requiresWarmYeastDropCompletion },
+        { recommendationKey: "yeastDropAfterCooling", recommendation: result?.requiersYeastDropAfterCooling },
+        { recommendationKey: "coldYeastDropCompletion", recommendation: result?.requiresColdYeastDropCompletion },
+        { recommendationKey: "wedYeastDropOnThu", recommendation: result?.requiiersWedYeastDropOnThus },
+        { recommendationKey: "carbTest", recommendation: result?.requiresCarbTest },
+        { recommendationKey: "bottomCarbonation", recommendation: result?.requiredBottomCarbonation },
+        { recommendationKey: "diacetylRest", recommendation: result?.requiersDiacytelRest },
+        { recommendationKey: "neglectedStatus", recommendation: result?.neglectedStatus },
+        { recommendationKey: "coolDown", recommendation: result?.requiresToCoolDown },
+        { recommendationKey: "pressureAdjustment", recommendation: result?.requiredPressureAdjustment },
     ];
 
     return candidates
-        .filter((recommendation): recommendation is Recommendation => Boolean(recommendation))
-        .filter(isActionableHealthRecommendation)
+        .filter((item): item is { recommendationKey: string; recommendation: Recommendation } =>
+            Boolean(item.recommendation)
+        )
+        .filter((item) => isActionableHealthRecommendation(item.recommendation))
+        .map((item) => ({ ...item.recommendation, recommendationKey: item.recommendationKey }))
         .sort((a, b) => Number(b.importance ?? 1) - Number(a.importance ?? 1));
 }
 
@@ -190,6 +205,8 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
+    const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
+    const [ignoreSavingId, setIgnoreSavingId] = useState<string | null>(null);
 
     useEffect(() => {
         const unsubscribeActive = subscribeScheduledCellarRecommendations(
@@ -200,9 +217,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
             setCompletedScheduledToday,
             (error) => console.error("Failed loading completed scheduled cellar recommendations:", error)
         );
+        const unsubscribeIgnored = subscribeIgnoredCellarRecommendationsToday(
+            setIgnoredRecommendations,
+            (error) => console.error("Failed loading ignored cellar recommendations:", error)
+        );
         return () => {
             unsubscribeActive();
             unsubscribeCompleted();
+            unsubscribeIgnored();
         };
     }, []);
 
@@ -333,7 +355,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
                         const naturalRecommendations = activeRecommendations(
                             recommendations,
-                            bottomCarb ? [bottomCarb] : []
+                            bottomCarb
+                                ? [{ recommendationKey: "bottomCarbonationFollowUp", recommendation: bottomCarb }]
+                                : []
                         );
 
                         const today = localDateKey(new Date());
@@ -386,20 +410,35 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         [
                             ...naturalRecommendations,
                             ...manualDue.map((row) => ({
+                                recommendationKey: `scheduled-${row.id}`,
                                 req: true,
                                 display: true,
                                 importance: 3,
                                 reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
                             })),
-                        ].forEach((recommendation, index) => {
+                        ].forEach((recommendation) => {
+                            if (isRecommendationIgnored(
+                                ignoredRecommendations,
+                                tank.tankNumber,
+                                tank.batchNumber,
+                                recommendation.recommendationKey
+                            )) {
+                                return;
+                            }
+
                             const importance = Math.max(1, Math.min(3, Number(recommendation.importance) || 1));
+                            const title = `מיכל ${number}: המלצת סלרינג`;
                             scoreRecommendations.push({ importance });
                             tankAlerts.push({
-                                id: `recommendation-${tank.id}-${index}`,
+                                id: `recommendation-${tank.id}-${recommendation.recommendationKey}`,
                                 severity: recommendationSeverity(importance),
-                                title: `מיכל ${number}: המלצת סלרינג`,
+                                title,
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
+                                batchNumber: String(tank.batchNumber),
+                                recommendationKey: recommendation.recommendationKey,
+                                importance,
+                                dismissible: true,
                             });
                         });
 
@@ -565,7 +604,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
         return () => {
             cancelled = true;
         };
-    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday]);
+    }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations]);
 
     const healthScore = useMemo(
         () => calculateCellarHealthScore(
@@ -589,6 +628,36 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
     const attentionCount = counts.critical + counts.warning + counts.info;
     const completedTankCount = analysis.completeMeasurementTankNumbers.length;
+
+    async function ignoreAlert(alert: HealthAlert) {
+        if (!alert.dismissible || !alert.tankNumber || !alert.batchNumber || !alert.recommendationKey) return;
+        setIgnoreSavingId(alert.id);
+        try {
+            await ignoreCellarRecommendation({
+                tankNumber: alert.tankNumber,
+                batchNumber: alert.batchNumber,
+                recommendationKey: alert.recommendationKey,
+                title: alert.title,
+                detail: alert.detail,
+                importance: alert.importance ?? 1,
+            });
+        } catch (error) {
+            console.error("Failed ignoring cellar recommendation:", error);
+        } finally {
+            setIgnoreSavingId(null);
+        }
+    }
+
+    async function restoreIgnored(row: IgnoredCellarRecommendation) {
+        setIgnoreSavingId(row.id);
+        try {
+            await restoreIgnoredCellarRecommendation(row.id);
+        } catch (error) {
+            console.error("Failed restoring cellar recommendation:", error);
+        } finally {
+            setIgnoreSavingId(null);
+        }
+    }
 
     return (
         <section className={`health-dashboard health-${overallClass}`} dir="rtl">
@@ -650,6 +719,32 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             </div>
                         </section>
                     )}
+                    {ignoredRecommendations.length > 0 && (
+                        <section className="health-ignored-actions" aria-label="המלצות שסומנו להתעלם היום">
+                            <strong>סומן להתעלם</strong>
+                            <div className="health-ignored-actions-list">
+                                {ignoredRecommendations.map((row) => (
+                                    <div className="health-ignored-action" key={row.id}>
+                                        <span>
+                                            <Broom size={15} aria-hidden="true" />
+                                            מיכל {row.tankNumber} · {row.detail}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="health-restore-button"
+                                            disabled={ignoreSavingId === row.id}
+                                            onClick={() => void restoreIgnored(row)}
+                                            title="החזר המלצה"
+                                            aria-label={`החזר המלצה למיכל ${row.tankNumber}`}
+                                        >
+                                            <Undo2 size={15} aria-hidden="true" />
+                                            החזר
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
                     {analysis.alerts.length === 0 && !analyzing ? (
                         <div className="health-empty-state">
                             אין כרגע פעולות סלרינג לביצוע וכל המדידות הנדרשות להיום קיימות.
@@ -667,6 +762,18 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                     <strong>{alert.title}</strong>
                                     <span>{alert.detail}</span>
                                 </span>
+                                {alert.dismissible && (
+                                    <button
+                                        type="button"
+                                        className="health-ignore-button"
+                                        disabled={ignoreSavingId === alert.id}
+                                        onClick={() => void ignoreAlert(alert)}
+                                        title="התעלם מההמלצה להיום"
+                                        aria-label={`התעלם מההמלצה למיכל ${alert.tankNumber} להיום`}
+                                    >
+                                        <Broom size={17} aria-hidden="true" />
+                                    </button>
+                                )}
                             </article>
                         ))
                     )}
