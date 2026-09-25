@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
-  loadSandboxExecution,
+  loadBrewingExecution,
   loadBrewingExecutionFromFirestore,
   subscribeToBrewingExecution,
   saveBrewingExecutionToFirestore,
   saveBrewAcidHistoryToFirestore,
   saveBrewingProgressToFirestore,
-  replaceSandboxExecutionBlockFields,
-  setSandboxExecutionActiveBlock,
-  setSandboxExecutionActiveStep,
-  setSandboxExecutionField,
-  setSandboxExecutionReviewedSteps,
+  replaceBrewingExecutionBlockFields,
+  setBrewingExecutionActiveBlock,
+  setBrewingExecutionActiveStep,
+  setBrewingExecutionField,
+  setBrewingExecutionReviewedSteps,
   type BrewExecution,
-} from "../../SERVICES/brewing/sandboxExecution";
+} from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import {
   readBrewSheetRange,
@@ -967,9 +967,9 @@ export default function BrewFormStepper({
   onClose,
 }: Props) {
   const [execution, setExecution] = useState<BrewExecution>(() =>
-    loadSandboxExecution(run.batchNumber),
+    loadBrewingExecution(run.batchNumber),
   );
-  const [activeStep, setActiveStepState] = useState(() => Math.max(0, loadSandboxExecution(run.batchNumber).activeStepIndex || 0));
+  const [activeStep, setActiveStepState] = useState(() => Math.max(0, loadBrewingExecution(run.batchNumber).activeStepIndex || 0));
   const [syncing, setSyncing] = useState("");
   const [pulling, setPulling] = useState(false);
   const [message, setMessage] = useState("");
@@ -1024,7 +1024,7 @@ export default function BrewFormStepper({
     setActiveStepState((current) => {
       const next = typeof value === "function" ? value(current) : value;
       const bounded = Math.max(0, Math.min(visibleSteps.length - 1, next));
-      setExecution((executionCurrent) => setSandboxExecutionActiveStep(executionCurrent, bounded));
+      setExecution((executionCurrent) => setBrewingExecutionActiveStep(executionCurrent, bounded));
       return bounded;
     });
   }
@@ -1454,7 +1454,7 @@ export default function BrewFormStepper({
           next[reviewedKey(blockIndex, stepId)] = true;
         }
       });
-      return setSandboxExecutionReviewedSteps(current, next);
+      return setBrewingExecutionReviewedSteps(current, next);
     });
   }
 
@@ -1509,7 +1509,7 @@ export default function BrewFormStepper({
     let baseExecution = execution;
     const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
 
-    const next = setSandboxExecutionField(
+    const next = setBrewingExecutionField(
       baseExecution,
       currentBlock,
       key,
@@ -1534,13 +1534,13 @@ export default function BrewFormStepper({
   }
 
   function selectMaterialLot(ingredientId: string, lotId: string) {
-    let next = setSandboxExecutionField(
+    let next = setBrewingExecutionField(
       execution,
       currentBlock,
       `materialLot.${ingredientId}`,
       lotId,
     );
-    next = setSandboxExecutionField(
+    next = setBrewingExecutionField(
       next,
       currentBlock,
       "materialsConfirmed",
@@ -1551,7 +1551,7 @@ export default function BrewFormStepper({
       (hop) => hop.ingredientId === ingredientId,
     );
     if (hopIndex >= 0) {
-      next = setSandboxExecutionField(
+      next = setBrewingExecutionField(
         next,
         currentBlock,
         `hop${hopIndex + 1}.amountGrams`,
@@ -1669,8 +1669,8 @@ export default function BrewFormStepper({
       );
     }
 
-    let next = setSandboxExecutionField(execution, currentBlock, "brewDate", value);
-    next = setSandboxExecutionField(next, currentBlock, "brewDate.manual", options.manual === false ? "" : value);
+    let next = setBrewingExecutionField(execution, currentBlock, "brewDate", value);
+    next = setBrewingExecutionField(next, currentBlock, "brewDate.manual", options.manual === false ? "" : value);
     setExecution(next);
     writeSheet("brewDate", writes);
   }
@@ -1690,7 +1690,7 @@ export default function BrewFormStepper({
       const lot = selectedMaterialLot(ingredient);
       if (!lot) return;
 
-      nextExecution = setSandboxExecutionField(
+      nextExecution = setBrewingExecutionField(
         nextExecution,
         currentBlock,
         `materialLot.${ingredient.id}`,
@@ -1720,7 +1720,7 @@ export default function BrewFormStepper({
         const lot = selectedMaterialLot(ingredient);
         if (!lot) return;
 
-        nextExecution = setSandboxExecutionField(
+        nextExecution = setBrewingExecutionField(
           nextExecution,
           currentBlock,
           `materialLot.${ingredient.id}`,
@@ -1743,7 +1743,7 @@ export default function BrewFormStepper({
           const dose = hopDose(hop);
           if (dose.grams !== null) {
             const grams = String(roundToFive(dose.grams));
-            nextExecution = setSandboxExecutionField(
+            nextExecution = setBrewingExecutionField(
               nextExecution,
               currentBlock,
               amountKey,
@@ -1765,7 +1765,7 @@ export default function BrewFormStepper({
       const lot = selectedMaterialLot(ingredient);
       if (!lot) return;
 
-      nextExecution = setSandboxExecutionField(
+      nextExecution = setBrewingExecutionField(
         nextExecution,
         currentBlock,
         `materialLot.${ingredient.id}`,
@@ -1781,7 +1781,7 @@ export default function BrewFormStepper({
     if (currentBlock === 1 && yeast) {
       const lot = selectedMaterialLot(yeast);
       if (lot) {
-        nextExecution = setSandboxExecutionField(
+        nextExecution = setBrewingExecutionField(
           nextExecution,
           currentBlock,
           `materialLot.${yeast.id}`,
@@ -1806,7 +1806,7 @@ export default function BrewFormStepper({
       }
     }
 
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "materialsConfirmed",
@@ -1942,7 +1942,7 @@ export default function BrewFormStepper({
       range: `'גיליון1'!H${blockHeaderRow(run.tankType, currentBlock)}`,
       value: sheetDateFromIso(today),
     });
-    return setSandboxExecutionField(nextExecution, currentBlock, "brewDate", today);
+    return setBrewingExecutionField(nextExecution, currentBlock, "brewDate", today);
   }
 
   async function commitStageStart(stage: StageDef, value: string) {
@@ -1954,7 +1954,7 @@ export default function BrewFormStepper({
       return;
     }
 
-    let nextExecution = setSandboxExecutionField(
+    let nextExecution = setBrewingExecutionField(
       execution,
       currentBlock,
       `${stage.key}.start`,
@@ -1973,7 +1973,7 @@ export default function BrewFormStepper({
     }
 
     if (stage.key === "transferLt" && !String(fields["transferLt.temp"] || "").trim()) {
-      nextExecution = setSandboxExecutionField(
+      nextExecution = setBrewingExecutionField(
         nextExecution,
         currentBlock,
         "transferLt.temp",
@@ -1990,7 +1990,7 @@ export default function BrewFormStepper({
       const calculatedEnd = addMinutesToTime(value, duration);
       const nextStage = nextTimelineStage(stage);
 
-      nextExecution = setSandboxExecutionField(
+      nextExecution = setBrewingExecutionField(
         nextExecution,
         currentBlock,
         `${stage.key}.end`,
@@ -2002,7 +2002,7 @@ export default function BrewFormStepper({
       });
 
       if (nextStage) {
-        nextExecution = setSandboxExecutionField(
+        nextExecution = setBrewingExecutionField(
           nextExecution,
           currentBlock,
           `${nextStage.key}.start`,
@@ -2038,7 +2038,7 @@ export default function BrewFormStepper({
         return;
       }
 
-      let nextExecution = setSandboxExecutionField(
+      let nextExecution = setBrewingExecutionField(
         execution,
         currentBlock,
         `${stage.key}.end`,
@@ -2058,7 +2058,7 @@ export default function BrewFormStepper({
       let nextStart = value;
 
       while (nextStage) {
-        nextExecution = setSandboxExecutionField(
+        nextExecution = setBrewingExecutionField(
           nextExecution,
           currentBlock,
           `${nextStage.key}.start`,
@@ -2073,7 +2073,7 @@ export default function BrewFormStepper({
         if (!nextStart || duration === null) break;
 
         const calculatedEnd = addMinutesToTime(nextStart, duration);
-        nextExecution = setSandboxExecutionField(
+        nextExecution = setBrewingExecutionField(
           nextExecution,
           currentBlock,
           `${nextStage.key}.end`,
@@ -2805,7 +2805,7 @@ export default function BrewFormStepper({
     if (field === "time") {
       if (rejectTimelineTime(key, value)) return;
 
-      let nextExecution = setSandboxExecutionField(
+      let nextExecution = setBrewingExecutionField(
         execution,
         currentBlock,
         key,
@@ -2818,7 +2818,7 @@ export default function BrewFormStepper({
 
       const amountKey = `rinse${index}.amount`;
       if (!String(fields[amountKey] || "").trim()) {
-        nextExecution = setSandboxExecutionField(
+        nextExecution = setBrewingExecutionField(
           nextExecution,
           currentBlock,
           amountKey,
@@ -2888,7 +2888,7 @@ export default function BrewFormStepper({
     const previousKettleVolume =
       storedCommittedVolume !== undefined
         ? storedCommittedVolume
-        : num(loadSandboxExecution(run.batchNumber).blocks[String(currentBlock)]?.fields?.kettleVolume || "");
+        : num(loadBrewingExecution(run.batchNumber).blocks[String(currentBlock)]?.fields?.kettleVolume || "");
     const kettleVolumeActuallyChanged =
       parsed !== null && previousKettleVolume !== null && parsed !== previousKettleVolume;
     const shouldOfferHopRecalc =
@@ -2909,7 +2909,7 @@ export default function BrewFormStepper({
 
     if (key === "kettleVolume" && parsed !== null) {
       committedKettleVolumeRef.current[blockKey] = parsed;
-      let nextExecution = setSandboxExecutionField(
+      let nextExecution = setBrewingExecutionField(
         execution,
         currentBlock,
         key,
@@ -2927,7 +2927,7 @@ export default function BrewFormStepper({
         if (dose.grams === null) return;
 
         const grams = String(roundToFive(dose.grams));
-        nextExecution = setSandboxExecutionField(
+        nextExecution = setBrewingExecutionField(
           nextExecution,
           currentBlock,
           amountKey,
@@ -2947,7 +2947,7 @@ export default function BrewFormStepper({
     // Keep the fermentation starting-Plato cell numeric and in sync with the
     // same calculation shown in the app. Never write a formula string.
     if (key === "endBoilPlato" || key === "endBoilVolume") {
-      let projected = setSandboxExecutionField(execution, currentBlock, key, value);
+      let projected = setBrewingExecutionField(execution, currentBlock, key, value);
       const projectedStartingPlato = calculateWeightedStartingPlato(
         Array.from({ length: totalBlocks }, (_, index) => {
           const blockFields = projected.blocks[String(index + 1)]?.fields || {};
@@ -2997,7 +2997,7 @@ export default function BrewFormStepper({
       return;
     }
 
-    let nextExecution = setSandboxExecutionField(
+    let nextExecution = setBrewingExecutionField(
       execution,
       currentBlock,
       "boil.start",
@@ -3012,7 +3012,7 @@ export default function BrewFormStepper({
       const minutes = Number(hop.boilMinutes ?? 0);
       const offset = Math.max(0, totalBoilMinutes - minutes);
       const time = addMinutesToTime(value, offset);
-      nextExecution = setSandboxExecutionField(
+      nextExecution = setBrewingExecutionField(
         nextExecution,
         currentBlock,
         `hop${index + 1}.start`,
@@ -3027,25 +3027,25 @@ export default function BrewFormStepper({
 
     const endBoil = addMinutesToTime(value, totalBoilMinutes);
     const wpEnd = addMinutesToTime(endBoil, 20);
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "endBoilTime",
       endBoil,
     );
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "wp.start",
       endBoil,
     );
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "wp.end",
       wpEnd,
     );
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "outToFermentor.start",
@@ -3168,7 +3168,7 @@ export default function BrewFormStepper({
       return;
     }
 
-    let nextExecution = setSandboxExecutionField(
+    let nextExecution = setBrewingExecutionField(
       execution,
       currentBlock,
       key,
@@ -3199,7 +3199,7 @@ export default function BrewFormStepper({
       const grams = roundToFive(gramsPerLiter * kettleVolume);
       const amountKey = `hop${index + 1}.amountGrams`;
 
-      nextExecution = setSandboxExecutionField(
+      nextExecution = setBrewingExecutionField(
         nextExecution,
         currentBlock,
         amountKey,
@@ -3235,25 +3235,25 @@ export default function BrewFormStepper({
     }
 
     const wpEnd = addMinutesToTime(value, 20);
-    let nextExecution = setSandboxExecutionField(
+    let nextExecution = setBrewingExecutionField(
       execution,
       currentBlock,
       "endBoilTime",
       value,
     );
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "wp.start",
       value,
     );
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "wp.end",
       wpEnd,
     );
-    nextExecution = setSandboxExecutionField(
+    nextExecution = setBrewingExecutionField(
       nextExecution,
       currentBlock,
       "outToFermentor.start",
@@ -3379,8 +3379,8 @@ export default function BrewFormStepper({
     const stageName = String(run.brewProgress?.stageName || "").trim();
     const stepIndex = stageName ? stepIndexFromLiveProgress(stageName) : 0;
     setActiveStepState(stepIndex);
-    return setSandboxExecutionActiveStep(
-      setSandboxExecutionActiveBlock(nextExecution, blockIndex),
+    return setBrewingExecutionActiveStep(
+      setBrewingExecutionActiveBlock(nextExecution, blockIndex),
       stepIndex,
     );
   }
@@ -3455,7 +3455,7 @@ export default function BrewFormStepper({
           }),
         );
 
-        nextExecution = replaceSandboxExecutionBlockFields(
+        nextExecution = replaceBrewingExecutionBlockFields(
           nextExecution,
           index,
           {
@@ -3508,7 +3508,7 @@ export default function BrewFormStepper({
     for (let index = 1; index <= totalBlocks; index += 1) {
       const fields = next.blocks[String(index)]?.fields || {};
       const set = (key: string, value: string) => {
-        next = setSandboxExecutionField(next, index, key, value);
+        next = setBrewingExecutionField(next, index, key, value);
       };
 
       for (let rinse = 1; rinse <= 7; rinse += 1) {
@@ -3646,7 +3646,7 @@ export default function BrewFormStepper({
   }, [firestoreHydrated, run.batchNumber, run.sheetId]);
 
   async function selectBlock(index: number) {
-    setExecution(setSandboxExecutionActiveStep(setSandboxExecutionActiveBlock(execution, index), 0));
+    setExecution(setBrewingExecutionActiveStep(setBrewingExecutionActiveBlock(execution, index), 0));
     setActiveStepState(0);
     setMessage("");
   }
@@ -3683,7 +3683,7 @@ export default function BrewFormStepper({
   }
 
   function restoreCommittedField(key: string) {
-    const committed = loadSandboxExecution(run.batchNumber);
+    const committed = loadBrewingExecution(run.batchNumber);
     const value =
       committed.blocks[String(currentBlock)]?.fields?.[key] || "";
     const blockKey = String(currentBlock);
