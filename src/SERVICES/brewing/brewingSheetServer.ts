@@ -164,16 +164,17 @@ let brewHistoryCache: { rows: BrewingDriveHistoryRow[]; loadedAt: number; limit:
 let brewHistoryInFlight: Promise<BrewingDriveHistoryRow[]> | null = null;
 const BREW_HISTORY_CLIENT_CACHE_MS = 30_000;
 
-export async function serverListBrewDriveHistory(limit = 100) {
+export async function serverListBrewDriveHistory(limit = 100, forceRefresh = false) {
   const now = Date.now();
   if (
+    !forceRefresh &&
     brewHistoryCache &&
     now - brewHistoryCache.loadedAt < BREW_HISTORY_CLIENT_CACHE_MS &&
     brewHistoryCache.limit >= limit
   ) {
     return brewHistoryCache.rows.slice(0, limit);
   }
-  if (brewHistoryInFlight) {
+  if (!forceRefresh && brewHistoryInFlight) {
     const rows = await brewHistoryInFlight;
     return rows.slice(0, limit);
   }
