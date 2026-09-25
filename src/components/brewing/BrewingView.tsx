@@ -492,8 +492,6 @@ export default function BrewingView({ brews, tab }: Props) {
     }, [tab, actionZeroProductionTanks, pendingProductionRuns, recipes]);
 
     useEffect(() => {
-        if (!sandbox) return;
-
         let cancelled = false;
         setSharedLibraryLoading(true);
 
@@ -501,10 +499,8 @@ export default function BrewingView({ brews, tab }: Props) {
             .then((library) => {
                 if (cancelled || !library.hasRemoteLibrary) return;
 
-                const nextRecipes = replaceSandboxRecipes(library.recipes);
-                const nextIngredients = saveSandboxIngredients(library.ingredients);
-                setRecipes(nextRecipes);
-                setIngredients(nextIngredients);
+                setRecipes(library.recipes);
+                setIngredients(library.ingredients);
                 setSharedLibraryReady(true);
             })
             .catch((error) => {
@@ -517,7 +513,7 @@ export default function BrewingView({ brews, tab }: Props) {
         return () => {
             cancelled = true;
         };
-    }, [sandbox]);
+    }, []);
 
     async function publishLibrary() {
         setPublishingSharedLibrary(true);
@@ -1416,7 +1412,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
 
             {tab === "recipes" && (
                 <section className="brewing-panel">
-                    {sandbox ? (
                         <BrewingLibrary
                             recipes={recipes}
                             ingredients={ingredients}
@@ -1457,12 +1452,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                 }
                             }}
                         />
-                    ) : (
-                        <>
-                            <h2>מתכונים וחומרי גלם</h2>
-                            <p>ספריית המתכונים וחומרי הגלם אינה זמינה כרגע.</p>
-                        </>
-                    )}
                 </section>
             )}
 
@@ -1766,7 +1755,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                                 </a>
                                                 <button
                                                     type="button"
-                                                    disabled={!sandbox || !recipe}
+                                                    disabled={!recipe}
                                                     onClick={() => {
                                                         setMessage("");
                                                         setSelectedRun(run);
@@ -1774,9 +1763,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                                 >
                                                     {!recipe
                                                         ? "חסר מתכון תואם"
-                                                        : sandbox
-                                                          ? "עריכת נתוני בישול"
-                                                          : "עריכת נתוני בישול"}
+                                                        : "עריכת נתוני בישול"}
                                                 </button>
                                             </div>
                                         </article>
@@ -1814,7 +1801,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                             <div className="brewing-card-actions">
                                                 <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
                                                 <button type="button" onClick={() => printBrewCover(run)}>הדפס דף בישול</button>
-                                                <button type="button" disabled={!sandbox || !recipe} onClick={() => { setMessage(""); setSelectedRun(run); }}>
+                                                <button type="button" disabled={!recipe} onClick={() => { setMessage(""); setSelectedRun(run); }}>
                                                     {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
                                                 </button>
                                             </div>
