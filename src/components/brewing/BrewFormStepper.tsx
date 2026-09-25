@@ -3,6 +3,7 @@ import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadSandboxExecution,
   loadBrewingExecutionFromFirestore,
+  subscribeToBrewingExecution,
   saveBrewingExecutionToFirestore,
   saveBrewAcidHistoryToFirestore,
   saveBrewingProgressToFirestore,
@@ -1031,6 +1032,14 @@ export default function BrewFormStepper({
       return bounded;
     });
   }
+
+  useEffect(() => {
+    if (run.source !== "production") return;
+    return subscribeToBrewingExecution(run.batchNumber, (remote) => {
+      setExecution(remote);
+      setActiveStepState(Math.max(0, remote.activeStepIndex || 0));
+    });
+  }, [run.batchNumber, run.source]);
 
   useEffect(() => {
     let cancelled = false;
