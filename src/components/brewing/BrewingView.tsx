@@ -349,6 +349,15 @@ export default function BrewingView({ brews, tab }: Props) {
         [editableProductionTanks],
     );
 
+    async function batchNumberExistsInProduction(batchNumber: string): Promise<boolean> {
+        const clean = String(batchNumber || "").replace("#", "").trim();
+        if (!clean) return false;
+        return brews.some((tank) => String(tank.batchNumber || "").replace("#", "").trim() === clean) ||
+            pendingProductionRows.some((row) => String(row.batchNumber || "").replace("#", "").trim() === clean) ||
+            creationJobs.some((job) => job.batchNumber === clean) ||
+            productionHistory.some((row) => String(row.batchNumber || "").replace("#", "").trim() === clean);
+    }
+
     const visiblePlanningHints = useMemo(() => {
         const created = new Set(
             [
