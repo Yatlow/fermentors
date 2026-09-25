@@ -11,14 +11,6 @@ import {
     type BrewingDriveHistoryRow,
 } from "../../SERVICES/brewing/brewingSheetServer";
 import {
-    loadSandboxRecipes,
-    replaceSandboxRecipes,
-} from "../../SERVICES/brewing/sandboxRecipe";
-import {
-    loadSandboxIngredients,
-    saveSandboxIngredients,
-} from "../../SERVICES/brewing/sandboxIngredients";
-import {
     loadSharedBrewingLibrary,
     publishSharedBrewingLibrary,
     saveSharedBrewingIngredients,
@@ -28,29 +20,12 @@ import {
     subscribeCurrentWeekPlannedBrewHints,
     type PlannedBrewHint,
 } from "../../SERVICES/brewing/planningBrewHints";
-import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
+import { DEFAULT_IPA_RECIPE, type BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
+import { DEFAULT_INGREDIENT_LIBRARY } from "../../SERVICES/brewing/ingredientLibrary";
 import { sameStyle } from "../../SERVICES/planning/planningEngine";
-import {
-    assignNextSandboxRunToTank,
-    attachSandboxRecipeSnapshot,
-    batchNumberExistsInProduction,
-    attachSandboxSheet,
-    createSandboxBrewRun,
-    deleteSandboxBrewRun,
-    isBrewingSandbox,
-    loadSandboxBrewRuns,
-    loadSandboxDemoTank,
-    markSandboxDemoTankBrewing,
-    resetSandboxDemoTank,
-    setSandboxDemoTankType,
-    type SandboxBrewRun,
-    type SandboxDemoTank,
-} from "../../SERVICES/brewing/brewingSandbox";
+import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import {
     buildBrewSheetInitialWrites,
-    createSandboxBrewSheet,
-    deleteSandboxBrewSheet,
-    ensureSandboxSheetAccess,
     productionBrewSheetExists,
 } from "../../SERVICES/brewing/sandboxSheet";
 import { enqueueBrewSheetCreation } from "../../SERVICES/brewing/brewSheetCreationOutbox";
@@ -93,11 +68,11 @@ function extractSpreadsheetId(value: unknown): string {
 type BrewPrintPdf = Awaited<ReturnType<typeof serverPrintBrewSheetPdf>>;
 const brewPrintCache = new Map<string, Promise<BrewPrintPdf>>();
 
-function brewPrintKey(run: SandboxBrewRun, mashRestCount: number): string {
+function brewPrintKey(run: BrewRun, mashRestCount: number): string {
     return [extractSpreadsheetId(run.sheetId || run.sheetUrl), run.batchNumber, run.brewSheetEditRevision ?? "history", mashRestCount].join(":");
 }
 
-function prepareBrewPrint(run: SandboxBrewRun, mashRestCount: number): Promise<BrewPrintPdf> {
+function prepareBrewPrint(run: BrewRun, mashRestCount: number): Promise<BrewPrintPdf> {
     const spreadsheetId = extractSpreadsheetId(run.sheetId || run.sheetUrl);
     if (!spreadsheetId) return Promise.reject(new Error("לא נמצא Sheet לאצווה."));
     const key = brewPrintKey(run, mashRestCount);
@@ -111,7 +86,7 @@ function prepareBrewPrint(run: SandboxBrewRun, mashRestCount: number): Promise<B
     return request;
 }
 
-function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
+function productionRunFromTank(tank: Fermentor): BrewRun | null {
     const batchNumber = String(tank.batchNumber || "").replace("#", "").trim();
     const style = String(tank.beerStyle || "").trim();
     const sheetUrl = String(tank.sheetUrl || "").trim();
@@ -157,7 +132,7 @@ function productionRunFromTank(tank: Fermentor): SandboxBrewRun | null {
 
 function productionRunFromSummary(
     row: BrewingDriveHistoryRow,
-): SandboxBrewRun | null {
+): BrewRun | null {
     const batchNumber = String(row.batchNumber || "").replace("#", "").trim();
     const style = String(row.beerStyle || "").trim();
     const sheetUrl = String(row.sheetUrl || "").trim();
@@ -212,18 +187,16 @@ function productionTankStageClass(tank: Fermentor): string {
 }
 
 export default function BrewingView({ brews, tab }: Props) {
-    const sandbox = isBrewingSandbox();
-    const [sandboxRuns, setSandboxRuns] = useState<SandboxBrewRun[]>(() => loadSandboxBrewRuns());
-    const [recipes, setRecipes] = useState<BrewRecipe[]>(() => loadSandboxRecipes());
-    const [ingredients, setIngredients] = useState(() => loadSandboxIngredients());
+    const [sandboxRuns, setSandboxRuns] = useState<BrewRun[]>(() => loadBrewRuns());
+    const [recipes, setRecipes] = useState<BrewRecipe[]>(() => [DEFAULT_IPA_RECIPE]);
+    const [ingredients, setIngredients] = useState(() => DEFAULT_INGREDIENT_LIBRARY);
     const [sharedLibraryReady, setSharedLibraryReady] = useState(false);
     const [sharedLibraryLoading, setSharedLibraryLoading] = useState(false);
     const [publishingSharedLibrary, setPublishingSharedLibrary] = useState(false);
     const [busyTankId, setBusyTankId] = useState<string | null>(null);
     const [message, setMessage] = useState<string>("");
     const [suggestedBatch, setSuggestedBatch] = useState<string>("");
-    const [demoTank, setDemoTank] = useState<SandboxDemoTank>(() => loadSandboxDemoTank());
-    const [selectedRun, setSelectedRun] = useState<SandboxBrewRun | null>(null);
+    const [selectedRun, setSelectedRun] = useState<BrewRun | null>(null);
     const [showCreate, setShowCreate] = useState(false);
     const [planningHints, setPlanningHints] = useState<PlannedBrewHint[]>([]);
     const [planningHintsAvailable, setPlanningHintsAvailable] = useState(false);
@@ -246,19 +219,8 @@ export default function BrewingView({ brews, tab }: Props) {
     const [creationJobsError, setCreationJobsError] = useState("");
     const [historyLoading, setHistoryLoading] = useState(false);
     const [printingBatch, setPrintingBatch] = useState<string | null>(null);
-    const [deleteConfirmation, setDeleteConfirmation] = useState<SandboxBrewRun | null>(null);
+    const [deleteConfirmation, setDeleteConfirmation] = useState<BrewRun | null>(null);
     const [historyQuery, setHistoryQuery] = useState("");
-
-    const demoTankAsFermentor = useMemo<Fermentor>(
-        () => ({
-            id: demoTank.id,
-            uid: demoTank.id,
-            tankNumber: demoTank.tankNumber,
-            action: demoTank.action,
-            stage: { name: demoTank.stageName } as Fermentor["stage"],
-        }),
-        [demoTank]
-    );
 
     useEffect(() => {
         return onSnapshot(
@@ -284,16 +246,9 @@ export default function BrewingView({ brews, tab }: Props) {
         );
     }, []);
 
-    const allTanks = useMemo(() => {
-        const production = brews
-            .filter((tank) => Number(tank.tankNumber) !== 1)
-            .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber));
-
-        if (!sandbox) return production;
-        return [...production, demoTankAsFermentor].sort(
-            (a, b) => Number(a.tankNumber) - Number(b.tankNumber)
-        );
-    }, [brews, demoTankAsFermentor, sandbox]);
+    const allTanks = useMemo(() => brews
+        .filter((tank) => Number(tank.tankNumber) !== 1)
+        .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)), [brews]);
 
     useEffect(() => {
         if (!selectedRun || selectedRun.source !== "production" || selectedRun.tankId.startsWith("history-")) {
@@ -437,7 +392,7 @@ export default function BrewingView({ brews, tab }: Props) {
 
         return Array.from(pendingByBatch.values())
             .map(productionRunFromSummary)
-            .filter((run): run is SandboxBrewRun => !!run)
+            .filter((run): run is BrewRun => !!run)
             .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber));
     }, [pendingProductionRows, productionHistory, planningHints, currentProductionBatchNumbers, allTanks]);
 
@@ -449,7 +404,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const driveProductionRuns = useMemo(
         () => productionHistory
             .map(productionRunFromSummary)
-            .filter((run): run is SandboxBrewRun => !!run)
+            .filter((run): run is BrewRun => !!run)
             .filter((run) => !currentProductionBatchNumbers.has(run.batchNumber)),
         [productionHistory, currentProductionBatchNumbers],
     );
@@ -478,7 +433,7 @@ export default function BrewingView({ brews, tab }: Props) {
         const newestPending = pendingProductionRuns.at(-1) || null;
         const nextActionZero = actionZeroProductionTanks
             .map(productionRunFromTank)
-            .find((run): run is SandboxBrewRun => !!run && !run.brewProgress?.stageName) || null;
+            .find((run): run is BrewRun => !!run && !run.brewProgress?.stageName) || null;
         const run = newestPending || nextActionZero;
         if (!run) return;
 
@@ -536,55 +491,6 @@ export default function BrewingView({ brews, tab }: Props) {
     }
 
     useEffect(() => {
-        if (!sandbox) return;
-        let changed = false;
-        sandboxRuns.forEach((run) => {
-            if (run.recipeSnapshot) return;
-            const source =
-                recipes.find((recipe) => recipe.style === run.style) ||
-                recipes.find((recipe) => recipe.id === "ipa");
-            if (!source) return;
-            attachSandboxRecipeSnapshot(run.batchNumber, source);
-            changed = true;
-        });
-        if (changed) setSandboxRuns(loadSandboxBrewRuns());
-        // Existing demo batches get a one-time snapshot.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sandbox]);
-
-    useEffect(() => {
-        if (!sandbox) return;
-
-        let changed = false;
-
-        allTanks.forEach((tank) => {
-            if (Number(tank.action) !== 5) return;
-
-            const tankNumber = String(tank.tankNumber ?? tank.id);
-            const hasAssignedSandboxRun = sandboxRuns.some(
-                (run) =>
-                    String(run.tankNumber) === tankNumber &&
-                    (run.assignmentStatus || "assigned") === "assigned" &&
-                    !run.started,
-            );
-            if (hasAssignedSandboxRun) return;
-
-            const assigned = assignNextSandboxRunToTank(tankNumber);
-            if (!assigned) return;
-
-            changed = true;
-
-            if (tank.id === demoTank.id) {
-                setDemoTank(markSandboxDemoTankBrewing());
-            }
-        });
-
-        if (changed) {
-            setSandboxRuns(loadSandboxBrewRuns());
-        }
-    }, [sandbox, allTanks, sandboxRuns, demoTank.id]);
-
-    useEffect(() => {
         return onSnapshot(collection(db, "pendingBrews"), (snapshot) => {
             setPendingProductionRows(snapshot.docs.map((item) => {
                 const data = item.data();
@@ -629,11 +535,9 @@ export default function BrewingView({ brews, tab }: Props) {
             ...planningHints.map((hint) => Number(String(hint.batchNumber || "").replace("#", "").trim())),
         ].filter(Number.isFinite);
         if (!numbers.length) return;
-        const sandboxUsed = new Set(sandboxRuns.map((run) => Number(run.batchNumber)));
-        let candidate = Math.max(...numbers) + 1;
-        while (sandboxUsed.has(candidate)) candidate += 1;
+        const candidate = Math.max(...numbers) + 1;
         setSuggestedBatch(String(candidate));
-    }, [brews, pendingProductionRows, planningHints, sandboxRuns]);
+    }, [brews, pendingProductionRows, planningHints]);
 
     useEffect(() => {
         setPlanningHintsLoading(true);
@@ -654,7 +558,6 @@ export default function BrewingView({ brews, tab }: Props) {
         const used = new Set(
             [
                 ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
-                ...sandboxRuns.map((run) => String(run.batchNumber).replace("#", "").trim()),
             ].filter(Boolean),
         );
 
@@ -665,7 +568,7 @@ export default function BrewingView({ brews, tab }: Props) {
         if (nextPlanned?.batchNumber) {
             setSuggestedBatch(String(nextPlanned.batchNumber));
         }
-    }, [planningHints, brews, sandboxRuns]);
+    }, [planningHints, brews]);
 
     function findProductionAssignment(batchNumber: string): Fermentor | null {
         const clean = String(batchNumber || "").replace("#", "").trim();
@@ -678,7 +581,7 @@ export default function BrewingView({ brews, tab }: Props) {
         );
     }
 
-    async function createSandbox(
+    async function createProductionBrew(
         tank: Fermentor,
         draft: { batchNumber: string; style: string },
     ) {
@@ -696,8 +599,6 @@ export default function BrewingView({ brews, tab }: Props) {
             return;
         }
 
-        const isDemoTank = tank.id === demoTank.id;
-
         const selectedStyleKey = String(draft.style || "").trim().toLowerCase();
         const recipe = recipes.find((item) =>
             String(item.style || "").trim().toLowerCase() === selectedStyleKey ||
@@ -708,7 +609,7 @@ export default function BrewingView({ brews, tab }: Props) {
             return;
         }
 
-        if (!isDemoTank) {
+        {
             setMessage("");
             setCreateModalError("");
             setBusyTankId(tank.id);
@@ -781,72 +682,9 @@ export default function BrewingView({ brews, tab }: Props) {
             }
         }
 
-        const isSanitized = Number(tank.action) === 5;
-        setMessage("");
-        setCreateModalError("");
-        setBusyTankId(tank.id);
-
-        try {
-            const run = await createSandboxBrewRun({
-                batchNumber: draft.batchNumber,
-                tankId: tank.id,
-                tankNumber: String(tank.tankNumber ?? tank.id),
-                tankType:
-                    tank.id === demoTank.id
-                        ? demoTank.tankType
-                        : tankTypeKey(tank.tankNumber),
-                style: draft.style,
-                source: "manual",
-                recipeSnapshot: recipe,
-                assignmentStatus: isSanitized ? "assigned" : "pending_sanitization",
-            });
-
-            // The sandbox run is the fast, durable-enough local acknowledgement.
-            // Do not keep the creation modal hostage while Drive copies the Sheet.
-            setSandboxRuns(loadSandboxBrewRuns());
-            if (tank.id === demoTank.id && isSanitized) {
-                setDemoTank(markSandboxDemoTankBrewing());
-            }
-            setSuggestedBatch(String(Number(run.batchNumber) + 1));
-            setShowCreate(false);
-            setBusyTankId(null);
-            setMessage(`✓ אצווה ${run.batchNumber} נוצרה. ה-Sheet נבנה ברקע…`);
-
-            void (async () => {
-                try {
-                    await ensureSandboxSheetAccess();
-                    const sheet = await createSandboxBrewSheet({
-                        batchNumber: run.batchNumber,
-                        style: run.style,
-                        tankNumber: run.tankNumber,
-                        tankType: run.tankType,
-                        recipe,
-                        ingredients: loadSandboxIngredients(),
-                    });
-                    attachSandboxSheet(run.batchNumber, sheet);
-                    setSandboxRuns(loadSandboxBrewRuns());
-                    setMessage(
-                        isSanitized
-                            ? `✓ אצווה ${run.batchNumber} מוכנה ושויכה למיכל ${run.tankNumber}.`
-                            : `✓ אצווה ${run.batchNumber} מוכנה וממתינה לשיבוץ למיכל ${run.tankNumber}.`,
-                    );
-                } catch (error) {
-                    setMessage(
-                        `אצווה ${run.batchNumber} נוצרה, אבל יצירת ה-Sheet ברקע נכשלה: ${
-                            error instanceof Error ? error.message : "שגיאה לא ידועה"
-                        }`,
-                    );
-                }
-            })();
-        } catch (error) {
-            setCreateModalError(
-                error instanceof Error ? error.message : "יצירת האצווה נכשלה.",
-            );
-            setBusyTankId(null);
-        }
     }
 
-    async function printBrewCover(run: SandboxBrewRun) {
+    async function printBrewCover(run: BrewRun) {
         if (printingBatch) return;
 
         // Open the tab synchronously while iOS still considers this part of the
@@ -927,7 +765,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         }
     }
 
-    async function removeSandboxRun(run: SandboxBrewRun) {
+    async function removeSandboxRun(run: BrewRun) {
         setMessage("");
         setBatchDeleting(run.batchNumber, true);
         try {
@@ -937,8 +775,8 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
             if (run.sheetId) {
                 await deleteSandboxBrewSheet(run.sheetId);
             }
-            deleteSandboxBrewRun(run.batchNumber);
-            setSandboxRuns(loadSandboxBrewRuns());
+            deleteBrewRun(run.batchNumber);
+            setSandboxRuns(loadBrewRuns());
             setMessage(`אצווה ${run.batchNumber} וה-Sheet שלה נמחקו.`);
         } catch (error) {
             const detail =
@@ -1017,7 +855,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         }
     }
 
-    async function editPendingProductionBatch(run: SandboxBrewRun) {
+    async function editPendingProductionBatch(run: BrewRun) {
         if (run.brewDate || !run.sheetId) return;
         const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\\D/g, "").trim();
         if (!nextBatch) return;
@@ -1072,7 +910,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         }
     }
 
-    async function deletePendingProductionBatch(run: SandboxBrewRun) {
+    async function deletePendingProductionBatch(run: BrewRun) {
         if (run.brewDate || !run.sheetId) return;
         const liveTank = brews.find((item) =>
             String(item.batchNumber || "").replace("#", "").trim() === run.batchNumber,
@@ -1199,7 +1037,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         setDemoTank(resetSandboxDemoTank());
         const assigned = assignNextSandboxRunToTank("20");
         if (assigned) {
-            setSandboxRuns(loadSandboxBrewRuns());
+            setSandboxRuns(loadBrewRuns());
             setDemoTank(markSandboxDemoTankBrewing());
             setMessage(
                 `מיכל דמו 20 חזר למחוטא ואצווה ${assigned.batchNumber} שובצה אליו אוטומטית מהתור.`,
@@ -1384,9 +1222,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     tanks={allTanks}
                     recipes={recipes}
                     suggestedBatch={suggestedBatch}
-                    sandboxRuns={sandboxRuns}
                     createdBatchNumbers={[...new Set([...brews.map((tank) => String(tank.batchNumber || "")), ...pendingProductionRows.map((row) => String(row.batchNumber || "")), ...creationJobs.map((job) => String(job.batchNumber || ""))].filter(Boolean))]}
-                    demoTank={demoTank}
                     busyTankId={busyTankId}
                     planningHints={planningHints}
                     planningHintsAvailable={planningHintsAvailable}
@@ -1398,15 +1234,12 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                         setQuickCreateHint(null);
                         setShowCreate(false);
                     }}
-                    onDemoTankTypeChange={(value) =>
-                        setDemoTank(setSandboxDemoTankType(value))
-                    }
                     initialDraft={quickCreateHint ? {
                         batchNumber: quickCreateHint.batchNumber,
                         style: quickCreateHint.style,
                         tankId: quickCreateHint.tankId,
                     } : undefined}
-                    onCreate={createSandbox}
+                    onCreate={createProductionBrew}
                 />
             )}
 
@@ -1422,7 +1255,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                             onPublishSharedLibrary={() => void publishLibrary()}
                             onRecipesChange={(next) => {
                                 setRecipes(next);
-                                replaceSandboxRecipes(next);
                                 if (sharedLibraryReady) {
                                     void saveSharedBrewingRecipes(next).catch(
                                         (error) => {
@@ -1436,7 +1268,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                             }}
                             onIngredientsChange={(next) => {
                                 setIngredients(next);
-                                saveSandboxIngredients(next);
                                 if (sharedLibraryReady) {
                                     void saveSharedBrewingIngredients(next).catch(
                                         (error) => {
@@ -1475,7 +1306,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                         </div>
                         <div className="brewing-heading-actions">
                             <span className="brewing-count">
-                                {sandboxRuns.length + editableProductionTanks.length}
+                                {editableProductionTanks.length}
                             </span>
                             <button
                                 type="button"
@@ -1491,109 +1322,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                         </div>
                     </div>
 
-                    {sandbox && (
-                        <div className="brewing-demo-controls">
-                            <div>
-                                <strong>מיכל דמו 20</strong>
-                                <span>
-                                    {demoTank.stageName} ·{" "}
-                                    {demoTank.tankType === "single"
-                                        ? "בודד"
-                                        : demoTank.tankType === "double"
-                                            ? "כפול"
-                                            : "משולש"}
-                                </span>
-                            </div>
-                            <button type="button" onClick={resetDemoAndAssignQueue}>
-                                החזר למחוטא
-                            </button>
-                        </div>
-                    )}
-
-                    {sandbox && sandboxRuns.length > 0 && (
-                        <>
-                            <h3 className="brewing-subheading">אצוות דמו · מיכל 20</h3>
-                            <div className="brewing-tank-grid">
-                                {sandboxRuns.map((run) => {
-                                    const pending =
-                                        (run.assignmentStatus || "assigned") ===
-                                        "pending_sanitization";
-                                    return (
-                                        <article
-                                            className="brewing-tank-card brewing-sandbox-card"
-                                            key={run.batchNumber}
-                                        >
-                                            <div className="brewing-tank-card-top">
-                                                <strong>אצווה {run.batchNumber}</strong>
-                                                {(() => {
-                                                    const style = beerStyleClass(run.style);
-                                                    return (
-                                                        <span
-                                                            className={`brewing-style-tag ${style.className}`}
-                                                        >
-                                                            {style.displayLabel}
-                                                        </span>
-                                                    );
-                                                })()}
-                                            </div>
-                                            <div className="brewing-tank-meta">
-                                                <span>מיכל יעד {run.tankNumber}</span>
-                                                <span>
-                                                    {pending
-                                                        ? "ממתינה לשיבוץ — המיכל אינו מחוטא"
-                                                        : "משויכת למיכל · עדיין לא בבישול"}
-                                                </span>
-                                                <span>Sandbox בלבד</span>
-                                            </div>
-                                            <div className="brewing-card-actions">
-                                                {run.sheetUrl ? (
-                                                    <a
-                                                        className="brewing-sheet-link"
-                                                        href={run.sheetUrl}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                    >
-                                                        פתח Sheet
-                                                    </a>
-                                                ) : (
-                                                    <button type="button" disabled>
-                                                        Sheet לא נוצר
-                                                    </button>
-                                                )}
-                                                <button
-                                                    type="button"
-                                                    disabled={
-                                                        pending ||
-                                                        !run.sheetId
-                                                    }
-                                                    onClick={() => {
-                                                        setMessage("");
-                                                        setSelectedRun(run);
-                                                    }}
-                                                >
-                                                    {pending
-                                                        ? "ממתינה למיכל מחוטא"
-                                                        : "מילוי טופס בישול"}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="brewing-danger-button"
-                                                    disabled={isDeletingBatch(run.batchNumber)}
-                                                    onClick={() => void removeSandboxRun(run)}
-                                                >
-                                                    {isDeletingBatch(run.batchNumber) ? (
-                                                        <BeerLoader size="spinner" message="מוחק…" />
-                                                    ) : (
-                                                        "מחק"
-                                                    )}
-                                                </button>
-                                            </div>
-                                        </article>
-                                    );
-                                })}
-                            </div>
-                        </>
-                    )}
 
                     {creationJobsError && (
                         <div className="brewing-empty brewing-creation-error">{creationJobsError}</div>
@@ -1814,8 +1542,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                         )}
                     </div>
 
-                    {sandboxRuns.length === 0 &&
-                        editableProductionTanks.length === 0 &&
+                    {editableProductionTanks.length === 0 &&
                         productionHistory.length === 0 && (
                             <div className="brewing-empty">
                                 אין כרגע אצוות להצגה.
