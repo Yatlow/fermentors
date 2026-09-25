@@ -25,6 +25,20 @@ import {
 import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurrentDataToFirestore";
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
+import {
+    Bubbles,
+    BottleWine,
+    CircleArrowOutUpRight,
+    ClockPlus,
+    FlaskConical,
+    Hop,
+    PencilSparkles,
+    Stethoscope,
+    ThermometerSnowflake,
+    ThermometerSun,
+    createLucideIcon,
+    type LucideIcon,
+} from "lucide-react";
 
 type QuickTankReportBoxProps = {
     tank: Fermentor;
@@ -33,19 +47,33 @@ type QuickTankReportBoxProps = {
     position: { top: number; left: number } | null;
 };
 
-const NOTE_TYPES = [
-    { value: "סגירת מיכל", label: "סגירת מיכל", stage: "warm" },
-    { value: "גיזוז", label: "בדיקת גיזוז", stage: "cold" },
-    { value: "גיזוז מלמטה התחלה", label: "תחילת גיזוז מלמטה", stage: "cold" },
-    { value: "גיזוז מלמטה סגירה", label: "סגירת גיזוז מלמטה", stage: "cold" },
-    { value: "שמרים", label: "הורדת שמרים", stage: "both" },
-    { value: "לחץ", label: "שינוי לחץ", stage: "both" },
-    { value: "פורק", label: "כיוון פורק", stage: "warm" },
-    { value: "דיאציטיל", label: "מנוחת דיאציטיל", stage: "warm" },
-    { value: "קירור", label: "קירור", stage: "warm" },
-    { value: "דרייהופ", label: "דרייהופ", stage: "warm" },
-    { value: "אריזה", label: "אריזה", stage: "cold" },
-    { value: "אחר", label: "אחר", stage: "both" },
+const RobotVacuum = createLucideIcon("RobotVacuum", [
+    ["circle", { cx: "12", cy: "12", r: "8.5", key: "body" }],
+    ["path", { d: "M7.5 15.5h9", key: "bumper" }],
+    ["circle", { cx: "12", cy: "10", r: "1.4", key: "sensor" }],
+    ["path", { d: "M5 12h-1.5M20.5 12H19", key: "brushes" }],
+]);
+
+type QuickReportType = {
+    value: string;
+    label: string;
+    stage: "warm" | "cold" | "both";
+    icon: LucideIcon;
+};
+
+const NOTE_TYPES: QuickReportType[] = [
+    { value: "סגירת מיכל", label: "סגירת מיכל", stage: "warm", icon: RobotVacuum },
+    { value: "גיזוז", label: "בדיקת גיזוז", stage: "cold", icon: Bubbles },
+    { value: "גיזוז מלמטה התחלה", label: "תחילת גיזוז מלמטה", stage: "cold", icon: Stethoscope },
+    { value: "גיזוז מלמטה סגירה", label: "סגירת גיזוז מלמטה", stage: "cold", icon: Stethoscope },
+    { value: "שמרים", label: "הורדת שמרים", stage: "both", icon: FlaskConical },
+    { value: "לחץ", label: "שינוי לחץ", stage: "both", icon: ClockPlus },
+    { value: "פורק", label: "כיוון פורק", stage: "warm", icon: CircleArrowOutUpRight },
+    { value: "דיאציטיל", label: "מנוחת דיאצטיל", stage: "warm", icon: ThermometerSun },
+    { value: "קירור", label: "קירור", stage: "warm", icon: ThermometerSnowflake },
+    { value: "דרייהופ", label: "דרייהופ", stage: "warm", icon: Hop },
+    { value: "אריזה", label: "אריזה", stage: "cold", icon: BottleWine },
+    { value: "אחר", label: "אחר", stage: "both", icon: PencilSparkles },
 ];
 
 const KEG_LITERS = 20;
@@ -116,6 +144,36 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
     }
+    function selectNoteType(newType: string) {
+        setNoteType(newType);
+        resetValues();
+
+        if (newType === "סגירת מיכל" && closingPressure !== null) {
+            setValue(String(closingPressure));
+        }
+        if (newType === "גיזוז מלמטה התחלה") {
+            setValue(String(DEFAULT_BOTTOM_CARBONATION_PRESSURE));
+            setValue2(formatClockTime());
+        }
+        if (newType === "גיזוז מלמטה סגירה") {
+            setValue(
+                tank.currentData?.pressure !== undefined && tank.currentData?.pressure !== null
+                    ? String(tank.currentData.pressure)
+                    : ""
+            );
+            setValue2(formatClockTime());
+        }
+
+        if (newType === "דרייהופ" && specs) {
+            const category = getDryHopStyleCategory(tank.beerStyle);
+            const calc = calcDryHopDose(category, tank.beerVolume);
+            if (!calc.needsManualInput) {
+                const defaultAa = getHopAa(calc.hopType, specs);
+                setDryHopAa(defaultAa !== null ? String(defaultAa) : "");
+            }
+        }
+    }
+
 
     function buildNoteText(): string | null {
         switch (noteType) {
@@ -387,51 +445,28 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                         <h3>דיווח מהיר- מיכל {tank.tankNumber}</h3>
 
                         <div className="quickReportForm">
-                            <select
-                                className="quickReportSelect"
-                                value={noteType}
-                                disabled={isSending}
-                                onChange={(e) => {
-                                    const newType = e.target.value;
-
-                                    setNoteType(newType);
-                                    resetValues();
-
-                                    if (newType === "סגירת מיכל" && closingPressure !== null) {
-                                        setValue(String(closingPressure));
-                                    }
-                                    if (newType === "גיזוז מלמטה התחלה") {
-                                        setValue(String(DEFAULT_BOTTOM_CARBONATION_PRESSURE));
-                                        setValue2(formatClockTime());
-                                    }
-                                    if (newType === "גיזוז מלמטה סגירה") {
-                                        setValue(
-                                            tank.currentData?.pressure !== undefined && tank.currentData?.pressure !== null
-                                                ? String(tank.currentData.pressure)
-                                                : ""
-                                        );
-                                        setValue2(formatClockTime());
-                                    }
-
-                                    if (newType === "דרייהופ" && specs) {
-                                        const category = getDryHopStyleCategory(tank.beerStyle);
-                                        const calc = calcDryHopDose(category, tank.beerVolume);
-                                        if (!calc.needsManualInput) {
-                                            const defaultAa = getHopAa(calc.hopType, specs);
-                                            setDryHopAa(defaultAa !== null ? String(defaultAa) : "");
-                                        }
-                                    }
-                                }}
-                            >
-                                <option value="" disabled>בחר סוג דיווח</option>
+                            <div className="quickReportTypeGrid" role="group" aria-label="סוג דיווח">
                                 {NOTE_TYPES
                                     .filter((t) => t.stage === "both" || t.stage === stage)
                                     .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
                                     .filter((t) => t.value !== "אריזה" || isColdTank)
-                                    .map((t) => (
-                                        <option key={t.value} value={t.value}>{t.label}</option>
-                                    ))}
-                            </select>
+                                    .map((t) => {
+                                        const Icon = t.icon;
+                                        return (
+                                            <button
+                                                key={t.value}
+                                                type="button"
+                                                className={`quickReportTypeButton ${noteType === t.value ? "active" : ""}`}
+                                                aria-pressed={noteType === t.value}
+                                                disabled={isSending}
+                                                onClick={() => selectNoteType(t.value)}
+                                            >
+                                                <Icon size={17} aria-hidden="true" />
+                                                <span>{t.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                            </div>
 
                             {noteType === "אחר" && (
                                 <input type="text" placeholder="כתוב הערה" value={value} disabled={isSending}
