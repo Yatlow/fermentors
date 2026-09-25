@@ -134,7 +134,10 @@ export function expandCompoundCellarMeasurements<T extends BottomCarbonationMeas
     return measurements.flatMap((measurement) => {
         const note = String(measurement.notes ?? "");
         let segments = note.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
-        if (segments.length <= 1) return [measurement];
+        segments = segments.filter((segment, index) =>
+            index === 0 || segment.replace(/\s+/g, " ") !== segments[index - 1].replace(/\s+/g, " ")
+        );
+        if (segments.length <= 1) return [{ ...measurement, notes: segments[0] ?? note } as T];
 
         // Bottom-carbonation start + close + the final pressure adjustment are
         // one operational cellar action even when the report stores them as
