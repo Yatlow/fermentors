@@ -253,46 +253,6 @@ function a1Cell(range: string): { sheet: string; col: string; row: number } | nu
   return { sheet: match[1] || "", col: match[2].toUpperCase(), row: Number(match[3]) };
 }
 
-async function ensureWriteBaselines(fileId: string, writes: SheetWrite[]): Promise<SheetWrite[]> {
-  const baseline = baselineFor(fileId);
-  const missing = writes.filter((write) => !baseline.has(write.range));
-  if (missing.length) {
-    const cells = missing.map((write) => a1Cell(write.range));
-    if (cells.some((cell) => !cell)) throw new Error("לא ניתן לאמת את מצב ה-Sheet לפני הכתיבה.");
-
-    const sheetNames = new Set(cells.map((cell) => cell!.sheet));
-    const cols = cells.map((cell) => cell!.col.charCodeAt(0) - 64);
-    if (sheetNames.size !== 1 || cols.some((col) => col < 1 || col > 26)) {
-      // Rare fallback: read each cell. Correctness is more important than batching here.
-      await Promise.all(missing.map(async (write) => {
-        const values = await readSandboxSheetRange(fileId, write.range);
-        baseline.set(write.range, normalizeSheetValue(values[0]?.[0]));
-      }));
-    } else {
-      const rows = cells.map((cell) => cell!.row);
-      const minRow = Math.min(...rows);
-      const maxRow = Math.max(...rows);
-      const minCol = Math.min(...cols);
-      const maxCol = Math.max(...cols);
-      const colName = (n: number) => String.fromCharCode(64 + n);
-      const sheet = cells[0]!.sheet;
-      const readRange = `${sheet ? `${sheet}!` : ""}${colName(minCol)}${minRow}:${colName(maxCol)}${maxRow}`;
-      const values = await readSandboxSheetRange(fileId, readRange);
-      missing.forEach((write) => {
-        const cell = a1Cell(write.range)!;
-        const row = cell.row - minRow;
-        const col = cell.col.charCodeAt(0) - 64 - minCol;
-        baseline.set(write.range, normalizeSheetValue(values[row]?.[col]));
-      });
-    }
-  }
-
-  return writes.map((write) => ({
-    ...write,
-    expectedValue: baseline.get(write.range) ?? "",
-  }));
-}
-
 export function resetSandboxSheetBaseline(fileId: string): void {
   if (!fileId) return;
   sheetBaselines.delete(fileId);
@@ -359,11 +319,6 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
     // read; send it unguarded and then make the successful app value the new
     // baseline. Sheet→app sync remains available for edits made in Sheets.
     const result = await serverWriteBrewSheetCells(fileId, writes);
-    const resolvedConflictCount = result.conflicts?.filter(
-      (conflict) =>
-        normalizeSheetValue(conflict.actualValue) ===
-        normalizeSheetValue(conflict.proposedValue as SheetCellValue | undefined),
-    ).length || 0;
     if (result.updated !== writes.length) {
       throw new Error(
         `Google Sheets אישר רק ${result.updated} מתוך ${writes.length} כתיבות.`,
