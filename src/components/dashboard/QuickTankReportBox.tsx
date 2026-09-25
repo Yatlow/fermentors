@@ -1,5 +1,5 @@
 import BeerLoader from "../general/Loading";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { writeReadingsToSheets } from "../../SERVICES/getAndPost/writeReadingToSheets";
@@ -82,6 +82,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const [errorMsg, setErrorMsg] = useState("");
 
     const [packagingJob, setPackagingJob] = useState<PackagingJobInput | null>(null);
+    const submitInFlightRef = useRef(false);
 
     const isSending = status === "sending";
 
@@ -168,9 +169,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     }
 
     async function submitNote() {
+        if (submitInFlightRef.current) return;
         const noteText = buildNoteText();
         if (noteType !== "גיזוז" && !noteText) return;
 
+        submitInFlightRef.current = true;
         setStatus("sending");
         setErrorMsg("");
 
@@ -230,6 +233,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         } catch (err: any) {
             setStatus("error");
             setErrorMsg(err?.message ?? "שגיאה בשליחה");
+        } finally {
+            submitInFlightRef.current = false;
         }
     }
 
