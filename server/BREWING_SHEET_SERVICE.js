@@ -450,6 +450,17 @@ function brewingSheetCreate_(data) {
     console.log("BrewSheetCreate timing " + JSON.stringify(timing));
     if (typeof logToSheet === "function") logToSheet("BrewSheetCreate timing " + JSON.stringify(timing));
 
+    // Install the edit trigger at creation time. This is the only point at
+    // which the server has an authoritative Sheet id + tank pair without
+    // depending on a later ACTION-0 maintenance lookup.
+    if (tankNumber) {
+      brewingSheetRememberEditTank_(fileId, tankNumber);
+      brewingSheetEnsureEditTrigger_({
+        spreadsheetId: fileId,
+        tankNumber: tankNumber
+      });
+    }
+
     return {
       id: fileId,
       name: copy.getName(),
