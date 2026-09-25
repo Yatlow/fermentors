@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
-import type {
-  SandboxBrewRun,
-  SandboxDemoTank,
-} from "../../SERVICES/brewing/brewingSandbox";
 import type { PlannedBrewHint } from "../../SERVICES/brewing/planningBrewHints";
 import BeerLoader from "../general/Loading";
 
@@ -13,9 +9,7 @@ type Props = {
   tanks: Fermentor[];
   recipes: BrewRecipe[];
   suggestedBatch: string;
-  sandboxRuns: SandboxBrewRun[];
   createdBatchNumbers?: string[];
-  demoTank: SandboxDemoTank;
   busyTankId: string | null;
   planningHints: PlannedBrewHint[];
   planningHintsAvailable: boolean;
@@ -24,22 +18,13 @@ type Props = {
   error: string;
   onClearError: () => void;
   onClose: () => void;
-  onDemoTankTypeChange: (value: SandboxDemoTank["tankType"]) => void;
   onCreate: (
     tank: Fermentor,
     draft: { batchNumber: string; style: string },
   ) => Promise<void>;
 };
 
-function tankKind(tank: Fermentor, demoTank: SandboxDemoTank) {
-  if (tank.id === demoTank.id) {
-    return demoTank.tankType === "single"
-      ? "בודד"
-      : demoTank.tankType === "double"
-        ? "כפול"
-        : "משולש";
-  }
-
+function tankKind(tank: Fermentor) {
   const n = Number(tank.tankNumber);
   if (n < 5) return "בודד";
   if (n < 9) return "כפול";
@@ -69,9 +54,7 @@ export default function CreateBrewModal({
   tanks,
   recipes,
   suggestedBatch,
-  sandboxRuns,
   createdBatchNumbers = [],
-  demoTank,
   busyTankId,
   planningHints,
   planningHintsAvailable,
@@ -80,7 +63,6 @@ export default function CreateBrewModal({
   error,
   onClearError,
   onClose,
-  onDemoTankTypeChange,
   onCreate,
 }: Props) {
   const sortedTanks = useMemo(
@@ -117,18 +99,6 @@ export default function CreateBrewModal({
   const selectedTank =
     sortedTanks.find((tank) => tank.id === tankId) || null;
   const isSanitized = Number(selectedTank?.action) === 5;
-  const isDemoTank = selectedTank?.id === demoTank.id;
-  const queue = selectedTank && isDemoTank
-    ? sandboxRuns
-        .filter(
-          (run) =>
-            String(run.tankNumber) ===
-              String(selectedTank.tankNumber ?? selectedTank.id) &&
-            (run.assignmentStatus || "assigned") ===
-              "pending_sanitization",
-        )
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    : [];
 
   // Creation is a global operation for this modal. Once any tank is busy,
   // lock every control so changing the selected tank cannot re-enable the
@@ -189,12 +159,6 @@ export default function CreateBrewModal({
                   tanks.some(
                     (item) =>
                       String(item.batchNumber || "")
-                        .replace("#", "")
-                        .trim() === cleanBatch,
-                  ) ||
-                  sandboxRuns.some(
-                    (run) =>
-                      String(run.batchNumber)
                         .replace("#", "")
                         .trim() === cleanBatch,
                   ) ||
@@ -275,7 +239,7 @@ export default function CreateBrewModal({
                   <option key={tank.id} value={tank.id}>
                     {[
                       `מיכל ${String(tank.tankNumber ?? tank.id)}`,
-                      tankKind(tank, demoTank),
+                      tankKind(tank),
                       statusLabel(tank),
                       currentBatch
                         ? `אצווה ${currentBatch}`
@@ -287,23 +251,6 @@ export default function CreateBrewModal({
             </select>
           </label>
 
-          {selectedTank?.id === demoTank.id && (
-            <label>
-              גודל מיכל דמו
-              <select
-                value={demoTank.tankType}
-                onChange={(event) =>
-                  onDemoTankTypeChange(
-                    event.target.value as SandboxDemoTank["tankType"],
-                  )
-                }
-              >
-                <option value="single">בודד</option>
-                <option value="double">כפול</option>
-                <option value="triple">משולש</option>
-              </select>
-            </label>
-          )}
           <label>
             מתכון
             <select
@@ -322,18 +269,6 @@ export default function CreateBrewModal({
           </label>
         </div>
 
-        {selectedTank && queue.length > 0 && (
-          <div className="brewing-tank-queue">
-            <strong>
-              כבר ממתינות למיכל הזה {queue.length} אצוות:
-            </strong>
-            {queue.map((run, index) => (
-              <span key={run.batchNumber}>
-                {index + 1}. #{run.batchNumber} · {run.style}
-              </span>
-            ))}
-          </div>
-        )}
 
         {selectedTank && !isSanitized && (
           <div className="brewing-assignment-warning">
