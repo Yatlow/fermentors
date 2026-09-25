@@ -954,7 +954,7 @@ function brewingSheetListHistory_(data) {
 }
 
 function brewingSheetAcidStyleAliases_(value) {
-  const key = String(value || "").trim().toLowerCase().replace(/\\s+(משולש|כפול|בודד)$/, "");
+  const key = String(value || "").trim().toLowerCase().replace(/\s+(משולש|כפול|בודד)$/, "");
   if (key === "חיטה" || key === "wheat") return ["חיטה", "wheat"];
   if (key === "פייל" || key === "pale" || key === "pale ale") return ["פייל", "pale", "pale ale"];
   if (key === "הופי" || key === "hoppy") return ["הופי", "hoppy"];
@@ -1278,14 +1278,14 @@ function brewingSheetBackfill1597() {
       const row = values[r] || [];
       const label = String(row[3] || "").trim();
       const stagePatterns = [
-        ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\\s*1$/i], ["heat1", /^חימום\\s*1$/i],
-        ["rest2", /^השריה\\s*2$/i], ["heat2", /^חימום\\s*2$/i], ["rest3", /^השריה\\s*3$/i],
-        ["heat3", /^חימום\\s*3$/i], ["transferLt", /^העברה\\s+ל.*L\\.?T\\.?/i],
-        ["restLt", /^מנוחה\\s*L\\.?T\\.?/i], ["circulation", /^סחרור/i],
+        ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\s*1$/i], ["heat1", /^חימום\s*1$/i],
+        ["rest2", /^השריה\s*2$/i], ["heat2", /^חימום\s*2$/i], ["rest3", /^השריה\s*3$/i],
+        ["heat3", /^חימום\s*3$/i], ["transferLt", /^העברה\s+ל.*L\.?T\.?/i],
+        ["restLt", /^מנוחה\s*L\.?T\.?/i], ["circulation", /^סחרור/i],
         ["outToBoil", /^הוצאה לבישול$/i], ["endTransfer", /^סוף העברה$/i],
-        ["boil", /^(?:תחילת\\s+)?רתיחה(?:\\s+100°?C)?$/i],
-        ["hop1", /^הוספת כ(?:שות|שת)\\s*1$/i], ["hop2", /^הוספת כ(?:שות|שת)\\s*2$/i],
-        ["hop3", /^הוספת כ(?:שות|שת)\\s*3$/i], ["wp", /סוף רתיחה.*תחילת\\s*WP/i],
+        ["boil", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i],
+        ["hop1", /^הוספת כ(?:שות|שת)\s*1$/i], ["hop2", /^הוספת כ(?:שות|שת)\s*2$/i],
+        ["hop3", /^הוספת כ(?:שות|שת)\s*3$/i], ["wp", /סוף רתיחה.*תחילת\s*WP/i],
         ["outToFermentor", /^הוצאה לתסיסה$/i]
       ];
       stagePatterns.forEach(function (entry) {
@@ -1296,7 +1296,7 @@ function brewingSheetBackfill1597() {
         if (row[7]) fields[entry[0] + ".note"] = String(row[7]).trim();
         fields["__sheetRow.stage." + entry[0]] = String(r + 1);
       });
-      const rinse = /^שטיפה\\s*(\\d+)$/i.exec(label);
+      const rinse = /^שטיפה\s*(\d+)$/i.exec(label);
       if (rinse) {
         const n = rinse[1];
         if (row[4]) fields["rinse" + n + ".time"] = String(row[4]).trim();
