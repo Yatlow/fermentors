@@ -1031,7 +1031,8 @@ function brewingSheetAcidHistory_(data) {
 // ACTIVE BREW SHEET EDIT TRIGGERS
 // ============================================================
 
-const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
+const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit";
+const BREWING_LEGACY_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
 const BREWING_EDIT_TANK_PREFIX_ = "brew_edit_tank:";
 
 function brewingSheetRememberEditTank_(spreadsheetId, tankNumber) {
@@ -1061,6 +1062,14 @@ function brewingSheetEnsureEditTrigger_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   if (data.tankNumber) brewingSheetRememberEditTank_(fileId, data.tankNumber);
   const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(function (trigger) {
+    if (
+      trigger.getHandlerFunction() === BREWING_LEGACY_EDIT_TRIGGER_HANDLER_ &&
+      brewingSheetTriggerSourceId_(trigger) === fileId
+    ) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
   const existing = triggers.find(function (trigger) {
     return (
       trigger.getHandlerFunction() === BREWING_EDIT_TRIGGER_HANDLER_ &&
@@ -1113,6 +1122,10 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
   const existingBySheetId = new Map();
 
   projectTriggers.forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === BREWING_LEGACY_EDIT_TRIGGER_HANDLER_) {
+      ScriptApp.deleteTrigger(trigger);
+      return;
+    }
     if (trigger.getHandlerFunction() !== BREWING_EDIT_TRIGGER_HANDLER_) return;
     const fileId = brewingSheetTriggerSourceId_(trigger);
     if (fileId) existingBySheetId.set(fileId, trigger);
@@ -1518,6 +1531,12 @@ function brewingSheetPersistExecutionCell_(fermentor, event) {
       ": " + code + " " + response.getContentText());
   }
   return true;
+}
+
+// Public installable-trigger entry point. Keep the implementation private,
+// but never register a trailing-underscore function as the Apps Script handler.
+function brewingSheetOnEdit(event) {
+  return brewingSheetOnEdit_(event);
 }
 
 function brewingSheetOnEdit_(event) {
