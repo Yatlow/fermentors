@@ -1245,13 +1245,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     </div>
                 </div>
             )}
-            {printingBatch && (
-                <div className="brewing-modal-backdrop" aria-live="polite" aria-busy="true">
-                    <div className="brewing-history-loader">
-                        <BeerLoader size="small" message="מכין דף בישול להדפסה…" />
-                    </div>
-                </div>
-            )}
             {deleteConfirmation && (
                 <div className="brewing-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteConfirmation(null); }}>
                     <div className="brewing-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="brew-delete-title">
