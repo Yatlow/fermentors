@@ -1,7 +1,6 @@
 import BeerLoader from "../general/Loading";
 import { useState } from "react";
 import {
-import TransientNumberInput from "../general/TransientNumberInput";
   addDays,
   litersPerUnit,
   sameStyle,
@@ -18,6 +17,7 @@ import PlanningDaySelect from "./PlanningDaySelect";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { CORE_STYLES, displayStyle, isCoreStyle, WEEK_DAYS } from "../../SERVICES/planning/planningPresentation";
 import { estimatedBrewVolume, type Release } from "../../SERVICES/planning/productionCycle";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 const tankType = (value: unknown) => {
   const n = Number(value);
