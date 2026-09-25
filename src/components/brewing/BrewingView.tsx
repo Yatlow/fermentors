@@ -1056,13 +1056,13 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     </div>
                 </div>
             )}
-            {tab === "form" && !selectedRun && actionZeroProductionTanks.length > 0 && (
-                <section className="brewing-action-zero-strip" aria-label="מיכלים ב-ACTION 0">
+            {tab === "form" && !selectedRun && editableProductionTanks.length > 0 && (
+                <section className="brewing-action-zero-strip" aria-label="אצוות בישול פעילות">
                     <div className="brewing-action-zero-heading">
-                        <strong>מיכלים בישול חדש</strong>
+                        <strong>אצוות בישול</strong>
                     </div>
                     <div className="brewing-action-zero-list">
-                        {actionZeroProductionTanks.map((tank) => {
+                        {editableProductionTanks.map((tank) => {
                             const run = productionRunFromTank(tank);
                             const rawStyle = String(tank.beerStyle || "");
                             const style = beerStyleClass(rawStyle);
@@ -1167,14 +1167,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                         })}
                     </div>
                 </section>
-            )}
-
-            {tab === "form" && !selectedRun && invalidActionZeroTanks.length > 0 && (
-                <div className="brewing-message brewing-message-error">
-                    נמצאו {invalidActionZeroTanks.length} מיכלים במצב „בישול חדש”
-                    ללא Sheet משויך. זה מצב לא תקין לפי מנגנון ACTION 5 ויש לבדוק
-                    את נתוני המיכל / המעבר האחרון.
-                </div>
             )}
 
             {message && <div className={`brewing-message ${/נכשלה|לא נמחקה|Missing or insufficient permissions/i.test(message) ? "brewing-message-error" : ""}`}>{message}</div>}
@@ -1372,7 +1364,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                             <small>לא ניתן לטעון כרגע את תכנון הבישולים.</small>
                         )}
                         {!planningHintsLoading && planningHintsAvailable && visiblePlanningHints.length === 0 && (
-                            <small>לא נמצאו בישולים מתוכננים לשבוע הזה או לשבוע הבא.</small>
+                            <small>{planningHints.length > 0 ? "לכל הבישולים המתוכננים לשבוע הזה ולשבוע הבא כבר יש גיליון." : "לא נמצאו בישולים מתוכננים לשבוע הזה או לשבוע הבא."}</small>
                         )}
                         {visiblePlanningHints.map((hint) => {
                                 const tank = allTanks.find((item) => item.id === hint.tankId);
