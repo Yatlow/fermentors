@@ -492,8 +492,9 @@ function fieldsFromSheetRows(
   if (mashInWaterAmount) pulled.lauterWaterAmount = mashInWaterAmount;
   if (mashInWaterTemp) pulled.lauterWaterTemp = mashInWaterTemp;
 
-  if (!pulled["transferLt.start"] && pulled["heat2.end"]) {
-    pulled["transferLt.start"] = pulled["heat2.end"];
+  if (!pulled["transferLt.start"]) {
+    const mashOutEnd = pulled["heat3.end"] || pulled["heat2.end"];
+    if (mashOutEnd) pulled["transferLt.start"] = mashOutEnd;
   }
 
   const mashMeta = cell(0, "H");
@@ -1512,14 +1513,37 @@ export default function BrewFormStepper({
     value: string,
     writes: Array<{ range: string; value: string | number | boolean | null }>,
   ) {
+    let baseExecution = execution;
+    const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
+
+    // B/C can be opened before they are actually brewed. On every stage-1
+    // write, refresh an automatically assigned date to today. A date that the
+    // brewer explicitly changed is marked manual and is never overwritten.
+    if (
+      activeStep === 0 &&
+      currentBlock > 1 &&
+      key !== "brewDate" &&
+      String(fields["brewDate.manual"] || "") !== "yes"
+    ) {
+      const today = new Date();
+      const todayIso = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+      if (String(fields.brewDate || "") !== todayIso) {
+        baseExecution = setSandboxExecutionField(baseExecution, currentBlock, "brewDate", todayIso);
+        dateWrites.push({
+          range: `'גיליון1'!H${blockHeaderRow(run.tankType, currentBlock)}`,
+          value: sheetDateFromIso(todayIso),
+        });
+      }
+    }
+
     const next = setSandboxExecutionField(
-      execution,
+      baseExecution,
       currentBlock,
       key,
       value,
     );
     setExecution(next);
-    writeSheet(key, writes);
+    writeSheet(key, [...dateWrites, ...writes]);
   }
 
   function localValue(key: string) {
@@ -1672,7 +1696,10 @@ export default function BrewFormStepper({
       );
     }
 
-    await commit("brewDate", value, writes);
+    let next = setSandboxExecutionField(execution, currentBlock, "brewDate", value);
+    next = setSandboxExecutionField(next, currentBlock, "brewDate.manual", "yes");
+    setExecution(next);
+    writeSheet("brewDate", writes);
   }
 
   async function confirmMaterials() {
@@ -2887,7 +2914,10 @@ export default function BrewFormStepper({
 
       boilHops.forEach((hop, index) => {
         const amountKey = `hop${index + 1}.amountGrams`;
-        if (!options.forceHopRecalc && String(fields[amountKey] || "").trim()) return;
+        const existingAmount = num(fields[amountKey] || "");
+        // New Sheets intentionally start raw-hop quantity at 0. Treat that
+        // placeholder as uncalculated so the first kettle-volume entry fills it.
+        if (!options.forceHopRecalc && existingAmount !== null && existingAmount > 0) return;
 
         const dose = hopDose(hop, parsed);
         if (dose.grams === null) return;
