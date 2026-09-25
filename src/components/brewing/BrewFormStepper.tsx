@@ -2951,6 +2951,27 @@ export default function BrewFormStepper({
       return;
     }
 
+    // Keep the fermentation starting-Plato cell numeric and in sync with the
+    // same calculation shown in the app. Never write a formula string.
+    if (key === "endBoilPlato" || key === "endBoilVolume") {
+      let projected = setSandboxExecutionField(execution, currentBlock, key, value);
+      const projectedStartingPlato = calculateWeightedStartingPlato(
+        Array.from({ length: totalBlocks }, (_, index) => {
+          const blockFields = projected.blocks[String(index + 1)]?.fields || {};
+          return {
+            endBoilPlato: num(blockFields.endBoilPlato || ""),
+            endBoilVolumeLiters: num(blockFields.endBoilVolume || ""),
+          };
+        }),
+      );
+      if (projectedStartingPlato.value !== null) {
+        writes.push({
+          range: `'גיליון1'!D${fermentationStartingRow(run.tankType)}`,
+          value: Number(projectedStartingPlato.value.toFixed(2)),
+        });
+      }
+    }
+
     await commit(key, value, writes);
   }
 
@@ -3595,14 +3616,9 @@ export default function BrewFormStepper({
     if (lastHandledSheetEditRevision.current === revision) return;
 
     lastHandledSheetEditRevision.current = revision;
-    const deltaExecution = applySheetEditDelta(execution);
-    if (deltaExecution) {
-      setExecution(deltaExecution);
-      resetSandboxSheetBaseline(run.sheetId);
-      void saveBrewingExecutionToFirestore(deltaExecution);
-      return;
-    }
-    // Unknown/legacy cell: preserve correctness with the existing full pull.
+    // A manual Sheet edit is uncommon and correctness matters more than saving
+    // one read. Re-run the canonical semantic parser for every revision instead
+    // of relying on an incomplete single-cell delta map.
     void syncFromSheet(false, { silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreHydrated, run.sheetId, run.source, run.brewSheetEditRevision]);
