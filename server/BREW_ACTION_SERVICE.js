@@ -454,34 +454,32 @@ function deleteConsumedPendingBrew_(batchNumber) {
   const batch = String(batchNumber || "").replace("#", "").trim();
   if (!batch) return;
 
-  ["pendingBrews", "brewSheetCreationJobs"].forEach(function (collectionName) {
-    const url =
-      "https://firestore.googleapis.com/v1/projects/" +
-      FIREBASE_PROJECT_ID +
-      "/databases/(default)/documents/" +
-      collectionName +
-      "/" +
-      encodeURIComponent(batch);
+  // pendingBrews is a queue entry and is consumed by the successful 5 -> 0
+  // transition. Keep the ready creation-job record: the worker may still be
+  // finishing its final state write, and deleting it here can race with that
+  // write and recreate a stale job.
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/pendingBrews/" +
+    encodeURIComponent(batch);
 
-    const response = UrlFetchApp.fetch(url, {
-      method: "delete",
-      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-      muteHttpExceptions: true
-    });
-    const code = response.getResponseCode();
-    if ((code < 200 || code >= 300) && code !== 404) {
-      Logger.log(
-        "ACTION 5 cleanup failed for " +
-        collectionName +
-        "/" +
-        batch +
-        ": " +
-        code +
-        " " +
-        response.getContentText()
-      );
-    }
+  const response = UrlFetchApp.fetch(url, {
+    method: "delete",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
   });
+  const code = response.getResponseCode();
+  if ((code < 200 || code >= 300) && code !== 404) {
+    Logger.log(
+      "ACTION 5 cleanup failed for pendingBrews/" +
+      batch +
+      ": " +
+      code +
+      " " +
+      response.getContentText()
+    );
+  }
 }
 
 
