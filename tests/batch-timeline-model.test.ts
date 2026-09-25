@@ -146,3 +146,23 @@ test("bottom-carbonation start close and final pressure stay one operational tim
     assert.equal(events.filter((event) => event.type === "yeast").length, 1);
     assert.equal(events.filter((event) => event.type === "pressure").length, 1);
 });
+
+
+test("consecutive duplicate action notes are collapsed before timeline rendering", () => {
+    const expanded = expandCompoundCellarMeasurements([
+        {
+            id: "2026-09-22_0725",
+            pressure: 0.91,
+            carbonation: 2.38,
+            notes: "העלאת לחץ ל: 1.2 bar | העלאת לחץ ל: 1.2 bar",
+        },
+    ]);
+
+    assert.equal(expanded.length, 1);
+    assert.equal(expanded[0]?.notes, "העלאת לחץ ל: 1.2 bar");
+
+    const events = buildBatchTimeline(expanded, "07/09/2026");
+    const pressureEvents = events.filter((event) => event.type === "pressure");
+    assert.equal(pressureEvents.length, 1);
+    assert.equal(pressureEvents[0]?.label, "שינוי לחץ בעקבות גיזוז");
+});

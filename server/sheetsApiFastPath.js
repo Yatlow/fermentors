@@ -193,9 +193,7 @@ function addFermentationNoteViaSheetsApi_(sheetUrl, notes) {
 
   const oldNotes = String(rowValues[7] || "").trim();
   const newNotes = String(notes || "").trim();
-  const mergedNotes = oldNotes && newNotes
-    ? oldNotes + " | " + newNotes
-    : (newNotes || oldNotes);
+  const mergedNotes = appendFermentationNotesSafely_(oldNotes, newNotes);
 
   if (!createdTodayRow) {
     Sheets.Spreadsheets.Values.update(

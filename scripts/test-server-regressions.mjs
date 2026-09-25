@@ -25,6 +25,34 @@ function loadAppsScript(path, extra = {}) {
   return context;
 }
 
+const fermentationNotes = loadAppsScript("server/addFermentationMeasurement.js");
+{
+  assert.equal(
+    fermentationNotes.appendFermentationNotesSafely_(
+      "העלאת לחץ ל: 1.2 bar",
+      "העלאת לחץ ל: 1.2 bar",
+    ),
+    "העלאת לחץ ל: 1.2 bar",
+    "an immediate exact duplicate cellar action must not be appended twice",
+  );
+  assert.equal(
+    fermentationNotes.appendFermentationNotesSafely_(
+      "הורדת שמרים | העלאת לחץ ל: 1.2 bar",
+      "העלאת לחץ ל: 1.2 bar",
+    ),
+    "הורדת שמרים | העלאת לחץ ל: 1.2 bar",
+    "the same final action must be treated as a duplicate",
+  );
+  assert.equal(
+    fermentationNotes.appendFermentationNotesSafely_(
+      "העלאת לחץ ל: 1.2 bar | הורדת שמרים",
+      "העלאת לחץ ל: 1.2 bar",
+    ),
+    "העלאת לחץ ל: 1.2 bar | הורדת שמרים | העלאת לחץ ל: 1.2 bar",
+    "a repeated action separated by another operation must remain recordable",
+  );
+}
+
 const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   FIREBASE_PROJECT_ID: "test-project",
   BREW_FOLDER_ID: "test-folder",
