@@ -7,7 +7,6 @@ import { markPlanningPallets } from "../../SERVICES/planning/picking";
 import { expiryIso, palletQuantity, hasMarkedPallets } from "../../SERVICES/planning/shipmentPicking";
 import { shipmentDecisionPickOptions } from "../../SERVICES/planning/shipmentDecisionPicking";
 import {
-import TransientNumberInput from "../general/TransientNumberInput";
     addDays,
     emptyWeek,
     litersPerUnit,
@@ -34,6 +33,7 @@ import {
     brewSizeLabel,
     type BrewSizeLabel,
 } from "../../SERVICES/planning/productionCycle";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 type Kind = "delivery" | "packaging" | "brew";
 type BrewDraft = { style: string; liters: number };
