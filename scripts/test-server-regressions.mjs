@@ -71,6 +71,35 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
 }
 
 {
+  let cleanedBatch = "";
+  action.getPendingBrewsForAction5_ = () => [{
+    batchNumber: "1594",
+    tankNumber: "10",
+    sheetUrl: "sheet-new",
+  }];
+  action.uploadBrewToFirebase = () => ({
+    batchNumber: "1594",
+    tankNumber: "10",
+    beerStyle: "IPA",
+  });
+  action.updateFermentorForNextBrew_ = () => true;
+  action.deleteConsumedPendingBrew_ = (batch) => { cleanedBatch = String(batch); };
+  action.processAction5(
+    { tankNumber: "10", batchNumber: "1593", sheetUrl: "sheet-old" },
+    { pendingBrews: null, candidates: null, brewExtractCache: {} },
+  );
+  assert.equal(cleanedBatch, "1594", "ACTION 5 must remove a consumed pending brew after a successful transition");
+
+  cleanedBatch = "";
+  action.updateFermentorForNextBrew_ = () => false;
+  action.processAction5(
+    { tankNumber: "10", batchNumber: "1593", sheetUrl: "sheet-old" },
+    { pendingBrews: null, candidates: null, brewExtractCache: {} },
+  );
+  assert.equal(cleanedBatch, "", "ACTION 5 must keep pending brew records when the tank transition aborts");
+}
+
+{
   // Earlier processAction5 tests intentionally replace globals. Reload the
   // Apps Script file so this search test exercises its real lexical functions.
   const searchAction = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
