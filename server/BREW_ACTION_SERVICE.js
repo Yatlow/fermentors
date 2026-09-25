@@ -61,24 +61,14 @@ function brewActionService() {
 
   Logger.log("Fermentors found: " + fermentors.length);
 
-  const needsCandidates = fermentors.some(function (fermentor) {
-    return parseAction(fermentor.action) === 5;
-  });
-
-  let candidates = [];
-
-  if (needsCandidates) {
-
-    candidates = getBrewFolderCandidatesCached();
-
-    Logger.log(
-      "ACTION 5 candidates prepared ONCE: " +
-      candidates.length
-    );
-  }
-
-  // One extractBrew cache for the entire execution.
-  const brewExtractCache = {};
+  // ACTION 5 now discovers app-created brews from Firestore first.
+  // Keep Drive discovery lazy: only legacy/manual Sheets that are not represented
+  // in pendingBrews should ever trigger the expensive recursive folder scan.
+  const action5Context = {
+    pendingBrews: null,
+    candidates: null,
+    brewExtractCache: {}
+  };
 
   let action0Processed = 0;
   let action1Processed = 0;
@@ -108,8 +98,7 @@ function brewActionService() {
 
         processAction5(
           fermentor,
-          candidates,
-          brewExtractCache
+          action5Context
         );
 
         return;
@@ -151,7 +140,14 @@ function processAction0(fermentor) {
   const sheetUrl =
     String(fermentor.sheetUrl || "").trim();
 
-  if (!sheetUrl) return;
+  if (!sheetUrl) {
+    Logger.log(
+      "CRITICAL ACTION 0 invariant violation: tank " +
+      tankNumber +
+      " has no sheetUrl. ACTION 5 must assign the Sheet atomically before ACTION 0."
+    );
+    return;
+  }
 
   let stageInfo;
 
@@ -171,6 +167,14 @@ function processAction0(fermentor) {
   }
 
   if (!stageInfo || !stageInfo.lastBlock) {
+    return;
+  }
+
+  // extractBrewStageInfo can take long enough for the user to cancel or
+  // reassign this brew. Never let a stale ACTION-0 iteration write into the
+  // tank after that happened.
+  if (!brewActionTankStillCurrent_(fermentor)) {
+    Logger.log("Tank " + tankNumber + ": ACTION 0 became stale while reading Sheet; skipping writes.");
     return;
   }
 
@@ -245,6 +249,33 @@ function processAction0(fermentor) {
 }
 
 
+
+function brewActionTankStillCurrent_(fermentor) {
+  const fermentorId = String(fermentor.tankNumber || fermentor.uid || "").trim();
+  if (!fermentorId) return false;
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId);
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) return false;
+  const fields = (JSON.parse(response.getContentText()) || {}).fields || {};
+  const action = Number((fields.action || {}).integerValue);
+  const batch = parseBatchNumber(
+    (fields.batchNumber || {}).stringValue || (fields.batchNumber || {}).integerValue
+  );
+  const sheetUrl =
+    (fields.sheetUrl || {}).stringValue || "";
+  return action === 0 &&
+    batch === parseBatchNumber(fermentor.batchNumber) &&
+    String(sheetUrl).trim() === String(fermentor.sheetUrl || "").trim();
+}
+
 // ============================================================
 // ACTION 1
 // ============================================================
@@ -279,8 +310,7 @@ function processAction1(fermentor) {
 
 function processAction5(
   fermentor,
-  candidates,
-  brewExtractCache
+  context
 ) {
 
   const tankNumber =
@@ -302,13 +332,36 @@ function processAction5(
     return;
   }
 
-  const nextBrew =
-    findNextBrewForTankRecursive(
+  context = context || { pendingBrews: null, candidates: null, brewExtractCache: {} };
+
+  if (context.pendingBrews === null) {
+    context.pendingBrews = getPendingBrewsForAction5_();
+  }
+
+  let nextBrew = findNextPendingBrewForTank_(
+    tankNumber,
+    currentBatch,
+    fermentor.sheetUrl,
+    context.pendingBrews
+  );
+  const fromPendingBrews = !!nextBrew;
+
+  if (nextBrew) {
+    Logger.log("ACTION 5: using pendingBrews for tank " + tankNumber + " -> batch " + nextBrew.batchNumber);
+  } else {
+    // Legacy/manual Sheets have no pendingBrews document. Only then pay for
+    // Drive Changes + recursive folder discovery, once per execution.
+    if (context.candidates === null) {
+      context.candidates = getBrewFolderCandidatesCached();
+      Logger.log("ACTION 5 legacy Drive candidates prepared: " + context.candidates.length);
+    }
+    nextBrew = findNextBrewForTankRecursive(
       tankNumber,
       currentBatch,
-      candidates,
-      brewExtractCache
+      context.candidates,
+      context.brewExtractCache
     );
+  }
 
   if (!nextBrew) {
 
@@ -324,18 +377,38 @@ function processAction5(
   // Upload the brew/history first, but deliberately suppress the helper's
   // legacy fermentor side effect. ACTION 5 owns the tank transition and commits
   // all tank fields in one Firestore PATCH below.
+  // A cancellation can trash the Sheet while this maintenance execution is
+  // still holding a stale Drive candidate. Do not resurrect that cancelled brew.
+  try {
+    const nextFileId = typeof brewingSheetExtractId_ === "function"
+      ? brewingSheetExtractId_(nextBrew.sheetUrl)
+      : String(nextBrew.sheetUrl || "").trim();
+    if (nextFileId && DriveApp.getFileById(nextFileId).isTrashed()) {
+      Logger.log("ACTION 5 skipped trashed/cancelled brew " + nextBrew.batchNumber);
+      return;
+    }
+  } catch (fileError) {
+    Logger.log("ACTION 5 candidate no longer available: " + fileError.message);
+    return;
+  }
+
   const uploadedBrew =
     uploadBrewToFirebase(
       nextBrew.sheetUrl,
       { skipFermentorUpdate: true }
     );
 
-  updateFermentorForNextBrew_(
+  const transitioned = updateFermentorForNextBrew_(
     tankNumber,
     uploadedBrew,
     nextBrew.sheetUrl,
     currentBatch
   );
+  if (transitioned === false) return;
+
+  if (fromPendingBrews) {
+    deleteConsumedPendingBrew_(nextBrew.batchNumber);
+  }
 
   Logger.log(
     "ACTION 5 completed successfully for tank " +
@@ -343,6 +416,117 @@ function processAction5(
     " -> batch " +
     nextBrew.batchNumber
   );
+}
+
+
+// ============================================================
+// ACTION 5: FIRESTORE-FIRST DISCOVERY
+// ============================================================
+
+function getPendingBrewsForAction5_() {
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/pendingBrews?pageSize=1000";
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error("ACTION 5: failed loading pendingBrews: " + code);
+  }
+
+  const data = JSON.parse(response.getContentText() || "{}");
+  return (data.documents || []).map(function (document) {
+    const fields = document.fields || {};
+    const result = {};
+    Object.keys(fields).forEach(function (key) {
+      result[key] = normalizeFirestoreValue(fields[key]);
+    });
+    return result;
+  });
+}
+
+function deleteConsumedPendingBrew_(batchNumber) {
+  const batch = String(batchNumber || "").replace("#", "").trim();
+  if (!batch) return;
+
+  // pendingBrews is a queue entry and is consumed by the successful 5 -> 0
+  // transition. Keep the ready creation-job record: the worker may still be
+  // finishing its final state write, and deleting it here can race with that
+  // write and recreate a stale job.
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/pendingBrews/" +
+    encodeURIComponent(batch);
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "delete",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if ((code < 200 || code >= 300) && code !== 404) {
+    Logger.log(
+      "ACTION 5 cleanup failed for pendingBrews/" +
+      batch +
+      ": " +
+      code +
+      " " +
+      response.getContentText()
+    );
+  }
+}
+
+
+function findNextPendingBrewForTank_(tankNumber, currentBatch, currentSheetUrl, pendingBrews) {
+  const targetTank = normalizeTankNumber(tankNumber);
+  const currentSheetId = typeof brewingSheetExtractId_ === "function"
+    ? brewingSheetExtractId_(currentSheetUrl || "")
+    : String(currentSheetUrl || "").trim();
+  return (pendingBrews || [])
+    .filter(function (brew) {
+      const batch = parseBatchNumber(brew.batchNumber);
+      const pendingSheetUrl = String(brew.sheetUrl || "").trim();
+      const pendingSheetId = typeof brewingSheetExtractId_ === "function"
+        ? brewingSheetExtractId_(pendingSheetUrl)
+        : pendingSheetUrl;
+      // Normally the next batch must be newer. Recovery exception: if a failed
+      // assignment already copied the pending batch number onto an ACTION-5
+      // tank but the tank still points at a different Sheet, allow that exact
+      // batch to finish the atomic 5 -> 0 transition. Never reassign the same
+      // completed Sheet after fermentation.
+      const isNewer = batch !== null && batch > currentBatch;
+      const isInterruptedSameBatch = batch !== null &&
+        batch === currentBatch &&
+        !!pendingSheetId &&
+        pendingSheetId !== currentSheetId;
+      return (isNewer || isInterruptedSameBatch) &&
+        tankNumbersEqual(brew.tankNumber, targetTank) &&
+        pendingSheetUrl;
+    })
+    .sort(function (a, b) {
+      return parseBatchNumber(a.batchNumber) - parseBatchNumber(b.batchNumber);
+    })
+    .map(function (brew) {
+      const batch = parseBatchNumber(brew.batchNumber);
+      return {
+        found: true,
+        batchNumber: String(batch),
+        tankNumber: tankNumber,
+        beerStyle: brew.beerStyle || "",
+        brewDate: brew.brewDate || null,
+        beerVolume: brew.beerVolume || null,
+        startingPlato: brew.startingPlato || null,
+        sheetUrl: String(brew.sheetUrl || ""),
+        fileId: String(brew.fileId || ""),
+        fileName: String(brew.fileName || "")
+      };
+    })[0] || null;
 }
 
 
@@ -1269,10 +1453,17 @@ function updateFermentorForNextBrew_(
       "ACTION 5 aborted for tank " + fermentorId +
       ": tank changed while next brew was being prepared."
     );
-    return;
+    return false;
   }
 
   const fields = toFirestoreFields(payload);
+
+  // Preserve the complete pre-assignment tank state. If an ACTION-0 brew is
+  // cancelled before it starts, the UI can restore the exact cellar state
+  // rather than reconstructing it from brew history.
+  const cellarStateFields = Object.assign({}, currentFields);
+  delete cellarStateFields.cellarState;
+  fields.cellarState = { mapValue: { fields: cellarStateFields } };
 
   // currentData belongs to the completed batch. Deleting it in the same PATCH
   // prevents a new waiting brew from temporarily inheriting old measurements.
@@ -1286,6 +1477,7 @@ function updateFermentorForNextBrew_(
     "beerVolume",
     "startingPlato",
     "sheetUrl",
+    "cellarState",
     // Including currentData in the update mask while omitting it from fields
     // deletes the completed batch's measurements atomically.
     "currentData"
@@ -1330,6 +1522,7 @@ function updateFermentorForNextBrew_(
     " to batch " +
     nextBatch
   );
+  return true;
 }
 
 

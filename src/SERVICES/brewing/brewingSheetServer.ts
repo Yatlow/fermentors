@@ -1,0 +1,228 @@
+import {
+  callAppsScriptPost,
+  unwrapAppsScriptResult,
+  type AppsScriptEnvelope,
+} from "../getAndPost/appsScriptClient";
+
+export type BrewingSheetWrite = {
+  range: string;
+  value: string | number | boolean | null;
+  expectedValue?: string | number | boolean | null;
+};
+
+export type BrewingSheetHistoryRow = {
+  batchNumber: string;
+  brewLetter: "A" | "B" | "C";
+  brewDate: string;
+  mashPh: string;
+  mashVolume: string;
+  acidMl: string;
+  outToBoilPh: string;
+  boilPh: string;
+  kettleVolume: string;
+  boilAcidMl: string;
+  outToFermentorPh: string;
+  sheetName: string;
+  sheetUrl: string;
+};
+
+export async function serverWriteBrewSheetCells(
+  spreadsheetId: string,
+  writes: BrewingSheetWrite[],
+) {
+  const startedAt = performance.now();
+  console.info("[brewing-sheet] WRITE start", { spreadsheetId, cells: writes.length });
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{
+      spreadsheetId: string;
+      updated: number;
+      conflicts: Array<{
+        range: string;
+        expectedValue: string;
+        actualValue: string;
+        proposedValue: unknown;
+      }>;
+      hasConflict: boolean;
+    }>
+  >({
+    action: "BrewSheetWriteCells",
+    spreadsheetId,
+    writes,
+  });
+  const result = unwrapAppsScriptResult(response, "כתיבה ל-Sheet הבישול נכשלה.");
+  console.info("[brewing-sheet] WRITE done", {
+    spreadsheetId,
+    cells: writes.length,
+    ms: Math.round(performance.now() - startedAt),
+  });
+  return result;
+}
+
+export async function serverReadBrewSheetRange(
+  spreadsheetId: string,
+  range: string,
+) {
+  const startedAt = performance.now();
+  console.info("[brewing-sheet] READ start", { spreadsheetId, range });
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{
+      spreadsheetId: string;
+      range: string;
+      values: string[][];
+      timing?: { openMs: number; readMs: number; totalMs: number };
+    }>
+  >({
+    action: "BrewSheetReadRange",
+    spreadsheetId,
+    range,
+  });
+  const result = unwrapAppsScriptResult(response, "קריאה מ-Sheet הבישול נכשלה.");
+  console.info("[brewing-sheet] READ done", {
+    spreadsheetId,
+    range,
+    rows: result.values?.length || 0,
+    ms: Math.round(performance.now() - startedAt),
+    serverTiming: result.timing,
+  });
+  return result;
+}
+
+export async function serverPrintBrewSheetPdf(input: {
+  spreadsheetId: string;
+  batchNumber: string;
+  tankNumber: string;
+  style: string;
+  tankType: "single" | "double" | "triple";
+  brewDate?: string;
+  mashRestCount?: number;
+}) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{
+      fileName: string;
+      mimeType: string;
+      base64: string;
+      pages: number;
+    }>
+  >({
+    action: "BrewSheetPrintPdf",
+    ...input,
+  }, {
+    // Apps Script ContentService occasionally returns an intermediate HTML
+    // response on iOS after a long-running export. Retrying the exact same
+    // requestId is safe and lets the normal Apps Script client recover from
+    // that transient redirect/HTML response.
+    retries: 1,
+    retryDelayMs: 500,
+    timeoutMs: 120000,
+  });
+  return unwrapAppsScriptResult(response, "יצירת PDF משולב לבישול נכשלה.");
+}
+
+export async function serverTrashBrewSheet(spreadsheetId: string) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{ spreadsheetId: string; trashed: boolean }>
+  >({
+    action: "BrewSheetTrash",
+    spreadsheetId,
+  });
+  return unwrapAppsScriptResult(response, "מחיקת Sheet הבישול נכשלה.");
+}
+
+export async function serverRenameBrewSheet(input: {
+  spreadsheetId: string;
+  oldBatchNumber: string;
+  newBatchNumber: string;
+  style: string;
+}) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{
+      spreadsheetId: string;
+      batchNumber: string;
+      style: string;
+      name: string;
+    }>
+  >({
+    action: "BrewSheetRenameBatch",
+    ...input,
+  });
+  return unwrapAppsScriptResult(response, "עדכון פרטי אצוות הבישול ב-Sheet נכשל.");
+}
+
+export type BrewingDriveHistoryRow = {
+  id: string;
+  fileId: string;
+  fileName: string;
+  batchNumber: string;
+  beerStyle: string;
+  brewDate: string;
+  sheetUrl: string;
+  tankNumber: string;
+  tankType: "single" | "double" | "triple";
+};
+
+let brewHistoryCache: { rows: BrewingDriveHistoryRow[]; loadedAt: number; limit: number } | null = null;
+let brewHistoryInFlight: Promise<BrewingDriveHistoryRow[]> | null = null;
+const BREW_HISTORY_CLIENT_CACHE_MS = 30_000;
+
+export async function serverListBrewDriveHistory(limit = 100, forceRefresh = false) {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    brewHistoryCache &&
+    now - brewHistoryCache.loadedAt < BREW_HISTORY_CLIENT_CACHE_MS &&
+    brewHistoryCache.limit >= limit
+  ) {
+    return brewHistoryCache.rows.slice(0, limit);
+  }
+  if (!forceRefresh && brewHistoryInFlight) {
+    const rows = await brewHistoryInFlight;
+    return rows.slice(0, limit);
+  }
+
+  brewHistoryInFlight = (async () => {
+    const response = await callAppsScriptPost<
+      AppsScriptEnvelope<BrewingDriveHistoryRow[]>
+    >({
+      action: "BrewSheetListHistory",
+      limit: Math.max(limit, 100),
+    }, { retries: 0 });
+    const rows = unwrapAppsScriptResult(
+      response,
+      "טעינת היסטוריית הבישולים מ-Drive נכשלה.",
+    );
+    brewHistoryCache = { rows, loadedAt: Date.now(), limit: Math.max(limit, 100) };
+    return rows;
+  })();
+
+  try {
+    const rows = await brewHistoryInFlight;
+    return rows.slice(0, limit);
+  } finally {
+    brewHistoryInFlight = null;
+  }
+}
+
+export async function serverLoadBrewAcidHistory(
+  style: string,
+  currentBatchNumber: string,
+) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<BrewingSheetHistoryRow[]>
+  >({
+    action: "BrewSheetAcidHistory",
+    style,
+    currentBatchNumber,
+  });
+  return unwrapAppsScriptResult(response, "טעינת היסטוריית הבישולים נכשלה.");
+}
+
+
+export async function serverProcessQueuedBrewSheetJob(jobId: string) {
+  const response = await callAppsScriptPost<
+    AppsScriptEnvelope<{ found?: number; ready?: number; failed?: number; queued?: boolean; busy?: boolean }>
+  >({
+    action: "BrewSheetProcessQueuedJob",
+    jobId,
+  }, { retries: 0, timeoutMs: 120000 });
+  return unwrapAppsScriptResult(response, "הפעלת יצירת ה-Sheet ברקע נכשלה.");
+}

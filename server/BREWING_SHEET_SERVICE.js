@@ -1,0 +1,1557 @@
+// ============================================================
+// BREWING SHEET SERVICE
+// Server-side Drive / Sheets bridge for the new brewing workflow.
+//
+// Purpose:
+// - browser authenticates only with Firebase ID token (handled in post.js)
+// - Apps Script performs Drive/Sheets work with the script account
+// - no Google OAuth popup is required in the browser once the client switches
+//   to these actions.
+//
+// Required Script Properties before production activation:
+//   BREWING_DESTINATION_FOLDER_ID
+//   BREWING_TEMPLATE_SINGLE_ID
+//   BREWING_TEMPLATE_DOUBLE_ID
+//   BREWING_TEMPLATE_TRIPLE_ID
+// ============================================================
+
+const BREWING_CREATED_FILE_PREFIX_ = "brewing_created_file:";
+const BREWING_HISTORY_CACHE_KEY_ = "brewing_drive_history_v1";
+
+function brewingSheetInvalidateHistoryCache_() {
+  try {
+    CacheService.getScriptCache().remove(BREWING_HISTORY_CACHE_KEY_);
+  } catch (error) {
+    console.log("Brew history cache invalidation skipped: " + error.message);
+  }
+}
+
+function brewingSheetConfig_() {
+  const props = PropertiesService.getScriptProperties();
+
+  // Keep the new brewing workflow on the same Drive source of truth as the
+  // existing brewery service. Script Properties may override these values, but
+  // a deployment must not become unusable merely because the new properties
+  // were never provisioned.
+  const existingBrewFolderId =
+    typeof BREW_FOLDER_ID !== "undefined" ? String(BREW_FOLDER_ID || "").trim() : "";
+
+  return {
+    folderId: String(
+      props.getProperty("BREWING_DESTINATION_FOLDER_ID") ||
+      existingBrewFolderId
+    ).trim(),
+    templates: {
+      single: String(
+        props.getProperty("BREWING_TEMPLATE_SINGLE_ID") ||
+        "1qqYHpIhokc7mEsCHW2bhM6LDGrmh4CN0l937nYnonOw"
+      ).trim(),
+      double: String(
+        props.getProperty("BREWING_TEMPLATE_DOUBLE_ID") ||
+        "1M-IFhJL-JwphQDEKsAHFCpCR8zz4zXXgaXkCZ2hpXtY"
+      ).trim(),
+      triple: String(
+        props.getProperty("BREWING_TEMPLATE_TRIPLE_ID") ||
+        "1I8P0aoD7WEo0AYZcYebhFzCGdik5TzgPnNq2SgPEzkI"
+      ).trim()
+    }
+  };
+}
+
+function brewingSheetNormalizeTankType_(value) {
+  const type = String(value || "").trim();
+  if (type !== "single" && type !== "double" && type !== "triple") {
+    throw new Error("Invalid tankType");
+  }
+  return type;
+}
+
+function brewingSheetExtractId_(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const match = text.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : text;
+}
+
+function brewingSheetRememberCreated_(fileId) {
+  PropertiesService.getScriptProperties().setProperty(
+    BREWING_CREATED_FILE_PREFIX_ + fileId,
+    String(Date.now())
+  );
+}
+
+function brewingSheetAssertAllowedFile_(fileId) {
+  const id = brewingSheetExtractId_(fileId);
+  if (!id) throw new Error("Missing spreadsheetId");
+
+  // Do not scan the entire brewing Drive folder on the request path. The caller
+  // is already an approved Firebase user; SpreadsheetApp.openById() below is
+  // the actual access check and avoids a second expensive open here.
+  return id;
+}
+
+function brewingSheetCellValue_(value) {
+  if (value === undefined || value === null) return "";
+  return value;
+}
+
+function brewingSheetReadRange_(data) {
+  const startedAt = Date.now();
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const range = String(data.range || "").trim();
+  if (!range) throw new Error("Missing range");
+
+  const openStartedAt = Date.now();
+  const ss = SpreadsheetApp.openById(fileId);
+  const openMs = Date.now() - openStartedAt;
+
+  const readStartedAt = Date.now();
+  // Avoid opening the same spreadsheet a second time through the advanced
+  // Sheets API. SpreadsheetApp already has it open, so resolve the tab locally.
+  const bang = range.lastIndexOf("!");
+  const rawSheetName = bang >= 0 ? range.slice(0, bang) : "";
+  const a1 = bang >= 0 ? range.slice(bang + 1) : range;
+  const sheetName = rawSheetName.replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
+  // Old/new brew templates do not consistently use the same tab name.
+  // The brew file is single-sheet, so a stale requested tab name must not
+  // block reconciliation; fall back to the file's first sheet.
+  const sheet = (sheetName ? ss.getSheetByName(sheetName) : null) || ss.getSheets()[0];
+  if (!sheet) throw new Error("Brew Sheet has no sheets");
+  const values = sheet.getRange(a1).getDisplayValues();
+  const readMs = Date.now() - readStartedAt;
+
+  const timing = {
+    openMs: openMs,
+    readMs: readMs,
+    totalMs: Date.now() - startedAt
+  };
+  console.log("BrewSheetReadRange timing " + JSON.stringify(timing));
+
+  return {
+    spreadsheetId: fileId,
+    range: range,
+    values: values,
+    timing: timing
+  };
+}
+
+function brewingSheetWriteCells_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const writes = Array.isArray(data.writes) ? data.writes : [];
+  if (!writes.length) throw new Error("Missing writes");
+
+  const ss = SpreadsheetApp.openById(fileId);
+  const conflicts = [];
+  let updated = 0;
+
+  writes.forEach(function (item) {
+    const rangeText = String(item && item.range || "").trim();
+    if (!rangeText) throw new Error("Write is missing range");
+
+    // A1 ranges are generated from template metadata and historically use
+    // 'גיליון1'. Production brew files may have a renamed tab. Resolve the
+    // requested tab when present and otherwise fall back to the file's single
+    // actual sheet, just like the read path.
+    const bang = rangeText.lastIndexOf("!");
+    const rawSheetName = bang >= 0 ? rangeText.slice(0, bang) : "";
+    const a1 = bang >= 0 ? rangeText.slice(bang + 1) : rangeText;
+    const sheetName = rawSheetName.replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
+    const sheet = (sheetName ? ss.getSheetByName(sheetName) : null) || ss.getSheets()[0];
+    if (!sheet) throw new Error("Brew Sheet has no sheets");
+    const range = sheet.getRange(a1);
+
+    if (
+      item &&
+      Object.prototype.hasOwnProperty.call(item, "expectedValue")
+    ) {
+      const current = String(range.getDisplayValue() || "").trim();
+      const expected = String(item.expectedValue == null ? "" : item.expectedValue).trim();
+
+      if (current !== expected) {
+        conflicts.push({
+          range: rangeText,
+          expectedValue: expected,
+          actualValue: current,
+          proposedValue: brewingSheetCellValue_(item.value)
+        });
+        return;
+      }
+    }
+
+    range.setValue(brewingSheetCellValue_(item.value));
+    updated++;
+  });
+
+  SpreadsheetApp.flush();
+
+  return {
+    spreadsheetId: fileId,
+    updated: updated,
+    conflicts: conflicts,
+    hasConflict: conflicts.length > 0
+  };
+}
+
+function brewingSheetTemplateForType_(tankType) {
+  const config = brewingSheetConfig_();
+  const type = brewingSheetNormalizeTankType_(tankType);
+  const templateId = config.templates[type];
+
+  if (!config.folderId) {
+    throw new Error("BREWING_DESTINATION_FOLDER_ID is not configured");
+  }
+  if (!templateId) {
+    throw new Error("Brewing template is not configured for " + type);
+  }
+
+  return {
+    folderId: config.folderId,
+    templateId: templateId,
+    tankType: type
+  };
+}
+
+function brewingSheetCreate_(data) {
+  const startedAt = Date.now();
+  const batchNumber = String(data.batchNumber || "").replace("#", "").trim();
+  if (!/^\d+$/.test(batchNumber)) throw new Error("Invalid batchNumber");
+
+  const config = brewingSheetTemplateForType_(data.tankType);
+
+  let copy = null;
+  try {
+    // Server-side source of truth: scan Drive before copying. The durable
+    // Firestore outbox claim is the concurrency guard for app-created brews;
+    // this scan additionally catches manually-created Sheets.
+    // Keep this guard cheap: creation must not recursively scan the whole brew
+    // archive. Drive's folder search checks the exact batch marker directly.
+    const folder = DriveApp.getFolderById(config.folderId);
+    const duplicateFiles = folder.searchFiles(
+      "trashed = false and title contains '" + batchNumber.replace(/'/g, "\\'") + "'"
+    );
+    let duplicateFile = null;
+    while (duplicateFiles.hasNext()) {
+      const candidate = duplicateFiles.next();
+      const parsed = brewingSheetBatchFromName_(candidate.getName());
+      if (String(parsed || "").replace("#", "").trim() === batchNumber) {
+        duplicateFile = candidate;
+        break;
+      }
+    }
+    if (duplicateFile) {
+      // Recovery after a lost response may rediscover the Sheet that this exact
+      // job already created. Reuse it only when its own header agrees with the
+      // requested batch/tank; never silently attach another tank's manual Sheet.
+      const existingSs = SpreadsheetApp.openById(duplicateFile.getId());
+      const existingSheet = existingSs.getSheets()[0];
+      const existingBatch = String(existingSheet.getRange("F1").getDisplayValue() || "")
+        .replace("#", "").trim();
+      const existingTank = String(existingSheet.getRange("D1").getDisplayValue() || "").trim();
+      const requestedTank = String(data.tankNumber || "").trim();
+      if (
+        existingBatch !== batchNumber ||
+        (requestedTank && !tankNumbersEqual(existingTank, requestedTank))
+      ) {
+        throw new Error(
+          "Batch " + batchNumber + " already exists in a different brew Sheet assignment."
+        );
+      }
+
+      return {
+        id: duplicateFile.getId(),
+        name: duplicateFile.getName(),
+        url: duplicateFile.getUrl(),
+        batchNumber: batchNumber,
+        tankNumber: requestedTank,
+        style: String(data.style || "").trim(),
+        tankType: config.tankType,
+        existing: true
+      };
+    }
+
+    const style = String(data.style || "").trim();
+    const tankNumber = String(data.tankNumber || "").trim();
+    const name = String(data.name || "").trim() || [style || "בישול", batchNumber + "#"].join(" ");
+
+    const resolveStartedAt = Date.now();
+    const template = DriveApp.getFileById(config.templateId);
+    const resolveMs = Date.now() - resolveStartedAt;
+
+    const copyStartedAt = Date.now();
+    copy = template.makeCopy(name, folder);
+    const copyMs = Date.now() - copyStartedAt;
+    const fileId = copy.getId();
+
+    brewingSheetRememberCreated_(fileId);
+    brewingSheetInvalidateHistoryCache_();
+
+    const openStartedAt = Date.now();
+    const ss = SpreadsheetApp.openById(fileId);
+    const openMs = Date.now() - openStartedAt;
+
+    const timezoneStartedAt = Date.now();
+    ss.setSpreadsheetTimeZone("Asia/Jerusalem");
+    const timezoneMs = Date.now() - timezoneStartedAt;
+
+    const writesStartedAt = Date.now();
+    let writeCount = 0;
+    if (data.initialWrites && Array.isArray(data.initialWrites)) {
+      const batchData = [];
+      data.initialWrites.forEach(function (item) {
+        const rangeText = String(item.range || "").trim();
+        if (!rangeText) return;
+        batchData.push({
+          range: rangeText,
+          majorDimension: "ROWS",
+          values: [[brewingSheetCellValue_(item.value)]]
+        });
+        writeCount++;
+      });
+      if (batchData.length) {
+        // One Sheets API request instead of dozens of sequential setValue calls.
+        // This is especially important when a second brew is created immediately.
+        Sheets.Spreadsheets.Values.batchUpdate(
+          { valueInputOption: "RAW", data: batchData },
+          fileId
+        );
+
+      }
+    }
+
+    // Resolve material tables from labels in the copied Master, not row numbers.
+    // Each brew block is bounded by its "סוג:"/"אצווה:" header. Within that
+    // block, "הכנסת לתת" identifies the first grain row and "כשות" identifies
+    // the hop table. This survives inserted/deleted Master rows.
+    const materials = data.recipeMaterials;
+    if (materials && (Array.isArray(materials.grains) || Array.isArray(materials.hops))) {
+      const sheet = ss.getSheets()[0];
+      const values = sheet.getDataRange().getDisplayValues();
+      const headers = [];
+      values.forEach(function (row, index) {
+        if (String(row[1] || "").trim() === "סוג:" && String(row[3] || "").trim() === "אצווה:") {
+          headers.push(index);
+        }
+      });
+      const expectedBlocks = config.tankType === "triple" ? 3 : config.tankType === "double" ? 2 : 1;
+      headers.slice(0, expectedBlocks).forEach(function (headerIndex, blockIndex) {
+        const nextHeader = headers[blockIndex + 1] == null ? values.length : headers[blockIndex + 1];
+        let grainRow = -1;
+        let hopHeading = -1;
+        for (let r = headerIndex; r < nextHeader; r++) {
+          const joined = (values[r] || []).join(" ").trim();
+          if (grainRow < 0 && /הכנסת\s+לתת/.test(joined)) grainRow = r;
+          if (hopHeading < 0 && (values[r] || []).some(function (cell) { return String(cell || "").trim() === "כשות"; })) hopHeading = r;
+        }
+
+        if (grainRow >= 0) {
+          // Clear the complete material area from the row immediately after the
+          // grain-table subheader through the detected process start. This also
+          // removes legacy Master values without knowing whether they lived at
+          // 106, 107 or any future row.
+          const firstGrain = grainRow;
+          for (let slot = 0; slot < 5; slot++) {
+            const grain = (materials.grains || [])[slot];
+            const row = firstGrain + slot + 1;
+            sheet.getRange(row, 1, 1, 3).clearContent();
+            if (grain) sheet.getRange(row, 1, 1, 3).setValues([[grain.quantity, grain.label, grain.supplier]]);
+          }
+        }
+
+        if (hopHeading >= 0) {
+          // Heading -> subheader -> first data row.
+          const firstHop = hopHeading + 2;
+          for (let slot = 0; slot < 5; slot++) {
+            const hop = (materials.hops || [])[slot];
+            const row = firstHop + slot + 1;
+            sheet.getRange(row, 1, 1, 3).clearContent();
+            if (hop) sheet.getRange(row, 1, 1, 3).setValues([[hop.quantity, hop.alpha, hop.label]]);
+          }
+        }
+
+        // Normalize the two phosphoric-acid rows in every brew block. Some
+        // Master variants contain only "1)"/"2)" placeholders while others
+        // already contain H3PO4. Resolve the additions section semantically so
+        // single/double/triple and inserted mash rows all behave identically.
+        let additionsHeading = -1;
+        for (let r = headerIndex; r < nextHeader; r++) {
+          if ((values[r] || []).some(function (cell) { return String(cell || "").trim() === "תוספות"; })) {
+            additionsHeading = r;
+            break;
+          }
+        }
+        if (additionsHeading >= 0) {
+          let acidSlot = 0;
+          for (let r = additionsHeading + 1; r < nextHeader && acidSlot < 2; r++) {
+            const row = values[r] || [];
+            const placeholderCol = row.findIndex(function (cell) {
+              return /^[12]\)(?:H3PO4)?$/i.test(String(cell || "").replace(/\s/g, ""));
+            });
+            if (placeholderCol < 0) continue;
+            sheet.getRange(r + 1, Math.max(1, placeholderCol), 1, 2)
+              .setValues([["85%", (acidSlot + 1) + ")H3PO4"]]);
+            acidSlot++;
+          }
+        }
+
+        // Legacy Masters can contain numbered acid placeholders 3)/4). Clear
+        // those without relying on fixed row coordinates.
+        for (let r = headerIndex; r < nextHeader; r++) {
+          for (let col = 0; col < Math.min(3, (values[r] || []).length); col++) {
+            if (/^[34]\)$/.test(String(values[r][col] || "").trim())) {
+              sheet.getRange(r + 1, col + 1).clearContent();
+            }
+          }
+        }
+      });
+      SpreadsheetApp.flush();
+    }
+
+    // Three-rest mash recipes need two real process rows. Do this only after
+    // the normal Master values have been written: inserting rows then shifts
+    // hops, boil, following brew blocks and fermentation together, preserving
+    // the original Sheet instead of overwriting the "הוספות/שטיפות/כשות" rows.
+    if (Number(data.mashRestCount || 0) >= 3) {
+      const sheet = ss.getSheets()[0];
+      const originalBlockStarts =
+        config.tankType === "triple" ? [9, 59, 107] :
+        config.tankType === "double" ? [9, 59] :
+        [9];
+
+      // Work bottom-up so each insertion point still refers to the untouched
+      // Master coordinates. Earlier insertions naturally move later blocks.
+      originalBlockStarts.slice().reverse().forEach(function (baseRow) {
+        const insertAt = baseRow + 10; // immediately before "העברה ל L.T."
+        sheet.insertRowsBefore(insertAt, 4);
+
+        // Existing mash stages occupy two rows each: the labelled writing row
+        // followed by its spacing row. Copy both pairs so rest3/heat3 have the
+        // exact same visual rhythm before the L.T. transfer.
+        sheet.getRange(baseRow + 6, 1, 2, 8)
+          .copyFormatToRange(sheet, 1, 8, insertAt, insertAt + 1);
+        sheet.getRange(baseRow + 8, 1, 2, 8)
+          .copyFormatToRange(sheet, 1, 8, insertAt + 2, insertAt + 3);
+        sheet.setRowHeight(insertAt, sheet.getRowHeight(baseRow + 6));
+        sheet.setRowHeight(insertAt + 1, sheet.getRowHeight(baseRow + 7));
+        sheet.setRowHeight(insertAt + 2, sheet.getRowHeight(baseRow + 8));
+        sheet.setRowHeight(insertAt + 3, sheet.getRowHeight(baseRow + 9));
+
+        sheet.getRange(insertAt, 4).setValue("השריה 3");
+        sheet.getRange(insertAt + 2, 4).setValue("חימום 3");
+      });
+      SpreadsheetApp.flush();
+    }
+    // New brew Sheets use Rubik throughout while preserving every existing
+    // font size, weight, border, merge and alignment from the Master.
+    // setFontFamily changes only the family, so the Master remains the visual
+    // source of truth for all other formatting.
+    ss.getSheets()[0].getDataRange().setFontFamily("Rubik");
+    SpreadsheetApp.flush();
+
+    const writesMs = Date.now() - writesStartedAt;
+
+    const timing = {
+      batchNumber: batchNumber,
+      resolveMs: resolveMs,
+      copyMs: copyMs,
+      openMs: openMs,
+      timezoneMs: timezoneMs,
+      writes: writeCount,
+      writesMs: writesMs,
+      totalMs: Date.now() - startedAt
+    };
+    console.log("BrewSheetCreate timing " + JSON.stringify(timing));
+    if (typeof logToSheet === "function") logToSheet("BrewSheetCreate timing " + JSON.stringify(timing));
+
+    // Install the edit trigger at creation time. This is the only point at
+    // which the server has an authoritative Sheet id + tank pair without
+    // depending on a later ACTION-0 maintenance lookup.
+    if (tankNumber) {
+      brewingSheetRememberEditTank_(fileId, tankNumber);
+      brewingSheetEnsureEditTrigger_({
+        spreadsheetId: fileId,
+        tankNumber: tankNumber
+      });
+    }
+
+    return {
+      id: fileId,
+      name: copy.getName(),
+      url: copy.getUrl(),
+      batchNumber: batchNumber,
+      tankNumber: tankNumber,
+      style: style,
+      tankType: config.tankType
+    };
+  } catch (error) {
+    if (copy) {
+      try { copy.setTrashed(true); } catch (cleanupError) {
+        logToSheet("Failed cleaning orphan Brew Sheet: " + cleanupError.message);
+      }
+    }
+    throw error;
+  }
+}
+
+
+function brewingSheetPrintPdf_(data) {
+  const sourceId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const batchNumber = String(data.batchNumber || "").replace("#", "").trim();
+  const tankNumber = String(data.tankNumber || "").trim();
+  const style = String(data.style || "").trim();
+  const tankType = String(data.tankType || "single").trim();
+  const brewDate = String(data.brewDate || "").trim();
+  const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
+  const mashRestCount = Number(data.mashRestCount || 2);
+  // Master coordinates are intentionally not uniform: the third brew starts
+  // at a different row than the first two. Rest-3 recipes insert four rows
+  // inside every brew block, shifting each following header by four rows.
+  const masterHeaderRows =
+    tankType === "triple" ? [4, 54, 102] :
+    tankType === "double" ? [4, 54] :
+    [4];
+  const insertedRowsPerBlock = mashRestCount >= 3 ? 4 : 0;
+  const brewHeaderRows = masterHeaderRows.map(function (row, index) {
+    return row + index * insertedRowsPerBlock;
+  });
+  const masterFermentationHeaderRow =
+    tankType === "triple" ? 154 : tankType === "double" ? 104 : 57;
+  const fermentationHeaderRow =
+    masterFermentationHeaderRow + blockCount * insertedRowsPerBlock;
+
+  const source = SpreadsheetApp.openById(sourceId);
+  const sourceSheet = source.getSheets()[0];
+  const temp = SpreadsheetApp.create("PRINT " + batchNumber + " " + Date.now());
+  const tempFile = DriveApp.getFileById(temp.getId());
+
+  try {
+    // Page 1: a dedicated cover sheet.
+    const cover = temp.getSheets()[0];
+    cover.setName("COVER");
+    cover.setHiddenGridlines(true);
+    cover.setRightToLeft(true);
+    cover.setColumnWidths(1, 8, 90);
+    // A taller cover uses the full A4 aspect ratio instead of occupying only
+    // the upper part of the page. Content stays inset from the outer frame.
+    cover.setRowHeights(1, 44, 22);
+    cover.setRowHeights(10, 9, 30);
+    cover.getRange("A1:H44").setFontFamily("Rubik").setHorizontalAlignment("center")
+      .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
+    cover.getRange("A4:H5").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
+    cover.getRange("A10:H18").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
+      .setVerticalAlignment("middle");
+    const typeLabel = tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
+    cover.getRange("A21:H25").merge().setValue(style + " " + typeLabel).setFontSize(30).setFontWeight("bold")
+      .setVerticalAlignment("middle");
+    cover.getRange("A31:H33").merge().setValue("תאריך בישול: " + (brewDate || "________________"))
+      .setFontSize(17).setVerticalAlignment("middle");
+    cover.getRange("A38:H40").merge().setValue("נפח וסוכר התחלתי: ________________ / ________________")
+      .setFontSize(17).setVerticalAlignment("middle");
+    cover.getRange("A1:H44").setBorder(true, true, true, true, null, null);
+
+    // Put every brew block on its own worksheet. Google exports each worksheet
+    // from a fresh page, and scale=4 below fits that worksheet to exactly one A4.
+    // This prevents a block from starting at the bottom of one page and
+    // continuing on the next page.
+    const brewSheets = [];
+    const firstBrew = sourceSheet.copyTo(temp).setName("BREW 1");
+    brewSheets.push(firstBrew);
+    for (let index = 1; index < blockCount; index++) {
+      brewSheets.push(firstBrew.copyTo(temp).setName("BREW " + (index + 1)));
+    }
+
+    brewSheets.forEach(function (brew, index) {
+      // Start at the per-brew header (row 4/54/102 in the Master), not row 1.
+      // This deliberately excludes the two global title rows from printing.
+      const firstRow = brewHeaderRows[index];
+      // Print only the actual brew block. The rows immediately before the
+      // next header include the packaging/volume box from the following
+      // section, which must never leak into a brew page.
+      // The brew block ends immediately before the next brew header. The
+      // Master has trailing volume/packaging rows in that gap; exclude them.
+      // 47 rows is the real brew form height in the Master, plus any rows
+      // inserted for rest/heat 3.
+      const masterBlockRows = 47;
+      const blockRows = masterBlockRows + insertedRowsPerBlock;
+      const lastRow = Math.min(firstRow + blockRows - 1, fermentationHeaderRow - 1);
+      brew.setRightToLeft(true);
+      brew.setHiddenGridlines(true);
+
+      if (firstRow > 1) {
+        brew.hideRows(1, firstRow - 1);
+      }
+      if (brew.getMaxRows() > lastRow) {
+        brew.hideRows(lastRow + 1, brew.getMaxRows() - lastRow);
+      }
+      if (brew.getMaxColumns() > 9) {
+        brew.hideColumns(10, brew.getMaxColumns() - 9);
+      }
+
+      const printColumns = Math.min(9, brew.getMaxColumns());
+      const printRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, printColumns);
+      printRange.setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
+
+      // The A:C raw-material panel contains mixed Hebrew + Latin/numeric text.
+      // Do not force the whole panel LTR: that reverses Hebrew headings. Keep
+      // Hebrew cells RTL and switch only cells whose actual content begins with
+      // Latin text, a number or a numbered ingredient marker.
+      const materialColumns = Math.min(3, printColumns);
+      const materialRange = brew.getRange(firstRow, 1, lastRow - firstRow + 1, materialColumns);
+      const materialDisplay = materialRange.getDisplayValues();
+      materialDisplay.forEach(function (row, r) {
+        row.forEach(function (value, col) {
+          const text = String(value || "").trim();
+          if (!text) return;
+          const firstStrongIsLatinOrNumber = /^[0-9A-Za-z#(]/.test(text);
+          materialRange.getCell(r + 1, col + 1).setTextDirection(
+            firstStrongIsLatinOrNumber
+              ? SpreadsheetApp.TextDirection.LEFT_TO_RIGHT
+              : SpreadsheetApp.TextDirection.RIGHT_TO_LEFT
+          );
+        });
+      });
+
+      // Print-only units. Batch operations are critical here: the previous
+      // cell-by-cell getRange/setValue/getFontSize loop could take minutes.
+      const display = printRange.getDisplayValues();
+      const fontSizes = printRange.getFontSizes();
+      const columnWidths = [];
+      for (let col = 1; col <= printColumns; col++) columnWidths.push(brew.getColumnWidth(col));
+
+      // Print-only units are positioned relative to the label cell that was
+      // actually found in this Master. Never assume a physical row. RTL affects
+      // visual direction, not the underlying A..I indexes, so the offsets below
+      // are defined from the semantic label itself.
+      function findLabelColumn(row, pattern) {
+        for (let col = 0; col < row.length; col++) {
+          if (pattern.test(String(row[col] || "").trim())) return col;
+        }
+        return -1;
+      }
+      display.forEach(function (row) {
+        // Hop quantities are planning placeholders in the Sheet (typically 0g).
+        // Keep the source Sheet untouched; hide only those placeholders in the
+        // temporary print copy.
+        const hopLabelCol = findLabelColumn(row, /^\d+\).+/);
+        if (hopLabelCol >= 0) {
+          for (let col = 0; col < hopLabelCol; col++) {
+            if (/^0(?:\.0+)?\s*g$/i.test(String(row[col] || "").trim())) row[col] = "";
+          }
+        }
+
+        const processCol = findLabelColumn(row, /^(?:השריה|חימום)\s*[1-3]$|^הכנסת\s*לתת$|^העברה\s*ל?\s*L\.T\.?$|^מנוחה\s*L\.T\.?$|^שטיפה\s*[1-7]$/i);
+        if (processCol >= 0) {
+          // Legacy form: temperature unit is three logical cells after the
+          // process label. Guard bounds so future narrower Masters stay safe.
+          const tempUnitCol = processCol + 3;
+          if (tempUnitCol < row.length) row[tempUnitCol] = "°C";
+        }
+
+        const sugarCol = findLabelColumn(row, /^(?:F\.R\.|L\.R\.)$/i);
+        if (sugarCol >= 0) {
+          // Keep the print label visible even before a measurement exists.
+          const unitCol = sugarCol + 1;
+          if (unitCol < row.length) {
+            const value = String(row[unitCol] || "").trim();
+            row[unitCol] = value
+              ? (/°P$/i.test(value) ? value : value + "°P")
+              : "°P";
+          }
+        }
+
+        const volumeCol = findLabelColumn(row, /^(?:סיר\s*בישול|סוף\s*רתיחה|תחילת\s*תסיסה)$/i);
+        if (volumeCol >= 0) {
+          // Same geometry as the source form: label in A, Plato in B, volume
+          // in C. Empty fields still show their print-only unit labels.
+          const platoValueCol = volumeCol + 1;
+          const literValueCol = volumeCol + 2;
+          if (platoValueCol < row.length) {
+            const value = String(row[platoValueCol] || "").trim();
+            row[platoValueCol] = value
+              ? (/°P$/i.test(value) ? value : value + "°P")
+              : "°P";
+          }
+          if (literValueCol < row.length) {
+            const value = String(row[literValueCol] || "").trim();
+            row[literValueCol] = value
+              ? (/ליטר$/.test(value) ? value : value + " ליטר")
+              : "ליטר";
+          }
+        }
+      });
+      printRange.setValues(display);
+
+      // Fit all cells in memory and apply font sizes once.
+      display.forEach(function (row, r) {
+        row.forEach(function (value, col) {
+          const text = String(value || "").trim();
+          if (!text) return;
+          const width = Math.max(12, columnWidths[col] - 8);
+          const currentSize = Number(fontSizes[r][col]) || 10;
+          const estimatedPx = text.length * currentSize * 0.78;
+          if (estimatedPx > width) {
+            fontSizes[r][col] = Math.max(5, Math.floor(currentSize * width / estimatedPx));
+          }
+        });
+      });
+      printRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+      printRange.setFontSizes(fontSizes);
+    });
+
+    SpreadsheetApp.flush();
+
+    const exportUrl =
+      "https://docs.google.com/spreadsheets/d/" + temp.getId() + "/export" +
+      "?format=pdf&size=A4&portrait=true&scale=4" +
+      "&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=false&fzr=false" +
+      "&top_margin=0.20&bottom_margin=0.20&left_margin=0.20&right_margin=0.20";
+    const response = UrlFetchApp.fetch(exportUrl, {
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    const code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      throw new Error("PDF export failed: HTTP " + code);
+    }
+    const blob = response.getBlob().setName("brew-" + batchNumber + ".pdf");
+    return {
+      fileName: blob.getName(),
+      mimeType: "application/pdf",
+      base64: Utilities.base64Encode(blob.getBytes()),
+      pages: blockCount + 1
+    };
+  } finally {
+    try { tempFile.setTrashed(true); } catch (cleanupError) {
+      console.log("Print temp cleanup failed: " + cleanupError.message);
+    }
+  }
+}
+
+function brewingSheetTrash_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const file = DriveApp.getFileById(fileId);
+  file.setTrashed(true);
+
+  // The ACTION-5 candidate snapshot lives in ScriptProperties and can otherwise
+  // keep a just-deleted Sheet visible to BrewSheetListHistory until the next
+  // Drive Changes refresh. Remove this exact file synchronously so the UI can
+  // immediately move the batch back to "בישולים מתוכננים" instead of showing a
+  // ghost "אצווה עתידית".
+  try {
+    if (typeof BREW_CANDIDATES_SNAPSHOT_KEY !== "undefined") {
+      const props = PropertiesService.getScriptProperties();
+      const snapshotJson = props.getProperty(BREW_CANDIDATES_SNAPSHOT_KEY);
+      if (snapshotJson) {
+        const snapshot = JSON.parse(snapshotJson);
+        if (Array.isArray(snapshot)) {
+          const filtered = snapshot.filter(function (candidate) {
+            return String(candidate && candidate.fileId || "") !== fileId;
+          });
+          if (filtered.length !== snapshot.length) {
+            props.setProperty(BREW_CANDIDATES_SNAPSHOT_KEY, JSON.stringify(filtered));
+          }
+        }
+      }
+    }
+  } catch (snapshotError) {
+    // Deletion itself already succeeded. A stale snapshot must never turn a
+    // successful delete into an error response; Drive Changes will reconcile it.
+    console.log("Brew trash snapshot cleanup skipped: " + snapshotError.message);
+  }
+
+  brewingSheetInvalidateHistoryCache_();
+
+  return {
+    spreadsheetId: fileId,
+    trashed: true
+  };
+}
+
+function brewingSheetRenameBatch_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const oldBatch = String(data.oldBatchNumber || "").replace("#", "").trim();
+  const newBatch = String(data.newBatchNumber || "").replace("#", "").trim();
+  const style = String(data.style || "").trim();
+  if (!/^\d+$/.test(newBatch)) throw new Error("Invalid newBatchNumber");
+
+  const file = DriveApp.getFileById(fileId);
+
+  if (newBatch !== oldBatch) {
+    const folderId = brewingSheetConfig_().folderId;
+    const folder = DriveApp.getFolderById(folderId);
+    const duplicateFiles = folder.searchFiles(
+      "trashed = false and title contains '" + newBatch.replace(/'/g, "\\'") + "'"
+    );
+    while (duplicateFiles.hasNext()) {
+      const candidate = duplicateFiles.next();
+      if (candidate.getId() === fileId) continue;
+      const parsed = brewingSheetBatchFromName_(candidate.getName());
+      if (String(parsed || "").replace("#", "").trim() === newBatch) {
+        throw new Error("Batch " + newBatch + " already exists.");
+      }
+    }
+  }
+
+  const ss = SpreadsheetApp.openById(fileId);
+  const sheet = ss.getSheets()[0];
+  const values = sheet.getDataRange().getDisplayValues();
+  const starts = findBrewBlockStarts(values);
+
+  sheet.getRange("B1").setValue(style);
+  sheet.getRange("F1").setValue(newBatch);
+  starts.forEach(function (start, index) {
+    const headerRow = start - 5;
+    if (headerRow >= 1) {
+      sheet.getRange(headerRow, 3).setValue(style);
+      sheet.getRange(headerRow, 5).setValue(newBatch + ["A", "B", "C"][index]);
+    }
+  });
+
+  const fermentationHeaderRow =
+    starts.length >= 3 ? 154 : starts.length === 2 ? 104 : 57;
+  sheet.getRange(fermentationHeaderRow, 2).setValue(
+    starts.length === 1 ? style : style + " " + (starts.length === 2 ? "כפול" : "משולש")
+  );
+  sheet.getRange(fermentationHeaderRow, 4).setValue(newBatch);
+
+  const currentName = file.getName();
+  const replaced = oldBatch
+    ? currentName.replace(new RegExp("#?" + oldBatch + "#?"), newBatch + "#")
+    : currentName;
+  if (replaced !== currentName) file.setName(replaced);
+  SpreadsheetApp.flush();
+  brewingSheetInvalidateHistoryCache_();
+
+  return { spreadsheetId: fileId, batchNumber: newBatch, style: style, name: file.getName() };
+}
+
+function brewingSheetNumber_(value) {
+  const match = String(value == null ? "" : value)
+    .replace(/,/g, ".")
+    .match(/-?\d+(?:\.\d+)?/);
+  return match ? match[0] : "";
+}
+
+function brewingSheetBatchFromName_(name) {
+  const matches = String(name || "").match(/\d{3,6}/g) || [];
+  if (!matches.length) return null;
+  const value = Number(matches[matches.length - 1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function brewingSheetBlockLayout_(name) {
+  if (String(name).indexOf("משולש") !== -1) {
+    return { bases: [9, 59, 106], headers: [4, 54, 102] };
+  }
+  if (String(name).indexOf("כפול") !== -1) {
+    return { bases: [9, 59], headers: [4, 54] };
+  }
+  return { bases: [9], headers: [4] };
+}
+
+function brewingSheetParseHistoryBlock_(
+  values,
+  baseRow,
+  headerRow,
+  letter,
+  batchNumber,
+  file
+) {
+  function cell(row, col) {
+    return String((values[row - 1] || [])[col - 1] || "").trim();
+  }
+
+  const mashMeta = cell(baseRow, 8);
+  const mashVolumeMatch = mashMeta.match(/נפח\s*מאש\s*([\d.,]+)/i);
+  const mashPhMatch = mashMeta.match(/pH\s*([\d.,]+)/i);
+
+  const row = {
+    batchNumber: String(batchNumber),
+    brewLetter: letter,
+    brewDate: cell(headerRow, 8),
+    mashPh: mashPhMatch ? String(mashPhMatch[1]).replace(",", ".") : "",
+    mashVolume: mashVolumeMatch ? String(mashVolumeMatch[1]).replace(",", ".") : "",
+    acidMl: brewingSheetNumber_(cell(baseRow + 28, 1)),
+    outToBoilPh: brewingSheetNumber_(cell(baseRow + 15, 8)),
+    boilPh: brewingSheetNumber_(cell(baseRow + 28, 6)),
+    kettleVolume: brewingSheetNumber_(cell(baseRow + 38, 3)),
+    boilAcidMl: brewingSheetNumber_(cell(baseRow + 29, 1)),
+    outToFermentorPh: brewingSheetNumber_(cell(baseRow + 40, 8)),
+    sheetName: file.fileName || "",
+    sheetUrl: buildSheetUrl(file.fileId)
+  };
+
+  if (
+    !row.mashPh &&
+    !row.mashVolume &&
+    !row.acidMl &&
+    !row.outToBoilPh &&
+    !row.boilPh &&
+    !row.kettleVolume &&
+    !row.boilAcidMl &&
+    !row.outToFermentorPh
+  ) {
+    return null;
+  }
+
+  return row;
+}
+
+function brewingSheetStyleFromFileName_(fileName) {
+  return String(fileName || "")
+    .replace(/^\s*\[SANDBOX\]\s*/i, "")
+    .replace(/^\s*עותק של\s*/i, "")
+    .replace(/#?\s*\d{3,6}\s*#?/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function brewingSheetTankTypeFromFileName_(fileName) {
+  const name = String(fileName || "");
+  if (name.indexOf("משולש") !== -1) return "triple";
+  if (name.indexOf("כפול") !== -1) return "double";
+  return "single";
+}
+
+function brewingSheetListHistory_(data) {
+  const requestedLimit = Number(data && data.limit);
+  try {
+    const cached = CacheService.getScriptCache().get(BREWING_HISTORY_CACHE_KEY_);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) return parsed.slice(0, Number.isFinite(requestedLimit) ? requestedLimit : 100);
+    }
+  } catch (error) {
+    console.log("Brew history cache read skipped: " + error.message);
+  }
+  const safeLimit =
+    Number.isFinite(requestedLimit)
+      ? Math.max(10, Math.min(150, Math.round(requestedLimit)))
+      : 100;
+
+  let candidates = [];
+  if (typeof getBrewFolderCandidatesCached === "function") {
+    candidates = getBrewFolderCandidatesCached() || [];
+  }
+
+  const seenBatches = {};
+  const result = candidates
+    .slice()
+    .sort(function (a, b) {
+      return Number(b.batch || 0) - Number(a.batch || 0);
+    })
+    .filter(function (candidate) {
+      const name = String(candidate.fileName || "");
+      if (/^\s*\[SANDBOX\]/i.test(name)) return false;
+
+      const batch = Number(
+        candidate.batch || brewingSheetBatchFromName_(name)
+      );
+      if (!Number.isFinite(batch)) return false;
+      if (seenBatches[batch]) return false;
+
+      seenBatches[batch] = true;
+      return true;
+    })
+    .slice(0, safeLimit)
+    .map(function (candidate) {
+      const fileName = String(candidate.fileName || "");
+      const batch = Number(
+        candidate.batch || brewingSheetBatchFromName_(fileName)
+      );
+
+      return {
+        id: String(candidate.fileId || ""),
+        fileId: String(candidate.fileId || ""),
+        fileName: fileName,
+        batchNumber: String(batch),
+        beerStyle: brewingSheetStyleFromFileName_(fileName),
+        brewDate: "",
+        sheetUrl: buildSheetUrl(candidate.fileId),
+        tankNumber: "",
+        tankType: brewingSheetTankTypeFromFileName_(fileName)
+      };
+    });
+
+  try {
+    CacheService.getScriptCache().put(BREWING_HISTORY_CACHE_KEY_, JSON.stringify(result), 300);
+  } catch (error) {
+    console.log("Brew history cache write skipped: " + error.message);
+  }
+  return result;
+}
+
+function brewingSheetAcidStyleAliases_(value) {
+  const key = String(value || "").trim().toLowerCase().replace(/\s+(משולש|כפול|בודד)$/, "");
+  if (key === "חיטה" || key === "wheat") return ["חיטה", "wheat"];
+  if (key === "פייל" || key === "pale" || key === "pale ale") return ["פייל", "pale", "pale ale"];
+  if (key === "הופי" || key === "hoppy") return ["הופי", "hoppy"];
+  if (key === "לאגר" || key === "lager") return ["לאגר", "lager"];
+  if (key === "סטאוט" || key === "stout") return ["סטאוט", "stout"];
+  return [key];
+}
+
+function brewingSheetAcidHistory_(data) {
+  const style = String(data.style || "").trim().toLowerCase();
+  const styleAliases = brewingSheetAcidStyleAliases_(style);
+  const currentBatch = Number(String(data.currentBatchNumber || "").replace("#", ""));
+  if (!style) throw new Error("Missing style");
+
+  let candidates = [];
+  if (typeof getBrewFolderCandidatesCached === "function") {
+    candidates = getBrewFolderCandidatesCached() || [];
+  }
+
+  const byBatch = {};
+  candidates.forEach(function (candidate) {
+    const fileName = String(candidate.fileName || "");
+    const lowerName = fileName.toLowerCase();
+    if (!styleAliases.some(function (alias) { return lowerName.indexOf(alias) !== -1; })) return;
+
+    const batch = Number(candidate.batch || brewingSheetBatchFromName_(fileName));
+    if (!Number.isFinite(batch)) return;
+
+    if (!byBatch[batch]) byBatch[batch] = candidate;
+  });
+
+  // Compare against the latest three batches, including the current
+  // batch when it already has completed earlier brew blocks (A/B). The parser
+  // below returns only blocks that actually contain acid/pH history, so the
+  // currently active brew block is naturally excluded while earlier brews from
+  // the same batch remain useful comparison data.
+  const batches = Object.keys(byBatch)
+    .map(Number)
+    .sort(function (a, b) {
+      if (a === currentBatch) return -1;
+      if (b === currentBatch) return 1;
+      return b - a;
+    })
+    .slice(0, 3);
+
+  const rows = [];
+  let batchesWithData = 0;
+
+  for (let i = 0; i < batches.length && batchesWithData < 3; i++) {
+    const batch = batches[i];
+    const file = byBatch[batch];
+
+    try {
+      const sheet = SpreadsheetApp.openById(file.fileId).getSheets()[0];
+      const values = sheet.getRange(1, 1, Math.min(150, sheet.getMaxRows()), 8).getDisplayValues();
+      const layout = brewingSheetBlockLayout_(file.fileName);
+      const batchRows = [];
+
+      layout.bases.forEach(function (baseRow, index) {
+        const parsed = brewingSheetParseHistoryBlock_(
+          values,
+          baseRow,
+          layout.headers[index],
+          ["A", "B", "C"][index],
+          batch,
+          file
+        );
+        if (parsed) batchRows.push(parsed);
+      });
+
+      if (batchRows.length) {
+        batchesWithData++;
+        Array.prototype.push.apply(rows, batchRows);
+      }
+    } catch (error) {
+      logToSheet("BrewSheet history skipped " + file.fileId + ": " + error.message);
+    }
+  }
+
+  return rows.slice(0, 9);
+}
+
+
+// ============================================================
+// ACTIVE BREW SHEET EDIT TRIGGERS
+// ============================================================
+
+const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit";
+const BREWING_LEGACY_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
+const BREWING_EDIT_TANK_PREFIX_ = "brew_edit_tank:";
+
+function brewingSheetRememberEditTank_(spreadsheetId, tankNumber) {
+  const fileId = String(spreadsheetId || "").trim();
+  const tank = String(tankNumber || "").trim();
+  if (!fileId || !tank) return;
+  PropertiesService.getScriptProperties().setProperty(BREWING_EDIT_TANK_PREFIX_ + fileId, tank);
+}
+
+function brewingSheetKnownEditTank_(spreadsheetId) {
+  return String(
+    PropertiesService.getScriptProperties().getProperty(
+      BREWING_EDIT_TANK_PREFIX_ + String(spreadsheetId || "").trim()
+    ) || ""
+  ).trim();
+}
+
+function brewingSheetTriggerSourceId_(trigger) {
+  try {
+    return String(trigger.getTriggerSourceId() || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function brewingSheetEnsureEditTrigger_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  if (data.tankNumber) brewingSheetRememberEditTank_(fileId, data.tankNumber);
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(function (trigger) {
+    if (
+      trigger.getHandlerFunction() === BREWING_LEGACY_EDIT_TRIGGER_HANDLER_ &&
+      brewingSheetTriggerSourceId_(trigger) === fileId
+    ) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  const existing = triggers.find(function (trigger) {
+    return (
+      trigger.getHandlerFunction() === BREWING_EDIT_TRIGGER_HANDLER_ &&
+      brewingSheetTriggerSourceId_(trigger) === fileId
+    );
+  });
+
+  if (!existing) {
+    ScriptApp.newTrigger(BREWING_EDIT_TRIGGER_HANDLER_)
+      .forSpreadsheet(fileId)
+      .onEdit()
+      .create();
+  }
+
+  return {
+    spreadsheetId: fileId,
+    installed: !existing,
+    active: true
+  };
+}
+
+function brewingSheetRemoveEditTrigger_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  let removed = 0;
+
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (
+      trigger.getHandlerFunction() === BREWING_EDIT_TRIGGER_HANDLER_ &&
+      brewingSheetTriggerSourceId_(trigger) === fileId
+    ) {
+      ScriptApp.deleteTrigger(trigger);
+      removed++;
+    }
+  });
+
+  PropertiesService.getScriptProperties().deleteProperty(BREWING_EDIT_TANK_PREFIX_ + fileId);
+
+  return {
+    spreadsheetId: fileId,
+    removed: removed,
+    active: false
+  };
+}
+
+function brewingSheetReconcileEditTriggers_(fermentorEntries) {
+  const activeSheetIds = new Set();
+  const activeTanksBySheet = {};
+  const projectTriggers = ScriptApp.getProjectTriggers();
+
+  (fermentorEntries || []).forEach(function (entry) {
+    const fermentor = entry && entry.data ? entry.data : entry;
+    if (!fermentor || parseAction(fermentor.action) !== 0 || !fermentor.sheetUrl) return;
+    const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
+    if (!fileId) return;
+    activeSheetIds.add(fileId);
+    activeTanksBySheet[fileId] = String(
+      fermentor.tankNumber || (entry && entry.id) || ""
+    ).trim();
+  });
+
+  // Normalize the complete managed trigger set in one pass. Legacy handlers,
+  // stale Sheets and duplicate public handlers are all removed. Exactly one
+  // public onEdit trigger survives per active brew Sheet.
+  const keptBySheet = {};
+  projectTriggers.forEach(function (trigger) {
+    const handler = trigger.getHandlerFunction();
+    if (
+      handler !== BREWING_EDIT_TRIGGER_HANDLER_ &&
+      handler !== BREWING_LEGACY_EDIT_TRIGGER_HANDLER_
+    ) return;
+
+    const fileId = brewingSheetTriggerSourceId_(trigger);
+    const keep =
+      handler === BREWING_EDIT_TRIGGER_HANDLER_ &&
+      fileId &&
+      activeSheetIds.has(fileId) &&
+      !keptBySheet[fileId];
+
+    if (keep) {
+      keptBySheet[fileId] = true;
+    } else {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  activeSheetIds.forEach(function (fileId) {
+    brewingSheetRememberEditTank_(fileId, activeTanksBySheet[fileId] || "");
+    if (keptBySheet[fileId]) return;
+    ScriptApp.newTrigger(BREWING_EDIT_TRIGGER_HANDLER_)
+      .forSpreadsheet(fileId)
+      .onEdit()
+      .create();
+    keptBySheet[fileId] = true;
+  });
+
+  return {
+    active: activeSheetIds.size,
+    normalized: Object.keys(keptBySheet).length
+  };
+}
+
+function brewingSheetFindFermentorForSheet_(spreadsheetId) {
+  const targetId = brewingSheetExtractId_(spreadsheetId);
+  const fermentors = getAllFermentorsFromFirebase();
+
+  return fermentors.find(function (fermentor) {
+    return (
+      brewingSheetExtractId_(fermentor.sheetUrl) === targetId &&
+      parseAction(fermentor.action) === 0
+    );
+  }) || null;
+}
+
+function brewingSheetPublishEditRevision_(tankNumber, event) {
+  const fermentorId = String(tankNumber || "").trim();
+  if (!fermentorId) return;
+
+  const range = event && event.range ? event.range.getA1Notation() : "";
+  const sheetName = event && event.range ? event.range.getSheet().getName() : "";
+  const revision = Date.now();
+  const editedValue =
+    event && Object.prototype.hasOwnProperty.call(event, "value")
+      ? String(event.value == null ? "" : event.value)
+      : event && event.range
+        ? String(event.range.getDisplayValue() || "")
+        : "";
+  const oldValue =
+    event && Object.prototype.hasOwnProperty.call(event, "oldValue")
+      ? String(event.oldValue == null ? "" : event.oldValue)
+      : "";
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(fermentorId) +
+    "?updateMask.fieldPaths=brewSheetEditRevision" +
+    "&updateMask.fieldPaths=brewSheetEditRange" +
+    "&updateMask.fieldPaths=brewSheetEditValue" +
+    "&updateMask.fieldPaths=brewSheetEditOldValue" +
+    "&updateMask.fieldPaths=brewSheetEditSheetName";
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({
+      fields: {
+        brewSheetEditRevision: { integerValue: String(revision) },
+        brewSheetEditRange: { stringValue: String(range || "") },
+        brewSheetEditValue: { stringValue: editedValue },
+        brewSheetEditOldValue: { stringValue: oldValue },
+        brewSheetEditSheetName: { stringValue: sheetName }
+      }
+    }),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error(
+      "Failed publishing Sheet edit revision for tank " +
+      fermentorId + ": " + code + " " + response.getContentText()
+    );
+  }
+}
+
+
+
+function brewingSheetFindFermentorForBatch_(batchNumber) {
+  const url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors";
+  const response = UrlFetchApp.fetch(url, {
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) return null;
+  const body = JSON.parse(response.getContentText() || "{}");
+  const docs = body.documents || [];
+  for (let i = 0; i < docs.length; i++) {
+    const fields = docs[i].fields || {};
+    const rawBatch = fields.batchNumber && (fields.batchNumber.stringValue || fields.batchNumber.integerValue);
+    if (String(rawBatch || "").replace("#", "").trim() !== String(batchNumber)) continue;
+    return {
+      tankNumber: String((fields.tankNumber && (fields.tankNumber.stringValue || fields.tankNumber.integerValue)) || ""),
+      batchNumber: String(rawBatch || ""),
+      sheetUrl: String((fields.sheetUrl && fields.sheetUrl.stringValue) || "")
+    };
+  }
+  return null;
+}
+
+function brewingSheetFirestoreString_(value) {
+  return { stringValue: String(value == null ? "" : value) };
+}
+
+function brewingSheetPersistExecutionCell_(fermentor, event) {
+  if (!fermentor || !event || !event.range) return false;
+  const batch = String(fermentor.batchNumber || "").replace("#", "").trim();
+  if (!batch) return false;
+
+  const range = event.range;
+  if (range.getNumRows() !== 1 || range.getNumColumns() !== 1) return false;
+
+  const row = range.getRow();
+  const col = range.getColumn();
+  const sheet = range.getSheet();
+  const value = String(range.getDisplayValue() || "").trim();
+  const data = sheet.getDataRange().getDisplayValues();
+  const headers = findBrewBlockStarts(data);
+
+  let blockIndex = 0;
+  let blockStart = -1;
+  let blockEnd = data.length;
+  headers.forEach(function (header, index) {
+    // findBrewBlockStarts() returns zero-based numeric row indexes, not
+    // objects.  Treating them as { row } left blockIndex at 0, so every
+    // Sheet edit silently returned before persisting to Firestore.
+    if (header <= row - 1) {
+      blockIndex = index + 1;
+      blockStart = header;
+      blockEnd = headers[index + 1] !== undefined ? headers[index + 1] : data.length;
+    }
+  });
+  if (!blockIndex || blockStart < 0 || row - 1 >= blockEnd) return false;
+
+  const rowData = data[row - 1] || [];
+  const labelA = String(rowData[0] || "").trim();
+  const labelC = String(rowData[2] || "").trim();
+  const labelD = String(rowData[3] || "").trim();
+  const changes = {};
+
+  function put(key, raw) {
+    changes[key] = String(raw == null ? "" : raw).trim();
+  }
+  function numeric(raw) {
+    return String(raw == null ? "" : raw).trim().replace(/[^0-9.,-]/g, "").replace(",", ".");
+  }
+
+  const stagePatterns = [
+    ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\s*1$/i],
+    ["heat1", /^חימום\s*1$/i], ["rest2", /^השריה\s*2$/i],
+    ["heat2", /^חימום\s*2$/i], ["rest3", /^השריה\s*3$/i],
+    ["heat3", /^חימום\s*3$/i], ["transferLt", /^העברה\s+ל.*L\.?T\.?/i],
+    ["restLt", /^מנוחה\s*L\.?T\.?/i], ["circulation", /^סחרור/i],
+    ["outToBoil", /^הוצאה לבישול$/i], ["endTransfer", /^סוף העברה$/i],
+    ["boil", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i],
+    ["hop1", /^הוספת כ(?:שות|שת)\s*1$/i], ["hop2", /^הוספת כ(?:שות|שת)\s*2$/i],
+    ["hop3", /^הוספת כ(?:שות|שת)\s*3$/i], ["wp", /סוף רתיחה.*תחילת\s*WP/i],
+    ["outToFermentor", /^הוצאה לתסיסה$/i]
+  ];
+  for (let i = 0; i < stagePatterns.length; i++) {
+    if (!stagePatterns[i][1].test(labelD)) continue;
+    const stage = stagePatterns[i][0];
+    if (col === 5) put(stage + ".start", value);
+    else if (col === 6) put(stage + ".end", value);
+    else if (col === 7) put(stage + ".temp", numeric(value));
+    else if (col === 8) put(stage + ".note", value);
+    break;
+  }
+
+  const rinse = /^שטיפה\s*(\d+)$/i.exec(labelD);
+  if (rinse) {
+    const n = rinse[1];
+    if (col === 5) put("rinse" + n + ".time", value);
+    else if (col === 6) put("rinse" + n + ".amount", numeric(value));
+    else if (col === 7) put("rinse" + n + ".temp", numeric(value));
+    else if (col === 8) {
+      const parts = value.split("+");
+      put("rinse" + n + ".kettle", numeric(parts[0]));
+      if (parts.length > 1) put("rinse" + n + ".grant", numeric(parts[1]));
+    }
+  }
+
+  const sugarPatterns = [
+    ["frPlato", /^F\.R\.?\s*$/i],
+    ["lrPlato", /^L\.R\.?\s*$/i],
+    ["kettlePlato", /^סיר בישול/i],
+    ["endBoilPlato", /^סוף רתיחה$/i],
+    ["fermentorSamplePlato", /^תחילת תסיסה$/i]
+  ];
+  for (let s = 0; s < sugarPatterns.length; s++) {
+    if (!sugarPatterns[s][1].test(labelA)) continue;
+    const sugarKey = sugarPatterns[s][0];
+    if (col === 2) put(sugarKey, numeric(value));
+    if (col === 3 && sugarKey === "kettlePlato") put("kettleVolume", numeric(value));
+    if (col === 3 && sugarKey === "endBoilPlato") put("endBoilVolume", numeric(value));
+    if (col === 3 && sugarKey === "fermentorSamplePlato") put("cumulativeTankVolume", numeric(value));
+    break;
+  }
+
+  if (/^HLT$/i.test(labelA)) {
+    if (col === 2) put("hltWaterAmount", numeric(value));
+    else if (col === 3) put("hltWaterTemp", numeric(value));
+  }
+  if (/^MASH\s*IN$/i.test(labelA)) {
+    if (col === 2) put("lauterWaterAmount", numeric(value));
+    else if (col === 3) put("lauterWaterTemp", numeric(value));
+  }
+
+  if (/^הוצאה לבישול$/i.test(labelD) && col === 8) put("outToBoilPh", numeric(value));
+  if (/^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i.test(labelD) && col === 6) put("boilPh", numeric(value));
+  if (/^הוצאה לתסיסה$/i.test(labelD) && col === 8) put("outToFermentorPh", numeric(value));
+
+  if (/H3PO4/i.test(labelC) && col === 1) {
+    let acidNumber = 0;
+    for (let r = blockStart; r < blockEnd; r++) {
+      if (/H3PO4/i.test(String((data[r] || [])[2] || ""))) {
+        acidNumber++;
+        if (r === row - 1) break;
+      }
+    }
+    if (acidNumber === 1) put("mashAcid85", numeric(value));
+    else if (acidNumber === 2) put("boilAcid85", numeric(value));
+  }
+
+  // Raw-hop rows are discovered from the visible כמות / אחוז אלפא / סוג header.
+  let hopHeader = -1;
+  for (let r = blockStart; r < blockEnd; r++) {
+    const rr = data[r] || [];
+    if (/^כמות$/i.test(String(rr[0] || "").trim()) &&
+        /אחוז.*אלפ/i.test(String(rr[1] || "").trim()) &&
+        /סוג/i.test(String(rr[2] || "").trim())) {
+      hopHeader = r;
+      break;
+    }
+  }
+  if (hopHeader >= 0 && row - 1 > hopHeader && row - 1 <= hopHeader + 5) {
+    const hop = row - 1 - hopHeader;
+    if (col === 1) put("hop" + hop + ".amountGrams", numeric(value));
+    else if (col === 2) put("hop" + hop + ".alphaOverride", numeric(value));
+  }
+
+  // Mash metadata lives near הכנסת לתת and can contain both volume and pH.
+  if (/^הכנסת לתת$/i.test(labelD) && col === 8) {
+    const volume = /(?:כמות|נפח)\s*(?:ב)?מאש\s*([\d.,]+)/i.exec(value);
+    const ph = /pH\s*([\d.,]+)/i.exec(value);
+    if (volume) put("mashVolume", numeric(volume[1]));
+    if (ph) put("mashPh", numeric(ph[1]));
+  }
+
+  const keys = Object.keys(changes);
+  if (!keys.length) return false;
+
+  const masks = [
+    "brewingExecution.batchNumber",
+    "brewingExecution.updatedAt"
+  ];
+  keys.forEach(function (key) {
+    masks.push("brewingExecution.blocks." + blockIndex + ".fields.%60" + encodeURIComponent(key) + "%60");
+  });
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/brews/" + encodeURIComponent(batch) +
+    "?" + masks.map(function (mask) { return "updateMask.fieldPaths=" + mask; }).join("&");
+
+  const blockFields = {};
+  keys.forEach(function (key) {
+    blockFields[key] = brewingSheetFirestoreString_(changes[key]);
+  });
+  const document = { fields: { brewingExecution: { mapValue: { fields: {
+    batchNumber: brewingSheetFirestoreString_(batch),
+    updatedAt: brewingSheetFirestoreString_(new Date().toISOString()),
+    blocks: { mapValue: { fields: {} } }
+  } } } } };
+  document.fields.brewingExecution.mapValue.fields.blocks.mapValue.fields[String(blockIndex)] =
+    { mapValue: { fields: { fields: { mapValue: { fields: blockFields } } } } };
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify(document),
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error("Failed persisting brew execution edit for batch " + batch +
+      ": " + code + " " + response.getContentText());
+  }
+  return true;
+}
+
+// Public installable-trigger entry point. Keep the implementation private,
+// but never register a trailing-underscore function as the Apps Script handler.
+function brewingSheetOnEdit(event) {
+  return brewingSheetOnEdit_(event);
+}
+
+function brewingSheetOnEdit_(event) {
+  if (!event || !event.source) return;
+
+  const spreadsheetId = String(event.source.getId() || "").trim();
+  if (!spreadsheetId) return;
+
+  try {
+    const knownTank = brewingSheetKnownEditTank_(spreadsheetId);
+    if (knownTank) brewingSheetPublishEditRevision_(knownTank, event);
+
+    const fermentor = brewingSheetFindFermentorForSheet_(spreadsheetId);
+    if (!fermentor) {
+      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+      return;
+    }
+
+    if (!knownTank) {
+      brewingSheetRememberEditTank_(spreadsheetId, fermentor.tankNumber);
+      brewingSheetPublishEditRevision_(fermentor.tankNumber, event);
+    }
+
+    brewingSheetPersistExecutionCell_(fermentor, event);
+
+    const stageInfo = extractBrewStageInfo(spreadsheetId, fermentor);
+    if (!stageInfo || !stageInfo.lastBlock) return;
+
+    updateFermentorBrewProgress(fermentor.tankNumber, stageInfo);
+
+    if (stageInfo.beerVolume !== null && stageInfo.beerVolume !== undefined) {
+      updateFermentorAction(fermentor.tankNumber, 1);
+      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+      return;
+    }
+
+    if (stageInfo.hasUnstartedHeader) return;
+
+    const outStage = stageInfo.lastBlock.stages.find(function (stage) {
+      return stage.code === STAGE_CODE_OUT_TO_FERMENTOR;
+    });
+
+    if (
+      outStage &&
+      outStage.startDateTime &&
+      Date.now() - outStage.startDateTime.getTime() >= ACTION_0_GRACE_MS
+    ) {
+      updateFermentorAction(fermentor.tankNumber, 1);
+      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+    }
+  } catch (error) {
+    console.log(
+      "brewingSheetOnEdit_ failed for " +
+      spreadsheetId +
+      ": " +
+      (error && error.message ? error.message : error)
+    );
+  }
+}
+

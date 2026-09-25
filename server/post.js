@@ -101,7 +101,8 @@ function flushLogs_() {
 // ============================================================
 
 const POST_IDEMPOTENCY_PREFIX = "post_idempotency:";
-const POST_IDEMPOTENCY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const POST_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const POST_PROPERTY_SOFT_LIMIT = 420000;
 const POST_IDEMPOTENCY_IN_PROGRESS_TTL_MS = 2 * 60 * 1000;
 const POST_IDEMPOTENCY_WAIT_MS = 20000;
 const POST_IDEMPOTENCY_POLL_MS = 250;
@@ -118,7 +119,17 @@ const POST_MUTATION_ACTIONS = {
   refreshSingleTank: true,
   addFermentationMeasurement: true,
   triggerTankUpdate: true,
-  manualNightSync: true
+  manualNightSync: true,
+  // Durable Firestore creation jobs are themselves retryable/idempotent. Do not
+  // put the immediate worker behind the global POST ScriptLock: cellar/maintenance
+  // traffic was making the browser worker fail with "idempotency lock busy" and
+  // forcing every new brew to wait for the next maintenance cycle.
+  // Cell writes are already conflict-guarded by expectedValue in
+  // brewingSheetWriteCells_. Keeping them in the long-lived generic
+  // idempotency cache can strand the UI behind an "in_progress" record after
+  // a lost ContentService response. Let each debounced batch execute normally.
+  BrewSheetTrash: true,
+  BrewSheetRenameBatch: true
 };
 
 function postIdempotencyKey_(action, requestId) {
@@ -145,10 +156,46 @@ function postReadIdempotencyRecord_(key) {
   }
 }
 
+function postTrimScriptProperties_() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  const disposable = Object.keys(all)
+    .filter(function (key) {
+      return key.indexOf(POST_IDEMPOTENCY_PREFIX) === 0 || key.indexOf(ASYNC_LOG_PREFIX) === 0;
+    })
+    .map(function (key) { return { key: key, value: String(all[key] || "") }; })
+    .sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+  let total = Object.keys(all).reduce(function (sum, key) {
+    return sum + key.length + String(all[key] || "").length;
+  }, 0);
+  while (total > POST_PROPERTY_SOFT_LIMIT && disposable.length) {
+    const item = disposable.shift();
+    props.deleteProperty(item.key);
+    total -= item.key.length + item.value.length;
+  }
+}
+
+function postSetPropertyWithQuotaRecovery_(key, value) {
+  const props = PropertiesService.getScriptProperties();
+  try {
+    props.setProperty(key, value);
+  } catch (error) {
+    const message = String(error && error.message || error);
+    if (!/quota|property|properties|מכסה|נכס/i.test(message)) throw error;
+    postTrimScriptProperties_();
+    props.setProperty(key, value);
+  }
+}
+
 function postClaimIdempotencyRequest_(action, requestId) {
   const key = postIdempotencyKey_(action, requestId);
   const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  const lockStartedAt = Date.now();
+  if (!lock.tryLock(1500)) {
+    throw new Error("POST idempotency lock busy; retry shortly.");
+  }
+  const lockWaitMs = Date.now() - lockStartedAt;
+  if (lockWaitMs > 100) console.log("POST idempotency lock wait " + lockWaitMs + "ms action=" + action);
 
   try {
     const existing = postReadIdempotencyRecord_(key);
@@ -165,7 +212,7 @@ function postClaimIdempotencyRequest_(action, requestId) {
       return { key: key, state: "in_progress" };
     }
 
-    PropertiesService.getScriptProperties().setProperty(
+    postSetPropertyWithQuotaRecovery_(
       key,
       JSON.stringify({
         state: "in_progress",
@@ -199,7 +246,7 @@ function postWaitForIdempotencyResult_(key) {
 }
 
 function postSaveIdempotencyResult_(key, action, requestId, response) {
-  PropertiesService.getScriptProperties().setProperty(
+  postSetPropertyWithQuotaRecovery_(
     key,
     JSON.stringify({
       state: "done",
@@ -301,8 +348,14 @@ function doPost(e) {
 
     const data = JSON.parse(e.postData.contents);
 
+    const authStartedAt = Date.now();
     const authenticatedUser = authenticateFirebaseRequest_(data.idToken);
+    const authMs = Date.now() - authStartedAt;
     delete data.idToken;
+
+    if (data.action === "BrewSheetReadRange") {
+      console.log(data.action + " auth timing " + authMs + "ms");
+    }
 
     logToSheet(
       "Authenticated action: " + data.action +
@@ -522,6 +575,72 @@ function executePostAction_(data) {
       action: "manualNightSync",
       result: result,
       message: result.message || undefined
+    };
+  }
+
+  if (data.action === "BrewSheetProcessQueuedJob") {
+    const jobId = String(data.jobId || "").replace("#", "").trim();
+    if (!/^\d+$/.test(jobId)) throw new Error("Invalid brew creation jobId");
+    return {
+      success: true,
+      action: "BrewSheetProcessQueuedJob",
+      result: processBrewSheetCreationJobNow_(jobId)
+    };
+  }
+
+  if (data.action === "BrewSheetWriteCells") {
+    return {
+      success: true,
+      action: "BrewSheetWriteCells",
+      result: brewingSheetWriteCells_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetReadRange") {
+    return {
+      success: true,
+      action: "BrewSheetReadRange",
+      result: brewingSheetReadRange_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetPrintPdf") {
+    return {
+      success: true,
+      action: "BrewSheetPrintPdf",
+      result: brewingSheetPrintPdf_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetTrash") {
+    return {
+      success: true,
+      action: "BrewSheetTrash",
+      result: brewingSheetTrash_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetRenameBatch") {
+    return {
+      success: true,
+      action: "BrewSheetRenameBatch",
+      result: brewingSheetRenameBatch_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetAcidHistory") {
+    return {
+      success: true,
+      action: "BrewSheetAcidHistory",
+      result: brewingSheetAcidHistory_(data)
+    };
+  }
+
+  if (data.action === "BrewSheetListHistory") {
+    return {
+      success: true,
+      action: "BrewSheetListHistory",
+      result: brewingSheetListHistory_(data)
     };
   }
 

@@ -1,0 +1,322 @@
+import { useEffect, useMemo, useState } from "react";
+import type { Fermentor } from "../../App";
+import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
+import type { PlannedBrewHint } from "../../SERVICES/brewing/planningBrewHints";
+import BeerLoader from "../general/Loading";
+
+type Props = {
+  open: boolean;
+  tanks: Fermentor[];
+  recipes: BrewRecipe[];
+  suggestedBatch: string;
+  createdBatchNumbers?: string[];
+  busyTankId: string | null;
+  planningHints: PlannedBrewHint[];
+  planningHintsAvailable: boolean;
+  planningHintsLoading: boolean;
+  initialDraft?: { batchNumber: string; style: string; tankId: string };
+  error: string;
+  onClearError: () => void;
+  onClose: () => void;
+  onCreate: (
+    tank: Fermentor,
+    draft: { batchNumber: string; style: string },
+  ) => Promise<void>;
+};
+
+function tankKind(tank: Fermentor) {
+  const n = Number(tank.tankNumber);
+  if (n < 5) return "בודד";
+  if (n < 9) return "כפול";
+  return "משולש";
+}
+
+function statusLabel(tank: Fermentor) {
+  if (Number(tank.action) === 5) return "מחוטא";
+  if (Number(tank.action) === 0) return "בישול חדש";
+  return String(tank.stage?.name || "לא ידוע");
+}
+
+function statusRank(tank: Fermentor) {
+  const status = statusLabel(tank);
+  if (status === "מחוטא") return 0;
+  if (status === "נקי") return 1;
+  if (status === "מלוכלך" || status === "מלוכלך/ריק") return 2;
+  if (status === "בישול חדש") return 3;
+  if (status === "בתסיסה") return 4;
+  if (status === "קר") return 5;
+  return 6;
+}
+
+
+export default function CreateBrewModal({
+  open,
+  tanks,
+  recipes,
+  suggestedBatch,
+  createdBatchNumbers = [],
+  busyTankId,
+  planningHints,
+  planningHintsAvailable,
+  planningHintsLoading,
+  initialDraft,
+  error,
+  onClearError,
+  onClose,
+  onCreate,
+}: Props) {
+  const sortedTanks = useMemo(
+    () =>
+      [...tanks].sort(
+        (a, b) =>
+          statusRank(a) - statusRank(b) ||
+          Number(a.tankNumber) - Number(b.tankNumber),
+      ),
+    [tanks],
+  );
+
+  const [batchNumber, setBatchNumber] = useState(suggestedBatch);
+  const [tankId, setTankId] = useState("");
+  const [style, setStyle] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setBatchNumber(initialDraft?.batchNumber || suggestedBatch);
+    setTankId(
+      initialDraft?.tankId && sortedTanks.some((tank) => tank.id === initialDraft.tankId)
+        ? initialDraft.tankId
+        : sortedTanks[0]?.id || "",
+    );
+    setStyle(
+      initialDraft?.style && recipes.some((recipe) => recipe.style === initialDraft.style)
+        ? initialDraft.style
+        : recipes[0]?.style || "",
+    );
+  }, [open, suggestedBatch, sortedTanks, recipes, initialDraft]);
+
+  if (!open) return null;
+
+  const selectedTank =
+    sortedTanks.find((tank) => tank.id === tankId) || null;
+  const isSanitized = Number(selectedTank?.action) === 5;
+
+  // Creation is a global operation for this modal. Once any tank is busy,
+  // lock every control so changing the selected tank cannot re-enable the
+  // create button while the Sheet request is still in flight.
+  const busy = busyTankId !== null;
+
+  return (
+    <div
+      className="brew-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <section
+        className="brew-create-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="brew-create-title"
+      >
+        <div className="brew-modal-header">
+          <div>
+            <h2 id="brew-create-title">יצירת בישול חדש</h2>
+            <p>מספר האצווה מוצע אוטומטית וניתן לשינוי.</p>
+          </div>
+          <button
+            type="button"
+            className="brew-modal-close brew-button-icon"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="סגירה"
+          >
+            ×
+          </button>
+        </div>
+
+        {planningHintsLoading && (
+          <div className="brew-inline-loader">
+            <BeerLoader
+              size="spinner"
+              message="טוען את בישולי השבוע…"
+            />
+          </div>
+        )}
+
+        {planningHintsAvailable && planningHints.length > 0 && (
+          <div className="brew-planning-hint">
+            <strong>בתכנון השבוע והשבוע הבא — יצירה מהירה:</strong>
+            <div className="brew-planning-hint-chips">
+              {planningHints.map((hint) => {
+                const tank = tanks.find(
+                  (item) => item.id === hint.tankId,
+                );
+                const cleanBatch = String(hint.batchNumber)
+                  .replace("#", "")
+                  .trim();
+                const alreadyCreated =
+                  tanks.some(
+                    (item) =>
+                      String(item.batchNumber || "")
+                        .replace("#", "")
+                        .trim() === cleanBatch,
+                  ) ||
+                  createdBatchNumbers.some(
+                    (batch) => String(batch).replace("#", "").trim() === cleanBatch,
+                  );
+
+                return (
+                  <button
+                    type="button"
+                    key={`${hint.batchNumber}-${hint.tankId}-${hint.date}`}
+                    disabled={alreadyCreated}
+                    title={
+                      alreadyCreated
+                        ? "האצווה כבר נוצרה"
+                        : "העבר את האצווה המתוכננת לטופס; אפשר לשנות אצווה, סגנון או מיכל לפני היצירה"
+                    }
+                    onClick={() => {
+                      if (alreadyCreated) return;
+                      setBatchNumber(hint.batchNumber);
+                      if (
+                        hint.style &&
+                        recipes.some(
+                          (recipe) => recipe.style === hint.style,
+                        )
+                      ) {
+                        setStyle(hint.style);
+                      }
+                      if (tank) setTankId(tank.id);
+                    }}
+                  >
+                    #{hint.batchNumber} · {hint.style || "ללא סגנון"}
+                    {tank?.tankNumber
+                      ? ` · מיכל ${tank.tankNumber}`
+                      : ""}
+                    {alreadyCreated ? " · נוצר" : ""}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="brewing-message brewing-message-error" role="alert">
+            {error}
+          </div>
+        )}
+
+        <div className="brew-modal-fields">
+          <label>
+            מספר אצווה
+            <input
+              inputMode="numeric"
+              value={batchNumber}
+              onChange={(event) => {
+                onClearError();
+                setBatchNumber(event.target.value.replace(/\D/g, ""));
+              }}
+            />
+          </label>
+
+          <label>
+            מיכל יעד
+            <select
+              value={tankId}
+              onChange={(event) => {
+                onClearError();
+                setTankId(event.target.value);
+              }}
+            >
+              {sortedTanks.map((tank) => {
+                const currentBatch =
+                  Number(tank.action) <= 1
+                    ? String(tank.batchNumber || "").trim()
+                    : "";
+                return (
+                  <option key={tank.id} value={tank.id}>
+                    {[
+                      `מיכל ${String(tank.tankNumber ?? tank.id)}`,
+                      tankKind(tank),
+                      statusLabel(tank),
+                      currentBatch
+                        ? `אצווה ${currentBatch}`
+                        : "פנוי",
+                    ].join(" · ")}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+
+          <label>
+            מתכון
+            <select
+              value={style}
+              onChange={(event) => {
+                onClearError();
+                setStyle(event.target.value);
+              }}
+            >
+              {recipes.map((recipe) => (
+                <option key={recipe.id} value={recipe.style}>
+                  {recipe.style}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+
+        {selectedTank && !isSanitized && (
+          <div className="brewing-assignment-warning">
+            האצווה תיווצר עכשיו, אבל תישאר ממתינה לשיבוץ עד
+            שהמיכל יהיה בסטטוס מחוטא.
+          </div>
+        )}
+
+        {busy && (
+          <div className="brew-modal-loader">
+            <BeerLoader
+              size="small"
+              message="יוצר אצווה ומכין Sheet…"
+            />
+          </div>
+        )}
+
+        <div className="brew-modal-actions">
+          <button
+            type="button"
+            className="brew-button-secondary"
+            onClick={onClose}
+            disabled={busy}
+          >
+            ביטול
+          </button>
+          <button
+            type="button"
+            className="btn-primary brew-button-primary"
+            disabled={
+              busy || !selectedTank || !batchNumber || !style
+            }
+            onClick={() => {
+              if (!selectedTank) return;
+              void onCreate(selectedTank, {
+                batchNumber,
+                style,
+              });
+            }}
+          >
+            {busy
+              ? "יוצר אצווה ו-Sheet..."
+              : isSanitized
+                ? "צור בישול"
+                : "צור והכנס לתור"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}

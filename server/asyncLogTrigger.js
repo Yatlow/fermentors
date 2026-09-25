@@ -267,6 +267,7 @@ function runAsyncMaintenance_() {
   let sheetPull = null;
   let planningSnapshots = null;
   let sheetSync = null;
+  let brewCreation = null;
   let packagingCleanup = null;
   let operationReceiptCleanup = null;
   let styleModels = null;
@@ -311,6 +312,12 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    brewCreation = processPendingBrewSheetCreationJobs_();
+  } catch (error) {
+    console.log("Brew creation outbox maintenance failed: " + error.message);
+  }
+
+  try {
     packagingCleanup = cleanupCompletedPackagingOperations_();
   } catch (error) {
     console.log("Packaging operation cleanup failed: " + error.message);
@@ -343,6 +350,7 @@ function runAsyncMaintenance_() {
     sheetPull: sheetPull,
     planningSnapshots: planningSnapshots,
     sheetSync: sheetSync,
+    brewCreation: brewCreation,
     packagingCleanup: packagingCleanup,
     operationReceiptCleanup: operationReceiptCleanup,
     styleModels: styleModels,

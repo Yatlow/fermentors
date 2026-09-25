@@ -287,52 +287,58 @@ function brewStageNormalizeSavedStarts_(fermentorHint) {
 // RAW STAGE EXTRACTION PER BLOCK
 // ----------------------------------------------------------
 
+function brewStageFindProcessColumns_(values, startRow, endRow) {
+  const scanEnd = Math.min(endRow, startRow + 12);
+  for (let r = startRow; r <= scanEnd; r++) {
+    const row = values[r] || [];
+    let operationCol = null;
+    let startCol = null;
+    let endCol = null;
+    for (let c = 0; c < row.length; c++) {
+      const label = String(row[c] || "").replace(/\s+/g, " ").trim();
+      if (/^פעולה$/.test(label)) operationCol = c;
+      else if (/^ש\.?\s*התחלה$/.test(label)) startCol = c;
+      else if (/^ש\.?\s*סיום$/.test(label)) endCol = c;
+    }
+    if (operationCol !== null && startCol !== null && endCol !== null) {
+      return { operationCol: operationCol, startCol: startCol, endCol: endCol };
+    }
+  }
+  return null;
+}
+
 function brewStageExtractRawStages_(values, startRow, endRow) {
   const stages = [];
+  const columns = brewStageFindProcessColumns_(values, startRow, endRow);
 
-  rowLoop:
+  // A brew block without its process headers is not safe to infer. In
+  // particular, never scan arbitrary cells beside "הוצאה לתסיסה": volume,
+  // dates and fermentation fields can contain perfectly valid HH:MM strings.
+  if (!columns) return stages;
+
   for (let r = startRow; r <= endRow; r++) {
     const row = values[r] || [];
+    const label = String(row[columns.operationCol] || "").trim();
+    if (!label) continue;
 
     for (let s = 0; s < STAGE_DEFS.length; s++) {
       const def = STAGE_DEFS[s];
+      const match = label.match(def.regex);
+      if (!match) continue;
 
-      for (let c = 0; c < row.length; c++) {
-        const label = String(row[c] || "").trim();
-        const match = label.match(def.regex);
-        if (!match) continue;
+      const startMinutes = brewStageExtractTime_(row[columns.startCol]);
+      const endMinutes = brewStageExtractTime_(row[columns.endCol]);
+      if (startMinutes === null) break;
 
-        let startMinutes = null;
-        let endMinutes = null;
-
-        // Template normally keeps start/end immediately to the
-        // right of the operation label. Look a few cells right so
-        // minor merged-cell layout changes do not break extraction.
-        for (let offset = 1; offset <= 3; offset++) {
-          const minutes = brewStageExtractTime_(row[c + offset]);
-          if (minutes === null) continue;
-
-          if (startMinutes === null) startMinutes = minutes;
-          else if (endMinutes === null) {
-            endMinutes = minutes;
-            break;
-          }
-        }
-
-        if (startMinutes === null) continue;
-
-        const indexedSuffix = def.indexed && match[1] ? " " + match[1] : "";
-
-        stages.push({
-          code: def.code,
-          name: def.name + indexedSuffix,
-          row: r,
-          startMinutes: startMinutes,
-          endMinutes: endMinutes
-        });
-
-        continue rowLoop;
-      }
+      const indexedSuffix = def.indexed && match[1] ? " " + match[1] : "";
+      stages.push({
+        code: def.code,
+        name: def.name + indexedSuffix,
+        row: r,
+        startMinutes: startMinutes,
+        endMinutes: endMinutes
+      });
+      break;
     }
   }
 
@@ -587,15 +593,24 @@ function brewStageBlockStartsArray_(blockStarts) {
 // ----------------------------------------------------------
 
 function brewStageFindBeerVolume_(values) {
-  const location = brewStageFindExactCell_(values, "נפח:");
-  if (!location) return null;
+  // Brew templates vary slightly. Locate the fermentation-sheet volume row by
+  // its visible label instead of requiring the exact literal "נפח:".
+  // Accept "נפח", "נפח:" and harmless whitespace/RTL-mark variations.
+  for (let r = 0; r < values.length; r++) {
+    const row = values[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      const label = String(row[c] || "")
+        .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+        .trim();
+      if (!/^נפח\s*:?$/.test(label)) continue;
 
-  const row = values[location.row] || [];
-
-  // Prefer the next cell, but tolerate merged/template variations.
-  for (let c = location.col + 1; c < Math.min(row.length, location.col + 4); c++) {
-    const n = brewStageExtractNumber_(row[c]);
-    if (n !== null) return n;
+      // Prefer cells to the right. Merged cells/template spacing can put the
+      // numeric value two or three columns away.
+      for (let valueCol = c + 1; valueCol < Math.min(row.length, c + 5); valueCol++) {
+        const n = brewStageExtractNumber_(row[valueCol]);
+        if (n !== null && n > 0) return n;
+      }
+    }
   }
 
   return null;

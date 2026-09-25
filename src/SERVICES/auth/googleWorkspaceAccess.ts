@@ -1,0 +1,132 @@
+import {
+  GoogleAuthProvider,
+  reauthenticateWithPopup,
+  type User,
+  type UserCredential,
+} from "firebase/auth";
+
+export const GOOGLE_WORKSPACE_WRITE_SCOPES = [
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/spreadsheets",
+] as const;
+
+const SESSION_TOKEN_KEY = "fermentors:google-workspace-token:v1";
+const SESSION_TOKEN_EXPIRY_KEY =
+  "fermentors:google-workspace-token-expiry:v1";
+const TOKEN_TTL_MS = 58 * 60 * 1000;
+
+let accessToken: string | null = null;
+let accessTokenExpiresAt = 0;
+
+export function configureGoogleWorkspaceProvider(
+  provider: GoogleAuthProvider,
+): GoogleAuthProvider {
+  GOOGLE_WORKSPACE_WRITE_SCOPES.forEach((scope) =>
+    provider.addScope(scope),
+  );
+  return provider;
+}
+
+export function rememberGoogleWorkspaceCredential(
+  result: UserCredential,
+): string | null {
+  const credential =
+    GoogleAuthProvider.credentialFromResult(result);
+  const token = credential?.accessToken || null;
+  if (!token) return null;
+
+  accessToken = token;
+  accessTokenExpiresAt = Date.now() + TOKEN_TTL_MS;
+
+  try {
+    localStorage.setItem(SESSION_TOKEN_KEY, token);
+    localStorage.setItem(
+      SESSION_TOKEN_EXPIRY_KEY,
+      String(accessTokenExpiresAt),
+    );
+  } catch {
+    // In-memory reuse still works for this page lifetime.
+  }
+
+  return token;
+}
+
+export function getRememberedGoogleWorkspaceToken(): string | null {
+  if (accessToken && Date.now() < accessTokenExpiresAt) {
+    return accessToken;
+  }
+
+  try {
+    const storedToken =
+      localStorage.getItem(SESSION_TOKEN_KEY) ||
+      sessionStorage.getItem(SESSION_TOKEN_KEY) ||
+      "";
+    const expiresAt = Number(
+      localStorage.getItem(SESSION_TOKEN_EXPIRY_KEY) ||
+      sessionStorage.getItem(SESSION_TOKEN_EXPIRY_KEY) ||
+      0,
+    );
+
+    if (storedToken && expiresAt > Date.now()) {
+      accessToken = storedToken;
+      accessTokenExpiresAt = expiresAt;
+      localStorage.setItem(SESSION_TOKEN_KEY, storedToken);
+      localStorage.setItem(
+        SESSION_TOKEN_EXPIRY_KEY,
+        String(expiresAt),
+      );
+      return storedToken;
+    }
+  } catch {
+    // Browser storage may be unavailable in hardened/private contexts.
+  }
+
+  clearGoogleWorkspaceToken();
+  return null;
+}
+
+export function clearGoogleWorkspaceToken() {
+  accessToken = null;
+  accessTokenExpiresAt = 0;
+
+  try {
+    localStorage.removeItem(SESSION_TOKEN_KEY);
+    localStorage.removeItem(SESSION_TOKEN_EXPIRY_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_EXPIRY_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+export async function ensureGoogleWorkspaceToken(
+  user: User,
+  forceConsent = false,
+): Promise<string> {
+  if (!forceConsent) {
+    const existing = getRememberedGoogleWorkspaceToken();
+    if (existing) return existing;
+  }
+
+  const provider = configureGoogleWorkspaceProvider(
+    new GoogleAuthProvider(),
+  );
+  const customParameters: Record<string, string> = {};
+  if (user.email) customParameters.login_hint = user.email;
+  if (forceConsent) customParameters.prompt = "consent";
+  if (Object.keys(customParameters).length > 0) {
+    provider.setCustomParameters(customParameters);
+  }
+
+  const result = await reauthenticateWithPopup(user, provider);
+  const token = rememberGoogleWorkspaceCredential(result);
+
+  if (!token) {
+    throw new Error(
+      "Google לא החזיר הרשאת Drive/Sheets.",
+    );
+  }
+
+  return token;
+}

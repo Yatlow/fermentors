@@ -28,6 +28,7 @@ import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
 import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
 import BeerLoader from "./components/general/Loading";
 import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningTabs";
+import { BREWING_TABS, type BrewingTab } from "./components/brewing/brewingTabs";
 
 const BatchReportsView = lazy(() => import("./components/reports/BatchReportsView"));
 const PackagingReportsView = lazy(() => import("./components/reports/PackagingReportsView"));
@@ -40,6 +41,7 @@ const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));
 const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentReportsView"));
 const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
 const PlanningView = lazy(() => import("./components/planning/PlanningView"));
+const BrewingView = lazy(() => import("./components/brewing/BrewingView"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -177,6 +179,7 @@ function useAuth() {
 
 function App() {
     const [planningTab, setPlanningTab] = useState<PlanningTab>("stock");
+    const [brewingTab, setBrewingTab] = useState<BrewingTab>("form");
     const { user, loading: authLoading, isApproved, admin, plannerUser } = useAuth();
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
@@ -247,12 +250,13 @@ function App() {
     }, [user, isApproved]);
 
     function login() {
-        signInWithPopup(auth, googleProvider).catch((e) => console.error(e));
-        console.log("Initiated Google sign-in redirect");
+        signInWithPopup(auth, googleProvider)
+            .catch((e) => console.error(e));
+        console.log("Initiated Google sign-in popup");
     }
 
     function logout() {
-        signOut(auth)
+        signOut(auth);
     }
 
     const tanksNeedingStage = useMemo(
@@ -297,6 +301,7 @@ function App() {
             (snapshot) => {
                 const nextSpecs: SpecChart = {};
                 snapshot.docs.forEach((firebaseDoc) => {
+                    if (firebaseDoc.id.startsWith("brewing")) return;
                     nextSpecs[firebaseDoc.id] = firebaseDoc.data() as Record<string, number>;
                 });
                 setSpecs(nextSpecs);
@@ -393,6 +398,7 @@ function App() {
                             <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דוחות</div>
                             <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
                             <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
+                            <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>בישולים</div>
                             {plannerUser && <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>}
                         </div>
                     </div>
@@ -416,6 +422,7 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
                     </div>}
+                    {selectedView === "בישולים" && <nav className="status-filter" dir="rtl" aria-label="בישולים">{BREWING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${brewingTab === id ? "active" : ""}`} aria-pressed={brewingTab === id} onClick={() => setBrewingTab(id)}>{label}</button>)}</nav>}
                     {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{PLANNING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
             </header>
@@ -441,6 +448,7 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
                 {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+                {selectedView === "בישולים" && <BrewingView brews={brews} tab={brewingTab} />}
             </Suspense>
         </div>
     );

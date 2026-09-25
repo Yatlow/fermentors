@@ -1,7 +1,7 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { addDays, parseDate, sameStyle, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
+import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import {
@@ -52,41 +52,11 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
 
-  const identityAlignedPlans = useMemo(
-    () =>
-      plans.map((plan) => {
-        const weekEnd = addDays(plan.id, 6);
-        return {
-          ...plan,
-          brews: plan.brews.map((brew) => {
-            const source = productionTanks.find(
-              (tank) => tank.id === brew.tankId,
-            );
-            if (!source?.batchNumber || !source.beerStyle) return brew;
-
-            const brewed = parseDate(source.brewDate);
-            const belongsToThisWeek =
-              Number(source.action) === 0 ||
-              (!!brewed &&
-                brewed >= plan.id &&
-                brewed <= weekEnd);
-
-            if (
-              belongsToThisWeek &&
-              sameStyle(source.beerStyle, brew.style)
-            ) {
-              return {
-                ...brew,
-                batchNumber: String(source.batchNumber),
-              };
-            }
-
-            return brew;
-          }),
-        };
-      }),
-    [plans, productionTanks],
-  );
+  // Planning rows already own their batch identity. Do not rewrite a planned
+  // row from whatever batch currently occupies its target tank: a tank can
+  // legitimately still hold last week's fermenting batch while next week's
+  // brew is already planned for it.
+  const identityAlignedPlans = plans;
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
@@ -184,7 +154,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         </>}
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningBoard settings={settings} plans={executionPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/>
+          <PlanningBoard settings={settings} plans={identityAlignedPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/>
         </>}
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 

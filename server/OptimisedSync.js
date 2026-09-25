@@ -55,23 +55,14 @@ function runActionFlow_(fermentors) {
   let a1 = 0;
   let a5 = 0;
 
-  const hasAction5 = fermentors.some(function (entry) {
-    return parseAction(entry.data.action) === 5;
-  });
-
-  let candidates = null;
-
-  if (hasAction5) {
-    candidates = getBrewFolderCandidatesCached();
-
-    Logger.log(
-      "ACTION 5 candidates prepared ONCE: " +
-      candidates.length
-    );
-  }
-
-  // One extractBrew cache for the complete cycle.
-  const brewExtractCache = {};
+  // Shared ACTION-5 context for the complete cycle. pendingBrews is loaded
+  // lazily once; the Drive fallback is scanned only if a tank has no matching
+  // Firestore pending brew. extractBrew results are also shared across tanks.
+  const action5Context = {
+    pendingBrews: null,
+    candidates: null,
+    brewExtractCache: {}
+  };
 
   fermentors.forEach(function (fermentorEntry) {
     const fermentor = Object.assign(
@@ -98,8 +89,7 @@ function runActionFlow_(fermentors) {
         a5++;
         processAction5(
           fermentor,
-          candidates,
-          brewExtractCache
+          action5Context
         );
       }
 
@@ -118,6 +108,14 @@ function runActionFlow_(fermentors) {
       }
     }
   });
+
+  try {
+    // One owner for brew edit triggers. This also removes legacy, stale and
+    // duplicate handlers instead of letting ACTION 0 create them ad hoc.
+    brewingSheetReconcileEditTriggers_(fermentors);
+  } catch (error) {
+    Logger.log("BREW EDIT TRIGGER RECONCILE ERROR: " + error.message);
+  }
 
   try {
     ensureAsyncLogTrigger_();

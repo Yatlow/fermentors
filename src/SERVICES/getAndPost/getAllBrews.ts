@@ -14,6 +14,8 @@ export type BrewSummary = {
   batchNumber: string;
   beerStyle: string;
   brewDate: string;
+  sheetUrl: string;
+  tankNumber: string;
 };
 
 export type BrewSummaryPage = {
@@ -78,6 +80,8 @@ export async function getBrewsSummaryPage(
         batchNumber: String(data.batchNumber ?? item.id),
         beerStyle: String(data.beerStyle ?? ""),
         brewDate: String(data.brewDate ?? ""),
+        sheetUrl: String(data.sheetUrl ?? ""),
+        tankNumber: String(data.tankNumber ?? ""),
       };
     });
     const hasMore = snapshot.docs.length > safeSize;

@@ -9,6 +9,7 @@ function env(name: keyof ImportMetaEnv, fallback: string): string {
  * search-and-replace. These are public browser identifiers, not credentials.
  */
 export const runtimeConfig = {
+  deployEnv: env("VITE_DEPLOY_ENV", "production"),
   firebase: {
     apiKey: env("VITE_FIREBASE_API_KEY", "AIzaSyAzmFTjWuLZjNzYDVKM9kK_xNEm37jiuGY"),
     authDomain: env("VITE_FIREBASE_AUTH_DOMAIN", "fermenter-dashboard-bada3.firebaseapp.com"),

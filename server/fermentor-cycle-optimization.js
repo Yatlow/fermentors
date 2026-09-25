@@ -161,6 +161,7 @@ function runFermentorCycle() {
       return getAllFermentorsFromFirestore(projectId);
     });
     Logger.log("Fermentors fetched once: " + fermentors.length);
+    // Edit-trigger maintenance belongs to ACTION 0, not the hot path before cellar sync.
     const syncStats = fcTimed_("sync total", function () {
       return syncFermentorsFromSheets_(projectId, fermentors);
     });
@@ -173,7 +174,8 @@ function runFermentorCycle() {
     Logger.log("Sync -> " + JSON.stringify(syncStats));
     Logger.log("Action -> " + JSON.stringify(actionStats));
     return { durationSeconds: duration, fermentorsCount: fermentors.length,
-      sheetReads: FC_CYCLE_CONTEXT_.sheetReads, sync: syncStats, action: actionStats };
+      sheetReads: FC_CYCLE_CONTEXT_.sheetReads,
+      sync: syncStats, action: actionStats };
   } finally {
     FC_CYCLE_CONTEXT_ = null;
     fcReleaseCycleLease_(leaseToken);
@@ -465,17 +467,41 @@ function extractBrew(spreadSheetId) {
     }
   }
 
-  const brewDayRow = findRowContaining(values, "יום בישול");
-  if (brewDayRow !== -1) {
-    const col = findColumnContaining(values[brewDayRow], "יום בישול");
-    if (col !== -1) {
-      const brewDate = String(values[brewDayRow][col + 1] || "").trim();
-      brew.brewDate = brew.brewDate ? brew.brewDate : brewDate || null;
+  // Legacy sheets keep the date next to "יום בישול". Master-based sheets
+  // keep the canonical brew date in H1. Prefer the canonical header value
+  // already read above and only fall back to the legacy marker when needed.
+  if (!brew.brewDate) {
+    const brewDayRow = findRowContaining(values, "יום בישול");
+    if (brewDayRow !== -1) {
+      const col = findColumnContaining(values[brewDayRow], "יום בישול");
+      if (col !== -1) {
+        const brewDate = String(values[brewDayRow][col + 1] || "").trim();
+        brew.brewDate = brewDate || null;
+      }
     }
   }
 
-  const volumeLocation = findCell(values, "נפח:");
-  if (volumeLocation) brew.beerVolume = extractNumber(values[volumeLocation.row][volumeLocation.col + 1]);
+  // Master variants render the fermentation volume label as either "נפח" or
+  // "נפח:" and merged cells may place the value more than one column away.
+  // Discover the visible label and take the first positive numeric value to its
+  // right instead of depending on one literal cell position.
+  volumeSearch:
+  for (let r = 0; r < values.length; r++) {
+    const row = values[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      const label = String(row[c] || "")
+        .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+        .trim();
+      if (!/^נפח\s*:?$/.test(label)) continue;
+      for (let valueCol = c + 1; valueCol < Math.min(row.length, c + 5); valueCol++) {
+        const volume = extractNumber(row[valueCol]);
+        if (volume !== null && volume > 0) {
+          brew.beerVolume = volume;
+          break volumeSearch;
+        }
+      }
+    }
+  }
 
   const statusLocation = findCell(values, "ריק?:");
   if (statusLocation) {

@@ -57,6 +57,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /brewAcidHistory/{document} {
+      allow read: if isApprovedUser();
+      allow write: if isApprovedUser();
+    }
+
     match /packagingLog/{document} {
       allow read: if isApprovedUser();
       allow write: if isApprovedUser();
@@ -264,6 +269,51 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.uid
         && getAfter(/databases/$(database)/documents/planningSettings/$(settingsId)).data == request.resource.data;
       allow update, delete: if false;
+    }
+
+    match /brewSheetCreationJobs/{batchId} {
+      // This is an operational outbox. The authenticated brewery client only
+      // enqueues/deletes jobs; the worker owns subsequent state transitions.
+      allow read: if isApprovedUser();
+      // A job contains only a request to create a Sheet; the worker validates
+      // and performs the privileged operation. Keep client updates blocked.
+      // Reads/deletes remain restricted below.
+      allow create: if isApprovedUser();
+      allow update: if false;
+      allow delete: if isApprovedUser();
+    }
+
+    match /pendingBrews/{batchId} {
+      allow read: if isApprovedUser();
+      allow create, update: if isApprovedUser()
+        && request.resource.data.keys().hasOnly([
+          'batchNumber', 'beerStyle', 'tankNumber', 'tankType',
+          'fileId', 'fileName', 'sheetUrl', 'createdAt'
+        ])
+        && request.resource.data.batchNumber == batchId
+        && batchId.matches('^[0-9]+$')
+        && request.resource.data.beerStyle is string
+        && request.resource.data.tankNumber is string
+        && request.resource.data.fileId is string
+        && request.resource.data.sheetUrl is string;
+      allow delete: if isApprovedUser();
+    }
+
+    match /brewPlanningQueue/{weekId} {
+      allow read: if isApprovedUser();
+      allow create, update: if isBreweryPlanner()
+        && request.resource.data.keys().hasOnly([
+          'id', 'revision', 'brews', 'updatedAt', 'updatedBy'
+        ])
+        && request.resource.data.id == weekId
+        && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.revision is int
+        && request.resource.data.revision >= 1
+        && request.resource.data.brews is list
+        && request.resource.data.brews.size() <= 30
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
     }
 
     match /planningSnapshots/{snapshotId} {

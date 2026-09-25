@@ -80,7 +80,10 @@ async function fetchWithTimeout(
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        return await fetch(url, { ...init, signal: controller.signal });
+        // Apps Script ContentService redirects successful responses to googleusercontent.com.
+        // Safari intentionally hides Location for manual cross-origin redirects, so let
+        // fetch follow the redirect normally.
+        return await fetch(url, { ...init, redirect: "follow", signal: controller.signal });
     } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
             throw new AppsScriptTimeoutError(timeoutMs);
@@ -90,7 +93,6 @@ async function fetchWithTimeout(
         window.clearTimeout(timeoutId);
     }
 }
-
 async function parseAppsScriptResponse<T>(response: Response): Promise<T> {
     const text = await response.text();
 
@@ -113,13 +115,13 @@ async function parseAppsScriptResponse<T>(response: Response): Promise<T> {
     return parsed;
 }
 
-async function getAppsScriptIdToken(): Promise<string> {
+async function getAppsScriptIdToken(forceRefresh = false): Promise<string> {
     const user = auth.currentUser;
     if (!user) {
         throw new Error("אין משתמש מחובר. יש להתחבר מחדש.");
     }
 
-    return user.getIdToken();
+    return user.getIdToken(forceRefresh);
 }
 
 export function createAppsScriptRequestId(prefix = "request"): string {
@@ -139,7 +141,7 @@ export async function callAppsScriptPost<T>(
     // the mutation twice.
     const retries = Math.max(0, options.retries ?? 1);
     const retryDelayMs = Math.max(0, options.retryDelayMs ?? 150);
-    const timeoutMs = Math.max(1000, options.timeoutMs ?? 15000);
+    const timeoutMs = Math.max(1000, options.timeoutMs ?? 30000);
 
     const action = String(payload.action || "request");
     const requestId =
@@ -147,12 +149,8 @@ export async function callAppsScriptPost<T>(
             ? payload.requestId.trim()
             : createAppsScriptRequestId(action);
 
-    const idToken = await getAppsScriptIdToken();
-    const authenticatedPayload = {
-        ...payload,
-        requestId,
-        idToken,
-    };
+    let idToken = await getAppsScriptIdToken();
+    let refreshedUnauthorizedToken = false;
 
     let lastError: unknown;
     const startedAt = performance.now();
@@ -160,6 +158,11 @@ export async function callAppsScriptPost<T>(
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
             const attemptStartedAt = performance.now();
+            const authenticatedPayload = {
+                ...payload,
+                requestId,
+                idToken,
+            };
             const response = await fetchWithTimeout(
                 GOOGLE_SCRIPT_URL,
                 {
@@ -171,6 +174,19 @@ export async function callAppsScriptPost<T>(
             );
 
             const parsed = await parseAppsScriptResponse<T>(response);
+            const envelope = parsed as AppsScriptEnvelope;
+            if (envelope.success === false && envelope.error === "Unauthorized") {
+                if (!refreshedUnauthorizedToken) {
+                    // Safari can keep the app open long enough for the cached Firebase
+                    // token to expire. Refresh it once and retry the SAME requestId so
+                    // authenticated Apps Script mutations remain idempotent.
+                    idToken = await getAppsScriptIdToken(true);
+                    refreshedUnauthorizedToken = true;
+                    attempt--;
+                    continue;
+                }
+                throw new Error("Unauthorized");
+            }
 
             if (attempt > 0) {
                 console.info("Apps Script request confirmed by idempotent retry", {
@@ -214,7 +230,7 @@ export async function callAppsScriptPost<T>(
             // already completed. Retry with the SAME requestId so the server-side
             // idempotency guard turns this into a safe confirmation request.
             if (error instanceof AppsScriptInvalidResponseError || error instanceof AppsScriptTimeoutError) {
-                await sleep(10);
+                await sleep(500);
             } else {
                 await sleep(retryDelayMs);
             }
@@ -240,7 +256,7 @@ export async function callAppsScriptGet<T>(
     return callAppsScriptPost<T>(params, {
         retries: options.retries ?? 1,
         retryDelayMs: options.retryDelayMs ?? 150,
-        timeoutMs: options.timeoutMs ?? 15000,
+        timeoutMs: options.timeoutMs ?? 30000,
     });
 }
 

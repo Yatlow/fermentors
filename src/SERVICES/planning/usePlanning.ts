@@ -390,6 +390,32 @@ export function usePlanning(
       const revisionRef = doc(ref, "revisions", String(next.revision));
       tx.set(ref, next);
       tx.set(revisionRef, next);
+
+      if (collectionName === "planningWeeks") {
+        const week = persistedValue as WeekPlan;
+        const queueRef = doc(db, "brewPlanningQueue", id);
+        const queueBrews = (Array.isArray(week.brews) ? week.brews : [])
+          .map((brew) => {
+            const batchNumber = String(brew.batchNumber ?? "").replace("#", "").trim();
+            if (!batchNumber) return null;
+            return {
+              id: String(brew.id || ""),
+              batchNumber,
+              style: String(brew.style || ""),
+              tankId: String(brew.tankId || ""),
+              date: String(brew.date || ""),
+            };
+          })
+          .filter((brew): brew is NonNullable<typeof brew> => !!brew);
+
+        tx.set(queueRef, {
+          id,
+          revision: next.revision,
+          brews: queueBrews,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser!.uid,
+        });
+      }
       return next;
     });
 

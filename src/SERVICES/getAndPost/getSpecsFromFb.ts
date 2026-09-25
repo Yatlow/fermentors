@@ -52,6 +52,7 @@ export async function getSpecsFromFb() {
     const specs: SpecChart = {};
 
     snapshot.docs.forEach((doc) => {
+        if (doc.id.startsWith("brewing")) return;
         specs[doc.id] = doc.data() as Record<string, number>;
     });
 

@@ -133,10 +133,8 @@ export default function PlanningBoard({
 
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
-    const scheduledNext = normalizeEmptyTankFlagsForSchedule(next);
-    const effectiveNext = confirmBrews
-      ? confirmAssignedBrews(scheduledNext)
-      : scheduledNext;
+    const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
+    const effectiveNext = normalizeEmptyTankFlagsForSchedule(confirmedNext);
     const all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     const error = validatePlanningWeek(effectiveNext, settings, all, today);
     if (error) throw new Error(error);

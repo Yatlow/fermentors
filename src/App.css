@@ -88,11 +88,26 @@ body,
 }
 
 body {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: Arial, Helvetica, sans-serif;
     background-color: var(--bg-main);
     color: var(--text-main);
     direction: rtl;
     -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
+/* Keep semantic emphasis on the same family/weight instead of letting
+   the browser resolve <strong>/<b> as a heavier synthetic face. */
+strong,
+b {
+    font-family: inherit;
+    font-weight: bold;
 }
 
 /* =========================================================
@@ -363,7 +378,7 @@ body {
     border-radius: var(--radius-pill);
     padding: 4px 10px;
     font-size: var(--pill-font);
-    font-weight: 7bold00;
+    font-weight: bold;
     color: var(--pill-fg);
     cursor: pointer;
     transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
@@ -691,7 +706,7 @@ body {
     background: transparent;
     color: inherit;
 
-    font-family: Arial, sans-serif;
+    font-family: inherit;
     font-size: 15px;
     font-weight: bold;
     line-height: 1;
@@ -6661,14 +6676,11 @@ body {
 }
 
 
-/* IOS FORM FOCUS ZOOM GUARD
-   Safari zooms focused form controls whose computed font size is below 16px. */
-@media (max-width: 700px) {
-    @supports (-webkit-touch-callout: none) {
-        input,
-        select,
-        textarea {
-            font-size: 16px !important;
-        }
-    }
+/* Prevent iOS Safari from auto-zooming focused form controls. */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }

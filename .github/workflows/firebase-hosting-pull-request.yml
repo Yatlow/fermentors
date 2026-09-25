@@ -2,7 +2,9 @@
 # https://github.com/firebase/firebase-tools
 
 name: Deploy to Firebase Hosting on PR
-on: pull_request
+on:
+  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: firebase-hosting-pr-${{ github.event.pull_request.number }}
@@ -27,6 +29,7 @@ jobs:
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
           VITE_APP_VERSION: ${{ github.sha }}
+          VITE_DEPLOY_ENV: preview
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}

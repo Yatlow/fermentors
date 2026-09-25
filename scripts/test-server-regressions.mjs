@@ -32,7 +32,7 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   Utilities: { sleep() {}, formatDate: () => "2026-09-18" },
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {}, deleteProperty() {} }) },
   Drive: { Changes: {} },
-  DriveApp: {},
+  DriveApp: { getFileById: () => ({ isTrashed: () => false }) },
   MimeType: { GOOGLE_SHEETS: "sheet" },
   parseBatchNumber: (value) => { const n = Number(String(value ?? "").replace("#", "").trim()); return Number.isFinite(n) ? n : null; },
   extractBrew: (id) => ({
@@ -68,6 +68,35 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   assert.equal(transitionArgs[0], "10");
   assert.equal(transitionArgs[2], "sheet-new");
   assert.equal(transitionArgs[3], 1593);
+}
+
+{
+  let cleanedBatch = "";
+  action.getPendingBrewsForAction5_ = () => [{
+    batchNumber: "1594",
+    tankNumber: "10",
+    sheetUrl: "sheet-new",
+  }];
+  action.uploadBrewToFirebase = () => ({
+    batchNumber: "1594",
+    tankNumber: "10",
+    beerStyle: "IPA",
+  });
+  action.updateFermentorForNextBrew_ = () => true;
+  action.deleteConsumedPendingBrew_ = (batch) => { cleanedBatch = String(batch); };
+  action.processAction5(
+    { tankNumber: "10", batchNumber: "1593", sheetUrl: "sheet-old" },
+    { pendingBrews: null, candidates: null, brewExtractCache: {} },
+  );
+  assert.equal(cleanedBatch, "1594", "ACTION 5 must remove a consumed pending brew after a successful transition");
+
+  cleanedBatch = "";
+  action.updateFermentorForNextBrew_ = () => false;
+  action.processAction5(
+    { tankNumber: "10", batchNumber: "1593", sheetUrl: "sheet-old" },
+    { pendingBrews: null, candidates: null, brewExtractCache: {} },
+  );
+  assert.equal(cleanedBatch, "", "ACTION 5 must keep pending brew records when the tank transition aborts");
 }
 
 {
@@ -132,6 +161,42 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   assert.equal(outbox.sheetSyncResponseSucceeded_({ success: true, results: [{ success: true }] }), true);
   assert.equal(outbox.sheetSyncResponseSucceeded_({ success: true, results: [{ success: false }] }), false);
   assert.equal(outbox.sheetSyncResponseSucceeded_({ success: false }), false);
+}
+
+{
+  let eagerDriveScans = 0;
+  let seenContext = null;
+  const optimized = loadAppsScript("server/OptimisedSync.js", {
+    Utilities: {
+      computeDigest: () => [1],
+      DigestAlgorithm: { MD5: "MD5" },
+      Charset: { UTF_8: "UTF_8" },
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: () => null,
+        setProperty() {},
+      }),
+    },
+    parseAction: (value) => Number(value),
+    getBrewFolderCandidatesCached: () => {
+      eagerDriveScans += 1;
+      return [];
+    },
+    processAction0() {},
+    processAction1() {},
+    processAction5: (_fermentor, context) => {
+      seenContext = context;
+    },
+    brewingSheetReconcileEditTriggers_() {},
+    ensureAsyncLogTrigger_() {},
+  });
+  optimized.runActionFlow_([{ id: "10", data: { tankNumber: "10", action: 5 } }]);
+  assert.equal(eagerDriveScans, 0, "ACTION 5 must not scan Drive before Firestore pending brews are checked");
+  assert.ok(seenContext, "ACTION 5 must receive a shared cycle context");
+  assert.equal(seenContext.pendingBrews, null);
+  assert.equal(seenContext.candidates, null);
+  assert.deepEqual(JSON.parse(JSON.stringify(seenContext.brewExtractCache)), {});
 }
 
 {
@@ -218,6 +283,84 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   );
 }
 
+
+
+{
+  let lastPatchUrl = "";
+  const brewOutbox = loadAppsScript("server/brewSheetCreationOutbox.js", {
+    sheetSyncField_: (doc, name) => doc?.fields?.[name] ?? null,
+    sheetSyncDocumentId_: (doc) => doc?.id || "1601",
+    sheetSyncDocumentsUrl_: (suffix) => "https://example.invalid" + suffix,
+    sheetSyncFetch_: (url) => {
+      lastPatchUrl = url;
+      return {
+        getResponseCode: () => 412,
+        getContentText: () => "",
+      };
+    },
+  });
+
+  const freshCreating = {
+    fields: {
+      state: "creating",
+      updatedAt: new Date().toISOString(),
+      fileId: "",
+    },
+  };
+  const staleCreating = {
+    fields: {
+      state: "creating",
+      updatedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+      fileId: "",
+    },
+  };
+  const queued = { fields: { state: "queued" } };
+
+  assert.equal(
+    brewOutbox.brewCreateIsRunnableDocument_(freshCreating),
+    false,
+    "a fresh creating brew job must not be claimed by a second worker",
+  );
+  assert.equal(
+    brewOutbox.brewCreateIsRunnableDocument_(staleCreating),
+    true,
+    "a stale creating brew job must be recoverable by maintenance",
+  );
+  assert.equal(
+    brewOutbox.brewCreateIsRunnableDocument_(queued),
+    true,
+    "queued brew jobs must remain runnable",
+  );
+
+  const claimed = brewOutbox.brewCreatePatchJob_(
+    "1601",
+    { state: "creating" },
+    "2026-09-25T18:00:00.000000Z",
+  );
+  assert.equal(claimed, false, "Firestore precondition conflicts must lose the job claim cleanly");
+  assert.match(
+    lastPatchUrl,
+    /currentDocument\.updateTime=/,
+    "brew job claims must use a Firestore updateTime precondition",
+  );
+
+  brewOutbox.sheetSyncFetch_ = (url) => {
+    lastPatchUrl = url;
+    return {
+      getResponseCode: () => 400,
+      getContentText: () => JSON.stringify({ error: { status: "FAILED_PRECONDITION" } }),
+    };
+  };
+  assert.equal(
+    brewOutbox.brewCreatePatchJob_(
+      "1601",
+      { state: "creating" },
+      "2026-09-25T18:00:00.000000Z",
+    ),
+    false,
+    "Firestore HTTP 400 FAILED_PRECONDITION must also lose the job claim cleanly",
+  );
+}
 
 
 
