@@ -16,10 +16,10 @@ import {
 } from "../../SERVICES/brewing/sandboxExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import {
-  readSandboxSheetRange,
-  resetSandboxSheetBaseline,
-  writeSandboxSheetCells,
-} from "../../SERVICES/brewing/sandboxSheet";
+  readBrewSheetRange,
+  resetBrewSheetBaseline,
+  writeBrewSheetCells,
+} from "../../SERVICES/brewing/brewSheet";
 import BeerLoader from "../general/Loading";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
 import {
@@ -1484,7 +1484,7 @@ export default function BrewFormStepper({
 
     setSyncing(key);
     setMessage("");
-    void writeSandboxSheetCells(run.sheetId, writes)
+    void writeBrewSheetCells(run.sheetId, writes)
       .then(() => {
         setLastPushAt(new Date());
         setSyncMismatches([]);
@@ -2130,7 +2130,7 @@ export default function BrewFormStepper({
     const startRow = correctionsLabelRow + 1;
     const endRow = Math.max(startRow, nextBoundaryRow - 1);
     const rows = run.sheetId
-      ? await readSandboxSheetRange(
+      ? await readBrewSheetRange(
           run.sheetId,
           `'גיליון1'!E${startRow}:E${endRow}`,
         )
@@ -3403,8 +3403,8 @@ export default function BrewFormStepper({
       // A pull is authoritative for Sheet-backed fields. Drop any cached
       // expectedValue snapshot first so the full read below becomes the new
       // conflict baseline, including cells edited directly in Google Sheets.
-      resetSandboxSheetBaseline(run.sheetId);
-      const fullSheetRows = await readSandboxSheetRange(
+      resetBrewSheetBaseline(run.sheetId);
+      const fullSheetRows = await readBrewSheetRange(
         run.sheetId,
         "'גיליון1'!A1:H220",
       );
@@ -3600,7 +3600,7 @@ export default function BrewFormStepper({
         const firstDelta = applySheetEditDelta(execution);
         if (firstDelta) {
           setExecution(firstDelta);
-          resetSandboxSheetBaseline(run.sheetId);
+          resetBrewSheetBaseline(run.sheetId);
           void saveBrewingExecutionToFirestore(firstDelta);
         }
       }
