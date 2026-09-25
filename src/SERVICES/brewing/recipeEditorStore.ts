@@ -5,8 +5,8 @@ import {
   type BrewRecipe,
 } from "./brewRecipe";
 
-const LEGACY_IPA_KEY = "fermentors:brewing-sandbox:recipe:ipa:v1";
-const KEY = "fermentors:brewing-sandbox:recipes:v2";
+const LEGACY_IPA_KEY = "fermentors:brewing:recipe:ipa:v1";
+const KEY = "fermentors:brewing:recipes:v2";
 
 function slug(value: string) {
   return value
