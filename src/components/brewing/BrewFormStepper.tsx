@@ -1071,7 +1071,7 @@ export default function BrewFormStepper({
     if (!firestoreHydrated || hasField("brewDate")) return;
     const today = new Date();
     const iso = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
-    void commitBrewDate(shortIsraeliDate(iso));
+    void commitBrewDate(shortIsraeliDate(iso), { manual: false });
     // Default once after hydration; commitBrewDate keeps the existing continuity validation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreHydrated, currentBlock]);
@@ -1516,26 +1516,6 @@ export default function BrewFormStepper({
     let baseExecution = execution;
     const dateWrites: Array<{ range: string; value: string | number | boolean | null }> = [];
 
-    // B/C can be opened before they are actually brewed. On every stage-1
-    // write, refresh an automatically assigned date to today. A date that the
-    // brewer explicitly changed is marked manual and is never overwritten.
-    if (
-      activeStep === 0 &&
-      currentBlock > 1 &&
-      key !== "brewDate" &&
-      String(fields["brewDate.manual"] || "") !== "yes"
-    ) {
-      const today = new Date();
-      const todayIso = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
-      if (String(fields.brewDate || "") !== todayIso) {
-        baseExecution = setSandboxExecutionField(baseExecution, currentBlock, "brewDate", todayIso);
-        dateWrites.push({
-          range: `'גיליון1'!H${blockHeaderRow(run.tankType, currentBlock)}`,
-          value: sheetDateFromIso(todayIso),
-        });
-      }
-    }
-
     const next = setSandboxExecutionField(
       baseExecution,
       currentBlock,
@@ -1630,7 +1610,7 @@ export default function BrewFormStepper({
     };
   }, [run.batchNumber]);
 
-  async function commitBrewDate(rawValue: string) {
+  async function commitBrewDate(rawValue: string, options: { manual?: boolean } = {}) {
     const value = isoDateFromUserInput(rawValue);
     if (value === null) {
       setValidationNotice({
@@ -1697,7 +1677,7 @@ export default function BrewFormStepper({
     }
 
     let next = setSandboxExecutionField(execution, currentBlock, "brewDate", value);
-    next = setSandboxExecutionField(next, currentBlock, "brewDate.manual", "yes");
+    next = setSandboxExecutionField(next, currentBlock, "brewDate.manual", options.manual === false ? "" : value);
     setExecution(next);
     writeSheet("brewDate", writes);
   }
@@ -1909,9 +1889,15 @@ export default function BrewFormStepper({
     return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
   }
 
+  function stageApplies(stage: StageDef): boolean {
+    if (stage.key !== "rest3" && stage.key !== "heat3") return true;
+    return recipe.mash.steps.some((step) => step.id === stage.targetRecipeStepId);
+  }
+
   function nextTimelineStage(stage: StageDef): StageDef | null {
     const index = TIMELINE_STAGES.findIndex((item) => item.key === stage.key);
-    return index >= 0 ? TIMELINE_STAGES[index + 1] || null : null;
+    if (index < 0) return null;
+    return TIMELINE_STAGES.slice(index + 1).find(stageApplies) || null;
   }
 
   function stageCodeFor(stage: StageDef): number | null {
@@ -1947,6 +1933,26 @@ export default function BrewFormStepper({
     );
   }
 
+  function refreshAutoBrewDateOnMashStart(
+    nextExecution: BrewExecution,
+    writes: Array<{ range: string; value: string | number | boolean | null }>,
+  ) {
+    if (currentBlock <= 1) return nextExecution;
+    const currentFields = nextExecution.blocks[String(currentBlock)]?.fields || {};
+    const currentDate = String(currentFields.brewDate || "");
+    const manualDate = String(currentFields["brewDate.manual"] || "");
+    if (manualDate && manualDate === currentDate) return nextExecution;
+
+    const now = new Date();
+    const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+    if (currentDate === today) return nextExecution;
+    writes.push({
+      range: `'גיליון1'!H${blockHeaderRow(run.tankType, currentBlock)}`,
+      value: sheetDateFromIso(today),
+    });
+    return setSandboxExecutionField(nextExecution, currentBlock, "brewDate", today);
+  }
+
   async function commitStageStart(stage: StageDef, value: string) {
     if (
       rejectTimelineTime(`${stage.key}.start`, value, {
@@ -1967,6 +1973,12 @@ export default function BrewFormStepper({
       range: string;
       value: string | number | boolean | null;
     }> = [{ range: stageCell(stage.rowOffset, "E"), value }];
+
+    // Opening an old B/C must never change its date. Only the actual mash-in
+    // start is allowed to refresh an automatically assigned date.
+    if (stage.key === "mashIn" && value) {
+      nextExecution = refreshAutoBrewDateOnMashStart(nextExecution, writes);
+    }
 
     if (stage.key === "transferLt" && !String(fields["transferLt.temp"] || "").trim()) {
       nextExecution = setSandboxExecutionField(
