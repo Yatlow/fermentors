@@ -1,11 +1,8 @@
-import { runtimeConfig } from "../../config/runtimeConfig";
 type BrewTankDescriptor = { tankType: "single" | "double" | "triple" };
 import type { BrewRecipe } from "./brewRecipe";
-import { activeLot, type IngredientDefinition } from "./ingredientLibrary";
+import type { IngredientDefinition } from "./ingredientLibrary";
 import {
-  serverCreateBrewSheet,
   serverReadBrewSheetRange,
-  serverTrashBrewSheet,
   serverWriteBrewSheetCells,
 } from "./brewingSheetServer";
 
@@ -52,18 +49,6 @@ function layoutFor(tankType: TankType) {
 
 function tankLabel(tankType: TankType) {
   return tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
-}
-
-export async function deleteBrewSheet(fileId: string): Promise<void> {
-  if (!fileId) return;
-  await serverTrashBrewSheet(fileId);
-}
-
-export async function ensureBrewSheetAccess(): Promise<void> {
-  if (runtimeConfig.deployEnv !== "preview") {
-    throw new Error("פעולה זו זמינה רק בסביבת Preview.");
-  }
-  // Access is authenticated by the Firebase ID token in appsScriptClient.
 }
 
 export function buildBrewSheetInitialWrites(input: {
@@ -114,57 +99,6 @@ export function buildBrewSheetInitialWrites(input: {
   }
 
   return writes;
-}
-
-export async function createBrewSheet(input: {
-  batchNumber: string;
-  style: string;
-  tankNumber: string;
-  tankType: TankType;
-  recipe?: BrewRecipe;
-  ingredients?: IngredientDefinition[];
-  production?: boolean;
-}): Promise<BrewSheetResult> {
-  if (runtimeConfig.deployEnv !== "preview") {
-    throw new Error("יצירת Sheet מענף הפיתוח זמינה רק ב-Preview.");
-  }
-  const typeSuffix =
-    input.tankType === "single" ? "" : " " + tankLabel(input.tankType);
-  const name = input.production
-    ? input.style + typeSuffix + " " + input.batchNumber + "#"
-    : "" + input.style + " " + tankLabel(input.tankType) + " " + input.batchNumber + "#";
-
-  const writes = buildBrewSheetInitialWrites(input);
-  const created = await serverCreateBrewSheet({
-    batchNumber: input.batchNumber,
-    style: input.style,
-    tankNumber: input.tankNumber,
-    tankType: input.tankType,
-    name,
-    initialWrites: writes,
-    recipeMaterials: input.recipe && input.ingredients ? {
-      grains: input.recipe.grains.map((grain) => {
-        const ingredient = input.ingredients!.find((item) => item.id === grain.ingredientId);
-        const lot = ingredient ? activeLot(ingredient) : undefined;
-        return {
-          quantity: grain.kgPerBrew,
-          label: (ingredient?.name || grain.ingredientId) + (lot?.lotNumber ? ` #${lot.lotNumber}` : ""),
-          supplier: lot?.supplier || "",
-        };
-      }),
-      hops: input.recipe.hops.filter((hop) => hop.purpose !== "dryHop").map((hop, index) => {
-        const ingredient = input.ingredients!.find((item) => item.id === hop.ingredientId);
-        const lot = ingredient ? activeLot(ingredient) : undefined;
-        return {
-          quantity: 0,
-          alpha: lot?.alpha ?? hop.aa ?? "",
-          label: `${index + 1})${ingredient?.name || hop.ingredientId}${lot?.lotNumber ? ` #${lot.lotNumber}` : ""}`,
-        };
-      }),
-    } : undefined,
-    mashRestCount: input.recipe?.mash.steps.some((step) => step.id === "rest3") ? 3 : 2,
-  });
-  return { id: created.id, name: created.name, url: created.url };
 }
 
 export async function productionBrewSheetExists(
