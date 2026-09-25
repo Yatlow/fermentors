@@ -825,7 +825,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
 
     async function editPendingProductionBatch(run: BrewRun) {
         if (run.brewDate || !run.sheetId) return;
-        const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\\D/g, "").trim();
+        const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\D/g, "").trim();
         if (!nextBatch) return;
         const nextStyle = window.prompt("סגנון", run.style)?.trim();
         if (!nextStyle) return;
