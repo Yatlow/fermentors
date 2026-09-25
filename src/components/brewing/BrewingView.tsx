@@ -659,7 +659,6 @@ export default function BrewingView({ brews, tab }: Props) {
                     tankType,
                     recipe,
                     ingredients,
-                    production: true,
                 });
                 await enqueueBrewSheetCreation({
                     batchNumber: draft.batchNumber,
