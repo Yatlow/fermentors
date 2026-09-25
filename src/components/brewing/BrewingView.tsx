@@ -187,12 +187,6 @@ function productionTankStageClass(tank: Fermentor): string {
 }
 
 export default function BrewingView({ brews, tab }: Props) {
-    // Tank 20 was a temporary brewing sandbox tank. Keep it out of every brewing
-    // surface even if the stale Firestore document still exists.
-    const productionBrews = useMemo(
-        () => brews.filter((tank) => Number(tank.tankNumber) !== 20 && String(tank.id) !== "20"),
-        [productionBrews],
-    );
     const [recipes, setRecipes] = useState<BrewRecipe[]>(() => [DEFAULT_IPA_RECIPE]);
     const [ingredients, setIngredients] = useState(() => DEFAULT_INGREDIENT_LIBRARY);
     const [sharedLibraryReady, setSharedLibraryReady] = useState(false);
@@ -251,9 +245,9 @@ export default function BrewingView({ brews, tab }: Props) {
         );
     }, []);
 
-    const allTanks = useMemo(() => productionBrews
+    const allTanks = useMemo(() => brews
                 .filter((tank) => Number(tank.tankNumber) !== 1)
-        .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)), [productionBrews]);
+        .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)), [brews]);
 
     useEffect(() => {
         if (!selectedRun || selectedRun.source !== "production" || selectedRun.tankId.startsWith("history-")) {
@@ -280,27 +274,26 @@ export default function BrewingView({ brews, tab }: Props) {
 
     const editableProductionTanks = useMemo(
         () =>
-            productionBrews
+            brews
                 .filter((tank) => Number(tank.tankNumber) !== 1)
                 .filter((tank) => !!productionRunFromTank(tank))
                 .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)),
-        [productionBrews],
+        [brews],
     );
 
     const actionZeroProductionTanks = useMemo(
         () =>
-            productionBrews
+            brews
                 .filter(
                     (tank) =>
                         Number(tank.tankNumber) !== 1 &&
-                        Number(tank.tankNumber) !== 20 &&
                         Number(tank.action) === 0,
                 )
                 .sort(
                     (a, b) =>
                         Number(a.tankNumber) - Number(b.tankNumber),
                 ),
-        [productionBrews],
+        [brews],
     );
 
     const otherProductionTanks = useMemo(
