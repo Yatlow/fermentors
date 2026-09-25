@@ -259,29 +259,6 @@ export async function serverLoadBrewAcidHistory(
 }
 
 
-export async function serverEnsureBrewSheetEditTrigger(spreadsheetId: string, tankNumber?: string, sandbox = false, batchNumber?: string) {
-  const response = await callAppsScriptPost<
-    AppsScriptEnvelope<{ spreadsheetId: string; installed: boolean; active: boolean }>
-  >({
-    action: "BrewSheetEnsureEditTrigger",
-    spreadsheetId,
-    tankNumber,
-    sandbox,
-    batchNumber,
-  });
-  return unwrapAppsScriptResult(response, "הפעלת סנכרון העריכה של Sheet הבישול נכשלה.");
-}
-
-export async function serverRemoveBrewSheetEditTrigger(spreadsheetId: string) {
-  const response = await callAppsScriptPost<
-    AppsScriptEnvelope<{ spreadsheetId: string; removed: number; active: boolean }>
-  >({
-    action: "BrewSheetRemoveEditTrigger",
-    spreadsheetId,
-  });
-  return unwrapAppsScriptResult(response, "הסרת סנכרון העריכה של Sheet הבישול נכשלה.");
-}
-
 export async function serverProcessQueuedBrewSheetJob(jobId: string) {
   const response = await callAppsScriptPost<
     AppsScriptEnvelope<{ found?: number; ready?: number; failed?: number; queued?: boolean; busy?: boolean }>
