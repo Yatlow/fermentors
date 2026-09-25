@@ -102,8 +102,20 @@ function brewCreatePatchJob_(jobId, fields, expectedUpdateTime) {
     { method: "patch", contentType: "application/json", payload: JSON.stringify({ fields: encoded }) }
   );
   const code = response.getResponseCode();
-  if (expectedUpdateTime && (code === 409 || code === 412)) return false;
-  if (code < 200 || code >= 300) throw new Error("Failed updating brew creation job: HTTP " + code);
+  const body = String(response.getContentText() || "");
+  if (
+    expectedUpdateTime &&
+    (
+      code === 409 ||
+      code === 412 ||
+      (code === 400 && /FAILED_PRECONDITION|precondition/i.test(body))
+    )
+  ) {
+    return false;
+  }
+  if (code < 200 || code >= 300) {
+    throw new Error("Failed updating brew creation job: HTTP " + code + (body ? " " + body.slice(0, 300) : ""));
+  }
   return true;
 }
 
