@@ -1255,6 +1255,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                                 "Failed saving shared recipe library",
                                                 error,
                                             );
+                                            setMessage("שמירת המתכון בשרת נכשלה.");
                                         },
                                     );
                                 }
