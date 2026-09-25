@@ -30,7 +30,7 @@ function layoutFor(tankType: TankType) {
       blockHeaderRows: [4],
       fermentationHeaderRow: 57,
       startingPlatoRow: 59,
-      startingPlatoFormula: '=IF(B48<>"",B48+0.05,"")',
+      startingPlatoFormula: '',
     };
   }
   if (tankType === "double") {
@@ -38,16 +38,14 @@ function layoutFor(tankType: TankType) {
       blockHeaderRows: [4, 54],
       fermentationHeaderRow: 104,
       startingPlatoRow: 106,
-      startingPlatoFormula:
-        '=IF(B98<>"",IF(AND(C48<>"",C98<>""),(((B48+0.05)*C48)+((B98+0.05)*C98))/(C48+C98),""),IF(B48<>"",B48+0.05,""))',
+      startingPlatoFormula: '',
     };
   }
   return {
     blockHeaderRows: [4, 54, 102],
     fermentationHeaderRow: 154,
     startingPlatoRow: 156,
-    startingPlatoFormula:
-      '=IF(B145<>"",IF(AND(C48<>"",C98<>"",C145<>""),(((B48+0.05)*C48)+((B98+0.05)*C98)+((B145+0.05)*C145))/(C48+C98+C145),""),IF(B98<>"",IF(AND(C48<>"",C98<>""),(((B48+0.05)*C48)+((B98+0.05)*C98))/(C48+C98),""),IF(B48<>"",B48+0.05,"")))',
+    startingPlatoFormula: '',
   };
 }
 
@@ -114,7 +112,7 @@ export function buildBrewSheetInitialWrites(input: {
   if (!input.production) {
     writes.push(
       { range: `'גיליון1'!B${layout.startingPlatoRow}`, value: "" },
-      { range: `'גיליון1'!D${layout.startingPlatoRow}`, value: layout.startingPlatoFormula },
+      { range: `'גיליון1'!D${layout.startingPlatoRow}`, value: "" },
     );
   }
 
