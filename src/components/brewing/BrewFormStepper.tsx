@@ -1004,6 +1004,7 @@ export default function BrewFormStepper({
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
+  const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1043,6 +1044,7 @@ export default function BrewFormStepper({
   useEffect(() => {
     let cancelled = false;
     setFirestoreHydrated(false);
+    setInitialSheetReconciled(false);
     loadBrewingExecutionFromFirestore(run.batchNumber)
       .then((remote) => {
         if (cancelled) return;
@@ -1061,13 +1063,19 @@ export default function BrewFormStepper({
   }, [run.batchNumber]);
 
   useEffect(() => {
-    if (!firestoreHydrated || hasField("brewDate")) return;
+    if (
+      !firestoreHydrated ||
+      !initialSheetReconciled ||
+      run.started ||
+      run.brewProgress?.stageName ||
+      hasField("brewDate")
+    ) return;
     const today = new Date();
     const iso = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
     void commitBrewDate(shortIsraeliDate(iso), { manual: false });
     // Default once after hydration; commitBrewDate keeps the existing continuity validation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firestoreHydrated, currentBlock]);
+  }, [firestoreHydrated, initialSheetReconciled, run.started, run.brewProgress?.stageName, currentBlock]);
 
   useEffect(() => {
     if (!firestoreHydrated) return;
@@ -3479,6 +3487,7 @@ export default function BrewFormStepper({
       if (!silent) {
         setMessage("✓ הנתונים נמשכו עכשיו מה-Sheet אל האפליקציה.");
       }
+      return true;
     } catch (error) {
       const detail =
         error instanceof Error
@@ -3490,6 +3499,7 @@ export default function BrewFormStepper({
       } else {
         console.warn("Background Sheet reconciliation failed", error);
       }
+      return false;
     } finally {
       if (!silent) setPulling(false);
     }
@@ -3636,7 +3646,9 @@ export default function BrewFormStepper({
     // Firestore is the operational source: render it first, then reconcile
     // the legacy Sheet silently in the background. Any pulled changes are
     // persisted back to Firestore by syncFromSheet itself.
-    void syncFromSheet(true, { silent: true });
+    void syncFromSheet(true, { silent: true }).then((ok) => {
+      if (ok) setInitialSheetReconciled(true);
+    });
     const interval = window.setInterval(
       () => void syncFromSheet(false, { silent: true }),
       60 * 60 * 1000,
