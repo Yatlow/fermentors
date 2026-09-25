@@ -80,6 +80,7 @@ export default function SendMessurmentsHeader({
 
 
     const scrollRef = useRef<HTMLDivElement>(null);
+    const sendInFlightRef = useRef(false);
     const [showScrollHint, setShowScrollHint] = useState(false);
 
     const checkScrollState = () => {
@@ -291,6 +292,8 @@ export default function SendMessurmentsHeader({
     }
 
     const sendReadings = async () => {
+        if (sendInFlightRef.current) return;
+        sendInFlightRef.current = true;
         setShowSendStatus(true)
         setConfirmMissing({ open: false, missingTanks: [] });
         setConfirmMessurments({ open: false, unvalidMessurments: [] });
@@ -625,6 +628,8 @@ export default function SendMessurmentsHeader({
             } else {
                 setNewReadings({});
             }
+        }).finally(() => {
+            sendInFlightRef.current = false;
         });
     };
 
