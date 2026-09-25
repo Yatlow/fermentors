@@ -24,6 +24,12 @@ function TimelineIcon({ event }: { event: TimelineEvent }) {
 }
 
 function bottomCarbonationEvent(event: TimelineEvent): TimelineEvent {
+    // Only an action event may be converted into the operational
+    // "גיזוז מלמטה" card. A carbonation-test event can share the same physical
+    // measurement row and note, but it is a different event and must remain
+    // "בדיקת גיזוז".
+    if (event.type !== "pressure") return event;
+
     const note = String(event.note ?? "");
     const hasStart = note.includes("תחילת גיזוז מלמטה");
     const hasClose = note.includes("סגירת גיזוז מלמטה");
