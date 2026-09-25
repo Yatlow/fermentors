@@ -2,6 +2,32 @@ function hasFermentationValue_(value) {
   return value !== undefined && value !== null && value !== "";
 }
 
+function appendFermentationNotesSafely_(oldNotes, newNotes) {
+  const oldText = String(oldNotes || "").trim();
+  const newText = String(newNotes || "").trim();
+
+  if (!oldText) return newText;
+  if (!newText) return oldText;
+
+  const normalize = function (value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  };
+  const normalizedOld = normalize(oldText);
+  const normalizedNew = normalize(newText);
+
+  // A genuine second action later in the day can still be recorded. We only
+  // suppress an immediate exact repeat at the end of today's notes, which is
+  // the signature of a double-submit with a fresh requestId.
+  if (
+    normalizedOld === normalizedNew ||
+    normalizedOld.endsWith(" | " + normalizedNew)
+  ) {
+    return oldText;
+  }
+
+  return oldText + " | " + newText;
+}
+
 function getJerusalemMeasurementClock_() {
   const now = new Date();
   const timezone = "Asia/Jerusalem";
@@ -197,9 +223,7 @@ function addFermentationNoteFast_(ss, sheet, spreadsheetId, notes, startedAt) {
 
   const oldNotes = String((rowDisplay && rowDisplay[7]) || "").trim();
   const newNotes = String(notes || "").trim();
-  const mergedNotes = oldNotes && newNotes
-    ? oldNotes + " | " + newNotes
-    : (newNotes || oldNotes);
+  const mergedNotes = appendFermentationNotesSafely_(oldNotes, newNotes);
 
   sheet.getRange(targetRow, 8).setValue(mergedNotes);
   cache.put(todayKey, String(targetRow), 21600);
@@ -525,7 +549,7 @@ function addFermentationSimpleMeasurementFast_(
   if (hasFermentationValue_(notes)) {
     const oldNotes = String(result.notes || "").trim();
     const newNotes = String(notes || "").trim();
-    result.notes = oldNotes && newNotes ? oldNotes + " | " + newNotes : (newNotes || oldNotes);
+    result.notes = appendFermentationNotesSafely_(oldNotes, newNotes);
     sheet.getRange(targetRow, 8).setValue(result.notes);
   }
 
