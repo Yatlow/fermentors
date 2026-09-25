@@ -5,11 +5,11 @@ import { type Product, type Settings, sameStyle } from "../../SERVICES/planning/
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { CORE_STYLES, displayStyle, styleGroups } from "../../SERVICES/planning/planningPresentation";
 import {
-import TransientNumberInput from "../general/TransientNumberInput";
     planningTargetsForStyle,
     validateStylePlanning,
     withStylePlanningTarget,
 } from "../../SERVICES/planning/planningTargets";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 export default function PlanningData({ mode, settings, today, disabled, save }: {
     mode: "data" | "settings";
