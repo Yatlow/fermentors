@@ -98,6 +98,22 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
 
 const FERMENTATION_MEASUREMENT_GRACE_MS = 12 * 60 * 60 * 1000;
 
+function recommendationShortLabel(key: string, fallback = "המלצת סלרינג"): string {
+    if (key === "measurementRound") return "סבב מדידות";
+    if (key === "dryHop") return "דרייהופ";
+    if (key === "pressureClose") return "סגירת לחץ";
+    if (key === "warmYeastDrop" || key === "warmYeastDropCompletion") return "הורדת שמרים";
+    if (key === "yeastDropAfterCooling" || key === "coldYeastDropCompletion" || key === "wedYeastDropOnThu") return "הורדת שמרים";
+    if (key === "carbTest") return "בדיקת גיזוז";
+    if (key === "bottomCarbonation" || key === "bottomCarbonationFollowUp") return "גיזוז מלמטה";
+    if (key === "diacetylRest") return "מנוחת דיאצטיל";
+    if (key === "neglectedStatus") return "טיפול במיכל";
+    if (key === "coolDown") return "קירור";
+    if (key === "pressureAdjustment") return "שינוי לחץ";
+    if (key.startsWith("scheduled-")) return "המלצה מתוזמנת";
+    return fallback;
+}
+
 function tankLabel(tank: Fermentor): string {
     return String(tank.tankNumber ?? tank.uid ?? tank.id);
 }
@@ -310,14 +326,34 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             hotTank
                         );
                         const completeMeasurements = progress.missingFields.length === 0;
+                        const measurementRoundIgnored = Boolean(
+                            tank.batchNumber &&
+                            isRecommendationIgnored(
+                                ignoredRecommendations,
+                                String(tank.tankNumber),
+                                String(tank.batchNumber),
+                                "measurementRound"
+                            )
+                        );
+                        const scoreProgress = measurementRoundIgnored
+                            ? {
+                                ...progress,
+                                missingFields: [],
+                                requiredFieldCount: progress.completedFieldCount,
+                            }
+                            : progress;
 
-                        if (!completeMeasurements) {
+                        if (!completeMeasurements && !measurementRoundIgnored) {
                             tankAlerts.push({
                                 id: `measurements-${tank.id}`,
                                 severity: "warning",
                                 title: `מיכל ${number}: סבב המדידות של היום לא הושלם`,
                                 detail: `חסר: ${progress.missingFields.map((field) => DAILY_FIELD_LABELS[field]).join(", ")}.`,
                                 tankNumber: number,
+                                batchNumber: String(tank.batchNumber ?? ""),
+                                recommendationKey: "measurementRound",
+                                importance: 2,
+                                dismissible: Boolean(tank.batchNumber),
                             });
                         }
 
@@ -333,7 +369,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 included: true,
                                 alerts: tankAlerts,
                                 scoreRecommendations,
-                                measurementProgress: progress,
+                                measurementProgress: scoreProgress,
                                 completeMeasurements,
                                 tankNumber: number,
                             };
@@ -527,7 +563,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             alerts: tankAlerts,
                             scoreRecommendations,
                             completedActions,
-                            measurementProgress: progress,
+                            measurementProgress: scoreProgress,
                             completeMeasurements,
                             tankNumber: number,
                         };
@@ -637,7 +673,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                 tankNumber: alert.tankNumber,
                 batchNumber: alert.batchNumber,
                 recommendationKey: alert.recommendationKey,
-                title: alert.title,
+                title: recommendationShortLabel(alert.recommendationKey, alert.title),
                 detail: alert.detail,
                 importance: alert.importance ?? 1,
             });
@@ -727,7 +763,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                     <div className="health-ignored-action" key={row.id}>
                                         <span>
                                             <Broom size={15} aria-hidden="true" />
-                                            מיכל {row.tankNumber} · {row.detail}
+                                            מיכל {row.tankNumber} · {recommendationShortLabel(row.recommendationKey, row.title)}
                                         </span>
                                         <button
                                             type="button"
