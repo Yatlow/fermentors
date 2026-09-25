@@ -1033,12 +1033,15 @@ export default function BrewFormStepper({
   }
 
   useEffect(() => {
-    if (run.source !== "production") return;
+    // Both production and sandbox write Sheet edits into the canonical
+    // brews/{batch}.brewingExecution document, so both forms can update live.
     return subscribeToBrewingExecution(run.batchNumber, (remote) => {
       setExecution(remote);
-      setActiveStepState(Math.max(0, remote.activeStepIndex || 0));
+      if (remote.activeStepIndex != null) {
+        setActiveStepState(Math.max(0, remote.activeStepIndex));
+      }
     });
-  }, [run.batchNumber, run.source]);
+  }, [run.batchNumber]);
 
   useEffect(() => {
     let cancelled = false;
