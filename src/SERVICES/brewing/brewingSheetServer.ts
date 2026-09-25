@@ -26,36 +26,6 @@ export type BrewingSheetHistoryRow = {
   sheetUrl: string;
 };
 
-export async function serverCreateBrewSheet(input: {
-  batchNumber: string;
-  style: string;
-  tankNumber: string;
-  tankType: "single" | "double" | "triple";
-  name?: string;
-  initialWrites?: BrewingSheetWrite[];
-  recipeMaterials?: {
-    grains?: Array<{ quantity: number; label: string; supplier: string }>;
-    hops?: Array<{ quantity: number; alpha: string | number; label: string }>;
-  };
-  mashRestCount?: number;
-}) {
-  const response = await callAppsScriptPost<
-    AppsScriptEnvelope<{
-      id: string;
-      name: string;
-      url: string;
-      batchNumber: string;
-      tankNumber: string;
-      style: string;
-      tankType: string;
-    }>
-  >({
-    action: "BrewSheetCreate",
-    ...input,
-  });
-  return unwrapAppsScriptResult(response, "יצירת Sheet לבישול נכשלה.");
-}
-
 export async function serverWriteBrewSheetCells(
   spreadsheetId: string,
   writes: BrewingSheetWrite[],
@@ -84,19 +54,6 @@ export async function serverWriteBrewSheetCells(
     spreadsheetId,
     cells: writes.length,
     ms: Math.round(performance.now() - startedAt),
-  });
-  return result;
-}
-
-export async function serverPingBrewSheetBridge() {
-  const startedAt = performance.now();
-  const response = await callAppsScriptPost<
-    AppsScriptEnvelope<{ ok: boolean; serverTime: string }>
-  >({ action: "BrewSheetPing" }, { retries: 0, timeoutMs: 15000 });
-  const result = unwrapAppsScriptResult(response, "בדיקת Apps Script נכשלה.");
-  console.info("[brewing-sheet] PING done", {
-    ms: Math.round(performance.now() - startedAt),
-    serverTime: result.serverTime,
   });
   return result;
 }
