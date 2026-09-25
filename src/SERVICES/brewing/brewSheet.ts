@@ -115,9 +115,6 @@ export async function searchAccessibleBrewSheetsByStyle(
   style: string,
   maxResults = 80,
 ): Promise<AccessibleBrewSheet[]> {
-  if (runtimeConfig.deployEnv !== "preview") {
-    throw new Error("חיפוש Sheets היסטוריים זמין כרגע ב-Preview בלבד.");
-  }
   const cleanStyle = String(style || "").trim().toLowerCase();
   if (!cleanStyle) return [];
   const { serverListBrewDriveHistory } = await import("./brewingSheetServer");
