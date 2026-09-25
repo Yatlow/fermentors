@@ -1046,6 +1046,7 @@ const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit";
 const BREWING_LEGACY_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
 const BREWING_EDIT_TANK_PREFIX_ = "brew_edit_tank:";
 const BREWING_EDIT_SANDBOX_PREFIX_ = "brew_edit_sandbox:";
+const BREWING_EDIT_BATCH_PREFIX_ = "brew_edit_batch:";
 
 function brewingSheetRememberEditTank_(spreadsheetId, tankNumber) {
   const fileId = String(spreadsheetId || "").trim();
@@ -1075,6 +1076,10 @@ function brewingSheetEnsureEditTrigger_(data) {
   if (data.tankNumber) brewingSheetRememberEditTank_(fileId, data.tankNumber);
   if (data.sandbox === true) {
     PropertiesService.getScriptProperties().setProperty(BREWING_EDIT_SANDBOX_PREFIX_ + fileId, "1");
+    const sandboxBatch = String(data.batchNumber || "").replace("#", "").trim();
+    if (sandboxBatch) {
+      PropertiesService.getScriptProperties().setProperty(BREWING_EDIT_BATCH_PREFIX_ + fileId, sandboxBatch);
+    }
   }
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(function (trigger) {
@@ -1617,9 +1622,9 @@ function brewingSheetOnEdit_(event) {
       }
 
       const sheet = event.range.getSheet();
-      const sandboxBatch = String(sheet.getRange("F1").getDisplayValue() || "")
-        .replace("#", "")
-        .trim();
+      const sandboxBatch = String(
+        PropertiesService.getScriptProperties().getProperty(BREWING_EDIT_BATCH_PREFIX_ + spreadsheetId) || ""
+      ).replace("#", "").trim();
       if (!sandboxBatch) {
         console.log("Sandbox brew edit ignored: missing batch in F1 for " + spreadsheetId);
         return;
