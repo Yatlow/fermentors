@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 
 export type BrewExecutionBlock = {
@@ -108,6 +108,21 @@ export function setSandboxExecutionReviewedSteps(
   return saveSandboxExecution({ ...execution, reviewedSteps: { ...reviewedSteps } });
 }
 
+
+export function subscribeToBrewingExecution(
+  batchNumber: string,
+  onExecution: (execution: BrewExecution) => void,
+): () => void {
+  const clean = String(batchNumber || "").replace("#", "").trim();
+  if (!clean) return () => undefined;
+  return onSnapshot(doc(db, "brews", clean), (snapshot) => {
+    if (!snapshot.exists()) return;
+    const data = snapshot.data() as { brewingExecution?: BrewExecution };
+    const remote = data.brewingExecution;
+    if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
+    onExecution(saveSandboxExecution(remote));
+  });
+}
 
 export async function loadBrewingExecutionFromFirestore(
   batchNumber: string,
