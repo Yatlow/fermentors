@@ -105,7 +105,7 @@ export async function productionBrewSheetExists(
   batchNumber: string,
 ): Promise<boolean> {
   const clean = String(batchNumber || "").replace("#", "").trim();
-  if (!/^\\d+$/.test(clean)) return false;
+  if (!/^\d+$/.test(clean)) return false;
   const { serverListBrewDriveHistory } = await import("./brewingSheetServer");
   const rows = await serverListBrewDriveHistory(150);
   return rows.some((row) => String(row.batchNumber || "").replace("#", "").trim() === clean);
