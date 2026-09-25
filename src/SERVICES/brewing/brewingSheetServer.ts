@@ -259,7 +259,7 @@ export async function serverLoadBrewAcidHistory(
 }
 
 
-export async function serverEnsureBrewSheetEditTrigger(spreadsheetId: string, tankNumber?: string, sandbox = false) {
+export async function serverEnsureBrewSheetEditTrigger(spreadsheetId: string, tankNumber?: string, sandbox = false, batchNumber?: string) {
   const response = await callAppsScriptPost<
     AppsScriptEnvelope<{ spreadsheetId: string; installed: boolean; active: boolean }>
   >({
@@ -267,6 +267,7 @@ export async function serverEnsureBrewSheetEditTrigger(spreadsheetId: string, ta
     spreadsheetId,
     tankNumber,
     sandbox,
+    batchNumber,
   });
   return unwrapAppsScriptResult(response, "הפעלת סנכרון העריכה של Sheet הבישול נכשלה.");
 }
