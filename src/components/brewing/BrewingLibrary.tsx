@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
-  createSandboxRecipe,
-  deleteSandboxRecipe,
-  saveSandboxRecipe,
-} from "../../SERVICES/brewing/sandboxRecipe";
+  createRecipe,
+  deleteRecipe,
+  saveRecipe,
+} from "../../SERVICES/brewing/recipeEditorStore";
 import {
   activeLot,
   type IngredientCategory,
@@ -12,10 +12,10 @@ import {
   type IngredientLotStatus,
 } from "../../SERVICES/brewing/ingredientLibrary";
 import {
-  createSandboxIngredient,
-  saveSandboxIngredients,
-  type CreateSandboxIngredientInput,
-} from "../../SERVICES/brewing/sandboxIngredients";
+  createIngredient,
+  saveIngredients,
+  type CreateIngredientInput,
+} from "../../SERVICES/brewing/ingredientEditorStore";
 import BrewRecipeEditor from "./BrewRecipeEditor";
 import IngredientLotsModal from "./IngredientLotsModal";
 
@@ -61,14 +61,14 @@ export default function BrewingLibrary({
   const [lotsIngredientId, setLotsIngredientId] = useState<string | null>(null);
 
   useEffect(() => {
-    saveSandboxIngredients(ingredients);
+    saveIngredients(ingredients);
   }, [ingredients]);
 
   function updateIngredients(
     updater: (current: IngredientDefinition[]) => IngredientDefinition[],
   ) {
     const next = updater(ingredients);
-    saveSandboxIngredients(next);
+    saveIngredients(next);
     onIngredientsChange(next);
   }
 
@@ -78,7 +78,7 @@ export default function BrewingLibrary({
   );
 
   function saveRecipe(recipe: BrewRecipe) {
-    const saved = saveSandboxRecipe(recipe);
+    const saved = saveRecipe(recipe);
     const next = recipes.some((item) => item.id === saved.id)
       ? recipes.map((item) => (item.id === saved.id ? saved : item))
       : [...recipes, saved];
@@ -90,7 +90,7 @@ export default function BrewingLibrary({
   function createRecipe() {
     const name = newRecipeName.trim();
     if (!name) return;
-    const created = createSandboxRecipe(name);
+    const created = createRecipe(name);
     const next = [...recipes.filter((item) => item.id !== created.id), created];
     onRecipesChange(next);
     setNewRecipeName("");
@@ -104,7 +104,7 @@ export default function BrewingLibrary({
       setDeleteRecipeId(recipe.id);
       return;
     }
-    deleteSandboxRecipe(recipe.id);
+    deleteRecipe(recipe.id);
     const next = recipes.filter((item) => item.id !== recipe.id);
     onRecipesChange(next);
     setDeleteRecipeId(null);
@@ -164,10 +164,10 @@ export default function BrewingLibrary({
   }
 
   function createIngredientFromInput(
-    input: CreateSandboxIngredientInput,
+    input: CreateIngredientInput,
   ): IngredientDefinition {
-    const result = createSandboxIngredient(input, ingredients);
-    saveSandboxIngredients(result.ingredients);
+    const result = createIngredient(input, ingredients);
+    saveIngredients(result.ingredients);
     onIngredientsChange(result.ingredients);
     setMessage(`${result.ingredient.name} נוסף לספריית חומרי הגלם.`);
     return result.ingredient;
