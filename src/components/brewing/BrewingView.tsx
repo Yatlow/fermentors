@@ -66,24 +66,55 @@ function extractSpreadsheetId(value: unknown): string {
 }
 
 type BrewPrintPdf = Awaited<ReturnType<typeof serverPrintBrewSheetPdf>>;
-const brewPrintCache = new Map<string, Promise<BrewPrintPdf>>();
+const BREW_PRINT_CACHE_TTL_MS = 10 * 60 * 1000;
+const BREW_PRINT_CACHE_MAX_ENTRIES = 2;
+const brewPrintCache = new Map<string, { promise: Promise<BrewPrintPdf>; createdAt: number }>();
 
 function brewPrintKey(run: BrewRun, mashRestCount: number): string {
-    return [extractSpreadsheetId(run.sheetId || run.sheetUrl), run.batchNumber, run.brewSheetEditRevision ?? "history", mashRestCount].join(":");
+    return [
+        extractSpreadsheetId(run.sheetId || run.sheetUrl),
+        run.batchNumber,
+        run.style,
+        run.tankNumber,
+        run.brewDate || "",
+        run.brewSheetEditRevision ?? "history",
+        mashRestCount,
+    ].join(":");
 }
 
 function prepareBrewPrint(run: BrewRun, mashRestCount: number): Promise<BrewPrintPdf> {
     const spreadsheetId = extractSpreadsheetId(run.sheetId || run.sheetUrl);
     if (!spreadsheetId) return Promise.reject(new Error("לא נמצא Sheet לאצווה."));
     const key = brewPrintKey(run, mashRestCount);
+    const now = Date.now();
+    for (const [cachedKey, cached] of brewPrintCache) {
+        if (now - cached.createdAt > BREW_PRINT_CACHE_TTL_MS) {
+            brewPrintCache.delete(cachedKey);
+        }
+    }
     const existing = brewPrintCache.get(key);
-    if (existing) return existing;
+    if (existing) return existing.promise;
+
+    while (brewPrintCache.size >= BREW_PRINT_CACHE_MAX_ENTRIES) {
+        const oldestKey = brewPrintCache.keys().next().value;
+        if (!oldestKey) break;
+        brewPrintCache.delete(oldestKey);
+    }
+
     const request = serverPrintBrewSheetPdf({
         spreadsheetId, batchNumber: run.batchNumber, tankNumber: run.tankNumber,
         style: run.style, tankType: run.tankType, brewDate: run.brewDate, mashRestCount,
     }).catch((error) => { brewPrintCache.delete(key); throw error; });
-    brewPrintCache.set(key, request);
+    brewPrintCache.set(key, { promise: request, createdAt: now });
     return request;
+}
+
+function clearBrewPrintCache(batchNumber: string) {
+    const clean = String(batchNumber || "").replace("#", "").trim();
+    if (!clean) return;
+    for (const key of brewPrintCache.keys()) {
+        if (key.split(":")[1] === clean) brewPrintCache.delete(key);
+    }
 }
 
 function productionRunFromTank(tank: Fermentor): BrewRun | null {
@@ -1250,7 +1281,10 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     run={selectedRun}
                     recipe={selectedRecipe}
                     ingredients={ingredients}
-                    onClose={() => setSelectedRun(null)}
+                    onClose={() => {
+                        clearBrewPrintCache(selectedRun.batchNumber);
+                        setSelectedRun(null);
+                    }}
                 />
             )}
 
