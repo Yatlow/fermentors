@@ -6,7 +6,7 @@ import type {
   BrewRecipeMashStep,
 } from "../../SERVICES/brewing/brewRecipe";
 import type { IngredientCategory, IngredientDefinition } from "../../SERVICES/brewing/ingredientLibrary";
-import type { CreateSandboxIngredientInput } from "../../SERVICES/brewing/sandboxIngredients";
+import type { CreateIngredientInput } from "../../SERVICES/brewing/ingredientEditorStore";
 import IngredientQuickCreateModal from "./IngredientQuickCreateModal";
 
 type Props = {
@@ -15,7 +15,7 @@ type Props = {
   onSave: (recipe: BrewRecipe) => void;
   onBack: () => void;
   onCreateIngredient: (
-    input: CreateSandboxIngredientInput,
+    input: CreateIngredientInput,
   ) => IngredientDefinition;
 };
 
@@ -401,7 +401,7 @@ export default function BrewRecipeEditor({
   }
 
   function selectCreatedIngredient(
-    input: CreateSandboxIngredientInput,
+    input: CreateIngredientInput,
   ) {
     const target = ingredientCreateTarget;
     if (!target) return;
