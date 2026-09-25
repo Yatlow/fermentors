@@ -187,7 +187,6 @@ function productionTankStageClass(tank: Fermentor): string {
 }
 
 export default function BrewingView({ brews, tab }: Props) {
-    const [sandboxRuns, setSandboxRuns] = useState<BrewRun[]>(() => loadBrewRuns());
     const [recipes, setRecipes] = useState<BrewRecipe[]>(() => [DEFAULT_IPA_RECIPE]);
     const [ingredients, setIngredients] = useState(() => DEFAULT_INGREDIENT_LIBRARY);
     const [sharedLibraryReady, setSharedLibraryReady] = useState(false);
@@ -475,8 +474,6 @@ export default function BrewingView({ brews, tab }: Props) {
         setMessage("");
         try {
             await publishSharedBrewingLibrary(recipes, ingredients);
-            replaceSandboxRecipes(recipes);
-            saveSandboxIngredients(ingredients);
             setSharedLibraryReady(true);
             setMessage("✓ ספריית המתכונים וחומרי הגלם נשמרה.");
         } catch (error) {
@@ -765,36 +762,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         }
     }
 
-    async function removeSandboxRun(run: BrewRun) {
-        setMessage("");
-        setBatchDeleting(run.batchNumber, true);
-        try {
-            // Never remove the local run first. If Drive deletion fails we keep
-            // the batch visible so the user can retry and we do not create an
-            // orphan Sheet that is hard to find later.
-            if (run.sheetId) {
-                await deleteSandboxBrewSheet(run.sheetId);
-            }
-            deleteBrewRun(run.batchNumber);
-            setSandboxRuns(loadBrewRuns());
-            setMessage(`אצווה ${run.batchNumber} וה-Sheet שלה נמחקו.`);
-        } catch (error) {
-            const detail =
-                error instanceof Error ? error.message : "מחיקת ה-Sheet נכשלה.";
-            setMessage(
-                `אצווה ${run.batchNumber} לא נמחקה כדי לא להשאיר Sheet יתום. ${detail}`,
-            );
-        } finally {
-            setBatchDeleting(run.batchNumber, false);
-        }
-    }
-
-    function editUnstartedProductionBatch(tank: Fermentor) {
-        if (Number(tank.action) !== 0) return;
-        const run = productionRunFromTank(tank);
-        if (!run?.sheetId || run.brewProgress?.stageName) return;
-        setEditBatchDraft({ tankId: tank.id, batchNumber: run.batchNumber, style: run.style });
-    }
 
     async function saveUnstartedProductionBatchEdit() {
         if (!editBatchDraft) return;
@@ -1033,19 +1000,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         }
     }
 
-    function resetDemoAndAssignQueue() {
-        setDemoTank(resetSandboxDemoTank());
-        const assigned = assignNextSandboxRunToTank("20");
-        if (assigned) {
-            setSandboxRuns(loadBrewRuns());
-            setDemoTank(markSandboxDemoTankBrewing());
-            setMessage(
-                `מיכל דמו 20 חזר למחוטא ואצווה ${assigned.batchNumber} שובצה אליו אוטומטית מהתור.`,
-            );
-        } else {
-            setMessage("מיכל דמו 20 הוחזר למצב מחוטא.");
-        }
-    }
 
     async function confirmDeleteProductionBatch() {
         if (!deleteConfirmation) return;
