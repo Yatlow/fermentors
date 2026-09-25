@@ -278,6 +278,23 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
     /currentDocument\.updateTime=/,
     "brew job claims must use a Firestore updateTime precondition",
   );
+
+  brewOutbox.sheetSyncFetch_ = (url) => {
+    lastPatchUrl = url;
+    return {
+      getResponseCode: () => 400,
+      getContentText: () => JSON.stringify({ error: { status: "FAILED_PRECONDITION" } }),
+    };
+  };
+  assert.equal(
+    brewOutbox.brewCreatePatchJob_(
+      "1601",
+      { state: "creating" },
+      "2026-09-25T18:00:00.000000Z",
+    ),
+    false,
+    "Firestore HTTP 400 FAILED_PRECONDITION must also lose the job claim cleanly",
+  );
 }
 
 
