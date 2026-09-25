@@ -8,19 +8,6 @@ import {
 
 type TankType = BrewTankDescriptor["tankType"];
 
-export type BrewSheetResult = {
-  id: string;
-  name: string;
-  url: string;
-};
-
-export type AccessibleBrewSheet = {
-  id: string;
-  name: string;
-  url: string;
-  modifiedTime?: string;
-};
-
 function layoutFor(tankType: TankType) {
   if (tankType === "single") {
     return {
@@ -109,24 +96,6 @@ export async function productionBrewSheetExists(
   const { serverListBrewDriveHistory } = await import("./brewingSheetServer");
   const rows = await serverListBrewDriveHistory(150);
   return rows.some((row) => String(row.batchNumber || "").replace("#", "").trim() === clean);
-}
-
-export async function searchAccessibleBrewSheetsByStyle(
-  style: string,
-  maxResults = 80,
-): Promise<AccessibleBrewSheet[]> {
-  const cleanStyle = String(style || "").trim().toLowerCase();
-  if (!cleanStyle) return [];
-  const { serverListBrewDriveHistory } = await import("./brewingSheetServer");
-  const rows = await serverListBrewDriveHistory(Math.max(10, Math.min(150, maxResults)));
-  return rows
-    .filter((row) => String(row.beerStyle || "").trim().toLowerCase().includes(cleanStyle))
-    .map((row) => ({
-      id: row.fileId || row.id,
-      name: row.fileName,
-      url: row.sheetUrl,
-    }))
-    .filter((row) => !!row.id);
 }
 
 export async function readBrewSheetRange(
