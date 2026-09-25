@@ -361,21 +361,35 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
       const baseline = baselineFor(fileId);
       conflicts.forEach((conflict) => baseline.set(conflict.range, normalizeSheetValue(conflict.actualValue)));
 
-      // A stale baseline is not an external edit when the Sheet already contains
-      // exactly the value this request wanted to write (common after Sheet→Firestore
-      // sync or a previous request completed while the tab was hidden/closing).
-      const realConflicts = conflicts.filter(
-        (conflict) =>
-          normalizeSheetValue(conflict.actualValue) !==
-          normalizeSheetValue(
-            conflict.proposedValue as SheetCellValue | undefined,
-          ),
-      );
-      if (realConflicts.length) {
-        const conflict = realConflicts[0];
-        throw new Error(
-          `ה-Sheet השתנה מחוץ לאפליקציה ב-${conflict.range}. הערך באפליקציה לא דרס את הערך "${conflict.actualValue}".`,
-        );
+      // The app and the Apps Script listener both legitimately update the same
+      // Sheet while brewing. A baseline mismatch therefore does not prove a
+      // human edited the Sheet. Retry only the conflicting cells once against
+      // the fresh values returned by the server; this preserves optimistic
+      // protection without surfacing false "external edit" warnings.
+      const retryWrites = conflicts
+        .filter(
+          (conflict) =>
+            normalizeSheetValue(conflict.actualValue) !==
+            normalizeSheetValue(conflict.proposedValue as SheetCellValue | undefined),
+        )
+        .map((conflict) => {
+          const original = guardedWrites.find((write) => write.range === conflict.range);
+          return original
+            ? { ...original, expectedValue: normalizeSheetValue(conflict.actualValue) }
+            : null;
+        })
+        .filter((write): write is SheetWrite => write !== null);
+
+      if (retryWrites.length) {
+        const retryResult = await serverWriteBrewSheetCells(fileId, retryWrites);
+        if (retryResult.hasConflict || retryResult.conflicts?.length || retryResult.updated !== retryWrites.length) {
+          const conflict = retryResult.conflicts?.[0];
+          throw new Error(
+            conflict
+              ? `ה-Sheet השתנה במקביל ב-${conflict.range}. נסה שוב.`
+              : "ה-Sheet השתנה במקביל. נסה שוב.",
+          );
+        }
       }
     }
     const resolvedConflictCount = result.conflicts?.filter(
