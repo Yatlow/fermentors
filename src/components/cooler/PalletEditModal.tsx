@@ -4,6 +4,7 @@ import { deletePallet, splitPallet, updatePallet } from "../../SERVICES/cooler/P
 import { MAX_CRATES_PER_PALLET, MAX_KEGS_PER_PALLET } from "../../SERVICES/cooler/Pallettypes ";
 import type { Pallet, PalletItemType } from "../../SERVICES/cooler/Pallettypes ";
 import ConfirmModal from "../general/ConfirmModal";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 function itemLabel(type: PalletItemType) { return type === "kegs" ? "חביות" : "ארגזים"; }
 
@@ -74,7 +75,7 @@ export default function PalletEditModal({ pallet, onClose, onDone }: { pallet: P
                 <label>סגנון בירה</label><input value={beerStyle} onChange={(e) => setBeerStyle(e.target.value)} />
                 <label>תווית משנה</label><input value={subLabel} onChange={(e) => setSubLabel(e.target.value)} placeholder="לא חובה" />
                 <label>מספר אצווה</label><input value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} placeholder="לא חובה" />
-                <label>כמות ({itemLabel(itemType)}, עד {max})</label><input type="number" min={1} max={max} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
+                <label>כמות ({itemLabel(itemType)}, עד {max})</label><TransientNumberInput min={1} max={max} value={quantity} onNumberChange={setQuantity} />
                 <label>תאריך תפוגה</label><input value={expiryDateStr} onChange={(e) => setExpiryDateStr(e.target.value)} placeholder="DD/MM/YYYY" />
 
                 {confirmSensitive && (
@@ -93,7 +94,7 @@ export default function PalletEditModal({ pallet, onClose, onDone }: { pallet: P
                 <div className="modal-section-divider" />
                 <div className="split-section">
                     <div><span>פיצול משטח</span><small>הכמות שתיבחר- תופחת ממשטח זה ותועבר למשטח חדש עם פרטים זהים (מלבד הכמות). יש לשבץ את המשטח החדש מלשונית "ממתינים לשיבוץ"</small></div>
-                    <div className="split-controls"><input type="number" min={1} max={Math.max(1, quantity - 1)} value={splitQty} onChange={(e) => setSplitQty(Number(e.target.value))} /><button disabled={busy || splitQty <= 0 || splitQty >= quantity} onClick={split}>{busy ? <BeerLoader message="מפצל…" size="spinner" /> : "פצל"}</button></div>
+                    <div className="split-controls"><TransientNumberInput min={1} max={Math.max(1, quantity - 1)} value={splitQty} onNumberChange={setSplitQty} /><button disabled={busy || splitQty <= 0 || splitQty >= quantity} onClick={split}>{busy ? <BeerLoader message="מפצל…" size="spinner" /> : "פצל"}</button></div>
                 </div>
                 <div  className="danger-zone">
                 <button disabled={busy} onClick={() => setConfirmDelete(true)}>מחק משטח</button>
