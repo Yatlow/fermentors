@@ -218,13 +218,12 @@ function brewingSheetCreate_(data) {
   if (!/^\d+$/.test(batchNumber)) throw new Error("Invalid batchNumber");
 
   const config = brewingSheetTemplateForType_(data.tankType);
-  const duplicateLock = LockService.getScriptLock();
-  if (!duplicateLock.tryLock(5000)) throw new Error("Brew Sheet creation is busy; retry");
 
   let copy = null;
   try {
-    // Server-side source of truth: scan Drive while holding the creation lock.
-    // This also catches manually-created Sheets and closes the two-client race.
+    // Server-side source of truth: scan Drive before copying. The durable
+    // Firestore outbox claim is the concurrency guard for app-created brews;
+    // this scan additionally catches manually-created Sheets.
     // Keep this guard cheap: creation must not recursively scan the whole brew
     // archive. Drive's folder search checks the exact batch marker directly.
     const folder = DriveApp.getFolderById(config.folderId);
@@ -477,8 +476,6 @@ function brewingSheetCreate_(data) {
       }
     }
     throw error;
-  } finally {
-    duplicateLock.releaseLock();
   }
 }
 
