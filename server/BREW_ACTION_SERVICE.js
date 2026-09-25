@@ -344,6 +344,7 @@ function processAction5(
     fermentor.sheetUrl,
     context.pendingBrews
   );
+  const fromPendingBrews = !!nextBrew;
 
   if (nextBrew) {
     Logger.log("ACTION 5: using pendingBrews for tank " + tankNumber + " -> batch " + nextBrew.batchNumber);
@@ -397,12 +398,17 @@ function processAction5(
       { skipFermentorUpdate: true }
     );
 
-  updateFermentorForNextBrew_(
+  const transitioned = updateFermentorForNextBrew_(
     tankNumber,
     uploadedBrew,
     nextBrew.sheetUrl,
     currentBatch
   );
+  if (transitioned === false) return;
+
+  if (fromPendingBrews) {
+    deleteConsumedPendingBrew_(nextBrew.batchNumber);
+  }
 
   Logger.log(
     "ACTION 5 completed successfully for tank " +
@@ -443,6 +449,41 @@ function getPendingBrewsForAction5_() {
     return result;
   });
 }
+
+function deleteConsumedPendingBrew_(batchNumber) {
+  const batch = String(batchNumber || "").replace("#", "").trim();
+  if (!batch) return;
+
+  ["pendingBrews", "brewSheetCreationJobs"].forEach(function (collectionName) {
+    const url =
+      "https://firestore.googleapis.com/v1/projects/" +
+      FIREBASE_PROJECT_ID +
+      "/databases/(default)/documents/" +
+      collectionName +
+      "/" +
+      encodeURIComponent(batch);
+
+    const response = UrlFetchApp.fetch(url, {
+      method: "delete",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    const code = response.getResponseCode();
+    if ((code < 200 || code >= 300) && code !== 404) {
+      Logger.log(
+        "ACTION 5 cleanup failed for " +
+        collectionName +
+        "/" +
+        batch +
+        ": " +
+        code +
+        " " +
+        response.getContentText()
+      );
+    }
+  });
+}
+
 
 function findNextPendingBrewForTank_(tankNumber, currentBatch, currentSheetUrl, pendingBrews) {
   const targetTank = normalizeTankNumber(tankNumber);
@@ -1414,7 +1455,7 @@ function updateFermentorForNextBrew_(
       "ACTION 5 aborted for tank " + fermentorId +
       ": tank changed while next brew was being prepared."
     );
-    return;
+    return false;
   }
 
   const fields = toFirestoreFields(payload);
@@ -1483,6 +1524,7 @@ function updateFermentorForNextBrew_(
     " to batch " +
     nextBatch
   );
+  return true;
 }
 
 
