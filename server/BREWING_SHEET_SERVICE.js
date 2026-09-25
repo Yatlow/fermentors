@@ -1045,6 +1045,7 @@ function brewingSheetAcidHistory_(data) {
 const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit";
 const BREWING_LEGACY_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
 const BREWING_EDIT_TANK_PREFIX_ = "brew_edit_tank:";
+const BREWING_EDIT_SANDBOX_PREFIX_ = "brew_edit_sandbox:";
 
 function brewingSheetRememberEditTank_(spreadsheetId, tankNumber) {
   const fileId = String(spreadsheetId || "").trim();
@@ -1072,6 +1073,9 @@ function brewingSheetTriggerSourceId_(trigger) {
 function brewingSheetEnsureEditTrigger_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   if (data.tankNumber) brewingSheetRememberEditTank_(fileId, data.tankNumber);
+  if (data.sandbox === true) {
+    PropertiesService.getScriptProperties().setProperty(BREWING_EDIT_SANDBOX_PREFIX_ + fileId, "1");
+  }
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(function (trigger) {
     if (
@@ -1129,6 +1133,13 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
   const activeSheetIds = new Set();
   const activeTanksBySheet = {};
   const projectTriggers = ScriptApp.getProjectTriggers();
+  const scriptProperties = PropertiesService.getScriptProperties();
+  const sandboxSheetIds = new Set(
+    Object.keys(scriptProperties.getProperties())
+      .filter(function (key) { return key.indexOf(BREWING_EDIT_SANDBOX_PREFIX_) === 0; })
+      .map(function (key) { return key.substring(BREWING_EDIT_SANDBOX_PREFIX_.length); })
+      .filter(Boolean)
+  );
 
   (fermentorEntries || []).forEach(function (entry) {
     const fermentor = entry && entry.data ? entry.data : entry;
@@ -1156,7 +1167,7 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
     const keep =
       handler === BREWING_EDIT_TRIGGER_HANDLER_ &&
       fileId &&
-      activeSheetIds.has(fileId) &&
+      (activeSheetIds.has(fileId) || sandboxSheetIds.has(fileId)) &&
       !keptBySheet[fileId];
 
     if (keep) {
@@ -1178,6 +1189,7 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
 
   return {
     active: activeSheetIds.size,
+    sandbox: sandboxSheetIds.size,
     normalized: Object.keys(keptBySheet).length
   };
 }
@@ -1593,7 +1605,15 @@ function brewingSheetOnEdit_(event) {
     // Remove it lazily as well, so a missed client cleanup cannot leave stale
     // production triggers behind.
     if (!fermentor) {
-      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+      // Sandbox runs live only in the preview browser. Their trigger is marked
+      // explicitly in ScriptProperties, so neither an edit nor production
+      // maintenance may delete it just because there is no fermentor document.
+      const isSandbox = PropertiesService.getScriptProperties().getProperty(
+        BREWING_EDIT_SANDBOX_PREFIX_ + spreadsheetId
+      ) === "1";
+      if (!isSandbox) {
+        brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+      }
       return;
     }
 
