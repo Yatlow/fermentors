@@ -1116,59 +1116,59 @@ function brewingSheetRemoveEditTrigger_(data) {
 
 function brewingSheetReconcileEditTriggers_(fermentorEntries) {
   const activeSheetIds = new Set();
-  // ScriptApp.getProjectTriggers() is relatively expensive. Read it exactly
-  // once per cycle and reuse the snapshot for every ACTION-0 tank.
+  const activeTanksBySheet = {};
   const projectTriggers = ScriptApp.getProjectTriggers();
-  const existingBySheetId = new Map();
-
-  projectTriggers.forEach(function (trigger) {
-    if (trigger.getHandlerFunction() === BREWING_LEGACY_EDIT_TRIGGER_HANDLER_) {
-      ScriptApp.deleteTrigger(trigger);
-      return;
-    }
-    if (trigger.getHandlerFunction() !== BREWING_EDIT_TRIGGER_HANDLER_) return;
-    const fileId = brewingSheetTriggerSourceId_(trigger);
-    if (fileId) existingBySheetId.set(fileId, trigger);
-  });
 
   (fermentorEntries || []).forEach(function (entry) {
     const fermentor = entry && entry.data ? entry.data : entry;
     if (!fermentor || parseAction(fermentor.action) !== 0 || !fermentor.sheetUrl) return;
-
-    try {
-      const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
-      if (!fileId) return;
-      activeSheetIds.add(fileId);
-      brewingSheetRememberEditTank_(
-        fileId,
-        fermentor.tankNumber || (entry && entry.id) || ""
-      );
-      if (!existingBySheetId.has(fileId)) {
-        const created = ScriptApp.newTrigger(BREWING_EDIT_TRIGGER_HANDLER_)
-          .forSpreadsheet(fileId)
-          .onEdit()
-          .create();
-        existingBySheetId.set(fileId, created);
-      }
-    } catch (error) {
-      Logger.log(
-        "Failed ensuring brew edit trigger for tank " +
-        String(fermentor.tankNumber || (entry && entry.id) || "?") +
-        ": " +
-        error.message
-      );
-    }
+    const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
+    if (!fileId) return;
+    activeSheetIds.add(fileId);
+    activeTanksBySheet[fileId] = String(
+      fermentor.tankNumber || (entry && entry.id) || ""
+    ).trim();
   });
 
+  // Normalize the complete managed trigger set in one pass. Legacy handlers,
+  // stale Sheets and duplicate public handlers are all removed. Exactly one
+  // public onEdit trigger survives per active brew Sheet.
+  const keptBySheet = {};
   projectTriggers.forEach(function (trigger) {
-    if (trigger.getHandlerFunction() !== BREWING_EDIT_TRIGGER_HANDLER_) return;
+    const handler = trigger.getHandlerFunction();
+    if (
+      handler !== BREWING_EDIT_TRIGGER_HANDLER_ &&
+      handler !== BREWING_LEGACY_EDIT_TRIGGER_HANDLER_
+    ) return;
+
     const fileId = brewingSheetTriggerSourceId_(trigger);
-    if (fileId && !activeSheetIds.has(fileId)) {
+    const keep =
+      handler === BREWING_EDIT_TRIGGER_HANDLER_ &&
+      fileId &&
+      activeSheetIds.has(fileId) &&
+      !keptBySheet[fileId];
+
+    if (keep) {
+      keptBySheet[fileId] = true;
+    } else {
       ScriptApp.deleteTrigger(trigger);
     }
   });
 
-  return { active: activeSheetIds.size };
+  activeSheetIds.forEach(function (fileId) {
+    brewingSheetRememberEditTank_(fileId, activeTanksBySheet[fileId] || "");
+    if (keptBySheet[fileId]) return;
+    ScriptApp.newTrigger(BREWING_EDIT_TRIGGER_HANDLER_)
+      .forSpreadsheet(fileId)
+      .onEdit()
+      .create();
+    keptBySheet[fileId] = true;
+  });
+
+  return {
+    active: activeSheetIds.size,
+    normalized: Object.keys(keptBySheet).length
+  };
 }
 
 function brewingSheetFindFermentorForSheet_(spreadsheetId) {
