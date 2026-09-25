@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { IngredientCategory } from "../../SERVICES/brewing/ingredientLibrary";
-import type { CreateSandboxIngredientInput } from "../../SERVICES/brewing/sandboxIngredients";
+import type { CreateIngredientInput } from "../../SERVICES/brewing/ingredientEditorStore";
 
 type Props = {
   open: boolean;
   category: IngredientCategory;
   onClose: () => void;
-  onCreate: (input: CreateSandboxIngredientInput) => void;
+  onCreate: (input: CreateIngredientInput) => void;
 };
 
 const CATEGORY_LABELS: Record<IngredientCategory, string> = {
