@@ -56,15 +56,12 @@ function tankLabel(tankType: TankType) {
 
 export async function deleteBrewSheet(fileId: string): Promise<void> {
   if (!fileId) return;
-  // Sandbox/demo batches can also be visible from the production-configured
-  // brewing screen. Deleting the demo must not silently no-op just because the
-  // current Firebase build is not tagged as preview.
   await serverTrashBrewSheet(fileId);
 }
 
 export async function ensureBrewSheetAccess(): Promise<void> {
   if (runtimeConfig.deployEnv !== "preview") {
-    throw new Error("הרשאת Sandbox זמינה רק ב-Preview.");
+    throw new Error("פעולה זו זמינה רק בסביבת Preview.");
   }
   // Access is authenticated by the Firebase ID token in appsScriptClient.
 }
