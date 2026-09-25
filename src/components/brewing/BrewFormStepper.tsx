@@ -22,7 +22,6 @@ import {
 } from "../../SERVICES/brewing/sandboxSheet";
 import {
   serverEnsureBrewSheetEditTrigger,
-  serverRemoveBrewSheetEditTrigger,
 } from "../../SERVICES/brewing/brewingSheetServer";
 import BeerLoader from "../general/Loading";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
@@ -1064,21 +1063,16 @@ export default function BrewFormStepper({
   useEffect(() => {
     if (!run.sheetId) return;
 
-    // Preview/sandbox brews use local tank state, so the server-side ACTION-0
-    // reconciliation cannot discover tank 20. Keep their Sheet trigger alive
-    // explicitly while the brew form is open. Production keeps the normal
-    // ACTION-0 lifecycle.
-    if (run.source !== "production" || Number(run.action) === 0) {
+    // Sandbox state lives only in this browser, so maintenance cannot discover
+    // its Sheet. Ensure its installable onEdit trigger whenever the form opens.
+    // Production trigger lifetime remains owned by the server ACTION-0
+    // reconciliation; the browser must not remove production triggers.
+    if (run.source !== "production") {
       void serverEnsureBrewSheetEditTrigger(run.sheetId, run.tankNumber).catch((error) =>
-        console.warn("Failed ensuring brew Sheet edit trigger", error),
+        console.warn("Failed ensuring sandbox brew Sheet edit trigger", error),
       );
-      return;
     }
-
-    void serverRemoveBrewSheetEditTrigger(run.sheetId).catch((error) =>
-      console.warn("Failed removing brew Sheet edit trigger", error),
-    );
-  }, [run.sheetId, run.source, run.action, run.tankNumber]);
+  }, [run.sheetId, run.source, run.tankNumber]);
 
   useEffect(() => {
     if (!firestoreHydrated || hasField("brewDate")) return;
