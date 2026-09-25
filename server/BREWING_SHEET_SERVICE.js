@@ -1652,38 +1652,36 @@ function brewingSheetOnEdit_(event) {
     const knownTank = brewingSheetKnownEditTank_(spreadsheetId);
     if (knownTank) brewingSheetPublishEditRevision_(knownTank, event);
 
-    const fermentor = brewingSheetFindFermentorForSheet_(spreadsheetId);
+    let fermentor = brewingSheetFindFermentorForSheet_(spreadsheetId);
+    let isSandboxRun = false;
 
-    // The Sheet may still have a trigger briefly after the tank left ACTION 0.
-    // Remove it lazily as well, so a missed client cleanup cannot leave stale
-    // production triggers behind.
+    // Sandbox tank 20 deliberately has no fermentors document. Resolve only
+    // that missing identity here, then feed it through the SAME edit pipeline
+    // as production instead of maintaining a second sync implementation.
     if (!fermentor) {
-      // Sandbox runs have no fermentor document. Resolve their batch directly
-      // from the Sheet header and persist the edited semantic cell to the same
-      // canonical brews/{batch}.brewingExecution document used by production.
-      const isSandbox = PropertiesService.getScriptProperties().getProperty(
-        BREWING_EDIT_SANDBOX_PREFIX_ + spreadsheetId
-      ) === "1";
+      const props = PropertiesService.getScriptProperties();
+      const isSandbox =
+        props.getProperty(BREWING_EDIT_SANDBOX_PREFIX_ + spreadsheetId) === "1";
+
       if (!isSandbox) {
         brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
         return;
       }
 
-      const sheet = event.range.getSheet();
       const sandboxBatch = String(
-        PropertiesService.getScriptProperties().getProperty(BREWING_EDIT_BATCH_PREFIX_ + spreadsheetId) || ""
+        props.getProperty(BREWING_EDIT_BATCH_PREFIX_ + spreadsheetId) || ""
       ).replace("#", "").trim();
       if (!sandboxBatch) {
-        console.log("Sandbox brew edit ignored: missing batch in F1 for " + spreadsheetId);
-        return;
+        throw new Error("Sandbox brew edit has no bound batch for " + spreadsheetId);
       }
 
-      brewingSheetPersistExecutionCell_({
+      fermentor = {
         batchNumber: sandboxBatch,
-        tankNumber: knownTank || String(sheet.getRange("D1").getDisplayValue() || "").trim(),
-        sheetUrl: event.source.getUrl()
-      }, event);
-      return;
+        tankNumber: knownTank || "20",
+        sheetUrl: event.source.getUrl(),
+        action: 0
+      };
+      isSandboxRun = true;
     }
 
     // Publish every manual edit immediately. The open app listens to the
@@ -1697,6 +1695,11 @@ function brewingSheetOnEdit_(event) {
 
     // Persist the canonical execution even when no browser is open.
     brewingSheetPersistExecutionCell_(fermentor, event);
+
+    // Everything up to canonical brewingExecution persistence is intentionally
+    // identical for production and sandbox. Only production owns fermentor
+    // lifecycle/stage transitions.
+    if (isSandboxRun) return;
 
     const stageInfo = extractBrewStageInfo(spreadsheetId, fermentor);
     if (!stageInfo || !stageInfo.lastBlock) return;
