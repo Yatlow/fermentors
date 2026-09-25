@@ -220,5 +220,66 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
 
 
 
+{
+  let lastPatchUrl = "";
+  const brewOutbox = loadAppsScript("server/brewSheetCreationOutbox.js", {
+    sheetSyncField_: (doc, name) => doc?.fields?.[name] ?? null,
+    sheetSyncDocumentId_: (doc) => doc?.id || "1601",
+    sheetSyncDocumentsUrl_: (suffix) => "https://example.invalid" + suffix,
+    sheetSyncFetch_: (url) => {
+      lastPatchUrl = url;
+      return {
+        getResponseCode: () => 412,
+        getContentText: () => "",
+      };
+    },
+  });
+
+  const freshCreating = {
+    fields: {
+      state: "creating",
+      updatedAt: new Date().toISOString(),
+      fileId: "",
+    },
+  };
+  const staleCreating = {
+    fields: {
+      state: "creating",
+      updatedAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+      fileId: "",
+    },
+  };
+  const queued = { fields: { state: "queued" } };
+
+  assert.equal(
+    brewOutbox.brewCreateIsRunnableDocument_(freshCreating),
+    false,
+    "a fresh creating brew job must not be claimed by a second worker",
+  );
+  assert.equal(
+    brewOutbox.brewCreateIsRunnableDocument_(staleCreating),
+    true,
+    "a stale creating brew job must be recoverable by maintenance",
+  );
+  assert.equal(
+    brewOutbox.brewCreateIsRunnableDocument_(queued),
+    true,
+    "queued brew jobs must remain runnable",
+  );
+
+  const claimed = brewOutbox.brewCreatePatchJob_(
+    "1601",
+    { state: "creating" },
+    "2026-09-25T18:00:00.000000Z",
+  );
+  assert.equal(claimed, false, "Firestore precondition conflicts must lose the job claim cleanly");
+  assert.match(
+    lastPatchUrl,
+    /currentDocument\.updateTime=/,
+    "brew job claims must use a Firestore updateTime precondition",
+  );
+}
+
+
 
 console.log("Critical server regression tests passed");
