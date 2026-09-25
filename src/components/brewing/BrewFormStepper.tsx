@@ -1062,9 +1062,13 @@ export default function BrewFormStepper({
   }, [run.batchNumber]);
 
   useEffect(() => {
-    if (!run.sheetId || run.source !== "production") return;
+    if (!run.sheetId) return;
 
-    if (Number(run.action) === 0) {
+    // Preview/sandbox brews use local tank state, so the server-side ACTION-0
+    // reconciliation cannot discover tank 20. Keep their Sheet trigger alive
+    // explicitly while the brew form is open. Production keeps the normal
+    // ACTION-0 lifecycle.
+    if (run.source !== "production" || Number(run.action) === 0) {
       void serverEnsureBrewSheetEditTrigger(run.sheetId, run.tankNumber).catch((error) =>
         console.warn("Failed ensuring brew Sheet edit trigger", error),
       );
@@ -1074,7 +1078,7 @@ export default function BrewFormStepper({
     void serverRemoveBrewSheetEditTrigger(run.sheetId).catch((error) =>
       console.warn("Failed removing brew Sheet edit trigger", error),
     );
-  }, [run.sheetId, run.source, run.action]);
+  }, [run.sheetId, run.source, run.action, run.tankNumber]);
 
   useEffect(() => {
     if (!firestoreHydrated || hasField("brewDate")) return;
