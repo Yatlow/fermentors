@@ -164,6 +164,42 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
 }
 
 {
+  let eagerDriveScans = 0;
+  let seenContext = null;
+  const optimized = loadAppsScript("server/OptimisedSync.js", {
+    Utilities: {
+      computeDigest: () => [1],
+      DigestAlgorithm: { MD5: "MD5" },
+      Charset: { UTF_8: "UTF_8" },
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: () => null,
+        setProperty() {},
+      }),
+    },
+    parseAction: (value) => Number(value),
+    getBrewFolderCandidatesCached: () => {
+      eagerDriveScans += 1;
+      return [];
+    },
+    processAction0() {},
+    processAction1() {},
+    processAction5: (_fermentor, context) => {
+      seenContext = context;
+    },
+    brewingSheetReconcileEditTriggers_() {},
+    ensureAsyncLogTrigger_() {},
+  });
+  optimized.runActionFlow_([{ id: "10", data: { tankNumber: "10", action: 5 } }]);
+  assert.equal(eagerDriveScans, 0, "ACTION 5 must not scan Drive before Firestore pending brews are checked");
+  assert.ok(seenContext, "ACTION 5 must receive a shared cycle context");
+  assert.equal(seenContext.pendingBrews, null);
+  assert.equal(seenContext.candidates, null);
+  assert.deepEqual(JSON.parse(JSON.stringify(seenContext.brewExtractCache)), {});
+}
+
+{
   let lastFullCycleAt = null;
   const maintenance = loadAppsScript("server/asyncLogTrigger.js", {
     FIREBASE_PROJECT_ID: "test-project",
