@@ -20,9 +20,6 @@ import {
   resetSandboxSheetBaseline,
   writeSandboxSheetCells,
 } from "../../SERVICES/brewing/sandboxSheet";
-import {
-  serverEnsureBrewSheetEditTrigger,
-} from "../../SERVICES/brewing/brewingSheetServer";
 import BeerLoader from "../general/Loading";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
 import {
@@ -1033,8 +1030,8 @@ export default function BrewFormStepper({
   }
 
   useEffect(() => {
-    // Both production and sandbox write Sheet edits into the canonical
-    // brews/{batch}.brewingExecution document, so both forms can update live.
+    // Sheet edits are persisted into the canonical brews/{batch}.brewingExecution
+    // document, so an open production form updates live.
     return subscribeToBrewingExecution(run.batchNumber, (remote) => {
       setExecution(remote);
       if (remote.activeStepIndex != null) {
@@ -1062,20 +1059,6 @@ export default function BrewFormStepper({
       cancelled = true;
     };
   }, [run.batchNumber]);
-
-  useEffect(() => {
-    if (!run.sheetId) return;
-
-    // Sandbox state lives only in this browser, so maintenance cannot discover
-    // its Sheet. Ensure its installable onEdit trigger whenever the form opens.
-    // Production trigger lifetime remains owned by the server ACTION-0
-    // reconciliation; the browser must not remove production triggers.
-    if (run.source !== "production") {
-      void serverEnsureBrewSheetEditTrigger(run.sheetId, run.tankNumber, true, run.batchNumber).catch((error) =>
-        console.warn("Failed ensuring sandbox brew Sheet edit trigger", error),
-      );
-    }
-  }, [run.sheetId, run.source, run.tankNumber]);
 
   useEffect(() => {
     if (!firestoreHydrated || hasField("brewDate")) return;
