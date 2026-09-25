@@ -73,18 +73,6 @@ function runActionFlow_(fermentors) {
   // One extractBrew cache for the complete cycle.
   const brewExtractCache = {};
 
-  // ACTION 0 is the only action that needs brew-sheet edit triggers. Snapshot
-  // project triggers once, then reuse the set for every ACTION 0 tank.
-  let brewEditTriggerIds = null;
-  if (fermentors.some(function (entry) { return parseAction(entry.data.action) === 0; })) {
-    brewEditTriggerIds = new Set();
-    ScriptApp.getProjectTriggers().forEach(function (trigger) {
-      if (trigger.getHandlerFunction() !== BREWING_EDIT_TRIGGER_HANDLER_) return;
-      const fileId = brewingSheetTriggerSourceId_(trigger);
-      if (fileId) brewEditTriggerIds.add(fileId);
-    });
-  }
-
   fermentors.forEach(function (fermentorEntry) {
     const fermentor = Object.assign(
       { uid: fermentorEntry.id },
@@ -96,23 +84,6 @@ function runActionFlow_(fermentors) {
     try {
       if (action === 0) {
         a0++;
-        if (fermentor.sheetUrl && brewEditTriggerIds) {
-          try {
-            const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
-            if (fileId) {
-              brewingSheetRememberEditTank_(fileId, fermentor.tankNumber || fermentor.uid || "");
-              if (!brewEditTriggerIds.has(fileId)) {
-                ScriptApp.newTrigger(BREWING_EDIT_TRIGGER_HANDLER_)
-                  .forSpreadsheet(fileId)
-                  .onEdit()
-                  .create();
-                brewEditTriggerIds.add(fileId);
-              }
-            }
-          } catch (triggerError) {
-            Logger.log("ACTION 0 edit trigger ensure failed: " + triggerError.message);
-          }
-        }
         processAction0(fermentor);
         return;
       }
@@ -147,6 +118,14 @@ function runActionFlow_(fermentors) {
       }
     }
   });
+
+  try {
+    // One owner for brew edit triggers. This also removes legacy, stale and
+    // duplicate handlers instead of letting ACTION 0 create them ad hoc.
+    brewingSheetReconcileEditTriggers_(fermentors);
+  } catch (error) {
+    Logger.log("BREW EDIT TRIGGER RECONCILE ERROR: " + error.message);
+  }
 
   try {
     ensureAsyncLogTrigger_();
