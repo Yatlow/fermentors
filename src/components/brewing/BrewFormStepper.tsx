@@ -3482,6 +3482,7 @@ export default function BrewFormStepper({
       setLastPullAt(new Date());
       setSyncMismatches([]);
       setSyncError("");
+      setInitialSheetReconciled(true);
       // Persist reconciliation explicitly; do not rely on a later render/effect.
       await saveBrewingExecutionToFirestore(nextExecution);
       if (!silent) {
@@ -3646,9 +3647,7 @@ export default function BrewFormStepper({
     // Firestore is the operational source: render it first, then reconcile
     // the legacy Sheet silently in the background. Any pulled changes are
     // persisted back to Firestore by syncFromSheet itself.
-    void syncFromSheet(true, { silent: true }).then((ok) => {
-      if (ok) setInitialSheetReconciled(true);
-    });
+    void syncFromSheet(true, { silent: true });
     const interval = window.setInterval(
       () => void syncFromSheet(false, { silent: true }),
       60 * 60 * 1000,
