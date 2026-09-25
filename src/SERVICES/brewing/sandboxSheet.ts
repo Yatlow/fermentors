@@ -354,56 +354,23 @@ async function flushSheetOutbox(fileId: string): Promise<void> {
   outbox.inFlight = true;
 
   try {
-    const guardedWrites = await ensureWriteBaselines(fileId, writes);
-    const result = await serverWriteBrewSheetCells(fileId, guardedWrites);
-    if (result.hasConflict || result.conflicts?.length) {
-      const conflicts = result.conflicts || [];
-      const baseline = baselineFor(fileId);
-      conflicts.forEach((conflict) => baseline.set(conflict.range, normalizeSheetValue(conflict.actualValue)));
-
-      // The app and the Apps Script listener both legitimately update the same
-      // Sheet while brewing. A baseline mismatch therefore does not prove a
-      // human edited the Sheet. Retry only the conflicting cells once against
-      // the fresh values returned by the server; this preserves optimistic
-      // protection without surfacing false "external edit" warnings.
-      const retryWrites = conflicts
-        .filter(
-          (conflict) =>
-            normalizeSheetValue(conflict.actualValue) !==
-            normalizeSheetValue(conflict.proposedValue as SheetCellValue | undefined),
-        )
-        .map((conflict) => {
-          const original = guardedWrites.find((write) => write.range === conflict.range);
-          return original
-            ? { ...original, expectedValue: normalizeSheetValue(conflict.actualValue) }
-            : null;
-        })
-        .filter((write): write is SheetWrite => write !== null);
-
-      if (retryWrites.length) {
-        const retryResult = await serverWriteBrewSheetCells(fileId, retryWrites);
-        if (retryResult.hasConflict || retryResult.conflicts?.length || retryResult.updated !== retryWrites.length) {
-          const conflict = retryResult.conflicts?.[0];
-          throw new Error(
-            conflict
-              ? `ה-Sheet השתנה במקביל ב-${conflict.range}. נסה שוב.`
-              : "ה-Sheet השתנה במקביל. נסה שוב.",
-          );
-        }
-      }
-    }
+    // The brewing app is now allowed to be authoritative for explicit user
+    // writes. Do not block an app edit because the Sheet changed since the last
+    // read; send it unguarded and then make the successful app value the new
+    // baseline. Sheet→app sync remains available for edits made in Sheets.
+    const result = await serverWriteBrewSheetCells(fileId, writes);
     const resolvedConflictCount = result.conflicts?.filter(
       (conflict) =>
         normalizeSheetValue(conflict.actualValue) ===
         normalizeSheetValue(conflict.proposedValue as SheetCellValue | undefined),
     ).length || 0;
-    if (result.updated + resolvedConflictCount !== guardedWrites.length) {
+    if (result.updated !== writes.length) {
       throw new Error(
-        `Google Sheets אישר רק ${result.updated} מתוך ${guardedWrites.length} כתיבות.`,
+        `Google Sheets אישר רק ${result.updated} מתוך ${writes.length} כתיבות.`,
       );
     }
     const baseline = baselineFor(fileId);
-    guardedWrites.forEach((write) => baseline.set(write.range, normalizeSheetValue(write.value)));
+    writes.forEach((write) => baseline.set(write.range, normalizeSheetValue(write.value)));
     waiters.forEach(({ resolve }) => resolve());
   } catch (error) {
     // A lost/late ContentService response does not mean the Sheet write failed.
