@@ -14,7 +14,7 @@ import {
   setSandboxExecutionReviewedSteps,
   type BrewExecution,
 } from "../../SERVICES/brewing/sandboxExecution";
-import type { SandboxBrewRun } from "../../SERVICES/brewing/brewingSandbox";
+import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import {
   readSandboxSheetRange,
   resetSandboxSheetBaseline,
@@ -34,7 +34,7 @@ import {
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
 
 type Props = {
-  run: SandboxBrewRun;
+  run: BrewRun;
   recipe: BrewRecipe;
   ingredients: IngredientDefinition[];
   onClose: () => void;
@@ -210,7 +210,7 @@ const TIMELINE_STAGES: StageDef[] = [
 ];
 
 function blockBaseRow(
-  tankType: SandboxBrewRun["tankType"],
+  tankType: BrewRun["tankType"],
   blockIndex: number,
 ): number {
   const rows =
@@ -218,12 +218,12 @@ function blockBaseRow(
   return rows[blockIndex - 1] || rows[0];
 }
 
-function getBlockCount(tankType: SandboxBrewRun["tankType"]) {
+function getBlockCount(tankType: BrewRun["tankType"]) {
   return tankType === "single" ? 1 : tankType === "double" ? 2 : 3;
 }
 
 function blockHeaderRow(
-  tankType: SandboxBrewRun["tankType"],
+  tankType: BrewRun["tankType"],
   blockIndex: number,
 ): number {
   const rows =
@@ -236,7 +236,7 @@ function blockHeaderRow(
 }
 
 function fermentationStartingRow(
-  tankType: SandboxBrewRun["tankType"],
+  tankType: BrewRun["tankType"],
 ): number {
   return tankType === "single" ? 59 : tankType === "double" ? 106 : 156;
 }
@@ -382,7 +382,7 @@ function roundToFive(value: number): number {
 
 function tankHeightCalibration(
   tankNumberValue: string,
-  tankType: SandboxBrewRun["tankType"],
+  tankType: BrewRun["tankType"],
 ): { base: number; cmPer100: number; label: string; note?: string } | null {
   const tankNumber = Number(tankNumberValue);
 
