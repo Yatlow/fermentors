@@ -574,7 +574,7 @@ b {
     justify-content: space-between;
     gap: 6px;
     overflow: hidden;
-    cursor: pointer;
+    cursor: default;
 }
 
 /* Stripe Accent */
@@ -3003,6 +3003,56 @@ b {
 .quickReportSelect:focus {
     border-color: var(--primary);
     box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.1);
+}
+
+.quickReportTypeGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.quickReportTypeButton {
+    min-height: 38px;
+    padding: 7px 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 7px;
+    border: 1px solid #dbe3ec;
+    border-radius: var(--radius-sm);
+    background: #ffffff;
+    color: #334155;
+    font-family: inherit;
+    font-size: 0.74rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.quickReportTypeButton svg {
+    flex: 0 0 auto;
+}
+
+.quickReportTypeButton:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+
+.quickReportTypeButton.active {
+    border-color: var(--primary);
+    background: #eff6ff;
+    color: var(--primary);
+    box-shadow: 0 0 0 1px rgba(43, 108, 176, 0.12);
+}
+
+.quickReportTypeButton:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+    .quickReportTypeGrid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .quickReportForm input[type="text"],
