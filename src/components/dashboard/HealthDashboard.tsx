@@ -419,8 +419,8 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         ].forEach((recommendation) => {
                             if (isRecommendationIgnored(
                                 ignoredRecommendations,
-                                tank.tankNumber,
-                                tank.batchNumber,
+                                String(tank.tankNumber),
+                                String(tank.batchNumber),
                                 recommendation.recommendationKey
                             )) {
                                 return;
