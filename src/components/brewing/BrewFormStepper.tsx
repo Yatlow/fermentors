@@ -3529,11 +3529,31 @@ export default function BrewFormStepper({
         return next;
       }
 
+      // Header date and mash metadata are Sheet-backed too. These cells do
+      // not have dedicated process-row labels, so resolve them from the
+      // semantic row metadata discovered during the full pull.
+      if (Number(fields["__sheetRow.header"] || 0) === row && column === "H") {
+        const iso = isoDateFromSheet(rawValue);
+        if (!iso && rawValue.trim()) return null;
+        set("brewDate", iso);
+        return next;
+      }
+
+      const mashInRow = Number(fields["__sheetRow.stage.mashIn"] || 0);
+      if (mashInRow === row && column === "H") {
+        const volume = /נפח\s*מאש\s*([\d.,]+)/i.exec(rawValue);
+        const ph = /pH\s*([\d.,]+)/i.exec(rawValue);
+        if (volume) set("mashVolume", numericText(volume[1]));
+        if (ph) set("mashPh", numericText(ph[1]));
+        return next;
+      }
+
       for (const key of ["kettlePlato", "endBoilPlato", "fermentorSamplePlato"]) {
         if (Number(fields[`__sheetRow.sugar.${key}`] || 0) !== row) continue;
         if (column === "B") set(key, numericText(rawValue));
         else if (column === "C" && key === "kettlePlato") set("kettleVolume", numericText(rawValue));
         else if (column === "C" && key === "endBoilPlato") set("endBoilVolume", numericText(rawValue));
+        else if (column === "C" && key === "fermentorSamplePlato") set("cumulativeTankVolume", numericText(rawValue));
         else return null;
         return next;
       }
