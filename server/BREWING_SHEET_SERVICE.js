@@ -1342,9 +1342,6 @@ function brewingSheetPersistExecutionCell_(fermentor, event) {
   if (!batch) return false;
 
   const range = event.range;
-  // Single-cell edits are the normal fast path. Multi-cell pastes keep the
-  // revision signal and are reconciled by the full parser instead of risking a
-  // partial canonical write.
   if (range.getNumRows() !== 1 || range.getNumColumns() !== 1) return false;
 
   const row = range.getRow();
@@ -1352,22 +1349,32 @@ function brewingSheetPersistExecutionCell_(fermentor, event) {
   const sheet = range.getSheet();
   const value = String(range.getDisplayValue() || "").trim();
   const data = sheet.getDataRange().getDisplayValues();
-
-  // Find the nearest brew header above the edited row. Templates may move rows,
-  // so block identity is discovered from labels, never absolute row numbers.
   const headers = findBrewBlockStarts(data);
+
   let blockIndex = 0;
   let blockStart = -1;
+  let blockEnd = data.length;
   headers.forEach(function (header, index) {
     if (header.row <= row - 1) {
       blockIndex = index + 1;
       blockStart = header.row;
+      blockEnd = headers[index + 1] ? headers[index + 1].row : data.length;
     }
   });
-  if (!blockIndex || blockStart < 0) return false;
+  if (!blockIndex || blockStart < 0 || row - 1 >= blockEnd) return false;
 
-  const label = String((data[row - 1] || [])[3] || "").trim();
-  let key = "";
+  const rowData = data[row - 1] || [];
+  const labelA = String(rowData[0] || "").trim();
+  const labelC = String(rowData[2] || "").trim();
+  const labelD = String(rowData[3] || "").trim();
+  const changes = {};
+
+  function put(key, raw) {
+    changes[key] = String(raw == null ? "" : raw).trim();
+  }
+  function numeric(raw) {
+    return String(raw == null ? "" : raw).trim().replace(/[^0-9.,-]/g, "").replace(",", ".");
+  }
 
   const stagePatterns = [
     ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\s*1$/i],
@@ -1381,53 +1388,133 @@ function brewingSheetPersistExecutionCell_(fermentor, event) {
     ["hop3", /^הוספת כ(?:שות|שת)\s*3$/i], ["wp", /סוף רתיחה.*תחילת\s*WP/i],
     ["outToFermentor", /^הוצאה לתסיסה$/i]
   ];
-  for (let i = 0; i < stagePatterns.length && !key; i++) {
-    if (!stagePatterns[i][1].test(label)) continue;
-    if (col === 5) key = stagePatterns[i][0] + ".start";
-    else if (col === 6) key = stagePatterns[i][0] + ".end";
-    else if (col === 7) key = stagePatterns[i][0] + ".temp";
-    else if (col === 8) key = stagePatterns[i][0] + ".note";
+  for (let i = 0; i < stagePatterns.length; i++) {
+    if (!stagePatterns[i][1].test(labelD)) continue;
+    const stage = stagePatterns[i][0];
+    if (col === 5) put(stage + ".start", value);
+    else if (col === 6) put(stage + ".end", value);
+    else if (col === 7) put(stage + ".temp", numeric(value));
+    else if (col === 8) put(stage + ".note", value);
+    break;
   }
 
-  const rinse = /^שטיפה\s*(\d+)$/i.exec(label);
-  if (!key && rinse) {
-    if (col === 5) key = "rinse" + rinse[1] + ".time";
-    else if (col === 6) key = "rinse" + rinse[1] + ".amount";
-    else if (col === 7) key = "rinse" + rinse[1] + ".temp";
-    else if (col === 8) key = "rinse" + rinse[1] + ".kettle";
+  const rinse = /^שטיפה\s*(\d+)$/i.exec(labelD);
+  if (rinse) {
+    const n = rinse[1];
+    if (col === 5) put("rinse" + n + ".time", value);
+    else if (col === 6) put("rinse" + n + ".amount", numeric(value));
+    else if (col === 7) put("rinse" + n + ".temp", numeric(value));
+    else if (col === 8) {
+      const parts = value.split("+");
+      put("rinse" + n + ".kettle", numeric(parts[0]));
+      if (parts.length > 1) put("rinse" + n + ".grant", numeric(parts[1]));
+    }
   }
-  // The browser owns the complete semantic parser and receives the revision
-  // below. Persist only cells that this fast-path can identify safely; all
-  // other Sheet-backed cells are reconciled by the browser's full semantic
-  // pull instead of guessing physical row offsets here.
-  if (!key) return false;
 
+  const sugarPatterns = [
+    ["frPlato", /^F\.R\.?\s*$/i],
+    ["lrPlato", /^L\.R\.?\s*$/i],
+    ["kettlePlato", /^סיר בישול/i],
+    ["endBoilPlato", /^סוף רתיחה$/i],
+    ["fermentorSamplePlato", /^תחילת תסיסה$/i]
+  ];
+  for (let s = 0; s < sugarPatterns.length; s++) {
+    if (!sugarPatterns[s][1].test(labelA)) continue;
+    const sugarKey = sugarPatterns[s][0];
+    if (col === 2) put(sugarKey, numeric(value));
+    if (col === 3 && sugarKey === "kettlePlato") put("kettleVolume", numeric(value));
+    if (col === 3 && sugarKey === "endBoilPlato") put("endBoilVolume", numeric(value));
+    if (col === 3 && sugarKey === "fermentorSamplePlato") put("cumulativeTankVolume", numeric(value));
+    break;
+  }
+
+  if (/^HLT$/i.test(labelA)) {
+    if (col === 2) put("hltWaterAmount", numeric(value));
+    else if (col === 3) put("hltWaterTemp", numeric(value));
+  }
+  if (/^MASH\s*IN$/i.test(labelA)) {
+    if (col === 2) put("lauterWaterAmount", numeric(value));
+    else if (col === 3) put("lauterWaterTemp", numeric(value));
+  }
+
+  if (/^הוצאה לבישול$/i.test(labelD) && col === 8) put("outToBoilPh", numeric(value));
+  if (/^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i.test(labelD) && col === 6) put("boilPh", numeric(value));
+  if (/^הוצאה לתסיסה$/i.test(labelD) && col === 8) put("outToFermentorPh", numeric(value));
+
+  if (/H3PO4/i.test(labelC) && col === 1) {
+    let acidNumber = 0;
+    for (let r = blockStart; r < blockEnd; r++) {
+      if (/H3PO4/i.test(String((data[r] || [])[2] || ""))) {
+        acidNumber++;
+        if (r === row - 1) break;
+      }
+    }
+    if (acidNumber === 1) put("mashAcid85", numeric(value));
+    else if (acidNumber === 2) put("boilAcid85", numeric(value));
+  }
+
+  // Raw-hop rows are discovered from the visible כמות / אחוז אלפא / סוג header.
+  let hopHeader = -1;
+  for (let r = blockStart; r < blockEnd; r++) {
+    const rr = data[r] || [];
+    if (/^כמות$/i.test(String(rr[0] || "").trim()) &&
+        /אחוז.*אלפ/i.test(String(rr[1] || "").trim()) &&
+        /סוג/i.test(String(rr[2] || "").trim())) {
+      hopHeader = r;
+      break;
+    }
+  }
+  if (hopHeader >= 0 && row - 1 > hopHeader && row - 1 <= hopHeader + 5) {
+    const hop = row - 1 - hopHeader;
+    if (col === 1) put("hop" + hop + ".amountGrams", numeric(value));
+    else if (col === 2) put("hop" + hop + ".alphaOverride", numeric(value));
+  }
+
+  // Mash metadata lives near הכנסת לתת and can contain both volume and pH.
+  if (/^הכנסת לתת$/i.test(labelD) && col === 8) {
+    const volume = /(?:כמות|נפח)\s*(?:ב)?מאש\s*([\d.,]+)/i.exec(value);
+    const ph = /pH\s*([\d.,]+)/i.exec(value);
+    if (volume) put("mashVolume", numeric(volume[1]));
+    if (ph) put("mashPh", numeric(ph[1]));
+  }
+
+  const keys = Object.keys(changes);
+  if (!keys.length) return false;
+
+  const masks = [
+    "brewingExecution.batchNumber",
+    "brewingExecution.updatedAt"
+  ];
+  keys.forEach(function (key) {
+    masks.push("brewingExecution.blocks." + blockIndex + ".fields.%60" + encodeURIComponent(key) + "%60");
+  });
   const url =
     "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
     "/databases/(default)/documents/brews/" + encodeURIComponent(batch) +
-    "?updateMask.fieldPaths=brewingExecution.blocks." + blockIndex + ".fields.%60" +
-    encodeURIComponent(key) + "%60" +
-    "&updateMask.fieldPaths=brewingExecution.batchNumber" +
-    "&updateMask.fieldPaths=brewingExecution.updatedAt";
+    "?" + masks.map(function (mask) { return "updateMask.fieldPaths=" + mask; }).join("&");
 
+  const blockFields = {};
+  keys.forEach(function (key) {
+    blockFields[key] = brewingSheetFirestoreString_(changes[key]);
+  });
   const document = { fields: { brewingExecution: { mapValue: { fields: {
     batchNumber: brewingSheetFirestoreString_(batch),
     updatedAt: brewingSheetFirestoreString_(new Date().toISOString()),
     blocks: { mapValue: { fields: {} } }
   } } } } };
-  const blockFields = {};
-  blockFields[key] = brewingSheetFirestoreString_(value);
   document.fields.brewingExecution.mapValue.fields.blocks.mapValue.fields[String(blockIndex)] =
     { mapValue: { fields: { fields: { mapValue: { fields: blockFields } } } } };
 
   const response = UrlFetchApp.fetch(url, {
-    method: "patch", contentType: "application/json",
+    method: "patch",
+    contentType: "application/json",
     headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-    payload: JSON.stringify(document), muteHttpExceptions: true
+    payload: JSON.stringify(document),
+    muteHttpExceptions: true
   });
   const code = response.getResponseCode();
   if (code < 200 || code >= 300) {
-    throw new Error("Failed persisting brew execution cell for batch " + batch +
+    throw new Error("Failed persisting brew execution edit for batch " + batch +
       ": " + code + " " + response.getContentText());
   }
   return true;
