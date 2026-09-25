@@ -1539,6 +1539,30 @@ function brewingSheetOnEdit(event) {
   return brewingSheetOnEdit_(event);
 }
 
+function brewingSheetDebugEditSync_(data) {
+  const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
+  const tankNumber = brewingSheetKnownEditTank_(fileId);
+  const triggers = ScriptApp.getProjectTriggers().filter(function (trigger) {
+    return brewingSheetTriggerSourceId_(trigger) === fileId;
+  }).map(function (trigger) {
+    return {
+      handler: trigger.getHandlerFunction(),
+      sourceId: brewingSheetTriggerSourceId_(trigger),
+      eventType: String(trigger.getEventType ? trigger.getEventType() : "")
+    };
+  });
+  const fermentor = brewingSheetFindFermentorForSheet_(fileId);
+  return {
+    spreadsheetId: fileId,
+    rememberedTank: tankNumber,
+    fermentorFound: !!fermentor,
+    fermentorTank: fermentor ? String(fermentor.tankNumber || "") : "",
+    fermentorBatch: fermentor ? String(fermentor.batchNumber || "") : "",
+    fermentorAction: fermentor ? String(fermentor.action == null ? "" : fermentor.action) : "",
+    triggers: triggers
+  };
+}
+
 function brewingSheetOnEdit_(event) {
   if (!event || !event.source) return;
 
