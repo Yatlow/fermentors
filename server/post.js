@@ -120,7 +120,6 @@ const POST_MUTATION_ACTIONS = {
   addFermentationMeasurement: true,
   triggerTankUpdate: true,
   manualNightSync: true,
-  BrewSheetCreate: true,
   // Durable Firestore creation jobs are themselves retryable/idempotent. Do not
   // put the immediate worker behind the global POST ScriptLock: cellar/maintenance
   // traffic was making the browser worker fail with "idempotency lock busy" and
@@ -354,7 +353,7 @@ function doPost(e) {
     const authMs = Date.now() - authStartedAt;
     delete data.idToken;
 
-    if (data.action === "BrewSheetPing" || data.action === "BrewSheetReadRange") {
+    if (data.action === "BrewSheetReadRange") {
       console.log(data.action + " auth timing " + authMs + "ms");
     }
 
@@ -387,17 +386,6 @@ function doPost(e) {
 
 
 function executePostAction_(data) {
-  if (data.action === "BrewSheetPing") {
-    return {
-      success: true,
-      action: "BrewSheetPing",
-      result: {
-        ok: true,
-        serverTime: new Date().toISOString()
-      }
-    };
-  }
-
   if (data.action === "CheckBatchAssignment") {
     const tankID = String(data.tankID || "").trim();
     const requestedBatch = Number(data.requestedBatch);
@@ -597,14 +585,6 @@ function executePostAction_(data) {
       success: true,
       action: "BrewSheetProcessQueuedJob",
       result: processBrewSheetCreationJobNow_(jobId)
-    };
-  }
-
-  if (data.action === "BrewSheetCreate") {
-    return {
-      success: true,
-      action: "BrewSheetCreate",
-      result: brewingSheetCreate_(data)
     };
   }
 
