@@ -1527,6 +1527,3 @@ function brewingSheetOnEdit_(event) {
   }
 }
 
-// Manual diagnostic: verifies the exact Drive write path used by brew creation.
-// Creates a temporary copy of the single-brew template in the real destination
-// folder and immediately trashes it. Does not touch Firestore or create a batch.
