@@ -1125,13 +1125,6 @@ function brewingSheetRemoveEditTrigger_(data) {
   };
 }
 
-function brewingSheetIsSandboxFermentor_(fermentor, entry) {
-  const tank = String(
-    fermentor && fermentor.tankNumber || (entry && entry.id) || ""
-  ).trim();
-  return tank === "20";
-}
-
 function brewingSheetReconcileEditTriggers_(fermentorEntries) {
   const activeSheetIds = new Set();
   const activeTanksBySheet = {};
@@ -1139,10 +1132,7 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
 
   (fermentorEntries || []).forEach(function (entry) {
     const fermentor = entry && entry.data ? entry.data : entry;
-    if (!fermentor || !fermentor.sheetUrl) return;
-    const isActiveProduction = parseAction(fermentor.action) === 0;
-    const isSandbox = brewingSheetIsSandboxFermentor_(fermentor, entry);
-    if (!isActiveProduction && !isSandbox) return;
+    if (!fermentor || parseAction(fermentor.action) !== 0 || !fermentor.sheetUrl) return;
     const fileId = brewingSheetExtractId_(fermentor.sheetUrl);
     if (!fileId) return;
     activeSheetIds.add(fileId);
@@ -1199,10 +1189,7 @@ function brewingSheetFindFermentorForSheet_(spreadsheetId) {
   return fermentors.find(function (fermentor) {
     return (
       brewingSheetExtractId_(fermentor.sheetUrl) === targetId &&
-      (
-        parseAction(fermentor.action) === 0 ||
-        brewingSheetIsSandboxFermentor_(fermentor, null)
-      )
+      parseAction(fermentor.action) === 0
     );
   }) || null;
 }
