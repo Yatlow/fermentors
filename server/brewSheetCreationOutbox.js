@@ -7,6 +7,7 @@
 // ================================================================
 
 const BREW_CREATE_JOB_LIMIT_ = 5;
+const BREW_CREATE_CREATING_STALE_MS_ = 2 * 60 * 1000;
 
 function brewCreateJobField_(doc, name) {
   return sheetSyncField_(doc, name);
@@ -26,7 +27,19 @@ function brewCreatePendingJobs_(requestedJobId) {
     if (code < 200 || code >= 300) throw new Error("Failed loading brew creation job: HTTP " + code);
     const document = JSON.parse(response.getContentText() || "{}");
     const state = String(brewCreateJobField_(document, "state") || "");
-    return state === "queued" || state === "creating" ? [document] : [];
+    if (state === "queued") return [document];
+    if (state !== "creating") return [];
+
+    // A second immediate request must not duplicate a Sheet while the first
+    // worker is still copying it. A creating job is resumable immediately only
+    // after fileId was persisted; otherwise wait until the claim is stale.
+    const fileId = String(brewCreateJobField_(document, "fileId") || "");
+    if (fileId) return [document];
+    const updatedAt = Date.parse(String(brewCreateJobField_(document, "updatedAt") || ""));
+    if (Number.isFinite(updatedAt) && Date.now() - updatedAt < BREW_CREATE_CREATING_STALE_MS_) {
+      return [];
+    }
+    return [document];
   }
 
   const response = sheetSyncFetch_(sheetSyncDocumentsUrl_(":runQuery"), {
@@ -64,7 +77,7 @@ function brewCreatePendingJobs_(requestedJobId) {
     .slice(0, BREW_CREATE_JOB_LIMIT_);
 }
 
-function brewCreatePatchJob_(jobId, fields) {
+function brewCreatePatchJob_(jobId, fields, expectedUpdateTime) {
   const names = Object.keys(fields);
   const mask = names.map(function (name) {
     return "updateMask.fieldPaths=" + encodeURIComponent(name);
@@ -76,12 +89,17 @@ function brewCreatePatchJob_(jobId, fields) {
     else if (value === null) encoded[name] = { nullValue: null };
     else encoded[name] = { stringValue: String(value) };
   });
+  const precondition = expectedUpdateTime
+    ? "&currentDocument.updateTime=" + encodeURIComponent(String(expectedUpdateTime))
+    : "";
   const response = sheetSyncFetch_(
-    sheetSyncDocumentsUrl_("/brewSheetCreationJobs/" + encodeURIComponent(jobId) + "?" + mask),
+    sheetSyncDocumentsUrl_("/brewSheetCreationJobs/" + encodeURIComponent(jobId) + "?" + mask + precondition),
     { method: "patch", contentType: "application/json", payload: JSON.stringify({ fields: encoded }) }
   );
   const code = response.getResponseCode();
+  if (expectedUpdateTime && (code === 409 || code === 412)) return false;
   if (code < 200 || code >= 300) throw new Error("Failed updating brew creation job: HTTP " + code);
+  return true;
 }
 
 function brewCreatePublishPending_(job, created) {
@@ -130,12 +148,13 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
     };
 
     try {
-      brewCreatePatchJob_(jobId, {
+      const claimed = brewCreatePatchJob_(jobId, {
         state: "creating",
         attempts: job.attempts + 1,
         updatedAt: new Date().toISOString(),
         lastError: ""
-      });
+      }, document.updateTime || "");
+      if (!claimed) return;
 
       const initialWrites = JSON.parse(job.initialWritesJson);
       if (!Array.isArray(initialWrites)) throw new Error("Invalid initialWritesJson");
@@ -211,8 +230,7 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
 
 function processBrewSheetCreationJobNow_(jobId) {
   // Do not hold the global ScriptLock while copying/initialising a Sheet.
-  // The durable Firestore job is already the unit of work, and the generic
-  // doPost idempotency layer protects a single request from replay. Holding
-  // ScriptLock here made every unrelated POST wait behind 30-45s Drive work.
+  // The Firestore updateTime precondition above is the per-job claim: only one
+  // worker can move a particular job into its current creating attempt.
   return processPendingBrewSheetCreationJobs_(String(jobId || ""));
 }
