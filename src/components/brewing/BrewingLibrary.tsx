@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
-  createRecipe,
+  createRecipe as createStoredRecipe,
   deleteRecipe,
-  saveRecipe,
+  saveRecipe as saveStoredRecipe,
 } from "../../SERVICES/brewing/recipeEditorStore";
 import {
   activeLot,
@@ -12,7 +12,7 @@ import {
   type IngredientLotStatus,
 } from "../../SERVICES/brewing/ingredientLibrary";
 import {
-  createIngredient,
+  createIngredient as createStoredIngredient,
   saveIngredients,
   type CreateIngredientInput,
 } from "../../SERVICES/brewing/ingredientEditorStore";
@@ -78,7 +78,7 @@ export default function BrewingLibrary({
   );
 
   function saveRecipe(recipe: BrewRecipe) {
-    const saved = saveRecipe(recipe);
+    const saved = saveStoredRecipe(recipe);
     const next = recipes.some((item) => item.id === saved.id)
       ? recipes.map((item) => (item.id === saved.id ? saved : item))
       : [...recipes, saved];
@@ -90,7 +90,7 @@ export default function BrewingLibrary({
   function createRecipe() {
     const name = newRecipeName.trim();
     if (!name) return;
-    const created = createRecipe(name);
+    const created = createStoredRecipe(name);
     const next = [...recipes.filter((item) => item.id !== created.id), created];
     onRecipesChange(next);
     setNewRecipeName("");
@@ -166,7 +166,7 @@ export default function BrewingLibrary({
   function createIngredientFromInput(
     input: CreateIngredientInput,
   ): IngredientDefinition {
-    const result = createIngredient(input, ingredients);
+    const result = createStoredIngredient(input, ingredients);
     saveIngredients(result.ingredients);
     onIngredientsChange(result.ingredients);
     setMessage(`${result.ingredient.name} נוסף לספריית חומרי הגלם.`);
