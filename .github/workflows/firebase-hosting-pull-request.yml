@@ -30,10 +30,6 @@ jobs:
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
           VITE_APP_VERSION: ${{ github.sha }}
           VITE_DEPLOY_ENV: preview
-          VITE_BREW_SANDBOX_FOLDER_ID: 1GUlkKK9zoRAcuK2zfuMqPgLKhprx5DHe
-          VITE_BREW_SANDBOX_TEMPLATE_SINGLE_ID: 1qqYHpIhokc7mEsCHW2bhM6LDGrmh4CN0l937nYnonOw
-          VITE_BREW_SANDBOX_TEMPLATE_DOUBLE_ID: 1M-IFhJL-JwphQDEKsAHFCpCR8zz4zXXgaXkCZ2hpXtY
-          VITE_BREW_SANDBOX_TEMPLATE_TRIPLE_ID: 1I8P0aoD7WEo0AYZcYebhFzCGdik5TzgPnNq2SgPEzkI
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
