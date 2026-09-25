@@ -1,6 +1,5 @@
 import { useMemo, useState, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
 import {
-import TransientNumberInput from "../general/TransientNumberInput";
     addDays,
     emptyWeek,
     litersPerUnit,
@@ -17,6 +16,7 @@ import { brewSizeLabel, weekday } from "../../SERVICES/planning/productionCycle"
 import { shipmentMatchesForPlans } from "../../SERVICES/planning/shipmentActuals";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
 import "./planningPackagingModal.css";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 type Props = ComponentProps<typeof PlanningWeeklyRecommendations> & {
     historyPlans?: ComponentProps<typeof PlanningWeeklyRecommendations>["plans"];
