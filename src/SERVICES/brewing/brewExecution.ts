@@ -25,7 +25,7 @@ function emptyExecution(batchNumber: string): BrewExecution {
 }
 
 function key(batchNumber: string) {
-  return `fermentors:brewing-sandbox:execution:${batchNumber}:v1`;
+  return `fermentors:brewing:execution:${batchNumber}:v1`;
 }
 
 export function loadBrewingExecution(batchNumber: string): BrewExecution {
@@ -39,7 +39,7 @@ export function loadBrewingExecution(batchNumber: string): BrewExecution {
   }
 }
 
-export function saveSandboxExecution(execution: BrewExecution): BrewExecution {
+export function saveBrewingExecutionLocal(execution: BrewExecution): BrewExecution {
   const next = {
     ...execution,
     updatedAt: new Date().toISOString(),
@@ -55,7 +55,7 @@ export function setBrewingExecutionField(
   value: string,
 ): BrewExecution {
   const blockKey = String(blockIndex);
-  return saveSandboxExecution({
+  return saveBrewingExecutionLocal({
     ...execution,
     blocks: {
       ...execution.blocks,
@@ -73,14 +73,14 @@ export function setBrewingExecutionActiveStep(
   execution: BrewExecution,
   activeStepIndex: number,
 ): BrewExecution {
-  return saveSandboxExecution({ ...execution, activeStepIndex });
+  return saveBrewingExecutionLocal({ ...execution, activeStepIndex });
 }
 
 export function setBrewingExecutionActiveBlock(
   execution: BrewExecution,
   activeBlockIndex: number,
 ): BrewExecution {
-  return saveSandboxExecution({ ...execution, activeBlockIndex });
+  return saveBrewingExecutionLocal({ ...execution, activeBlockIndex });
 }
 
 
@@ -90,7 +90,7 @@ export function replaceBrewingExecutionBlockFields(
   fields: Record<string, string>,
 ): BrewExecution {
   const blockKey = String(blockIndex);
-  return saveSandboxExecution({
+  return saveBrewingExecutionLocal({
     ...execution,
     blocks: {
       ...execution.blocks,
@@ -105,7 +105,7 @@ export function setBrewingExecutionReviewedSteps(
   execution: BrewExecution,
   reviewedSteps: Record<string, boolean>,
 ): BrewExecution {
-  return saveSandboxExecution({ ...execution, reviewedSteps: { ...reviewedSteps } });
+  return saveBrewingExecutionLocal({ ...execution, reviewedSteps: { ...reviewedSteps } });
 }
 
 
@@ -120,7 +120,7 @@ export function subscribeToBrewingExecution(
     const data = snapshot.data() as { brewingExecution?: BrewExecution };
     const remote = data.brewingExecution;
     if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
-    onExecution(saveSandboxExecution(remote));
+    onExecution(saveBrewingExecutionLocal(remote));
   });
 }
 
@@ -134,7 +134,7 @@ export async function loadBrewingExecutionFromFirestore(
   const data = snapshot.data() as { brewingExecution?: BrewExecution };
   const remote = data.brewingExecution;
   if (!remote || remote.batchNumber !== clean || !remote.blocks) return null;
-  return saveSandboxExecution(remote);
+  return saveBrewingExecutionLocal(remote);
 }
 
 function acidHistoryFields(fields: Record<string, string>) {
@@ -222,7 +222,7 @@ export async function saveBrewingProgressToFirestore(
   progress: BrewingProgressUpdate,
 ): Promise<void> {
   const cleanTankId = String(tankId || "").trim();
-  if (!cleanTankId || cleanTankId.startsWith("history-") || cleanTankId.startsWith("sandbox-")) {
+  if (!cleanTankId || cleanTankId.startsWith("history-")) {
     return;
   }
 
