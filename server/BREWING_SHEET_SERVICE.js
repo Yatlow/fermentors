@@ -775,6 +775,23 @@ function brewingSheetRenameBatch_(data) {
   if (!/^\d+$/.test(newBatch)) throw new Error("Invalid newBatchNumber");
 
   const file = DriveApp.getFileById(fileId);
+
+  if (newBatch !== oldBatch) {
+    const folderId = brewingSheetConfig_().folderId;
+    const folder = DriveApp.getFolderById(folderId);
+    const duplicateFiles = folder.searchFiles(
+      "trashed = false and title contains '" + newBatch.replace(/'/g, "\\'") + "'"
+    );
+    while (duplicateFiles.hasNext()) {
+      const candidate = duplicateFiles.next();
+      if (candidate.getId() === fileId) continue;
+      const parsed = brewingSheetBatchFromName_(candidate.getName());
+      if (String(parsed || "").replace("#", "").trim() === newBatch) {
+        throw new Error("Batch " + newBatch + " already exists.");
+      }
+    }
+  }
+
   const ss = SpreadsheetApp.openById(fileId);
   const sheet = ss.getSheets()[0];
   const values = sheet.getDataRange().getDisplayValues();
