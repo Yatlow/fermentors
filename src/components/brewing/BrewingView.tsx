@@ -551,22 +551,13 @@ export default function BrewingView({ brews, tab }: Props) {
     }, []);
 
     useEffect(() => {
-        if (planningHints.length === 0) return;
-
-        const used = new Set(
-            [
-                ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
-            ].filter(Boolean),
-        );
-
-        const nextPlanned = [...planningHints]
-            .filter((hint) => !used.has(String(hint.batchNumber).replace("#", "").trim()))
+        const nextPlanned = [...visiblePlanningHints]
             .sort((a, b) => Number(a.batchNumber) - Number(b.batchNumber))[0];
 
         if (nextPlanned?.batchNumber) {
             setSuggestedBatch(String(nextPlanned.batchNumber));
         }
-    }, [planningHints, brews]);
+    }, [visiblePlanningHints]);
 
     function findProductionAssignment(batchNumber: string): Fermentor | null {
         const clean = String(batchNumber || "").replace("#", "").trim();
