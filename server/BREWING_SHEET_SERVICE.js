@@ -1045,8 +1045,6 @@ function brewingSheetAcidHistory_(data) {
 const BREWING_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit";
 const BREWING_LEGACY_EDIT_TRIGGER_HANDLER_ = "brewingSheetOnEdit_";
 const BREWING_EDIT_TANK_PREFIX_ = "brew_edit_tank:";
-const BREWING_EDIT_SANDBOX_PREFIX_ = "brew_edit_sandbox:";
-const BREWING_EDIT_BATCH_PREFIX_ = "brew_edit_batch:";
 
 function brewingSheetRememberEditTank_(spreadsheetId, tankNumber) {
   const fileId = String(spreadsheetId || "").trim();
@@ -1074,13 +1072,6 @@ function brewingSheetTriggerSourceId_(trigger) {
 function brewingSheetEnsureEditTrigger_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   if (data.tankNumber) brewingSheetRememberEditTank_(fileId, data.tankNumber);
-  if (data.sandbox === true) {
-    PropertiesService.getScriptProperties().setProperty(BREWING_EDIT_SANDBOX_PREFIX_ + fileId, "1");
-    const sandboxBatch = String(data.batchNumber || "").replace("#", "").trim();
-    if (sandboxBatch) {
-      PropertiesService.getScriptProperties().setProperty(BREWING_EDIT_BATCH_PREFIX_ + fileId, sandboxBatch);
-    }
-  }
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(function (trigger) {
     if (
@@ -1138,13 +1129,6 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
   const activeSheetIds = new Set();
   const activeTanksBySheet = {};
   const projectTriggers = ScriptApp.getProjectTriggers();
-  const scriptProperties = PropertiesService.getScriptProperties();
-  const sandboxSheetIds = new Set(
-    Object.keys(scriptProperties.getProperties())
-      .filter(function (key) { return key.indexOf(BREWING_EDIT_SANDBOX_PREFIX_) === 0; })
-      .map(function (key) { return key.substring(BREWING_EDIT_SANDBOX_PREFIX_.length); })
-      .filter(Boolean)
-  );
 
   (fermentorEntries || []).forEach(function (entry) {
     const fermentor = entry && entry.data ? entry.data : entry;
@@ -1172,7 +1156,7 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
     const keep =
       handler === BREWING_EDIT_TRIGGER_HANDLER_ &&
       fileId &&
-      (activeSheetIds.has(fileId) || sandboxSheetIds.has(fileId)) &&
+      activeSheetIds.has(fileId) &&
       !keptBySheet[fileId];
 
     if (keep) {
@@ -1194,66 +1178,20 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
 
   return {
     active: activeSheetIds.size,
-    sandbox: sandboxSheetIds.size,
     normalized: Object.keys(keptBySheet).length
   };
 }
 
 function brewingSheetFindFermentorForSheet_(spreadsheetId) {
   const targetId = brewingSheetExtractId_(spreadsheetId);
-  if (!targetId) return null;
+  const fermentors = getAllFermentorsFromFirebase();
 
-  // Read Firestore directly here. The edit trigger must not depend on the
-  // periodic-cycle fermentor cache: a newly created/renamed brew Sheet can be
-  // edited before that cache has seen its current sheetUrl, which made a valid
-  // onEdit execution look like an orphan and silently skip the write.
-  const url =
-    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
-    "/databases/(default)/documents/fermentors";
-  const response = UrlFetchApp.fetch(url, {
-    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-    muteHttpExceptions: true
-  });
-  const code = response.getResponseCode();
-  if (code < 200 || code >= 300) {
-    throw new Error(
-      "Failed resolving fermentor for brew Sheet " + targetId +
-      ": " + code + " " + response.getContentText()
+  return fermentors.find(function (fermentor) {
+    return (
+      brewingSheetExtractId_(fermentor.sheetUrl) === targetId &&
+      parseAction(fermentor.action) === 0
     );
-  }
-
-  const docs = JSON.parse(response.getContentText() || "{}").documents || [];
-  for (let i = 0; i < docs.length; i++) {
-    const fields = docs[i].fields || {};
-    const sheetUrl = String((fields.sheetUrl && fields.sheetUrl.stringValue) || "");
-    const actionField = fields.action || {};
-    const action = actionField.integerValue != null
-      ? Number(actionField.integerValue)
-      : actionField.doubleValue != null
-        ? Number(actionField.doubleValue)
-        : Number(actionField.stringValue);
-
-    if (brewingSheetExtractId_(sheetUrl) !== targetId || action !== 0) continue;
-
-    const documentId = String(docs[i].name || "").split("/").pop() || "";
-    return {
-      id: documentId,
-      tankNumber: String(
-        (fields.tankNumber &&
-          (fields.tankNumber.stringValue || fields.tankNumber.integerValue)) ||
-        documentId
-      ).trim(),
-      batchNumber: String(
-        (fields.batchNumber &&
-          (fields.batchNumber.stringValue || fields.batchNumber.integerValue)) ||
-        ""
-      ).trim(),
-      sheetUrl: sheetUrl,
-      action: action
-    };
-  }
-
-  return null;
+  }) || null;
 }
 
 function brewingSheetPublishEditRevision_(tankNumber, event) {
@@ -1646,68 +1584,27 @@ function brewingSheetOnEdit_(event) {
   if (!spreadsheetId) return;
 
   try {
-    // Fast path: the reconciliation cycle remembers the tank for every active
-    // brew Sheet. Publish the edit signal before doing the expensive full
-    // fermentor lookup/stage parse, so an open app can react within seconds.
     const knownTank = brewingSheetKnownEditTank_(spreadsheetId);
     if (knownTank) brewingSheetPublishEditRevision_(knownTank, event);
 
-    let fermentor = brewingSheetFindFermentorForSheet_(spreadsheetId);
-    let isSandboxRun = false;
-
-    // Sandbox tank 20 deliberately has no fermentors document. Resolve only
-    // that missing identity here, then feed it through the SAME edit pipeline
-    // as production instead of maintaining a second sync implementation.
+    const fermentor = brewingSheetFindFermentorForSheet_(spreadsheetId);
     if (!fermentor) {
-      const props = PropertiesService.getScriptProperties();
-      const isSandbox =
-        props.getProperty(BREWING_EDIT_SANDBOX_PREFIX_ + spreadsheetId) === "1";
-
-      if (!isSandbox) {
-        brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
-        return;
-      }
-
-      const sandboxBatch = String(
-        props.getProperty(BREWING_EDIT_BATCH_PREFIX_ + spreadsheetId) || ""
-      ).replace("#", "").trim();
-      if (!sandboxBatch) {
-        throw new Error("Sandbox brew edit has no bound batch for " + spreadsheetId);
-      }
-
-      fermentor = {
-        batchNumber: sandboxBatch,
-        tankNumber: knownTank || "20",
-        sheetUrl: event.source.getUrl(),
-        action: 0
-      };
-      isSandboxRun = true;
+      brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+      return;
     }
 
-    // Publish every manual edit immediately. The open app listens to the
-    // fermentor document and reuses its canonical full-Sheet parser to pull the
-    // changed value into brewingExecution/Firestore without waiting for the
-    // hourly safety reconciliation.
     if (!knownTank) {
       brewingSheetRememberEditTank_(spreadsheetId, fermentor.tankNumber);
       brewingSheetPublishEditRevision_(fermentor.tankNumber, event);
     }
 
-    // Persist the canonical execution even when no browser is open.
     brewingSheetPersistExecutionCell_(fermentor, event);
-
-    // Everything up to canonical brewingExecution persistence is intentionally
-    // identical for production and sandbox. Only production owns fermentor
-    // lifecycle/stage transitions.
-    if (isSandboxRun) return;
 
     const stageInfo = extractBrewStageInfo(spreadsheetId, fermentor);
     if (!stageInfo || !stageInfo.lastBlock) return;
 
     updateFermentorBrewProgress(fermentor.tankNumber, stageInfo);
 
-    // Preserve the existing ACTION-0 completion semantics. A manual Sheet edit
-    // can therefore finish the brew exactly like the scheduled reconciliation.
     if (stageInfo.beerVolume !== null && stageInfo.beerVolume !== undefined) {
       updateFermentorAction(fermentor.tankNumber, 1);
       brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
@@ -1737,7 +1634,6 @@ function brewingSheetOnEdit_(event) {
     );
   }
 }
-
 
 // Manual diagnostic: verifies the exact Drive write path used by brew creation.
 // Creates a temporary copy of the single-brew template in the real destination
