@@ -241,7 +241,13 @@ export default function BrewingView({ brews, tab }: Props) {
         return next;
     });
     const [editingTankId, setEditingTankId] = useState<string | null>(null);
-    const [editBatchDraft, setEditBatchDraft] = useState<{ tankId: string; batchNumber: string; style: string } | null>(null);
+    const [editBatchDraft, setEditBatchDraft] = useState<{
+        target: "tank" | "pending";
+        tankId: string;
+        batchNumber: string;
+        style: string;
+        run?: BrewRun;
+    } | null>(null);
     const [productionHistory, setProductionHistory] =
         useState<BrewingDriveHistoryRow[]>([]);
     const [pendingProductionRows, setPendingProductionRows] = useState<BrewingDriveHistoryRow[]>([]);
@@ -792,26 +798,92 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
     }
 
 
-    async function saveUnstartedProductionBatchEdit() {
+    async function saveProductionBatchEdit() {
         if (!editBatchDraft) return;
+
+        const nextBatch = editBatchDraft.batchNumber.replace(/\D/g, "").trim();
+        const nextStyle = editBatchDraft.style.trim();
+        if (!nextBatch || !nextStyle) return;
+
+        if (editBatchDraft.target === "pending") {
+            const run = editBatchDraft.run;
+            if (!run || run.brewDate || !run.sheetId) return;
+            if (nextBatch === run.batchNumber && nextStyle === run.style) {
+                setEditBatchDraft(null);
+                return;
+            }
+
+            setEditingTankId(run.tankId);
+            setMessage("");
+            try {
+                if (
+                    nextBatch !== run.batchNumber &&
+                    await batchNumberExistsInProduction(nextBatch)
+                ) {
+                    throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
+                }
+                await serverRenameBrewSheet({
+                    spreadsheetId: run.sheetId,
+                    oldBatchNumber: run.batchNumber,
+                    newBatchNumber: nextBatch,
+                    style: nextStyle,
+                });
+                const pendingRef = doc(db, "pendingBrews", run.batchNumber);
+                const targetPendingRef = doc(db, "pendingBrews", nextBatch);
+                await setDoc(targetPendingRef, {
+                    batchNumber: nextBatch,
+                    beerStyle: nextStyle,
+                    tankNumber: run.tankNumber === "—" ? "" : run.tankNumber,
+                    tankType: run.tankType,
+                    fileId: run.sheetId,
+                    fileName: "",
+                    sheetUrl: run.sheetUrl,
+                    createdAt: serverTimestamp(),
+                });
+                if (nextBatch !== run.batchNumber) {
+                    await Promise.allSettled([
+                        deleteDoc(pendingRef),
+                        deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
+                    ]);
+                }
+                setProductionHistory((current) =>
+                    current.map((row) =>
+                        String(row.batchNumber).replace("#", "").trim() === run.batchNumber
+                            ? { ...row, batchNumber: nextBatch, beerStyle: nextStyle }
+                            : row,
+                    ),
+                );
+                setEditBatchDraft(null);
+                setMessage(`✓ אצווה ${run.batchNumber} עודכנה ל-${nextBatch} · ${nextStyle}.`);
+            } catch (error) {
+                setMessage(error instanceof Error ? error.message : "עדכון האצווה נכשל.");
+            } finally {
+                setEditingTankId(null);
+            }
+            return;
+        }
+
         const tank = brews.find((item) => item.id === editBatchDraft.tankId);
         if (!tank || Number(tank.action) !== 0) return;
         const run = productionRunFromTank(tank);
         if (!run?.sheetId || run.brewProgress?.stageName) return;
-        const nextBatch = editBatchDraft.batchNumber.replace(/\D/g, "").trim();
-        const nextStyle = editBatchDraft.style.trim();
-        if (!nextBatch || !nextStyle) return;
         if (nextBatch === run.batchNumber && nextStyle === run.style) {
             setEditBatchDraft(null);
             return;
         }
+
         setEditingTankId(tank.id);
         setMessage("");
         try {
             if (nextBatch !== run.batchNumber && await batchNumberExistsInProduction(nextBatch)) {
                 throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
             }
-            await serverRenameBrewSheet({ spreadsheetId: run.sheetId, oldBatchNumber: run.batchNumber, newBatchNumber: nextBatch, style: nextStyle });
+            await serverRenameBrewSheet({
+                spreadsheetId: run.sheetId,
+                oldBatchNumber: run.batchNumber,
+                newBatchNumber: nextBatch,
+                style: nextStyle,
+            });
             // brews/{batch} is keyed by the batch number, so a rename must
             // migrate the canonical document too. Otherwise the old id becomes
             // an orphan and deleting the renamed batch cannot remove it.
@@ -840,10 +912,6 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     });
                     await deleteDoc(oldBrewRef);
                 }
-                // Creation metadata is also keyed by the original batch number.
-                // Once the Sheet exists these records are no longer needed; leaving
-                // them behind makes recreating the original planned batch hit the
-                // create-only Firestore rule and surface as "Missing permissions".
                 await Promise.allSettled([
                     deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
                     deleteDoc(doc(db, "pendingBrews", run.batchNumber)),
@@ -855,64 +923,11 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     await updateDoc(brewRef, { beerStyle: nextStyle });
                 }
             }
-            await updateDoc(doc(db, "fermentors", tank.id), { batchNumber: nextBatch, beerStyle: nextStyle });
-            setEditBatchDraft(null);
-            setMessage(`✓ אצווה ${run.batchNumber} עודכנה ל-${nextBatch} · ${nextStyle}.`);
-        } catch (error) {
-            setMessage(error instanceof Error ? error.message : "עדכון האצווה נכשל.");
-        } finally {
-            setEditingTankId(null);
-        }
-    }
-
-    async function editPendingProductionBatch(run: BrewRun) {
-        if (run.brewDate || !run.sheetId) return;
-        const nextBatch = window.prompt("מספר אצווה", run.batchNumber)?.replace(/\D/g, "").trim();
-        if (!nextBatch) return;
-        const nextStyle = window.prompt("סגנון", run.style)?.trim();
-        if (!nextStyle) return;
-        if (nextBatch === run.batchNumber && nextStyle === run.style) return;
-
-        setEditingTankId(run.tankId);
-        setMessage("");
-        try {
-            if (
-                nextBatch !== run.batchNumber &&
-                await batchNumberExistsInProduction(nextBatch)
-            ) {
-                throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
-            }
-            await serverRenameBrewSheet({
-                spreadsheetId: run.sheetId,
-                oldBatchNumber: run.batchNumber,
-                newBatchNumber: nextBatch,
-                style: nextStyle,
-            });
-            const pendingRef = doc(db, "pendingBrews", run.batchNumber);
-            const targetPendingRef = doc(db, "pendingBrews", nextBatch);
-            await setDoc(targetPendingRef, {
+            await updateDoc(doc(db, "fermentors", tank.id), {
                 batchNumber: nextBatch,
                 beerStyle: nextStyle,
-                tankNumber: run.tankNumber === "—" ? "" : run.tankNumber,
-                tankType: run.tankType,
-                fileId: run.sheetId,
-                fileName: "",
-                sheetUrl: run.sheetUrl,
-                createdAt: serverTimestamp(),
             });
-            if (nextBatch !== run.batchNumber) {
-                await Promise.allSettled([
-                    deleteDoc(pendingRef),
-                    deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
-                ]);
-            }
-            setProductionHistory((current) =>
-                current.map((row) =>
-                    String(row.batchNumber).replace("#", "").trim() === run.batchNumber
-                        ? { ...row, batchNumber: nextBatch, beerStyle: nextStyle }
-                        : row,
-                ),
-            );
+            setEditBatchDraft(null);
             setMessage(`✓ אצווה ${run.batchNumber} עודכנה ל-${nextBatch} · ${nextStyle}.`);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : "עדכון האצווה נכשל.");
@@ -1072,7 +1087,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                         <label>סגנון<select value={editBatchDraft.style} onChange={(event) => setEditBatchDraft((current) => current ? { ...current, style: event.target.value } : current)}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.style}>{recipe.style}</option>)}</select></label>
                         <div className="brewing-confirm-actions">
                             <button type="button" onClick={() => setEditBatchDraft(null)}>ביטול</button>
-                            <button type="button" disabled={editingTankId === editBatchDraft.tankId || !editBatchDraft.batchNumber || !editBatchDraft.style} onClick={() => void saveUnstartedProductionBatchEdit()}>{editingTankId === editBatchDraft.tankId ? "שומר…" : "שמור"}</button>
+                            <button type="button" disabled={editingTankId === editBatchDraft.tankId || !editBatchDraft.batchNumber || !editBatchDraft.style} onClick={() => void saveProductionBatchEdit()}>{editingTankId === editBatchDraft.tankId ? "שומר…" : "שמור"}</button>
                         </div>
                     </div>
                 </div>
@@ -1176,7 +1191,17 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                         <button
                                             type="button"
                                             disabled={editingTankId === tank.id}
-                                            onClick={() => { const current = productionRunFromTank(tank); if (current) setEditBatchDraft({ tankId: tank.id, batchNumber: current.batchNumber, style: current.style }); }}
+                                            onClick={() => {
+                                                const current = productionRunFromTank(tank);
+                                                if (current) {
+                                                    setEditBatchDraft({
+                                                        target: "tank",
+                                                        tankId: tank.id,
+                                                        batchNumber: current.batchNumber,
+                                                        style: current.style,
+                                                    });
+                                                }
+                                            }}
                                         >
                                             ערוך אצווה
                                         </button>
@@ -1378,7 +1403,21 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                             <div className="brewing-card-actions">
                                                 <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
                                                 <button type="button" onClick={() => printBrewCover(run)}>הדפס דף בישול</button>
-                                                <button type="button" disabled={editingTankId === run.tankId} onClick={() => void editPendingProductionBatch(run)}>ערוך אצווה</button>
+                                                <button
+                                                    type="button"
+                                                    disabled={editingTankId === run.tankId}
+                                                    onClick={() =>
+                                                        setEditBatchDraft({
+                                                            target: "pending",
+                                                            tankId: run.tankId,
+                                                            batchNumber: run.batchNumber,
+                                                            style: run.style,
+                                                            run,
+                                                        })
+                                                    }
+                                                >
+                                                    ערוך אצווה
+                                                </button>
                                                 <button type="button" className="brewing-danger-button" disabled={isDeletingBatch(run.batchNumber)} onClick={() => setDeleteConfirmation(run)}>מחק</button>
                                             </div>
                                         </article>
