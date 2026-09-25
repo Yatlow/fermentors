@@ -310,7 +310,7 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   const staleCreating = {
     fields: {
       state: "creating",
-      updatedAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
       fileId: "",
     },
   };
