@@ -237,11 +237,15 @@ export function buildBatchTimeline(
         const measurementId = String(measurement.id ?? index);
         const note = String(measurement.notes ?? "").trim();
         const carbonation = numericValue(measurement.carbonation);
+        const hasBottomCarbonationAction =
+            /תחילת\s+גיזוז\s+מלמטה|סגירת\s+גיזוז\s+מלמטה/i.test(note);
 
-        // Start by recording every carbonation test. If a pressure correction
-        // later consumes that result, its standalone bubble is removed and the
-        // result is shown inside the pressure event instead. This avoids showing
-        // one physical test twice on the timeline.
+        // Start by recording every carbonation test. If this same physical row
+        // also contains a bottom-carbonation action, keep the carbonation event
+        // independent from the action note. BatchTimeline later decorates action
+        // events from their note; carrying the note here made the same bottom
+        // carbonation session transform BOTH the carb-test bubble and the action
+        // bubble into two identical "גיזוז מלמטה" events.
         if (carbonation !== null) {
             events.push(eventBase(
                 `carbonation-${measurementId}`,
@@ -250,7 +254,7 @@ export function buildBatchTimeline(
                 "🫧",
                 date,
                 brewDate,
-                note || undefined,
+                hasBottomCarbonationAction ? undefined : (note || undefined),
                 `תוצאה ${prettyNumber(carbonation)} vol`
             ));
         }
