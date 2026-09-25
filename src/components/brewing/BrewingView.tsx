@@ -27,7 +27,6 @@ import { sameStyle } from "../../SERVICES/planning/planningEngine";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import {
     buildBrewSheetInitialWrites,
-    productionBrewSheetExists,
 } from "../../SERVICES/brewing/brewSheet";
 import { enqueueBrewSheetCreation } from "../../SERVICES/brewing/brewSheetCreationOutbox";
 import BrewingLibrary from "./BrewingLibrary";
@@ -809,7 +808,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         setEditingTankId(tank.id);
         setMessage("");
         try {
-            if (nextBatch !== run.batchNumber && (await batchNumberExistsInProduction(nextBatch) || await productionBrewSheetExists(nextBatch))) {
+            if (nextBatch !== run.batchNumber && await batchNumberExistsInProduction(nextBatch)) {
                 throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
             }
             await serverRenameBrewSheet({ spreadsheetId: run.sheetId, oldBatchNumber: run.batchNumber, newBatchNumber: nextBatch, style: nextStyle });
@@ -879,8 +878,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
         try {
             if (
                 nextBatch !== run.batchNumber &&
-                (await batchNumberExistsInProduction(nextBatch) ||
-                    await productionBrewSheetExists(nextBatch))
+                await batchNumberExistsInProduction(nextBatch)
             ) {
                 throw new Error(`אצווה ${nextBatch} כבר קיימת.`);
             }
