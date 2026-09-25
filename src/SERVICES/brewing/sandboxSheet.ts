@@ -247,12 +247,6 @@ function baselineFor(fileId: string) {
   return baseline;
 }
 
-function a1Cell(range: string): { sheet: string; col: string; row: number } | null {
-  const match = range.match(/^(?:(.+)!)?\$?([A-Z]+)\$?(\d+)$/i);
-  if (!match) return null;
-  return { sheet: match[1] || "", col: match[2].toUpperCase(), row: Number(match[3]) };
-}
-
 export function resetSandboxSheetBaseline(fileId: string): void {
   if (!fileId) return;
   sheetBaselines.delete(fileId);
