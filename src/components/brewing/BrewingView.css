@@ -166,10 +166,7 @@
 }
 
 
-.brewing-sandbox-banner,
-.brewing-message,
-.brewing-sandbox-note,
-.brewing-demo-controls {
+.brewing-message {
     margin-bottom: 10px;
     padding: 8px 10px;
     border: 1px solid var(--border-color);
@@ -178,26 +175,9 @@
     font-size: 0.75rem;
 }
 
-.brewing-sandbox-banner {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-color: #fbbf24;
-    background: #fffbeb;
-    color: #92400e;
-}
-
-.brewing-sandbox-banner strong {
-    flex: 0 0 auto;
-}
-
 .brewing-message {
     background: #eff6ff;
     color: #1e40af;
-}
-
-.brewing-sandbox-note {
-    margin-top: 10px;
 }
 
 .brewing-create-fields {
@@ -242,40 +222,6 @@
     color: #991b1b !important;
     background: #fef2f2 !important;
     border-color: #fecaca !important;
-}
-
-.brewing-sandbox-card::before {
-    background: #f59e0b;
-}
-
-.brewing-demo-controls {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-}
-
-.brewing-demo-controls > div {
-    display: grid;
-    gap: 2px;
-}
-
-.brewing-demo-controls span {
-    color: var(--text-muted);
-    font-size: 0.7rem;
-}
-
-.brewing-demo-controls button {
-    min-height: var(--pill-height-mobile);
-    padding: 4px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-pill);
-    background: #fff;
-    color: var(--pill-fg);
-    font: inherit;
-    font-size: var(--pill-font-mobile);
-    font-weight: bold;
-    cursor: pointer;
 }
 
 
