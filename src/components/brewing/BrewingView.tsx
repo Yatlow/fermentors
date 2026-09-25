@@ -20,8 +20,9 @@ import {
     subscribeCurrentWeekPlannedBrewHints,
     type PlannedBrewHint,
 } from "../../SERVICES/brewing/planningBrewHints";
-import { DEFAULT_IPA_RECIPE, type BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
-import { DEFAULT_INGREDIENT_LIBRARY } from "../../SERVICES/brewing/ingredientLibrary";
+import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
+import { loadRecipes, replaceRecipes } from "../../SERVICES/brewing/recipeEditorStore";
+import { loadIngredients, saveIngredients } from "../../SERVICES/brewing/ingredientEditorStore";
 import { sameStyle } from "../../SERVICES/planning/planningEngine";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
 import {
@@ -218,8 +219,8 @@ function productionTankStageClass(tank: Fermentor): string {
 }
 
 export default function BrewingView({ brews, tab }: Props) {
-    const [recipes, setRecipes] = useState<BrewRecipe[]>(() => [DEFAULT_IPA_RECIPE]);
-    const [ingredients, setIngredients] = useState(() => DEFAULT_INGREDIENT_LIBRARY);
+    const [recipes, setRecipes] = useState<BrewRecipe[]>(() => loadRecipes());
+    const [ingredients, setIngredients] = useState(() => loadIngredients());
     const [sharedLibraryReady, setSharedLibraryReady] = useState(false);
     const [sharedLibraryLoading, setSharedLibraryLoading] = useState(true);
     const [publishingSharedLibrary, setPublishingSharedLibrary] = useState(false);
@@ -485,8 +486,8 @@ export default function BrewingView({ brews, tab }: Props) {
             .then((library) => {
                 if (cancelled || !library.hasRemoteLibrary) return;
 
-                setRecipes(library.recipes);
-                setIngredients(library.ingredients);
+                setRecipes(replaceRecipes(library.recipes));
+                setIngredients(saveIngredients(library.ingredients));
                 setSharedLibraryReady(true);
             })
             .catch((error) => {
