@@ -644,13 +644,12 @@ export default function BrewingView({ brews, tab }: Props) {
             setBusyTankId(tank.id);
 
             try {
-                // Firestore is fast but Drive is the final duplicate guard: a
-                // manually-created Sheet may exist before the 100-row history has
-                // finished loading in the UI.
-                if (
-                    await batchNumberExistsInProduction(draft.batchNumber) ||
-                    await productionBrewSheetExists(draft.batchNumber)
-                ) {
+                // Keep creation UI fast: only check the already-loaded Firestore/UI
+                // state before enqueueing. The durable server worker performs the
+                // authoritative Drive duplicate check before it creates a Sheet.
+                // Waiting for a fresh Drive history scan here can take many seconds
+                // and leaves the modal blocking the user.
+                if (await batchNumberExistsInProduction(draft.batchNumber)) {
                     throw new Error(`אצווה ${draft.batchNumber} כבר קיימת.`);
                 }
 
