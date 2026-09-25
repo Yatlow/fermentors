@@ -9,6 +9,7 @@ import {
     validateStylePlanning,
     withStylePlanningTarget,
 } from "../../SERVICES/planning/planningTargets";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 export default function PlanningData({ mode, settings, today, disabled, save }: {
     mode: "data" | "settings";
@@ -95,7 +96,7 @@ export default function PlanningData({ mode, settings, today, disabled, save }: 
                                                         update(p.id, { tempo: e.target.value === "" ? null : Number(e.target.value) });
                                                         setStockTouched((ids) => [...new Set([...ids, p.id])]);
                                                     }} /></label>
-                                                    <label>צפי מכירות חודשי<input type="number" min="0" value={p.monthly} onChange={(e) => update(p.id, { monthly: Number(e.target.value) })} /></label>
+                                                    <label>צפי מכירות חודשי<TransientNumberInput min="0" value={p.monthly} onNumberChange={(value) => update(p.id, { monthly: value })} /></label>
                                                 </div>
                                                 <small>{stockTouched.includes(p.id) ? "יישמר כהיום" : p.tempoDate ? `עודכן ${shortDate(p.tempoDate)}` : "טרם נמדד"}</small>
                                                 <button type="button" disabled={p.tempo === null || stockTouched.includes(p.id)} onClick={() => setStockTouched((ids) => [...new Set([...ids, p.id])])}>המלאי עדכני להיום</button>
@@ -111,8 +112,8 @@ export default function PlanningData({ mode, settings, today, disabled, save }: 
                 {mode === "settings" && (
                     <div className="bp-settings">
                         <div className="bp-fields">
-                            <label>ברירת מחדל · יעד מלאי בטמפו<input type="number" min=".5" max="12" step=".5" value={draft.targetWeeks} onChange={(e) => setDraft({ ...draft, targetWeeks: Number(e.target.value) })} /></label>
-                            <label>ברירת מחדל · יעד כולל טמפו ומבשלה<input type="number" min=".5" max="26" step=".5" value={draft.totalTargetWeeks ?? 8.5} onChange={(e) => setDraft({ ...draft, totalTargetWeeks: Number(e.target.value) })} /></label>
+                            <label>ברירת מחדל · יעד מלאי בטמפו<TransientNumberInput min=".5" max="12" step=".5" value={draft.targetWeeks} onNumberChange={(value) => setDraft({ ...draft, targetWeeks: value })} /></label>
+                            <label>ברירת מחדל · יעד כולל טמפו ומבשלה<TransientNumberInput min=".5" max="26" step=".5" value={draft.totalTargetWeeks ?? 8.5} onNumberChange={(value) => setDraft({ ...draft, totalTargetWeeks: value })} /></label>
                             <label>כמה ימי אריזה בשבוע רצוי?<select value={draft.preferredRuns} onChange={(e) => setDraft({ ...draft, preferredRuns: Number(e.target.value) })}>{[3, 4, 5].map((n) => <option key={n} value={n}>{n} ימים</option>)}</select></label>
                         </div>
 
@@ -125,10 +126,10 @@ export default function PlanningData({ mode, settings, today, disabled, save }: 
                                 return <article className="bp-card bp-data-card is-open" key={`targets:${style}`}>
                                     <h3 className={`bp-data-style ${beerStyleClass(style).className}`}>{displayStyle(style)}</h3>
                                     <div className="bp-fields">
-                                        <label>יעד בטמפו · שבועות<input type="number" min=".5" max="12" step=".5" value={targets.targetWeeks} onChange={(e) => setDraft((s) => withStylePlanningTarget(s, style, { targetWeeks: Number(e.target.value) }))} /></label>
-                                        <label>יעד כולל · שבועות<input type="number" min=".5" max="26" step=".5" value={targets.totalTargetWeeks} onChange={(e) => setDraft((s) => withStylePlanningTarget(s, style, { totalTargetWeeks: Number(e.target.value) }))} /></label>
-                                        <label>מקסימום כיסוי · שבועות<input type="number" min=".5" max="30" step=".5" value={targets.maxTotalWeeks} onChange={(e) => setDraft((s) => withStylePlanningTarget(s, style, { maxTotalWeeks: Number(e.target.value) }))} /></label>
-                                        <label>ימי הבשלה מהבישול<input type="number" min="1" value={leadDays} onChange={(e) => setDraft((s) => ({ ...s, products: s.products.map((p) => sameStyle(p.style, style) ? { ...p, leadDays: Number(e.target.value) } : p) }))} /></label>
+                                        <label>יעד בטמפו · שבועות<TransientNumberInput min=".5" max="12" step=".5" value={targets.targetWeeks} onNumberChange={(value) => setDraft((s) => withStylePlanningTarget(s, style, { targetWeeks: value }))} /></label>
+                                        <label>יעד כולל · שבועות<TransientNumberInput min=".5" max="26" step=".5" value={targets.totalTargetWeeks} onNumberChange={(value) => setDraft((s) => withStylePlanningTarget(s, style, { totalTargetWeeks: value }))} /></label>
+                                        <label>מקסימום כיסוי · שבועות<TransientNumberInput min=".5" max="30" step=".5" value={targets.maxTotalWeeks} onNumberChange={(value) => setDraft((s) => withStylePlanningTarget(s, style, { maxTotalWeeks: value }))} /></label>
+                                        <label>ימי הבשלה מהבישול<TransientNumberInput min="1" value={leadDays} onNumberChange={(value) => setDraft((s) => ({ ...s, products: s.products.map((p) => sameStyle(p.style, style) ? { ...p, leadDays: value } : p) }))} /></label>
                                     </div>
                                 </article>;
                             })}

@@ -17,6 +17,7 @@ import PlanningDaySelect from "./PlanningDaySelect";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { CORE_STYLES, displayStyle, isCoreStyle, WEEK_DAYS } from "../../SERVICES/planning/planningPresentation";
 import { estimatedBrewVolume, type Release } from "../../SERVICES/planning/productionCycle";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 const tankType = (value: unknown) => {
   const n = Number(value);
@@ -178,7 +179,7 @@ export default function PlanningWeekEditor({
                   updatePack(i, { tankId: e.target.value, productId: nextProduct?.id ?? r.productId, quantity: nextProduct ? maxTankQuantity(e.target.value, nextProduct.id, r.id) : 0 });
                 }}><option value="">בחירת מיכל</option>{tanks.filter((t) => t.ready <= day).map((t) => <option key={t.id} value={t.id}>{t.number} · {displayStyle(t.style)} · {Math.floor(Math.max(0, t.liters - usedLiters(t.id, r.id)))} ל׳</option>)}</select></label>
                 <label>מה אורזים<select value={r.productId} onChange={(e) => updatePack(i, { productId: e.target.value, quantity: maxTankQuantity(r.tankId ?? "", e.target.value, r.id) })}>{products.map((p) => <option key={p.id} value={p.id}>{p.type === "crates" ? "בקבוקים" : "חביות"} · {displayStyle(p.style)}</option>)}</select></label>
-                <label>כמות<input type="number" min="1" max={max || undefined} value={r.quantity} onChange={(e) => updatePack(i, { quantity: Math.min(Number(e.target.value), max || Number(e.target.value)) })}/>{max > 0 && <small>עד {max} לפי יתרת המיכל.</small>}</label>
+                <label>כמות<TransientNumberInput min="1" max={max || undefined} value={r.quantity} onNumberChange={(value) => updatePack(i, { quantity: Math.min(value, max || value) })}/>{max > 0 && <small>עד {max} לפי יתרת המיכל.</small>}</label>
                 <PlanningDaySelect week={draft.id} allowWeekend={draft.allowExceptions} value={r.date ?? ""} label="יום האריזה" onChange={(date) => updatePack(i, { date })}/>
               </div>
               <label><input type="checkbox" checked={r.emptyTank ?? false} onChange={(e) => updatePack(i, { emptyTank: e.target.checked })}/>זו האריזה האחרונה מהמיכל</label>
@@ -233,7 +234,7 @@ export default function PlanningWeekEditor({
                   const volume = release?.workLiters || estimatedBrewVolume(t.tankNumber, b.style);
                   return <option key={t.id} value={t.id}>מיכל {t.tankNumber ?? t.id} · {tankType(t.tankNumber)} · {t.id === b.tankId ? "משובץ לבישול הזה" : `פנוי ${release?.date ? `מ־${shortDate(release.date)}` : ""}`} · {Math.round(volume)} ל׳</option>;
                 })}</select></label>
-                <label>נפח בישול<input type="number" min="1" value={b.liters || ""} readOnly={capacity > 0} onChange={(e) => updateBrew(i, { liters: Number(e.target.value) })}/><small>{capacity > 0 ? `לפי נפח העבודה של מיכל ${source?.tankNumber ?? ""}` : "בחר מיכל לקבלת נפח עבודה אוטומטי."}</small></label>
+                <label>נפח בישול<TransientNumberInput min="1" value={b.liters} readOnly={capacity > 0} onNumberChange={(value) => updateBrew(i, { liters: value })}/><small>{capacity > 0 ? `לפי נפח העבודה של מיכל ${source?.tankNumber ?? ""}` : "בחר מיכל לקבלת נפח עבודה אוטומטי."}</small></label>
               </div>
               <button type="button" onClick={() => setDraft((w) => ({ ...w, brews: w.brews.filter((_, j) => i !== j) }))}>הסרת הבישול</button>
             </div>;

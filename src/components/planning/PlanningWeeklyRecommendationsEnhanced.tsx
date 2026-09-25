@@ -16,6 +16,7 @@ import { brewSizeLabel, weekday } from "../../SERVICES/planning/productionCycle"
 import { shipmentMatchesForPlans } from "../../SERVICES/planning/shipmentActuals";
 import PlanningWeeklyRecommendations from "./PlanningWeeklyRecommendations";
 import "./planningPackagingModal.css";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 type Props = ComponentProps<typeof PlanningWeeklyRecommendations> & {
     historyPlans?: ComponentProps<typeof PlanningWeeklyRecommendations>["plans"];
@@ -441,10 +442,15 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                                     </select>
                                 </label>
                                 <label>כמות
-                                    <input type="number" min={row.completed} max={max} value={row.quantity || ""} onChange={(event) => {
-                                        const value = Math.max(row.completed, Number(event.target.value) || 0);
-                                        updateRow(row.key, { quantity: Math.min(value, max) });
-                                    }} />
+                                    <TransientNumberInput
+                                        min={row.completed}
+                                        max={max}
+                                        value={row.quantity}
+                                        onNumberChange={(nextValue) => {
+                                            const value = Math.max(row.completed, nextValue);
+                                            updateRow(row.key, { quantity: Math.min(value, max) });
+                                        }}
+                                    />
                                     <small>{p?.type === "crates" ? "ארגזים" : "חביות"} · עד {fmt(max)}{row.completed > 0 ? ` · ${fmt(row.completed)} כבר בוצעו` : ""}</small>
                                 </label>
                                 <button type="button" className="bp-pack-remove" onClick={() => removeRow(row.key)}>{row.completed > 0 ? "השאר רק את מה שבוצע" : "הסר"}</button>

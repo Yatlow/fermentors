@@ -1,4 +1,5 @@
 import BeerLoader from "../general/Loading";
+import TransientNumberInput from "../general/TransientNumberInput";
 import { useEffect, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 
@@ -199,16 +200,15 @@ export default function EditSpecs({ isAdmin }: { isAdmin: boolean }) {
                                                         : translateSpecKey(fieldName)}
                                         </span>
 
-                                        <input
+                                        <TransientNumberInput
                                             className="spec-input"
-                                            type="number"
                                             step="any"
                                             value={value}
-                                            onChange={(e) =>
+                                            onNumberChange={(nextValue) =>
                                                 handleChange(
                                                     documentId,
                                                     fieldName,
-                                                    e.target.value
+                                                    String(nextValue)
                                                 )
                                             }
                                         />

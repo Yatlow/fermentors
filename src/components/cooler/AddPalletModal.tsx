@@ -6,6 +6,7 @@ import { getDefaultExpiryDateStr } from "../../SERVICES/getAndPost/packagingMast
 import { reserveNewPalletsForNearestShipment } from "../../SERVICES/planning/planningShipmentReservations";
 import type { Fermentor } from "../../App";
 import { ArrowLeft } from "lucide-react";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 type CreateMode = "total" | "same";
 
@@ -123,14 +124,14 @@ export default function AddPalletModal({ brews, onClose, onDone }: { brews?: Fer
                 <div className="create-mode-toggle"><button className={createMode === "total" ? "active" : ""} onClick={() => setCreateMode("total")}>כמות כוללת</button><button className={createMode === "same" ? "active" : ""} onClick={() => setCreateMode("same")}>כמה משטחים זהים</button></div>
 
                 {createMode === "total" ? (
-                    <><label>כמות כוללת ({itemType === "kegs" ? "חביות" : "ארגזים"})</label><input type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
+                    <><label>כמות כוללת ({itemType === "kegs" ? "חביות" : "ארגזים"})</label><TransientNumberInput min={1} value={quantity} onNumberChange={setQuantity} />
                         {itemType === "kegs" ?
                             <small className="field-hint">לדוגמה: 130 חביות {<ArrowLeft size={12} />} 6 משטחים של 20 + משטח אחד של 10.</small> :
                             <small className="field-hint">לדוגמה: 144 ארגזים {<ArrowLeft size={12} />}  משטח אחד של 84 + משטח אחד של 60.</small>
                         }
                     </>
                 ) : (
-                    <div className="same-pallet-grid"><div><label>כמות בכל משטח</label><input type="number" min={1} max={maxPerPallet} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></div><div><label>מספר משטחים</label><input type="number" min={1} value={palletCount} onChange={(e) => setPalletCount(Number(e.target.value))} /></div></div>
+                    <div className="same-pallet-grid"><div><label>כמות בכל משטח</label><TransientNumberInput min={1} max={maxPerPallet} value={quantity} onNumberChange={setQuantity} /></div><div><label>מספר משטחים</label><TransientNumberInput min={1} value={palletCount} onNumberChange={setPalletCount} /></div></div>
                 )}
 
                 <label>תאריך תפוגה <span className="auto-label">מחושב אוטומטית</span></label>

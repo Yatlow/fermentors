@@ -8,6 +8,7 @@ import type {
 import type { IngredientCategory, IngredientDefinition } from "../../SERVICES/brewing/ingredientLibrary";
 import type { CreateIngredientInput } from "../../SERVICES/brewing/ingredientEditorStore";
 import IngredientQuickCreateModal from "./IngredientQuickCreateModal";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 type Props = {
   recipe: BrewRecipe;
@@ -464,16 +465,15 @@ export default function BrewRecipeEditor({
           </label>
           <label>
             סוף רתיחה °P
-            <input
-              type="number"
+            <TransientNumberInput
               step="0.01"
               value={recipe.targets.endBoilPlato}
-              onChange={(e) =>
+              onNumberChange={(value) =>
                 setRecipe((current) => ({
                   ...current,
                   targets: {
                     ...current.targets,
-                    endBoilPlato: numberValue(e.target.value),
+                    endBoilPlato: value,
                   },
                 }))
               }
@@ -481,16 +481,15 @@ export default function BrewRecipeEditor({
           </label>
           <label>
             תחילת תסיסה יעד °P
-            <input
-              type="number"
+            <TransientNumberInput
               step="0.01"
               value={recipe.targets.startingPlato}
-              onChange={(e) =>
+              onNumberChange={(value) =>
                 setRecipe((current) => ({
                   ...current,
                   targets: {
                     ...current.targets,
-                    startingPlato: numberValue(e.target.value),
+                    startingPlato: value,
                   },
                 }))
               }
@@ -547,16 +546,15 @@ export default function BrewRecipeEditor({
               </label>
               <label>
                 ק"ג לבישול
-                <input
-                  type="number"
+                <TransientNumberInput
                   step="0.1"
                   value={grain.kgPerBrew}
-                  onChange={(e) =>
+                  onNumberChange={(value) =>
                     setRecipe((current) => ({
                       ...current,
                       grains: current.grains.map((item, i) =>
                         i === index
-                          ? { ...item, kgPerBrew: numberValue(e.target.value) }
+                          ? { ...item, kgPerBrew: value }
                           : item,
                       ),
                     }))
@@ -602,27 +600,23 @@ export default function BrewRecipeEditor({
             </div>
             <label>
               טמפ׳ °C
-              <input
-                type="number"
+              <TransientNumberInput
                 step="0.1"
                 value={mashIn.targetTemp}
-                onChange={(e) =>
-                  updateMashInTemp(numberValue(e.target.value))
-                }
+                onNumberChange={updateMashInTemp}
               />
             </label>
             <label>
               מים, ליטר
-              <input
-                type="number"
+              <TransientNumberInput
                 step="1"
                 value={recipe.mash.waterLiters}
-                onChange={(e) =>
+                onNumberChange={(value) =>
                   setRecipe((current) => ({
                     ...current,
                     mash: {
                       ...current.mash,
-                      waterLiters: numberValue(e.target.value),
+                      waterLiters: value,
                     },
                   }))
                 }
@@ -640,15 +634,11 @@ export default function BrewRecipeEditor({
                 </div>
                 <label>
                   יעד °C
-                  <input
-                    type="number"
+                  <TransientNumberInput
                     step="0.1"
                     value={pair.rest.targetTemp}
-                    onChange={(e) =>
-                      updateRestTemp(
-                        index,
-                        numberValue(e.target.value),
-                      )
+                    onNumberChange={(value) =>
+                      updateRestTemp(index, value)
                     }
                   />
                 </label>
@@ -686,15 +676,11 @@ export default function BrewRecipeEditor({
                   </div>
                   <label>
                     יעד °C
-                    <input
-                      type="number"
+                    <TransientNumberInput
                       step="0.1"
                       value={pair.heat.targetTemp}
-                      onChange={(e) =>
-                        updateHeatTemp(
-                          index,
-                          numberValue(e.target.value),
-                        )
+                      onNumberChange={(value) =>
+                        updateHeatTemp(index, value)
                       }
                     />
                   </label>
@@ -711,13 +697,10 @@ export default function BrewRecipeEditor({
             </div>
             <label>
               טמפ׳ °C
-              <input
-                type="number"
+              <TransientNumberInput
                 step="0.1"
                 value={mashOut.targetTemp}
-                onChange={(e) =>
-                  updateMashOutTemp(numberValue(e.target.value))
-                }
+                onNumberChange={updateMashOutTemp}
               />
             </label>
           </div>
@@ -840,13 +823,12 @@ export default function BrewRecipeEditor({
               </label>
               <label>
                 ג׳/ל׳
-                <input
-                  type="number"
+                <TransientNumberInput
                   step="0.001"
                   value={hop.gramsPerLiter}
-                  onChange={(e) =>
+                  onNumberChange={(value) =>
                     updateHop(hop.id, {
-                      gramsPerLiter: numberValue(e.target.value),
+                      gramsPerLiter: value,
                     })
                   }
                 />
@@ -943,15 +925,14 @@ export default function BrewRecipeEditor({
           </label>
           <label>
             גרם לכל בישול
-            <input
-              type="number"
+            <TransientNumberInput
               value={recipe.yeast.gramsPerBrew}
-              onChange={(e) =>
+              onNumberChange={(value) =>
                 setRecipe((current) => ({
                   ...current,
                   yeast: {
                     ...current.yeast,
-                    gramsPerBrew: numberValue(e.target.value),
+                    gramsPerBrew: value,
                   },
                 }))
               }
@@ -959,15 +940,14 @@ export default function BrewRecipeEditor({
           </label>
           <label>
             תוספת גרם לאצווה
-            <input
-              type="number"
+            <TransientNumberInput
               value={recipe.yeast.extraPerBatch}
-              onChange={(e) =>
+              onNumberChange={(value) =>
                 setRecipe((current) => ({
                   ...current,
                   yeast: {
                     ...current.yeast,
-                    extraPerBatch: numberValue(e.target.value),
+                    extraPerBatch: value,
                   },
                 }))
               }
@@ -975,14 +955,13 @@ export default function BrewRecipeEditor({
           </label>
           <label>
             טמפ' תסיסה °C
-            <input
-              type="number"
+            <TransientNumberInput
               step="0.1"
               value={recipe.fermentationTemp}
-              onChange={(e) =>
+              onNumberChange={(value) =>
                 setRecipe((current) => ({
                   ...current,
-                  fermentationTemp: numberValue(e.target.value),
+                  fermentationTemp: value,
                 }))
               }
             />

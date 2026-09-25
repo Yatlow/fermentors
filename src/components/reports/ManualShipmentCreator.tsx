@@ -5,6 +5,7 @@ import { getShipmentCatalogOptions } from "../../SERVICES/cooler/PalletCatalog";
 import { getShipmentCustomerSuggestions, type ShipmentCustomerOption } from "../../SERVICES/cooler/Palletservice";
 import type { ManualShipmentLine } from "../../SERVICES/cooler/Pallettypes ";
 import BeerLoader from "../general/Loading";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 type DraftLine = ManualShipmentLine & {
     catalogKey: string;
@@ -132,7 +133,7 @@ export default function ManualShipmentCreator({ onClose, onCreated }: Props) {
                             {line.source === "catalog" && line.description && <div style={{ fontSize: 14 }}><strong>{line.sku}</strong> · {line.description}</div>}
 
                             <div style={{ display: "flex", gap: 10, alignItems: "end" }}>
-                                <label className="spec-field" style={{ flex: 1 }}><span className="spec-field-label">כמות</span><input className="spec-input" type="number" min={1} step="any" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })} /></label>
+                                <label className="spec-field" style={{ flex: 1 }}><span className="spec-field-label">כמות</span><TransientNumberInput className="spec-input" min={1} step="any" value={line.quantity} onNumberChange={(value) => updateLine(line.id, { quantity: value })} /></label>
                                 <button type="button" className="removeEmailBtn" disabled={saving || lines.length === 1} onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))} title="הסר פריט"><Trash2 size={18} /></button>
                             </div>
                         </div>

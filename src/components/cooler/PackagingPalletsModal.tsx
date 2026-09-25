@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import BeerLoader from "../general/Loading";
+import TransientNumberInput from "../general/TransientNumberInput";
 import { usePackagingPalletsFlow, type PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
 
 type Props = {
@@ -133,11 +134,10 @@ export default function PackagingPalletsModal({ jobs, onFinished }: Props) {
                                                 <div className="packagingPalletRow" key={row.id}>
                                                     <span className="packagingPalletRowIndex">{rowIndex + 1}</span>
                                                     <div className="packagingPalletRowQty">
-                                                        <input
-                                                            type="number"
+                                                        <TransientNumberInput
                                                             min={0}
                                                             value={row.quantity}
-                                                            onChange={(e) => updateRowQuantity(row.id, Number(e.target.value) || 0)}
+                                                            onNumberChange={(value) => updateRowQuantity(row.id, value)}
                                                         />
                                                         <span>{unit}</span>
                                                     </div>

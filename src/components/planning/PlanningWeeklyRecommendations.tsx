@@ -33,6 +33,7 @@ import {
     brewSizeLabel,
     type BrewSizeLabel,
 } from "../../SERVICES/planning/productionCycle";
+import TransientNumberInput from "../general/TransientNumberInput";
 
 type Kind = "delivery" | "packaging" | "brew";
 type BrewDraft = { style: string; liters: number };
@@ -897,7 +898,7 @@ export default function PlanningWeeklyRecommendations({
                             const completed = completedQty(r);
                             return <div className="bp-rec-line is-decided" key={key}>
                                 <span><b>{p ? displayStyle(p.style) : r.productId}</b> · מיכל {r.tankNumber ?? tanks.find((t) => t.id === r.tankId)?.number ?? "—"}{completed > 0 && <small> · {fmt(completed)} כבר בוצעו</small>}</span>
-                                <input type="number" min={completed} value={value} onChange={(e) => setPackDraft((d) => ({ ...d, [key]: Math.max(completed, Number(e.target.value)) }))} />
+                                <TransientNumberInput min={completed} value={value} onNumberChange={(next) => setPackDraft((d) => ({ ...d, [key]: Math.max(completed, next) }))} />
                                 <button type="button" onClick={() => setCancelledPackagingKeys((currentKeys) => new Set([...currentKeys, key]))}>בטל אריזה</button>
                             </div>;
                         })
@@ -910,7 +911,7 @@ export default function PlanningWeeklyRecommendations({
                         const value = packDraft[key] ?? 0;
                         return <div className="bp-rec-line" key={r.id}>
                             <span><b>{displayStyle(p.style)} · {p.type === "crates" ? "ארגזים" : "חביות"}</b> · מיכל {r.tankNumber}</span>
-                            <input type="number" min="0" value={value} onChange={(e) => setPackDraft((d) => ({ ...d, [key]: Math.max(0, Number(e.target.value)) }))} />
+                            <TransientNumberInput min="0" value={value} onNumberChange={(next) => setPackDraft((d) => ({ ...d, [key]: Math.max(0, next) }))} />
                             <button onClick={() => setPackDraft((d) => ({ ...d, [key]: value ? 0 : r.quantity }))}>{value ? "בטל" : `הוסף ${fmt(r.quantity)}`}</button>
                         </div>;
                     }) : <small>אין המלצות נוספות מעבר להחלטות שכבר נקבעו.</small>}
