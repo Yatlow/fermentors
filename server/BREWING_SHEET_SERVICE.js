@@ -1201,14 +1201,59 @@ function brewingSheetReconcileEditTriggers_(fermentorEntries) {
 
 function brewingSheetFindFermentorForSheet_(spreadsheetId) {
   const targetId = brewingSheetExtractId_(spreadsheetId);
-  const fermentors = getAllFermentorsFromFirebase();
+  if (!targetId) return null;
 
-  return fermentors.find(function (fermentor) {
-    return (
-      brewingSheetExtractId_(fermentor.sheetUrl) === targetId &&
-      parseAction(fermentor.action) === 0
+  // Read Firestore directly here. The edit trigger must not depend on the
+  // periodic-cycle fermentor cache: a newly created/renamed brew Sheet can be
+  // edited before that cache has seen its current sheetUrl, which made a valid
+  // onEdit execution look like an orphan and silently skip the write.
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors";
+  const response = UrlFetchApp.fetch(url, {
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error(
+      "Failed resolving fermentor for brew Sheet " + targetId +
+      ": " + code + " " + response.getContentText()
     );
-  }) || null;
+  }
+
+  const docs = JSON.parse(response.getContentText() || "{}").documents || [];
+  for (let i = 0; i < docs.length; i++) {
+    const fields = docs[i].fields || {};
+    const sheetUrl = String((fields.sheetUrl && fields.sheetUrl.stringValue) || "");
+    const actionField = fields.action || {};
+    const action = actionField.integerValue != null
+      ? Number(actionField.integerValue)
+      : actionField.doubleValue != null
+        ? Number(actionField.doubleValue)
+        : Number(actionField.stringValue);
+
+    if (brewingSheetExtractId_(sheetUrl) !== targetId || action !== 0) continue;
+
+    const documentId = String(docs[i].name || "").split("/").pop() || "";
+    return {
+      id: documentId,
+      tankNumber: String(
+        (fields.tankNumber &&
+          (fields.tankNumber.stringValue || fields.tankNumber.integerValue)) ||
+        documentId
+      ).trim(),
+      batchNumber: String(
+        (fields.batchNumber &&
+          (fields.batchNumber.stringValue || fields.batchNumber.integerValue)) ||
+        ""
+      ).trim(),
+      sheetUrl: sheetUrl,
+      action: action
+    };
+  }
+
+  return null;
 }
 
 function brewingSheetPublishEditRevision_(tankNumber, event) {
