@@ -1141,7 +1141,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                         <button
                                             type="button"
                                             disabled={editingTankId === tank.id}
-                                            onClick={() => void editUnstartedProductionBatch(tank)}
+                                            onClick={() => { const current = productionRunFromTank(tank); if (current) setEditBatchDraft({ tankId: tank.id, batchNumber: current.batchNumber, style: current.style }); }}
                                         >
                                             ערוך אצווה
                                         </button>
