@@ -6,7 +6,7 @@ import {
   memo,
   type ChangeEvent,
 } from "react";
-import { ClipboardPlus, ListClock, ChartNoAxesCombined } from "lucide-react";
+import { ClipboardPlus, FileSpreadsheet, ListClock, ChartNoAxesCombined } from "lucide-react";
 import { updateTankStatus } from "../../SERVICES/cellering/updateTank";
 import { isCarbonationOutOfRange, isPressureOutOfRange } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 
@@ -688,6 +688,20 @@ function TankCard({
     setShowHistory(true);
   };
 
+  const handleOpenSheet = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!tank.sheetUrl) return;
+
+    const url = String(tank.sheetUrl);
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      window.location.href = url;
+    } else {
+      window.open(url, "_blank");
+    }
+  };
+
   function parsePasivationDate(
     value:
       | string
@@ -1098,23 +1112,6 @@ function TankCard({
           ? "clt"
           : stageInfo.className
           }`}
-        onClick={() => {
-          if (tank.sheetUrl) {
-            const url = String(tank.sheetUrl);
-
-            const isMobile =
-              /Android|iPhone|iPad|iPod/i.test(
-                navigator.userAgent
-              );
-
-            if (isMobile) {
-              window.location.href = url;
-            } else {
-              window.open(url, "_blank");
-            }
-          }
-        }}
-
       >
 
         {/* ==================================================== */}
@@ -1150,28 +1147,38 @@ function TankCard({
 
 
         </div>
-        {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && (
-          <div className="tank-actions-row">
+        {Number(tank.tankNumber) > 1 && (
+          (stageInfo.name === "בתסיסה" || stageInfo.name === "קר" || Boolean(tank.sheetUrl)) && (
+            <div className="tank-actions-row">
+              {(stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && (
+                <>
+                  <button type="button" className="tankInfo" aria-label="היסטוריית אצווה" onClick={handleOpenHistory}>
+                    <ChartNoAxesCombined size={16} />
+                  </button>
 
-            <button type="button" className="tankInfo" aria-label="היסטוריית אצווה" onClick={handleOpenHistory}>
-              <ChartNoAxesCombined size={16} />
-            </button>
+                  <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
+                    <ClipboardPlus size={16} />
+                  </button>
 
-            <button type="button" className="tankInfo tankQuickReport" aria-label="דיווח מהיר" onClick={handleOpenQuickReport}>
-              <ClipboardPlus size={16} />
-            </button>
+                  <button
+                    ref={infoButtonRef}
+                    type="button"
+                    className="tankInfo"
+                    aria-label="הצגת המלצות סלרינג"
+                    onClick={handleOpenInfo}
+                  >
+                    <ListClock size={16} />
+                  </button>
+                </>
+              )}
 
-            <button
-              ref={infoButtonRef}
-              type="button"
-              className="tankInfo"
-              aria-label="הצגת המלצות סלרינג"
-              onClick={handleOpenInfo}
-            >
-              <ListClock size={16} />
-            </button>
-
-          </div>
+              {tank.sheetUrl && (
+                <button type="button" className="tankInfo tankSheetButton" aria-label="פתיחת גיליון הבישול" title="פתיחת גיליון הבישול" onClick={handleOpenSheet}>
+                  <FileSpreadsheet size={16} />
+                </button>
+              )}
+            </div>
+          )
         )}
 
         {/* ==================================================== */}
