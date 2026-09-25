@@ -1396,6 +1396,10 @@ function brewingSheetPersistExecutionCell_(fermentor, event) {
     else if (col === 7) key = "rinse" + rinse[1] + ".temp";
     else if (col === 8) key = "rinse" + rinse[1] + ".kettle";
   }
+  // The browser owns the complete semantic parser and receives the revision
+  // below. Persist only cells that this fast-path can identify safely; all
+  // other Sheet-backed cells are reconciled by the browser's full semantic
+  // pull instead of guessing physical row offsets here.
   if (!key) return false;
 
   const url =
