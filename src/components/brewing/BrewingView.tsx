@@ -296,14 +296,6 @@ export default function BrewingView({ brews, tab }: Props) {
         [brews],
     );
 
-    const invalidActionZeroTanks = useMemo(
-        () =>
-            actionZeroProductionTanks.filter(
-                (tank) => !productionRunFromTank(tank),
-            ),
-        [actionZeroProductionTanks],
-    );
-
     const otherProductionTanks = useMemo(
         () =>
             editableProductionTanks.filter(
