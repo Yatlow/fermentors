@@ -13,6 +13,16 @@ function brewCreateJobField_(doc, name) {
   return sheetSyncField_(doc, name);
 }
 
+function brewCreateIsRunnableDocument_(document) {
+  const state = String(brewCreateJobField_(document, "state") || "");
+  if (state === "queued") return true;
+  if (state !== "creating") return false;
+
+  const updatedAt = Date.parse(String(brewCreateJobField_(document, "updatedAt") || ""));
+  return !Number.isFinite(updatedAt) ||
+    Date.now() - updatedAt >= BREW_CREATE_CREATING_STALE_MS_;
+}
+
 function brewCreatePendingJobs_(requestedJobId) {
   // A direct request should fetch its own document regardless of whether a
   // concurrent worker already moved it from queued -> creating. This makes the
@@ -26,20 +36,7 @@ function brewCreatePendingJobs_(requestedJobId) {
     if (code === 404) return [];
     if (code < 200 || code >= 300) throw new Error("Failed loading brew creation job: HTTP " + code);
     const document = JSON.parse(response.getContentText() || "{}");
-    const state = String(brewCreateJobField_(document, "state") || "");
-    if (state === "queued") return [document];
-    if (state !== "creating") return [];
-
-    // A second immediate request must not duplicate a Sheet while the first
-    // worker is still copying it. A creating job is resumable immediately only
-    // after fileId was persisted; otherwise wait until the claim is stale.
-    const fileId = String(brewCreateJobField_(document, "fileId") || "");
-    if (fileId) return [document];
-    const updatedAt = Date.parse(String(brewCreateJobField_(document, "updatedAt") || ""));
-    if (Number.isFinite(updatedAt) && Date.now() - updatedAt < BREW_CREATE_CREATING_STALE_MS_) {
-      return [];
-    }
-    return [document];
+    return brewCreateIsRunnableDocument_(document) ? [document] : [];
   }
 
   const response = sheetSyncFetch_(sheetSyncDocumentsUrl_(":runQuery"), {
@@ -51,8 +48,15 @@ function brewCreatePendingJobs_(requestedJobId) {
         where: {
           fieldFilter: {
             field: { fieldPath: "state" },
-            op: "EQUAL",
-            value: { stringValue: "queued" }
+            op: "IN",
+            value: {
+              arrayValue: {
+                values: [
+                  { stringValue: "queued" },
+                  { stringValue: "creating" }
+                ]
+              }
+            }
           }
         },
       }
@@ -66,6 +70,7 @@ function brewCreatePendingJobs_(requestedJobId) {
   return (JSON.parse(response.getContentText() || "[]") || [])
     .map(function (row) { return row.document || null; })
     .filter(Boolean)
+    .filter(brewCreateIsRunnableDocument_)
     .sort(function (a, b) {
       const aCreated = String(brewCreateJobField_(a, "createdAt") || "");
       const bCreated = String(brewCreateJobField_(b, "createdAt") || "");
