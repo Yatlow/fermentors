@@ -7,7 +7,7 @@
 // ================================================================
 
 const BREW_CREATE_JOB_LIMIT_ = 5;
-const BREW_CREATE_CREATING_STALE_MS_ = 2 * 60 * 1000;
+const BREW_CREATE_CREATING_STALE_MS_ = 10 * 60 * 1000;
 
 function brewCreateJobField_(doc, name) {
   return sheetSyncField_(doc, name);
