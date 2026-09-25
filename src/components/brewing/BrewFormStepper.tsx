@@ -1056,7 +1056,7 @@ export default function BrewFormStepper({
     if (!run.sheetId || run.source !== "production") return;
 
     if (Number(run.action) === 0) {
-      void serverEnsureBrewSheetEditTrigger(run.sheetId).catch((error) =>
+      void serverEnsureBrewSheetEditTrigger(run.sheetId, run.tankNumber).catch((error) =>
         console.warn("Failed ensuring brew Sheet edit trigger", error),
       );
       return;
@@ -1937,7 +1937,6 @@ export default function BrewFormStepper({
     nextExecution: BrewExecution,
     writes: Array<{ range: string; value: string | number | boolean | null }>,
   ) {
-    if (currentBlock <= 1) return nextExecution;
     const currentFields = nextExecution.blocks[String(currentBlock)]?.fields || {};
     const currentDate = String(currentFields.brewDate || "");
     const manualDate = String(currentFields["brewDate.manual"] || "");
