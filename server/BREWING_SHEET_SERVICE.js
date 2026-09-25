@@ -1605,15 +1605,31 @@ function brewingSheetOnEdit_(event) {
     // Remove it lazily as well, so a missed client cleanup cannot leave stale
     // production triggers behind.
     if (!fermentor) {
-      // Sandbox runs live only in the preview browser. Their trigger is marked
-      // explicitly in ScriptProperties, so neither an edit nor production
-      // maintenance may delete it just because there is no fermentor document.
+      // Sandbox runs have no fermentor document. Resolve their batch directly
+      // from the Sheet header and persist the edited semantic cell to the same
+      // canonical brews/{batch}.brewingExecution document used by production.
       const isSandbox = PropertiesService.getScriptProperties().getProperty(
         BREWING_EDIT_SANDBOX_PREFIX_ + spreadsheetId
       ) === "1";
       if (!isSandbox) {
         brewingSheetRemoveEditTrigger_({ spreadsheetId: spreadsheetId });
+        return;
       }
+
+      const sheet = event.range.getSheet();
+      const sandboxBatch = String(sheet.getRange("F1").getDisplayValue() || "")
+        .replace("#", "")
+        .trim();
+      if (!sandboxBatch) {
+        console.log("Sandbox brew edit ignored: missing batch in F1 for " + spreadsheetId);
+        return;
+      }
+
+      brewingSheetPersistExecutionCell_({
+        batchNumber: sandboxBatch,
+        tankNumber: knownTank || String(sheet.getRange("D1").getDisplayValue() || "").trim(),
+        sheetUrl: event.source.getUrl()
+      }, event);
       return;
     }
 
