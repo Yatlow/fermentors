@@ -1068,7 +1068,7 @@ export default function BrewFormStepper({
     // Production trigger lifetime remains owned by the server ACTION-0
     // reconciliation; the browser must not remove production triggers.
     if (run.source !== "production") {
-      void serverEnsureBrewSheetEditTrigger(run.sheetId, run.tankNumber).catch((error) =>
+      void serverEnsureBrewSheetEditTrigger(run.sheetId, run.tankNumber, true).catch((error) =>
         console.warn("Failed ensuring sandbox brew Sheet edit trigger", error),
       );
     }
