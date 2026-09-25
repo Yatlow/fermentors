@@ -166,3 +166,29 @@ test("consecutive duplicate action notes are collapsed before timeline rendering
     assert.equal(pressureEvents.length, 1);
     assert.equal(pressureEvents[0]?.label, "שינוי לחץ בעקבות גיזוז");
 });
+
+
+test("bottom carbonation row keeps the carb test separate from the bottom-carbonation action", () => {
+    const expanded = expandCompoundCellarMeasurements([
+        {
+            id: "2026-09-23_0554",
+            temp: 0.7,
+            pressure: 1.3,
+            carbonation: 2.26,
+            notes: "הורדת לחץ ל0.2 bar. תחילת גיזוז מלמטה בשעה 10:22 | סגירת גיזוז מלמטה בשעה 20:33 על 1.3 bar.",
+        },
+    ]);
+
+    assert.equal(expanded.length, 1);
+
+    const events = buildBatchTimeline(expanded, "09/09/2026");
+    const carbonation = events.find((event) => event.type === "carbonation");
+    const pressure = events.find((event) => event.type === "pressure");
+
+    assert.equal(carbonation?.label, "בדיקת גיזוז");
+    assert.equal(carbonation?.detail, "תוצאה 2.26 vol");
+    assert.equal(carbonation?.note, undefined, "bottom-carbonation note must not reclassify the carb-test bubble");
+    assert.ok(pressure, "the bottom-carbonation action must still produce its action event");
+    assert.match(String(pressure?.note ?? ""), /תחילת גיזוז מלמטה/);
+    assert.match(String(pressure?.note ?? ""), /סגירת גיזוז מלמטה/);
+});
