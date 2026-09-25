@@ -190,7 +190,7 @@ export default function BrewingView({ brews, tab }: Props) {
     const [recipes, setRecipes] = useState<BrewRecipe[]>(() => [DEFAULT_IPA_RECIPE]);
     const [ingredients, setIngredients] = useState(() => DEFAULT_INGREDIENT_LIBRARY);
     const [sharedLibraryReady, setSharedLibraryReady] = useState(false);
-    const [sharedLibraryLoading, setSharedLibraryLoading] = useState(false);
+    const [sharedLibraryLoading, setSharedLibraryLoading] = useState(true);
     const [publishingSharedLibrary, setPublishingSharedLibrary] = useState(false);
     const [busyTankId, setBusyTankId] = useState<string | null>(null);
     const [message, setMessage] = useState<string>("");
@@ -574,6 +574,11 @@ export default function BrewingView({ brews, tab }: Props) {
         tank: Fermentor,
         draft: { batchNumber: string; style: string },
     ) {
+        if (sharedLibraryLoading) {
+            setCreateModalError("ספריית הבישול עדיין נטענת. נסה שוב בעוד רגע.");
+            return;
+        }
+
         const productionAssignment = findProductionAssignment(draft.batchNumber);
         if (productionAssignment) {
             const assignedTank = String(
@@ -1265,6 +1270,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                             <button
                                 type="button"
                                 className="btn-primary brewing-create-button"
+                                disabled={sharedLibraryLoading}
                                 onClick={() => {
                                     setCreateModalError("");
                                     setQuickCreateHint(null);
@@ -1372,6 +1378,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                         type="button"
                                         key={`quick-${hint.batchNumber}-${hint.tankId}-${hint.date}`}
                                         className="brewing-tank-card brewing-planned-quick-card"
+                                        disabled={sharedLibraryLoading}
                                         onClick={() => {
                                             setQuickCreateHint(hint);
                                             setSuggestedBatch(String(hint.batchNumber));
