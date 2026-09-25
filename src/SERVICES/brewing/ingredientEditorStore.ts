@@ -4,7 +4,7 @@ import {
   type IngredientDefinition,
 } from "./ingredientLibrary";
 
-const KEY = "fermentors:brewing-sandbox:ingredients:v1";
+const KEY = "fermentors:brewing:ingredients:v1";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
