@@ -1048,13 +1048,13 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     </div>
                 </div>
             )}
-            {tab === "form" && !selectedRun && editableProductionTanks.length > 0 && (
-                <section className="brewing-action-zero-strip" aria-label="אצוות בישול פעילות">
+            {tab === "form" && !selectedRun && actionZeroProductionTanks.length > 0 && (
+                <section className="brewing-action-zero-strip" aria-label="מיכלים בישול חדש">
                     <div className="brewing-action-zero-heading">
                         <strong>אצוות בישול</strong>
                     </div>
                     <div className="brewing-action-zero-list">
-                        {editableProductionTanks.map((tank) => {
+                        {actionZeroProductionTanks.map((tank) => {
                             const run = productionRunFromTank(tank);
                             const rawStyle = String(tank.beerStyle || "");
                             const style = beerStyleClass(rawStyle);
