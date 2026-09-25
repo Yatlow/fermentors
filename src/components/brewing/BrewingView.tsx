@@ -791,10 +791,24 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                 const oldBrewRef = doc(db, "brews", run.batchNumber);
                 const oldBrewSnapshot = await getDoc(oldBrewRef);
                 if (oldBrewSnapshot.exists()) {
+                    const oldData = oldBrewSnapshot.data();
+                    const oldExecution =
+                        oldData.brewingExecution &&
+                        typeof oldData.brewingExecution === "object"
+                            ? oldData.brewingExecution as Record<string, unknown>
+                            : null;
                     await setDoc(doc(db, "brews", nextBatch), {
-                        ...oldBrewSnapshot.data(),
+                        ...oldData,
                         batchNumber: nextBatch,
                         beerStyle: nextStyle,
+                        ...(oldExecution
+                            ? {
+                                  brewingExecution: {
+                                      ...oldExecution,
+                                      batchNumber: nextBatch,
+                                  },
+                              }
+                            : {}),
                     });
                     await deleteDoc(oldBrewRef);
                 }
@@ -848,20 +862,22 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                 style: nextStyle,
             });
             const pendingRef = doc(db, "pendingBrews", run.batchNumber);
+            const targetPendingRef = doc(db, "pendingBrews", nextBatch);
+            await setDoc(targetPendingRef, {
+                batchNumber: nextBatch,
+                beerStyle: nextStyle,
+                tankNumber: run.tankNumber === "—" ? "" : run.tankNumber,
+                tankType: run.tankType,
+                fileId: run.sheetId,
+                fileName: "",
+                sheetUrl: run.sheetUrl,
+                createdAt: serverTimestamp(),
+            });
             if (nextBatch !== run.batchNumber) {
-                await setDoc(doc(db, "pendingBrews", nextBatch), {
-                    batchNumber: nextBatch,
-                    beerStyle: nextStyle,
-                    tankNumber: run.tankNumber === "—" ? "" : run.tankNumber,
-                    tankType: run.tankType,
-                    fileId: run.sheetId,
-                    fileName: "",
-                    sheetUrl: run.sheetUrl,
-                    createdAt: serverTimestamp(),
-                });
-                await deleteDoc(pendingRef);
-            } else {
-                await updateDoc(pendingRef, { beerStyle: nextStyle });
+                await Promise.allSettled([
+                    deleteDoc(pendingRef),
+                    deleteDoc(doc(db, "brewSheetCreationJobs", run.batchNumber)),
+                ]);
             }
             setProductionHistory((current) =>
                 current.map((row) =>
