@@ -624,14 +624,6 @@ function executePostAction_(data) {
     };
   }
 
-  if (data.action === "BrewSheetDebugEditSync") {
-    return {
-      success: true,
-      action: "BrewSheetDebugEditSync",
-      result: brewingSheetDebugEditSync_(data)
-    };
-  }
-
   if (data.action === "BrewSheetPrintPdf") {
     return {
       success: true,
