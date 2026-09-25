@@ -1396,10 +1396,13 @@ function brewingSheetPersistExecutionCell_(fermentor, event) {
   let blockStart = -1;
   let blockEnd = data.length;
   headers.forEach(function (header, index) {
-    if (header.row <= row - 1) {
+    // findBrewBlockStarts() returns zero-based numeric row indexes, not
+    // objects.  Treating them as { row } left blockIndex at 0, so every
+    // Sheet edit silently returned before persisting to Firestore.
+    if (header <= row - 1) {
       blockIndex = index + 1;
-      blockStart = header.row;
-      blockEnd = headers[index + 1] ? headers[index + 1].row : data.length;
+      blockStart = header;
+      blockEnd = headers[index + 1] !== undefined ? headers[index + 1] : data.length;
     }
   });
   if (!blockIndex || blockStart < 0 || row - 1 >= blockEnd) return false;
