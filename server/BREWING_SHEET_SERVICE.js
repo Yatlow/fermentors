@@ -240,16 +240,30 @@ function brewingSheetCreate_(data) {
       }
     }
     if (duplicateFile) {
-      // A manually-created Sheet is valid existing work. Return it instead of
-      // creating/writing another template. The outbox can then publish it to
-      // pendingBrews and clear a stale "creating" card without touching its
-      // special layout.
+      // Recovery after a lost response may rediscover the Sheet that this exact
+      // job already created. Reuse it only when its own header agrees with the
+      // requested batch/tank; never silently attach another tank's manual Sheet.
+      const existingSs = SpreadsheetApp.openById(duplicateFile.getId());
+      const existingSheet = existingSs.getSheets()[0];
+      const existingBatch = String(existingSheet.getRange("F1").getDisplayValue() || "")
+        .replace("#", "").trim();
+      const existingTank = String(existingSheet.getRange("D1").getDisplayValue() || "").trim();
+      const requestedTank = String(data.tankNumber || "").trim();
+      if (
+        existingBatch !== batchNumber ||
+        (requestedTank && !tankNumbersEqual(existingTank, requestedTank))
+      ) {
+        throw new Error(
+          "Batch " + batchNumber + " already exists in a different brew Sheet assignment."
+        );
+      }
+
       return {
         id: duplicateFile.getId(),
         name: duplicateFile.getName(),
         url: duplicateFile.getUrl(),
         batchNumber: batchNumber,
-        tankNumber: String(data.tankNumber || "").trim(),
+        tankNumber: requestedTank,
         style: String(data.style || "").trim(),
         tankType: config.tankType,
         existing: true
