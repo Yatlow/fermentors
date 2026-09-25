@@ -287,6 +287,7 @@ export default function BrewingView({ brews, tab }: Props) {
                 .filter(
                     (tank) =>
                         Number(tank.tankNumber) !== 1 &&
+                        Number(tank.tankNumber) !== 20 &&
                         Number(tank.action) === 0,
                 )
                 .sort(
