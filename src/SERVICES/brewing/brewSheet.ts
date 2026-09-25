@@ -45,7 +45,6 @@ export function buildBrewSheetInitialWrites(input: {
   tankType: TankType;
   recipe?: BrewRecipe;
   ingredients?: IngredientDefinition[];
-  production?: boolean;
 }) {
   const layout = layoutFor(input.tankType);
   const styleLabel =
@@ -77,13 +76,6 @@ export function buildBrewSheetInitialWrites(input: {
     { range: `'גיליון1'!D${layout.fermentationHeaderRow}`, value: input.batchNumber },
     { range: `'גיליון1'!G${layout.fermentationHeaderRow}`, value: input.tankNumber },
   );
-
-  if (!input.production) {
-    writes.push(
-      { range: `'גיליון1'!B${layout.startingPlatoRow}`, value: "" },
-      { range: `'גיליון1'!D${layout.startingPlatoRow}`, value: "" },
-    );
-  }
 
   return writes;
 }
