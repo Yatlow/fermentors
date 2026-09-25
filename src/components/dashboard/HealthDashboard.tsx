@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Broom, Undo2 } from "lucide-react";
+import { LightbulbOff, Undo2 } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -762,7 +762,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 {ignoredRecommendations.map((row) => (
                                     <div className="health-ignored-action" key={row.id}>
                                         <span>
-                                            <Broom size={15} aria-hidden="true" />
+                                            <LightbulbOff size={15} aria-hidden="true" />
                                             מיכל {row.tankNumber} · {recommendationShortLabel(row.recommendationKey, row.title)}
                                         </span>
                                         <button
@@ -807,7 +807,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                         title="התעלם מההמלצה להיום"
                                         aria-label={`התעלם מההמלצה למיכל ${alert.tankNumber} להיום`}
                                     >
-                                        <Broom size={17} aria-hidden="true" />
+                                        <LightbulbOff size={17} aria-hidden="true" />
                                     </button>
                                 )}
                             </article>
