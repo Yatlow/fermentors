@@ -1,7 +1,7 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { addDays, tanksFrom, weekStart, type Settings, type Tank } from "../../SERVICES/planning/planningEngine";
+import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import {
@@ -38,8 +38,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
 
-  // planningWeeks stays loaded for the daily-work badge on every planning tab.
-  // Heavy datasets are attached only where the rendered tab actually consumes them.
   const readScope = useMemo<PlanningReadScope>(() => ({
     plans: true,
     pallets: tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule",
@@ -51,12 +49,13 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const data = usePlanning(today, productionTanks, readScope);
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
+
+  // Keep one canonical tank model for every planning calculation. In particular,
+  // do not replace/augment this with a display-only list: tentative five-week
+  // recommendations and weekly tank availability are both derived from this
+  // exact capacity model.
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
 
-  // Planning rows already own their batch identity. Do not rewrite a planned
-  // row from whatever batch currently occupies its target tank: a tank can
-  // legitimately still hold last week's fermenting batch while next week's
-  // brew is already planned for it.
   const identityAlignedPlans = plans;
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
@@ -76,59 +75,27 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     [settings, data.actualShipments, today],
   );
 
+  // This is the existing recommendation pipeline. It must remain the source for
+  // the Gantt: accepted decisions stay as saved; undecided weeks get the same
+  // tentative tank calculation used by the weekly/daily planning engine.
   const fiveWeekPlans = useMemo(
     () => withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings),
     [identityAlignedPlans, tanks, calendarSettings],
   );
 
-  // The production-capacity tank model intentionally excludes empty/sanitized
-  // tanks. That is correct for packaging calculations, but wrong for displaying
-  // an already-confirmed future brew assignment: the assignment editor stores
-  // the real Fermentor document id even while that tank is still empty. Build a
-  // display-only tank list that contains every production tank, and make all of
-  // them unavailable to the old tentative picker. This gives Calendar/Gantt the
-  // number for saved tankId values without inventing assignments for unassigned
-  // brews.
-  const planningDisplayTanks = useMemo<Tank[]>(() => {
-    const byId = new Map<string, Tank>(
-      tanks.map((tank) => [tank.id, { ...tank, ready: "9999-12-31" }]),
-    );
-    for (const source of productionTanks) {
-      if (byId.has(source.id)) continue;
-      byId.set(source.id, {
-        id: source.id,
-        number: String(source.tankNumber ?? source.id),
-        style: source.beerStyle ?? "",
-        batch: String(source.batchNumber ?? ""),
-        brewed: today,
-        ready: "9999-12-31",
-        liters: Math.max(0, Number(source.beerVolume) || 0),
-        cold: source.stage?.className === "stage-cold",
-      });
-    }
-    return [...byId.values()];
-  }, [tanks, productionTanks, today]);
-
   const pendingDailyWork = useMemo(() => {
     const firstWeek = weekStart(today);
     const horizonEnd = addDays(firstWeek, 34);
     const upcomingPlans = identityAlignedPlans.filter((plan) => plan.id >= firstWeek && plan.id <= horizonEnd);
-    const brewsToAssign = upcomingPlans.reduce(
-      (sum, plan) => sum + plan.brews.filter((brew) => !brew.tankId).length,
-      0,
-    );
-    const packagingToAssign = upcomingPlans.reduce(
-      (sum, plan) => sum + plan.packaging.filter((run) => run.quantity > 0 && !run.date).length,
-      0,
-    );
+    const brewsToAssign = upcomingPlans.reduce((sum, plan) => sum + plan.brews.filter((brew) => !brew.tankId).length, 0);
+    const packagingToAssign = upcomingPlans.reduce((sum, plan) => sum + plan.packaging.filter((run) => run.quantity > 0 && !run.date).length, 0);
     return { brews: brewsToAssign, packaging: packagingToAssign, total: brewsToAssign + packagingToAssign };
   }, [identityAlignedPlans, today]);
 
   useEffect(() => {
     const applyBadge = () => {
       const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
-      const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-        .find((item) => item.textContent?.includes("לוח עבודה יומי"));
+      const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((item) => item.textContent?.includes("לוח עבודה יומי"));
       if (!button) return;
       if (pendingDailyWork.total > 0) {
         button.dataset.planningBadge = String(pendingDailyWork.total);
@@ -153,10 +120,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     setMessage("הנתונים נשמרו");
   }
 
-  async function saveWeeklyPlan(
-    next: Parameters<typeof data.saveWeek>[0],
-    options?: Parameters<typeof data.saveWeek>[1],
-  ) {
+  async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0], options?: Parameters<typeof data.saveWeek>[1]) {
     const original = plans.find((week) => week.id === next.id);
     let merged = original ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products) : next;
     if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
@@ -184,7 +148,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
             plans={fiveWeekPlans}
             editorPlans={identityAlignedPlans}
             historyPlans={identityAlignedPlans}
-            tanks={planningDisplayTanks}
+            tanks={tanks}
             sources={productionTanks}
             pallets={pallets}
             actuals={actuals}
