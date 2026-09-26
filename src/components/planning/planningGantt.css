@@ -38,6 +38,32 @@
   align-content: start;
 }
 
+.bp-gantt-grid .bp-five-week-cell.is-deliveries,
+.bp-gantt-grid .bp-five-week-cell.is-stock {
+  min-height: 76px;
+  padding: 7px;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-five-week-item {
+  gap: 2px;
+  min-height: 0;
+  padding: 7px 9px;
+  border-radius: 9px;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item > b,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-five-week-item > b {
+  font-size: .78rem;
+  line-height: 1.15;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item > small,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-five-week-item > small {
+  font-size: .66rem;
+  line-height: 1.3;
+}
+
 .bp-five-week-item.is-gantt-recommendation {
   position: relative;
   opacity: .76;
@@ -66,6 +92,13 @@
   border-radius: 999px;
   font-size: .62rem;
   font-weight: 800;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-gantt-rec-label,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-gantt-stock-label {
+  margin-top: 2px;
+  padding: 1px 5px;
+  font-size: .58rem;
 }
 
 .bp-gantt-rec-label {
