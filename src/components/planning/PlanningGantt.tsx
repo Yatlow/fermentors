@@ -239,33 +239,36 @@ export default function PlanningGantt(props: Props) {
   const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
   const tentativePlanFor = (weekId: string) => plans.find((plan) => plan.id === weekId);
 
-  function resolveBrewTankNumber(weekId: string, item: WeekPlan["brews"][number]) {
-    const confirmedById = tanks.find((tank) => tank.id === item.tankId);
-    if (confirmedById) return confirmedById.number;
+  function resolveBrewTankId(weekId: string, item: WeekPlan["brews"][number]) {
+    if (item.tankId && tanks.some((tank) => tank.id === item.tankId)) return item.tankId;
 
     const batch = normalizedBatch(item.batchNumber);
-    const confirmedSource = batch
+    const realSource = batch
       ? sources.find((source) => normalizedBatch(source.batchNumber) === batch)
       : undefined;
-    if (confirmedSource?.tankNumber !== undefined && confirmedSource?.tankNumber !== null) {
-      return confirmedSource.tankNumber;
+    if (realSource) {
+      const bySourceId = tanks.find((tank) => tank.id === realSource.id);
+      if (bySourceId) return bySourceId.id;
+      const byNumber = tanks.find((tank) => String(tank.number) === String(realSource.tankNumber));
+      if (byNumber) return byNumber.id;
     }
 
     const tentativeMatch = tentativePlanFor(weekId)?.brews.find((candidate) => candidate.id === item.id) as DisplayBrew | undefined;
-    const tentativeTank = tentativeMatch?.tentativeTankId
-      ? tanks.find((tank) => tank.id === tentativeMatch.tentativeTankId)
+    return tentativeMatch?.tentativeTankId && tanks.some((tank) => tank.id === tentativeMatch.tentativeTankId)
+      ? tentativeMatch.tentativeTankId
       : undefined;
-    return tentativeTank?.number;
+  }
+
+  function resolveBrewTankNumber(weekId: string, item: WeekPlan["brews"][number]) {
+    const tankId = resolveBrewTankId(weekId, item);
+    return tanks.find((tank) => tank.id === tankId)?.number;
   }
 
   const calendarPlans = useMemo(() => historyPlans.map((plan) => ({
     ...plan,
     brews: plan.brews.map((brew) => {
-      const tankNumber = resolveBrewTankNumber(plan.id, brew);
-      const tank = tankNumber === undefined
-        ? undefined
-        : tanks.find((candidate) => String(candidate.number) === String(tankNumber));
-      return tank ? { ...brew, tankId: tank.id } : brew;
+      const tankId = resolveBrewTankId(plan.id, brew);
+      return tankId ? { ...brew, tankId } : brew;
     }),
   })), [historyPlans, plans, sources, tanks]);
 
@@ -516,6 +519,12 @@ export default function PlanningGantt(props: Props) {
                 const items = itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
                 const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
+                const plan = decisionPlanFor(weekId);
+                const hasDecision = editableKind === "packaging"
+                  ? (plan?.packaging ?? []).some((item) => item.quantity > 0)
+                  : editableKind === "brews"
+                    ? (plan?.brews ?? []).some((item) => item.liters > 0)
+                    : false;
                 const pendingCount = editableKind ? dailyPendingCount(editableKind, weekId) : 0;
                 return (
                   <div className={`bp-five-week-cell is-${row.id}`} key={`${row.id}:${weekId}`}>
@@ -530,7 +539,7 @@ export default function PlanningGantt(props: Props) {
                         >
                           <SquarePen size={15} aria-hidden="true" />
                         </button>
-                        {editableKind !== "deliveries" && (
+                        {editableKind !== "deliveries" && hasDecision && (
                           <button
                             type="button"
                             className="bp-gantt-cell-edit bp-gantt-cell-calendar"
@@ -558,7 +567,7 @@ export default function PlanningGantt(props: Props) {
                           </small>
                         ) : <small>{item.meta}</small>}
                         {item.recommended && <span className="bp-gantt-rec-label">המלצה · טרם נקבע</span>}
-                        {item.stockKind === "actual" && <span className="bp-gantt-stock-label">בפועל עכשיו</span>}
+                        {item.stockKind === "actual" && <span className="bp-gantt-stock-label">בפועל</span>}
                         {item.stockKind === "projected" && <span className="bp-gantt-stock-label">צפי לפתיחת השבוע</span>}
                       </article>
                     ))}
