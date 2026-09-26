@@ -174,7 +174,6 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         }
     }
 
-
     function buildNoteText(): string | null {
         switch (noteType) {
             case "שמרים": return (value === "" || value2 === "") ? null : `הורדת ${value} דליי שמרים, לחץ אחרי ${value2} bar`;
@@ -428,6 +427,8 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const closingPressure = specs
         ? getClosingPressureForStyle(tank.beerStyle, specs)
         : null;
+    const selectedNoteType = NOTE_TYPES.find((type) => type.value === noteType);
+    const SelectedNoteIcon = selectedNoteType?.icon;
 
     return (
         <>
@@ -445,27 +446,25 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                         <h3>דיווח מהיר- מיכל {tank.tankNumber}</h3>
 
                         <div className="quickReportForm">
-                            <div className="quickReportTypeGrid" role="group" aria-label="סוג דיווח">
-                                {NOTE_TYPES
-                                    .filter((t) => t.stage === "both" || t.stage === stage)
-                                    .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
-                                    .filter((t) => t.value !== "אריזה" || isColdTank)
-                                    .map((t) => {
-                                        const Icon = t.icon;
-                                        return (
-                                            <button
-                                                key={t.value}
-                                                type="button"
-                                                className={`quickReportTypeButton ${noteType === t.value ? "active" : ""}`}
-                                                aria-pressed={noteType === t.value}
-                                                disabled={isSending}
-                                                onClick={() => selectNoteType(t.value)}
-                                            >
-                                                <Icon size={17} aria-hidden="true" />
-                                                <span>{t.label}</span>
-                                            </button>
-                                        );
-                                    })}
+                            <div className="quickReportSelectWithIcon">
+                                {SelectedNoteIcon && (
+                                    <SelectedNoteIcon className="quickReportSelectedIcon" size={17} aria-hidden="true" />
+                                )}
+                                <select
+                                    className="quickReportSelect"
+                                    value={noteType}
+                                    disabled={isSending}
+                                    onChange={(e) => selectNoteType(e.target.value)}
+                                >
+                                    <option value="" disabled>בחר סוג דיווח</option>
+                                    {NOTE_TYPES
+                                        .filter((t) => t.stage === "both" || t.stage === stage)
+                                        .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
+                                        .filter((t) => t.value !== "אריזה" || isColdTank)
+                                        .map((t) => (
+                                            <option key={t.value} value={t.value}>{t.label}</option>
+                                        ))}
+                                </select>
                             </div>
 
                             {noteType === "אחר" && (
