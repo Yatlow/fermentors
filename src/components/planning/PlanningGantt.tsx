@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { SquarePen } from "lucide-react";
+import { CalendarDays, SquarePen } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
@@ -23,6 +23,7 @@ import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPres
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
+import PlanningGanttDailyModal from "./PlanningGanttDailyModal";
 
 const CRATE_LITERS = 24 * 0.33;
 const KEG_LITERS = 20;
@@ -112,6 +113,7 @@ export default function PlanningGantt(props: Props) {
   } = props;
   const [mode, setMode] = useState<GanttMode>("summary");
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
+  const [dailyTarget, setDailyTarget] = useState<EditorTarget | null>(null);
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
   const weekIds = useMemo(
@@ -235,6 +237,19 @@ export default function PlanningGantt(props: Props) {
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
   const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
   const tentativePlanFor = (weekId: string) => plans.find((plan) => plan.id === weekId);
+
+  const calendarPlans = useMemo(() => historyPlans.map((plan) => ({
+    ...plan,
+    brews: plan.brews.map((brew) => {
+      if (brew.tankId) return brew;
+      const batch = normalizedBatch(brew.batchNumber);
+      if (!batch) return brew;
+      const source = sources.find((candidate) => normalizedBatch(candidate.batchNumber) === batch);
+      if (!source) return brew;
+      const tank = tanks.find((candidate) => String(candidate.number) === String(source.tankNumber));
+      return tank ? { ...brew, tankId: tank.id } : brew;
+    }),
+  })), [historyPlans, sources, tanks]);
 
   function compactShipmentItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
@@ -383,6 +398,22 @@ export default function PlanningGantt(props: Props) {
     };
   }
 
+  function dailyPendingCount(kind: EditorKind, weekId: string) {
+    const plan = decisionPlanFor(weekId);
+    if (!plan) return 0;
+    if (kind === "deliveries") {
+      return (plan.deliveries ?? []).filter((delivery) => delivery.quantity > 0 && !delivery.dispatchDate).length;
+    }
+    if (kind === "packaging") {
+      return plan.packaging.filter((run) => run.quantity > 0 && !run.date).length;
+    }
+    return plan.brews.filter((brew) => {
+      if (brew.liters <= 0 || brew.tankId) return false;
+      const batch = normalizedBatch(brew.batchNumber);
+      return !batch || !sources.some((source) => normalizedBatch(source.batchNumber) === batch);
+    }).length;
+  }
+
   const editor = editorTarget && canEdit ? (
     <PlanningGanttWeekEditorModal
       week={editorTarget.week}
@@ -404,6 +435,25 @@ export default function PlanningGantt(props: Props) {
     />
   ) : null;
 
+  const dailyEditor = dailyTarget && canEdit ? (
+    <PlanningGanttDailyModal
+      week={dailyTarget.week}
+      kind={dailyTarget.kind}
+      onClose={() => setDailyTarget(null)}
+      settings={settings}
+      plans={historyPlans}
+      tanks={tanks}
+      sources={sources}
+      pallets={pallets}
+      actuals={actuals}
+      shipments={shipments}
+      holidays={holidays}
+      today={today}
+      disabled={props.disabled}
+      saveWeek={(week) => props.saveWeek(week)}
+    />
+  ) : null;
+
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
@@ -415,10 +465,11 @@ export default function PlanningGantt(props: Props) {
           </div>
         </div>
         <div className="bp-gantt-calendar-host">
-          <PlanningFiveWeekOverview {...props} plans={historyPlans} />
+          <PlanningFiveWeekOverview {...props} plans={calendarPlans} />
         </div>
       </section>
       {editor}
+      {dailyEditor}
     </>;
   }
 
@@ -463,18 +514,31 @@ export default function PlanningGantt(props: Props) {
                 const items = itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
                 const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
+                const pendingCount = editableKind ? dailyPendingCount(editableKind, weekId) : 0;
                 return (
                   <div className={`bp-five-week-cell is-${row.id}`} key={`${row.id}:${weekId}`}>
                     {canEditWeek && (
-                      <button
-                        type="button"
-                        className="bp-gantt-cell-edit"
-                        aria-label={`עריכת ${row.label} בשבוע ${weekNumber(weekId)}`}
-                        title={`עריכת ${row.label}`}
-                        onClick={() => setEditorTarget({ week: weekId, kind: editableKind })}
-                      >
-                        <SquarePen size={15} aria-hidden="true" />
-                      </button>
+                      <div className="bp-gantt-cell-actions">
+                        <button
+                          type="button"
+                          className="bp-gantt-cell-edit"
+                          aria-label={`עריכת ${row.label} בשבוע ${weekNumber(weekId)}`}
+                          title={`עריכת ${row.label}`}
+                          onClick={() => setEditorTarget({ week: weekId, kind: editableKind })}
+                        >
+                          <SquarePen size={15} aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          className="bp-gantt-cell-edit bp-gantt-cell-calendar"
+                          aria-label={`תכנון יומי של ${row.label} בשבוע ${weekNumber(weekId)}${pendingCount ? `, ${pendingCount} ממתינים לשיבוץ` : ""}`}
+                          title={`תכנון יומי · ${row.label}`}
+                          onClick={() => setDailyTarget({ week: weekId, kind: editableKind })}
+                        >
+                          <CalendarDays size={15} aria-hidden="true" />
+                          {pendingCount > 0 && <span className="bp-gantt-action-badge">{pendingCount}</span>}
+                        </button>
+                      </div>
                     )}
                     {items.map((item) => (
                       <article
@@ -498,5 +562,6 @@ export default function PlanningGantt(props: Props) {
       </div>
     </section>
     {editor}
+    {dailyEditor}
   </>;
 }
