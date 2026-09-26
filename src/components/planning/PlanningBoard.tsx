@@ -69,6 +69,8 @@ export default function PlanningBoard({
   disabled,
   saveWeek,
   initialWeek,
+  brewAssignmentOnly = false,
+  onBrewAssignmentClose,
 }: {
   settings: Settings;
   plans: WeekPlan[];
@@ -82,6 +84,8 @@ export default function PlanningBoard({
   disabled: boolean;
   saveWeek: (week: WeekPlan) => Promise<void>;
   initialWeek?: string;
+  brewAssignmentOnly?: boolean;
+  onBrewAssignmentClose?: () => void;
 }) {
   const pickerStart = weekStart(today);
   const defaultPlanningWeek = addDays(pickerStart, 7);
@@ -249,6 +253,28 @@ export default function PlanningBoard({
       setBusy(false);
       setSelectedPackaging(null);
     }
+  }
+
+  if (brewAssignmentOnly) {
+    return <section className="bp-gantt-brew-assignment-only">
+      {busy && <BeerLoader overlay message="שומר שיבוצי בישול…" />}
+      <PlanningBrewAssignmentEditor
+        initial={structuredClone(current)}
+        brews={brews}
+        releases={releases}
+        disabled={readOnly || busy}
+        onSave={async (next) => {
+          setBusy(true);
+          try {
+            await persist(next, true);
+            onBrewAssignmentClose?.();
+          } finally {
+            setBusy(false);
+          }
+        }}
+        onCancel={() => onBrewAssignmentClose?.()}
+      />
+    </section>;
   }
 
   return <section>
