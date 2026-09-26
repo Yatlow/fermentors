@@ -1,18 +1,32 @@
 const FIREBASE_PROJECT_ID = "fermenter-dashboard-bada3";
 const CELLAR_LISTENER_HANDLER = "cellarSheetOnEdit";
+const CELLAR_MAINTENANCE_HANDLER = "hourlyCellarListenerMaintenance";
 const CELLAR_LISTENER_MAP_PREFIX = "cellar_listener:";
 const CELLAR_LISTENER_SECRET_PROPERTY = "CELLAR_LISTENER_SECRET";
+const CELLAR_MIN_TANK = 2;
+const CELLAR_MAX_TANK = 19;
+const CELLAR_MAX_ONEDIT_TRIGGERS = CELLAR_MAX_TANK - CELLAR_MIN_TANK + 1; // 18
 
 function doPost(e) {
-  const payload = parseJsonBody_(e);
-  assertSecret_(payload.secret);
+  try {
+    const payload = parseJsonBody_(e);
+    assertSecret_(payload.secret);
 
-  const action = String(payload.action || "").trim();
-  if (action === "add") return jsonOutput_(addCellarListener_(payload));
-  if (action === "remove") return jsonOutput_(removeCellarListener_(payload));
-  if (action === "status") return jsonOutput_(cellarListenerStatus_());
+    const action = String(payload.action || "").trim().toLowerCase();
+    if (action === "add") return jsonOutput_(addCellarListener_(payload));
+    if (action === "remove") return jsonOutput_(removeCellarListener_(payload));
+    if (action === "status") return jsonOutput_(cellarListenerStatus_());
+    if (action === "reconcile") return jsonOutput_(reconcileCellarListeners_());
+    if (action === "setup") return jsonOutput_(setupCellarListenerService());
 
-  throw new Error("Unsupported action: " + action);
+    return jsonOutput_({ success: false, error: "Unsupported action: " + action });
+  } catch (error) {
+    console.log("cellar listener API failed: " + (error && error.stack ? error.stack : error));
+    return jsonOutput_({
+      success: false,
+      error: error && error.message ? error.message : String(error)
+    });
+  }
 }
 
 function parseJsonBody_(e) {
@@ -54,32 +68,115 @@ function triggerSourceId_(trigger) {
   }
 }
 
-function addCellarListener_(payload) {
-  const spreadsheetId = extractSpreadsheetId_(payload.sheetUrl || payload.spreadsheetId);
-  const tankNumber = String(payload.tankNumber || "").trim();
-  if (!spreadsheetId) throw new Error("Missing sheetUrl/spreadsheetId");
-  if (!tankNumber) throw new Error("Missing tankNumber");
+function tankNumberInListenerRange_(tankNumber) {
+  const tank = Number(tankNumber);
+  return Number.isInteger(tank) && tank >= CELLAR_MIN_TANK && tank <= CELLAR_MAX_TANK;
+}
 
-  const props = PropertiesService.getScriptProperties();
-  props.setProperty(listenerMapKey_(spreadsheetId), JSON.stringify({
+function mappingFromFermentor_(fermentor, fallbackId) {
+  const tankNumber = String(fermentor.tankNumber || fallbackId || "").trim();
+  const spreadsheetId = extractSpreadsheetId_(fermentor.sheetUrl);
+  return {
     spreadsheetId: spreadsheetId,
-    sheetUrl: String(payload.sheetUrl || ""),
+    sheetUrl: String(fermentor.sheetUrl || ""),
     tankNumber: tankNumber,
-    batchNumber: String(payload.batchNumber || "").replace("#", "").trim(),
+    batchNumber: String(fermentor.batchNumber || "").replace("#", "").trim(),
     updatedAt: new Date().toISOString()
-  }));
+  };
+}
 
-  const matches = ScriptApp.getProjectTriggers().filter(function (trigger) {
-    return trigger.getHandlerFunction() === CELLAR_LISTENER_HANDLER &&
-      triggerSourceId_(trigger) === spreadsheetId;
+function saveMapping_(mapping) {
+  PropertiesService.getScriptProperties().setProperty(
+    listenerMapKey_(mapping.spreadsheetId),
+    JSON.stringify(mapping)
+  );
+}
+
+function readMapping_(spreadsheetId) {
+  const raw = PropertiesService.getScriptProperties().getProperty(listenerMapKey_(spreadsheetId));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    PropertiesService.getScriptProperties().deleteProperty(listenerMapKey_(spreadsheetId));
+    return null;
+  }
+}
+
+function deleteMapping_(spreadsheetId) {
+  PropertiesService.getScriptProperties().deleteProperty(listenerMapKey_(spreadsheetId));
+}
+
+function managedOnEditTriggers_() {
+  return ScriptApp.getProjectTriggers().filter(function (trigger) {
+    return trigger.getHandlerFunction() === CELLAR_LISTENER_HANDLER;
+  });
+}
+
+function ensureHourlyMaintenanceTrigger_() {
+  const triggers = ScriptApp.getProjectTriggers();
+  const matches = triggers.filter(function (trigger) {
+    return trigger.getHandlerFunction() === CELLAR_MAINTENANCE_HANDLER;
   });
 
   matches.slice(1).forEach(function (trigger) {
     ScriptApp.deleteTrigger(trigger);
   });
 
+  if (!matches.length) {
+    ScriptApp.newTrigger(CELLAR_MAINTENANCE_HANDLER)
+      .timeBased()
+      .everyHours(1)
+      .create();
+    return true;
+  }
+  return false;
+}
+
+function setupCellarListenerService() {
+  const maintenanceInstalled = ensureHourlyMaintenanceTrigger_();
+  const reconciliation = reconcileCellarListeners_();
+  return {
+    success: true,
+    maintenanceInstalled: maintenanceInstalled,
+    reconciliation: reconciliation
+  };
+}
+
+function hourlyCellarListenerMaintenance() {
+  return reconcileCellarListeners_();
+}
+
+function addCellarListener_(payload) {
+  const spreadsheetId = extractSpreadsheetId_(payload.sheetUrl || payload.spreadsheetId);
+  const tankNumber = String(payload.tankNumber || "").trim();
+  if (!spreadsheetId) throw new Error("Missing sheetUrl/spreadsheetId");
+  if (!tankNumberInListenerRange_(tankNumber)) {
+    throw new Error("Cellar listener supports tanks 2-19 only");
+  }
+
+  const mapping = {
+    spreadsheetId: spreadsheetId,
+    sheetUrl: String(payload.sheetUrl || ""),
+    tankNumber: tankNumber,
+    batchNumber: String(payload.batchNumber || "").replace("#", "").trim(),
+    updatedAt: new Date().toISOString()
+  };
+  saveMapping_(mapping);
+  ensureHourlyMaintenanceTrigger_();
+
+  const matches = managedOnEditTriggers_().filter(function (trigger) {
+    return triggerSourceId_(trigger) === spreadsheetId;
+  });
+  matches.slice(1).forEach(function (trigger) {
+    ScriptApp.deleteTrigger(trigger);
+  });
+
   let installed = false;
   if (!matches.length) {
+    if (managedOnEditTriggers_().length >= CELLAR_MAX_ONEDIT_TRIGGERS) {
+      throw new Error("Cellar listener trigger capacity reached (18 onEdit triggers)");
+    }
     ScriptApp.newTrigger(CELLAR_LISTENER_HANDLER)
       .forSpreadsheet(spreadsheetId)
       .onEdit()
@@ -101,30 +198,121 @@ function removeCellarListener_(payload) {
   if (!spreadsheetId) throw new Error("Missing sheetUrl/spreadsheetId");
 
   let removed = 0;
-  ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    if (
-      trigger.getHandlerFunction() === CELLAR_LISTENER_HANDLER &&
-      triggerSourceId_(trigger) === spreadsheetId
-    ) {
+  managedOnEditTriggers_().forEach(function (trigger) {
+    if (triggerSourceId_(trigger) === spreadsheetId) {
       ScriptApp.deleteTrigger(trigger);
       removed++;
     }
   });
+  deleteMapping_(spreadsheetId);
 
-  PropertiesService.getScriptProperties().deleteProperty(listenerMapKey_(spreadsheetId));
   return { success: true, action: "remove", spreadsheetId: spreadsheetId, removed: removed };
 }
 
 function cellarListenerStatus_() {
-  const triggers = ScriptApp.getProjectTriggers().filter(function (trigger) {
-    return trigger.getHandlerFunction() === CELLAR_LISTENER_HANDLER;
-  });
+  const triggers = managedOnEditTriggers_();
   return {
     success: true,
     listeners: triggers.map(function (trigger) {
-      return { spreadsheetId: triggerSourceId_(trigger) };
+      const spreadsheetId = triggerSourceId_(trigger);
+      return {
+        spreadsheetId: spreadsheetId,
+        mapping: readMapping_(spreadsheetId)
+      };
     }),
-    count: triggers.length
+    listenerCount: triggers.length,
+    totalProjectTriggerCount: ScriptApp.getProjectTriggers().length
+  };
+}
+
+function listFermentors_() {
+  const result = [];
+  let pageToken = null;
+  do {
+    let url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+      "/databases/(default)/documents/fermentors?pageSize=100";
+    if (pageToken) url += "&pageToken=" + encodeURIComponent(pageToken);
+
+    const response = UrlFetchApp.fetch(url, {
+      method: "get",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+    const code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      throw new Error("Fermentor list failed: " + code + " " + response.getContentText());
+    }
+
+    const body = JSON.parse(response.getContentText() || "{}");
+    (body.documents || []).forEach(function (document) {
+      const id = String(document.name || "").split("/").pop();
+      result.push({ id: id, data: firestoreFieldsToObject_(document.fields || {}) });
+    });
+    pageToken = body.nextPageToken || null;
+  } while (pageToken);
+  return result;
+}
+
+function reconcileCellarListeners_() {
+  ensureHourlyMaintenanceTrigger_();
+
+  const fermentors = listFermentors_();
+  const desired = {};
+  fermentors.forEach(function (entry) {
+    const fermentor = entry.data || {};
+    const tank = Number(fermentor.tankNumber || entry.id);
+    if (Number(fermentor.action) !== 1) return;
+    if (!tankNumberInListenerRange_(tank)) return;
+    const spreadsheetId = extractSpreadsheetId_(fermentor.sheetUrl);
+    if (!spreadsheetId) return;
+    desired[spreadsheetId] = mappingFromFermentor_(fermentor, entry.id);
+  });
+
+  const desiredIds = Object.keys(desired);
+  if (desiredIds.length > CELLAR_MAX_ONEDIT_TRIGGERS) {
+    throw new Error("More than 18 ACTION 1 cellar Sheets found; refusing to exceed trigger capacity");
+  }
+
+  const kept = {};
+  let removed = 0;
+  managedOnEditTriggers_().forEach(function (trigger) {
+    const spreadsheetId = triggerSourceId_(trigger);
+    if (spreadsheetId && desired[spreadsheetId] && !kept[spreadsheetId]) {
+      kept[spreadsheetId] = true;
+      return;
+    }
+    ScriptApp.deleteTrigger(trigger);
+    removed++;
+    if (spreadsheetId && !desired[spreadsheetId]) deleteMapping_(spreadsheetId);
+  });
+
+  let installed = 0;
+  desiredIds.forEach(function (spreadsheetId) {
+    saveMapping_(desired[spreadsheetId]);
+    if (kept[spreadsheetId]) return;
+    ScriptApp.newTrigger(CELLAR_LISTENER_HANDLER)
+      .forSpreadsheet(spreadsheetId)
+      .onEdit()
+      .create();
+    kept[spreadsheetId] = true;
+    installed++;
+  });
+
+  const props = PropertiesService.getScriptProperties();
+  const allProps = props.getProperties();
+  Object.keys(allProps).forEach(function (key) {
+    if (key.indexOf(CELLAR_LISTENER_MAP_PREFIX) !== 0) return;
+    const spreadsheetId = key.slice(CELLAR_LISTENER_MAP_PREFIX.length);
+    if (!desired[spreadsheetId]) props.deleteProperty(key);
+  });
+
+  return {
+    success: true,
+    fermentorsRead: fermentors.length,
+    desiredListeners: desiredIds.length,
+    installed: installed,
+    removed: removed,
+    totalProjectTriggers: ScriptApp.getProjectTriggers().length
   };
 }
 
@@ -134,22 +322,15 @@ function cellarSheetOnEdit(event) {
   if (!spreadsheetId) return;
 
   try {
-    const props = PropertiesService.getScriptProperties();
-    const raw = props.getProperty(listenerMapKey_(spreadsheetId));
-    if (!raw) {
+    const mapping = readMapping_(spreadsheetId);
+    if (!mapping) {
       removeCellarListener_({ spreadsheetId: spreadsheetId });
       return;
     }
 
-    const mapping = JSON.parse(raw);
-    const fermentor = getFermentor_(mapping.tankNumber);
-    if (!fermentor || Number(fermentor.action) !== 1 ||
-        extractSpreadsheetId_(fermentor.sheetUrl) !== spreadsheetId) {
-      removeCellarListener_({ spreadsheetId: spreadsheetId });
-      return;
-    }
-
-    syncEditedSheetToFirestore_(event.source, fermentor, mapping.tankNumber);
+    // No Firestore read here. Lifecycle ownership belongs to the ACTION service,
+    // and the hourly reconciliation is the self-healing safety net.
+    syncEditedSheetToFirestore_(event, mapping);
   } catch (error) {
     console.log(
       "cellarSheetOnEdit failed for " + spreadsheetId + ": " +
@@ -158,27 +339,13 @@ function cellarSheetOnEdit(event) {
   }
 }
 
-function getFermentor_(tankNumber) {
-  const id = String(tankNumber || "").trim();
-  if (!id) return null;
-  const url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
-    "/databases/(default)/documents/fermentors/" + encodeURIComponent(id);
-  const response = UrlFetchApp.fetch(url, {
-    method: "get",
-    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
-    muteHttpExceptions: true
-  });
-  if (response.getResponseCode() === 404) return null;
-  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
-    throw new Error("Fermentor read failed: " + response.getResponseCode() + " " + response.getContentText());
-  }
-  return firestoreFieldsToObject_((JSON.parse(response.getContentText()) || {}).fields || {});
-}
-
-function syncEditedSheetToFirestore_(spreadsheet, fermentor, tankNumber) {
+function syncEditedSheetToFirestore_(event, mapping) {
+  const spreadsheet = event.source;
   const sheet = spreadsheet.getSheets()[0];
   if (!sheet) throw new Error("Spreadsheet has no sheet");
   const values = sheet.getDataRange().getDisplayValues();
+
+  if (!editCouldAffectCellar_(event, sheet, values)) return;
 
   const latest = latestFermentationMeasurement_(values);
   const packaging = readPackagingFromValues_(sheet, values);
@@ -186,7 +353,7 @@ function syncEditedSheetToFirestore_(spreadsheet, fermentor, tankNumber) {
 
   if (latest) {
     Object.keys(latest).forEach(function (key) {
-      if (key === "measurementId") return;
+      if (key === "measurementId" || key === "time") return;
       if (latest[key] !== undefined) currentData[key] = latest[key];
     });
   }
@@ -196,25 +363,49 @@ function syncEditedSheetToFirestore_(spreadsheet, fermentor, tankNumber) {
   });
 
   if (!Object.keys(currentData).length) return;
-
-  const batch = String(fermentor.batchNumber || "").replace("#", "").trim();
-  commitCurrentDataAndMeasurement_(String(tankNumber), batch, currentData, latest);
+  const batch = String(mapping.batchNumber || "").replace("#", "").trim();
+  commitCurrentDataAndMeasurement_(String(mapping.tankNumber), batch, currentData, latest);
 }
 
-function latestFermentationMeasurement_(values) {
-  let header = -1;
+function editCouldAffectCellar_(event, sheet, values) {
+  if (!event || !event.range) return true;
+  const range = event.range;
+  if (range.getSheet().getSheetId() !== sheet.getSheetId()) return false;
+
+  const firstRow = range.getRow();
+  const lastRow = range.getLastRow();
+  const firstCol = range.getColumn();
+  const lastCol = range.getLastColumn();
+
+  const header = fermentationHeaderRow_(values);
+  if (header >= 0) {
+    const headerOneBased = header + 1;
+    if (lastRow > headerOneBased && firstCol <= 8 && lastCol >= 1) return true;
+  }
+
+  const targets = packagingTargets_(sheet, values);
+  return targets.some(function (target) {
+    return target && target.row >= firstRow && target.row <= lastRow &&
+      target.col >= firstCol && target.col <= lastCol;
+  });
+}
+
+function fermentationHeaderRow_(values) {
   for (let r = 0; r < values.length; r++) {
-    const row = values[r] || [];
-    const labels = row.map(function (cell) { return String(cell || "").trim(); });
+    const labels = (values[r] || []).map(function (cell) {
+      return String(cell || "").trim();
+    });
     if (
       labels.indexOf("תאריך") !== -1 &&
       labels.indexOf("שעה") !== -1 &&
       labels.indexOf("טמפרטורה") !== -1
-    ) {
-      header = r;
-      break;
-    }
+    ) return r;
   }
+  return -1;
+}
+
+function latestFermentationMeasurement_(values) {
+  const header = fermentationHeaderRow_(values);
   if (header < 0) return null;
 
   let found = null;
@@ -260,38 +451,67 @@ function findLabel_(values, labels) {
   return null;
 }
 
+function findEmptyCheckbox_(sheet, values) {
+  const empty = findLabel_(values, ["ריק"]);
+  if (!empty) return null;
+
+  const firstRow = Math.max(1, empty.row - 1);
+  const firstCol = Math.max(1, empty.col - 1);
+  const lastRow = Math.min(sheet.getMaxRows(), empty.row + 4);
+  const lastCol = Math.min(sheet.getMaxColumns(), empty.col + 4);
+  const height = Math.max(1, lastRow - firstRow + 1);
+  const width = Math.max(1, lastCol - firstCol + 1);
+  const validations = sheet.getRange(firstRow, firstCol, height, width).getDataValidations();
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (let r = 0; r < validations.length; r++) {
+    for (let c = 0; c < validations[r].length; c++) {
+      const rule = validations[r][c];
+      if (!rule || rule.getCriteriaType() !== SpreadsheetApp.DataValidationCriteria.CHECKBOX) continue;
+      const row = firstRow + r;
+      const col = firstCol + c;
+      const distance = Math.abs((row - 1) - empty.row) + Math.abs((col - 1) - empty.col);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = { row: row, col: col };
+      }
+    }
+  }
+  return best;
+}
+
+function packagingTargets_(sheet, values) {
+  const kegs = findLabel_(values, ["חביות"]);
+  const crates = findLabel_(values, ["ארגזים"]);
+  const total = findLabel_(values, ['סה"כ', "סהכ"]);
+  const shrinkage = findLabel_(values, ["פחת"]);
+  return [
+    kegs ? { row: kegs.row + 2, col: kegs.col + 1 } : null,
+    crates ? { row: crates.row + 2, col: crates.col + 1 } : null,
+    total ? { row: total.row + 1, col: total.col + 2 } : null,
+    shrinkage ? { row: shrinkage.row + 1, col: shrinkage.col + 2 } : null,
+    findEmptyCheckbox_(sheet, values)
+  ].filter(Boolean);
+}
+
 function readPackagingFromValues_(sheet, values) {
   const result = {};
   const kegs = findLabel_(values, ["חביות"]);
   const crates = findLabel_(values, ["ארגזים"]);
   const total = findLabel_(values, ['סה"כ', "סהכ"]);
   const shrinkage = findLabel_(values, ["פחת"]);
-  const empty = findLabel_(values, ["ריק"]);
 
   if (kegs && values[kegs.row + 1]) result.kegs = numberOrNull_(values[kegs.row + 1][kegs.col]);
   if (crates && values[crates.row + 1]) result.crates = numberOrNull_(values[crates.row + 1][crates.col]);
   if (total && values[total.row]) result.totalLiters = numberOrNull_(values[total.row][total.col + 1]);
   if (shrinkage && values[shrinkage.row]) result.shrinkagePercent = percentOrNull_(values[shrinkage.row][shrinkage.col + 1]);
 
-  if (empty) {
-    const maxRow = Math.min(sheet.getMaxRows(), empty.row + 4);
-    const maxCol = Math.min(sheet.getMaxColumns(), empty.col + 4);
-    const r0 = Math.max(1, empty.row - 1);
-    const c0 = Math.max(1, empty.col - 1);
-    const validations = sheet.getRange(r0, c0, Math.max(1, maxRow - r0 + 1), Math.max(1, maxCol - c0 + 1)).getDataValidations();
-    outer:
-    for (let r = 0; r < validations.length; r++) {
-      for (let c = 0; c < validations[r].length; c++) {
-        const rule = validations[r][c];
-        if (rule && rule.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX) {
-          const value = sheet.getRange(r0 + r, c0 + c).getValue();
-          result.isEmpty = value === true || String(value).toUpperCase() === "TRUE";
-          break outer;
-        }
-      }
-    }
+  const checkbox = findEmptyCheckbox_(sheet, values);
+  if (checkbox) {
+    const value = sheet.getRange(checkbox.row, checkbox.col).getValue();
+    result.isEmpty = value === true || String(value).trim().toUpperCase() === "TRUE";
   }
-
   return result;
 }
 
@@ -362,7 +582,7 @@ function commitCurrentDataAndMeasurement_(tankNumber, batchNumber, currentData, 
 
 function parseIsraeliDate_(value) {
   const text = String(value || "").trim();
-  let match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (!match) return null;
   let year = Number(match[3]);
   if (year < 100) year += 2000;
