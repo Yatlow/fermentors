@@ -34,10 +34,11 @@
   background: rgba(254, 226, 226, .55);
 }
 
-/* Only the page owns vertical scrolling. The Gantt wrapper owns horizontal
-   overflow, preventing the desktop mouse wheel from getting trapped in a
+/* Only the page owns vertical scrolling. The Gantt/calendar wrappers own
+   horizontal overflow, preventing the mouse wheel from getting trapped in a
    second vertical scroller. */
-.bp-gantt-shell > .bp-five-week-scroll {
+.bp-gantt-shell > .bp-five-week-scroll,
+.bp-gantt-calendar-host .bp-month-scroll {
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -57,7 +58,7 @@
 .bp-gantt-cell-edit {
   position: absolute;
   top: 6px;
-  inset-inline-start: 6px;
+  inset-inline-end: 6px;
   z-index: 3;
   display: flex !important;
   align-items: center;
@@ -90,7 +91,7 @@
 }
 
 .bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-edit) .bp-five-week-item {
-  padding-inline-start: 38px;
+  padding-inline-end: 38px;
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-stock {
@@ -296,8 +297,6 @@
   max-width: none;
 }
 
-/* Give the focused modal the same visual hierarchy as Weekly Recommendations,
-   even though the other two recommendation cards are intentionally hidden. */
 .bp-gantt-editor-modal .bp-week-rec-card {
   max-width: none;
   width: 100%;
@@ -325,9 +324,6 @@
   color: #1e293b;
 }
 
-/* The focused Gantt editor reuses the real weekly-planning flow, but only
-   exposes the requested decision card. The hidden week picker still exists so
-   the modal can select the exact week programmatically. */
 .bp-gantt-editor-modal .bp-week-picker,
 .bp-gantt-editor-modal .bp-week-sticky,
 .bp-gantt-editor-modal .bp-week-events {
