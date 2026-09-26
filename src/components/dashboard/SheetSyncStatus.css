@@ -82,6 +82,30 @@
     line-height: 1;
 }
 
+.sheet-sync-realtime-status {
+    min-width: 0;
+    display: flex;
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sheet-sync-backup-label {
+    font-size: 0.64rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    color: #64748b;
+}
+
+.sheet-sync-backup-warning {
+    color: #92400e;
+}
+
+.sheet-sync-backup-failed {
+    color: #991b1b;
+    font-weight: 700;
+}
+
 /* The sync feature used to be rendered inside the cellar-health card. Keep the
    old implementation hidden while the standalone card above owns the UI. */
 .health-dashboard .health-sync-pill,
@@ -118,6 +142,10 @@
         padding: 2px 7px;
         font-size: 0.67rem;
     }
+
+    .sheet-sync-backup-label {
+        font-size: 0.61rem;
+    }
 }
 
 .sheet-sync-packaging-recovery {
@@ -143,37 +171,3 @@
 
 .sheet-sync-recovery-button:disabled { opacity: 0.55; cursor: wait; }
 .sheet-sync-recovery-error { width: 100%; color: #991b1b; }
-
-
-.sheet-sync-manual-button {
-    flex: 0 0 auto;
-    min-height: 26px;
-    padding: 3px 8px;
-    border: 1px solid #94a3b8;
-    border-radius: 8px;
-    background: #fff;
-    color: #334155;
-    font: inherit;
-    font-size: 0.68rem;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.sheet-sync-manual-button:disabled {
-    opacity: 0.6;
-    cursor: wait;
-}
-
-.sheet-sync-manual-error {
-    margin-top: 7px;
-    color: #991b1b;
-    font-size: 0.72rem;
-}
-
-@media (max-width: 600px) {
-    .sheet-sync-manual-button {
-        min-height: 24px;
-        padding: 2px 7px;
-        font-size: 0.66rem;
-    }
-}
