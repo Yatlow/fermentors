@@ -50,6 +50,7 @@ export default function PlanningGanttDailyModal({
   saveWeek,
 }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null);
+  const brewEditorWasOpened = useRef(false);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -66,13 +67,31 @@ export default function PlanningGanttDailyModal({
 
   useEffect(() => {
     if (kind !== "brews") return;
-    const timer = window.setTimeout(() => {
+
+    let cancelled = false;
+    const openEditor = window.setTimeout(() => {
+      if (cancelled) return;
       const button = Array.from(bodyRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])
         .find((candidate) => candidate.textContent?.includes("סדר ושיבוץ בישולים"));
-      if (button && !button.disabled) button.click();
+      if (!button || button.disabled) return;
+      button.click();
+      brewEditorWasOpened.current = true;
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [kind, week]);
+
+    const observer = new MutationObserver(() => {
+      if (!brewEditorWasOpened.current || cancelled) return;
+      const editorStillOpen = !!bodyRef.current?.querySelector(".bp-brew-assignment-editor");
+      if (!editorStillOpen) onClose();
+    });
+    if (bodyRef.current) observer.observe(bodyRef.current, { childList: true, subtree: true });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(openEditor);
+      observer.disconnect();
+      brewEditorWasOpened.current = false;
+    };
+  }, [kind, week, onClose]);
 
   return createPortal(
     <div
