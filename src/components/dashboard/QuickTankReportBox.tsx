@@ -28,6 +28,7 @@ import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPallet
 import {
     Bubbles,
     BottleWine,
+    ChevronDown,
     CircleArrowOutUpRight,
     ClockPlus,
     FlaskConical,
@@ -94,6 +95,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const isColdTank = tank.stage?.name === "קר";
 
     const [noteType, setNoteType] = useState("");
+    const [reportTypeOpen, setReportTypeOpen] = useState(false);
     const [value, setValue] = useState("");
     const [value2, setValue2] = useState("");
     const [dryHopAa, setDryHopAa] = useState("");
@@ -144,8 +146,10 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
         setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
     }
+
     function selectNoteType(newType: string) {
         setNoteType(newType);
+        setReportTypeOpen(false);
         resetValues();
 
         if (newType === "סגירת מיכל" && closingPressure !== null) {
@@ -427,7 +431,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const closingPressure = specs
         ? getClosingPressureForStyle(tank.beerStyle, specs)
         : null;
-    const selectedNoteType = NOTE_TYPES.find((type) => type.value === noteType);
+    const availableNoteTypes = NOTE_TYPES
+        .filter((t) => t.stage === "both" || t.stage === stage)
+        .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
+        .filter((t) => t.value !== "אריזה" || isColdTank);
+    const selectedNoteType = availableNoteTypes.find((type) => type.value === noteType);
     const SelectedNoteIcon = selectedNoteType?.icon;
 
     return (
@@ -446,25 +454,42 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                         <h3>דיווח מהיר- מיכל {tank.tankNumber}</h3>
 
                         <div className="quickReportForm">
-                            <div className="quickReportSelectWithIcon">
-                                {SelectedNoteIcon && (
-                                    <SelectedNoteIcon className="quickReportSelectedIcon" size={17} aria-hidden="true" />
-                                )}
-                                <select
-                                    className="quickReportSelect"
-                                    value={noteType}
+                            <div className="quickReportDropdown">
+                                <button
+                                    type="button"
+                                    className="quickReportDropdownTrigger"
+                                    aria-haspopup="listbox"
+                                    aria-expanded={reportTypeOpen}
                                     disabled={isSending}
-                                    onChange={(e) => selectNoteType(e.target.value)}
+                                    onClick={() => setReportTypeOpen((open) => !open)}
                                 >
-                                    <option value="" disabled>בחר סוג דיווח</option>
-                                    {NOTE_TYPES
-                                        .filter((t) => t.stage === "both" || t.stage === stage)
-                                        .filter((t) => t.value !== "דרייהופ" || isDryHopAllowedForStyle(tank.beerStyle))
-                                        .filter((t) => t.value !== "אריזה" || isColdTank)
-                                        .map((t) => (
-                                            <option key={t.value} value={t.value}>{t.label}</option>
-                                        ))}
-                                </select>
+                                    <span className="quickReportDropdownValue">
+                                        {SelectedNoteIcon && <SelectedNoteIcon size={17} aria-hidden="true" />}
+                                        <span>{selectedNoteType?.label ?? "בחר סוג דיווח"}</span>
+                                    </span>
+                                    <ChevronDown className={reportTypeOpen ? "is-open" : ""} size={17} aria-hidden="true" />
+                                </button>
+
+                                {reportTypeOpen && (
+                                    <div className="quickReportDropdownMenu" role="listbox" aria-label="סוג דיווח">
+                                        {availableNoteTypes.map((type) => {
+                                            const Icon = type.icon;
+                                            return (
+                                                <button
+                                                    key={type.value}
+                                                    type="button"
+                                                    role="option"
+                                                    aria-selected={noteType === type.value}
+                                                    className={`quickReportDropdownOption ${noteType === type.value ? "selected" : ""}`}
+                                                    onClick={() => selectNoteType(type.value)}
+                                                >
+                                                    <Icon size={18} aria-hidden="true" />
+                                                    <span>{type.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
                             {noteType === "אחר" && (
