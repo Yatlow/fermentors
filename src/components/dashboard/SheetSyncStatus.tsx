@@ -10,11 +10,6 @@ import {
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import { recoverPackagingOperation } from "../../SERVICES/getAndPost/packagingMasterSheetLogger";
-import {
-    callAppsScriptPost,
-    createAppsScriptRequestId,
-    type AppsScriptEnvelope,
-} from "../../SERVICES/getAndPost/appsScriptClient";
 import "./SheetSyncStatus.css";
 
 type SheetSyncJob = {
@@ -32,6 +27,13 @@ type SheetPullStatus = {
     sheetsRead?: number;
     configuredSheets?: number;
     errorCount?: number;
+};
+
+type CellarListenerStatus = {
+    state?: string;
+    listenerCount?: number;
+    totalProjectTriggerCount?: number;
+    updatedAt?: Timestamp | Date | string | null;
 };
 
 type Severity = "ok" | "pending" | "warning" | "failed";
@@ -58,9 +60,9 @@ function ageMinutes(value: unknown, now: number): number | null {
 
 function compactAge(minutes: number | null): string {
     if (minutes === null) return "ממתין";
-    if (minutes <= 0) return "נקרא עכשיו";
-    if (minutes === 1) return "נקרא לפני דקה";
-    return `נקרא לפני ${minutes} דק׳`;
+    if (minutes <= 0) return "נבדק עכשיו";
+    if (minutes === 1) return "נבדק לפני דקה";
+    return `נבדק לפני ${minutes} דק׳`;
 }
 
 function isJerusalemNight(now: number): boolean {
@@ -74,6 +76,10 @@ function isJerusalemNight(now: number): boolean {
     const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
     const minuteOfDay = hour * 60 + minute;
     return minuteOfDay < 4 * 60 + 30 || minuteOfDay >= 17 * 60;
+}
+
+function tankCountLabel(count: number): string {
+    return count === 1 ? "מיכל 1" : `${count} מיכלים`;
 }
 
 function DirectionTitle({ from, to }: { from: string; to: string }) {
@@ -91,12 +97,11 @@ export default function SheetSyncStatus() {
     const [hasFailedJob, setHasFailedJob] = useState(false);
     const [pendingPackaging, setPendingPackaging] = useState<SheetSyncJob[]>([]);
     const [pullStatus, setPullStatus] = useState<SheetPullStatus | null>(null);
+    const [listenerStatus, setListenerStatus] = useState<CellarListenerStatus | null>(null);
     const [readError, setReadError] = useState(false);
     const [now, setNow] = useState(() => Date.now());
     const [recoveringPackagingId, setRecoveringPackagingId] = useState<string | null>(null);
     const [recoveryError, setRecoveryError] = useState<string>("");
-    const [manualSyncState, setManualSyncState] = useState<"idle" | "syncing" | "error">("idle");
-    const [manualSyncError, setManualSyncError] = useState("");
     const isPreviewHost = typeof window !== "undefined" && window.location.hostname.includes("--pr");
 
     useEffect(() => {
@@ -105,18 +110,14 @@ export default function SheetSyncStatus() {
     }, []);
 
     useEffect(() => {
-        // Do not subscribe to the complete sheetSyncJobs collection here. Failed
-        // historical jobs can remain for troubleshooting, and the old broad
-        // listener made every dashboard refresh download all of them again.
-        // The dashboard only needs: the single pull heartbeat, every currently
-        // pending job, and whether at least one failed job exists.
         let heartbeatError = false;
+        let listenerError = false;
         let pendingError = false;
         let failedError = false;
         let packagingError = false;
 
         const refreshReadError = () => {
-            setReadError(heartbeatError || pendingError || failedError || packagingError);
+            setReadError(heartbeatError || listenerError || pendingError || failedError || packagingError);
         };
 
         const unsubscribeHeartbeat = onSnapshot(
@@ -129,6 +130,20 @@ export default function SheetSyncStatus() {
             (error) => {
                 console.error("Failed to subscribe to Sheet pull heartbeat:", error);
                 heartbeatError = true;
+                refreshReadError();
+            }
+        );
+
+        const unsubscribeListenerStatus = onSnapshot(
+            doc(db, "sheetSyncJobs", "_cellarListenerStatus"),
+            (snapshot) => {
+                listenerError = false;
+                setListenerStatus(snapshot.exists() ? snapshot.data() as CellarListenerStatus : null);
+                refreshReadError();
+            },
+            (error) => {
+                console.error("Failed to subscribe to cellar listener status:", error);
+                listenerError = true;
                 refreshReadError();
             }
         );
@@ -199,6 +214,7 @@ export default function SheetSyncStatus() {
 
         return () => {
             unsubscribeHeartbeat();
+            unsubscribeListenerStatus();
             unsubscribePending();
             unsubscribeFailed();
             unsubscribePackaging();
@@ -221,7 +237,6 @@ export default function SheetSyncStatus() {
 
         return {
             pending: allPending,
-            sheetPending: pendingJobs.length,
             packagingPending: pendingPackaging.length,
             hasFailedJob,
             severity,
@@ -233,14 +248,26 @@ export default function SheetSyncStatus() {
         const age = ageMinutes(pullStatus?.completedAt, now);
         const errors = Number(pullStatus?.errorCount ?? 0);
         const partial = pullStatus?.state === "partial" || errors > 0;
+        const night = isJerusalemNight(now);
 
         let severity: Severity = "ok";
         if (!pullStatus || age === null) severity = "warning";
-        else if (age >= 20) severity = "failed";
-        else if (age >= 10 || partial) severity = "warning";
+        else if (partial) severity = "warning";
+        else if (night && age >= 90) severity = "failed";
+        else if (!night && age >= 20) severity = "failed";
+        else if (!night && age >= 10) severity = "warning";
 
         return { age, partial, severity };
     }, [pullStatus, now]);
+
+    const listener = useMemo(() => {
+        const count = Number(listenerStatus?.listenerCount ?? 0);
+        const age = ageMinutes(listenerStatus?.updatedAt, now);
+        let severity: Severity = "ok";
+        if (!listenerStatus || age === null) severity = "warning";
+        else if (age >= 90) severity = "warning";
+        return { count, age, severity };
+    }, [listenerStatus, now]);
 
     const writePill = readError
         ? "לא זמין"
@@ -249,6 +276,18 @@ export default function SheetSyncStatus() {
             : writeStatus.pending.length > 0
                 ? `${writeStatus.pending.length} ממתינות${writeStatus.packagingPending > 0 ? ` · ${writeStatus.packagingPending} אריזה` : ""} · ${writeStatus.oldestPendingMinutes < 5 ? "בטיפול" : `הוותיקה ${writeStatus.oldestPendingMinutes} דק׳`}`
                 : "מסונכרן";
+
+    const realtimePill = readError
+        ? "לא זמין"
+        : !listenerStatus && isPreviewHost
+            ? "Realtime זמין אחרי merge"
+            : !listenerStatus
+                ? "Realtime ממתין לסטטוס"
+                : `Realtime פעיל · ${tankCountLabel(listener.count)}`;
+
+    const backupLabel = pull.partial
+        ? "גיבוי: קריאה חלקית"
+        : `גיבוי: ${compactAge(pull.age)}`;
 
     async function recoverPackaging(operationId: string) {
         if (recoveringPackagingId) return;
@@ -261,56 +300,6 @@ export default function SheetSyncStatus() {
             setRecoveryError(error?.message ?? "בדיקת והשלמת האריזה נכשלה");
         } finally {
             setRecoveringPackagingId(null);
-        }
-    }
-
-    const pullPill = readError
-        ? "לא זמין"
-        : !pullStatus && isPreviewHost
-            ? "Realtime זמין אחרי merge"
-            : pull.partial
-                ? "Realtime פעיל · גיבוי חלקי"
-                : `Realtime פעיל · ${compactAge(pull.age)}`;
-
-    const canManualNightSync =
-        !isPreviewHost &&
-        !readError &&
-        isJerusalemNight(now) &&
-        pull.age !== null &&
-        pull.age >= 10;
-
-    async function runManualNightSync() {
-        if (!canManualNightSync || manualSyncState === "syncing") return;
-
-        setManualSyncState("syncing");
-        setManualSyncError("");
-        try {
-            const response = await callAppsScriptPost<AppsScriptEnvelope<{
-                success?: boolean;
-                message?: string;
-                reason?: string;
-            }>>({
-                action: "manualNightSync",
-                requestId: createAppsScriptRequestId("manualNightSync"),
-            }, {
-                timeoutMs: 45_000,
-                retries: 0,
-            });
-
-            if (!response.success || response.result?.success !== true) {
-                throw new Error(
-                    response.result?.message ||
-                    response.message ||
-                    response.error ||
-                    "הסנכרון הידני לא הושלם"
-                );
-            }
-
-            setManualSyncState("idle");
-        } catch (error: any) {
-            console.error("Manual night sync failed:", error);
-            setManualSyncState("error");
-            setManualSyncError(error?.message ?? "הסנכרון הידני נכשל");
         }
     }
 
@@ -328,25 +317,16 @@ export default function SheetSyncStatus() {
 
                 <div className="sheet-sync-direction-card">
                     <DirectionTitle from="Sheets" to="מערכת" />
-                    <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : pull.severity}`}>
-                        {pullPill}
-                    </span>
-                    {canManualNightSync && (
-                        <button
-                            type="button"
-                            className="sheet-sync-manual-button"
-                            disabled={manualSyncState === "syncing"}
-                            onClick={() => void runManualNightSync()}
-                        >
-                            {manualSyncState === "syncing" ? "מסנכרן…" : "סנכרן עכשיו"}
-                        </button>
-                    )}
+                    <div className="sheet-sync-realtime-status">
+                        <span className={`sheet-sync-status-pill sheet-sync-status-${readError ? "warning" : listener.severity}`}>
+                            {realtimePill}
+                        </span>
+                        <span className={`sheet-sync-backup-label sheet-sync-backup-${pull.severity}`}>
+                            {backupLabel}
+                        </span>
+                    </div>
                 </div>
             </div>
-
-            {manualSyncError && (
-                <div className="sheet-sync-manual-error">{manualSyncError}</div>
-            )}
 
             {pendingPackaging.length > 0 && (
                 <div className="sheet-sync-packaging-recovery">
