@@ -12,6 +12,8 @@
 
 const CELLAR_LISTENER_WEBAPP_URL_PROPERTY_ = "CELLAR_LISTENER_WEBAPP_URL";
 const CELLAR_LISTENER_SECRET_PROPERTY_ = "CELLAR_LISTENER_SECRET";
+const CELLAR_LISTENER_ENSURE_PREFIX_ = "cellar_listener_ensure:";
+const CELLAR_LISTENER_ENSURE_INTERVAL_MS_ = 55 * 60 * 1000;
 
 function cellarListenerConfig_() {
   const props = PropertiesService.getScriptProperties();
@@ -57,6 +59,17 @@ function cellarListenerCall_(action, payload) {
   return parsed;
 }
 
+function cellarListenerSheetId_(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : text;
+}
+
+function cellarListenerEnsureKey_(sheetUrl) {
+  const id = cellarListenerSheetId_(sheetUrl);
+  return id ? CELLAR_LISTENER_ENSURE_PREFIX_ + id : "";
+}
+
 function cellarListenerEnsureForFermentor_(fermentor) {
   const data = fermentor && fermentor.data ? fermentor.data : (fermentor || {});
   const tankNumber = String(data.tankNumber || data.uid || data.id || "").trim();
@@ -79,7 +92,11 @@ function cellarListenerRemoveForFermentor_(fermentor) {
   const data = fermentor && fermentor.data ? fermentor.data : (fermentor || {});
   const sheetUrl = String(data.sheetUrl || "").trim();
   if (!sheetUrl) return { success: false, skipped: true, reason: "missing_sheet" };
-  return cellarListenerCall_("remove", { sheetUrl: sheetUrl });
+
+  const result = cellarListenerCall_("remove", { sheetUrl: sheetUrl });
+  const ensureKey = cellarListenerEnsureKey_(sheetUrl);
+  if (ensureKey) PropertiesService.getScriptProperties().deleteProperty(ensureKey);
+  return result;
 }
 
 function cellarListenerReconcileNow_() {
@@ -129,14 +146,32 @@ function cellarListenerSyncForAction_(tankNumber, action) {
   if (!fermentor) return { success: false, skipped: true, reason: "fermentor_missing" };
 
   if (numericAction === 1) {
-    return cellarListenerEnsureForFermentor_(fermentor);
+    const result = cellarListenerEnsureForFermentor_(fermentor);
+    if (result && result.success === true) {
+      const key = cellarListenerEnsureKey_(fermentor.sheetUrl);
+      if (key) PropertiesService.getScriptProperties().setProperty(key, String(Date.now()));
+    }
+    return result;
   }
   return cellarListenerRemoveForFermentor_(fermentor);
 }
 
 function cellarListenerSafeEnsureForFermentor_(fermentor) {
   try {
-    return cellarListenerEnsureForFermentor_(fermentor);
+    const data = fermentor && fermentor.data ? fermentor.data : (fermentor || {});
+    const key = cellarListenerEnsureKey_(data.sheetUrl);
+    if (key) {
+      const lastAt = Number(PropertiesService.getScriptProperties().getProperty(key) || 0);
+      if (lastAt > 0 && Date.now() - lastAt < CELLAR_LISTENER_ENSURE_INTERVAL_MS_) {
+        return { success: true, skipped: true, reason: "recently_ensured" };
+      }
+    }
+
+    const result = cellarListenerEnsureForFermentor_(fermentor);
+    if (result && result.success === true && key) {
+      PropertiesService.getScriptProperties().setProperty(key, String(Date.now()));
+    }
+    return result;
   } catch (error) {
     Logger.log("Cellar listener ensure failed: " + error.message);
     return { success: false, error: error.message };
