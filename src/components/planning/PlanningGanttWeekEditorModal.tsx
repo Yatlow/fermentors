@@ -2,6 +2,7 @@ import { useEffect, useRef, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 
 type PlannerProps = ComponentProps<typeof PlanningWeeklyRecommendationsEnhanced>;
@@ -22,6 +23,28 @@ const KIND_LABEL: Record<EditorKind, string> = {
 export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...plannerProps }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
 
+  // The focused editor must inspect the persisted WeekPlan, not a pending/
+  // execution-filtered projection. That is what decides whether packaging has
+  // already been accepted and therefore whether the action is "replace".
+  const savedPlans = plannerProps.historyPlans ?? plannerProps.plans;
+  const savedPlan = savedPlans.find((plan) => plan.id === week);
+  const hasPackagingDecision = (savedPlan?.packaging ?? []).some((run) => run.quantity > 0);
+
+  const replacementPackagingCount = kind === "packaging" && hasPackagingDecision
+    ? buildWeeklyPlanningModel({
+        settings: plannerProps.settings,
+        pallets: plannerProps.pallets,
+        tanks: plannerProps.tanks,
+        plans: savedPlans.map((plan) => plan.id === week ? { ...plan, packaging: [] } : plan),
+        actuals: plannerProps.actuals,
+        sources: plannerProps.sources,
+        today: plannerProps.today,
+        week,
+        holidays: plannerProps.holidays,
+        shipments: plannerProps.shipments,
+      }).packagingRecommendation.filter((run) => run.quantity > 0).length
+    : 0;
+
   useEffect(() => {
     const targetDate = shortDate(week);
     const timer = window.setTimeout(() => {
@@ -31,6 +54,28 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
     }, 0);
     return () => window.clearTimeout(timer);
   }, [week]);
+
+  useEffect(() => {
+    if (kind !== "packaging" || !hasPackagingDecision) return;
+
+    const syncReplaceAction = () => {
+      const button = hostRef.current?.querySelector<HTMLButtonElement>(".bp-week-packaging-card .bp-actions button:first-child");
+      if (!button) return;
+      if (button.textContent?.trim() !== "מחק אריזות ואשר המלצה") {
+        button.textContent = "מחק אריזות ואשר המלצה";
+      }
+      button.classList.add("bp-action-warning");
+      button.disabled = plannerProps.disabled || replacementPackagingCount === 0;
+    };
+
+    const frame = window.requestAnimationFrame(syncReplaceAction);
+    const observer = new MutationObserver(syncReplaceAction);
+    if (hostRef.current) observer.observe(hostRef.current, { childList: true, subtree: true, characterData: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [kind, hasPackagingDecision, plannerProps.disabled, replacementPackagingCount, week]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -44,11 +89,6 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
-
-  // The focused editor must inspect the persisted WeekPlan, not a pending/
-  // execution-filtered projection. That is what decides whether packaging has
-  // already been accepted and therefore whether the action is "replace".
-  const savedPlans = plannerProps.historyPlans ?? plannerProps.plans;
 
   const modal = (
     <div
