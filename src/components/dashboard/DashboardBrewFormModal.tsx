@@ -107,6 +107,7 @@ export default function DashboardBrewFormModal({ tank, onClose }: Props) {
 
   return (
     <div className="dashboardBrewModalBackdrop" role="presentation" onMouseDown={onClose}>
+      <button type="button" className="dashboardBrewModalClose" onClick={onClose} aria-label="סגור">×</button>
       <main
         className="dashboardBrewModal brewing-view"
         dir="rtl"
@@ -115,9 +116,6 @@ export default function DashboardBrewFormModal({ tank, onClose }: Props) {
         aria-label={`טופס בישול מיכל ${tank.tankNumber ?? ""}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {(loading || error) && (
-          <button type="button" className="dashboardBrewModalClose" onClick={onClose} aria-label="סגור">×</button>
-        )}
         {loading && <BeerLoader overlay message="טוען טופס בישול…" />}
         {!loading && error && <div className="dashboardBrewModalError">{error}</div>}
         {!loading && run && recipe && (
