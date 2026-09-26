@@ -1,7 +1,7 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
+import { addDays, tanksFrom, weekStart, type Settings, type Tank } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import {
@@ -81,6 +81,34 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     [identityAlignedPlans, tanks, calendarSettings],
   );
 
+  // The production-capacity tank model intentionally excludes empty/sanitized
+  // tanks. That is correct for packaging calculations, but wrong for displaying
+  // an already-confirmed future brew assignment: the assignment editor stores
+  // the real Fermentor document id even while that tank is still empty. Build a
+  // display-only tank list that contains every production tank, and make all of
+  // them unavailable to the old tentative picker. This gives Calendar/Gantt the
+  // number for saved tankId values without inventing assignments for unassigned
+  // brews.
+  const planningDisplayTanks = useMemo<Tank[]>(() => {
+    const byId = new Map<string, Tank>(
+      tanks.map((tank) => [tank.id, { ...tank, ready: "9999-12-31" }]),
+    );
+    for (const source of productionTanks) {
+      if (byId.has(source.id)) continue;
+      byId.set(source.id, {
+        id: source.id,
+        number: String(source.tankNumber ?? source.id),
+        style: source.beerStyle ?? "",
+        batch: String(source.batchNumber ?? ""),
+        brewed: today,
+        ready: "9999-12-31",
+        liters: Math.max(0, Number(source.beerVolume) || 0),
+        cold: source.stage?.className === "stage-cold",
+      });
+    }
+    return [...byId.values()];
+  }, [tanks, productionTanks, today]);
+
   const pendingDailyWork = useMemo(() => {
     const firstWeek = weekStart(today);
     const horizonEnd = addDays(firstWeek, 34);
@@ -154,9 +182,9 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
           <PlanningGantt
             settings={calendarSettings}
             plans={fiveWeekPlans}
-            editorPlans={weeklyPlans}
+            editorPlans={identityAlignedPlans}
             historyPlans={identityAlignedPlans}
-            tanks={tanks}
+            tanks={planningDisplayTanks}
             sources={productionTanks}
             pallets={pallets}
             actuals={actuals}
