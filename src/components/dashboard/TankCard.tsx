@@ -29,6 +29,7 @@ import {
 
 type TankCardProps = {
   tank: Fermentor;
+  weekOnlyPackaging?: string;
 
   onUpdatePasivation?: (
     tankId: string,
@@ -127,6 +128,7 @@ export function getBrewAge(
 
 function TankCard({
   tank,
+  weekOnlyPackaging,
 //   onUpdatePasivation,
   specs
 }: TankCardProps) {
@@ -172,10 +174,6 @@ function TankCard({
     }
 
 
-    // --------------------------------------------------------
-    // Firestore Timestamp with toDate()
-    // --------------------------------------------------------
-
     if (
       typeof value === "object" &&
       value !== null &&
@@ -211,10 +209,6 @@ function TankCard({
       return `${year}-${month}-${day}`;
     }
 
-
-    // --------------------------------------------------------
-    // Firestore raw timestamp
-    // --------------------------------------------------------
 
     if (
       typeof value === "object" &&
@@ -254,10 +248,6 @@ function TankCard({
     }
 
 
-    // --------------------------------------------------------
-    // String
-    // --------------------------------------------------------
-
     const stringValue =
       String(value).trim();
 
@@ -265,8 +255,6 @@ function TankCard({
       return "";
     }
 
-
-    // YYYY-MM-DD
 
     if (
       /^\d{4}-\d{2}-\d{2}$/.test(
@@ -276,8 +264,6 @@ function TankCard({
       return stringValue;
     }
 
-
-    // DD/MM/YYYY
 
     const israelMatch =
       stringValue.match(
@@ -306,8 +292,6 @@ function TankCard({
       );
     }
 
-
-    // ISO / normal date
 
     const parsed =
       new Date(stringValue);
@@ -338,9 +322,6 @@ function TankCard({
   }
 
 
-  // ==========================================================
-  // LOCAL STATE
-  // ==========================================================
   const [showInfo, setShowInfo] = useState(false);
   const [plannedPackaging, setPlannedPackaging] = useState<PlannedTankPackaging | null>(null);
   const [state, setState] =
@@ -389,9 +370,6 @@ function TankCard({
 
     return { top, left };
   }
-  // ==========================================================
-  // SYNC FIREBASE
-  // ==========================================================
 
   useEffect(() => {
 
@@ -444,13 +422,6 @@ function TankCard({
 
   const isCLT = Number(tank.tankNumber) === 1;
 
-
-  /*
-   * getTankStage has its own internal Tank type.
-   * We intentionally use that function's parameter type here
-   * rather than creating a second competing Tank definition.
-   */
-
   const stageInfo = isCLT
     ? {
       name: "CLT",
@@ -458,10 +429,6 @@ function TankCard({
       className: "clt",
     }
     : { ...tank.stage };
-
-  // ==========================================================
-  // TANK ID
-  // ==========================================================
 
   const fermentorID =
     String(
@@ -487,14 +454,12 @@ function TankCard({
     let left =
       rect.left - popupWidth - gap;
 
-    // אין מקום משמאל → עבור לימין
     if (left < margin) {
 
       left =
         rect.right + gap;
     }
 
-    // עדיין אין מקום מימין → הצמד לצד המסך
     if (
       left + popupWidth >
       window.innerWidth - margin
@@ -506,18 +471,9 @@ function TankCard({
         margin;
     }
 
-    /*
-     * נתחיל בגובה של כפתור ה-info.
-     * כלומר החלון יהיה ממש ליד המיכל.
-     */
     let top =
       rect.top - 10;
 
-    /*
-     * הגנה מלמטה.
-     * אנחנו לא מניחים גובה קבוע מדויק,
-     * אלא משתמשים בגובה משוער.
-     */
     const estimatedHeight = 420;
 
     if (
@@ -531,9 +487,6 @@ function TankCard({
         margin;
     }
 
-    /*
-     * הגנה מלמעלה.
-     */
     if (top < margin) {
       top = margin;
     }
@@ -560,8 +513,6 @@ function TankCard({
       ...state,
     };
 
-
-    // Immediate UI update
 
     setState((prev) => ({
       ...prev,
@@ -639,24 +590,6 @@ function TankCard({
       );
 
 
-      /*
-       * Keep App's local Firebase state
-       * synchronized as well.
-       */
-
-    //   if (
-    //     onUpdatePasivation
-    //   ) {
-
-    //     await onUpdatePasivation(
-    //       tank.id,
-    //       newPasivationDate
-    //     );
-    //   }
-
-
-
-
     } catch (error) {
 
       console.error(
@@ -716,8 +649,6 @@ function TankCard({
     }
 
 
-    // Date
-
     if (
       value instanceof Date
     ) {
@@ -729,8 +660,6 @@ function TankCard({
         : value;
     }
 
-
-    // Firestore Timestamp
 
     if (
       typeof value === "object" &&
@@ -750,8 +679,6 @@ function TankCard({
         : date;
     }
 
-
-    // Firestore raw timestamp
 
     if (
       typeof value === "object" &&
@@ -790,8 +717,6 @@ function TankCard({
       return null;
     }
 
-
-    // YYYY-MM-DD
 
     if (
       /^\d{4}-\d{2}-\d{2}$/.test(
@@ -832,8 +757,6 @@ function TankCard({
       return null;
     }
 
-
-    // DD/MM/YYYY
 
     const israelMatch =
       text.match(
@@ -882,8 +805,6 @@ function TankCard({
       return null;
     }
 
-
-    // Normal JS date
 
     const normalDate =
       new Date(text);
@@ -1114,10 +1035,6 @@ function TankCard({
           }`}
       >
 
-        {/* ==================================================== */}
-        {/* HEADER */}
-        {/* ==================================================== */}
-
         <div className="tank-header">
 
           <span className="tank-number">
@@ -1143,8 +1060,6 @@ function TankCard({
               {stageInfo.name}
             </span>
           )}
-
-
 
         </div>
         {Number(tank.tankNumber) > 1 && (
@@ -1181,10 +1096,6 @@ function TankCard({
           )
         )}
 
-        {/* ==================================================== */}
-        {/* BATCH */}
-        {/* ==================================================== */}
-
         {Number(tank.tankNumber) > 1 && <div className="batch-number">
 
           #
@@ -1198,10 +1109,6 @@ function TankCard({
 
         </div>}
 
-
-        {/* ==================================================== */}
-        {/* BREW DATE */}
-        {/* ==================================================== */}
 
         {Number(tank.tankNumber) > 1 && stageInfo.name === "בישול חדש" && (
           <div className={`brew-progress${tank?.brewProgress?.stageName ? "" : " brew-progress-idle"}`}>
@@ -1274,6 +1181,12 @@ function TankCard({
             </div>
           );
         })()}
+
+        {Number(tank.tankNumber) > 1 && Number(tank.action) === 1 && !plannedPackaging && weekOnlyPackaging && (
+          <div className="tank-planned-packaging">
+            מתוכנן להורדה בשבוע {weekOnlyPackaging} · טרם שובץ יום
+          </div>
+        )}
 
         {Number(tank.tankNumber) > 1 && (stageInfo.name === "בתסיסה" || stageInfo.name === "קר") && (
 
@@ -1648,18 +1561,12 @@ function TankCard({
 
 
 
-        {/* ==================================================== */}
-        {/* PASIVATION DATE */}
-        {/* ==================================================== */}
-
         <div className="pasivation-date-row">
 
           <span className="pasivation-date-label">
             {Number(tank.tankNumber) > 1 ? `תאריך חומצה ניטרית:` : "תאריך CIP + ניטרית"}
           </span>
 
-
-          {/* EMPTY / CLEAN / SANITIZED */}
 
           {showEmptyTankSelect && (
 
@@ -1683,8 +1590,6 @@ function TankCard({
 
           )}
 
-
-          {/* FULL TANK */}
 
           {!showEmptyTankSelect && (
 
@@ -1778,10 +1683,6 @@ function TankCard({
 
         </div>
 
-
-        {/* ==================================================== */}
-        {/* PASIVATION STATUS */}
-        {/* ==================================================== */}
 
         <div
           className={`pasivation-status ${pasivationClass}`}
