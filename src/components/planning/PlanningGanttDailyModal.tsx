@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -49,6 +49,8 @@ export default function PlanningGanttDailyModal({
   disabled,
   saveWeek,
 }: Props) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -61,6 +63,16 @@ export default function PlanningGanttDailyModal({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
+
+  useEffect(() => {
+    if (kind !== "brews") return;
+    const timer = window.setTimeout(() => {
+      const button = Array.from(bodyRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+        .find((candidate) => candidate.textContent?.includes("סדר ושיבוץ בישולים"));
+      if (button && !button.disabled) button.click();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [kind, week]);
 
   return createPortal(
     <div
@@ -79,14 +91,14 @@ export default function PlanningGanttDailyModal({
       >
         <header className="bp-gantt-editor-header">
           <div>
-            <b>תכנון יומי · {LABELS[kind]}</b>
+            <b>{kind === "brews" ? "סדר ושיבוץ בישולים" : `תכנון יומי · ${LABELS[kind]}`}</b>
             <small>שבוע שמתחיל ב־{shortDate(week)}</small>
           </div>
           <button type="button" className="bp-gantt-editor-close" aria-label="סגירה" onClick={onClose}>
             <X size={20} aria-hidden="true" />
           </button>
         </header>
-        <div className="bp-gantt-editor-body">
+        <div className="bp-gantt-editor-body" ref={bodyRef}>
           <PlanningBoard
             settings={settings}
             plans={plans}
