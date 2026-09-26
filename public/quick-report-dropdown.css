@@ -106,14 +106,18 @@
 }
 
 @media (max-width: 600px) {
+  .quickReportBox {
+    min-height: min(560px, calc(100dvh - 24px));
+  }
+
   .quickReportDropdownMenu {
-    top: auto;
-    bottom: calc(100% + 5px);
+    top: calc(100% + 5px);
+    bottom: auto;
     right: 0;
     left: 0;
     width: 100%;
     max-width: 100%;
-    max-height: min(52dvh, 420px);
+    max-height: min(46dvh, 390px);
     padding: 6px;
     border-radius: 12px;
   }
