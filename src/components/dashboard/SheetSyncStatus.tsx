@@ -32,6 +32,7 @@ type SheetPullStatus = {
 type CellarListenerStatus = {
     state?: string;
     listenerCount?: number;
+    desiredCount?: number;
     totalProjectTriggerCount?: number;
     updatedAt?: Timestamp | Date | string | null;
 };
@@ -262,11 +263,13 @@ export default function SheetSyncStatus() {
 
     const listener = useMemo(() => {
         const count = Number(listenerStatus?.listenerCount ?? 0);
+        const desired = Number(listenerStatus?.desiredCount ?? count);
         const age = ageMinutes(listenerStatus?.updatedAt, now);
         let severity: Severity = "ok";
         if (!listenerStatus || age === null) severity = "warning";
+        else if (listenerStatus.state === "partial" || count !== desired) severity = "warning";
         else if (age >= 90) severity = "warning";
-        return { count, age, severity };
+        return { count, desired, age, severity };
     }, [listenerStatus, now]);
 
     const writePill = readError
@@ -283,7 +286,9 @@ export default function SheetSyncStatus() {
             ? "Realtime זמין אחרי merge"
             : !listenerStatus
                 ? "Realtime ממתין לסטטוס"
-                : `Realtime פעיל · ${tankCountLabel(listener.count)}`;
+                : listener.count === listener.desired
+                    ? `Realtime פעיל · ${tankCountLabel(listener.count)}`
+                    : `Realtime פעיל · ${listener.count}/${listener.desired} מיכלים`;
 
     const backupLabel = pull.partial
         ? "גיבוי: קריאה חלקית"
