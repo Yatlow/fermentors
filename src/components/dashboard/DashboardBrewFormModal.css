@@ -26,14 +26,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 12px;
   direction: rtl;
 }
 
 .dashboardBrewFormButton,
 .dashboardBrewSheetButton {
   position: static;
-  margin: 0;
+  margin: 0 !important;
+}
+
+/* Match the brewing-stage Lucide controls instead of inheriting black from
+   the standalone overlay wrapper. */
+.dashboard-tank-slot-brew .dashboardBrewActionPair .tankInfo {
+  color: var(--stage-brewing-text, #92400e) !important;
+  border-color: currentColor !important;
 }
 
 .dashboardBrewFormButton:disabled {
@@ -42,18 +49,24 @@
   transform: none !important;
 }
 
+/* Week-only packaging fallback occupies the same visual slot as the regular
+   tank-planned-packaging badge: directly below brew date and before readings. */
 .dashboardPlanningWeekHint {
-  margin-top: -1px;
+  position: absolute;
+  z-index: 5;
+  top: 112px;
+  right: 10px;
+  left: 10px;
   padding: 4px 7px;
   border: 1px solid #bfdbfe;
-  border-top: 0;
-  border-radius: 0 0 8px 8px;
+  border-radius: 6px;
   background: #eff6ff;
   color: #1e40af;
   font-size: .66rem;
   font-weight: 700;
   line-height: 1.25;
   text-align: center;
+  pointer-events: none;
 }
 
 .dashboardBrewModalBackdrop {
@@ -132,10 +145,13 @@
 @media (max-width: 700px) {
   .dashboardBrewActionPair {
     top: 36px;
-    gap: 7px;
+    gap: 10px;
   }
 
   .dashboardPlanningWeekHint {
+    top: 106px;
+    right: 8px;
+    left: 8px;
     font-size: .61rem;
     padding: 4px 5px;
   }
