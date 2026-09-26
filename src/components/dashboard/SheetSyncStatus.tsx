@@ -79,8 +79,8 @@ function isJerusalemNight(now: number): boolean {
     return minuteOfDay < 4 * 60 + 30 || minuteOfDay >= 17 * 60;
 }
 
-function tankCountLabel(count: number): string {
-    return count === 1 ? "מיכל 1" : `${count} מיכלים`;
+function fullTankCountLabel(count: number): string {
+    return count === 1 ? "מיכל מלא 1" : `${count} מיכלים מלאים`;
 }
 
 function DirectionTitle({ from, to }: { from: string; to: string }) {
@@ -283,12 +283,12 @@ export default function SheetSyncStatus() {
     const realtimePill = readError
         ? "לא זמין"
         : !listenerStatus && isPreviewHost
-            ? "Realtime זמין אחרי merge"
+            ? "זמן אמת זמין אחרי merge"
             : !listenerStatus
-                ? "Realtime ממתין לסטטוס"
+                ? "זמן אמת ממתין לסטטוס"
                 : listener.count === listener.desired
-                    ? `Realtime פעיל · ${tankCountLabel(listener.count)}`
-                    : `Realtime פעיל · ${listener.count}/${listener.desired} מיכלים`;
+                    ? `זמן אמת · ${fullTankCountLabel(listener.count)}`
+                    : `זמן אמת · ${listener.count}/${listener.desired} מיכלים מלאים`;
 
     const backupLabel = pull.partial
         ? "גיבוי: קריאה חלקית"
