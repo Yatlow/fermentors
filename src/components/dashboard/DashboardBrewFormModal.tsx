@@ -7,6 +7,7 @@ import { loadRecipes } from "../../SERVICES/brewing/recipeEditorStore";
 import { loadIngredients } from "../../SERVICES/brewing/ingredientEditorStore";
 import BrewFormStepper from "../brewing/BrewFormStepper";
 import BeerLoader from "../general/Loading";
+import "../brewing/BrewingView.css";
 import "./DashboardBrewFormModal.css";
 
 type Props = {
@@ -106,14 +107,17 @@ export default function DashboardBrewFormModal({ tank, onClose }: Props) {
 
   return (
     <div className="dashboardBrewModalBackdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        className="dashboardBrewModal"
+      <main
+        className="dashboardBrewModal brewing-view"
+        dir="rtl"
         role="dialog"
         aria-modal="true"
         aria-label={`טופס בישול מיכל ${tank.tankNumber ?? ""}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <button type="button" className="dashboardBrewModalClose" onClick={onClose} aria-label="סגור">×</button>
+        {(loading || error) && (
+          <button type="button" className="dashboardBrewModalClose" onClick={onClose} aria-label="סגור">×</button>
+        )}
         {loading && <BeerLoader overlay message="טוען טופס בישול…" />}
         {!loading && error && <div className="dashboardBrewModalError">{error}</div>}
         {!loading && run && recipe && (
@@ -124,7 +128,7 @@ export default function DashboardBrewFormModal({ tank, onClose }: Props) {
             onClose={onClose}
           />
         )}
-      </section>
+      </main>
     </div>
   );
 }
