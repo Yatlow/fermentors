@@ -267,10 +267,10 @@ export default function SheetSyncStatus() {
     const pullPill = readError
         ? "לא זמין"
         : !pullStatus && isPreviewHost
-            ? "זמין אחרי merge"
+            ? "Realtime זמין אחרי merge"
             : pull.partial
-                ? "קריאה חלקית"
-                : compactAge(pull.age);
+                ? "Realtime פעיל · גיבוי חלקי"
+                : `Realtime פעיל · ${compactAge(pull.age)}`;
 
     const canManualNightSync =
         !isPreviewHost &&
@@ -316,7 +316,7 @@ export default function SheetSyncStatus() {
 
     return (
         <section className="sheet-sync-status" dir="rtl">
-            <strong className="sheet-sync-status-title">סנכרון נתונים</strong>
+            <strong className="sheet-sync-status-title">מצב סנכרון</strong>
 
             <div className="sheet-sync-direction-grid">
                 <div className="sheet-sync-direction-card">
