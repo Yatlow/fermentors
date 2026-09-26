@@ -1,0 +1,114 @@
+.bp-gantt-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bp-gantt-heading {
+  align-items: center;
+}
+
+.bp-gantt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  font-size: .72rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.bp-gantt-legend .is-actual {
+  color: #166534;
+}
+
+.bp-gantt-legend .is-projected {
+  color: #1d4ed8;
+}
+
+.bp-gantt-legend .is-recommendation {
+  padding: 3px 8px;
+  border: 1px dashed rgba(220, 38, 38, .55);
+  border-radius: 999px;
+  color: #991b1b;
+  background: rgba(254, 226, 226, .55);
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-stock {
+  align-content: start;
+}
+
+.bp-five-week-item.is-gantt-recommendation {
+  position: relative;
+  opacity: .76;
+  border: 1px dashed rgba(220, 38, 38, .65);
+  background: linear-gradient(135deg, rgba(254, 242, 242, .86), rgba(255, 255, 255, .72));
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, .08), 0 0 15px rgba(220, 38, 38, .16);
+  animation: bp-gantt-rec-pulse 2.8s ease-in-out infinite;
+}
+
+.bp-five-week-item.is-gantt-recommendation::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: 0 0 12px rgba(239, 68, 68, .18);
+}
+
+.bp-gantt-rec-label,
+.bp-gantt-stock-label {
+  display: inline-flex;
+  align-self: flex-start;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: .62rem;
+  font-weight: 800;
+}
+
+.bp-gantt-rec-label {
+  color: #991b1b;
+  background: rgba(254, 226, 226, .9);
+}
+
+.bp-five-week-item.is-stock-actual {
+  border-inline-start: 3px solid #22c55e;
+  background: rgba(240, 253, 244, .72);
+}
+
+.bp-five-week-item.is-stock-projected {
+  border-inline-start: 3px dashed #3b82f6;
+  background: rgba(239, 246, 255, .65);
+}
+
+.bp-five-week-item.is-stock-history {
+  opacity: .58;
+  background: #f8fafc;
+}
+
+.is-stock-actual .bp-gantt-stock-label {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.is-stock-projected .bp-gantt-stock-label {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.bp-gantt-calendar-host > .bp-five-week-overview > .bp-five-week-heading {
+  display: none;
+}
+
+@keyframes bp-gantt-rec-pulse {
+  0%, 100% { opacity: .68; box-shadow: 0 0 8px rgba(220, 38, 38, .10); }
+  50% { opacity: .88; box-shadow: 0 0 18px rgba(220, 38, 38, .24); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-five-week-item.is-gantt-recommendation {
+    animation: none;
+  }
+}
