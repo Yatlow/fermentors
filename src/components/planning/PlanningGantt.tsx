@@ -4,6 +4,7 @@ import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 import {
   addDays,
+  emptyWeek,
   inventory,
   tempoNow,
   weeklyDemand,
@@ -40,6 +41,14 @@ type SummaryItem = {
   stockKind?: "actual" | "projected" | "history";
 };
 
+type SimulatedWeek = {
+  model: WeeklyPlanningModel;
+  effectivePlan: WeekPlan;
+  deliveryRecommendation: WeeklyPlanningModel["shipmentRecommendation"];
+  packagingRecommendation: WeeklyPlanningModel["packagingRecommendation"];
+  brewRecommendation: WeeklyPlanningModel["brewRecommendations"];
+};
+
 type Props = {
   settings: Settings;
   plans: WeekPlan[];
@@ -74,52 +83,148 @@ export default function PlanningGantt(props: Props) {
     [currentWeek],
   );
 
-  const models = useMemo(() => {
-    const result = new Map<string, WeeklyPlanningModel>();
+  const simulations = useMemo(() => {
+    const result = new Map<string, SimulatedWeek>();
+    let effectivePlans = plans.map((plan) => structuredClone(plan));
+
+    const upsertPlan = (plan: WeekPlan) => {
+      const index = effectivePlans.findIndex((candidate) => candidate.id === plan.id);
+      if (index >= 0) effectivePlans[index] = structuredClone(plan);
+      else effectivePlans = [...effectivePlans, structuredClone(plan)];
+    };
+
+    const buildModel = (week: string) => buildWeeklyPlanningModel({
+      settings,
+      pallets,
+      tanks,
+      plans: effectivePlans,
+      actuals,
+      sources,
+      today,
+      week,
+      holidays,
+      shipments,
+    });
+
     for (const week of weekIds) {
-      result.set(week, buildWeeklyPlanningModel({
-        settings,
-        pallets,
-        tanks,
-        plans,
-        actuals,
-        sources,
-        today,
-        week,
-        holidays,
-        shipments,
-      }));
+      const saved = plans.find((plan) => plan.id === week);
+      let workingPlan: WeekPlan = saved
+        ? structuredClone(saved)
+        : { ...emptyWeek(week), maxRuns: settings.preferredRuns };
+      upsertPlan(workingPlan);
+
+      let model = buildModel(week);
+      let deliveryRecommendation: WeeklyPlanningModel["shipmentRecommendation"] = [];
+      let packagingRecommendation: WeeklyPlanningModel["packagingRecommendation"] = [];
+      let brewRecommendation: WeeklyPlanningModel["brewRecommendations"] = [];
+
+      if (week >= currentWeek) {
+        const hasDeliveryDecision = (saved?.deliveries ?? []).some((item) => item.quantity > 0);
+        if (!hasDeliveryDecision) {
+          deliveryRecommendation = model.shipmentRecommendation.filter((item) => item.quantity > 0);
+          if (deliveryRecommendation.length) {
+            const date = addDays(week, 1);
+            workingPlan = {
+              ...workingPlan,
+              deliveries: deliveryRecommendation.map((item) => ({
+                id: `gantt-rec-delivery:${week}:${item.productId}`,
+                productId: item.productId,
+                quantity: item.quantity,
+                dispatchDate: date,
+                arrivalDate: date,
+                truckId: `gantt-rec-truck:${week}`,
+                pallets: [],
+              })),
+              deliveryDates: [date],
+            };
+            upsertPlan(workingPlan);
+            model = buildModel(week);
+          }
+        }
+
+        const hasPackagingDecision = (saved?.packaging ?? []).some((item) => item.quantity > 0);
+        if (!hasPackagingDecision) {
+          packagingRecommendation = model.packagingRecommendation.filter((item) => item.quantity > 0);
+          if (packagingRecommendation.length) {
+            workingPlan = {
+              ...workingPlan,
+              packaging: packagingRecommendation.map((item, index, all) => ({
+                id: item.id,
+                productId: item.productId,
+                quantity: item.quantity,
+                tankId: item.tankId,
+                tankNumber: item.tankNumber,
+                source: "recommendation" as const,
+                emptyTank: !all.slice(index + 1).some((later) => later.tankId === item.tankId),
+              })),
+            };
+            upsertPlan(workingPlan);
+            model = buildModel(week);
+          }
+        }
+
+        const hasBrewDecision = (saved?.brews ?? []).some((item) => item.liters > 0);
+        if (!hasBrewDecision) {
+          brewRecommendation = model.brewRecommendations.filter((item) => item.liters > 0);
+          if (brewRecommendation.length) {
+            workingPlan = {
+              ...workingPlan,
+              brews: brewRecommendation.map((item, index) => ({
+                id: `gantt-rec-brew:${week}:${index}`,
+                style: item.style,
+                liters: item.liters,
+                tankId: "",
+                date: addDays(week, 1),
+              })),
+            };
+            upsertPlan(workingPlan);
+            model = buildModel(week);
+          }
+        }
+      }
+
+      result.set(week, {
+        model,
+        effectivePlan: workingPlan,
+        deliveryRecommendation,
+        packagingRecommendation,
+        brewRecommendation,
+      });
     }
+
     return result;
-  }, [settings, pallets, tanks, plans, actuals, sources, today, weekIds, holidays, shipments]);
+  }, [settings, pallets, tanks, plans, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
   const planFor = (weekId: string) => plans.find((plan) => plan.id === weekId);
 
-  function deliveryItems(weekId: string): SummaryItem[] {
+  function compactShipmentItems(weekId: string): SummaryItem[] {
     const decisions = (planFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
-    if (decisions.length) {
-      return decisions.map((item) => {
-        const product = productFor(item.productId);
-        return {
-          key: `delivery:${item.id}`,
-          title: product ? `${displayStyle(product.style)} · ${product.type === "crates" ? "ארגזים" : "חביות"}` : item.productId,
-          meta: `${fmt(item.quantity)} · ${shortDate(item.dispatchDate)}`,
-          styleClass: product ? beerStyleClass(product.style).className : undefined,
-        };
-      });
-    }
-    if (weekId < currentWeek) return [];
-    return (models.get(weekId)?.shipmentRecommendation ?? []).filter((item) => item.quantity > 0).map((item) => {
+    const recommended = decisions.length === 0 && weekId >= currentWeek;
+    const recommendations = simulations.get(weekId)?.deliveryRecommendation ?? [];
+    const source = decisions.length
+      ? decisions.map((item) => ({ productId: item.productId, quantity: item.quantity }))
+      : recommendations.map((item) => ({ productId: item.productId, quantity: item.quantity }));
+    if (!source.length) return [];
+
+    const grouped = new Map<string, string[]>();
+    for (const item of source) {
       const product = productFor(item.productId);
-      return {
-        key: `delivery-rec:${weekId}:${item.productId}`,
-        title: product ? `${displayStyle(product.style)} · ${product.type === "crates" ? "ארגזים" : "חביות"}` : item.productId,
-        meta: `${fmt(item.quantity)} · ${item.pallets.toFixed(1)} משטחים`,
-        styleClass: product ? beerStyleClass(product.style).className : undefined,
-        recommended: true,
-      };
-    });
+      if (!product) continue;
+      const style = displayStyle(product.style);
+      const line = `${fmt(item.quantity)} ${product.type === "crates" ? "ארגזים" : "חביות"}`;
+      grouped.set(style, [...(grouped.get(style) ?? []), line]);
+    }
+    const date = decisions.map((item) => item.dispatchDate).filter(Boolean).sort()[0];
+    const parts = [...grouped.entries()].map(([style, lines]) => `${style}: ${lines.join(" + ")}`);
+    if (date) parts.push(shortDate(date));
+
+    return [{
+      key: `delivery-summary:${weekId}`,
+      title: "משלוח טמפו",
+      meta: parts.join(" · "),
+      recommended,
+    }];
   }
 
   function packagingItems(weekId: string): SummaryItem[] {
@@ -137,7 +242,7 @@ export default function PlanningGantt(props: Props) {
       });
     }
     if (weekId < currentWeek) return [];
-    return (models.get(weekId)?.packagingRecommendation ?? []).map((item) => {
+    return (simulations.get(weekId)?.packagingRecommendation ?? []).map((item) => {
       const product = productFor(item.productId);
       return {
         key: `pack-rec:${item.id}`,
@@ -160,7 +265,7 @@ export default function PlanningGantt(props: Props) {
       }));
     }
     if (weekId < currentWeek) return [];
-    return (models.get(weekId)?.brewRecommendations ?? []).map((item, index) => ({
+    return (simulations.get(weekId)?.brewRecommendation ?? []).map((item, index) => ({
       key: `brew-rec:${weekId}:${item.style}:${index}`,
       title: `${displayStyle(item.style)} · מיכל ${item.tankNumber}`,
       meta: `${item.sizeLabel} · ${fmt(item.liters)} ל׳ · זמין ${shortDate(item.availableDate)}`,
@@ -184,39 +289,39 @@ export default function PlanningGantt(props: Props) {
         const total = brewery + (tempo ?? 0);
         const totalCover = tempo === null || demand <= 0 ? null : total / demand;
         const label = product.type === "crates" ? "ארגזים" : "חביות";
-        const line = `${label}: ${fmt(total)} · ${cover(totalCover)}`;
+        const line = `${label} ${fmt(total)} (${cover(totalCover)})`;
         const style = displayStyle(product.style);
         grouped.set(style, [...(grouped.get(style) ?? []), line]);
       }
     } else {
-      for (const row of models.get(weekId)?.weekStartRows.values() ?? []) {
+      for (const row of simulations.get(weekId)?.model.weekStartRows.values() ?? []) {
         if (row.product.monthly <= 0) continue;
         const total = row.breweryUnits + (row.tempoUnits ?? 0);
         const label = row.product.type === "crates" ? "ארגזים" : "חביות";
-        const line = `${label}: ${fmt(total)} · ${cover(row.totalCover)}`;
+        const line = `${label} ${fmt(total)} (${cover(row.totalCover)})`;
         const style = displayStyle(row.product.style);
         grouped.set(style, [...(grouped.get(style) ?? []), line]);
       }
     }
 
-    return [...grouped.entries()].map(([style, lines]) => ({
-      key: `stock:${weekId}:${style}`,
-      title: style,
-      meta: lines.join(" · "),
-      styleClass: beerStyleClass(style).className,
+    const parts = [...grouped.entries()].map(([style, lines]) => `${style}: ${lines.join(" + ")}`);
+    return parts.length ? [{
+      key: `stock-summary:${weekId}`,
+      title: weekId === currentWeek ? "מלאי נוכחי" : "פתיחת שבוע",
+      meta: parts.join(" · "),
       stockKind: weekId === currentWeek ? "actual" : "projected",
-    }));
+    }] : [];
   }
 
   function itemsFor(row: RowId, weekId: string) {
-    if (row === "deliveries") return deliveryItems(weekId);
+    if (row === "deliveries") return compactShipmentItems(weekId);
     if (row === "packaging") return packagingItems(weekId);
     if (row === "brews") return brewItems(weekId);
     return stockItems(weekId);
   }
 
   function weeklyTotals(weekId: string) {
-    const plan = planFor(weekId);
+    const plan = simulations.get(weekId)?.effectivePlan ?? planFor(weekId);
     if (!plan) return { packaging: 0, brewing: 0 };
     const packaging = plan.packaging.reduce((sum, run) => {
       const product = productFor(run.productId);
@@ -258,7 +363,7 @@ export default function PlanningGantt(props: Props) {
       <div className="bp-gantt-legend" aria-label="מקרא">
         <span className="is-actual">● מלאי נוכחי / בפועל</span>
         <span className="is-projected">◌ צפי לפתיחת שבוע</span>
-        <span className="is-recommendation">המלצה שטרם הפכה להחלטה</span>
+        <span className="is-recommendation">המלצה — מחושבת קדימה כאילו התקבלה</span>
       </div>
 
       <div className="bp-five-week-scroll">
