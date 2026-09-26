@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { Pencil } from "lucide-react";
+import { SquarePen } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
@@ -18,7 +18,7 @@ import {
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
 import { shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
-import { displayStyle } from "../../SERVICES/planning/planningPresentation";
+import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
@@ -85,6 +85,7 @@ const packageLiters = (quantity: number, type: "crates" | "kegs") => quantity * 
 const tankLabel = (value?: string | number | null) => value === undefined || value === null || String(value).trim() === ""
   ? "טרם שובץ למיכל"
   : `מיכל ${value}`;
+const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
 
 export default function PlanningGantt(props: Props) {
   const {
@@ -287,11 +288,18 @@ export default function PlanningGantt(props: Props) {
     if (decisions.length) {
       return decisions.map((item) => {
         const displayBrew = item as DisplayBrew;
-        const resolvedTankId = item.tankId || displayBrew.tentativeTankId;
-        const assignedTank = tanks.find((tank) => tank.id === resolvedTankId)?.number;
+        const batch = normalizedBatch(item.batchNumber);
+        const confirmedById = tanks.find((tank) => tank.id === item.tankId);
+        const confirmedByBatch = batch
+          ? tanks.find((tank) => normalizedBatch(tank.batch) === batch)
+          : undefined;
+        const tentativeTank = displayBrew.tentativeTankId
+          ? tanks.find((tank) => tank.id === displayBrew.tentativeTankId)
+          : undefined;
+        const assignedTank = confirmedById ?? confirmedByBatch ?? tentativeTank;
         return {
           key: `brew:${item.id}`,
-          title: `${displayStyle(item.style)} · ${tankLabel(assignedTank)}`,
+          title: `${displayStyle(item.style)} · ${tankLabel(assignedTank?.number)}`,
           meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
           styleClass: beerStyleClass(item.style).className,
         };
@@ -441,9 +449,10 @@ export default function PlanningGantt(props: Props) {
               {weekIds.map((weekId) => {
                 const items = itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
+                const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
                 return (
                   <div className={`bp-five-week-cell is-${row.id}`} key={`${row.id}:${weekId}`}>
-                    {canEdit && editableKind && weekId >= currentWeek && (
+                    {canEditWeek && (
                       <button
                         type="button"
                         className="bp-gantt-cell-edit"
@@ -451,7 +460,7 @@ export default function PlanningGantt(props: Props) {
                         title={`עריכת ${row.label}`}
                         onClick={() => setEditorTarget({ week: weekId, kind: editableKind })}
                       >
-                        <Pencil size={14} />
+                        <SquarePen size={15} aria-hidden="true" />
                       </button>
                     )}
                     {items.map((item) => (
