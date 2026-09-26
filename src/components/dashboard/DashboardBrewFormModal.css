@@ -1,0 +1,106 @@
+.dashboard-tank-slot {
+  position: relative;
+  min-width: 0;
+}
+
+.dashboard-tank-slot > .tank-card {
+  height: 100%;
+}
+
+.dashboardBrewFormButton {
+  position: absolute;
+  z-index: 6;
+  top: 39px;
+  left: 9px;
+  width: 31px;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: rgba(255,255,255,.88);
+  color: #92400e;
+  box-shadow: 0 1px 3px rgba(15,23,42,.12);
+  cursor: pointer;
+}
+
+.dashboardBrewFormButton:hover:not(:disabled) {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.dashboardBrewFormButton:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.dashboardBrewModalBackdrop {
+  position: fixed;
+  z-index: 12000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(15,23,42,.58);
+}
+
+.dashboardBrewModal {
+  position: relative;
+  width: min(1180px, calc(100vw - 36px));
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  border-radius: 14px;
+  background: #f8fafc;
+  box-shadow: 0 24px 70px rgba(15,23,42,.34);
+}
+
+.dashboardBrewModalClose {
+  position: sticky;
+  z-index: 20;
+  top: 8px;
+  margin: 8px 8px -42px auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 50%;
+  background: rgba(255,255,255,.96);
+  color: #334155;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.dashboardBrewModalError {
+  margin: 64px 20px 24px;
+  padding: 14px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .dashboardBrewFormButton {
+    top: 36px;
+    left: 7px;
+    width: 29px;
+    height: 29px;
+  }
+
+  .dashboardBrewModalBackdrop {
+    padding: 0;
+  }
+
+  .dashboardBrewModal {
+    width: 100vw;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    border-radius: 0;
+  }
+}
