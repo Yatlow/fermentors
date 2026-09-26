@@ -113,6 +113,56 @@ function managedOnEditTriggers_() {
   });
 }
 
+function publishCellarListenerStatus_(desiredCount) {
+  const listenerCount = managedOnEditTriggers_().length;
+  const desired = Number.isFinite(Number(desiredCount)) ? Number(desiredCount) : listenerCount;
+  const totalProjectTriggerCount = ScriptApp.getProjectTriggers().length;
+  const now = new Date().toISOString();
+  const name = "projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/sheetSyncJobs/_cellarListenerStatus";
+  const fields = {
+    state: { stringValue: listenerCount === desired ? "ok" : "partial" },
+    listenerCount: { integerValue: String(listenerCount) },
+    desiredCount: { integerValue: String(desired) },
+    totalProjectTriggerCount: { integerValue: String(totalProjectTriggerCount) },
+    updatedAt: { timestampValue: now }
+  };
+
+  const response = UrlFetchApp.fetch(
+    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+      "/databases/(default)/documents:commit",
+    {
+      method: "post",
+      contentType: "application/json",
+      headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+      payload: JSON.stringify({
+        writes: [{
+          update: { name: name, fields: fields },
+          updateMask: { fieldPaths: Object.keys(fields) }
+        }]
+      }),
+      muteHttpExceptions: true
+    }
+  );
+
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(
+      "Listener status publish failed: " + response.getResponseCode() + " " + response.getContentText()
+    );
+  }
+}
+
+function publishCellarListenerStatusSafe_(desiredCount) {
+  try {
+    publishCellarListenerStatus_(desiredCount);
+  } catch (error) {
+    console.log(
+      "Failed publishing cellar listener status: " +
+      (error && error.message ? error.message : error)
+    );
+  }
+}
+
 function ensureHourlyMaintenanceTrigger_() {
   const triggers = ScriptApp.getProjectTriggers();
   const matches = triggers.filter(function (trigger) {
@@ -184,6 +234,9 @@ function addCellarListener_(payload) {
     installed = true;
   }
 
+  const listenerCount = managedOnEditTriggers_().length;
+  publishCellarListenerStatusSafe_(listenerCount);
+
   return {
     success: true,
     action: "add",
@@ -205,6 +258,8 @@ function removeCellarListener_(payload) {
     }
   });
   deleteMapping_(spreadsheetId);
+  const listenerCount = managedOnEditTriggers_().length;
+  publishCellarListenerStatusSafe_(listenerCount);
 
   return { success: true, action: "remove", spreadsheetId: spreadsheetId, removed: removed };
 }
@@ -305,6 +360,8 @@ function reconcileCellarListeners_() {
     const spreadsheetId = key.slice(CELLAR_LISTENER_MAP_PREFIX.length);
     if (!desired[spreadsheetId]) props.deleteProperty(key);
   });
+
+  publishCellarListenerStatusSafe_(desiredIds.length);
 
   return {
     success: true,
