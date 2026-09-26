@@ -22,9 +22,6 @@ const KIND_LABEL: Record<EditorKind, string> = {
 export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...plannerProps }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
 
-  // Keep the focused Gantt editor on the requested week. The weekly planner
-  // owns all recommendation/decision actions (including replacing packaging
-  // decisions with the recommendation); do not mutate its DOM from here.
   useEffect(() => {
     const targetDate = shortDate(week);
     const timer = window.setTimeout(() => {
@@ -47,6 +44,11 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
+
+  // The focused editor must inspect the persisted WeekPlan, not a pending/
+  // execution-filtered projection. That is what decides whether packaging has
+  // already been accepted and therefore whether the action is "replace".
+  const savedPlans = plannerProps.historyPlans ?? plannerProps.plans;
 
   const modal = (
     <div
@@ -73,7 +75,11 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
           </button>
         </header>
         <div className="bp-gantt-editor-body" ref={hostRef}>
-          <PlanningWeeklyRecommendationsEnhanced {...plannerProps} />
+          <PlanningWeeklyRecommendationsEnhanced
+            {...plannerProps}
+            plans={savedPlans}
+            historyPlans={savedPlans}
+          />
         </div>
       </section>
     </div>
