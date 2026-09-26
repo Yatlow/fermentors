@@ -154,6 +154,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
           <PlanningGantt
             settings={calendarSettings}
             plans={fiveWeekPlans}
+            editorPlans={weeklyPlans}
+            historyPlans={identityAlignedPlans}
             tanks={tanks}
             sources={productionTanks}
             pallets={pallets}
@@ -162,8 +164,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
             holidays={holidays}
             today={today}
             disabled={disabled}
+            canEdit={canEdit}
             saveWeek={saveWeeklyPlan}
             moveCalendarEvent={data.moveCalendarEvent}
+            onOpenCoolerMap={onOpenCoolerMap}
           />
         </>}
         {tab === "schedule" && <>
