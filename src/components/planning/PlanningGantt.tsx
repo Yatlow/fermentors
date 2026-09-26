@@ -5,7 +5,6 @@ import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
 import {
   addDays,
   inventory,
-  sameStyle,
   tempoNow,
   weeklyDemand,
   weekNumber,
