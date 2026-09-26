@@ -1,25 +1,59 @@
 .dashboard-tank-slot {
   position: relative;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard-tank-slot > .tank-card {
-  height: 100%;
+  flex: 1 1 auto;
+  width: 100%;
 }
 
-/* ACTION-0 brew form action: use the exact TankCard Lucide button styling and
-   visually keep it in the same action row as the Sheet button. */
-.dashboardBrewFormButton {
+/* ACTION-0 cards already render their Sheet button inside TankCard. Hide that
+   single-item row and replace it with one centered pair so PencilSparkles and
+   FileSpreadsheet use exactly the same tankInfo geometry with no overlap. */
+.dashboard-tank-slot-brew .tank-card > .tank-actions-row {
+  visibility: hidden;
+}
+
+.dashboardBrewActionPair {
   position: absolute;
-  z-index: 6;
+  z-index: 7;
   top: 39px;
-  left: calc(50% - 38px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  direction: rtl;
+}
+
+.dashboardBrewFormButton,
+.dashboardBrewSheetButton {
+  position: static;
+  margin: 0;
 }
 
 .dashboardBrewFormButton:disabled {
   opacity: .38;
   cursor: not-allowed;
   transform: none !important;
+}
+
+.dashboardPlanningWeekHint {
+  margin-top: -1px;
+  padding: 4px 7px;
+  border: 1px solid #bfdbfe;
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: .66rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
 }
 
 .dashboardBrewModalBackdrop {
@@ -35,6 +69,7 @@
 
 .dashboardBrewModal {
   position: relative;
+  z-index: 12001;
   width: min(1180px, calc(100vw - 36px));
   max-height: calc(100dvh - 36px);
   overflow: auto;
@@ -49,35 +84,39 @@
 }
 
 /* The BrewFormStepper's regular screen keeps "חזרה לאצוות". Inside this
-   dashboard modal the outer fixed close control replaces it. */
+   dashboard modal the fixed close control replaces it. */
 .dashboardBrewModal .brew-back-button {
   display: none !important;
 }
 
 .dashboardBrewModalClose {
-  position: fixed;
-  z-index: 12020;
-  top: 14px;
-  right: 14px;
-  margin: 0;
-  width: 36px;
-  height: 36px;
+  position: fixed !important;
+  z-index: 2147483000 !important;
+  top: 12px !important;
+  left: 12px !important;
+  right: auto !important;
+  margin: 0 !important;
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #cbd5e1;
+  padding: 0;
+  border: 1px solid #94a3b8;
   border-radius: 9px;
-  background: rgba(255,255,255,.97);
-  color: #334155;
-  box-shadow: 0 3px 12px rgba(15,23,42,.18);
-  font-size: 1.35rem;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 4px 16px rgba(15,23,42,.24);
+  font-size: 1.45rem;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .dashboardBrewModalClose:hover {
-  background: #fff;
-  color: #0f172a;
+  background: #f8fafc;
+  color: #020617;
 }
 
 .dashboardBrewModalError {
@@ -91,9 +130,14 @@
 }
 
 @media (max-width: 700px) {
-  .dashboardBrewFormButton {
+  .dashboardBrewActionPair {
     top: 36px;
-    left: calc(50% - 34px);
+    gap: 7px;
+  }
+
+  .dashboardPlanningWeekHint {
+    font-size: .61rem;
+    padding: 4px 5px;
   }
 
   .dashboardBrewModalBackdrop {
@@ -108,7 +152,7 @@
   }
 
   .dashboardBrewModalClose {
-    top: 8px;
-    right: 8px;
+    top: max(8px, env(safe-area-inset-top)) !important;
+    left: 8px !important;
   }
 }
