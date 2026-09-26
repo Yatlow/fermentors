@@ -26,11 +26,6 @@ export type DashboardProps = {
     specs: SpecChart | null;
 };
 
-function shortDate(value: string): string {
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    return match ? `${match[3]}/${match[2]}` : value;
-}
-
 export default function Dashboard({
     selectedStatuses,
     filteredTankCount,
@@ -181,6 +176,7 @@ export default function Dashboard({
                                 tank={fermentor}
                                 onUpdatePasivation={handleUpdatePasivation}
                                 specs={specs}
+                                weekOnlyPackaging={weekOnlyPackaging}
                             />
                             {showBrewFormButton && (
                                 <div className="dashboardBrewActionPair" aria-label="פעולות בישול">
@@ -205,11 +201,6 @@ export default function Dashboard({
                                             <FileSpreadsheet size={16} aria-hidden="true" />
                                         </button>
                                     )}
-                                </div>
-                            )}
-                            {weekOnlyPackaging && (
-                                <div className="dashboardPlanningWeekHint">
-                                    מתוכנן להורדה בשבוע {shortDate(weekOnlyPackaging)} · טרם שובץ יום
                                 </div>
                             )}
                         </div>
