@@ -39,6 +39,38 @@
   min-width: 1090px;
 }
 
+.bp-gantt-grid .bp-five-week-cell {
+  position: relative;
+}
+
+.bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-edit) {
+  padding-top: 30px;
+}
+
+.bp-gantt-cell-edit {
+  position: absolute;
+  top: 4px;
+  inset-inline-end: 5px;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .92);
+  color: #475569;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+  cursor: pointer;
+}
+
+.bp-gantt-cell-edit:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .bp-gantt-grid .bp-five-week-cell.is-stock {
   align-content: start;
 }
@@ -46,7 +78,13 @@
 .bp-gantt-grid .bp-five-week-cell.is-deliveries,
 .bp-gantt-grid .bp-five-week-cell.is-stock {
   min-height: 76px;
-  padding: 7px;
+  padding-inline: 7px;
+  padding-bottom: 7px;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-deliveries:not(:has(.bp-gantt-cell-edit)),
+.bp-gantt-grid .bp-five-week-cell.is-stock {
+  padding-top: 7px;
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item,
@@ -55,7 +93,7 @@
   min-width: 100%;
   gap: 2px;
   min-height: 0;
-  padding: 5px 7px;
+  padding: 6px 8px;
   border-radius: 8px;
 }
 
@@ -68,7 +106,8 @@
 .bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item > small,
 .bp-gantt-grid .bp-five-week-cell.is-stock .bp-five-week-item > small {
   font-size: .62rem;
-  line-height: 1.25;
+  line-height: 1.45;
+  white-space: pre-line;
 }
 
 .bp-five-week-item.is-gantt-recommendation {
@@ -138,14 +177,6 @@
   background: #dbeafe;
 }
 
-.bp-gantt-week-title {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-}
-
-.bp-gantt-week-edit,
 .bp-gantt-editor-close {
   display: inline-grid;
   place-items: center;
@@ -155,21 +186,10 @@
   cursor: pointer;
 }
 
-.bp-gantt-week-edit {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-}
-
-.bp-gantt-week-edit:hover {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
 .bp-gantt-editor-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 5000;
+  z-index: 10000;
   display: grid;
   place-items: center;
   padding: 18px;
@@ -180,7 +200,7 @@
 .bp-gantt-editor-modal {
   display: flex;
   flex-direction: column;
-  width: min(1080px, 96vw);
+  width: min(980px, 96vw);
   max-height: 92dvh;
   overflow: hidden;
   border: 1px solid #cbd5e1;
@@ -229,12 +249,36 @@
   overscroll-behavior: contain;
 }
 
-.bp-gantt-editor-body .bp-week-picker {
-  position: sticky;
-  top: -12px;
-  z-index: 5;
-  padding-block: 6px;
-  background: #fff;
+/* The focused Gantt editor reuses the real weekly-planning flow, but only
+   exposes the requested decision card. The hidden week picker still exists so
+   the modal can select the exact week programmatically. */
+.bp-gantt-editor-modal .bp-week-picker,
+.bp-gantt-editor-modal .bp-week-sticky,
+.bp-gantt-editor-modal .bp-week-events {
+  display: none;
+}
+
+.bp-gantt-editor-modal.is-focus-deliveries .bp-week-packaging-card,
+.bp-gantt-editor-modal.is-focus-deliveries .bp-week-brew-card,
+.bp-gantt-editor-modal.is-focus-packaging .bp-week-shipment-card,
+.bp-gantt-editor-modal.is-focus-packaging .bp-week-brew-card,
+.bp-gantt-editor-modal.is-focus-brews .bp-week-shipment-card,
+.bp-gantt-editor-modal.is-focus-brews .bp-week-packaging-card {
+  display: none;
+}
+
+.bp-gantt-editor-modal.is-focus-packaging .bp-actual-shipment-status,
+.bp-gantt-editor-modal.is-focus-brews .bp-actual-shipment-status {
+  display: none;
+}
+
+.bp-gantt-editor-modal .bp-week-recommendations {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.bp-gantt-editor-modal .bp-week-rec-card {
+  max-width: none;
+  width: 100%;
 }
 
 .bp-gantt-calendar-host > .bp-five-week-overview > .bp-five-week-heading {
