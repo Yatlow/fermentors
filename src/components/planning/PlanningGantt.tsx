@@ -57,8 +57,6 @@ type SimulatedWeek = {
   brewRecommendation: WeeklyPlanningModel["brewRecommendations"];
 };
 
-type DisplayBrew = WeekPlan["brews"][number] & { tentativeTankId?: string };
-
 type Props = {
   settings: Settings;
   plans: WeekPlan[];
@@ -89,7 +87,6 @@ const packageLiters = (quantity: number, type: "crates" | "kegs") => quantity * 
 const tankLabel = (value?: string | number | null) => value === undefined || value === null || String(value).trim() === ""
   ? "טרם שובץ למיכל"
   : `מיכל ${value}`;
-const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
 const styleRank = (style: string) => {
   const rank = STYLE_ORDER.findIndex((candidate) => sameStyle(candidate, style));
   return rank < 0 ? STYLE_ORDER.length : rank;
@@ -100,7 +97,6 @@ const sortedStyleEntries = <T,>(map: Map<string, T>) =>
 export default function PlanningGantt(props: Props) {
   const {
     settings,
-    plans,
     editorPlans,
     historyPlans,
     tanks,
@@ -237,40 +233,32 @@ export default function PlanningGantt(props: Props) {
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
   const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
-  const tentativePlanFor = (weekId: string) => plans.find((plan) => plan.id === weekId);
 
-  function resolveBrewTankId(weekId: string, item: WeekPlan["brews"][number]) {
-    if (item.tankId && tanks.some((tank) => tank.id === item.tankId)) return item.tankId;
-
-    const batch = normalizedBatch(item.batchNumber);
-    const realSource = batch
-      ? sources.find((source) => normalizedBatch(source.batchNumber) === batch)
-      : undefined;
-    if (realSource) {
-      const bySourceId = tanks.find((tank) => tank.id === realSource.id);
-      if (bySourceId) return bySourceId.id;
-      const byNumber = tanks.find((tank) => String(tank.number) === String(realSource.tankNumber));
-      if (byNumber) return byNumber.id;
-    }
-
-    const tentativeMatch = tentativePlanFor(weekId)?.brews.find((candidate) => candidate.id === item.id) as DisplayBrew | undefined;
-    return tentativeMatch?.tentativeTankId && tanks.some((tank) => tank.id === tentativeMatch.tentativeTankId)
-      ? tentativeMatch.tentativeTankId
-      : undefined;
+  // A saved tankId is the only confirmed brew assignment. Resolve its display
+  // number from the capacity model first, then from the real Fermentor docs.
+  // Never infer a confirmed assignment from batchNumber or a tentative tank.
+  function assignedBrewTankNumber(item: WeekPlan["brews"][number]) {
+    if (!item.tankId) return undefined;
+    return tanks.find((tank) => tank.id === item.tankId)?.number
+      ?? sources.find((source) => source.id === item.tankId)?.tankNumber
+      ?? sources.find((source) => String(source.tankNumber) === String(item.tankId))?.tankNumber;
   }
 
-  function resolveBrewTankNumber(weekId: string, item: WeekPlan["brews"][number]) {
-    const tankId = resolveBrewTankId(weekId, item);
-    return tanks.find((tank) => tank.id === tankId)?.number;
-  }
-
-  const calendarPlans = useMemo(() => historyPlans.map((plan) => ({
-    ...plan,
-    brews: plan.brews.map((brew) => {
-      const tankId = resolveBrewTankId(plan.id, brew);
-      return tankId ? { ...brew, tankId } : brew;
-    }),
-  })), [historyPlans, plans, sources, tanks]);
+  // Calendar is a visual projection of the same sequential simulation used by
+  // the Gantt summary. Therefore weeks without a decision still contain the
+  // recommendation, while saved decisions stay untouched. tankNumber is only a
+  // display fallback for confirmed tankIds that are absent from tanksFrom.
+  const calendarPlans = useMemo(() => weekIds.flatMap((weekId) => {
+    const plan = simulations.get(weekId)?.effectivePlan;
+    if (!plan) return [];
+    return [{
+      ...plan,
+      brews: plan.brews.map((brew) => ({
+        ...brew,
+        tankNumber: assignedBrewTankNumber(brew),
+      })),
+    }];
+  }), [simulations, weekIds, tanks, sources]);
 
   function compactShipmentItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
@@ -330,15 +318,12 @@ export default function PlanningGantt(props: Props) {
   function brewItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
     if (decisions.length) {
-      return decisions.map((item) => {
-        const assignedTankNumber = resolveBrewTankNumber(weekId, item);
-        return {
-          key: `brew:${item.id}`,
-          title: `${displayStyle(item.style)} · ${tankLabel(assignedTankNumber)}`,
-          meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
-          styleClass: beerStyleClass(item.style).className,
-        };
-      });
+      return decisions.map((item) => ({
+        key: `brew:${item.id}`,
+        title: `${displayStyle(item.style)} · ${tankLabel(assignedBrewTankNumber(item))}`,
+        meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
+        styleClass: beerStyleClass(item.style).className,
+      }));
     }
     if (weekId < currentWeek) return [];
     return (simulations.get(weekId)?.brewRecommendation ?? []).map((item, index) => ({
@@ -416,7 +401,7 @@ export default function PlanningGantt(props: Props) {
     if (kind === "packaging") {
       return plan.packaging.filter((run) => run.quantity > 0 && !run.date).length;
     }
-    return plan.brews.filter((brew) => brew.liters > 0 && !resolveBrewTankNumber(weekId, brew)).length;
+    return plan.brews.filter((brew) => brew.liters > 0 && !brew.tankId).length;
   }
 
   const editor = editorTarget && canEdit ? (
