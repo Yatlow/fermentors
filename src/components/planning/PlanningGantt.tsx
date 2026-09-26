@@ -244,21 +244,47 @@ export default function PlanningGantt(props: Props) {
       ?? sources.find((source) => String(source.tankNumber) === String(item.tankId))?.tankNumber;
   }
 
-  // Calendar is a visual projection of the same sequential simulation used by
-  // the Gantt summary. Therefore weeks without a decision still contain the
-  // recommendation, while saved decisions stay untouched. tankNumber is only a
-  // display fallback for confirmed tankIds that are absent from tanksFrom.
+  // Calendar intentionally contains only confirmed brew assignments. Weekly
+  // recommendations and accepted-but-unassigned brew decisions remain visible
+  // in the Gantt summary, but do not become calendar events until tankId exists.
   const calendarPlans = useMemo(() => weekIds.flatMap((weekId) => {
     const plan = simulations.get(weekId)?.effectivePlan;
     if (!plan) return [];
     return [{
       ...plan,
-      brews: plan.brews.map((brew) => ({
-        ...brew,
-        tankNumber: assignedBrewTankNumber(brew),
-      })),
+      brews: plan.brews
+        .filter((brew) => !!brew.tankId)
+        .map((brew) => ({
+          ...brew,
+          tankNumber: assignedBrewTankNumber(brew),
+        })),
     }];
   }), [simulations, weekIds, tanks, sources]);
+
+  // PlanningFiveWeekOverview resolves brew labels through its Tank[] lookup.
+  // A confirmed tank can be absent from the capacity projection (or an older
+  // plan can store the tank number as tankId), so add display-only aliases for
+  // confirmed assignments. Zero liters + far-future ready keep these aliases
+  // out of every capacity/tentative selection calculation.
+  const calendarTanks = useMemo(() => {
+    const aliases = [...tanks];
+    for (const plan of calendarPlans) {
+      for (const brew of plan.brews) {
+        if (!brew.tankId || aliases.some((tank) => tank.id === brew.tankId)) continue;
+        const number = assignedBrewTankNumber(brew);
+        if (number === undefined || number === null || String(number).trim() === "") continue;
+        aliases.push({
+          id: brew.tankId,
+          number,
+          style: brew.style,
+          liters: 0,
+          ready: "9999-12-31",
+          brewed: "9999-12-31",
+        } as Tank);
+      }
+    }
+    return aliases;
+  }, [calendarPlans, tanks, sources]);
 
   function compactShipmentItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
@@ -455,7 +481,7 @@ export default function PlanningGantt(props: Props) {
           </div>
         </div>
         <div className="bp-gantt-calendar-host">
-          <PlanningFiveWeekOverview {...props} plans={calendarPlans} />
+          <PlanningFiveWeekOverview {...props} plans={calendarPlans} tanks={calendarTanks} />
         </div>
       </section>
       {editor}
