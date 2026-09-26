@@ -342,33 +342,42 @@ function cellarSheetOnEdit(event) {
 function syncEditedSheetToFirestore_(event, mapping) {
   const spreadsheet = event.source;
   const sheet = spreadsheet.getSheets()[0];
-  if (!sheet) throw new Error("Spreadsheet has no sheet");
-  const values = sheet.getDataRange().getDisplayValues();
+  if (!sheet || !event.range) return;
+  if (event.range.getSheet().getSheetId() !== sheet.getSheetId()) return;
 
+  const values = sheet.getDataRange().getDisplayValues();
   if (!editCouldAffectCellar_(event, sheet, values)) return;
 
   const latest = latestFermentationMeasurement_(values);
-  const packaging = readPackagingFromValues_(sheet, values);
+  const measurementPatches = editedFermentationPatches_(event, sheet, values);
+  const packagingPatch = editedPackagingPatch_(event, sheet, values);
   const currentData = {};
 
-  if (latest) {
-    Object.keys(latest).forEach(function (key) {
-      if (key === "measurementId" || key === "time") return;
-      if (latest[key] !== undefined) currentData[key] = latest[key];
+  const latestRowIndex = latest ? latest.rowIndex : -1;
+  measurementPatches.forEach(function (patch) {
+    if (patch.rowIndex !== latestRowIndex) return;
+    Object.keys(patch.fields).forEach(function (key) {
+      currentData[key] = patch.fields[key];
     });
-  }
-  Object.keys(packaging).forEach(function (key) {
-    const value = packaging[key];
-    if (value !== undefined && value !== null) currentData[key] = value;
   });
 
-  if (!Object.keys(currentData).length) return;
+  Object.keys(packagingPatch).forEach(function (key) {
+    currentData[key] = packagingPatch[key];
+  });
+
+  if (!Object.keys(currentData).length && !measurementPatches.length) return;
+
   const batch = String(mapping.batchNumber || "").replace("#", "").trim();
-  commitCurrentDataAndMeasurement_(String(mapping.tankNumber), batch, currentData, latest);
+  commitPartialCellarUpdate_(
+    String(mapping.tankNumber),
+    batch,
+    currentData,
+    measurementPatches
+  );
 }
 
 function editCouldAffectCellar_(event, sheet, values) {
-  if (!event || !event.range) return true;
+  if (!event || !event.range) return false;
   const range = event.range;
   if (range.getSheet().getSheetId() !== sheet.getSheetId()) return false;
 
@@ -380,7 +389,8 @@ function editCouldAffectCellar_(event, sheet, values) {
   const header = fermentationHeaderRow_(values);
   if (header >= 0) {
     const headerOneBased = header + 1;
-    if (lastRow > headerOneBased && firstCol <= 8 && lastCol >= 1) return true;
+    // Only C:H are cellar data. A:B are date/time metadata and do not touch currentData.
+    if (lastRow > headerOneBased && firstCol <= 8 && lastCol >= 3) return true;
   }
 
   const targets = packagingTargets_(sheet, values);
@@ -420,6 +430,7 @@ function latestFermentationMeasurement_(values) {
 
     const timeText = String(row[1] || "").trim();
     found = {
+      rowIndex: r,
       measurementId: measurementId_(parsedDate, timeText),
       date: String(row[0] || "").trim(),
       time: timeText,
@@ -432,6 +443,68 @@ function latestFermentationMeasurement_(values) {
     };
   }
   return found;
+}
+
+function fermentationFieldForColumn_(column) {
+  if (column === 3) return { key: "plato", numeric: true };
+  if (column === 4) return { key: "temp", numeric: true };
+  if (column === 5) return { key: "pressure", numeric: true };
+  if (column === 6) return { key: "pH", numeric: true };
+  if (column === 7) return { key: "carbonation", numeric: true };
+  if (column === 8) return { key: "notes", numeric: false };
+  return null;
+}
+
+function editedFermentationPatches_(event, sheet, values) {
+  const range = event && event.range;
+  if (!range || range.getSheet().getSheetId() !== sheet.getSheetId()) return [];
+
+  const header = fermentationHeaderRow_(values);
+  if (header < 0) return [];
+
+  const firstRow = Math.max(range.getRow(), header + 2);
+  const lastRow = range.getLastRow();
+  const firstCol = Math.max(range.getColumn(), 3);
+  const lastCol = Math.min(range.getLastColumn(), 8);
+  if (firstRow > lastRow || firstCol > lastCol) return [];
+
+  const patches = [];
+  for (let rowNumber = firstRow; rowNumber <= lastRow; rowNumber++) {
+    const rowIndex = rowNumber - 1;
+    const row = values[rowIndex] || [];
+    const parsedDate = parseIsraeliDate_(row[0]);
+    if (!parsedDate) continue;
+
+    const fields = {};
+    for (let column = firstCol; column <= lastCol; column++) {
+      const spec = fermentationFieldForColumn_(column);
+      if (!spec) continue;
+
+      const raw = String(row[column - 1] == null ? "" : row[column - 1]).trim();
+      // Empty cells never erase Firestore values. This mirrors the existing additive behavior.
+      if (!raw) continue;
+
+      if (spec.numeric) {
+        const parsed = numberOrNull_(raw);
+        if (parsed === null) continue;
+        fields[spec.key] = parsed;
+      } else {
+        fields[spec.key] = raw;
+      }
+    }
+
+    if (!Object.keys(fields).length) continue;
+
+    const timeText = String(row[1] || "").trim();
+    patches.push({
+      rowIndex: rowIndex,
+      measurementId: measurementId_(parsedDate, timeText),
+      date: String(row[0] || "").trim(),
+      time: timeText,
+      fields: fields
+    });
+  }
+  return patches;
 }
 
 function normalizeLabel_(text) {
@@ -482,17 +555,61 @@ function findEmptyCheckbox_(sheet, values) {
 }
 
 function packagingTargets_(sheet, values) {
+  return packagingFieldTargets_(sheet, values).map(function (target) {
+    return { row: target.row, col: target.col };
+  });
+}
+
+function packagingFieldTargets_(sheet, values) {
   const kegs = findLabel_(values, ["חביות"]);
   const crates = findLabel_(values, ["ארגזים"]);
   const total = findLabel_(values, ['סה"כ', "סהכ"]);
   const shrinkage = findLabel_(values, ["פחת"]);
+  const checkbox = findEmptyCheckbox_(sheet, values);
+
   return [
-    kegs ? { row: kegs.row + 2, col: kegs.col + 1 } : null,
-    crates ? { row: crates.row + 2, col: crates.col + 1 } : null,
-    total ? { row: total.row + 1, col: total.col + 2 } : null,
-    shrinkage ? { row: shrinkage.row + 1, col: shrinkage.col + 2 } : null,
-    findEmptyCheckbox_(sheet, values)
+    kegs ? { key: "kegs", row: kegs.row + 2, col: kegs.col + 1, type: "number" } : null,
+    crates ? { key: "crates", row: crates.row + 2, col: crates.col + 1, type: "number" } : null,
+    total ? { key: "totalLiters", row: total.row + 1, col: total.col + 2, type: "number" } : null,
+    shrinkage ? { key: "shrinkagePercent", row: shrinkage.row + 1, col: shrinkage.col + 2, type: "percent" } : null,
+    checkbox ? { key: "isEmpty", row: checkbox.row, col: checkbox.col, type: "checkbox" } : null
   ].filter(Boolean);
+}
+
+function editedPackagingPatch_(event, sheet, values) {
+  const range = event && event.range;
+  if (!range || range.getSheet().getSheetId() !== sheet.getSheetId()) return {};
+
+  const firstRow = range.getRow();
+  const lastRow = range.getLastRow();
+  const firstCol = range.getColumn();
+  const lastCol = range.getLastColumn();
+  const result = {};
+
+  packagingFieldTargets_(sheet, values).forEach(function (target) {
+    if (target.row < firstRow || target.row > lastRow || target.col < firstCol || target.col > lastCol) {
+      return;
+    }
+
+    if (target.type === "checkbox") {
+      const value = sheet.getRange(target.row, target.col).getValue();
+      result[target.key] = value === true || String(value).trim().toUpperCase() === "TRUE";
+      return;
+    }
+
+    const raw = String(
+      values[target.row - 1] && values[target.row - 1][target.col - 1] != null
+        ? values[target.row - 1][target.col - 1]
+        : ""
+    ).trim();
+    // Empty packaging cells also keep the previous Firestore value.
+    if (!raw) return;
+
+    const parsed = target.type === "percent" ? percentOrNull_(raw) : numberOrNull_(raw);
+    if (parsed !== null) result[target.key] = parsed;
+  });
+
+  return result;
 }
 
 function readPackagingFromValues_(sheet, values) {
@@ -515,52 +632,66 @@ function readPackagingFromValues_(sheet, values) {
   return result;
 }
 
-function commitCurrentDataAndMeasurement_(tankNumber, batchNumber, currentData, latest) {
+function commitPartialCellarUpdate_(tankNumber, batchNumber, currentData, measurementPatches) {
   const root = "projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/";
   const revision = Utilities.getUuid();
   const currentFields = {};
   const currentPaths = [];
+  const patches = measurementPatches || [];
 
-  Object.keys(currentData).forEach(function (key) {
-    if (currentData[key] === undefined) return;
-    currentFields[key] = toFirestoreValue_(currentData[key]);
+  Object.keys(currentData || {}).forEach(function (key) {
+    const value = currentData[key];
+    if (value === undefined || value === null) return;
+    currentFields[key] = toFirestoreValue_(value);
     currentPaths.push("currentData." + key);
   });
 
   const fermentorFields = {
-    currentData: { mapValue: { fields: currentFields } },
-    measurementsRevision: { stringValue: revision },
     updatedAt: { timestampValue: new Date().toISOString() }
   };
-  const fermentorMask = currentPaths.concat(["measurementsRevision", "updatedAt"]);
+  const fermentorMask = ["updatedAt"];
+
+  if (currentPaths.length) {
+    fermentorFields.currentData = { mapValue: { fields: currentFields } };
+    Array.prototype.push.apply(fermentorMask, currentPaths);
+  }
+  if (patches.length) {
+    fermentorFields.measurementsRevision = { stringValue: revision };
+    fermentorMask.push("measurementsRevision");
+  }
+
   const writes = [{
     update: { name: root + "fermentors/" + encodeURIComponent(tankNumber), fields: fermentorFields },
     updateMask: { fieldPaths: fermentorMask },
     currentDocument: { exists: true }
   }];
 
-  if (batchNumber && latest && latest.measurementId) {
-    const measurement = {
-      date: latest.date,
-      time: latest.time,
-      temp: latest.temp,
-      plato: latest.plato,
-      pressure: latest.pressure,
-      carbonation: latest.carbonation,
-      pH: latest.pH,
-      notes: latest.notes
-    };
-    const fields = {};
-    Object.keys(measurement).forEach(function (key) {
-      fields[key] = toFirestoreValue_(measurement[key]);
-    });
-    writes.push({
-      update: {
-        name: root + "brews/" + encodeURIComponent(batchNumber) +
-          "/measurements/" + encodeURIComponent(latest.measurementId),
-        fields: fields
-      },
-      updateMask: { fieldPaths: Object.keys(measurement) }
+  if (batchNumber) {
+    patches.forEach(function (patch) {
+      if (!patch || !patch.measurementId || !patch.fields || !Object.keys(patch.fields).length) return;
+
+      const measurement = {
+        date: patch.date,
+        time: patch.time
+      };
+      Object.keys(patch.fields).forEach(function (key) {
+        measurement[key] = patch.fields[key];
+      });
+
+      const fields = {};
+      Object.keys(measurement).forEach(function (key) {
+        if (measurement[key] === undefined || measurement[key] === null) return;
+        fields[key] = toFirestoreValue_(measurement[key]);
+      });
+
+      writes.push({
+        update: {
+          name: root + "brews/" + encodeURIComponent(batchNumber) +
+            "/measurements/" + encodeURIComponent(patch.measurementId),
+          fields: fields
+        },
+        updateMask: { fieldPaths: Object.keys(fields) }
+      });
     });
   }
 
