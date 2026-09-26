@@ -46,9 +46,14 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
   }, [onClose]);
 
   const modal = (
-    <div className="bp-gantt-editor-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
+    <div
+      className="brew-planning bp-gantt-editor-backdrop"
+      dir="rtl"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <section
         className={`bp-gantt-editor-modal is-focus-${kind}`}
         role="dialog"
@@ -58,7 +63,7 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
         <header className="bp-gantt-editor-header">
           <div>
             <b>{KIND_LABEL[kind]} · המלצה מול החלטה</b>
-            <small>{shortDate(week)}</small>
+            <small>שבוע שמתחיל ב־{shortDate(week)}</small>
           </div>
           <button type="button" className="bp-gantt-editor-close" aria-label="סגירה" onClick={onClose}>
             <X size={20} />
