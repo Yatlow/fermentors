@@ -26,6 +26,11 @@ export type DashboardProps = {
     specs: SpecChart | null;
 };
 
+function shortDate(value: string): string {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    return match ? `${match[3]}/${match[2]}` : value;
+}
+
 export default function Dashboard({
     selectedStatuses,
     filteredTankCount,
@@ -171,12 +176,14 @@ export default function Dashboard({
                     const weekOnlyPackaging = undatedPackagingWeeks[fermentor.id] || "";
 
                     return (
-                        <div className={`dashboard-tank-slot${showBrewFormButton ? " dashboard-tank-slot-brew" : ""}`} key={fermentor.id}>
+                        <div
+                            className={`dashboard-tank-slot${showBrewFormButton ? " dashboard-tank-slot-brew" : ""}${weekOnlyPackaging ? " dashboard-tank-slot-week-packaging" : ""}`}
+                            key={fermentor.id}
+                        >
                             <TankCard
                                 tank={fermentor}
                                 onUpdatePasivation={handleUpdatePasivation}
                                 specs={specs}
-                                weekOnlyPackaging={weekOnlyPackaging}
                             />
                             {showBrewFormButton && (
                                 <div className="dashboardBrewActionPair" aria-label="פעולות בישול">
@@ -201,6 +208,11 @@ export default function Dashboard({
                                             <FileSpreadsheet size={16} aria-hidden="true" />
                                         </button>
                                     )}
+                                </div>
+                            )}
+                            {weekOnlyPackaging && (
+                                <div className="dashboardPlanningWeekHint tank-planned-packaging">
+                                    מתוכנן להורדה בשבוע {shortDate(weekOnlyPackaging)} · טרם שובץ יום
                                 </div>
                             )}
                         </div>
