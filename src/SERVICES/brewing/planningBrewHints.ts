@@ -1,6 +1,6 @@
-import { doc, onSnapshot, type Unsubscribe } from "firebase/firestore";
+import { collection, documentId, onSnapshot, query, where, type Unsubscribe } from "firebase/firestore";
 import { db } from "../../firebase";
-import { addDays, dateKey, weekStart } from "../planning/planningEngine";
+import { dateKey, weekStart } from "../planning/planningEngine";
 
 export type PlannedBrewHint = {
   batchNumber: string;
@@ -21,7 +21,7 @@ function hintsFromData(data: unknown): PlannedBrewHint[] {
     ? ((data as { brews: BrewPlanWithMeta[] }).brews)
     : [];
   return brews
-    .filter((brew) => !!brew.batchNumber)
+    .filter((brew) => !!brew.batchNumber && !!brew.tankId)
     .map((brew) => ({
       batchNumber: String(brew.batchNumber),
       style: String(brew.style || ""),
@@ -30,66 +30,46 @@ function hintsFromData(data: unknown): PlannedBrewHint[] {
     }));
 }
 
-function mergeWeekHints(today: string, current: PlannedBrewHint[], next: PlannedBrewHint[]): PlannedBrewHint[] {
+function mergePlannedHints(today: string, groups: PlannedBrewHint[][]): PlannedBrewHint[] {
   const seen = new Set<string>();
-  return [...next, ...current]
+  return groups
+    .flat()
+    .filter((hint) => !hint.date || hint.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date) || Number(a.batchNumber) - Number(b.batchNumber))
     .filter((hint) => {
       const key = String(hint.batchNumber).replace("#", "").trim();
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
-    })
-    .filter((hint) => !hint.date || hint.date >= today);
+    });
 }
 
+/**
+ * The brewing screen needs every future planned brew that already has a real
+ * tank assignment, not only the current and following week. The queue is keyed
+ * by operational week (YYYY-MM-DD), so one bounded collection listener keeps
+ * the view live without reading historical planning documents.
+ */
 export function subscribeCurrentWeekPlannedBrewHints(
   onValue: (result: { weekId: string; hints: PlannedBrewHint[]; available: boolean; fromCache: boolean }) => void,
 ): Unsubscribe {
   const today = dateKey(new Date());
   const weekId = weekStart(today);
-  const nextWeekId = addDays(weekId, 7);
-  let current: PlannedBrewHint[] = [];
-  let next: PlannedBrewHint[] = [];
-  let currentReady = false;
-  let nextReady = false;
-  let currentCache = true;
-  let nextCache = true;
+  const plannedQuery = query(
+    collection(db, "brewPlanningQueue"),
+    where(documentId(), ">=", weekId),
+  );
 
-  const emit = () => {
-    if (!currentReady && !nextReady) return;
+  return onSnapshot(plannedQuery, { includeMetadataChanges: true }, (snapshot) => {
+    const groups = snapshot.docs.map((item) => hintsFromData(item.data()));
     onValue({
       weekId,
-      hints: mergeWeekHints(today, current, next),
+      hints: mergePlannedHints(today, groups),
       available: true,
-      fromCache: currentCache && nextCache,
+      fromCache: snapshot.metadata.fromCache,
     });
-  };
-
-  const unsubscribeCurrent = onSnapshot(doc(db, "brewPlanningQueue", weekId), { includeMetadataChanges: true }, (snapshot) => {
-    current = snapshot.exists() ? hintsFromData(snapshot.data()) : [];
-    currentReady = true;
-    currentCache = snapshot.metadata.fromCache;
-    emit();
   }, (error) => {
-    console.warn("Failed loading current planned brew queue", error);
-    currentReady = true;
-    emit();
+    console.warn("Failed loading assigned planned brew queue", error);
+    onValue({ weekId, hints: [], available: false, fromCache: false });
   });
-
-  const unsubscribeNext = onSnapshot(doc(db, "brewPlanningQueue", nextWeekId), { includeMetadataChanges: true }, (snapshot) => {
-    next = snapshot.exists() ? hintsFromData(snapshot.data()) : [];
-    nextReady = true;
-    nextCache = snapshot.metadata.fromCache;
-    emit();
-  }, (error) => {
-    console.warn("Failed loading next planned brew queue", error);
-    nextReady = true;
-    emit();
-  });
-
-  return () => {
-    unsubscribeCurrent();
-    unsubscribeNext();
-  };
 }
-
