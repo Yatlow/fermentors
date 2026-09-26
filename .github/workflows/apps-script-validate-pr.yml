@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "server/**"
+      - "cellar-listener/**"
       - "scripts/test-sheet-sync-outbox.mjs"
       - ".github/scripts/validate-apps-script-runtime.mjs"
       - ".github/workflows/apps-script-validate-pr.yml"
@@ -30,6 +31,12 @@ jobs:
           test -f server/.clasp.json
           test -f server/appsscript.json
           for file in server/*.js; do
+            echo "Syntax check: $file"
+            node --check "$file"
+          done
+          test -f cellar-listener/.clasp.json
+          test -f cellar-listener/appsscript.json
+          for file in cellar-listener/*.js; do
             echo "Syntax check: $file"
             node --check "$file"
           done

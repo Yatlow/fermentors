@@ -390,7 +390,7 @@ function executePostAction_(data) {
     const tankID = String(data.tankID || "").trim();
     const requestedBatch = Number(data.requestedBatch);
     if (!tankID) throw new Error("Missing tankID");
-    if (!Number.isFinite(requestedBatch)) throw new Error("Invalid requestedBatch");
+    if (!Number.isFinite(requestedBatch)) throw new Error("Invalid batch number");
     return { success: true, action: "CheckBatchAssignment", result: checkBatchForTank(tankID, requestedBatch) };
   }
 
@@ -431,6 +431,24 @@ function executePostAction_(data) {
           } catch (apiError) {
             logToSheet(
               "Sheets API note fast-path failed for tank " +
+              reading.tankNumber + ": " + apiError.message +
+              " — falling back to SpreadsheetApp"
+            );
+          }
+        } else if (isSimpleFermentationReadingForSheetsApi_(reading)) {
+          try {
+            result = addFermentationMeasurementViaSheetsApi_(
+              reading.sheetUrl,
+              reading.temp,
+              reading.pressure,
+              reading.plato,
+              reading.pH,
+              reading.carbonation,
+              reading.notes
+            );
+          } catch (apiError) {
+            logToSheet(
+              "Sheets API measurement fast-path failed for tank " +
               reading.tankNumber + ": " + apiError.message +
               " — falling back to SpreadsheetApp"
             );
@@ -542,6 +560,23 @@ function executePostAction_(data) {
       } catch (apiError) {
         logToSheet(
           "Sheets API single-note fast-path failed: " + apiError.message +
+          " — falling back to SpreadsheetApp"
+        );
+      }
+    } else if (isSimpleFermentationReadingForSheetsApi_(singleReading)) {
+      try {
+        result = addFermentationMeasurementViaSheetsApi_(
+          data.sheetUrl,
+          data.temp,
+          data.pressure,
+          data.plato,
+          data.pH,
+          data.carbonation,
+          data.notes
+        );
+      } catch (apiError) {
+        logToSheet(
+          "Sheets API single-measurement fast-path failed: " + apiError.message +
           " — falling back to SpreadsheetApp"
         );
       }
