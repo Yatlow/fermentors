@@ -1,0 +1,63 @@
+name: Deploy Cellar Listener Apps Script
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "cellar-listener/**"
+      - ".github/workflows/cellar-listener-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cellar-listener-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Push cellar listener sources
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cellar-listener
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install clasp
+        run: npm install --global @google/clasp
+
+      - name: Restore clasp credentials
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "Missing GitHub Actions secret: CLASPRC_JSON"
+            exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          chmod 600 "$HOME/.clasprc.json"
+
+      - name: Validate listener project
+        run: |
+          test -f .clasp.json
+          test -f appsscript.json
+          for file in *.js; do
+            echo "Syntax check: $file"
+            node --check "$file"
+          done
+
+      - name: Push Apps Script sources
+        run: clasp push --force
+
+      - name: Show deployments
+        run: clasp deployments
