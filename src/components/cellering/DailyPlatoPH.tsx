@@ -1,5 +1,5 @@
-
 import type { Fermentor, NewReading } from "../../App";
+import RecentMeasurements from "./RecentMeasurements";
 
 export type DailyPlatoPHProps = {
   brews: Fermentor[],
@@ -59,6 +59,8 @@ export default function DailyPlatoPH({
                     </strong>
                   </span>
                 </div>
+
+                <RecentMeasurements tank={fv} mode="warm" />
 
                 <div className="measurement-inputs">
 
