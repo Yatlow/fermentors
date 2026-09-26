@@ -1,5 +1,5 @@
 import BeerLoader from "../general/Loading";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -38,13 +38,27 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
 
+  // Once a planning dataset has been requested during this mounted planning
+  // session, keep its live listener attached. Switching tabs used to tear down
+  // pallets / packagingLog / shipments and then subscribe again on every return
+  // to the Gantt. Firestore already provides the persistent IndexedDB cache;
+  // keeping these listeners alive avoids needless query re-attachment while
+  // still delivering real-time deltas from the server.
+  const stickyReadScope = useRef<PlanningReadScope>({ plans: true });
+  const needsPallets = tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
+  const needsActuals = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review";
+  const needsShipments = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
+  if (needsPallets) stickyReadScope.current.pallets = true;
+  if (needsActuals) stickyReadScope.current.actuals = true;
+  if (needsShipments) stickyReadScope.current.shipments = true;
+
   const readScope = useMemo<PlanningReadScope>(() => ({
     plans: true,
-    pallets: tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule",
-    actuals: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review",
-    shipments: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule",
+    pallets: stickyReadScope.current.pallets === true,
+    actuals: stickyReadScope.current.actuals === true,
+    shipments: stickyReadScope.current.shipments === true,
     snapshots: tab === "review",
-  }), [tab]);
+  }), [tab, needsPallets, needsActuals, needsShipments]);
 
   const data = usePlanning(today, productionTanks, readScope);
   const { settings, plans, pallets, actuals } = data;
