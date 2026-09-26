@@ -122,9 +122,6 @@ export default function PlanningGantt(props: Props) {
 
   const simulations = useMemo(() => {
     const result = new Map<string, SimulatedWeek>();
-    // Forecast from persisted decisions only. `plans` contains display-only
-    // tentative tank enrichment and must never become the source of truth for
-    // confirmed assignments or future recommendation calculations.
     let effectivePlans = historyPlans.map((plan) => structuredClone(plan));
 
     const upsertPlan = (plan: WeekPlan) => {
@@ -411,14 +408,14 @@ export default function PlanningGantt(props: Props) {
     return <>
       <section className="bp-gantt-shell">
         <div className="bp-section-heading bp-gantt-heading">
-          <div><h2>גאנט</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
+          <div><h2>לוח שנה</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
             <button type="button" aria-pressed={false} onClick={() => setMode("summary")}>סיכום שבועי</button>
-            <button type="button" aria-pressed={true}>לוח גאנט</button>
+            <button type="button" aria-pressed={true}>לוח שנה</button>
           </div>
         </div>
         <div className="bp-gantt-calendar-host">
-          <PlanningFiveWeekOverview {...props} />
+          <PlanningFiveWeekOverview {...props} plans={historyPlans} />
         </div>
       </section>
       {editor}
@@ -431,7 +428,7 @@ export default function PlanningGantt(props: Props) {
         <div><h2>גאנט</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
         <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
           <button type="button" aria-pressed={true}>סיכום שבועי</button>
-          <button type="button" aria-pressed={false} onClick={() => setMode("calendar")}>לוח גאנט</button>
+          <button type="button" aria-pressed={false} onClick={() => setMode("calendar")}>לוח שנה</button>
         </div>
       </div>
 
