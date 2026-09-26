@@ -7,6 +7,7 @@ import {
   addDays,
   emptyWeek,
   inventory,
+  parseDate,
   sameStyle,
   tempoNow,
   weeklyDemand,
@@ -118,6 +119,12 @@ export default function PlanningGantt(props: Props) {
     [currentWeek],
   );
   const visibleRows = canEdit ? ROWS : ROWS.filter((row) => row.id !== "stock");
+  const oldestInventoryUpdate = useMemo(() => settings.products
+    .filter((product) => product.monthly > 0 && product.tempo !== null)
+    .map((product) => parseDate(product.tempoDate))
+    .filter((date): date is string => !!date)
+    .sort()[0], [settings.products]);
+  const actualStockLabel = oldestInventoryUpdate ? `מעודכן ל־${shortDate(oldestInventoryUpdate)}` : "בפועל";
 
   const simulations = useMemo(() => {
     const result = new Map<string, SimulatedWeek>();
@@ -234,9 +241,6 @@ export default function PlanningGantt(props: Props) {
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
   const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
 
-  // A saved tankId is the only confirmed brew assignment. Resolve its display
-  // number from the capacity model first, then from the real Fermentor docs.
-  // Never infer a confirmed assignment from batchNumber or a tentative tank.
   function assignedBrewTankNumber(item: WeekPlan["brews"][number]) {
     if (!item.tankId) return undefined;
     return tanks.find((tank) => tank.id === item.tankId)?.number
@@ -244,9 +248,6 @@ export default function PlanningGantt(props: Props) {
       ?? sources.find((source) => String(source.tankNumber) === String(item.tankId))?.tankNumber;
   }
 
-  // Calendar intentionally contains only confirmed brew assignments. Weekly
-  // recommendations and accepted-but-unassigned brew decisions remain visible
-  // in the Gantt summary, but do not become calendar events until tankId exists.
   const calendarPlans = useMemo(() => weekIds.flatMap((weekId) => {
     const plan = simulations.get(weekId)?.effectivePlan;
     if (!plan) return [];
@@ -261,11 +262,6 @@ export default function PlanningGantt(props: Props) {
     }];
   }), [simulations, weekIds, tanks, sources]);
 
-  // PlanningFiveWeekOverview resolves brew labels through its Tank[] lookup.
-  // A confirmed tank can be absent from the capacity projection (or an older
-  // plan can store the tank number as tankId), so add display-only aliases for
-  // confirmed assignments. Zero liters + far-future ready keep these aliases
-  // out of every capacity/tentative selection calculation.
   const calendarTanks = useMemo(() => {
     const aliases = [...tanks];
     for (const plan of calendarPlans) {
@@ -303,12 +299,14 @@ export default function PlanningGantt(props: Props) {
       const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(item.quantity)}`;
       grouped.set(style, [...(grouped.get(style) ?? []), line]);
     }
-    const lines = sortedStyleEntries(grouped).map(([style, values]) => `${style} · ${values.join(" · ")}`);
+    const stockLines = sortedStyleEntries(grouped).map(([style, values]) => ({ style, values }));
+    const lines = stockLines.map(({ style, values }) => `${style} · ${values.join(" · ")}`);
 
     return [{
       key: `delivery-summary:${weekId}`,
       title: "משלוח טמפו",
       meta: lines.join("\n"),
+      stockLines,
       recommended,
     }];
   }
@@ -578,7 +576,7 @@ export default function PlanningGantt(props: Props) {
                           </small>
                         ) : <small>{item.meta}</small>}
                         {item.recommended && <span className="bp-gantt-rec-label">המלצה · טרם נקבע</span>}
-                        {item.stockKind === "actual" && <span className="bp-gantt-stock-label">בפועל</span>}
+                        {item.stockKind === "actual" && <span className="bp-gantt-stock-label">{actualStockLabel}</span>}
                         {item.stockKind === "projected" && <span className="bp-gantt-stock-label">צפי לפתיחת השבוע</span>}
                       </article>
                     ))}
