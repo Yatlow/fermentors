@@ -1,5 +1,5 @@
 import BeerLoader from "../general/Loading";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -20,12 +20,13 @@ import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyReservations from "./PlanningWeeklyReservations";
 import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
-import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
+import PlanningGantt from "./PlanningGantt";
 import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
 import "./planningEnhancements.css";
 import "./planningFiveWeek.css";
 import "./planningFiveWeekCalendarSpacing.css";
+import "./planningGantt.css";
 
 export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
@@ -37,25 +38,38 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
 
-  // planningWeeks stays loaded for the daily-work badge on every planning tab.
-  // Heavy datasets are attached only where the rendered tab actually consumes them.
+  // Once a planning dataset has been requested during this mounted planning
+  // session, keep its live listener attached. Switching tabs used to tear down
+  // pallets / packagingLog / shipments and then subscribe again on every return
+  // to the Gantt. Firestore already provides the persistent IndexedDB cache;
+  // keeping these listeners alive avoids needless query re-attachment while
+  // still delivering real-time deltas from the server.
+  const stickyReadScope = useRef<PlanningReadScope>({ plans: true });
+  const needsPallets = tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
+  const needsActuals = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review";
+  const needsShipments = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
+  if (needsPallets) stickyReadScope.current.pallets = true;
+  if (needsActuals) stickyReadScope.current.actuals = true;
+  if (needsShipments) stickyReadScope.current.shipments = true;
+
   const readScope = useMemo<PlanningReadScope>(() => ({
     plans: true,
-    pallets: tab === "stock" || tab === "calendar" || tab === "schedule",
-    actuals: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review",
-    shipments: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule",
+    pallets: stickyReadScope.current.pallets === true,
+    actuals: stickyReadScope.current.actuals === true,
+    shipments: stickyReadScope.current.shipments === true,
     snapshots: tab === "review",
-  }), [tab]);
+  }), [tab, needsPallets, needsActuals, needsShipments]);
 
   const data = usePlanning(today, productionTanks, readScope);
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
+
+  // Keep one canonical tank model for every planning calculation. In particular,
+  // do not replace/augment this with a display-only list: tentative five-week
+  // recommendations and weekly tank availability are both derived from this
+  // exact capacity model.
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
 
-  // Planning rows already own their batch identity. Do not rewrite a planned
-  // row from whatever batch currently occupies its target tank: a tank can
-  // legitimately still hold last week's fermenting batch while next week's
-  // brew is already planned for it.
   const identityAlignedPlans = plans;
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
@@ -75,6 +89,9 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     [settings, data.actualShipments, today],
   );
 
+  // This is the existing recommendation pipeline. It must remain the source for
+  // the Gantt: accepted decisions stay as saved; undecided weeks get the same
+  // tentative tank calculation used by the weekly/daily planning engine.
   const fiveWeekPlans = useMemo(
     () => withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings),
     [identityAlignedPlans, tanks, calendarSettings],
@@ -84,22 +101,15 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     const firstWeek = weekStart(today);
     const horizonEnd = addDays(firstWeek, 34);
     const upcomingPlans = identityAlignedPlans.filter((plan) => plan.id >= firstWeek && plan.id <= horizonEnd);
-    const brewsToAssign = upcomingPlans.reduce(
-      (sum, plan) => sum + plan.brews.filter((brew) => !brew.tankId).length,
-      0,
-    );
-    const packagingToAssign = upcomingPlans.reduce(
-      (sum, plan) => sum + plan.packaging.filter((run) => run.quantity > 0 && !run.date).length,
-      0,
-    );
+    const brewsToAssign = upcomingPlans.reduce((sum, plan) => sum + plan.brews.filter((brew) => !brew.tankId).length, 0);
+    const packagingToAssign = upcomingPlans.reduce((sum, plan) => sum + plan.packaging.filter((run) => run.quantity > 0 && !run.date).length, 0);
     return { brews: brewsToAssign, packaging: packagingToAssign, total: brewsToAssign + packagingToAssign };
   }, [identityAlignedPlans, today]);
 
   useEffect(() => {
     const applyBadge = () => {
       const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
-      const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-        .find((item) => item.textContent?.includes("לוח עבודה יומי"));
+      const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((item) => item.textContent?.includes("לוח עבודה יומי"));
       if (!button) return;
       if (pendingDailyWork.total > 0) {
         button.dataset.planningBadge = String(pendingDailyWork.total);
@@ -124,10 +134,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     setMessage("הנתונים נשמרו");
   }
 
-  async function saveWeeklyPlan(
-    next: Parameters<typeof data.saveWeek>[0],
-    options?: Parameters<typeof data.saveWeek>[1],
-  ) {
+  async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0], options?: Parameters<typeof data.saveWeek>[1]) {
     const original = plans.find((week) => week.id === next.id);
     let merged = original ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products) : next;
     if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
@@ -150,7 +157,24 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         </>}
         {tab === "fiveWeeks" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningFiveWeekOverview settings={calendarSettings} plans={fiveWeekPlans} tanks={tanks} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} moveCalendarEvent={data.moveCalendarEvent}/>
+          <PlanningGantt
+            settings={calendarSettings}
+            plans={fiveWeekPlans}
+            editorPlans={identityAlignedPlans}
+            historyPlans={identityAlignedPlans}
+            tanks={tanks}
+            sources={productionTanks}
+            pallets={pallets}
+            actuals={actuals}
+            shipments={data.actualShipments}
+            holidays={holidays}
+            today={today}
+            disabled={disabled}
+            canEdit={canEdit}
+            saveWeek={saveWeeklyPlan}
+            moveCalendarEvent={data.moveCalendarEvent}
+            onOpenCoolerMap={onOpenCoolerMap}
+          />
         </>}
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}

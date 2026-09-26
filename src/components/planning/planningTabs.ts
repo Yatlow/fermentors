@@ -1,8 +1,8 @@
 export const PLANNING_TABS = [
+  ["fiveWeeks", "גאנט"],
   ["stock", "מלאי"],
   ["data", "הזנת נתונים"],
   ["calendar", "המלצות שבועיות"],
-  ["fiveWeeks", "מבט 5 שבועות"],
   ["schedule", "לוח עבודה יומי"],
   ["settings", "הגדרות"],
   ["tanks", "מיכלים ותזמון"],

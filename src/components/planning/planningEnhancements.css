@@ -38,15 +38,17 @@
 
 .brew-planning .bp-week-sticky {
     position: fixed;
-    top: 74px;
-    right: 14px;
+    top: 150px;
+    left: 14px;
+    right: auto;
     z-index: 90;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-wrap: wrap;
     gap: 6px 12px;
-    max-width: min(520px, calc(100vw - 28px));
+    width: fit-content;
+    max-width: min(430px, calc(100vw - 28px));
     margin: 0;
     padding: 9px 13px;
     border: 2px solid #1d4ed8;
@@ -87,7 +89,6 @@
 .brew-planning .bp-brew-tank-visual.is-assigned .bp-brew-tank-body { border-color: #2563eb; box-shadow: 0 0 0 4px #bfdbfe; }
 .brew-planning .bp-brew-tank-visual.is-assigned .bp-brew-tank-cone { border-top-color: #2563eb; }
 
-/* Compact execution assignment UI */
 .brew-planning .bp-brew-queue-compact {
     display: flex;
     flex-wrap: wrap;
@@ -102,10 +103,7 @@
     gap: 5px;
     padding: 6px;
 }
-.brew-planning .bp-brew-queue-card-compact .bp-brew-queue-main {
-    text-align: center;
-    justify-items: center;
-}
+.brew-planning .bp-brew-queue-card-compact .bp-brew-queue-main { text-align: center; justify-items: center; }
 .brew-planning .bp-brew-queue-card-compact .bp-brew-queue-main strong { font-size: .84rem; }
 .brew-planning .bp-brew-queue-card-compact .bp-brew-queue-main small,
 .brew-planning .bp-brew-queue-card-compact .bp-brew-queue-main span { font-size: .66rem; }
@@ -120,56 +118,16 @@
     font-weight: 900;
 }
 .brew-planning .bp-brew-tank-placement-compact { gap: 8px; padding: 9px; }
-.brew-planning .bp-brew-tank-row {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 3px 2px 7px;
-}
-.brew-planning .bp-brew-tank-visual-compact {
-    flex: 0 0 66px;
-    min-height: 86px;
-}
-.brew-planning .bp-brew-tank-visual-compact .bp-brew-tank-body {
-    width: 46px;
-    height: 52px;
-    border-width: 2px;
-}
-.brew-planning .bp-brew-tank-visual-compact .bp-brew-tank-cone {
-    border-left-width: 23px;
-    border-right-width: 23px;
-    border-top-width: 27px;
-}
-.brew-planning .bp-brew-tank-visual-compact .bp-brew-tank-cone::after {
-    left: -19px;
-    top: -26px;
-    border-left-width: 19px;
-    border-right-width: 19px;
-    border-top-width: 22px;
-}
+.brew-planning .bp-brew-tank-row { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; padding: 3px 2px 7px; }
+.brew-planning .bp-brew-tank-visual-compact { flex: 0 0 66px; min-height: 86px; }
+.brew-planning .bp-brew-tank-visual-compact .bp-brew-tank-body { width: 46px; height: 52px; border-width: 2px; }
+.brew-planning .bp-brew-tank-visual-compact .bp-brew-tank-cone { border-left-width: 23px; border-right-width: 23px; border-top-width: 27px; }
+.brew-planning .bp-brew-tank-visual-compact .bp-brew-tank-cone::after { left: -19px; top: -26px; border-left-width: 19px; border-right-width: 19px; border-top-width: 22px; }
 
-.brew-planning .bp-packaging-waiting-lane {
-    display: grid;
-    gap: 8px;
-    margin: 8px 0 12px;
-    padding: 10px;
-    border: 1px dashed #93c5fd;
-    border-radius: 12px;
-    background: #f8fbff;
-}
-.brew-planning .bp-packaging-waiting-heading {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 7px;
-}
+.brew-planning .bp-packaging-waiting-lane { display: grid; gap: 8px; margin: 8px 0 12px; padding: 10px; border: 1px dashed #93c5fd; border-radius: 12px; background: #f8fbff; }
+.brew-planning .bp-packaging-waiting-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .brew-planning .bp-packaging-waiting-heading small { opacity: .72; }
-.brew-planning .bp-packaging-waiting-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-}
+.brew-planning .bp-packaging-waiting-row { display: flex; flex-wrap: wrap; gap: 7px; }
 .brew-planning .bp-packaging-card {
     display: grid;
     min-width: 116px;
@@ -186,27 +144,11 @@
 .brew-planning .bp-packaging-card b { font-size: .78rem; }
 .brew-planning .bp-packaging-card span { font-size: .72rem; font-weight: 700; }
 .brew-planning .bp-packaging-card small { font-size: .65rem; opacity: .72; }
-.brew-planning .bp-packaging-card.is-selected {
-    border-color: #2563eb;
-    background: #eff6ff;
-    box-shadow: 0 0 0 3px #bfdbfe;
-}
-.brew-planning .bp-packaging-card.is-compact {
-    min-width: 0;
-    width: 100%;
-    padding: 5px 6px;
-}
-.brew-planning .bp-gantt-packaging-cards {
-    display: grid;
-    gap: 5px;
-    width: 100%;
-}
+.brew-planning .bp-packaging-card.is-selected { border-color: #2563eb; background: #eff6ff; box-shadow: 0 0 0 3px #bfdbfe; }
+.brew-planning .bp-packaging-card.is-compact { min-width: 0; width: 100%; padding: 5px 6px; }
+.brew-planning .bp-gantt-packaging-cards { display: grid; gap: 5px; width: 100%; }
 .brew-planning .bp-gantt-day-button.is-drop-target,
-.brew-planning .bp-gantt-cell-button.is-drop-target {
-    outline: 2px dashed #2563eb;
-    outline-offset: -3px;
-    background: #eff6ff;
-}
+.brew-planning .bp-gantt-cell-button.is-drop-target { outline: 2px dashed #2563eb; outline-offset: -3px; background: #eff6ff; }
 
 @media (max-width: 600px) {
     .brew-planning .bp-stock-style { flex-direction: column; gap: 2px; min-height: 48px; padding: 5px !important; overflow: visible; }
@@ -217,7 +159,7 @@
     .brew-planning .bp-brew-tank-chip { width: 100%; justify-content: space-between; }
     .brew-planning .bp-manual-pack-actions { width: 100%; }
     .brew-planning .bp-manual-pack-actions button { flex: 1 1 0; }
-    .brew-planning .bp-week-sticky { top: 62px; right: 8px; left: 8px; max-width: none; align-items: stretch; }
+    .brew-planning .bp-week-sticky { top: 110px; left: 8px; right: 8px; width: auto; max-width: none; align-items: stretch; }
     .brew-planning .bp-pending-packaging { align-items: stretch; }
     .brew-planning .bp-pending-packaging button { width: 100%; margin-inline-start: 0; }
     .brew-planning .bp-brew-queue-card { grid-template-columns: auto 1fr; }
@@ -228,27 +170,11 @@
     .brew-planning .bp-brew-tank-cone { border-left-width: 24px; border-right-width: 24px; border-top-width: 30px; }
     .brew-planning .bp-brew-tank-cone::after { left: -19px; top: -29px; border-left-width: 19px; border-right-width: 19px; border-top-width: 24px; }
 
-    .brew-planning .bp-brew-queue-compact {
-        display: flex;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        padding-bottom: 5px;
-    }
-    .brew-planning .bp-brew-queue-card-compact {
-        grid-template-columns: 28px minmax(76px, 1fr) 28px;
-        flex: 0 0 158px;
-        min-width: 158px;
-    }
-    .brew-planning .bp-brew-tank-row {
-        display: flex;
-        grid-template-columns: none;
-    }
+    .brew-planning .bp-brew-queue-compact { display: flex; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 5px; }
+    .brew-planning .bp-brew-queue-card-compact { grid-template-columns: 28px minmax(76px, 1fr) 28px; flex: 0 0 158px; min-width: 158px; }
+    .brew-planning .bp-brew-tank-row { display: flex; grid-template-columns: none; }
     .brew-planning .bp-brew-tank-visual-compact .bp-brew-tank-body { width: 44px; height: 50px; }
-    .brew-planning .bp-packaging-waiting-row {
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        padding-bottom: 5px;
-    }
+    .brew-planning .bp-packaging-waiting-row { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 5px; }
     .brew-planning .bp-packaging-waiting-row > span { flex: 0 0 128px; }
     .brew-planning .bp-packaging-card { min-width: 0; width: 100%; }
 }

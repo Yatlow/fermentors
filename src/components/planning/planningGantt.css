@@ -1,0 +1,279 @@
+.bp-gantt-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bp-gantt-heading { align-items: center; }
+
+.bp-gantt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  font-size: .72rem;
+  font-weight: 700;
+  color: #475569;
+}
+.bp-gantt-legend .is-actual { color: #166534; }
+.bp-gantt-legend .is-projected { color: #1d4ed8; }
+.bp-gantt-legend .is-recommendation {
+  padding: 3px 8px;
+  border: 1px dashed rgba(220, 38, 38, .55);
+  border-radius: 999px;
+  color: #991b1b;
+  background: rgba(254, 226, 226, .55);
+}
+
+.bp-gantt-shell > .bp-five-week-scroll,
+.bp-gantt-calendar-host .bp-month-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  max-height: none;
+}
+
+.bp-gantt-grid {
+  grid-template-columns: 90px repeat(5, minmax(230px, 1fr));
+  min-width: 1240px;
+}
+.bp-gantt-grid .bp-five-week-cell { position: relative; }
+
+.bp-gantt-cell-actions {
+  position: absolute;
+  top: 6px;
+  inset-inline-end: 6px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bp-gantt-cell-edit {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  padding: 0 !important;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: rgba(239, 246, 255, .96);
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, .12);
+  cursor: pointer;
+  line-height: 0;
+}
+.bp-gantt-cell-calendar {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: rgba(240, 253, 250, .98);
+}
+.bp-gantt-cell-edit svg,
+.bp-gantt-editor-close svg { display: block; flex: 0 0 auto; }
+.bp-gantt-cell-edit:hover,
+.bp-gantt-cell-edit:focus-visible {
+  border-color: #60a5fa;
+  background: #dbeafe;
+  color: #1d4ed8;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(147, 197, 253, .45);
+}
+.bp-gantt-cell-calendar:hover,
+.bp-gantt-cell-calendar:focus-visible {
+  border-color: #2dd4bf;
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.bp-gantt-action-badge {
+  position: absolute;
+  top: -7px;
+  inset-inline-end: -7px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: .56rem;
+  font-weight: 900;
+  line-height: 1;
+}
+.bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-actions) .bp-five-week-item { padding-inline-end: 68px; }
+.bp-gantt-grid .bp-five-week-cell.is-deliveries:has(.bp-gantt-cell-actions) .bp-five-week-item { padding-inline-end: 38px; }
+.bp-gantt-grid .bp-five-week-cell.is-stock { align-content: start; }
+.bp-gantt-grid .bp-five-week-row-label.is-stock { color: #0f766e; }
+.bp-gantt-grid .bp-five-week-cell.is-deliveries,
+.bp-gantt-grid .bp-five-week-cell.is-stock { min-height: 76px; padding: 7px; }
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-five-week-item {
+  flex: 1 1 100%;
+  min-width: 100%;
+  gap: 2px;
+  min-height: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.bp-gantt-grid .bp-five-week-cell.is-packaging .bp-five-week-item,
+.bp-gantt-grid .bp-five-week-cell.is-brews .bp-five-week-item { flex: 1 1 100%; min-width: 100%; }
+.bp-gantt-grid .bp-five-week-cell.is-packaging .bp-five-week-item > b,
+.bp-gantt-grid .bp-five-week-cell.is-brews .bp-five-week-item > b { white-space: nowrap; line-height: 1.2; }
+.bp-gantt-grid .bp-five-week-cell.is-packaging .bp-five-week-item > small,
+.bp-gantt-grid .bp-five-week-cell.is-brews .bp-five-week-item > small { line-height: 1.25; }
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item > b,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-five-week-item > b { font-size: .72rem; line-height: 1.15; }
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item > small,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-five-week-item > small { font-size: .62rem; line-height: 1.45; white-space: pre-line; }
+.bp-gantt-stock-lines { display: grid; gap: 1px; }
+.bp-gantt-stock-lines > span { display: block; }
+.bp-gantt-stock-lines strong {
+  font-family: inherit;
+  font-weight: bold;
+}
+
+.bp-five-week-item.is-gantt-recommendation {
+  position: relative;
+  opacity: .76;
+  border: 1px dashed rgba(220, 38, 38, .65);
+  background: linear-gradient(135deg, rgba(254, 242, 242, .86), rgba(255, 255, 255, .72));
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, .08), 0 0 15px rgba(220, 38, 38, .16);
+  animation: bp-gantt-rec-pulse 2.8s ease-in-out infinite;
+}
+.bp-five-week-item.is-gantt-recommendation::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: 0 0 12px rgba(239, 68, 68, .18);
+}
+.bp-gantt-rec-label,
+.bp-gantt-stock-label {
+  display: inline-flex;
+  align-self: flex-start;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-gantt-rec-label,
+.bp-gantt-grid .bp-five-week-cell.is-stock .bp-gantt-stock-label { margin-top: 2px; padding: 1px 5px; font-size: .58rem; }
+.bp-gantt-rec-label { color: #991b1b; background: rgba(254, 226, 226, .9); }
+.bp-five-week-item.is-stock-actual { border-inline-start: 3px solid #22c55e; background: rgba(240, 253, 244, .72); }
+.bp-five-week-item.is-stock-projected { border-inline-start: 3px dashed #3b82f6; background: rgba(239, 246, 255, .65); }
+.bp-five-week-item.is-stock-history { opacity: .58; background: #f8fafc; }
+.is-stock-actual .bp-gantt-stock-label { color: #166534; background: #dcfce7; }
+.is-stock-projected .bp-gantt-stock-label { color: #1d4ed8; background: #dbeafe; }
+
+.bp-gantt-editor-close {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0 !important;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  line-height: 0;
+}
+.bp-gantt-editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, .48);
+  backdrop-filter: blur(3px);
+}
+.bp-gantt-editor-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, 96vw);
+  max-height: 92dvh;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .28);
+}
+.bp-gantt-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #dbe3ec;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+.bp-gantt-editor-header > div { display: grid; gap: 2px; }
+.bp-gantt-editor-header b { font-size: 1rem; color: #1e293b; }
+.bp-gantt-editor-header small { color: #64748b; font-size: .72rem; }
+.bp-gantt-editor-close:hover,
+.bp-gantt-editor-close:focus-visible { background: #e2e8f0; outline: none; }
+.bp-gantt-editor-body { overflow: auto; padding: 14px; overscroll-behavior: contain; background: #eef2f7; }
+.bp-gantt-editor-body .bp-enhanced-weekly-planner,
+.bp-gantt-editor-body .bp-weekly-planner { width: 100%; max-width: none; }
+.bp-gantt-editor-modal .bp-week-rec-card {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #dbe3ec;
+  border-top-width: 5px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, .08);
+}
+.bp-gantt-editor-modal .bp-week-shipment-card { border-top-color: #22c55e; }
+.bp-gantt-editor-modal .bp-week-packaging-card { border-top-color: #3b82f6; }
+.bp-gantt-editor-modal .bp-week-brew-card { border-top-color: #a855f7; }
+.bp-gantt-editor-modal .bp-week-rec-card > header { padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
+.bp-gantt-editor-modal .bp-week-rec-card h3 { margin: 2px 0 0; color: #1e293b; }
+.bp-gantt-editor-modal .bp-week-picker,
+.bp-gantt-editor-modal .bp-week-sticky,
+.bp-gantt-editor-modal .bp-week-events { display: none; }
+.bp-gantt-editor-modal.is-focus-deliveries .bp-week-packaging-card,
+.bp-gantt-editor-modal.is-focus-deliveries .bp-week-brew-card,
+.bp-gantt-editor-modal.is-focus-packaging .bp-week-shipment-card,
+.bp-gantt-editor-modal.is-focus-packaging .bp-week-brew-card,
+.bp-gantt-editor-modal.is-focus-brews .bp-week-shipment-card,
+.bp-gantt-editor-modal.is-focus-brews .bp-week-packaging-card { display: none; }
+.bp-gantt-editor-modal.is-focus-packaging .bp-actual-shipment-status,
+.bp-gantt-editor-modal.is-focus-brews .bp-actual-shipment-status { display: none; }
+.bp-gantt-editor-modal .bp-week-recommendations { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.bp-gantt-daily-modal .bp-section-heading,
+.bp-gantt-daily-modal .bp-week-picker,
+.bp-gantt-daily-modal .bp-week-sticky { display: none; }
+.bp-gantt-daily-modal .bp-weekly-execution-sets { grid-template-columns: minmax(0, 1fr); }
+.bp-gantt-daily-modal.is-focus-deliveries .bp-daily-set.is-brew,
+.bp-gantt-daily-modal.is-focus-deliveries .bp-daily-set.is-packaging,
+.bp-gantt-daily-modal.is-focus-packaging .bp-daily-set.is-delivery,
+.bp-gantt-daily-modal.is-focus-packaging .bp-daily-set.is-brew,
+.bp-gantt-daily-modal.is-focus-brews .bp-daily-set.is-delivery,
+.bp-gantt-daily-modal.is-focus-brews .bp-daily-set.is-packaging { display: none; }
+.bp-gantt-daily-modal .bp-gantt-editor-body > section { display: grid; gap: 12px; }
+.bp-gantt-calendar-host > .bp-five-week-overview > .bp-five-week-heading { display: none; }
+
+@keyframes bp-gantt-rec-pulse {
+  0%, 100% { opacity: .68; box-shadow: 0 0 8px rgba(220, 38, 38, .10); }
+  50% { opacity: .88; box-shadow: 0 0 18px rgba(220, 38, 38, .24); }
+}
+@media (max-width: 700px) {
+  .bp-gantt-editor-backdrop { align-items: end; padding: 0; }
+  .bp-gantt-editor-modal { width: 100%; max-height: 94dvh; border-radius: 18px 18px 0 0; }
+  .bp-gantt-editor-body { padding: 10px 8px calc(14px + env(safe-area-inset-bottom)); }
+  .bp-gantt-grid { grid-template-columns: 86px repeat(5, minmax(220px, 1fr)); min-width: 1186px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-five-week-item.is-gantt-recommendation { animation: none; }
+}

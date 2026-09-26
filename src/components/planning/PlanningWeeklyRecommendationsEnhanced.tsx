@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
 import {
     addDays,
     emptyWeek,
@@ -54,6 +54,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const [rows, setRows] = useState<PackRow[]>([]);
     const [modalMessage, setModalMessage] = useState("");
     const [saving, setSaving] = useState(false);
+    const plannerRef = useRef<HTMLDivElement>(null);
 
     const current = plans.find((week) => week.id === selectedWeek) ?? {
         ...emptyWeek(selectedWeek),
@@ -72,6 +73,41 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         holidays: props.holidays,
         shipments,
     }), [settings, props.pallets, tanks, plans, actuals, props.sources, today, selectedWeek, props.holidays, shipments]);
+
+    const replacementPackagingModel = useMemo(() => buildWeeklyPlanningModel({
+        settings,
+        pallets: props.pallets,
+        tanks,
+        plans: plans.map((week) => week.id === selectedWeek ? { ...week, packaging: [] } : week),
+        actuals,
+        sources: props.sources,
+        today,
+        week: selectedWeek,
+        holidays: props.holidays,
+        shipments,
+    }), [settings, props.pallets, tanks, plans, actuals, props.sources, today, selectedWeek, props.holidays, shipments]);
+
+    const replacementPackagingRecommendations = replacementPackagingModel.packagingRecommendation.filter((rec) => rec.quantity > 0);
+    const hasPackagingDecision = current.packaging.some((run) => run.quantity > 0);
+
+    useEffect(() => {
+        const frame = window.requestAnimationFrame(() => {
+            const button = plannerRef.current?.querySelector<HTMLButtonElement>(".bp-week-packaging-card .bp-actions button:first-child");
+            if (!button) return;
+            const text = button.textContent?.trim() ?? "";
+            const isRecommendationAction = text.includes("אריזות מההמלצה") || text.includes("אריזות ואשר המלצה");
+            if (!isRecommendationAction) return;
+            if (hasPackagingDecision) {
+                button.textContent = "מחק אריזות ואשר המלצה";
+                button.classList.add("bp-action-warning");
+                button.disabled = disabled || saving || replacementPackagingRecommendations.length === 0;
+            } else {
+                button.textContent = "צור אריזות מההמלצה";
+                button.classList.remove("bp-action-warning");
+            }
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [hasPackagingDecision, disabled, saving, replacementPackagingRecommendations.length, selectedWeek]);
 
     const openedRuns = useMemo(
         () => openRuns(plans, settings.products, actuals).filter((run) => run.week === selectedWeek),
@@ -155,6 +191,45 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         setRows(buildRows(style));
     }
 
+    function replacementPackagingWithEmptyFlags(packaging: Plan[]) {
+        const usedByTank = new Map<string, number>();
+        return packaging.map((run) => {
+            if (!run.tankId) return run;
+            const p = product(run.productId);
+            if (!p) return run;
+            const base = replacementPackagingModel.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
+            const usedBefore = usedByTank.get(run.tankId) ?? 0;
+            const usedNow = run.quantity * litersPerUnit(p);
+            usedByTank.set(run.tankId, usedBefore + usedNow);
+            return { ...run, emptyTank: base - usedBefore - usedNow < 20 };
+        });
+    }
+
+    async function replacePackagingWithRecommendation() {
+        if (disabled || saving || !hasPackagingDecision || replacementPackagingRecommendations.length === 0) return;
+        const packaging: Plan[] = replacementPackagingRecommendations.map((rec) => ({
+            id: rec.id,
+            productId: rec.productId,
+            quantity: rec.quantity,
+            tankId: rec.tankId,
+            tankNumber: rec.tankNumber,
+            source: "recommendation",
+        }));
+        setSaving(true);
+        setModalMessage("");
+        try {
+            await saveWeek({
+                ...current,
+                packaging: replacementPackagingWithEmptyFlags(packaging),
+                changeReason: "מחיקת החלטות אריזה ואישור המלצת המערכת",
+            });
+        } catch (error) {
+            setModalMessage(error instanceof Error ? error.message : "אישור המלצת האריזה נכשל");
+        } finally {
+            setSaving(false);
+        }
+    }
+
     function handleCapture(event: ReactMouseEvent<HTMLDivElement>) {
         const target = event.target as HTMLElement;
         const weekButton = target.closest<HTMLButtonElement>(".bp-week-picker button");
@@ -170,8 +245,14 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
         const packagingCard = target.closest<HTMLElement>(".bp-week-packaging-card");
         if (packagingCard) {
-            const editButton = target.closest<HTMLButtonElement>("button");
-            if (editButton?.textContent?.includes("עריכת האריזות")) {
+            const actionButton = target.closest<HTMLButtonElement>("button");
+            if (actionButton?.textContent?.includes("מחק אריזות ואשר המלצה")) {
+                event.preventDefault();
+                event.stopPropagation();
+                void replacePackagingWithRecommendation();
+                return;
+            }
+            if (actionButton?.textContent?.includes("עריכת האריזות")) {
                 event.preventDefault();
                 event.stopPropagation();
                 openPackEditor();
@@ -232,12 +313,10 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
     function addManualRow() {
         if (!packStyle) return;
-
         const recommended = model.packagingRecommendation.find((rec) => {
             const p = product(rec.productId);
             return p && sameStyle(p.style, packStyle) && recommendationRemaining(rec) > 0;
         });
-
         if (recommended) {
             setRows((currentRows) => [...currentRows, {
                 key: `rec:${recommended.id}`,
@@ -249,7 +328,6 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             }]);
             return;
         }
-
         const products = styleProducts(packStyle);
         const styleTanks = tanksForStyle(packStyle);
         const defaultProduct = products[0];
@@ -342,7 +420,6 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 return !p || !sameStyle(p.style, packStyle);
             });
             const edited: Plan[] = [];
-
             for (const row of rows) {
                 const p = product(row.productId);
                 const tank = tanks.find((item) => item.id === row.tankId);
@@ -359,7 +436,6 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     source: row.source === "recommendation" ? "recommendation" : row.source === "manual" ? "manual" : current.packaging.find((run) => run.id === row.originalId)?.source,
                 });
             }
-
             for (const original of current.packaging) {
                 const p = product(original.productId);
                 if (!p || !sameStyle(p.style, packStyle)) continue;
@@ -368,7 +444,6 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 const completed = completedForPlan(original);
                 if (completed > 0) edited.push({ ...original, quantity: completed, emptyTank: false });
             }
-
             await saveWeek({
                 ...current,
                 packaging: recomputeEmptyFlags([...untouched, ...edited]),
@@ -400,7 +475,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             {matchedTrips.some((match) => match.status === "actual-different") && <small>לפחות משלוח אחד בוצע בהרכב שונה מההחלטה.</small>}
         </div>}
 
-        <div onClickCapture={handleCapture} className="bp-enhanced-weekly-planner">
+        <div ref={plannerRef} onClickCapture={handleCapture} className="bp-enhanced-weekly-planner">
             <PlanningWeeklyRecommendations {...props} />
         </div>
 

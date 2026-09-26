@@ -10,8 +10,9 @@ import {
 type DisplayBrew = WeekPlan["brews"][number] & { tentativeTankId?: string };
 
 /**
- * Display-only enrichment for the five-week calendar.
- * Tentative values are never persisted as confirmed assignments.
+ * Display-only enrichment for five-week planning.
+ * Saved tankId remains the confirmed assignment. tentativeTankId is only a
+ * recommendation and is never persisted as an assignment.
  */
 export function withTentativeFiveWeekTanks(
   plans: WeekPlan[],
@@ -20,7 +21,6 @@ export function withTentativeFiveWeekTanks(
 ): WeekPlan[] {
   const reservedLiters = new Map<string, number>();
 
-  // Real packaging allocations reserve capacity first.
   for (const plan of plans) {
     for (const run of plan.packaging) {
       if (!run.tankId || run.quantity <= 0) continue;
@@ -41,27 +41,23 @@ export function withTentativeFiveWeekTanks(
 
       const brews = plan.brews.map((rawBrew) => {
         const brew = rawBrew as DisplayBrew;
-        const confirmedTank = tanks.find((tank) => tank.id === brew.tankId);
-        if (confirmedTank) {
-          reservedBrewTanks.add(confirmedTank.id);
-          return brew;
+        const confirmedTank = brew.tankId ? tanks.find((tank) => tank.id === brew.tankId) : undefined;
+
+        if (brew.tankId) {
+          // Preserve the saved assignment even when the capacity model does not
+          // currently contain that tank (for example an empty/sanitized tank).
+          // Display code can resolve its number from the Fermentor source list.
+          if (confirmedTank) reservedBrewTanks.add(confirmedTank.id);
+          return { ...brew, tentativeTankId: undefined } as DisplayBrew;
         }
 
-        // Old recommendations may contain a placeholder/obsolete tankId. For
-        // display purposes do not let that invalid id become "מיכל ?".
         const candidate = tanks
           .filter((tank) => tank.ready <= weekEnd && !reservedBrewTanks.has(tank.id))
           .sort((a, b) => a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number))[0];
 
-        if (!candidate) {
-          return brew.tankId && !confirmedTank ? { ...brew, tankId: "" } : brew;
-        }
+        if (!candidate) return { ...brew, tentativeTankId: undefined } as DisplayBrew;
         reservedBrewTanks.add(candidate.id);
-        return {
-          ...brew,
-          tankId: "",
-          tentativeTankId: candidate.id,
-        } as DisplayBrew;
+        return { ...brew, tentativeTankId: candidate.id } as DisplayBrew;
       });
 
       const packaging = plan.packaging.map((run) => {
@@ -79,17 +75,10 @@ export function withTentativeFiveWeekTanks(
             tank.ready <= readyBy &&
             tank.liters - (reservedLiters.get(tank.id) ?? 0) >= neededLiters,
           )
-          .sort((a, b) =>
-            a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number),
-          )[0];
+          .sort((a, b) => a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number))[0];
 
-        if (!candidate) {
-          return run.tankId && !confirmedTank ? { ...run, tankId: "" } : run;
-        }
-        reservedLiters.set(
-          candidate.id,
-          (reservedLiters.get(candidate.id) ?? 0) + neededLiters,
-        );
+        if (!candidate) return run.tankId && !confirmedTank ? { ...run, tankId: "" } : run;
+        reservedLiters.set(candidate.id, (reservedLiters.get(candidate.id) ?? 0) + neededLiters);
         return { ...run, tankId: "", tankNumber: `${candidate.number} (מוצע)` };
       });
 

@@ -50,9 +50,30 @@ function normalizeOrder(brews: BrewPlanWithMeta[], sources: Fermentor[], release
 
 function maxBatch(values: unknown[]): number {
   return values.reduce<number>((max, value) => {
-    const n = Number(value);
+    const n = Number(String(value ?? "").replace("#", "").trim());
     return Number.isFinite(n) ? Math.max(max, n) : max;
   }, 0);
+}
+
+function normalizedBatch(value: unknown): string {
+  return String(value ?? "").replace("#", "").trim();
+}
+
+function sourceForAssignedTank(brew: BrewPlanWithMeta, sources: Fermentor[]) {
+  if (!brew.tankId) return undefined;
+  return sources.find((item) => item.id === brew.tankId)
+    ?? sources.find((item) => String(item.tankNumber) === String(brew.tankId));
+}
+
+/**
+ * A real ACTION-0 tank is the Firestore reservation created by the brewing
+ * flow. Planning may display that identity, but never writes back to the tank.
+ * Older fermenting/cold batches are deliberately excluded.
+ */
+function realNewBrewBatch(brew: BrewPlanWithMeta, sources: Fermentor[]): string {
+  const source = sourceForAssignedTank(brew, sources);
+  if (!source || Number(source.action) !== 0) return "";
+  return normalizedBatch(source.batchNumber);
 }
 
 export default function PlanningBrewAssignmentEditor({ initial, brews, releases, disabled, onSave, onCancel }: {
@@ -66,15 +87,11 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
   const [draft, setDraft] = useState<WeekPlan>(() => {
     const copy = structuredClone(initial);
     const hasSavedBatchIdentity = copy.brews.some(
-      (brew) => String(brew.batchNumber || "").trim() !== "",
+      (brew) => normalizedBatch(brew.batchNumber) !== "",
     );
     copy.brews = hasSavedBatchIdentity
       ? copy.brews
-      : normalizeOrder(
-          copy.brews as BrewPlanWithMeta[],
-          brews,
-          releases,
-        );
+      : normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -98,31 +115,30 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
 
   const orderedBrews = useMemo(() => {
     const current = draft.brews as BrewPlanWithMeta[];
-
-    // A planned brew owns its identity. Never infer its batch number from the
-    // batch currently occupying the assigned tank: that tank may still contain
-    // a previous week's brew (for example 1596/1597) while the next brew
-    // (1598/1599/1600) is already planned for it.
-    const reserved = new Set<number>();
-    current.forEach((brew) => {
-      const value = Number(String(brew.batchNumber || "").replace("#", "").trim());
-      if (Number.isFinite(value) && value > 0) reserved.add(value);
-    });
-
-    // Batch numbers are chronological production slots. If this week was
-    // previously polluted by batch identities from an earlier week's tank,
-    // normalize the whole week's sequence from the latest real production
-    // batch instead of preserving those stale numbers on the wrong brew rows.
+    const preferred = current.map((brew) => realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber));
+    const realReservedBatches = new Set(
+      brews
+        .filter((source) => Number(source.action) === 0)
+        .map((source) => Number(normalizedBatch(source.batchNumber)))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    );
+    const used = new Set<number>();
     let next = batchBase + 1;
-    return current.map((brew) => {
-      while (reserved.has(next) && !current.some(
-        (candidate) => String(candidate.batchNumber || "").replace("#", "").trim() === String(next),
-      )) next += 1;
+
+    return current.map((brew, index) => {
+      const preferredNumber = Number(preferred[index]);
+      if (Number.isFinite(preferredNumber) && preferredNumber > 0 && !used.has(preferredNumber)) {
+        used.add(preferredNumber);
+        return { ...brew, batchNumber: String(preferredNumber) };
+      }
+
+      while (used.has(next) || realReservedBatches.has(next)) next += 1;
       const batchNumber = String(next);
+      used.add(next);
       next += 1;
       return { ...brew, batchNumber };
     });
-  }, [draft.brews, batchBase]);
+  }, [draft.brews, batchBase, brews]);
   const selectedBrew = orderedBrews[selectedIndex] ?? null;
 
   const allWeekTanks = useMemo(() => releases
