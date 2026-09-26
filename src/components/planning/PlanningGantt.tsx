@@ -46,6 +46,7 @@ type SummaryItem = {
   styleClass?: string;
   recommended?: boolean;
   stockKind?: "actual" | "projected" | "history";
+  stockLines?: Array<{ style: string; values: string[] }>;
 };
 
 type SimulatedWeek = {
@@ -238,18 +239,35 @@ export default function PlanningGantt(props: Props) {
   const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
   const tentativePlanFor = (weekId: string) => plans.find((plan) => plan.id === weekId);
 
+  function resolveBrewTankNumber(weekId: string, item: WeekPlan["brews"][number]) {
+    const confirmedById = tanks.find((tank) => tank.id === item.tankId);
+    if (confirmedById) return confirmedById.number;
+
+    const batch = normalizedBatch(item.batchNumber);
+    const confirmedSource = batch
+      ? sources.find((source) => normalizedBatch(source.batchNumber) === batch)
+      : undefined;
+    if (confirmedSource?.tankNumber !== undefined && confirmedSource?.tankNumber !== null) {
+      return confirmedSource.tankNumber;
+    }
+
+    const tentativeMatch = tentativePlanFor(weekId)?.brews.find((candidate) => candidate.id === item.id) as DisplayBrew | undefined;
+    const tentativeTank = tentativeMatch?.tentativeTankId
+      ? tanks.find((tank) => tank.id === tentativeMatch.tentativeTankId)
+      : undefined;
+    return tentativeTank?.number;
+  }
+
   const calendarPlans = useMemo(() => historyPlans.map((plan) => ({
     ...plan,
     brews: plan.brews.map((brew) => {
-      if (brew.tankId) return brew;
-      const batch = normalizedBatch(brew.batchNumber);
-      if (!batch) return brew;
-      const source = sources.find((candidate) => normalizedBatch(candidate.batchNumber) === batch);
-      if (!source) return brew;
-      const tank = tanks.find((candidate) => String(candidate.number) === String(source.tankNumber));
+      const tankNumber = resolveBrewTankNumber(plan.id, brew);
+      const tank = tankNumber === undefined
+        ? undefined
+        : tanks.find((candidate) => String(candidate.number) === String(tankNumber));
       return tank ? { ...brew, tankId: tank.id } : brew;
     }),
-  })), [historyPlans, sources, tanks]);
+  })), [historyPlans, plans, sources, tanks]);
 
   function compactShipmentItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
@@ -268,9 +286,7 @@ export default function PlanningGantt(props: Props) {
       const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(item.quantity)}`;
       grouped.set(style, [...(grouped.get(style) ?? []), line]);
     }
-    const date = decisions.map((item) => item.dispatchDate).filter(Boolean).sort()[0];
     const lines = sortedStyleEntries(grouped).map(([style, values]) => `${style} · ${values.join(" · ")}`);
-    if (date) lines.push(`יציאה · ${shortDate(date)}`);
 
     return [{
       key: `delivery-summary:${weekId}`,
@@ -310,19 +326,9 @@ export default function PlanningGantt(props: Props) {
 
   function brewItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
-    const tentativeBrews = tentativePlanFor(weekId)?.brews ?? [];
     if (decisions.length) {
       return decisions.map((item) => {
-        const batch = normalizedBatch(item.batchNumber);
-        const confirmedById = tanks.find((tank) => tank.id === item.tankId);
-        const confirmedSource = batch
-          ? sources.find((source) => normalizedBatch(source.batchNumber) === batch)
-          : undefined;
-        const tentativeMatch = tentativeBrews.find((candidate) => candidate.id === item.id) as DisplayBrew | undefined;
-        const tentativeTank = !confirmedById && !confirmedSource && tentativeMatch?.tentativeTankId
-          ? tanks.find((tank) => tank.id === tentativeMatch.tentativeTankId)
-          : undefined;
-        const assignedTankNumber = confirmedById?.number ?? confirmedSource?.tankNumber ?? tentativeTank?.number;
+        const assignedTankNumber = resolveBrewTankNumber(weekId, item);
         return {
           key: `brew:${item.id}`,
           title: `${displayStyle(item.style)} · ${tankLabel(assignedTankNumber)}`,
@@ -369,11 +375,13 @@ export default function PlanningGantt(props: Props) {
       }
     }
 
-    const lines = sortedStyleEntries(grouped).map(([style, values]) => `${style} · ${values.join(" · ")}`);
+    const stockLines = sortedStyleEntries(grouped).map(([style, values]) => ({ style, values }));
+    const lines = stockLines.map(({ style, values }) => `${style} · ${values.join(" · ")}`);
     return lines.length ? [{
       key: `stock-summary:${weekId}`,
       title: weekId === currentWeek ? "מלאי נוכחי" : "פתיחת שבוע",
       meta: lines.join("\n"),
+      stockLines,
       stockKind: weekId === currentWeek ? "actual" : "projected",
     }] : [];
   }
@@ -401,17 +409,11 @@ export default function PlanningGantt(props: Props) {
   function dailyPendingCount(kind: EditorKind, weekId: string) {
     const plan = decisionPlanFor(weekId);
     if (!plan) return 0;
-    if (kind === "deliveries") {
-      return (plan.deliveries ?? []).filter((delivery) => delivery.quantity > 0 && !delivery.dispatchDate).length;
-    }
+    if (kind === "deliveries") return 0;
     if (kind === "packaging") {
       return plan.packaging.filter((run) => run.quantity > 0 && !run.date).length;
     }
-    return plan.brews.filter((brew) => {
-      if (brew.liters <= 0 || brew.tankId) return false;
-      const batch = normalizedBatch(brew.batchNumber);
-      return !batch || !sources.some((source) => normalizedBatch(source.batchNumber) === batch);
-    }).length;
+    return plan.brews.filter((brew) => brew.liters > 0 && !resolveBrewTankNumber(weekId, brew)).length;
   }
 
   const editor = editorTarget && canEdit ? (
@@ -528,16 +530,18 @@ export default function PlanningGantt(props: Props) {
                         >
                           <SquarePen size={15} aria-hidden="true" />
                         </button>
-                        <button
-                          type="button"
-                          className="bp-gantt-cell-edit bp-gantt-cell-calendar"
-                          aria-label={`תכנון יומי של ${row.label} בשבוע ${weekNumber(weekId)}${pendingCount ? `, ${pendingCount} ממתינים לשיבוץ` : ""}`}
-                          title={`תכנון יומי · ${row.label}`}
-                          onClick={() => setDailyTarget({ week: weekId, kind: editableKind })}
-                        >
-                          <CalendarDays size={15} aria-hidden="true" />
-                          {pendingCount > 0 && <span className="bp-gantt-action-badge">{pendingCount}</span>}
-                        </button>
+                        {editableKind !== "deliveries" && (
+                          <button
+                            type="button"
+                            className="bp-gantt-cell-edit bp-gantt-cell-calendar"
+                            aria-label={`תכנון יומי של ${row.label} בשבוע ${weekNumber(weekId)}${pendingCount ? `, ${pendingCount} ממתינים לשיבוץ` : ""}`}
+                            title={editableKind === "brews" ? "סדר ושיבוץ בישולים" : `תכנון יומי · ${row.label}`}
+                            onClick={() => setDailyTarget({ week: weekId, kind: editableKind })}
+                          >
+                            <CalendarDays size={15} aria-hidden="true" />
+                            {pendingCount > 0 && <span className="bp-gantt-action-badge">{pendingCount}</span>}
+                          </button>
+                        )}
                       </div>
                     )}
                     {items.map((item) => (
@@ -546,7 +550,13 @@ export default function PlanningGantt(props: Props) {
                         key={item.key}
                       >
                         <b>{item.title}</b>
-                        <small>{item.meta}</small>
+                        {item.stockLines ? (
+                          <small className="bp-gantt-stock-lines">
+                            {item.stockLines.map((line) => (
+                              <span key={line.style}><strong>{line.style}</strong> · {line.values.join(" · ")}</span>
+                            ))}
+                          </small>
+                        ) : <small>{item.meta}</small>}
                         {item.recommended && <span className="bp-gantt-rec-label">המלצה · טרם נקבע</span>}
                         {item.stockKind === "actual" && <span className="bp-gantt-stock-label">בפועל עכשיו</span>}
                         {item.stockKind === "projected" && <span className="bp-gantt-stock-label">צפי לפתיחת השבוע</span>}
