@@ -59,15 +59,19 @@ function normalizedBatch(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
 }
 
+function sourceForAssignedTank(brew: BrewPlanWithMeta, sources: Fermentor[]) {
+  if (!brew.tankId) return undefined;
+  return sources.find((item) => item.id === brew.tankId)
+    ?? sources.find((item) => String(item.tankNumber) === String(brew.tankId));
+}
+
 /**
- * An ACTION-0 tank is already the real "new brew" reservation in Firestore.
- * Its batch identity must win over an older planning-only batch number.
- * Fermenting/cold tanks are deliberately excluded: their current batch may be
- * the previous brew while this plan is reserving the tank for a future brew.
+ * A real ACTION-0 tank is the Firestore reservation created by the brewing
+ * flow. Planning may display that identity, but never writes back to the tank.
+ * Older fermenting/cold batches are deliberately excluded.
  */
 function realNewBrewBatch(brew: BrewPlanWithMeta, sources: Fermentor[]): string {
-  if (!brew.tankId) return "";
-  const source = sources.find((item) => item.id === brew.tankId);
+  const source = sourceForAssignedTank(brew, sources);
   if (!source || Number(source.action) !== 0) return "";
   return normalizedBatch(source.batchNumber);
 }
@@ -87,11 +91,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
     );
     copy.brews = hasSavedBatchIdentity
       ? copy.brews
-      : normalizeOrder(
-          copy.brews as BrewPlanWithMeta[],
-          brews,
-          releases,
-        );
+      : normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -115,10 +115,13 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
 
   const orderedBrews = useMemo(() => {
     const current = draft.brews as BrewPlanWithMeta[];
-
-    // Prefer the real ACTION-0 batch already attached to the assigned tank.
-    // Otherwise preserve a batch identity already saved on the planning row.
     const preferred = current.map((brew) => realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber));
+    const realReservedBatches = new Set(
+      brews
+        .filter((source) => Number(source.action) === 0)
+        .map((source) => Number(normalizedBatch(source.batchNumber)))
+        .filter((value) => Number.isFinite(value) && value > 0),
+    );
     const used = new Set<number>();
     let next = batchBase + 1;
 
@@ -129,7 +132,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
         return { ...brew, batchNumber: String(preferredNumber) };
       }
 
-      while (used.has(next)) next += 1;
+      while (used.has(next) || realReservedBatches.has(next)) next += 1;
       const batchNumber = String(next);
       used.add(next);
       next += 1;
