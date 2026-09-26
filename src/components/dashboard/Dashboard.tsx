@@ -177,13 +177,14 @@ export default function Dashboard({
 
                     return (
                         <div
-                            className={`dashboard-tank-slot${showBrewFormButton ? " dashboard-tank-slot-brew" : ""}${weekOnlyPackaging ? " dashboard-tank-slot-week-packaging" : ""}`}
+                            className={`dashboard-tank-slot${showBrewFormButton ? " dashboard-tank-slot-brew" : ""}`}
                             key={fermentor.id}
                         >
                             <TankCard
                                 tank={fermentor}
                                 onUpdatePasivation={handleUpdatePasivation}
                                 specs={specs}
+                                weekOnlyPackaging={weekOnlyPackaging ? shortDate(weekOnlyPackaging) : undefined}
                             />
                             {showBrewFormButton && (
                                 <div className="dashboardBrewActionPair" aria-label="פעולות בישול">
@@ -208,11 +209,6 @@ export default function Dashboard({
                                             <FileSpreadsheet size={16} aria-hidden="true" />
                                         </button>
                                     )}
-                                </div>
-                            )}
-                            {weekOnlyPackaging && (
-                                <div className="dashboardPlanningWeekHint tank-planned-packaging">
-                                    מתוכנן להורדה בשבוע {shortDate(weekOnlyPackaging)} · טרם שובץ יום
                                 </div>
                             )}
                         </div>
