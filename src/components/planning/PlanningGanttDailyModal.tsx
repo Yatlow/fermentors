@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -49,9 +49,6 @@ export default function PlanningGanttDailyModal({
   disabled,
   saveWeek,
 }: Props) {
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const brewEditorWasOpened = useRef(false);
-
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -64,34 +61,6 @@ export default function PlanningGanttDailyModal({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
-
-  useEffect(() => {
-    if (kind !== "brews") return;
-
-    let cancelled = false;
-    const openEditor = window.setTimeout(() => {
-      if (cancelled) return;
-      const button = Array.from(bodyRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])
-        .find((candidate) => candidate.textContent?.includes("סדר ושיבוץ בישולים"));
-      if (!button || button.disabled) return;
-      button.click();
-      brewEditorWasOpened.current = true;
-    }, 0);
-
-    const observer = new MutationObserver(() => {
-      if (!brewEditorWasOpened.current || cancelled) return;
-      const editorStillOpen = !!bodyRef.current?.querySelector(".bp-brew-assignment-editor");
-      if (!editorStillOpen) onClose();
-    });
-    if (bodyRef.current) observer.observe(bodyRef.current, { childList: true, subtree: true });
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(openEditor);
-      observer.disconnect();
-      brewEditorWasOpened.current = false;
-    };
-  }, [kind, week, onClose]);
 
   return createPortal(
     <div
@@ -117,7 +86,7 @@ export default function PlanningGanttDailyModal({
             <X size={20} aria-hidden="true" />
           </button>
         </header>
-        <div className="bp-gantt-editor-body" ref={bodyRef}>
+        <div className="bp-gantt-editor-body">
           <PlanningBoard
             settings={settings}
             plans={plans}
@@ -131,6 +100,8 @@ export default function PlanningGanttDailyModal({
             disabled={disabled}
             saveWeek={saveWeek}
             initialWeek={week}
+            brewAssignmentOnly={kind === "brews"}
+            onBrewAssignmentClose={kind === "brews" ? onClose : undefined}
           />
         </div>
       </section>
