@@ -97,3 +97,25 @@
   background: #eff6ff;
   color: var(--primary);
 }
+
+@media (max-width: 600px) {
+  .quickReportDropdownMenu {
+    position: fixed;
+    z-index: 10050;
+    top: auto;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    left: 12px;
+    max-height: min(68dvh, 560px);
+    padding: 8px;
+    border-radius: 18px;
+    background: rgba(255,255,255,.99);
+    box-shadow: 0 22px 60px rgba(15,23,42,.28);
+  }
+
+  .quickReportDropdownOption {
+    min-height: 48px;
+    padding: 10px 12px;
+    font-size: .9rem;
+  }
+}
