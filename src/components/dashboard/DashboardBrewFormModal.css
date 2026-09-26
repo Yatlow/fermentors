@@ -49,14 +49,21 @@
   transform: none !important;
 }
 
-/* Week-only packaging fallback occupies the same visual slot as the regular
-   tank-planned-packaging badge: directly below brew date and before readings. */
+/* Week-only packaging has no precise day yet, but it must occupy the exact
+   same visual row as a regular tank-planned-packaging badge. Reserve that row
+   inside the card's layout so the absolutely-positioned fallback does not
+   overlap the brew date or the first readings row. */
+.dashboard-tank-slot-week-packaging .tank-card > .tank-data:not(.tank-data ~ .tank-data) {
+  margin-top: 25px;
+}
+
 .dashboardPlanningWeekHint {
   position: absolute;
   z-index: 5;
   top: 112px;
   right: 10px;
   left: 10px;
+  margin: 0;
   padding: 4px 7px;
   border: 1px solid #bfdbfe;
   border-radius: 6px;
