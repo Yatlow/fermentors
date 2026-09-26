@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { Pencil } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
@@ -20,6 +21,7 @@ import { shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlan
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
+import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
 
 const CRATE_LITERS = 24 * 0.33;
 const KEG_LITERS = 20;
@@ -52,6 +54,8 @@ type SimulatedWeek = {
 type Props = {
   settings: Settings;
   plans: WeekPlan[];
+  editorPlans: WeekPlan[];
+  historyPlans: WeekPlan[];
   tanks: Tank[];
   sources: Fermentor[];
   pallets: Pallet[];
@@ -60,6 +64,7 @@ type Props = {
   holidays: Holiday[];
   today: string;
   disabled: boolean;
+  canEdit: boolean;
   saveWeek: (week: WeekPlan, options?: { allowClosedWeek?: boolean }) => Promise<void>;
   moveCalendarEvent: (
     sourceWeekId: string,
@@ -67,15 +72,33 @@ type Props = {
     eventId: string,
     nextEvent: { id: string; title: string; startDate: string; endDate: string; type: "general"; note?: string },
   ) => Promise<void>;
+  onOpenCoolerMap?: () => void;
 };
 
 const fmt = (value: number) => Math.round(value).toLocaleString("he-IL");
 const cover = (value: number | null | undefined) => value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)} שב׳`;
 const packageLiters = (quantity: number, type: "crates" | "kegs") => quantity * (type === "crates" ? CRATE_LITERS : KEG_LITERS);
+const tankLabel = (value?: string | number | null) => value === undefined || value === null || String(value).trim() === ""
+  ? "טרם שובץ למיכל"
+  : `מיכל ${value}`;
 
 export default function PlanningGantt(props: Props) {
-  const { settings, plans, tanks, sources, pallets, actuals, shipments, holidays, today } = props;
+  const {
+    settings,
+    plans,
+    editorPlans,
+    historyPlans,
+    tanks,
+    sources,
+    pallets,
+    actuals,
+    shipments,
+    holidays,
+    today,
+    canEdit,
+  } = props;
   const [mode, setMode] = useState<GanttMode>("summary");
+  const [editorWeek, setEditorWeek] = useState<string | null>(null);
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
   const weekIds = useMemo(
@@ -207,24 +230,24 @@ export default function PlanningGantt(props: Props) {
       : recommendations.map((item) => ({ productId: item.productId, quantity: item.quantity }));
     if (!source.length) return [];
 
-    const grouped = new Map<string, string[]>();
+    const grouped = new Map<string, { lines: string[]; styleClass?: string }>();
     for (const item of source) {
       const product = productFor(item.productId);
       if (!product) continue;
       const style = displayStyle(product.style);
-      const line = `${fmt(item.quantity)} ${product.type === "crates" ? "ארגזים" : "חביות"}`;
-      grouped.set(style, [...(grouped.get(style) ?? []), line]);
+      const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(item.quantity)}`;
+      const previous = grouped.get(style) ?? { lines: [], styleClass: beerStyleClass(product.style).className };
+      grouped.set(style, { ...previous, lines: [...previous.lines, line] });
     }
     const date = decisions.map((item) => item.dispatchDate).filter(Boolean).sort()[0];
-    const parts = [...grouped.entries()].map(([style, lines]) => `${style}: ${lines.join(" + ")}`);
-    if (date) parts.push(shortDate(date));
 
-    return [{
-      key: `delivery-summary:${weekId}`,
-      title: "משלוח טמפו",
-      meta: parts.join(" · "),
+    return [...grouped.entries()].map(([style, value]) => ({
+      key: `delivery-summary:${weekId}:${style}`,
+      title: style,
+      meta: `${value.lines.join(" · ")}${date ? ` · ${shortDate(date)}` : ""}`,
+      styleClass: value.styleClass,
       recommended,
-    }];
+    }));
   }
 
   function packagingItems(weekId: string): SummaryItem[] {
@@ -233,9 +256,10 @@ export default function PlanningGantt(props: Props) {
       return decisions.map((item, index) => {
         const product = productFor(item.productId);
         const tank = tanks.find((candidate) => candidate.id === item.tankId);
+        const resolvedTank = item.tankNumber ?? tank?.number;
         return {
           key: `pack:${item.id ?? index}`,
-          title: product ? `${displayStyle(product.style)} · מיכל ${item.tankNumber ?? tank?.number ?? "?"}` : item.productId,
+          title: product ? `${displayStyle(product.style)} · ${tankLabel(resolvedTank)}` : item.productId,
           meta: product ? `${fmt(item.quantity)} ${product.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, product.type))} ל׳` : fmt(item.quantity),
           styleClass: product ? beerStyleClass(product.style).className : undefined,
         };
@@ -246,7 +270,7 @@ export default function PlanningGantt(props: Props) {
       const product = productFor(item.productId);
       return {
         key: `pack-rec:${item.id}`,
-        title: `${product ? displayStyle(product.style) : item.productId} · מיכל ${item.tankNumber}`,
+        title: `${product ? displayStyle(product.style) : item.productId} · ${tankLabel(item.tankNumber)}`,
         meta: `${fmt(item.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(item.quantity * (product ? (product.type === "crates" ? CRATE_LITERS : KEG_LITERS) : 1))} ל׳`,
         styleClass: product ? beerStyleClass(product.style).className : undefined,
         recommended: true,
@@ -257,17 +281,20 @@ export default function PlanningGantt(props: Props) {
   function brewItems(weekId: string): SummaryItem[] {
     const decisions = (planFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
     if (decisions.length) {
-      return decisions.map((item) => ({
-        key: `brew:${item.id}`,
-        title: `${displayStyle(item.style)} · מיכל ${tanks.find((tank) => tank.id === item.tankId)?.number ?? "?"}`,
-        meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
-        styleClass: beerStyleClass(item.style).className,
-      }));
+      return decisions.map((item) => {
+        const assignedTank = tanks.find((tank) => tank.id === item.tankId)?.number;
+        return {
+          key: `brew:${item.id}`,
+          title: `${displayStyle(item.style)} · ${tankLabel(assignedTank)}`,
+          meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
+          styleClass: beerStyleClass(item.style).className,
+        };
+      });
     }
     if (weekId < currentWeek) return [];
     return (simulations.get(weekId)?.brewRecommendation ?? []).map((item, index) => ({
       key: `brew-rec:${weekId}:${item.style}:${index}`,
-      title: `${displayStyle(item.style)} · מיכל ${item.tankNumber}`,
+      title: `${displayStyle(item.style)} · ${tankLabel(item.tankNumber)}`,
       meta: `${item.sizeLabel} · ${fmt(item.liters)} ל׳ · זמין ${shortDate(item.availableDate)}`,
       styleClass: beerStyleClass(item.style).className,
       recommended: true,
@@ -279,7 +306,7 @@ export default function PlanningGantt(props: Props) {
       return [{ key: `stock-history:${weekId}`, title: "אין snapshot היסטורי", meta: "הסנאפשוט נשמר מעכשיו והלאה", stockKind: "history" }];
     }
 
-    const grouped = new Map<string, string[]>();
+    const grouped = new Map<string, { lines: string[]; styleClass?: string }>();
     if (weekId === currentWeek) {
       for (const product of settings.products.filter((item) => item.monthly > 0)) {
         const inv = inventory(product, pallets);
@@ -288,29 +315,29 @@ export default function PlanningGantt(props: Props) {
         const demand = weeklyDemand(product);
         const total = brewery + (tempo ?? 0);
         const totalCover = tempo === null || demand <= 0 ? null : total / demand;
-        const label = product.type === "crates" ? "ארגזים" : "חביות";
-        const line = `${label} ${fmt(total)} (${cover(totalCover)})`;
+        const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(total)} (${cover(totalCover)})`;
         const style = displayStyle(product.style);
-        grouped.set(style, [...(grouped.get(style) ?? []), line]);
+        const previous = grouped.get(style) ?? { lines: [], styleClass: beerStyleClass(product.style).className };
+        grouped.set(style, { ...previous, lines: [...previous.lines, line] });
       }
     } else {
       for (const row of simulations.get(weekId)?.model.weekStartRows.values() ?? []) {
         if (row.product.monthly <= 0) continue;
         const total = row.breweryUnits + (row.tempoUnits ?? 0);
-        const label = row.product.type === "crates" ? "ארגזים" : "חביות";
-        const line = `${label} ${fmt(total)} (${cover(row.totalCover)})`;
+        const line = `${row.product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(total)} (${cover(row.totalCover)})`;
         const style = displayStyle(row.product.style);
-        grouped.set(style, [...(grouped.get(style) ?? []), line]);
+        const previous = grouped.get(style) ?? { lines: [], styleClass: beerStyleClass(row.product.style).className };
+        grouped.set(style, { ...previous, lines: [...previous.lines, line] });
       }
     }
 
-    const parts = [...grouped.entries()].map(([style, lines]) => `${style}: ${lines.join(" + ")}`);
-    return parts.length ? [{
-      key: `stock-summary:${weekId}`,
-      title: weekId === currentWeek ? "מלאי נוכחי" : "פתיחת שבוע",
-      meta: parts.join(" · "),
+    return [...grouped.entries()].map(([style, value]) => ({
+      key: `stock-summary:${weekId}:${style}`,
+      title: style,
+      meta: value.lines.join(" · "),
+      styleClass: value.styleClass,
       stockKind: weekId === currentWeek ? "actual" : "projected",
-    }] : [];
+    }));
   }
 
   function itemsFor(row: RowId, weekId: string) {
@@ -333,8 +360,28 @@ export default function PlanningGantt(props: Props) {
     };
   }
 
+  const editor = editorWeek && canEdit ? (
+    <PlanningGanttWeekEditorModal
+      week={editorWeek}
+      onClose={() => setEditorWeek(null)}
+      settings={settings}
+      plans={editorPlans}
+      historyPlans={historyPlans}
+      tanks={tanks}
+      sources={sources}
+      pallets={pallets}
+      actuals={actuals}
+      shipments={shipments}
+      holidays={holidays}
+      today={today}
+      disabled={props.disabled}
+      saveWeek={props.saveWeek}
+      onOpenCoolerMap={props.onOpenCoolerMap}
+    />
+  ) : null;
+
   if (mode === "calendar") {
-    return (
+    return <>
       <section className="bp-gantt-shell">
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>גאנט</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
@@ -347,10 +394,11 @@ export default function PlanningGantt(props: Props) {
           <PlanningFiveWeekOverview {...props} />
         </div>
       </section>
-    );
+      {editor}
+    </>;
   }
 
-  return (
+  return <>
     <section className="bp-gantt-shell">
       <div className="bp-section-heading bp-gantt-heading">
         <div><h2>גאנט</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
@@ -373,7 +421,14 @@ export default function PlanningGantt(props: Props) {
             const totals = weeklyTotals(weekId);
             return (
               <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
-                <b>שבוע {weekNumber(weekId)}</b>
+                <div className="bp-gantt-week-title">
+                  <b>שבוע {weekNumber(weekId)}</b>
+                  {canEdit && weekId >= currentWeek && (
+                    <button type="button" className="bp-gantt-week-edit" aria-label={`עריכת תכנון שבוע ${weekNumber(weekId)}`} title="המלצה והחלטה" onClick={() => setEditorWeek(weekId)}>
+                      <Pencil size={15} />
+                    </button>
+                  )}
+                </div>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}
                 {weekId === currentWeek && <small>השבוע</small>}
@@ -410,5 +465,6 @@ export default function PlanningGantt(props: Props) {
         </div>
       </div>
     </section>
-  );
+    {editor}
+  </>;
 }
