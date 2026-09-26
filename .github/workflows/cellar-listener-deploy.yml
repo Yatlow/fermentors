@@ -59,5 +59,17 @@ jobs:
       - name: Push Apps Script sources
         run: clasp push --force
 
+      - name: Verify remote Apps Script contents
+        run: |
+          SCRIPT_ID=$(node -p "require('./.clasp.json').scriptId")
+          rm -rf remote-verify
+          mkdir remote-verify
+          cd remote-verify
+          printf '{"scriptId":"%s","rootDir":"."}\n' "$SCRIPT_ID" > .clasp.json
+          clasp pull
+          grep -R "function setupCellarListenerService" .
+          grep -R "function cellarSheetOnEdit" .
+          echo "Remote listener project contains expected functions."
+
       - name: Show deployments
         run: clasp deployments
