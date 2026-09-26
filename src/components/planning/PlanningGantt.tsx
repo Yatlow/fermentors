@@ -7,6 +7,7 @@ import {
   addDays,
   emptyWeek,
   inventory,
+  sameStyle,
   tempoNow,
   weeklyDemand,
   weekNumber,
@@ -26,11 +27,12 @@ import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
 const CRATE_LITERS = 24 * 0.33;
 const KEG_LITERS = 20;
 const ROWS = [
+  { id: "stock", label: "מלאי וכיסוי" },
   { id: "deliveries", label: "משלוחים" },
   { id: "packaging", label: "אריזות" },
   { id: "brews", label: "בישולים" },
-  { id: "stock", label: "מלאי וכיסוי" },
 ] as const;
+const STYLE_ORDER = ["IPA", "פייל", "חיטה", "לאגר", "הופי לאגר", "סטאוט"] as const;
 
 type RowId = (typeof ROWS)[number]["id"];
 type EditorKind = Exclude<RowId, "stock">;
@@ -86,6 +88,12 @@ const tankLabel = (value?: string | number | null) => value === undefined || val
   ? "טרם שובץ למיכל"
   : `מיכל ${value}`;
 const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
+const styleRank = (style: string) => {
+  const rank = STYLE_ORDER.findIndex((candidate) => sameStyle(candidate, style));
+  return rank < 0 ? STYLE_ORDER.length : rank;
+};
+const sortedStyleEntries = <T,>(map: Map<string, T>) =>
+  [...map.entries()].sort(([a], [b]) => styleRank(a) - styleRank(b) || a.localeCompare(b, "he"));
 
 export default function PlanningGantt(props: Props) {
   const {
@@ -110,10 +118,14 @@ export default function PlanningGantt(props: Props) {
     () => Array.from({ length: 5 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
     [currentWeek],
   );
+  const visibleRows = canEdit ? ROWS : ROWS.filter((row) => row.id !== "stock");
 
   const simulations = useMemo(() => {
     const result = new Map<string, SimulatedWeek>();
-    let effectivePlans = plans.map((plan) => structuredClone(plan));
+    // Forecast from persisted decisions only. `plans` contains display-only
+    // tentative tank enrichment and must never become the source of truth for
+    // confirmed assignments or future recommendation calculations.
+    let effectivePlans = historyPlans.map((plan) => structuredClone(plan));
 
     const upsertPlan = (plan: WeekPlan) => {
       const index = effectivePlans.findIndex((candidate) => candidate.id === plan.id);
@@ -135,7 +147,7 @@ export default function PlanningGantt(props: Props) {
     });
 
     for (const week of weekIds) {
-      const saved = plans.find((plan) => plan.id === week);
+      const saved = historyPlans.find((plan) => plan.id === week);
       let workingPlan: WeekPlan = saved
         ? structuredClone(saved)
         : { ...emptyWeek(week), maxRuns: settings.preferredRuns };
@@ -221,13 +233,14 @@ export default function PlanningGantt(props: Props) {
     }
 
     return result;
-  }, [settings, pallets, tanks, plans, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
+  }, [settings, pallets, tanks, historyPlans, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
-  const planFor = (weekId: string) => plans.find((plan) => plan.id === weekId);
+  const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
+  const tentativePlanFor = (weekId: string) => plans.find((plan) => plan.id === weekId);
 
   function compactShipmentItems(weekId: string): SummaryItem[] {
-    const decisions = (planFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
+    const decisions = (decisionPlanFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
     const recommended = decisions.length === 0 && weekId >= currentWeek;
     const recommendations = simulations.get(weekId)?.deliveryRecommendation ?? [];
     const source = decisions.length
@@ -244,7 +257,7 @@ export default function PlanningGantt(props: Props) {
       grouped.set(style, [...(grouped.get(style) ?? []), line]);
     }
     const date = decisions.map((item) => item.dispatchDate).filter(Boolean).sort()[0];
-    const lines = [...grouped.entries()].map(([style, values]) => `${style} · ${values.join(" · ")}`);
+    const lines = sortedStyleEntries(grouped).map(([style, values]) => `${style} · ${values.join(" · ")}`);
     if (date) lines.push(`יציאה · ${shortDate(date)}`);
 
     return [{
@@ -256,7 +269,7 @@ export default function PlanningGantt(props: Props) {
   }
 
   function packagingItems(weekId: string): SummaryItem[] {
-    const decisions = (planFor(weekId)?.packaging ?? []).filter((item) => item.quantity > 0);
+    const decisions = (decisionPlanFor(weekId)?.packaging ?? []).filter((item) => item.quantity > 0);
     if (decisions.length) {
       return decisions.map((item, index) => {
         const product = productFor(item.productId);
@@ -284,22 +297,23 @@ export default function PlanningGantt(props: Props) {
   }
 
   function brewItems(weekId: string): SummaryItem[] {
-    const decisions = (planFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
+    const decisions = (decisionPlanFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
+    const tentativeBrews = tentativePlanFor(weekId)?.brews ?? [];
     if (decisions.length) {
       return decisions.map((item) => {
-        const displayBrew = item as DisplayBrew;
         const batch = normalizedBatch(item.batchNumber);
         const confirmedById = tanks.find((tank) => tank.id === item.tankId);
-        const confirmedByBatch = batch
-          ? tanks.find((tank) => normalizedBatch(tank.batch) === batch)
+        const confirmedSource = batch
+          ? sources.find((source) => normalizedBatch(source.batchNumber) === batch)
           : undefined;
-        const tentativeTank = displayBrew.tentativeTankId
-          ? tanks.find((tank) => tank.id === displayBrew.tentativeTankId)
+        const tentativeMatch = tentativeBrews.find((candidate) => candidate.id === item.id) as DisplayBrew | undefined;
+        const tentativeTank = !confirmedById && !confirmedSource && tentativeMatch?.tentativeTankId
+          ? tanks.find((tank) => tank.id === tentativeMatch.tentativeTankId)
           : undefined;
-        const assignedTank = confirmedById ?? confirmedByBatch ?? tentativeTank;
+        const assignedTankNumber = confirmedById?.number ?? confirmedSource?.tankNumber ?? tentativeTank?.number;
         return {
           key: `brew:${item.id}`,
-          title: `${displayStyle(item.style)} · ${tankLabel(assignedTank?.number)}`,
+          title: `${displayStyle(item.style)} · ${tankLabel(assignedTankNumber)}`,
           meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
           styleClass: beerStyleClass(item.style).className,
         };
@@ -343,7 +357,7 @@ export default function PlanningGantt(props: Props) {
       }
     }
 
-    const lines = [...grouped.entries()].map(([style, values]) => `${style} · ${values.join(" · ")}`);
+    const lines = sortedStyleEntries(grouped).map(([style, values]) => `${style} · ${values.join(" · ")}`);
     return lines.length ? [{
       key: `stock-summary:${weekId}`,
       title: weekId === currentWeek ? "מלאי נוכחי" : "פתיחת שבוע",
@@ -360,7 +374,7 @@ export default function PlanningGantt(props: Props) {
   }
 
   function weeklyTotals(weekId: string) {
-    const plan = simulations.get(weekId)?.effectivePlan ?? planFor(weekId);
+    const plan = simulations.get(weekId)?.effectivePlan ?? decisionPlanFor(weekId);
     if (!plan) return { packaging: 0, brewing: 0 };
     const packaging = plan.packaging.reduce((sum, run) => {
       const product = productFor(run.productId);
@@ -422,8 +436,10 @@ export default function PlanningGantt(props: Props) {
       </div>
 
       <div className="bp-gantt-legend" aria-label="מקרא">
-        <span className="is-actual">● מלאי נוכחי / בפועל</span>
-        <span className="is-projected">◌ צפי לפתיחת שבוע</span>
+        {canEdit && <>
+          <span className="is-actual">● מלאי נוכחי / בפועל</span>
+          <span className="is-projected">◌ צפי לפתיחת שבוע</span>
+        </>}
         <span className="is-recommendation">המלצה — מחושבת קדימה כאילו התקבלה</span>
       </div>
 
@@ -443,7 +459,7 @@ export default function PlanningGantt(props: Props) {
             );
           })}
 
-          {ROWS.map((row) => (
+          {visibleRows.map((row) => (
             <Fragment key={row.id}>
               <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
