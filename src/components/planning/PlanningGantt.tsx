@@ -33,6 +33,8 @@ const ROWS = [
 ] as const;
 
 type RowId = (typeof ROWS)[number]["id"];
+type EditorKind = Exclude<RowId, "stock">;
+type EditorTarget = { week: string; kind: EditorKind };
 type GanttMode = "summary" | "calendar";
 type SummaryItem = {
   key: string;
@@ -50,6 +52,8 @@ type SimulatedWeek = {
   packagingRecommendation: WeeklyPlanningModel["packagingRecommendation"];
   brewRecommendation: WeeklyPlanningModel["brewRecommendations"];
 };
+
+type DisplayBrew = WeekPlan["brews"][number] & { tentativeTankId?: string };
 
 type Props = {
   settings: Settings;
@@ -98,7 +102,7 @@ export default function PlanningGantt(props: Props) {
     canEdit,
   } = props;
   const [mode, setMode] = useState<GanttMode>("summary");
-  const [editorWeek, setEditorWeek] = useState<string | null>(null);
+  const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
   const weekIds = useMemo(
@@ -230,24 +234,24 @@ export default function PlanningGantt(props: Props) {
       : recommendations.map((item) => ({ productId: item.productId, quantity: item.quantity }));
     if (!source.length) return [];
 
-    const grouped = new Map<string, { lines: string[]; styleClass?: string }>();
+    const grouped = new Map<string, string[]>();
     for (const item of source) {
       const product = productFor(item.productId);
       if (!product) continue;
       const style = displayStyle(product.style);
       const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(item.quantity)}`;
-      const previous = grouped.get(style) ?? { lines: [], styleClass: beerStyleClass(product.style).className };
-      grouped.set(style, { ...previous, lines: [...previous.lines, line] });
+      grouped.set(style, [...(grouped.get(style) ?? []), line]);
     }
     const date = decisions.map((item) => item.dispatchDate).filter(Boolean).sort()[0];
+    const lines = [...grouped.entries()].map(([style, values]) => `${style} · ${values.join(" · ")}`);
+    if (date) lines.push(`יציאה · ${shortDate(date)}`);
 
-    return [...grouped.entries()].map(([style, value]) => ({
-      key: `delivery-summary:${weekId}:${style}`,
-      title: style,
-      meta: `${value.lines.join(" · ")}${date ? ` · ${shortDate(date)}` : ""}`,
-      styleClass: value.styleClass,
+    return [{
+      key: `delivery-summary:${weekId}`,
+      title: "משלוח טמפו",
+      meta: lines.join("\n"),
       recommended,
-    }));
+    }];
   }
 
   function packagingItems(weekId: string): SummaryItem[] {
@@ -282,7 +286,9 @@ export default function PlanningGantt(props: Props) {
     const decisions = (planFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
     if (decisions.length) {
       return decisions.map((item) => {
-        const assignedTank = tanks.find((tank) => tank.id === item.tankId)?.number;
+        const displayBrew = item as DisplayBrew;
+        const resolvedTankId = item.tankId || displayBrew.tentativeTankId;
+        const assignedTank = tanks.find((tank) => tank.id === resolvedTankId)?.number;
         return {
           key: `brew:${item.id}`,
           title: `${displayStyle(item.style)} · ${tankLabel(assignedTank)}`,
@@ -306,7 +312,7 @@ export default function PlanningGantt(props: Props) {
       return [{ key: `stock-history:${weekId}`, title: "אין snapshot היסטורי", meta: "הסנאפשוט נשמר מעכשיו והלאה", stockKind: "history" }];
     }
 
-    const grouped = new Map<string, { lines: string[]; styleClass?: string }>();
+    const grouped = new Map<string, string[]>();
     if (weekId === currentWeek) {
       for (const product of settings.products.filter((item) => item.monthly > 0)) {
         const inv = inventory(product, pallets);
@@ -317,8 +323,7 @@ export default function PlanningGantt(props: Props) {
         const totalCover = tempo === null || demand <= 0 ? null : total / demand;
         const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(total)} (${cover(totalCover)})`;
         const style = displayStyle(product.style);
-        const previous = grouped.get(style) ?? { lines: [], styleClass: beerStyleClass(product.style).className };
-        grouped.set(style, { ...previous, lines: [...previous.lines, line] });
+        grouped.set(style, [...(grouped.get(style) ?? []), line]);
       }
     } else {
       for (const row of simulations.get(weekId)?.model.weekStartRows.values() ?? []) {
@@ -326,18 +331,17 @@ export default function PlanningGantt(props: Props) {
         const total = row.breweryUnits + (row.tempoUnits ?? 0);
         const line = `${row.product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(total)} (${cover(row.totalCover)})`;
         const style = displayStyle(row.product.style);
-        const previous = grouped.get(style) ?? { lines: [], styleClass: beerStyleClass(row.product.style).className };
-        grouped.set(style, { ...previous, lines: [...previous.lines, line] });
+        grouped.set(style, [...(grouped.get(style) ?? []), line]);
       }
     }
 
-    return [...grouped.entries()].map(([style, value]) => ({
-      key: `stock-summary:${weekId}:${style}`,
-      title: style,
-      meta: value.lines.join(" · "),
-      styleClass: value.styleClass,
+    const lines = [...grouped.entries()].map(([style, values]) => `${style} · ${values.join(" · ")}`);
+    return lines.length ? [{
+      key: `stock-summary:${weekId}`,
+      title: weekId === currentWeek ? "מלאי נוכחי" : "פתיחת שבוע",
+      meta: lines.join("\n"),
       stockKind: weekId === currentWeek ? "actual" : "projected",
-    }));
+    }] : [];
   }
 
   function itemsFor(row: RowId, weekId: string) {
@@ -360,10 +364,11 @@ export default function PlanningGantt(props: Props) {
     };
   }
 
-  const editor = editorWeek && canEdit ? (
+  const editor = editorTarget && canEdit ? (
     <PlanningGanttWeekEditorModal
-      week={editorWeek}
-      onClose={() => setEditorWeek(null)}
+      week={editorTarget.week}
+      kind={editorTarget.kind}
+      onClose={() => setEditorTarget(null)}
       settings={settings}
       plans={editorPlans}
       historyPlans={historyPlans}
@@ -421,14 +426,7 @@ export default function PlanningGantt(props: Props) {
             const totals = weeklyTotals(weekId);
             return (
               <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
-                <div className="bp-gantt-week-title">
-                  <b>שבוע {weekNumber(weekId)}</b>
-                  {canEdit && weekId >= currentWeek && (
-                    <button type="button" className="bp-gantt-week-edit" aria-label={`עריכת תכנון שבוע ${weekNumber(weekId)}`} title="המלצה והחלטה" onClick={() => setEditorWeek(weekId)}>
-                      <Pencil size={15} />
-                    </button>
-                  )}
-                </div>
+                <b>שבוע {weekNumber(weekId)}</b>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}
                 {weekId === currentWeek && <small>השבוע</small>}
@@ -442,8 +440,20 @@ export default function PlanningGantt(props: Props) {
               <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
                 const items = itemsFor(row.id, weekId);
+                const editableKind = row.id === "stock" ? null : row.id;
                 return (
                   <div className={`bp-five-week-cell is-${row.id}`} key={`${row.id}:${weekId}`}>
+                    {canEdit && editableKind && weekId >= currentWeek && (
+                      <button
+                        type="button"
+                        className="bp-gantt-cell-edit"
+                        aria-label={`עריכת ${row.label} בשבוע ${weekNumber(weekId)}`}
+                        title={`עריכת ${row.label}`}
+                        onClick={() => setEditorTarget({ week: weekId, kind: editableKind })}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    )}
                     {items.map((item) => (
                       <article
                         className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""}`}
