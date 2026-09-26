@@ -1,9 +1,11 @@
-import { type Dispatch, type SetStateAction } from "react";
+import { type Dispatch, type SetStateAction, useState } from "react";
+import { PencilSparkles } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import HealthDashboard from "./HealthDashboard";
 import SheetSyncStatus from "./SheetSyncStatus";
 import TankCard from "./TankCard";
+import DashboardBrewFormModal from "./DashboardBrewFormModal";
 
 export type DashboardProps = {
     selectedStatuses: string[];
@@ -31,6 +33,8 @@ export default function Dashboard({
     handleUpdatePasivation,
     specs,
 }: DashboardProps) {
+    const [brewFormTank, setBrewFormTank] = useState<Fermentor | null>(null);
+
     const handleStyleToggle = (style: string): void => {
         if (style === "הכל") {
             setSelectedStyles(["הכל"]);
@@ -94,20 +98,50 @@ export default function Dashboard({
             </div>
 
             <div className="tank-grid">
-                {specs && filteredBrews.map((fermentor) => (
-                    <TankCard
-                        key={fermentor.id}
-                        tank={fermentor}
-                        onUpdatePasivation={handleUpdatePasivation}
-                        specs={specs}
-                    />
-                ))}
+                {specs && filteredBrews.map((fermentor) => {
+                    const canOpenBrewForm =
+                        Number(fermentor.tankNumber) > 1 &&
+                        Number(fermentor.action) === 0 &&
+                        !!String(fermentor.batchNumber ?? "").trim() &&
+                        !!String(fermentor.beerStyle ?? "").trim() &&
+                        !!String(fermentor.sheetUrl ?? "").trim();
+                    const showBrewFormButton = Number(fermentor.tankNumber) > 1 && Number(fermentor.action) === 0;
+
+                    return (
+                        <div className="dashboard-tank-slot" key={fermentor.id}>
+                            <TankCard
+                                tank={fermentor}
+                                onUpdatePasivation={handleUpdatePasivation}
+                                specs={specs}
+                            />
+                            {showBrewFormButton && (
+                                <button
+                                    type="button"
+                                    className="dashboardBrewFormButton"
+                                    aria-label="מילוי טופס בישול"
+                                    title={canOpenBrewForm ? "מילוי טופס בישול" : "טופס הבישול יהיה זמין לאחר יצירת ה-Sheet"}
+                                    disabled={!canOpenBrewForm}
+                                    onClick={() => setBrewFormTank(fermentor)}
+                                >
+                                    <PencilSparkles size={16} aria-hidden="true" />
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
             </div>
 
             {filteredBrews.length === 0 && (
                 <div className="no-tanks">
                     <p>אין מיכלים העונים על הסינון שנבחר</p>
                 </div>
+            )}
+
+            {brewFormTank && (
+                <DashboardBrewFormModal
+                    tank={brewFormTank}
+                    onClose={() => setBrewFormTank(null)}
+                />
             )}
         </div>
     );
