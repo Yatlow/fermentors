@@ -35,40 +35,39 @@
 }
 
 .bp-gantt-grid {
-  grid-template-columns: 90px repeat(5, minmax(200px, 1fr));
-  min-width: 1090px;
+  grid-template-columns: 90px repeat(5, minmax(230px, 1fr));
+  min-width: 1240px;
 }
 
 .bp-gantt-grid .bp-five-week-cell {
   position: relative;
 }
 
-.bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-edit) {
-  padding-top: 30px;
-}
-
 .bp-gantt-cell-edit {
   position: absolute;
-  top: 4px;
-  inset-inline-end: 5px;
-  z-index: 2;
+  top: 6px;
+  inset-inline-end: 6px;
+  z-index: 3;
   display: inline-grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
+  width: 27px;
+  height: 27px;
   padding: 0;
-  border: 1px solid #cbd5e1;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, .92);
-  color: #475569;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: rgba(239, 246, 255, .96);
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, .12);
   cursor: pointer;
 }
 
-.bp-gantt-cell-edit:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
+.bp-gantt-cell-edit:hover,
+.bp-gantt-cell-edit:focus-visible {
+  border-color: #60a5fa;
+  background: #dbeafe;
   color: #1d4ed8;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(147, 197, 253, .45);
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-stock {
@@ -78,13 +77,7 @@
 .bp-gantt-grid .bp-five-week-cell.is-deliveries,
 .bp-gantt-grid .bp-five-week-cell.is-stock {
   min-height: 76px;
-  padding-inline: 7px;
-  padding-bottom: 7px;
-}
-
-.bp-gantt-grid .bp-five-week-cell.is-deliveries:not(:has(.bp-gantt-cell-edit)),
-.bp-gantt-grid .bp-five-week-cell.is-stock {
-  padding-top: 7px;
+  padding: 7px;
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item,
@@ -95,6 +88,24 @@
   min-height: 0;
   padding: 6px 8px;
   border-radius: 8px;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-packaging .bp-five-week-item,
+.bp-gantt-grid .bp-five-week-cell.is-brews .bp-five-week-item {
+  flex: 1 1 100%;
+  min-width: 100%;
+  padding-inline-end: 38px;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-packaging .bp-five-week-item > b,
+.bp-gantt-grid .bp-five-week-cell.is-brews .bp-five-week-item > b {
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-packaging .bp-five-week-item > small,
+.bp-gantt-grid .bp-five-week-cell.is-brews .bp-five-week-item > small {
+  line-height: 1.25;
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-deliveries .bp-five-week-item > b,
@@ -200,7 +211,7 @@
 .bp-gantt-editor-modal {
   display: flex;
   flex-direction: column;
-  width: min(980px, 96vw);
+  width: min(1080px, 96vw);
   max-height: 92dvh;
   overflow: hidden;
   border: 1px solid #cbd5e1;
@@ -215,8 +226,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid #dbe3ec;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
 }
 
 .bp-gantt-editor-header > div {
@@ -225,12 +236,13 @@
 }
 
 .bp-gantt-editor-header b {
-  font-size: .95rem;
+  font-size: 1rem;
+  color: #1e293b;
 }
 
 .bp-gantt-editor-header small {
   color: #64748b;
-  font-size: .7rem;
+  font-size: .72rem;
 }
 
 .bp-gantt-editor-close {
@@ -245,8 +257,15 @@
 
 .bp-gantt-editor-body {
   overflow: auto;
-  padding: 12px;
+  padding: 14px;
   overscroll-behavior: contain;
+  background: #f6f8fb;
+}
+
+.bp-gantt-editor-body .bp-enhanced-weekly-planner,
+.bp-gantt-editor-body .bp-weekly-planner {
+  width: 100%;
+  max-width: none;
 }
 
 /* The focused Gantt editor reuses the real weekly-planning flow, but only
@@ -274,11 +293,13 @@
 
 .bp-gantt-editor-modal .bp-week-recommendations {
   grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 
 .bp-gantt-editor-modal .bp-week-rec-card {
   max-width: none;
   width: 100%;
+  margin: 0;
 }
 
 .bp-gantt-calendar-host > .bp-five-week-overview > .bp-five-week-heading {
@@ -303,7 +324,12 @@
   }
 
   .bp-gantt-editor-body {
-    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+    padding: 10px 8px calc(14px + env(safe-area-inset-bottom));
+  }
+
+  .bp-gantt-grid {
+    grid-template-columns: 86px repeat(5, minmax(220px, 1fr));
+    min-width: 1186px;
   }
 }
 
