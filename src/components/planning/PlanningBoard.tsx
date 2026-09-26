@@ -68,6 +68,7 @@ export default function PlanningBoard({
   holidays: _holidays,
   disabled,
   saveWeek,
+  initialWeek,
 }: {
   settings: Settings;
   plans: WeekPlan[];
@@ -80,10 +81,11 @@ export default function PlanningBoard({
   holidays: Holiday[];
   disabled: boolean;
   saveWeek: (week: WeekPlan) => Promise<void>;
+  initialWeek?: string;
 }) {
   const pickerStart = weekStart(today);
   const defaultPlanningWeek = addDays(pickerStart, 7);
-  const [week, setWeek] = useState(defaultPlanningWeek);
+  const [week, setWeek] = useState(() => initialWeek ?? defaultPlanningWeek);
   const [brewDraft, setBrewDraft] = useState<WeekPlan | null>(null);
   const [selectedPackaging, setSelectedPackaging] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -179,10 +181,6 @@ export default function PlanningBoard({
       return;
     }
 
-    // If the selected run is still in the waiting lane and the user clicks a
-    // run already placed on a day, that means "put mine on this day too".
-    // Do not evict or swap the existing run: several packaging runs may share
-    // the same work day.
     if (!first.date && second.date) {
       first.date = second.date;
       setBusy(true);
@@ -198,7 +196,6 @@ export default function PlanningBoard({
       return;
     }
 
-    // Two waiting runs: simply select the second one.
     if (!first.date && !second.date) {
       setSelectedPackaging(id);
       setMessage("האריזה נבחרה. לחץ על יום כדי לשבץ אותה.");
@@ -211,8 +208,6 @@ export default function PlanningBoard({
       return;
     }
 
-    // When a dated run is selected first, choosing another run keeps the
-    // explicit swap behavior requested for moving work between days/waiting.
     const firstDate = first.date;
     const secondDate = second.date;
     first.date = secondDate;
