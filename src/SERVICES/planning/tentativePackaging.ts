@@ -9,9 +9,16 @@ import {
 
 type DisplayBrew = WeekPlan["brews"][number] & { tentativeTankId?: string };
 
+const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
+
 /**
  * Display-only enrichment for the five-week calendar.
  * Tentative values are never persisted as confirmed assignments.
+ *
+ * A real assignment always wins. Besides an explicit brew.tankId, a batch that
+ * is already present on a real tank is considered confirmed as well. This is
+ * important because the execution flow can assign a planned batch to a tank
+ * before that assignment is reflected back into the planning row itself.
  */
 export function withTentativeFiveWeekTanks(
   plans: WeekPlan[],
@@ -41,10 +48,20 @@ export function withTentativeFiveWeekTanks(
 
       const brews = plan.brews.map((rawBrew) => {
         const brew = rawBrew as DisplayBrew;
-        const confirmedTank = tanks.find((tank) => tank.id === brew.tankId);
+        const batch = normalizedBatch(brew.batchNumber);
+        const confirmedById = tanks.find((tank) => tank.id === brew.tankId);
+        const confirmedByBatch = batch
+          ? tanks.find((tank) => normalizedBatch(tank.batch) === batch)
+          : undefined;
+        const confirmedTank = confirmedById ?? confirmedByBatch;
+
         if (confirmedTank) {
           reservedBrewTanks.add(confirmedTank.id);
-          return brew;
+          return {
+            ...brew,
+            tankId: confirmedTank.id,
+            tentativeTankId: undefined,
+          } as DisplayBrew;
         }
 
         // Old recommendations may contain a placeholder/obsolete tankId. For
@@ -54,7 +71,7 @@ export function withTentativeFiveWeekTanks(
           .sort((a, b) => a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number))[0];
 
         if (!candidate) {
-          return brew.tankId && !confirmedTank ? { ...brew, tankId: "" } : brew;
+          return brew.tankId && !confirmedById ? { ...brew, tankId: "", tentativeTankId: undefined } : brew;
         }
         reservedBrewTanks.add(candidate.id);
         return {
