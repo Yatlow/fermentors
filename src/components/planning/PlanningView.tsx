@@ -20,12 +20,13 @@ import PlanningReview from "./PlanningReview";
 import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyReservations from "./PlanningWeeklyReservations";
 import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
-import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
+import PlanningGantt from "./PlanningGantt";
 import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
 import "./planningEnhancements.css";
 import "./planningFiveWeek.css";
 import "./planningFiveWeekCalendarSpacing.css";
+import "./planningGantt.css";
 
 export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
@@ -41,7 +42,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   // Heavy datasets are attached only where the rendered tab actually consumes them.
   const readScope = useMemo<PlanningReadScope>(() => ({
     plans: true,
-    pallets: tab === "stock" || tab === "calendar" || tab === "schedule",
+    pallets: tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule",
     actuals: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review",
     shipments: tab === "calendar" || tab === "fiveWeeks" || tab === "schedule",
     snapshots: tab === "review",
@@ -150,7 +151,20 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         </>}
         {tab === "fiveWeeks" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningFiveWeekOverview settings={calendarSettings} plans={fiveWeekPlans} tanks={tanks} holidays={holidays} today={today} disabled={disabled} saveWeek={saveWeeklyPlan} moveCalendarEvent={data.moveCalendarEvent}/>
+          <PlanningGantt
+            settings={calendarSettings}
+            plans={fiveWeekPlans}
+            tanks={tanks}
+            sources={productionTanks}
+            pallets={pallets}
+            actuals={actuals}
+            shipments={data.actualShipments}
+            holidays={holidays}
+            today={today}
+            disabled={disabled}
+            saveWeek={saveWeeklyPlan}
+            moveCalendarEvent={data.moveCalendarEvent}
+          />
         </>}
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
