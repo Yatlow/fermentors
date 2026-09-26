@@ -285,6 +285,11 @@ function processAction1(fermentor) {
   const tankNumber =
     String(fermentor.tankNumber || "").trim();
 
+  // Retry-safe: ACTION 0 -> 1 installs the listener immediately. If that API
+  // call ever failed transiently, each normal ACTION-1 cycle tries again using
+  // the already-fetched fermentor object. The listener service is idempotent.
+  cellarListenerSafeEnsureForFermentor_(fermentor);
+
   const tankStatus =
     fermentor.tankStatus;
 
@@ -1600,6 +1605,11 @@ function updateFermentorAction(
     " ACTION -> " +
     action
   );
-}
 
+  // ACTION 0 -> 1: install the dedicated cellar listener immediately.
+  // ACTION 1 -> 3: remove it immediately. Listener failures must never roll
+  // back or block the authoritative Firestore ACTION transition; hourly
+  // reconciliation in the listener project self-heals any missed API call.
+  cellarListenerSafeSyncForAction_(fermentorId, action);
+}
 
