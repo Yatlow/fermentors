@@ -50,7 +50,7 @@
 .bp-gantt-cell-actions {
   position: absolute;
   top: 6px;
-  inset-inline-start: 6px;
+  inset-inline-end: 6px;
   z-index: 4;
   display: flex;
   align-items: center;
@@ -121,7 +121,11 @@
 }
 
 .bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-actions) .bp-five-week-item {
-  padding-inline-start: 68px;
+  padding-inline-end: 68px;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-deliveries:has(.bp-gantt-cell-actions) .bp-five-week-item {
+  padding-inline-end: 38px;
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-stock { align-content: start; }
@@ -171,6 +175,19 @@
   font-size: .62rem;
   line-height: 1.45;
   white-space: pre-line;
+}
+
+.bp-gantt-stock-lines {
+  display: grid;
+  gap: 1px;
+}
+
+.bp-gantt-stock-lines > span {
+  display: block;
+}
+
+.bp-gantt-stock-lines strong {
+  font-weight: 800;
 }
 
 .bp-five-week-item.is-gantt-recommendation {
