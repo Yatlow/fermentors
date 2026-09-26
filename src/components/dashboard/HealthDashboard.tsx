@@ -235,7 +235,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
         );
         const unsubscribeIgnored = subscribeIgnoredCellarRecommendationsToday(
             setIgnoredRecommendations,
-            (error) => console.error("Failed loading ignored cellar recommendations:", error)
+            (error) => console.error("Failed loading ignored cellar recommendations for health:", error)
         );
         return () => {
             unsubscribeActive();
@@ -283,9 +283,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             : [];
 
                         if (inGracePeriod) {
-                            // Hot-mode progress covers all four numeric daily fields
-                            // (temp/pressure/Plato/pH). We use it only to observe what
-                            // was voluntarily measured; none of those fields is required.
                             const observed = dailyMeasurementProgress(measurements, true);
 
                             if (observed.completedFieldCount === 0) {
@@ -314,17 +311,12 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                     completedFieldCount: 0,
                                     bonusCompletedFieldCount: observed.completedFieldCount,
                                 } as MeasurementIssue,
-                                // Any voluntary numeric measurement counts as a
-                                // completed round while the tank is in grace.
                                 completeMeasurements: true,
                                 tankNumber: number,
                             };
                         }
 
-                        const progress = dailyMeasurementProgress(
-                            measurements,
-                            hotTank
-                        );
+                        const progress = dailyMeasurementProgress(measurements, hotTank);
                         const completeMeasurements = progress.missingFields.length === 0;
                         const measurementRoundIgnored = Boolean(
                             tank.batchNumber &&
@@ -511,11 +503,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         );
 
                         scheduledCompletedForDisplay.forEach((row) => {
-                            // Scheduling changes urgency before execution, not
-                            // the value of the physical cellar action itself.
-                            // A scheduled carbonation test / yeast drop earns
-                            // the same completion credit as the same action
-                            // performed naturally.
                             addCompleted(
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
@@ -570,8 +557,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     } catch (error) {
                         console.error("Failed calculating health for tank", tank.id, error);
 
-                        // A grace tank cannot become a penalty just because we
-                        // failed to load its optional measurements.
                         if (inGracePeriod) {
                             return {
                                 included: false,
@@ -665,6 +650,56 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const attentionCount = counts.critical + counts.warning + counts.info;
     const completedTankCount = analysis.completeMeasurementTankNumbers.length;
 
+    const dailyActionProgress = useMemo(() => {
+        const yeastDue = new Set<string>();
+        const carbDue = new Set<string>();
+        const yeastDone = new Set<string>();
+        const carbDone = new Set<string>();
+        const day = new Date().getDay();
+
+        // Sunday routine: every cold ACTION-1 tank needs both actions. Keeping
+        // this denominator independent of the live recommendation means a task
+        // does not disappear from the progress line after it is completed.
+        if (day === 0) {
+            brews
+                .filter((tank) => Number(tank.action) === 1 && tank.stage?.name === "קר")
+                .forEach((tank) => {
+                    const number = tankLabel(tank);
+                    yeastDue.add(number);
+                    carbDue.add(number);
+                });
+        }
+
+        analysis.alerts.forEach((alert) => {
+            if (!alert.tankNumber) return;
+            const text = `${alert.recommendationKey ?? ""} ${alert.detail ?? ""}`;
+            if (/שמרים|שמרי|yeast/i.test(text)) yeastDue.add(alert.tankNumber);
+            if (/בדיקת גיזוז|carbTest/i.test(text)) carbDue.add(alert.tankNumber);
+        });
+
+        analysis.completedActions.forEach((action) => {
+            const number = String(action.tankNumber);
+            if (/שמרים|שמרי/.test(action.title)) {
+                yeastDone.add(number);
+                yeastDue.add(number);
+            }
+            if (/בדיקת גיזוז/.test(action.title)) {
+                carbDone.add(number);
+                carbDue.add(number);
+            }
+        });
+
+        const completedWithin = (done: Set<string>, due: Set<string>) =>
+            Array.from(done).filter((tank) => due.has(tank)).length;
+
+        return {
+            yeastDone: completedWithin(yeastDone, yeastDue),
+            yeastDue: yeastDue.size,
+            carbDone: completedWithin(carbDone, carbDue),
+            carbDue: carbDue.size,
+        };
+    }, [analysis.alerts, analysis.completedActions, brews]);
+
     async function ignoreAlert(alert: HealthAlert) {
         if (!alert.dismissible || !alert.tankNumber || !alert.batchNumber || !alert.recommendationKey) return;
         setIgnoreSavingId(alert.id);
@@ -720,9 +755,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 : `${attentionCount} דברים דורשים תשומת לב היום`}
                     </span>
                     {!analyzing && analysis.checkedTanks > 0 && (
-                        <span className="health-measurement-progress">
-                            סבב מלא: {completedTankCount}/{analysis.checkedTanks} מיכלים
-                        </span>
+                        <>
+                            <span className="health-measurement-progress">
+                                סבב מלא: {completedTankCount}/{analysis.checkedTanks} מיכלים
+                            </span>
+                            <span className="health-measurement-progress">
+                                פעולות היום: שמרים {dailyActionProgress.yeastDone}/{dailyActionProgress.yeastDue} · גיזוזים {dailyActionProgress.carbDone}/{dailyActionProgress.carbDue}
+                            </span>
+                        </>
                     )}
                 </span>
 
