@@ -50,9 +50,26 @@ function normalizeOrder(brews: BrewPlanWithMeta[], sources: Fermentor[], release
 
 function maxBatch(values: unknown[]): number {
   return values.reduce<number>((max, value) => {
-    const n = Number(value);
+    const n = Number(String(value ?? "").replace("#", "").trim());
     return Number.isFinite(n) ? Math.max(max, n) : max;
   }, 0);
+}
+
+function normalizedBatch(value: unknown): string {
+  return String(value ?? "").replace("#", "").trim();
+}
+
+/**
+ * An ACTION-0 tank is already the real "new brew" reservation in Firestore.
+ * Its batch identity must win over an older planning-only batch number.
+ * Fermenting/cold tanks are deliberately excluded: their current batch may be
+ * the previous brew while this plan is reserving the tank for a future brew.
+ */
+function realNewBrewBatch(brew: BrewPlanWithMeta, sources: Fermentor[]): string {
+  if (!brew.tankId) return "";
+  const source = sources.find((item) => item.id === brew.tankId);
+  if (!source || Number(source.action) !== 0) return "";
+  return normalizedBatch(source.batchNumber);
 }
 
 export default function PlanningBrewAssignmentEditor({ initial, brews, releases, disabled, onSave, onCancel }: {
@@ -66,7 +83,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
   const [draft, setDraft] = useState<WeekPlan>(() => {
     const copy = structuredClone(initial);
     const hasSavedBatchIdentity = copy.brews.some(
-      (brew) => String(brew.batchNumber || "").trim() !== "",
+      (brew) => normalizedBatch(brew.batchNumber) !== "",
     );
     copy.brews = hasSavedBatchIdentity
       ? copy.brews
@@ -99,30 +116,26 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
   const orderedBrews = useMemo(() => {
     const current = draft.brews as BrewPlanWithMeta[];
 
-    // A planned brew owns its identity. Never infer its batch number from the
-    // batch currently occupying the assigned tank: that tank may still contain
-    // a previous week's brew (for example 1596/1597) while the next brew
-    // (1598/1599/1600) is already planned for it.
-    const reserved = new Set<number>();
-    current.forEach((brew) => {
-      const value = Number(String(brew.batchNumber || "").replace("#", "").trim());
-      if (Number.isFinite(value) && value > 0) reserved.add(value);
-    });
-
-    // Batch numbers are chronological production slots. If this week was
-    // previously polluted by batch identities from an earlier week's tank,
-    // normalize the whole week's sequence from the latest real production
-    // batch instead of preserving those stale numbers on the wrong brew rows.
+    // Prefer the real ACTION-0 batch already attached to the assigned tank.
+    // Otherwise preserve a batch identity already saved on the planning row.
+    const preferred = current.map((brew) => realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber));
+    const used = new Set<number>();
     let next = batchBase + 1;
-    return current.map((brew) => {
-      while (reserved.has(next) && !current.some(
-        (candidate) => String(candidate.batchNumber || "").replace("#", "").trim() === String(next),
-      )) next += 1;
+
+    return current.map((brew, index) => {
+      const preferredNumber = Number(preferred[index]);
+      if (Number.isFinite(preferredNumber) && preferredNumber > 0 && !used.has(preferredNumber)) {
+        used.add(preferredNumber);
+        return { ...brew, batchNumber: String(preferredNumber) };
+      }
+
+      while (used.has(next)) next += 1;
       const batchNumber = String(next);
+      used.add(next);
       next += 1;
       return { ...brew, batchNumber };
     });
-  }, [draft.brews, batchBase]);
+  }, [draft.brews, batchBase, brews]);
   const selectedBrew = orderedBrews[selectedIndex] ?? null;
 
   const allWeekTanks = useMemo(() => releases
