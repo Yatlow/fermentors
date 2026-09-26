@@ -26,6 +26,8 @@ ACTIVE OWNERSHIP:
 
 BEHAVIOR:
 - One first-sheet values snapshot per spreadsheet per cycle; fresh next cycle.
+- Unchanged Sheets are skipped before SpreadsheetApp.openById() by comparing
+  the Drive last-modified revision with the last successfully synchronized one.
 - A short lease prevents overlapping cycles WITHOUT holding ScriptLock for the
   complete 15–60 second run. User-initiated Sheet writes can therefore proceed.
 - Standalone measurement/progress/reset calls still acquire the script lock.
@@ -46,6 +48,7 @@ BEHAVIOR:
 var FC_CYCLE_CONTEXT_ = null;
 const FC_CYCLE_LEASE_KEY_ = "fc_cycle_lease_v2";
 const FC_CYCLE_LEASE_TTL_MS_ = 9 * 60 * 1000;
+const FC_SHEET_REVISION_PREFIX_ = "fc_sheet_revision_v1:";
 
 function fcTimed_(label, callback) {
   const started = Date.now();
@@ -104,6 +107,37 @@ function fcReleaseCycleLease_(token) {
     }
   } finally {
     lock.releaseLock();
+  }
+}
+
+function fcSheetRevisionState_(sheetUrl) {
+  const id = extractSpreadsheetId(sheetUrl);
+  const key = FC_SHEET_REVISION_PREFIX_ + id;
+  const props = PropertiesService.getScriptProperties();
+  const context = FC_CYCLE_CONTEXT_;
+
+  let previous;
+  if (context) {
+    if (!context.properties) context.properties = props.getProperties();
+    previous = context.properties[key];
+  } else {
+    previous = props.getProperty(key);
+  }
+
+  const revision = String(DriveApp.getFileById(id).getLastUpdated().getTime());
+  return {
+    id: id,
+    key: key,
+    revision: revision,
+    changed: previous !== revision
+  };
+}
+
+function fcMarkSheetRevision_(state) {
+  if (!state || !state.key) return;
+  PropertiesService.getScriptProperties().setProperty(state.key, state.revision);
+  if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.properties) {
+    FC_CYCLE_CONTEXT_.properties[state.key] = state.revision;
   }
 }
 
@@ -236,12 +270,25 @@ function fcMergePayload_(existing, payload) {
 
 function syncFermentorsFromSheets_(projectId, fermentors) {
   const stats = { updated: 0, skipped: 0, errors: 0,
-    latestMeasurementWrites: 0, measurementErrors: 0, packagingErrors: 0 };
+    latestMeasurementWrites: 0, measurementErrors: 0, packagingErrors: 0,
+    revisionChecks: 0, unchangedSheets: 0 };
   fermentors.forEach(function (entry) {
     fcTimed_("tank " + entry.id, function () {
       try {
         const sheetUrl = entry.data.sheetUrl;
         if (!sheetUrl) { stats.skipped++; return; }
+
+        const revisionState = fcTimed_("sheet revision " + entry.id, function () {
+          return fcSheetRevisionState_(sheetUrl);
+        });
+        stats.revisionChecks++;
+        if (!revisionState.changed) {
+          stats.unchangedSheets++;
+          stats.skipped++;
+          return;
+        }
+
+        let tankSyncHadError = false;
         const brew = fcTimed_("extract brew " + entry.id, function () {
           return extractBrew(sheetUrl);
         });
@@ -271,6 +318,7 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
               }
             });
           } catch (error) {
+            tankSyncHadError = true;
             stats.packagingErrors++;
             Logger.log("Packaging error tank " + entry.id + ": " + error.message);
           }
@@ -282,12 +330,14 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
             });
             if (wrote) stats.latestMeasurementWrites++;
           } catch (error) {
+            tankSyncHadError = true;
             stats.measurementErrors++;
             Logger.log("Measurement error tank " + entry.id + ": " + error.message);
           }
         }
         const payload = fcFermentorPayload_(next);
         if (fcPayloadMatches_(entry.data, payload)) {
+          if (!tankSyncHadError) fcMarkSheetRevision_(revisionState);
           stats.skipped++;
           return;
         }
@@ -296,6 +346,7 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
           updateFermentorDocument(projectId, entry.id, payload);
         });
         entry.data = fcMergePayload_(entry.data, payload);
+        if (!tankSyncHadError) fcMarkSheetRevision_(revisionState);
         stats.updated++;
       } catch (error) {
         stats.errors++;
@@ -353,7 +404,7 @@ function resetChangeCache() {
     const all = props.getProperties();
     let count = 0;
     Object.keys(all).forEach(function (key) {
-      if (/^(fermentor:|packaging:|measurement:|brewProgress:|fc_success_v1:)/.test(key)) {
+      if (/^(fermentor:|packaging:|measurement:|brewProgress:|fc_success_v1:|fc_sheet_revision_v1:)/.test(key)) {
         props.deleteProperty(key);
         count++;
       }
