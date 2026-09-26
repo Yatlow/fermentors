@@ -7,11 +7,13 @@
   height: 100%;
 }
 
+/* ACTION-0 brew form action: use the exact TankCard Lucide button styling and
+   visually keep it in the same action row as the Sheet button. */
 .dashboardBrewFormButton {
   position: absolute;
   z-index: 6;
   top: 39px;
-  left: 9px;
+  left: calc(50% - 38px);
 }
 
 .dashboardBrewFormButton:disabled {
@@ -46,22 +48,36 @@
   padding: 0;
 }
 
+/* The BrewFormStepper's regular screen keeps "חזרה לאצוות". Inside this
+   dashboard modal the outer fixed close control replaces it. */
+.dashboardBrewModal .brew-back-button {
+  display: none !important;
+}
+
 .dashboardBrewModalClose {
-  position: sticky;
-  z-index: 20;
-  top: 8px;
-  margin: 8px 8px -42px auto;
-  width: 34px;
-  height: 34px;
+  position: fixed;
+  z-index: 12020;
+  top: 14px;
+  right: 14px;
+  margin: 0;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid #cbd5e1;
-  border-radius: 50%;
-  background: rgba(255,255,255,.96);
+  border-radius: 9px;
+  background: rgba(255,255,255,.97);
   color: #334155;
-  font-size: 1.25rem;
+  box-shadow: 0 3px 12px rgba(15,23,42,.18);
+  font-size: 1.35rem;
+  line-height: 1;
   cursor: pointer;
+}
+
+.dashboardBrewModalClose:hover {
+  background: #fff;
+  color: #0f172a;
 }
 
 .dashboardBrewModalError {
@@ -77,7 +93,7 @@
 @media (max-width: 700px) {
   .dashboardBrewFormButton {
     top: 36px;
-    left: 7px;
+    left: calc(50% - 34px);
   }
 
   .dashboardBrewModalBackdrop {
@@ -89,5 +105,10 @@
     max-height: 100dvh;
     min-height: 100dvh;
     border-radius: 0;
+  }
+
+  .dashboardBrewModalClose {
+    top: 8px;
+    right: 8px;
   }
 }
