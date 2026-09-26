@@ -18,13 +18,8 @@
   color: #475569;
 }
 
-.bp-gantt-legend .is-actual {
-  color: #166534;
-}
-
-.bp-gantt-legend .is-projected {
-  color: #1d4ed8;
-}
+.bp-gantt-legend .is-actual { color: #166534; }
+.bp-gantt-legend .is-projected { color: #1d4ed8; }
 
 .bp-gantt-legend .is-recommendation {
   padding: 3px 8px;
@@ -34,9 +29,6 @@
   background: rgba(254, 226, 226, .55);
 }
 
-/* Only the page owns vertical scrolling. The Gantt/calendar wrappers own
-   horizontal overflow, preventing the mouse wheel from getting trapped in a
-   second vertical scroller. */
 .bp-gantt-shell > .bp-five-week-scroll,
 .bp-gantt-calendar-host .bp-month-scroll {
   overflow-x: auto;
@@ -55,11 +47,18 @@
   position: relative;
 }
 
-.bp-gantt-cell-edit {
+.bp-gantt-cell-actions {
   position: absolute;
   top: 6px;
-  inset-inline-end: 6px;
-  z-index: 3;
+  inset-inline-start: 6px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bp-gantt-cell-edit {
+  position: relative;
   display: flex !important;
   align-items: center;
   justify-content: center;
@@ -73,6 +72,12 @@
   box-shadow: 0 1px 3px rgba(37, 99, 235, .12);
   cursor: pointer;
   line-height: 0;
+}
+
+.bp-gantt-cell-calendar {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: rgba(240, 253, 250, .98);
 }
 
 .bp-gantt-cell-edit svg,
@@ -90,17 +95,37 @@
   box-shadow: 0 0 0 2px rgba(147, 197, 253, .45);
 }
 
-.bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-edit) .bp-five-week-item {
-  padding-inline-end: 38px;
-}
-
-.bp-gantt-grid .bp-five-week-cell.is-stock {
-  align-content: start;
-}
-
-.bp-gantt-grid .bp-five-week-row-label.is-stock {
+.bp-gantt-cell-calendar:hover,
+.bp-gantt-cell-calendar:focus-visible {
+  border-color: #2dd4bf;
+  background: #ccfbf1;
   color: #0f766e;
 }
+
+.bp-gantt-action-badge {
+  position: absolute;
+  top: -7px;
+  inset-inline-end: -7px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: .56rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-actions) .bp-five-week-item {
+  padding-inline-start: 68px;
+}
+
+.bp-gantt-grid .bp-five-week-cell.is-stock { align-content: start; }
+.bp-gantt-grid .bp-five-week-row-label.is-stock { color: #0f766e; }
 
 .bp-gantt-grid .bp-five-week-cell.is-deliveries,
 .bp-gantt-grid .bp-five-week-cell.is-stock {
@@ -346,6 +371,30 @@
 
 .bp-gantt-editor-modal .bp-week-recommendations {
   grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.bp-gantt-daily-modal .bp-section-heading,
+.bp-gantt-daily-modal .bp-week-picker,
+.bp-gantt-daily-modal .bp-week-sticky {
+  display: none;
+}
+
+.bp-gantt-daily-modal .bp-weekly-execution-sets {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.bp-gantt-daily-modal.is-focus-deliveries .bp-daily-set.is-brew,
+.bp-gantt-daily-modal.is-focus-deliveries .bp-daily-set.is-packaging,
+.bp-gantt-daily-modal.is-focus-packaging .bp-daily-set.is-delivery,
+.bp-gantt-daily-modal.is-focus-packaging .bp-daily-set.is-brew,
+.bp-gantt-daily-modal.is-focus-brews .bp-daily-set.is-delivery,
+.bp-gantt-daily-modal.is-focus-brews .bp-daily-set.is-packaging {
+  display: none;
+}
+
+.bp-gantt-daily-modal .bp-gantt-editor-body > section {
+  display: grid;
   gap: 12px;
 }
 
