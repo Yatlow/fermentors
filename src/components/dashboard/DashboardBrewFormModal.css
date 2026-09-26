@@ -1,0 +1,172 @@
+.dashboard-tank-slot {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-tank-slot > .tank-card {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+/* ACTION-0 cards already render their Sheet button inside TankCard. Hide that
+   single-item row and replace it with one centered pair so PencilSparkles and
+   FileSpreadsheet use exactly the same tankInfo geometry with no overlap. */
+.dashboard-tank-slot-brew .tank-card > .tank-actions-row {
+  visibility: hidden;
+}
+
+.dashboardBrewActionPair {
+  position: absolute;
+  z-index: 7;
+  top: 39px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  direction: rtl;
+}
+
+.dashboardBrewFormButton,
+.dashboardBrewSheetButton {
+  position: static;
+  margin: 0 !important;
+}
+
+/* Match the brewing-stage Lucide controls instead of inheriting black from
+   the standalone overlay wrapper. */
+.dashboard-tank-slot-brew .dashboardBrewActionPair .tankInfo {
+  color: var(--stage-brewing-text, #92400e) !important;
+  border-color: currentColor !important;
+}
+
+.dashboardBrewFormButton:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Week-only packaging has no precise day yet, but it must occupy the exact
+   same visual row as a regular tank-planned-packaging badge. Reserve that row
+   inside the card's layout so the absolutely-positioned fallback does not
+   overlap the brew date or the first readings row. */
+.dashboard-tank-slot-week-packaging .tank-card > .tank-data:not(.tank-data ~ .tank-data) {
+  margin-top: 25px;
+}
+
+/* Position only. Visual styling comes entirely from tank-planned-packaging so
+   dated and week-only packaging look identical. */
+.dashboardPlanningWeekHint {
+  position: absolute;
+  z-index: 5;
+  top: 112px;
+  right: 10px;
+  left: 10px;
+  margin: 0;
+  pointer-events: none;
+}
+
+.dashboardBrewModalBackdrop {
+  position: fixed;
+  z-index: 12000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(15,23,42,.58);
+}
+
+.dashboardBrewModal {
+  position: relative;
+  z-index: 12001;
+  width: min(1180px, calc(100vw - 36px));
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  border-radius: 14px;
+  background: var(--bg-main, #f4f6f9);
+  box-shadow: 0 24px 70px rgba(15,23,42,.34);
+}
+
+.dashboardBrewModal.brewing-view {
+  margin: 0;
+  padding: 0;
+}
+
+/* The BrewFormStepper's regular screen keeps "חזרה לאצוות". Inside this
+   dashboard modal the fixed close control replaces it. */
+.dashboardBrewModal .brew-back-button {
+  display: none !important;
+}
+
+.dashboardBrewModalClose {
+  position: fixed !important;
+  z-index: 2147483000 !important;
+  top: 12px !important;
+  left: 12px !important;
+  right: auto !important;
+  margin: 0 !important;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #94a3b8;
+  border-radius: 9px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 4px 16px rgba(15,23,42,.24);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.dashboardBrewModalClose:hover {
+  background: #f8fafc;
+  color: #020617;
+}
+
+.dashboardBrewModalError {
+  margin: 64px 20px 24px;
+  padding: 14px;
+  border: 1px solid #fecaca;
+  border-radius: 9px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .dashboardBrewActionPair {
+    top: 36px;
+    gap: 10px;
+  }
+
+  .dashboardPlanningWeekHint {
+    top: 106px;
+    right: 8px;
+    left: 8px;
+  }
+
+  .dashboardBrewModalBackdrop {
+    padding: 0;
+  }
+
+  .dashboardBrewModal {
+    width: 100vw;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .dashboardBrewModalClose {
+    top: max(8px, env(safe-area-inset-top)) !important;
+    left: 8px !important;
+  }
+}

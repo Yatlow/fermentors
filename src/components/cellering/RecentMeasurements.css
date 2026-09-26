@@ -1,0 +1,82 @@
+.recentMeasurements {
+  margin-top: 6px;
+}
+
+.recentMeasurementsToggle {
+  width: 100%;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: rgba(255,255,255,.7);
+  color: #475569;
+  font: inherit;
+  font-size: .68rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recentMeasurementsToggle:hover {
+  background: #fff;
+  color: #1e3a5f;
+}
+
+.recentMeasurementsPanel {
+  margin-top: 5px;
+  display: grid;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid rgba(148,163,184,.45);
+  border-radius: 7px;
+  background: rgba(255,255,255,.72);
+}
+
+.recentMeasurementsRow {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) 1fr 1fr;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: rgba(248,250,252,.9);
+  font-size: .62rem;
+  white-space: nowrap;
+}
+
+.recentMeasurementsDate {
+  color: #64748b;
+  direction: ltr;
+  text-align: right;
+}
+
+.recentMeasurementsRow strong {
+  color: #334155;
+  font-size: .66rem;
+}
+
+.recentMeasurementsError {
+  color: #b91c1c;
+}
+
+@media (max-width: 600px) {
+  .recentMeasurementsToggle {
+    min-height: 28px;
+    font-size: .63rem;
+  }
+
+  .recentMeasurementsRow {
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 6px;
+    white-space: normal;
+    font-size: .58rem;
+  }
+
+  .recentMeasurementsDate {
+    grid-column: 1 / -1;
+  }
+}

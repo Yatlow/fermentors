@@ -12,6 +12,10 @@ export type PlannedTankPackaging = {
   source: "planning" | "calendar";
 };
 
+export type PlannedTankPackagingWeek = {
+  weekStart: string;
+};
+
 type CalendarPackagingEvent = {
   date?: string;
   timestamp?: number;
@@ -23,10 +27,16 @@ type CalendarPackagingEvent = {
 const PACKAGING_ACTIONS = new Set(["הורדה", "סיום", "ביקבוק"]);
 const CACHE_MS = 2 * 60 * 1000;
 
+type PackagingMaps = {
+  planning: Map<string, string>;
+  planningWeekOnly: Map<string, string>;
+  calendar: Map<string, string>;
+};
+
 let cache: {
   loadedAt: number;
-  data?: { planning: Map<string, string>; calendar: Map<string, string> };
-  pending?: Promise<{ planning: Map<string, string>; calendar: Map<string, string> }>;
+  data?: PackagingMaps;
+  pending?: Promise<PackagingMaps>;
 } | null = null;
 
 function earliest(map: Map<string, string>, key: string, date: string) {
@@ -74,16 +84,28 @@ async function loadFuturePackagingMaps() {
     ),
   ]).then(([planningSnapshot, calendarSnapshot]) => {
     const planning = new Map<string, string>();
+    const planningWeekOnly = new Map<string, string>();
+
     planningSnapshot.docs.forEach((snapshot) => {
       const week = snapshot.data() as WeekPlan;
+      const weekId = String(week.id || snapshot.id || "");
+
       (week.packaging ?? []).forEach((run) => {
-        const date = String(run.date ?? "");
-        if (!date || date < today) return;
         const keys = [
           normalizeTank(run.tankNumber),
           normalizeTank(run.tankId),
         ].filter(Boolean);
-        keys.forEach((key) => earliest(planning, key, date));
+        if (!keys.length) return;
+
+        const date = String(run.date ?? "");
+        if (date) {
+          if (date < today) return;
+          keys.forEach((key) => earliest(planning, key, date));
+          return;
+        }
+
+        if (!weekId || weekId < weekStart(today)) return;
+        keys.forEach((key) => earliest(planningWeekOnly, key, weekId));
       });
     });
 
@@ -97,7 +119,7 @@ async function loadFuturePackagingMaps() {
       earliest(calendar, tank, date);
     });
 
-    return { planning, calendar };
+    return { planning, planningWeekOnly, calendar };
   });
 
   cache = { loadedAt: now, pending };
@@ -111,15 +133,22 @@ async function loadFuturePackagingMaps() {
   }
 }
 
+function lookupKeys(input: {
+  tankId?: string | number | null;
+  tankNumber?: string | number | null;
+}) {
+  return [
+    normalizeTank(input.tankNumber),
+    normalizeTank(input.tankId),
+  ].filter(Boolean);
+}
+
 export async function getPlannedPackagingForTank(input: {
   tankId?: string | number | null;
   tankNumber?: string | number | null;
 }): Promise<PlannedTankPackaging | null> {
   const maps = await loadFuturePackagingMaps();
-  const keys = [
-    normalizeTank(input.tankNumber),
-    normalizeTank(input.tankId),
-  ].filter(Boolean);
+  const keys = lookupKeys(input);
 
   const planningDates = keys
     .map((key) => maps.planning.get(key))
@@ -134,4 +163,27 @@ export async function getPlannedPackagingForTank(input: {
   return calendarDates[0]
     ? { date: calendarDates[0], source: "calendar" }
     : null;
+}
+
+export async function getUndatedPlannedPackagingWeekForTank(input: {
+  tankId?: string | number | null;
+  tankNumber?: string | number | null;
+}): Promise<PlannedTankPackagingWeek | null> {
+  const maps = await loadFuturePackagingMaps();
+  const keys = lookupKeys(input);
+
+  // If an exact future date already exists, the regular TankCard badge is the
+  // authoritative display and no week-only fallback is needed.
+  const exactDates = [
+    ...keys.map((key) => maps.planning.get(key)),
+    ...keys.map((key) => maps.calendar.get(key)),
+  ].filter((value): value is string => Boolean(value));
+  if (exactDates.length) return null;
+
+  const weeks = keys
+    .map((key) => maps.planningWeekOnly.get(key))
+    .filter((value): value is string => Boolean(value))
+    .sort();
+
+  return weeks[0] ? { weekStart: weeks[0] } : null;
 }

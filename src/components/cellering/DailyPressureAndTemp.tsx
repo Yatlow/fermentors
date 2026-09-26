@@ -1,4 +1,5 @@
 import type { Fermentor, NewReading } from "../../App";
+import RecentMeasurements from "./RecentMeasurements";
 
 export type DailyPressureAndTempProps = {
   brews: Fermentor[],
@@ -58,6 +59,8 @@ export default function DailyPressureAndTemp({
                     </strong>
                   </span>
                 </div>
+
+                <RecentMeasurements tank={fv} mode="pressure" />
 
                 <div className="measurement-inputs">
 
