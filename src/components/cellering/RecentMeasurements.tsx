@@ -49,11 +49,10 @@ export default function RecentMeasurements({ tank, mode }: Props) {
     setError("");
     try {
       const measurements = await getMeasurementsByBatch(batch);
-      setRows(
-        [...measurements]
-          .sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")))
-          .slice(0, 5),
-      );
+      const newestFive = [...measurements]
+        .sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")))
+        .slice(0, 5);
+      setRows(newestFive.reverse());
     } catch (err) {
       console.error("Failed loading recent measurements", tank.tankNumber, err);
       setError("לא ניתן לטעון מדידות קודמות");
