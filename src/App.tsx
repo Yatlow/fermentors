@@ -178,7 +178,7 @@ function useAuth() {
 }
 
 function App() {
-    const [planningTab, setPlanningTab] = useState<PlanningTab>("stock");
+    const [planningTab, setPlanningTab] = useState<PlanningTab>("fiveWeeks");
     const [brewingTab, setBrewingTab] = useState<BrewingTab>("form");
     const { user, loading: authLoading, isApproved, admin, plannerUser } = useAuth();
     const [brews, setBrews] = useState<Fermentor[]>([]);
@@ -360,7 +360,7 @@ function App() {
         const matchesStatus = selectedStatuses.includes("הכל") || (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
         const style = String(tank.beerStyle ?? "").trim();
         const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
-        return matchesStatus && matchesStyle;
+        return matchesStatus && matchesStyles;
     }), [brews, selectedStatuses, selectedStyles]);
 
     const totalTanks = brews.filter((tank) => Number(tank.tankNumber) !== 1).length;
@@ -399,7 +399,7 @@ function App() {
                             <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
                             <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
                             <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>בישולים</div>
-                            {plannerUser && <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>}
+                            <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>
                         </div>
                     </div>
                     {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} />}
@@ -423,7 +423,7 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
                     </div>}
                     {selectedView === "בישולים" && <nav className="status-filter" dir="rtl" aria-label="בישולים">{BREWING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${brewingTab === id ? "active" : ""}`} aria-pressed={brewingTab === id} onClick={() => setBrewingTab(id)}>{label}</button>)}</nav>}
-                    {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{PLANNING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
+                    {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{(plannerUser ? PLANNING_TABS : PLANNING_TABS.filter(([id]) => id === "fiveWeeks")).map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
             </header>
 
