@@ -9,16 +9,13 @@ import {
 
 type DisplayBrew = WeekPlan["brews"][number] & { tentativeTankId?: string };
 
-const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
-
 /**
- * Display-only enrichment for the five-week calendar.
- * Tentative values are never persisted as confirmed assignments.
+ * Display-only enrichment for the five-week planning views.
  *
- * A real assignment always wins. Besides an explicit brew.tankId, a batch that
- * is already present on a real tank is considered confirmed as well. This is
- * important because the execution flow can assign a planned batch to a tank
- * before that assignment is reflected back into the planning row itself.
+ * Brew assignments have one source of truth: the tankId saved on the WeekPlan
+ * decision. Never promote a suggested/tentative tank, or a tank that happens to
+ * contain the same batch number, into a confirmed assignment. This keeps Gantt
+ * and Calendar aligned with the saved planning decision.
  */
 export function withTentativeFiveWeekTanks(
   plans: WeekPlan[],
@@ -43,41 +40,25 @@ export function withTentativeFiveWeekTanks(
   return [...plans]
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((plan) => {
-      const reservedBrewTanks = new Set<string>();
       const weekEnd = addDays(plan.id, 6);
 
       const brews = plan.brews.map((rawBrew) => {
         const brew = rawBrew as DisplayBrew;
-        const batch = normalizedBatch(brew.batchNumber);
-        const confirmedById = tanks.find((tank) => tank.id === brew.tankId);
-        const confirmedByBatch = batch
-          ? tanks.find((tank) => normalizedBatch(tank.batch) === batch)
+        const confirmedTank = brew.tankId
+          ? tanks.find((tank) => tank.id === brew.tankId)
           : undefined;
-        const confirmedTank = confirmedById ?? confirmedByBatch;
 
         if (confirmedTank) {
-          reservedBrewTanks.add(confirmedTank.id);
-          return {
-            ...brew,
-            tankId: confirmedTank.id,
-            tentativeTankId: undefined,
-          } as DisplayBrew;
+          return { ...brew, tentativeTankId: undefined } as DisplayBrew;
         }
 
-        // Old recommendations may contain a placeholder/obsolete tankId. For
-        // display purposes do not let that invalid id become "מיכל ?".
-        const candidate = tanks
-          .filter((tank) => tank.ready <= weekEnd && !reservedBrewTanks.has(tank.id))
-          .sort((a, b) => a.ready.localeCompare(b.ready) || Number(a.number) - Number(b.number))[0];
-
-        if (!candidate) {
-          return brew.tankId && !confirmedById ? { ...brew, tankId: "", tentativeTankId: undefined } : brew;
-        }
-        reservedBrewTanks.add(candidate.id);
+        // A missing or obsolete tankId is unassigned. Suggestions belong in the
+        // recommendation/editor UI only; Calendar/Gantt must not present them as
+        // real assignments.
         return {
           ...brew,
           tankId: "",
-          tentativeTankId: candidate.id,
+          tentativeTankId: undefined,
         } as DisplayBrew;
       });
 
