@@ -86,6 +86,54 @@ function cellarListenerReconcileNow_() {
   return cellarListenerCall_("reconcile", {});
 }
 
+function cellarListenerReadFermentor_(tankNumber) {
+  const id = String(tankNumber || "").trim();
+  if (!id) return null;
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/fermentors/" +
+    encodeURIComponent(id);
+
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() === 404) return null;
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error(
+      "Cellar listener fermentor read failed: " +
+      response.getResponseCode() + " " + response.getContentText()
+    );
+  }
+
+  const fields = (JSON.parse(response.getContentText() || "{}") || {}).fields || {};
+  const result = {};
+  Object.keys(fields).forEach(function (key) {
+    result[key] = normalizeFirestoreValue(fields[key]);
+  });
+  if (!result.tankNumber) result.tankNumber = id;
+  return result;
+}
+
+function cellarListenerSyncForAction_(tankNumber, action) {
+  const numericAction = Number(action);
+  if (numericAction !== 1 && numericAction !== 3) {
+    return { success: false, skipped: true, reason: "irrelevant_action" };
+  }
+
+  const fermentor = cellarListenerReadFermentor_(tankNumber);
+  if (!fermentor) return { success: false, skipped: true, reason: "fermentor_missing" };
+
+  if (numericAction === 1) {
+    return cellarListenerEnsureForFermentor_(fermentor);
+  }
+  return cellarListenerRemoveForFermentor_(fermentor);
+}
+
 function cellarListenerSafeEnsureForFermentor_(fermentor) {
   try {
     return cellarListenerEnsureForFermentor_(fermentor);
@@ -100,6 +148,18 @@ function cellarListenerSafeRemoveForFermentor_(fermentor) {
     return cellarListenerRemoveForFermentor_(fermentor);
   } catch (error) {
     Logger.log("Cellar listener remove failed: " + error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+function cellarListenerSafeSyncForAction_(tankNumber, action) {
+  try {
+    return cellarListenerSyncForAction_(tankNumber, action);
+  } catch (error) {
+    Logger.log(
+      "Cellar listener ACTION hook failed for tank " + tankNumber +
+      " ACTION " + action + ": " + error.message
+    );
     return { success: false, error: error.message };
   }
 }
