@@ -1,0 +1,99 @@
+.quickReportDropdown {
+  position: relative;
+  width: 100%;
+}
+
+.quickReportDropdownTrigger {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #dbe3ec;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.quickReportDropdownTrigger:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(43,108,176,.1);
+}
+
+.quickReportDropdownTrigger:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.quickReportDropdownValue {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quickReportDropdownValue svg,
+.quickReportDropdownOption svg {
+  flex: 0 0 auto;
+}
+
+.quickReportDropdownTrigger > svg {
+  flex: 0 0 auto;
+  transition: transform .15s ease;
+}
+
+.quickReportDropdownTrigger > svg.is-open {
+  transform: rotate(180deg);
+}
+
+.quickReportDropdownMenu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 5px);
+  right: 0;
+  left: 0;
+  max-height: min(360px, 52vh);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  background: rgba(255,255,255,.98);
+  box-shadow: 0 14px 35px rgba(15,23,42,.18);
+  -webkit-overflow-scrolling: touch;
+}
+
+.quickReportDropdownOption {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #1f2937;
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 650;
+  text-align: right;
+  cursor: pointer;
+}
+
+.quickReportDropdownOption:hover,
+.quickReportDropdownOption:focus-visible {
+  outline: none;
+  background: #f1f5f9;
+}
+
+.quickReportDropdownOption.selected {
+  background: #eff6ff;
+  color: var(--primary);
+}
