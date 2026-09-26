@@ -1,7 +1,10 @@
-import { type Dispatch, type SetStateAction, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 import { PencilSparkles } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
+import { sameStyle } from "../../SERVICES/planning/planningEngine";
+import { loadRecipes } from "../../SERVICES/brewing/recipeEditorStore";
+import { loadSharedBrewingLibrary } from "../../SERVICES/brewing/sharedBrewingLibrary";
 import HealthDashboard from "./HealthDashboard";
 import SheetSyncStatus from "./SheetSyncStatus";
 import TankCard from "./TankCard";
@@ -34,6 +37,22 @@ export default function Dashboard({
     specs,
 }: DashboardProps) {
     const [brewFormTank, setBrewFormTank] = useState<Fermentor | null>(null);
+    const [brewRecipes, setBrewRecipes] = useState(() => loadRecipes());
+
+    useEffect(() => {
+        let cancelled = false;
+        loadSharedBrewingLibrary()
+            .then((library) => {
+                if (!cancelled && library.hasRemoteLibrary) setBrewRecipes(library.recipes);
+            })
+            .catch((error) => console.warn("Failed loading brewing recipes for dashboard", error));
+        return () => { cancelled = true; };
+    }, []);
+
+    const recipeStyles = useMemo(
+        () => brewRecipes.map((recipe) => ({ id: recipe.id, style: recipe.style })),
+        [brewRecipes],
+    );
 
     const handleStyleToggle = (style: string): void => {
         if (style === "הכל") {
@@ -99,13 +118,21 @@ export default function Dashboard({
 
             <div className="tank-grid">
                 {specs && filteredBrews.map((fermentor) => {
-                    const canOpenBrewForm =
-                        Number(fermentor.tankNumber) > 1 &&
-                        Number(fermentor.action) === 0 &&
-                        !!String(fermentor.batchNumber ?? "").trim() &&
-                        !!String(fermentor.beerStyle ?? "").trim() &&
-                        !!String(fermentor.sheetUrl ?? "").trim();
+                    const style = String(fermentor.beerStyle ?? "").trim();
+                    const hasMatchingRecipe = !!style && recipeStyles.some((recipe) =>
+                        sameStyle(recipe.style, style) || recipe.id.toLowerCase() === style.toLowerCase(),
+                    );
+                    const hasBrewSheet = !!String(fermentor.sheetUrl ?? "").trim();
+                    const hasBatch = !!String(fermentor.batchNumber ?? "").trim();
                     const showBrewFormButton = Number(fermentor.tankNumber) > 1 && Number(fermentor.action) === 0;
+                    const canOpenBrewForm = showBrewFormButton && hasBatch && hasBrewSheet && hasMatchingRecipe;
+                    const disabledReason = !hasMatchingRecipe
+                        ? "אין מתכון מתאים לסגנון הבירה"
+                        : !hasBrewSheet
+                            ? "טופס הבישול יהיה זמין לאחר יצירת ה-Sheet"
+                            : !hasBatch
+                                ? "חסר מספר אצווה"
+                                : "מילוי טופס בישול";
 
                     return (
                         <div className="dashboard-tank-slot" key={fermentor.id}>
@@ -117,9 +144,9 @@ export default function Dashboard({
                             {showBrewFormButton && (
                                 <button
                                     type="button"
-                                    className="dashboardBrewFormButton"
+                                    className="tankInfo dashboardBrewFormButton"
                                     aria-label="מילוי טופס בישול"
-                                    title={canOpenBrewForm ? "מילוי טופס בישול" : "טופס הבישול יהיה זמין לאחר יצירת ה-Sheet"}
+                                    title={canOpenBrewForm ? "מילוי טופס בישול" : disabledReason}
                                     disabled={!canOpenBrewForm}
                                     onClick={() => setBrewFormTank(fermentor)}
                                 >
