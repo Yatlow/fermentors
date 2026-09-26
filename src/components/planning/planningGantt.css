@@ -34,6 +34,17 @@
   background: rgba(254, 226, 226, .55);
 }
 
+/* Only the page owns vertical scrolling. The Gantt wrapper owns horizontal
+   overflow, preventing the desktop mouse wheel from getting trapped in a
+   second vertical scroller. */
+.bp-gantt-shell > .bp-five-week-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  max-height: none;
+}
+
 .bp-gantt-grid {
   grid-template-columns: 90px repeat(5, minmax(230px, 1fr));
   min-width: 1240px;
@@ -46,19 +57,27 @@
 .bp-gantt-cell-edit {
   position: absolute;
   top: 6px;
-  inset-inline-end: 6px;
+  inset-inline-start: 6px;
   z-index: 3;
-  display: inline-grid;
-  place-items: center;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
   width: 27px;
   height: 27px;
-  padding: 0;
+  padding: 0 !important;
   border: 1px solid #bfdbfe;
   border-radius: 999px;
   background: rgba(239, 246, 255, .96);
   color: #2563eb;
   box-shadow: 0 1px 3px rgba(37, 99, 235, .12);
   cursor: pointer;
+  line-height: 0;
+}
+
+.bp-gantt-cell-edit svg,
+.bp-gantt-editor-close svg {
+  display: block;
+  flex: 0 0 auto;
 }
 
 .bp-gantt-cell-edit:hover,
@@ -70,8 +89,16 @@
   box-shadow: 0 0 0 2px rgba(147, 197, 253, .45);
 }
 
+.bp-gantt-grid .bp-five-week-cell:has(.bp-gantt-cell-edit) .bp-five-week-item {
+  padding-inline-start: 38px;
+}
+
 .bp-gantt-grid .bp-five-week-cell.is-stock {
   align-content: start;
+}
+
+.bp-gantt-grid .bp-five-week-row-label.is-stock {
+  color: #0f766e;
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-deliveries,
@@ -94,7 +121,6 @@
 .bp-gantt-grid .bp-five-week-cell.is-brews .bp-five-week-item {
   flex: 1 1 100%;
   min-width: 100%;
-  padding-inline-end: 38px;
 }
 
 .bp-gantt-grid .bp-five-week-cell.is-packaging .bp-five-week-item > b,
@@ -189,12 +215,18 @@
 }
 
 .bp-gantt-editor-close {
-  display: inline-grid;
-  place-items: center;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0 !important;
   border: 0;
+  border-radius: 9px;
   background: transparent;
   color: #475569;
   cursor: pointer;
+  line-height: 0;
 }
 
 .bp-gantt-editor-backdrop {
@@ -245,27 +277,52 @@
   font-size: .72rem;
 }
 
-.bp-gantt-editor-close {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-}
-
-.bp-gantt-editor-close:hover {
+.bp-gantt-editor-close:hover,
+.bp-gantt-editor-close:focus-visible {
   background: #e2e8f0;
+  outline: none;
 }
 
 .bp-gantt-editor-body {
   overflow: auto;
   padding: 14px;
   overscroll-behavior: contain;
-  background: #f6f8fb;
+  background: #eef2f7;
 }
 
 .bp-gantt-editor-body .bp-enhanced-weekly-planner,
 .bp-gantt-editor-body .bp-weekly-planner {
   width: 100%;
   max-width: none;
+}
+
+/* Give the focused modal the same visual hierarchy as Weekly Recommendations,
+   even though the other two recommendation cards are intentionally hidden. */
+.bp-gantt-editor-modal .bp-week-rec-card {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #dbe3ec;
+  border-top-width: 5px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, .08);
+}
+
+.bp-gantt-editor-modal .bp-week-shipment-card { border-top-color: #22c55e; }
+.bp-gantt-editor-modal .bp-week-packaging-card { border-top-color: #3b82f6; }
+.bp-gantt-editor-modal .bp-week-brew-card { border-top-color: #a855f7; }
+
+.bp-gantt-editor-modal .bp-week-rec-card > header {
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.bp-gantt-editor-modal .bp-week-rec-card h3 {
+  margin: 2px 0 0;
+  color: #1e293b;
 }
 
 /* The focused Gantt editor reuses the real weekly-planning flow, but only
@@ -294,12 +351,6 @@
 .bp-gantt-editor-modal .bp-week-recommendations {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-}
-
-.bp-gantt-editor-modal .bp-week-rec-card {
-  max-width: none;
-  width: 100%;
-  margin: 0;
 }
 
 .bp-gantt-calendar-host > .bp-five-week-overview > .bp-five-week-heading {
