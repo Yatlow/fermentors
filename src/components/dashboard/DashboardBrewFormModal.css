@@ -57,6 +57,8 @@
   margin-top: 25px;
 }
 
+/* Position only. Visual styling comes entirely from tank-planned-packaging so
+   dated and week-only packaging look identical. */
 .dashboardPlanningWeekHint {
   position: absolute;
   z-index: 5;
@@ -64,15 +66,6 @@
   right: 10px;
   left: 10px;
   margin: 0;
-  padding: 4px 7px;
-  border: 1px solid #bfdbfe;
-  border-radius: 6px;
-  background: #eff6ff;
-  color: #1e40af;
-  font-size: .66rem;
-  font-weight: 700;
-  line-height: 1.25;
-  text-align: center;
   pointer-events: none;
 }
 
@@ -159,8 +152,6 @@
     top: 106px;
     right: 8px;
     left: 8px;
-    font-size: .61rem;
-    padding: 4px 5px;
   }
 
   .dashboardBrewModalBackdrop {
