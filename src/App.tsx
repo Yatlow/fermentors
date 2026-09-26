@@ -360,7 +360,7 @@ function App() {
         const matchesStatus = selectedStatuses.includes("הכל") || (tank.stage?.name !== undefined && selectedStatuses.includes(tank.stage.name));
         const style = String(tank.beerStyle ?? "").trim();
         const matchesStyle = selectedStyles.includes("הכל") || selectedStyles.includes(style);
-        return matchesStatus && matchesStyles;
+        return matchesStatus && matchesStyle;
     }), [brews, selectedStatuses, selectedStyles]);
 
     const totalTanks = brews.filter((tank) => Number(tank.tankNumber) !== 1).length;
