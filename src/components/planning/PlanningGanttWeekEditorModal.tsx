@@ -1,16 +1,25 @@
 import { useEffect, useRef, type ComponentProps } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 
 type PlannerProps = ComponentProps<typeof PlanningWeeklyRecommendationsEnhanced>;
+type EditorKind = "deliveries" | "packaging" | "brews";
 
 type Props = PlannerProps & {
   week: string;
+  kind: EditorKind;
   onClose: () => void;
 };
 
-export default function PlanningGanttWeekEditorModal({ week, onClose, ...plannerProps }: Props) {
+const KIND_LABEL: Record<EditorKind, string> = {
+  deliveries: "משלוח",
+  packaging: "אריזה",
+  brews: "בישולים",
+};
+
+export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...plannerProps }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,21 +33,31 @@ export default function PlanningGanttWeekEditorModal({ week, onClose, ...planner
   }, [week]);
 
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [onClose]);
 
-  return (
+  const modal = (
     <div className="bp-gantt-editor-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <section className="bp-gantt-editor-modal" role="dialog" aria-modal="true" aria-label={`עריכת תכנון שבוע ${shortDate(week)}`}>
+      <section
+        className={`bp-gantt-editor-modal is-focus-${kind}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`עריכת ${KIND_LABEL[kind]} לשבוע ${shortDate(week)}`}
+      >
         <header className="bp-gantt-editor-header">
           <div>
-            <b>המלצה והחלטה שבועית</b>
+            <b>{KIND_LABEL[kind]} · המלצה מול החלטה</b>
             <small>{shortDate(week)}</small>
           </div>
           <button type="button" className="bp-gantt-editor-close" aria-label="סגירה" onClick={onClose}>
@@ -51,4 +70,6 @@ export default function PlanningGanttWeekEditorModal({ week, onClose, ...planner
       </section>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }
