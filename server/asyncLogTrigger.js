@@ -7,17 +7,18 @@
 // trigger avoids duplicate quota/runtime cost and gives us one honest freshness
 // heartbeat for the Sheet -> system direction.
 //
-// Fermentor full sync now runs on every trigger (~5 min), day and night.
-// runFermentorCycle still avoids expensive Sheet work when nothing changed:
-// it checks each Sheet's Drive lastUpdated revision first, opens/extracts only
-// changed Sheets, and writes Firestore only when the extracted payload differs.
-// The trigger itself also keeps outbox retries, logs and planning checkpoints
-// responsive around the clock.
+// Fermentor sync cadence is intentionally smarter than the trigger cadence:
+// - 04:30-17:00 Asia/Jerusalem: full cycle every trigger (~5 min).
+// - 17:00-04:30 Asia/Jerusalem: full cycle at most once per hour.
+// - During the night window, ACTION 0 tanks that are due today/past are checked
+//   every trigger so a brew that actually starts is still promoted promptly.
+// The trigger itself remains every five minutes so outbox retries, logs and
+// planning checkpoint bookkeeping remain responsive.
 // ================================================================
 
 const ASYNC_LOG_TRIGGER_FLAG = "async_maintenance_trigger_installed_v4_cycle";
 const SMART_FULL_CYCLE_LAST_AT_KEY_ = "smart_full_fermentor_cycle_last_at_v1";
-const SMART_FULL_CYCLE_NIGHT_INTERVAL_MS_ = 0;
+const SMART_FULL_CYCLE_NIGHT_INTERVAL_MS_ = 60 * 60 * 1000;
 const SMART_MANUAL_SYNC_MIN_AGE_MS_ = 10 * 60 * 1000;
 const SMART_SYNC_TIMEZONE_ = "Asia/Jerusalem";
 const SMART_SYNC_DAY_START_MINUTE_ = 4 * 60 + 30; // 04:30
@@ -75,7 +76,10 @@ function smartFirestoreDocumentToEntry_(document) {
   };
 }
 
-// Narrow server-side query retained for the manual/night guard fallback path.
+// Narrow server-side query: unlike getAllFermentorsFromFirestore(), this bills
+// only the matching ACTION 0 documents (Firestore still charges its normal
+// minimum for an empty query). It is the only Firestore poll we keep at five
+// minutes during the night window.
 function smartGetAction0Fermentors_(projectId) {
   const url =
     "https://firestore.googleapis.com/v1/projects/" +
