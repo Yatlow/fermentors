@@ -14,6 +14,9 @@ const CELLAR_LISTENER_WEBAPP_URL_PROPERTY_ = "CELLAR_LISTENER_WEBAPP_URL";
 const CELLAR_LISTENER_SECRET_PROPERTY_ = "CELLAR_LISTENER_SECRET";
 const CELLAR_LISTENER_ENSURE_PREFIX_ = "cellar_listener_ensure:";
 const CELLAR_LISTENER_ENSURE_INTERVAL_MS_ = 55 * 60 * 1000;
+const CELLAR_LISTENER_STATUS_LAST_AT_KEY_ = "cellar_listener_status_last_at_v1";
+const CELLAR_LISTENER_STATUS_INTERVAL_MS_ = 5 * 60 * 1000;
+const CELLAR_LISTENER_STATUS_DOC_ID_ = "_cellarListenerStatus";
 
 function cellarListenerConfig_() {
   const props = PropertiesService.getScriptProperties();
@@ -59,6 +62,69 @@ function cellarListenerCall_(action, payload) {
   return parsed;
 }
 
+function cellarListenerStatusFirestoreValue_(value) {
+  if (value === null || value === undefined) return { nullValue: null };
+  if (typeof value === "boolean") return { booleanValue: value };
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? { integerValue: String(value) }
+      : { doubleValue: value };
+  }
+  if (value instanceof Date) return { timestampValue: value.toISOString() };
+  return { stringValue: String(value) };
+}
+
+function cellarListenerWriteStatusDoc_(status) {
+  const fields = {
+    listenerCount: cellarListenerStatusFirestoreValue_(Number(status.listenerCount) || 0),
+    totalProjectTriggerCount: cellarListenerStatusFirestoreValue_(Number(status.totalProjectTriggerCount) || 0),
+    state: cellarListenerStatusFirestoreValue_("ok"),
+    updatedAt: { timestampValue: new Date().toISOString() }
+  };
+
+  const url =
+    "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/sheetSyncJobs/" + CELLAR_LISTENER_STATUS_DOC_ID_;
+
+  const response = UrlFetchApp.fetch(url + "?updateMask.fieldPaths=listenerCount" +
+    "&updateMask.fieldPaths=totalProjectTriggerCount" +
+    "&updateMask.fieldPaths=state" +
+    "&updateMask.fieldPaths=updatedAt", {
+    method: "patch",
+    contentType: "application/json",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    payload: JSON.stringify({ fields: fields }),
+    muteHttpExceptions: true
+  });
+
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error(
+      "Cellar listener status write failed: " + code + " " + response.getContentText()
+    );
+  }
+}
+
+function cellarListenerPublishStatus_(force) {
+  const props = PropertiesService.getScriptProperties();
+  const now = Date.now();
+  const lastAt = Number(props.getProperty(CELLAR_LISTENER_STATUS_LAST_AT_KEY_) || 0);
+  if (!force && lastAt > 0 && now - lastAt < CELLAR_LISTENER_STATUS_INTERVAL_MS_) {
+    return { success: true, skipped: true, reason: "fresh_status" };
+  }
+
+  try {
+    const status = cellarListenerCall_("status", {});
+    if (!status || status.success !== true) return status;
+    cellarListenerWriteStatusDoc_(status);
+    props.setProperty(CELLAR_LISTENER_STATUS_LAST_AT_KEY_, String(now));
+    return status;
+  } catch (error) {
+    Logger.log("Cellar listener status publish failed: " + error.message);
+    return { success: false, error: error.message };
+  }
+}
+
 function cellarListenerSheetId_(value) {
   const text = String(value || "").trim();
   const match = text.match(/\/d\/([a-zA-Z0-9_-]+)/);
@@ -81,11 +147,13 @@ function cellarListenerEnsureForFermentor_(fermentor) {
   const sheetUrl = String(data.sheetUrl || "").trim();
   if (!sheetUrl) return { success: false, skipped: true, reason: "missing_sheet" };
 
-  return cellarListenerCall_("add", {
+  const result = cellarListenerCall_("add", {
     tankNumber: tankNumber,
     sheetUrl: sheetUrl,
     batchNumber: String(data.batchNumber || "").replace("#", "").trim()
   });
+  cellarListenerPublishStatus_(Boolean(result && result.installed));
+  return result;
 }
 
 function cellarListenerRemoveForFermentor_(fermentor) {
@@ -96,11 +164,14 @@ function cellarListenerRemoveForFermentor_(fermentor) {
   const result = cellarListenerCall_("remove", { sheetUrl: sheetUrl });
   const ensureKey = cellarListenerEnsureKey_(sheetUrl);
   if (ensureKey) PropertiesService.getScriptProperties().deleteProperty(ensureKey);
+  cellarListenerPublishStatus_(true);
   return result;
 }
 
 function cellarListenerReconcileNow_() {
-  return cellarListenerCall_("reconcile", {});
+  const result = cellarListenerCall_("reconcile", {});
+  cellarListenerPublishStatus_(true);
+  return result;
 }
 
 function cellarListenerReadFermentor_(tankNumber) {
@@ -163,6 +234,7 @@ function cellarListenerSafeEnsureForFermentor_(fermentor) {
     if (key) {
       const lastAt = Number(PropertiesService.getScriptProperties().getProperty(key) || 0);
       if (lastAt > 0 && Date.now() - lastAt < CELLAR_LISTENER_ENSURE_INTERVAL_MS_) {
+        cellarListenerPublishStatus_(false);
         return { success: true, skipped: true, reason: "recently_ensured" };
       }
     }
