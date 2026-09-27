@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { LightbulbOff, Undo2, UserShield } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -26,6 +26,8 @@ import {
 import {
     dueScheduledForTank,
     scheduledActionLabel,
+    scheduledRecommendationCompletionDate,
+    setScheduledCellarRecommendationStatus,
     subscribeCompletedScheduledCellarRecommendationsToday,
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
@@ -247,6 +249,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
     const [ignoreSavingId, setIgnoreSavingId] = useState<string | null>(null);
+    const autoResolvedScheduledIds = useRef(new Set<string>());
 
     useEffect(() => {
         const unsubscribeActive = subscribeScheduledCellarRecommendations(
@@ -437,57 +440,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             recommendations?.pressureAdjustmentHandledToday?.completed === true;
                         const carbCompletedToday = hasTodayCarbonation || handledPressureAfterCarb;
 
-                        const day = new Date().getDay();
-                        if (day === 0 && tank.stage.name === "קר" && !hasTodayCooling) {
-                            tankDailyProgress.yeastRequired = 1;
-                            tankDailyProgress.yeastCompleted = hasTodayYeast ? 1 : 0;
-                            tankDailyProgress.carbRequired = 1;
-                            tankDailyProgress.carbCompleted = carbCompletedToday ? 1 : 0;
-
-                            if (!hasTodayYeast) {
-                                dailyActions.push({
-                                    id: `daily-sunday-yeast-${tank.id}`,
-                                    tankNumber: number,
-                                    title: "הורדת שמרים",
-                                    detail: "פעולת יום ראשון לכל מיכל קר",
-                                });
-                            }
-                            if (!carbCompletedToday) {
-                                dailyActions.push({
-                                    id: `daily-sunday-carb-${tank.id}`,
-                                    tankNumber: number,
-                                    title: "בדיקת גיזוז",
-                                    detail: "פעולת יום ראשון לכל מיכל קר",
-                                });
-                            }
-                        } else if (day === 3 && isCalendarCarbRecommendation(recommendations?.requiresCarbTest)) {
-                            tankDailyProgress.carbRequired = 1;
-                            tankDailyProgress.carbCompleted = carbCompletedToday ? 1 : 0;
-                            if (!carbCompletedToday) {
-                                dailyActions.push({
-                                    id: `daily-wednesday-carb-${tank.id}`,
-                                    tankNumber: number,
-                                    title: "בדיקת גיזוז",
-                                    detail: "מתוכנן לרדת בשבוע הבא",
-                                });
-                            }
-                        } else if (
-                            day === 4 &&
-                            recommendations?.requiiersWedYeastDropOnThus?.req === true &&
-                            recommendations?.requiiersWedYeastDropOnThus?.display === true
-                        ) {
-                            tankDailyProgress.yeastRequired = 1;
-                            tankDailyProgress.yeastCompleted = hasTodayYeast ? 1 : 0;
-                            if (!hasTodayYeast) {
-                                dailyActions.push({
-                                    id: `daily-thursday-yeast-${tank.id}`,
-                                    tankNumber: number,
-                                    title: "הורדת שמרים",
-                                    detail: "מתוכנן לרדת בשבוע הבא",
-                                });
-                            }
-                        }
-
                         const naturalCarb = Boolean(
                             recommendations?.requiresCarbTest?.req &&
                             recommendations?.requiresCarbTest?.display
@@ -505,22 +457,101 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             tank.tankNumber,
                             tank.batchNumber
                         );
-                        const hasActiveUserPressureDecision = dueScheduled.some(
-                            (row) => row.actionType === "pressureChange"
+                        const scheduledCompletionDates = new Map(
+                            dueScheduled.map((row) => [
+                                row.id,
+                                scheduledRecommendationCompletionDate(row, measurements),
+                            ])
                         );
-                        const effectivelyCompletedScheduled = dueScheduled.filter((row) => {
-                            if (row.actionType === "pressureChange") return handledPressureAfterCarb;
-                            return row.actionType === "carbTest" ? carbCompletedToday : hasTodayYeast;
+                        const effectivelyCompletedScheduled = dueScheduled.filter(
+                            (row) => Boolean(scheduledCompletionDates.get(row.id))
+                        );
+                        effectivelyCompletedScheduled.forEach((row) => {
+                            const completionDate = scheduledCompletionDates.get(row.id);
+                            if (!completionDate || autoResolvedScheduledIds.current.has(row.id)) return;
+                            autoResolvedScheduledIds.current.add(row.id);
+                            void setScheduledCellarRecommendationStatus(row.id, "completed", completionDate)
+                                .catch((error) => {
+                                    autoResolvedScheduledIds.current.delete(row.id);
+                                    console.error("Failed auto-completing scheduled cellar recommendation:", error);
+                                });
                         });
+
                         const effectivelyCompletedIds = new Set(
                             effectivelyCompletedScheduled.map((row) => row.id)
                         );
-                        const manualDue = dueScheduled
-                            .filter((row) => !effectivelyCompletedIds.has(row.id))
-                            .filter((row) => {
-                                if (row.actionType === "pressureChange") return true;
-                                return row.actionType === "carbTest" ? !naturalCarb : !naturalYeast;
+                        const unresolvedScheduled = dueScheduled.filter(
+                            (row) => !effectivelyCompletedIds.has(row.id)
+                        );
+                        const hasActiveUserPressureDecision = unresolvedScheduled.some(
+                            (row) => row.actionType === "pressureChange"
+                        );
+                        const manualDue = unresolvedScheduled.filter((row) => {
+                            if (row.actionType === "pressureChange") return true;
+                            return row.actionType === "carbTest" ? !naturalCarb : !naturalYeast;
+                        });
+
+                        const day = new Date().getDay();
+                        const sundayColdAction = day === 0 && tank.stage.name === "קר" && !hasTodayCooling;
+                        const wednesdayCarbAction =
+                            day === 3 && isCalendarCarbRecommendation(recommendations?.requiresCarbTest);
+                        const thursdayYeastAction =
+                            day === 4 &&
+                            recommendations?.requiiersWedYeastDropOnThus?.req === true &&
+                            recommendations?.requiiersWedYeastDropOnThus?.display === true;
+                        const scheduledCarbAction = unresolvedScheduled.some(
+                            (row) => row.actionType === "carbTest"
+                        );
+                        const scheduledYeastAction = unresolvedScheduled.some(
+                            (row) => row.actionType === "yeastDrop"
+                        );
+
+                        const carbRequiredToday =
+                            sundayColdAction ||
+                            wednesdayCarbAction ||
+                            naturalCarb ||
+                            scheduledCarbAction ||
+                            carbCompletedToday;
+                        const yeastRequiredToday =
+                            sundayColdAction ||
+                            thursdayYeastAction ||
+                            naturalYeast ||
+                            scheduledYeastAction ||
+                            hasTodayYeast;
+
+                        tankDailyProgress.carbRequired = carbRequiredToday ? 1 : 0;
+                        tankDailyProgress.carbCompleted = carbRequiredToday && carbCompletedToday ? 1 : 0;
+                        tankDailyProgress.yeastRequired = yeastRequiredToday ? 1 : 0;
+                        tankDailyProgress.yeastCompleted = yeastRequiredToday && hasTodayYeast ? 1 : 0;
+
+                        if (carbRequiredToday && !carbCompletedToday) {
+                            dailyActions.push({
+                                id: `daily-carb-${tank.id}`,
+                                tankNumber: number,
+                                title: "בדיקת גיזוז",
+                                detail: sundayColdAction
+                                    ? "פעולת יום ראשון לכל מיכל קר"
+                                    : wednesdayCarbAction
+                                        ? "מתוכנן לרדת בשבוע הבא"
+                                        : scheduledCarbAction
+                                            ? "המלצה מתוזמנת פעילה"
+                                            : "המלצת סלרינג פעילה",
                             });
+                        }
+                        if (yeastRequiredToday && !hasTodayYeast) {
+                            dailyActions.push({
+                                id: `daily-yeast-${tank.id}`,
+                                tankNumber: number,
+                                title: "הורדת שמרים",
+                                detail: sundayColdAction
+                                    ? "פעולת יום ראשון לכל מיכל קר"
+                                    : thursdayYeastAction
+                                        ? "מתוכנן לרדת בשבוע הבא"
+                                        : scheduledYeastAction
+                                            ? "המלצה מתוזמנת פעילה"
+                                            : "המלצת סלרינג פעילה",
+                            });
+                        }
 
                         [
                             ...naturalRecommendations.filter(
@@ -584,9 +615,12 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         const completedScheduledIds = new Set(
                             completedScheduledForTank.map((row) => row.id)
                         );
+                        const effectivelyCompletedScheduledToday = effectivelyCompletedScheduled.filter(
+                            (row) => scheduledCompletionDates.get(row.id) === today
+                        );
                         const scheduledCompletedForDisplay = [
                             ...completedScheduledForTank,
-                            ...effectivelyCompletedScheduled.filter((row) => !completedScheduledIds.has(row.id)),
+                            ...effectivelyCompletedScheduledToday.filter((row) => !completedScheduledIds.has(row.id)),
                         ];
                         const completedScheduledCarb = scheduledCompletedForDisplay.some(
                             (row) => row.actionType === "carbTest"
