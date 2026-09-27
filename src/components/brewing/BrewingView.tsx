@@ -372,19 +372,23 @@ export default function BrewingView({ brews, tab }: Props) {
     const currentProductionBatchNumbers = useMemo(
         () =>
             new Set(
-                editableProductionTanks
+                brews
+                    .filter((tank) => Number(tank.action) === 0 || Number(tank.action) === 1)
                     .map((tank) =>
                         String(tank.batchNumber || "").replace("#", "").trim(),
                     )
                     .filter(Boolean),
             ),
-        [editableProductionTanks],
+        [brews],
     );
 
     async function batchNumberExistsInProduction(batchNumber: string): Promise<boolean> {
         const clean = String(batchNumber || "").replace("#", "").trim();
         if (!clean) return false;
-        return brews.some((tank) => String(tank.batchNumber || "").replace("#", "").trim() === clean) ||
+        return brews.some((tank) =>
+            (Number(tank.action) === 0 || Number(tank.action) === 1) &&
+            String(tank.batchNumber || "").replace("#", "").trim() === clean
+        ) ||
             pendingProductionRows.some((row) => String(row.batchNumber || "").replace("#", "").trim() === clean) ||
             creationJobs.some((job) => job.batchNumber === clean) ||
             productionHistory.some((row) => String(row.batchNumber || "").replace("#", "").trim() === clean);
@@ -393,7 +397,9 @@ export default function BrewingView({ brews, tab }: Props) {
     const visiblePlanningHints = useMemo(() => {
         const created = new Set(
             [
-                ...brews.map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
+                ...brews
+                    .filter((tank) => Number(tank.action) === 0 || Number(tank.action) === 1)
+                    .map((tank) => String(tank.batchNumber || "").replace("#", "").trim()),
                 ...pendingProductionRows.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
                 ...creationJobs.map((job) => job.batchNumber),
                 ...productionHistory.map((row) => String(row.batchNumber || "").replace("#", "").trim()),
@@ -605,6 +611,7 @@ export default function BrewingView({ brews, tab }: Props) {
         return (
             brews.find(
                 (tank) =>
+                    (Number(tank.action) === 0 || Number(tank.action) === 1) &&
                     String(tank.batchNumber || "").replace("#", "").trim() === clean,
             ) || null
         );
@@ -939,6 +946,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
     async function deletePendingProductionBatch(run: BrewRun) {
         if (run.brewDate || !run.sheetId) return;
         const liveTank = brews.find((item) =>
+            (Number(item.action) === 0 || Number(item.action) === 1) &&
             String(item.batchNumber || "").replace("#", "").trim() === run.batchNumber,
         );
         if (liveTank) {
@@ -1063,6 +1071,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
     async function confirmDeleteProductionBatch() {
         if (!deleteConfirmation) return;
         const assignedTank = brews.find((item) =>
+            (Number(item.action) === 0 || Number(item.action) === 1) &&
             String(item.batchNumber || "").replace("#", "").trim() === deleteConfirmation.batchNumber,
         );
         if (assignedTank) {
@@ -1237,7 +1246,13 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     tanks={allTanks}
                     recipes={recipes}
                     suggestedBatch={suggestedBatch}
-                    createdBatchNumbers={[...new Set([...brews.map((tank) => String(tank.batchNumber || "")), ...pendingProductionRows.map((row) => String(row.batchNumber || "")), ...creationJobs.map((job) => String(job.batchNumber || ""))].filter(Boolean))]}
+                    createdBatchNumbers={[...new Set([
+                        ...brews
+                            .filter((tank) => Number(tank.action) === 0 || Number(tank.action) === 1)
+                            .map((tank) => String(tank.batchNumber || "")),
+                        ...pendingProductionRows.map((row) => String(row.batchNumber || "")),
+                        ...creationJobs.map((job) => String(job.batchNumber || "")),
+                    ].filter(Boolean))]}
                     busyTankId={busyTankId}
                     planningHints={planningHints}
                     planningHintsAvailable={planningHintsAvailable}
