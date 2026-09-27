@@ -1,6 +1,7 @@
 import { collection, getDocsFromServer, orderBy, query, type QuerySnapshot, type DocumentData } from "firebase/firestore";
 import { db } from "../../firebase";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
+import { recordReadAudit } from "../readAudit";
 import {
   collapseMeasurementsToLatestPerDay,
   measurementDayKeyFromId,
@@ -244,6 +245,8 @@ export async function getMeasurementsByBatch(
   entry.pending = (async () => {
     try {
       const snapshot = await getDocsFromServer(query(collection(db, "brews", id, "measurements"), orderBy("date")));
+      recordReadAudit("Measurements fallback", snapshot.size);
+      recordReadAudit(`Measurements #${id}`, snapshot.size);
       if (startedSession !== session) throw new Error("Measurement session changed; please retry");
       // An invalidation or newer request won the race. Never return old results.
       if (cache.get(id) !== entry) return getMeasurementsByBatch(id);
