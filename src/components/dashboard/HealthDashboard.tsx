@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { LightbulbOff, Undo2 } from "lucide-react";
+import { LightbulbOff, Undo2, UserShield } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -534,9 +534,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 req: true,
                                 display: true,
                                 importance: 3,
-                                userDecision: row.actionType === "pressureChange",
-                                reason: row.actionType === "pressureChange"
-                                    ? `החלטת משתמש: ${row.note || "יש לבצע שינוי לחץ"}`
+                                userDecision: row.source === "user" || row.actionType === "pressureChange",
+                                reason: row.source === "user" || row.actionType === "pressureChange"
+                                    ? `החלטת סלרינג: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`
                                     : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
                             })),
                         ].forEach((recommendation) => {
@@ -553,7 +553,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 id: `recommendation-${tank.id}-${recommendation.recommendationKey}`,
                                 severity: recommendationSeverity(importance),
                                 title: recommendation.userDecision
-                                    ? `מיכל ${number}: החלטת משתמש`
+                                    ? `מיכל ${number}: החלטת סלרינג`
                                     : `מיכל ${number}: המלצת סלרינג`,
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
@@ -594,14 +594,18 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         const completedScheduledYeast = scheduledCompletedForDisplay.some(
                             (row) => row.actionType === "yeastDrop"
                         );
+                        const completedScheduledPressure = scheduledCompletedForDisplay.some(
+                            (row) => row.actionType === "pressureChange"
+                        );
 
                         scheduledCompletedForDisplay.forEach((row) => {
+                            const isDecision = row.source === "user" || row.actionType === "pressureChange";
                             addCompleted(
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
                                 1,
-                                row.actionType === "pressureChange"
-                                    ? `בוצע לפי החלטת משתמש${row.note ? ` · ${row.note}` : ""}`
+                                isDecision
+                                    ? `בוצע לפי החלטת סלרינג${row.note ? ` · ${row.note}` : ""}`
                                     : row.note
                                         ? `בוצע לפי המלצה מתוזמנת · ${row.note}`
                                         : "בוצע לפי המלצה מתוזמנת"
@@ -617,7 +621,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
                         if (todayNotes.includes("קירור")) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
                         if (todayNotes.includes("גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
-                        if (recommendations?.pressureAdjustmentHandledToday?.completed) {
+                        if (recommendations?.pressureAdjustmentHandledToday?.completed && !completedScheduledPressure) {
                             const importance = Math.max(
                                 1,
                                 Math.min(3, Number(recommendations.pressureAdjustmentHandledToday.importance) || 1)
@@ -924,7 +928,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             >
                                 <span className="health-alert-icon" aria-hidden="true">
                                     {alert.userDecision
-                                        ? "👤"
+                                        ? <UserShield size={14} aria-hidden="true" />
                                         : alert.severity === "critical"
                                             ? "!"
                                             : alert.severity === "warning"
