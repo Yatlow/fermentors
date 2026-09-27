@@ -15,6 +15,7 @@ import {
   brewSizeLabel,
   normalizeEmptyTankFlagsForSchedule,
   tankReleases,
+  validateProduction,
 } from "../src/SERVICES/planning/productionCycle";
 
 const today = "2026-09-13";
@@ -266,6 +267,33 @@ test("committed early packaging contributes finished stock to the forecast", () 
   const forecast = dailyForecast(settings, [], [tank], [plan], [], today);
   const point = forecast.points.find((row) => row.date === "2026-09-22" && row.productId === product.id);
   assert.equal(point?.packed, 84);
+});
+
+test("saved early packaging approval avoids repeated readiness confirmation", () => {
+  const tank: Tank = {
+    id: "tank-approved-early",
+    number: "4",
+    batch: "approved-early",
+    style: "IPA",
+    brewed: "2026-09-01",
+    ready: "2026-09-24",
+    liters: 1000,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-09-20"),
+    packaging: [{
+      id: "approved-early-pack",
+      productId: product.id,
+      quantity: 84,
+      date: "2026-09-22",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      earlyPackagingOverride: true,
+    }],
+  };
+
+  assert.equal(validateProduction([plan], settings, [tank], [], today), null);
 });
 
 test("brew size helpers keep weekly editing on single/double/triple labels", () => {

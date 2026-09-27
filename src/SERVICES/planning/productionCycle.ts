@@ -245,7 +245,7 @@ export function validateProduction(
     const p = settings.products.find((p) => p.id === r.productId);
     if (!t || !p || !sameStyle(t.style, p.style))
       return "מיכל האריזה אינו תואם לסגנון";
-    if (r.date < t.ready && !options?.allowEarlyPackaging)
+    if (r.date < t.ready && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
       return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${t.ready}`;
 
     const history = tankRuns.get(t.id) ?? [];
