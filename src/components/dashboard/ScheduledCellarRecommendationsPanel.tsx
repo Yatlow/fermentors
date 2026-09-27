@@ -5,6 +5,7 @@ import {
   scheduledForTank,
   setScheduledCellarRecommendationStatus,
   todayDateKey,
+  type PressureChangeDirection,
   type ScheduledCellarActionType,
   type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
@@ -18,11 +19,16 @@ export type NaturalFutureCellarRecommendation = {
   detail?: string;
 };
 
+export type PressureDecisionCandidate = {
+  reason: string;
+};
+
 type Props = {
   tankNumber: string | number;
   batchNumber: string | number;
   rows: ScheduledCellarRecommendation[];
   naturalFuture?: NaturalFutureCellarRecommendation[];
+  pressureDecisionCandidate?: PressureDecisionCandidate;
 };
 
 function tomorrowKey(): string {
@@ -36,22 +42,38 @@ function displayDate(value: string): string {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
 }
 
+function pressureContext(reason: string): string {
+  return reason
+    .replace(/\s*מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע\.?\s*$/u, "")
+    .replace(/\s*מומלץ לבצע שינוי לחץ בהתאם\.?\s*$/u, "")
+    .replace(/[.\s]+$/u, "")
+    .trim();
+}
+
 export default function ScheduledCellarRecommendationsPanel({
   tankNumber,
   batchNumber,
   rows,
   naturalFuture = [],
+  pressureDecisionCandidate,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [actionType, setActionType] = useState<ScheduledCellarActionType>("carbTest");
   const [dueDate, setDueDate] = useState(tomorrowKey);
   const [note, setNote] = useState("");
+  const [pressureDirection, setPressureDirection] = useState<PressureChangeDirection>("lower");
+  const [targetPressure, setTargetPressure] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   const existing = useMemo(
     () => scheduledForTank(rows, tankNumber, batchNumber),
     [rows, tankNumber, batchNumber],
+  );
+
+  const today = todayDateKey();
+  const hasTodayPressureDecision = existing.some(
+    (row) => row.actionType === "pressureChange" && row.dueDate === today
   );
 
   const futureItems = useMemo(() => {
@@ -71,14 +93,18 @@ export default function ScheduledCellarRecommendationsPanel({
         dueDate: row.dueDate,
         detail: row.detail,
         manualId: null as string | null,
+        userDecision: false,
       })),
       ...visibleManual.map((row) => ({
         key: `manual:${row.id}`,
         actionType: row.actionType,
-        label: scheduledActionLabel(row.actionType),
+        label: row.actionType === "pressureChange"
+          ? "החלטת משתמש · שינוי לחץ"
+          : scheduledActionLabel(row.actionType),
         dueDate: row.dueDate,
         detail: row.note || undefined,
         manualId: row.id,
+        userDecision: row.actionType === "pressureChange" || row.source === "user",
       })),
     ].sort((a, b) =>
       String(a.dueDate ?? "9999-99-99").localeCompare(String(b.dueDate ?? "9999-99-99"))
@@ -116,6 +142,40 @@ export default function ScheduledCellarRecommendationsPanel({
     }
   }
 
+  async function addPressureDecision() {
+    if (!pressureDecisionCandidate || hasTodayPressureDecision) return;
+    const target = Number(targetPressure);
+    if (!Number.isFinite(target) || target < 0 || target > 5) {
+      setMessage("יש להזין לחץ יעד תקין בין 0 ל-5 bar");
+      return;
+    }
+
+    const directionLabel = pressureDirection === "raise" ? "העלאת" : "הורדת";
+    const context = pressureContext(pressureDecisionCandidate.reason);
+    const decisionText = `${context ? `${context}. ` : ""}יש לבצע ${directionLabel} לחץ ל-${target} bar`;
+
+    setSaving(true);
+    setMessage("");
+    try {
+      await createScheduledCellarRecommendation({
+        tankNumber,
+        batchNumber,
+        actionType: "pressureChange",
+        dueDate: today,
+        note: decisionText,
+        pressureDirection,
+        targetPressure: target,
+        source: "user",
+      });
+      setTargetPressure("");
+      setMessage("החלטת המשתמש נוספה להמלצות של היום");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "שמירת החלטת המשתמש נכשלה");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function finish(id: string, status: "completed" | "cancelled") {
     setSaving(true);
     setMessage("");
@@ -142,12 +202,44 @@ export default function ScheduledCellarRecommendationsPanel({
         </button>
       </div>
 
+      {pressureDecisionCandidate && !hasTodayPressureDecision && (
+        <div className="scheduled-pressure-decision">
+          <strong>החלטת משתמש בעקבות גיזוז לא תקין</strong>
+          <small>{pressureDecisionCandidate.reason}</small>
+          <div className="scheduled-pressure-decision-form">
+            <select
+              value={pressureDirection}
+              onChange={(event) => setPressureDirection(event.target.value as PressureChangeDirection)}
+            >
+              <option value="lower">הורדת לחץ</option>
+              <option value="raise">העלאת לחץ</option>
+            </select>
+            <input
+              type="number"
+              min="0"
+              max="5"
+              step="0.01"
+              inputMode="decimal"
+              value={targetPressure}
+              placeholder="לחץ יעד (bar)"
+              onChange={(event) => setTargetPressure(event.target.value)}
+            />
+            <button type="button" disabled={saving || !targetPressure} onClick={() => void addPressureDecision()}>
+              {saving ? "שומר…" : "הוסף להיום"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {futureItems.length === 0 ? (
         <small className="scheduled-cellar-empty">אין המלצות עתידיות למיכל הזה</small>
       ) : (
         <div className="scheduled-cellar-list">
           {futureItems.map((row) => (
-            <div className="scheduled-cellar-row" key={row.key}>
+            <div
+              className={`scheduled-cellar-row${row.userDecision ? " user-decision" : ""}`}
+              key={row.key}
+            >
               <div>
                 <b>{row.label}</b>
                 <span>
