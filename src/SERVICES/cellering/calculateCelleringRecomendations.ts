@@ -793,27 +793,25 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    const noteIsBottomCarbonation =
-        lastNote?.includes("גיזוז מלמטה");
-    const noteAdjustedPressureToday =
-        !noteIsBottomCarbonation &&
-        (
-            lastNote?.includes("הורדת לחץ") ||
-            lastNote?.includes("העלאת לחץ") ||
-            lastNote?.includes("להוריד לחץ") ||
-            lastNote?.includes("להעלות לחץ")
+    const pressureHandledToday = sortedMeasurements.some((measurement) => {
+        if (getMeasurementDate(measurement.id) !== todayDate) return false;
+        const note = String(measurement.notes ?? "");
+        return (
+            note.includes("הורדת לחץ") ||
+            note.includes("העלאת לחץ") ||
+            note.includes("להוריד לחץ") ||
+            note.includes("להעלות לחץ") ||
+            note.includes("גיזוז מלמטה")
         );
+    });
     const noteAdjustedPrvToday =
         lastNote?.includes("כיוון פורק") ||
         lastNote?.includes("לכוון פורק");
 
-    // The normal pressure round is only reported once in the morning, so a
-    // different pressure value versus yesterday is NOT proof that the operator
-    // acted on today's carbonation result. A PRV adjustment is also a separate
-    // warm-pressure operation; it must not close a carbonation correction.
-    const pressureHandledToday =
-        lastMeasurementDate === todayDate &&
-        Boolean(noteAdjustedPressureToday);
+    // Completion is action-based, not row-based: the carbonation test and the
+    // corrective pressure action are often logged as separate rows. A normal
+    // pressure measurement alone still does not count; an explicit pressure
+    // action (including bottom carbonation) must be recorded today.
     const prvHandledToday =
         lastMeasurementDate === todayDate &&
         Boolean(noteAdjustedPrvToday);

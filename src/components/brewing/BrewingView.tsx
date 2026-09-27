@@ -1009,9 +1009,23 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                 tank.cellarState && typeof tank.cellarState === "object"
                     ? tank.cellarState as Record<string, unknown>
                     : null;
-            if (cellarState) {
-                // Restore the exact state captured by ACTION 5 immediately
-                // before it assigned this unstarted brew.
+            const deletedBatch = String(run.batchNumber || "").replace("#", "").trim();
+            const cellarBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();
+            const cellarStateIsPrevious = Boolean(cellarState && cellarBatch && cellarBatch !== deletedBatch);
+            const previousRun = productionHistory
+                .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
+                .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== deletedBatch)
+                .filter((item) => !!String(item.brewDate || "").trim())
+                .sort((a, b) => {
+                    const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
+                    return Number.isFinite(batchDelta) && batchDelta !== 0
+                        ? batchDelta
+                        : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
+                })[0];
+
+            let restoredBatch = "";
+            if (cellarStateIsPrevious) {
+                restoredBatch = cellarBatch;
                 await updateDoc(doc(db, "fermentors", tank.id), {
                     ...cellarState,
                     action: 5,
@@ -1020,41 +1034,22 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                     cellarState: deleteField(),
                 });
             } else {
-                // Backward-compatible fallback for ACTION-0 assignments created
-                // before cellarState snapshots were introduced.
-                const cellarBatch = String(
-                    (tank.cellarState as { batchNumber?: string | number } | undefined)?.batchNumber || "",
-                ).replace("#", "").trim();
-                const previousRun =
-                    (cellarBatch
-                        ? productionHistory.find(
-                              (item) => String(item.batchNumber || "").replace("#", "").trim() === cellarBatch,
-                          )
-                        : undefined) ||
-                    productionHistory
-                        .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
-                        .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== run.batchNumber)
-                        .filter((item) => !!String(item.brewDate || "").trim())
-                        .sort((a, b) => {
-                            const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
-                            return Number.isFinite(batchDelta) && batchDelta !== 0
-                                ? batchDelta
-                                : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
-                        })[0];
+                restoredBatch = String(previousRun?.batchNumber || "").replace("#", "").trim();
                 await updateDoc(doc(db, "fermentors", tank.id), {
-                    batchNumber: previousRun?.batchNumber || cellarBatch || "",
+                    ...(cellarState || {}),
+                    batchNumber: previousRun?.batchNumber || "",
                     beerStyle: previousRun?.beerStyle || "",
                     brewDate: previousRun?.brewDate || "",
                     sheetUrl: previousRun?.sheetUrl || "",
                     action: 5,
                     stage: 5,
                     tankStatus: true,
+                    cellarState: deleteField(),
                 });
             }
             setSelectedRun(null);
             setPendingProductionRows((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
             setProductionHistory((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
-            const restoredBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();
             setMessage(restoredBatch ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${restoredBatch} וה-state הקודם שלה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);
         } catch (error) {
             setMessage(
