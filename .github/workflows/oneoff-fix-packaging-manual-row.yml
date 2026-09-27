@@ -1,0 +1,127 @@
+name: One-off fix packaging manual row
+
+on:
+  push:
+    branches:
+      - fix/planning-early-packaging-regressions
+    paths:
+      - '.github/workflows/oneoff-fix-packaging-manual-row.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/planning-early-packaging-regressions
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Fix packaging row independence and remainder default
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/planning/PlanningWeeklyRecommendationsEnhanced.tsx')
+          text = path.read_text()
+
+          old = '''    function addManualRow() {
+        if (!packStyle) return;
+        const recommended = model.packagingRecommendation.find((rec) => {
+            const p = product(rec.productId);
+            return p && sameStyle(p.style, packStyle) && recommendationRemaining(rec) > 0;
+        });
+        if (recommended) {
+            setRows((currentRows) => [...currentRows, {
+                key: `rec:${recommended.id}`,
+                source: "recommendation",
+                tankId: recommended.tankId,
+                productId: recommended.productId,
+                quantity: recommendationRemaining(recommended, currentRows),
+                completed: 0,
+            }]);
+            return;
+        }
+        const products = styleProducts(packStyle);
+        const styleTanks = tanksForStyle(packStyle);
+        const defaultProduct = products[0];
+        const defaultTank = styleTanks[0];
+        const key = `manual:${crypto.randomUUID()}`;
+        setRows((currentRows) => {
+            const quantity = defaultProduct && defaultTank
+                ? defaultQuantityForSelection(defaultProduct.id, defaultTank.id, currentRows, key, 0)
+                : 0;
+            return [...currentRows, {
+                key,
+                source: "manual",
+                tankId: defaultTank?.id ?? "",
+                productId: defaultProduct?.id ?? "",
+                quantity,
+                completed: 0,
+            }];
+        });
+    }
+'''
+
+          new = '''    function addManualRow() {
+        if (!packStyle) return;
+        const styleProductsForRow = styleProducts(packStyle);
+        const styleTanks = tanksForStyle(packStyle);
+        const key = `manual:${crypto.randomUUID()}`;
+
+        setRows((currentRows) => {
+            // A split is normally another package format from the same tank.
+            // Prefer the most recently used tank for this style, then choose the
+            // opposite package type. Every row receives its own UUID so editing
+            // or removing one row can never mutate a sibling row.
+            const anchor = [...currentRows].reverse().find((row) => !!row.tankId);
+            const defaultTank = anchor
+                ? styleTanks.find((tank) => tank.id === anchor.tankId) ?? styleTanks[0]
+                : styleTanks[0];
+            const anchorProduct = anchor ? product(anchor.productId) : undefined;
+            const defaultProduct = anchorProduct
+                ? styleProductsForRow.find((item) => item.type !== anchorProduct.type) ?? styleProductsForRow[0]
+                : styleProductsForRow[0];
+            const quantity = defaultProduct && defaultTank
+                ? defaultQuantityForSelection(defaultProduct.id, defaultTank.id, currentRows, key, 0)
+                : 0;
+
+            return [...currentRows, {
+                key,
+                source: "manual",
+                tankId: defaultTank?.id ?? "",
+                productId: defaultProduct?.id ?? "",
+                quantity,
+                completed: 0,
+            }];
+        });
+    }
+'''
+
+          if old not in text:
+              raise SystemExit('addManualRow marker not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+      - name: Verify
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Commit and remove one-off workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/oneoff-fix-packaging-manual-row.yml
+          git add src/components/planning/PlanningWeeklyRecommendationsEnhanced.tsx
+          git commit -m 'Fix packaging split remainder row independence'
+          git push origin HEAD:fix/planning-early-packaging-regressions
