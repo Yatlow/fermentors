@@ -1,0 +1,154 @@
+name: One-off planning early packaging regression fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/oneoff-planning-early-packaging-regression-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/planning-early-packaging-regressions
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Patch planning regressions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # 1) A committed dated packaging decision is authoritative for release,
+          # even when a planner explicitly scheduled it before nominal readiness.
+          path = Path('src/SERVICES/planning/productionCycle.ts')
+          text = path.read_text()
+          old = '      if (!p || !sameStyle(p.style, tank.style) || r.date! < tank.ready) continue;'
+          new = '''      // Dated rows in `plans` are committed planner decisions. The save flow still\n      // warns before allowing a date earlier than nominal readiness, but once the\n      // planner approves it the release engine must honor that decision.\n      if (!p || !sameStyle(p.style, tank.style)) continue;'''
+          if old not in text:
+              raise SystemExit('tankReleases readiness guard not found')
+          path.write_text(text.replace(old, new, 1))
+
+          # 2) Forecast committed packaging using the committed date as authoritative.
+          # Keep normal readiness filtering for newly generated recommendations later
+          # in dailyForecast.
+          path = Path('src/SERVICES/planning/dailyPlanner.ts')
+          text = path.read_text()
+          old = '''    const allocations = allocate(\n      r.tankId ? pool.filter((t) => t.id === r.tankId) : pool,\n      available,\n      p,\n      r.remaining,\n      r.date!,\n    );'''
+          new = '''    const committedPool = (r.tankId ? pool.filter((t) => t.id === r.tankId) : pool)\n      .map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);\n    const allocations = allocate(\n      committedPool,\n      available,\n      p,\n      r.remaining,\n      r.date!,\n    );'''
+          if old not in text:
+              raise SystemExit('committed packaging allocation block not found')
+          path.write_text(text.replace(old, new, 1))
+
+          # 3) Changing package type/tank in the split editor must not silently refill
+          # the row to the maximum and thereby change the other half of the split.
+          path = Path('src/components/planning/PlanningWeeklyRecommendationsEnhanced.tsx')
+          text = path.read_text()
+          old = '''            if (patch.tankId !== undefined || patch.productId !== undefined) {\n                next.quantity = defaultQuantityForSelection(next.productId, next.tankId, currentRows, key, next.completed);\n            }'''
+          new = '''            if (patch.tankId !== undefined || patch.productId !== undefined) {\n                const max = defaultQuantityForSelection(next.productId, next.tankId, currentRows, key, next.completed);\n                next.quantity = Math.max(next.completed, Math.min(next.quantity, max));\n            }'''
+          if old not in text:
+              raise SystemExit('packaging editor auto-refill block not found')
+          path.write_text(text.replace(old, new, 1))
+
+          # 4) Regression coverage.
+          path = Path('tests/planning-weekly-regression.test.ts')
+          text = path.read_text()
+          marker = 'import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";\n'
+          if marker not in text:
+              raise SystemExit('planning regression import marker not found')
+          text = text.replace(marker, marker + 'import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";\n', 1)
+
+          insert_before = 'test("brew size helpers keep weekly editing on single/double/triple labels", () => {'
+          if insert_before not in text:
+              raise SystemExit('planning regression insertion marker not found')
+          tests = r'''test("committed early packaging still releases a tank for the following brewing week", () => {
+  const tank: Tank = {
+    id: "tank-early",
+    number: "4",
+    batch: "early-batch",
+    style: "IPA",
+    brewed: "2026-09-01",
+    ready: "2026-09-24",
+    liters: 1000,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-09-20"),
+    packaging: [{
+      id: "early-pack",
+      productId: product.id,
+      quantity: 126,
+      date: "2026-09-22",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    }],
+  };
+
+  const releases = tankReleases(
+    [{ id: tank.id, tankNumber: 4, beerStyle: "IPA", beerVolume: 1100, tankStatus: false, action: 1 }],
+    [tank],
+    [plan],
+    settings,
+    [],
+    today,
+  );
+
+  assert.equal(releases[0].emptyDate, "2026-09-22");
+  assert.equal(releases[0].date, "2026-09-28");
+});
+
+test("committed early packaging contributes finished stock to the forecast", () => {
+  const tank: Tank = {
+    id: "tank-forecast-early",
+    number: "4",
+    batch: "forecast-early",
+    style: "IPA",
+    brewed: "2026-09-01",
+    ready: "2026-09-24",
+    liters: 1000,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-09-20"),
+    packaging: [{
+      id: "early-stock",
+      productId: product.id,
+      quantity: 84,
+      date: "2026-09-22",
+      tankId: tank.id,
+      tankNumber: tank.number,
+    }],
+  };
+
+  const forecast = dailyForecast(settings, [], [tank], [plan], [], today);
+  const point = forecast.points.find((row) => row.date === "2026-09-22" && row.productId === product.id);
+  assert.equal(point?.packed, 84);
+});
+
+'''
+          path.write_text(text.replace(insert_before, tests + insert_before, 1))
+          PY
+
+      - name: Verify
+        run: |
+          npm ci
+          npm run lint
+          npm run test:planning
+          npm run build
+
+      - name: Commit fix and remove one-off workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/oneoff-planning-early-packaging-regression-fix.yml
+          git add src/SERVICES/planning/productionCycle.ts src/SERVICES/planning/dailyPlanner.ts src/components/planning/PlanningWeeklyRecommendationsEnhanced.tsx tests/planning-weekly-regression.test.ts
+          git commit -m 'Fix early packaging planning regressions'
+          git push origin HEAD:fix/planning-early-packaging-regressions
