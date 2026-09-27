@@ -278,7 +278,16 @@ export default function ScheduledCellarRecommendationsPanel({
 
       {open && (
         <div className="scheduled-cellar-form">
-          <select value={actionType} onChange={(event) => setActionType(event.target.value as ScheduledCellarActionType)}>
+          <select
+            value={actionType}
+            onChange={(event) => {
+              const nextActionType = event.target.value as ScheduledCellarActionType;
+              setActionType(nextActionType);
+              if (nextActionType === "pressureChange") {
+                setDueDate(todayDateKey());
+              }
+            }}
+          >
             <option value="carbTest">בדיקת גיזוז</option>
             <option value="yeastDrop">הורדת שמרים</option>
             <option value="pressureChange">שינוי לחץ</option>
