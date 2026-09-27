@@ -374,7 +374,8 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             if (row.key !== key) return row;
             const next = { ...row, ...patch };
             if (patch.tankId !== undefined || patch.productId !== undefined) {
-                next.quantity = defaultQuantityForSelection(next.productId, next.tankId, currentRows, key, next.completed);
+                const max = defaultQuantityForSelection(next.productId, next.tankId, currentRows, key, next.completed);
+                next.quantity = Math.max(next.completed, Math.min(next.quantity, max));
             }
             return next;
         }));
