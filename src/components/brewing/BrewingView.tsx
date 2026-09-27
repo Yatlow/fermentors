@@ -300,6 +300,13 @@ export default function BrewingView({ brews, tab }: Props) {
         if (!liveRun) return;
 
         const changed =
+            liveRun.batchNumber !== selectedRun.batchNumber ||
+            liveRun.style !== selectedRun.style ||
+            liveRun.sheetId !== selectedRun.sheetId ||
+            liveRun.sheetUrl !== selectedRun.sheetUrl ||
+            liveRun.brewDate !== selectedRun.brewDate ||
+            liveRun.tankNumber !== selectedRun.tankNumber ||
+            liveRun.tankType !== selectedRun.tankType ||
             liveRun.action !== selectedRun.action ||
             liveRun.brewSheetEditRevision !== selectedRun.brewSheetEditRevision ||
             liveRun.brewSheetEditRange !== selectedRun.brewSheetEditRange ||
@@ -1314,6 +1321,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
 
             {tab === "form" && selectedRun && selectedRecipe && (
                 <BrewFormStepper
+                    key={`${selectedRun.tankId}:${selectedRun.batchNumber}:${selectedRun.sheetId}`}
                     run={selectedRun}
                     recipe={selectedRecipe}
                     ingredients={ingredients}
