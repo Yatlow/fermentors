@@ -352,12 +352,10 @@ export default function FermentorInfoBox({
             : []),
         ...dueManualRecommendations.map((row) => ({
             req: true,
-            reason: row.actionType === "pressureChange"
-                ? `החלטת משתמש: ${row.note || "יש לבצע שינוי לחץ"}`
-                : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
+            reason: `החלטת משתמש: ${row.note || `יש לבצע ${scheduledActionLabel(row.actionType)}`}`,
             importance: 3,
             display: true,
-            userDecision: row.actionType === "pressureChange",
+            userDecision: true,
         })),
     ];
 
