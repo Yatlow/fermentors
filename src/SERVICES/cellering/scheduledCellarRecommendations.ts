@@ -28,6 +28,13 @@ export type ScheduledCellarRecommendation = {
   resolvedDate?: string;
 };
 
+export type ScheduledCellarEvidenceMeasurement = {
+  id?: string | number | null;
+  date?: unknown;
+  notes?: unknown;
+  carbonation?: unknown;
+};
+
 type DueScheduledCellarRecommendation = Omit<ScheduledCellarRecommendation, "actionType"> & {
   // Due rows can now also contain a user pressure decision. Legacy consumers
   // that only auto-complete carb/yeast actions should simply ignore any other
@@ -63,6 +70,82 @@ export function todayDateKey(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function validCalendarDate(year: number, month: number, day: number): boolean {
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day;
+}
+
+export function scheduledEvidenceDateKey(
+  measurement: ScheduledCellarEvidenceMeasurement,
+): string | null {
+  const idMatch = String(measurement.id ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:_|$)/);
+  if (idMatch) {
+    const year = Number(idMatch[1]);
+    const month = Number(idMatch[2]);
+    const day = Number(idMatch[3]);
+    if (!validCalendarDate(year, month, day)) return null;
+    return `${idMatch[1]}-${idMatch[2]}-${idMatch[3]}`;
+  }
+
+  const dateMatch = String(measurement.date ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (!dateMatch) return null;
+
+  let year = Number(dateMatch[3]);
+  if (year < 100) year += 2000;
+  const month = Number(dateMatch[2]);
+  const day = Number(dateMatch[1]);
+  if (!validCalendarDate(year, month, day)) return null;
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function hasFiniteCarbonation(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return false;
+  return Number.isFinite(Number(value));
+}
+
+function measurementCompletesScheduledAction(
+  actionType: ScheduledCellarActionType,
+  measurement: ScheduledCellarEvidenceMeasurement,
+): boolean {
+  const notes = String(measurement.notes ?? "");
+
+  if (actionType === "carbTest") {
+    return hasFiniteCarbonation(measurement.carbonation) || /בדיקת\s+גיזוז/.test(notes);
+  }
+  if (actionType === "yeastDrop") {
+    return /שמרים|שמרי/.test(notes);
+  }
+  return /הורדת לחץ|העלאת לחץ|להוריד לחץ|להעלות לחץ|שינוי לחץ|גיזוז מלמטה/.test(notes);
+}
+
+/**
+ * The due date is the point from which a scheduled recommendation becomes
+ * actionable. Completion is derived from real cellar data, never from a
+ * manual "done" button: the first matching measurement/note on or after the
+ * due date resolves the recommendation.
+ */
+export function scheduledRecommendationCompletionDate(
+  row: ScheduledCellarRecommendation,
+  measurements: ScheduledCellarEvidenceMeasurement[],
+): string | null {
+  const matchingDates = measurements
+    .map((measurement) => ({
+      measurement,
+      dateKey: scheduledEvidenceDateKey(measurement),
+    }))
+    .filter((entry): entry is { measurement: ScheduledCellarEvidenceMeasurement; dateKey: string } =>
+      entry.dateKey !== null && entry.dateKey >= row.dueDate
+    )
+    .filter((entry) => measurementCompletesScheduledAction(row.actionType, entry.measurement))
+    .map((entry) => entry.dateKey)
+    .sort();
+
+  return matchingDates[0] ?? null;
 }
 
 export function scheduledActionLabel(action: ScheduledCellarActionType): string {
@@ -156,8 +239,9 @@ export async function createScheduledCellarRecommendation(input: {
 export async function setScheduledCellarRecommendationStatus(
   id: string,
   status: "completed" | "cancelled",
+  resolvedDateOverride?: string,
 ): Promise<void> {
-  const resolvedDate = todayDateKey();
+  const resolvedDate = resolvedDateOverride || todayDateKey();
 
   if (isPullRequestPreview()) {
     writePreviewRows(
