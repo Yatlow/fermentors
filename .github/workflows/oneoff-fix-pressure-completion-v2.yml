@@ -1,9 +1,6 @@
 name: One-off fix pressure completion v2
 
-on:
-  push:
-    paths:
-      - '.github/workflows/oneoff-fix-pressure-completion-v2.yml'
+on: [push]
 
 permissions:
   contents: write
@@ -22,59 +19,6 @@ jobs:
           from pathlib import Path
           path = Path('src/SERVICES/cellering/calculateCelleringRecomendations.ts')
           text = path.read_text()
-          old = '''    const latestCarbSpec = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs);
-    const hasLatestCarb = lastMeasurement?.carbonation !== null &&
-        lastMeasurement?.carbonation !== undefined &&
-        Number.isFinite(Number(lastMeasurement.carbonation));
-    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
-    const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
-    const bottomCarbonationCompletedToday =
-        lastMeasurementDate === todayDate &&
-        Boolean(lastNote?.includes("סגירת גיזוז מלמטה"));
-
-    const coldCarbOutOfSpecToday =
-        stage.name === "קר" &&
-        lastMeasurementDate === todayDate &&
-        hasLatestCarb &&
-        latestCarbSpec.outOfSpec &&
-        !pressureHandledToday &&
-        !bottomCarbonationCompletedToday;'''
-          new = '''    const latestCarbSpec = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs);
-    const hasLatestCarb = lastMeasurement?.carbonation !== null &&
-        lastMeasurement?.carbonation !== undefined &&
-        Number.isFinite(Number(lastMeasurement.carbonation));
-    const todayCarbonationMeasurement = [...sortedMeasurements]
-        .reverse()
-        .find((measurement) => {
-            if (getMeasurementDate(measurement.id) !== todayDate) return false;
-            const carbonation = measurement.carbonation;
-            return carbonation !== null &&
-                carbonation !== undefined &&
-                carbonation !== "" &&
-                Number.isFinite(Number(carbonation));
-        });
-    const todayCarbonationSpec = isCarbonationOutOfRange(
-        todayCarbonationMeasurement?.carbonation,
-        style,
-        givenSpecs
-    );
-    const carbonationTarget = givenSpecs.carbonation?.[normalizedStyle] ?? givenSpecs.carbonation?.other;
-    const openBottomCarbonation = findOpenBottomCarbonation(sortedMeasurements) !== null;
-    const bottomCarbonationCompletedToday = sortedMeasurements.some((measurement) =>
-        getMeasurementDate(measurement.id) === todayDate &&
-        String(measurement.notes ?? "").includes("סגירת גיזוז מלמטה")
-    );
-
-    const coldCarbOutOfSpecToday =
-        stage.name === "קר" &&
-        Boolean(todayCarbonationMeasurement) &&
-        todayCarbonationSpec.outOfSpec &&
-        !pressureHandledToday &&
-        !bottomCarbonationCompletedToday;'''
-          if old not in text:
-              raise SystemExit('cold carbonation block not found')
-          text = text.replace(old, new, 1)
-
           old = '''    const pressureAdjustmentHandledToday = {
         completed: Boolean(
             stage.name === "קר" &&
@@ -82,57 +26,22 @@ jobs:
             hasLatestCarb &&
             latestCarbSpec.outOfSpec &&
             pressureHandledToday
-        ),
-        reason: pressureHandledToday
-            ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז לא תקינה (${lastMeasurement?.carbonation})`
-            : "",
-        importance: latestCarbSpec.importance,
-    };
-
-    const requiredPressureAdjustment = {
-        display: true,
-        req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
-        reason: coldCarbNeedsPressureAdjustment
-            ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
-            : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
-        importance: coldCarbNeedsPressureAdjustment
-            ? latestCarbSpec.importance
-            : isPressureOutOfRangeVal.howBad
-    }'''
+        ),'''
           new = '''    const pressureAdjustmentHandledToday = {
         completed: Boolean(
             stage.name === "קר" &&
             pressureHandledToday
-        ),
-        reason: pressureHandledToday
-            ? todayCarbonationMeasurement
-                ? `בוצע היום שינוי לחץ לאחר בדיקת גיזוז (${todayCarbonationMeasurement.carbonation})`
-                : "בוצע היום שינוי לחץ"
-            : "",
-        importance: todayCarbonationMeasurement
-            ? todayCarbonationSpec.importance
-            : latestCarbSpec.importance,
-    };
-
-    const requiredPressureAdjustment = {
-        display: true,
-        req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
-        reason: coldCarbNeedsPressureAdjustment
-            ? `הגיזוז היום לא תקין (${todayCarbonationMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
-            : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
-        importance: coldCarbNeedsPressureAdjustment
-            ? todayCarbonationSpec.importance
-            : isPressureOutOfRangeVal.howBad
-    }'''
+        ),'''
           if old not in text:
-              raise SystemExit('pressure handled block not found')
+              raise SystemExit('pressure completion block not found')
           path.write_text(text.replace(old, new, 1))
           PY
       - name: Commit patch
         shell: bash
         run: |
+          if git diff --quiet; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/SERVICES/cellering/calculateCelleringRecomendations.ts
-          git commit -m 'Fix pressure decision completion across daily rows'
+          git commit -m 'Fix pressure decision completion detection'
           git push origin HEAD:main
