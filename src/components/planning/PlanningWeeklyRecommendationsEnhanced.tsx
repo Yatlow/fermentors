@@ -311,32 +311,53 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         return Math.max(0, rec.quantity - alreadyPlanned);
     }
 
+    function recommendationAlreadyRepresented(recId: string, currentRows: PackRow[]) {
+        return currentRows.some((row) =>
+            row.originalId === recId || row.key === recId || row.key === `rec:${recId}`,
+        );
+    }
+
     function addManualRow() {
         if (!packStyle) return;
-        const recommended = model.packagingRecommendation.find((rec) => {
-            const p = product(rec.productId);
-            return p && sameStyle(p.style, packStyle) && recommendationRemaining(rec) > 0;
-        });
-        if (recommended) {
-            setRows((currentRows) => [...currentRows, {
-                key: `rec:${recommended.id}`,
-                source: "recommendation",
-                tankId: recommended.tankId,
-                productId: recommended.productId,
-                quantity: recommendationRemaining(recommended, currentRows),
-                completed: 0,
-            }]);
-            return;
-        }
-        const products = styleProducts(packStyle);
-        const styleTanks = tanksForStyle(packStyle);
-        const defaultProduct = products[0];
-        const defaultTank = styleTanks[0];
-        const key = `manual:${crypto.randomUUID()}`;
+
         setRows((currentRows) => {
+            const recommended = model.packagingRecommendation.find((rec) => {
+                const p = product(rec.productId);
+                return p &&
+                    sameStyle(p.style, packStyle) &&
+                    recommendationRemaining(rec, currentRows) > 0 &&
+                    !recommendationAlreadyRepresented(rec.id, currentRows);
+            });
+
+            if (currentRows.length === 0 && recommended) {
+                return [...currentRows, {
+                    key: `rec:${recommended.id}`,
+                    source: "recommendation",
+                    tankId: recommended.tankId,
+                    productId: recommended.productId,
+                    quantity: recommendationRemaining(recommended, currentRows),
+                    completed: 0,
+                }];
+            }
+
+            const products = styleProducts(packStyle);
+            const styleTanks = tanksForStyle(packStyle);
+            const anchor = [...currentRows].reverse().find((row) => {
+                const p = product(row.productId);
+                return !!row.tankId && !!p && sameStyle(p.style, packStyle);
+            });
+            const anchorProduct = anchor ? product(anchor.productId) : undefined;
+            const defaultTank = (anchor && styleTanks.find((tank) => tank.id === anchor.tankId)) ?? styleTanks[0];
+            const defaultProduct = anchorProduct
+                ? products.find((item) => item.type !== anchorProduct.type)
+                    ?? products.find((item) => item.id !== anchorProduct.id)
+                    ?? products[0]
+                : products[0];
+            const key = `manual:${crypto.randomUUID()}`;
             const quantity = defaultProduct && defaultTank
                 ? defaultQuantityForSelection(defaultProduct.id, defaultTank.id, currentRows, key, 0)
                 : 0;
+
             return [...currentRows, {
                 key,
                 source: "manual",
@@ -352,6 +373,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         const rec = model.packagingRecommendation.find((item) => item.id === recId);
         if (!rec) return;
         setRows((currentRows) => {
+            if (recommendationAlreadyRepresented(rec.id, currentRows)) return currentRows;
             const remaining = recommendationRemaining(rec, currentRows);
             if (remaining <= 0) return currentRows;
             return [...currentRows, {
@@ -387,7 +409,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const modalRecommendations = packStyle
         ? model.packagingRecommendation.flatMap((rec) => {
             const p = product(rec.productId);
-            if (!p || !sameStyle(p.style, packStyle)) return [];
+            if (!p || !sameStyle(p.style, packStyle) || recommendationAlreadyRepresented(rec.id, rows)) return [];
             const remainingQuantity = recommendationRemaining(rec);
             return remainingQuantity > 0 ? [{ ...rec, remainingQuantity }] : [];
         })

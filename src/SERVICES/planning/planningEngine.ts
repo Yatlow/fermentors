@@ -33,6 +33,7 @@ export type Plan = {
   source?: "manual" | "recommendation";
   tankId?: string;
   emptyTank?: boolean;
+  earlyPackagingOverride?: boolean;
   tankNumber?: string;
   batchNumber?: string;
 };

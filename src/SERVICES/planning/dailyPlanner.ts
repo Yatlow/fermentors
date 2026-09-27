@@ -223,8 +223,14 @@ export function dailyForecast(
   for (const r of dated) {
     const p = products.find((p) => p.id === r.productId);
     if (!p) continue;
+    // A dated row in a saved plan is an explicit planner commitment. The save
+    // flow has already warned/confirmed if the date is earlier than nominal
+    // readiness, so forecast that committed work on its chosen date. Newly
+    // generated recommendations below still obey normal tank readiness.
+    const committedPool = (r.tankId ? pool.filter((t) => t.id === r.tankId) : pool)
+      .map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
     const allocations = allocate(
-      r.tankId ? pool.filter((t) => t.id === r.tankId) : pool,
+      committedPool,
       available,
       p,
       r.remaining,

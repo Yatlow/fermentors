@@ -5,6 +5,7 @@ import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import {
   addDays,
   emptyWeek,
+  litersPerUnit,
   sameStyle,
   weekStart,
   weekNumber,
@@ -15,7 +16,7 @@ import {
   type Tank,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { futureTanks, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import { futureTanks, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import {
   normalizeEmptyTankFlagsForSchedule,
   tankReleases,
@@ -54,6 +55,39 @@ function confirmAssignedBrews(plan: WeekPlan): WeekPlan {
       ? { ...brew, tankAssignmentStatus: "confirmed" as const }
       : brew),
   };
+}
+
+function inferDatedEmptyTankFlags(
+  plan: WeekPlan,
+  tanks: Tank[],
+  settings: Settings,
+  actuals: Actual[],
+): WeekPlan {
+  const next = structuredClone(plan);
+  const opened = openRuns([next], settings.products, actuals)
+    .filter((run) => run.remaining > 0 && !!run.tankId);
+
+  for (const tank of tanks) {
+    const runs = opened
+      .filter((run) => run.tankId === tank.id)
+      .sort((a, b) => (a.date ?? "9999-99-99").localeCompare(b.date ?? "9999-99-99") || a.key.localeCompare(b.key));
+    if (!runs.length || runs.some((run) => !run.date)) continue;
+
+    const plannedLiters = runs.reduce((sum, run) => {
+      const product = settings.products.find((item) => item.id === run.productId);
+      return sum + (product ? run.remaining * litersPerUnit(product) : 0);
+    }, 0);
+    if (tank.liters - plannedLiters >= 20) continue;
+
+    const last = runs[runs.length - 1];
+    next.packaging = next.packaging.map((run, index) => {
+      if (run.tankId !== tank.id) return run;
+      const key = run.id ?? `${next.id}:${run.productId}:${index}`;
+      return { ...run, emptyTank: key === last.key };
+    });
+  }
+
+  return next;
 }
 
 export default function PlanningBoard({
@@ -156,29 +190,55 @@ export default function PlanningBoard({
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
-    const effectiveNext = normalizeEmptyTankFlagsForSchedule(confirmedNext);
-    const all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
+    let effectiveNext = normalizeEmptyTankFlagsForSchedule(
+      inferDatedEmptyTankFlags(confirmedNext, tanks, settings, actuals),
+    );
+
+    // Rows that are already saved at the same early date necessarily passed the
+    // planner confirmation in an older build. Stamp them once so subsequent
+    // edits do not ask for the same exception again.
+    let provisionalAll = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
+    let validationTanks = futureTanks(tanks, provisionalAll, settings);
+    effectiveNext = {
+      ...effectiveNext,
+      packaging: effectiveNext.packaging.map((run) => {
+        if (!run.date || !run.tankId || run.earlyPackagingOverride) return run;
+        const tank = validationTanks.find((item) => item.id === run.tankId);
+        if (!tank || run.date >= tank.ready) return run;
+        const alreadySaved = current.packaging.some((saved) =>
+          saved.id === run.id && saved.tankId === run.tankId && saved.date === run.date
+        );
+        return alreadySaved ? { ...run, earlyPackagingOverride: true } : run;
+      }),
+    };
+
+    let all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     const error = validatePlanningWeek(effectiveNext, settings, all, today);
     if (error) throw new Error(error);
 
-    const datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
-    const validationTanks = futureTanks(tanks, all, settings);
+    let datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
+    validationTanks = futureTanks(tanks, all, settings);
     let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
     if (production?.includes("לפני מועד ההבשלה")) {
-      // Read-only users cannot reach persist at all. For users with planning
-      // write access, early packaging is an explicit operational exception.
       setBusy(false);
       const approved = await requestEarlyPackagingOverride(production);
       if (!approved) throw new Error("השיבוץ בוטל.");
       setBusy(true);
-      production = validateProduction(
-        datedOnly,
-        settings,
-        validationTanks,
-        actuals,
-        today,
-        { allowEarlyPackaging: true },
-      );
+
+      effectiveNext = {
+        ...effectiveNext,
+        packaging: effectiveNext.packaging.map((run) => {
+          if (!run.date || !run.tankId) return run;
+          const tank = validationTanks.find((item) => item.id === run.tankId);
+          return tank && run.date < tank.ready
+            ? { ...run, earlyPackagingOverride: true }
+            : run;
+        }),
+      };
+      all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
+      datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
+      validationTanks = futureTanks(tanks, all, settings);
+      production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
     }
     if (production) throw new Error(production);
 

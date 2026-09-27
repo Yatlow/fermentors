@@ -162,7 +162,10 @@ export function tankReleases(
       .filter((r) => r.tankId === source.id)
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
       const p = settings.products.find((p) => p.id === r.productId);
-      if (!p || !sameStyle(p.style, tank.style) || r.date! < tank.ready) continue;
+      // Dated rows in `plans` are committed planner decisions. The save flow still
+      // warns before allowing a date earlier than nominal readiness, but once the
+      // planner approves it the release engine must honor that decision.
+      if (!p || !sameStyle(p.style, tank.style)) continue;
       remaining -= r.remaining * litersPerUnit(p);
 
       // `emptyTank` is an explicit weekly-planner decision and is authoritative.
@@ -242,7 +245,7 @@ export function validateProduction(
     const p = settings.products.find((p) => p.id === r.productId);
     if (!t || !p || !sameStyle(t.style, p.style))
       return "מיכל האריזה אינו תואם לסגנון";
-    if (r.date < t.ready && !options?.allowEarlyPackaging)
+    if (r.date < t.ready && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
       return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${t.ready}`;
 
     const history = tankRuns.get(t.id) ?? [];
