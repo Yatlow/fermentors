@@ -1,6 +1,7 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
+import { runtimeConfig } from "../../config/runtimeConfig";
 import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
@@ -38,12 +39,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
 
-  // Once a planning dataset has been requested during this mounted planning
-  // session, keep its live listener attached. Switching tabs used to tear down
-  // pallets / packagingLog / shipments and then subscribe again on every return
-  // to the Gantt. Firestore already provides the persistent IndexedDB cache;
-  // keeping these listeners alive avoids needless query re-attachment while
-  // still delivering real-time deltas from the server.
   const stickyReadScope = useRef<PlanningReadScope>({ plans: true });
   const needsPallets = tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
   const needsActuals = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review";
@@ -65,13 +60,16 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const planningAuditStartedAt = useRef(Date.now());
   const planningAuditLogged = useRef(false);
+  const [planningAuditElapsedMs, setPlanningAuditElapsedMs] = useState<number | null>(null);
 
   useEffect(() => {
     if (data.loading || planningAuditLogged.current) return;
     planningAuditLogged.current = true;
+    const elapsedMs = Date.now() - planningAuditStartedAt.current;
+    setPlanningAuditElapsedMs(elapsedMs);
     console.info("[planning-read-audit] initial planning load", {
       tab,
-      elapsedMs: Date.now() - planningAuditStartedAt.current,
+      elapsedMs,
       plans: plans.length,
       pallets: pallets.length,
       packagingActuals: actuals.length,
@@ -94,10 +92,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     tab,
   ]);
 
-  // Keep one canonical tank model for every planning calculation. In particular,
-  // do not replace/augment this with a display-only list: tentative five-week
-  // recommendations and weekly tank availability are both derived from this
-  // exact capacity model.
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
 
   const identityAlignedPlans = plans;
@@ -119,9 +113,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     [settings, data.actualShipments, today],
   );
 
-  // This is the existing recommendation pipeline. It must remain the source for
-  // the Gantt: accepted decisions stay as saved; undecided weeks get the same
-  // tentative tank calculation used by the weekly/daily planning engine.
   const fiveWeekPlans = useMemo(
     () => withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings),
     [identityAlignedPlans, tanks, calendarSettings],
@@ -171,12 +162,37 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     await data.saveWeek(merged, options);
   }
 
+  const showPreviewDiagnostics = runtimeConfig.deployEnv !== "production";
+
   return (
     <section className="brew-planning" dir="rtl">
       {data.loading && !data.error && <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
+      {showPreviewDiagnostics && !data.loading && !data.error && (
+        <div
+          dir="ltr"
+          style={{
+            margin: "8px 12px",
+            padding: "8px 10px",
+            border: "1px dashed currentColor",
+            borderRadius: 8,
+            fontSize: 12,
+            lineHeight: 1.5,
+            overflowWrap: "anywhere",
+          }}
+        >
+          <strong>Planning audit</strong>
+          {` · Plans ${plans.length}`}
+          {` · Pallets ${pallets.length}`}
+          {` · Packaging ${actuals.length}`}
+          {` · Shipments ${data.actualShipments.length}`}
+          {` · Tanks ${productionTanks.length}`}
+          {planningAuditElapsedMs !== null ? ` · Load ${(planningAuditElapsedMs / 1000).toFixed(2)}s` : ""}
+          {` · ${data.offline ? "cache/offline" : "server/live"}`}
+        </div>
+      )}
 
       {!data.loading && !data.error && <>
         {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={identityAlignedPlans}/>}
