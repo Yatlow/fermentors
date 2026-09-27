@@ -48,6 +48,10 @@ function statusRank(tank: Fermentor) {
   return 6;
 }
 
+function isActiveBrewAssignment(tank: Fermentor) {
+  const action = Number(tank.action);
+  return action === 0 || action === 1;
+}
 
 export default function CreateBrewModal({
   open,
@@ -158,6 +162,7 @@ export default function CreateBrewModal({
                 const alreadyCreated =
                   tanks.some(
                     (item) =>
+                      isActiveBrewAssignment(item) &&
                       String(item.batchNumber || "")
                         .replace("#", "")
                         .trim() === cleanBatch,
