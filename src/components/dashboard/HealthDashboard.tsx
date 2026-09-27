@@ -73,10 +73,18 @@ type CompletedCellarAction = {
     points: number;
 };
 
+type DailyCellarAction = {
+    id: string;
+    tankNumber: string;
+    title: string;
+    detail?: string;
+};
+
 type CellarAnalysis = {
     alerts: HealthAlert[];
     scoreRecommendations: ScoredRecommendation[];
     completedActions: CompletedCellarAction[];
+    dailyActions: DailyCellarAction[];
     measurementProgress: MeasurementIssue[];
     checkedTanks: number;
     completeMeasurementTankNumbers: string[];
@@ -91,6 +99,7 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     alerts: [],
     scoreRecommendations: [],
     completedActions: [],
+    dailyActions: [],
     measurementProgress: [],
     checkedTanks: 0,
     completeMeasurementTankNumbers: [],
@@ -154,13 +163,6 @@ function timestampToMillis(value: unknown): number | null {
     return Number.isFinite(ms) ? ms : null;
 }
 
-/**
- * During the first 12 hours after the actual "out to fermentor" stage begins,
- * the health index has no requirements at all for this tank. If the operator
- * voluntarily records one or more numeric measurements today, the tank joins
- * the completed-round count and each measured field contributes positive score
- * only. Missing fields and cellar recommendations cannot penalize a grace tank.
- */
 function isInFermentationMeasurementGracePeriod(
     tank: Fermentor,
     nowMs: number = Date.now()
@@ -208,6 +210,12 @@ function recommendationSeverity(importance: number): Severity {
     return "info";
 }
 
+function isCalendarCarbRecommendation(recommendation: Recommendation | null | undefined): boolean {
+    if (!recommendation?.req || !recommendation?.display) return false;
+    const reason = String(recommendation.reason ?? "");
+    return /יום ראשון|לפי נתוני היומן|אתמול לא בוצעה/.test(reason);
+}
+
 const severityOrder: Record<Severity, number> = {
     critical: 3,
     warning: 2,
@@ -235,7 +243,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
         );
         const unsubscribeIgnored = subscribeIgnoredCellarRecommendationsToday(
             setIgnoredRecommendations,
-            (error) => console.error("Failed loading ignored cellar recommendations for health:", error)
+            (error) => console.error("Failed loading ignored cellar recommendations:", error)
         );
         return () => {
             unsubscribeActive();
@@ -274,6 +282,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     const tankAlerts: HealthAlert[] = [];
                     const scoreRecommendations: ScoredRecommendation[] = [];
                     const completedActions: CompletedCellarAction[] = [];
+                    const dailyActions: DailyCellarAction[] = [];
                     const hotTank = isHotTank(tank);
                     const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
 
@@ -291,6 +300,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                     alerts: [] as HealthAlert[],
                                     scoreRecommendations: [] as ScoredRecommendation[],
                                     completedActions: [] as CompletedCellarAction[],
+                                    dailyActions: [] as DailyCellarAction[],
                                     measurementProgress: {
                                         missingFields: [],
                                         requiredFieldCount: 0,
@@ -305,6 +315,8 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 included: true,
                                 alerts: [] as HealthAlert[],
                                 scoreRecommendations: [] as ScoredRecommendation[],
+                                completedActions: [] as CompletedCellarAction[],
+                                dailyActions: [] as DailyCellarAction[],
                                 measurementProgress: {
                                     missingFields: [],
                                     requiredFieldCount: 0,
@@ -361,6 +373,8 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 included: true,
                                 alerts: tankAlerts,
                                 scoreRecommendations,
+                                completedActions,
+                                dailyActions,
                                 measurementProgress: scoreProgress,
                                 completeMeasurements,
                                 tankNumber: number,
@@ -401,8 +415,50 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             measurement.carbonation !== "" &&
                             Number.isFinite(Number(measurement.carbonation))
                         );
+                        const hasTodayYeast = /שמרים|שמרי/.test(todayNotes);
                         const handledPressureAfterCarb =
                             recommendations?.pressureAdjustmentHandledToday?.completed === true;
+
+                        const day = new Date().getDay();
+                        if (day === 0 && tank.stage.name === "קר") {
+                            if (!hasTodayYeast) {
+                                dailyActions.push({
+                                    id: `daily-sunday-yeast-${tank.id}`,
+                                    tankNumber: number,
+                                    title: "הורדת שמרים",
+                                    detail: "פעולת יום ראשון לכל מיכל קר",
+                                });
+                            }
+                            if (!hasTodayCarbonation && !handledPressureAfterCarb) {
+                                dailyActions.push({
+                                    id: `daily-sunday-carb-${tank.id}`,
+                                    tankNumber: number,
+                                    title: "בדיקת גיזוז",
+                                    detail: "פעולת יום ראשון לכל מיכל קר",
+                                });
+                            }
+                        } else if (day === 3 && isCalendarCarbRecommendation(recommendations?.requiresCarbTest)) {
+                            if (!hasTodayCarbonation && !handledPressureAfterCarb) {
+                                dailyActions.push({
+                                    id: `daily-wednesday-carb-${tank.id}`,
+                                    tankNumber: number,
+                                    title: "בדיקת גיזוז",
+                                    detail: "מתוכנן לרדת בשבוע הבא",
+                                });
+                            }
+                        } else if (
+                            day === 4 &&
+                            recommendations?.requiiersWedYeastDropOnThus?.req === true &&
+                            recommendations?.requiiersWedYeastDropOnThus?.display === true &&
+                            !hasTodayYeast
+                        ) {
+                            dailyActions.push({
+                                id: `daily-thursday-yeast-${tank.id}`,
+                                tankNumber: number,
+                                title: "הורדת שמרים",
+                                detail: "מתוכנן לרדת בשבוע הבא",
+                            });
+                        }
 
                         const naturalCarb = Boolean(
                             recommendations?.requiresCarbTest?.req &&
@@ -424,7 +480,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         const effectivelyCompletedScheduled = dueScheduled.filter((row) =>
                             row.actionType === "carbTest"
                                 ? hasTodayCarbonation || handledPressureAfterCarb
-                                : /שמרים|שמרי/.test(todayNotes)
+                                : hasTodayYeast
                         );
                         const effectivelyCompletedIds = new Set(
                             effectivelyCompletedScheduled.map((row) => row.id)
@@ -517,10 +573,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         ) {
                             addCompleted(`carb-${tank.id}`, "בדיקת גיזוז");
                         }
-                        if (
-                            (todayNotes.includes("שמרים") || todayNotes.includes("שמרי")) &&
-                            !completedScheduledYeast
-                        ) {
+                        if (hasTodayYeast && !completedScheduledYeast) {
                             addCompleted(`yeast-${tank.id}`, "הורדת שמרים");
                         }
                         if (todayNotes.includes("כשות")) {
@@ -550,6 +603,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             alerts: tankAlerts,
                             scoreRecommendations,
                             completedActions,
+                            dailyActions,
                             measurementProgress: scoreProgress,
                             completeMeasurements,
                             tankNumber: number,
@@ -562,6 +616,8 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 included: false,
                                 alerts: [] as HealthAlert[],
                                 scoreRecommendations: [] as ScoredRecommendation[],
+                                completedActions: [] as CompletedCellarAction[],
+                                dailyActions: [] as DailyCellarAction[],
                                 measurementProgress: {
                                     missingFields: [],
                                     requiredFieldCount: 0,
@@ -590,6 +646,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             alerts: tankAlerts,
                             scoreRecommendations,
                             completedActions,
+                            dailyActions,
                             measurementProgress: {
                                 missingFields: [...missingFields],
                                 requiredFieldCount,
@@ -612,6 +669,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     .sort((a, b) => severityOrder[b.severity] - severityOrder[a.severity]),
                 scoreRecommendations: eligibleResults.flatMap((result) => result.scoreRecommendations),
                 completedActions: eligibleResults.flatMap((result) => result.completedActions ?? []),
+                dailyActions: eligibleResults.flatMap((result) => result.dailyActions ?? []),
                 measurementProgress: eligibleResults.map((result) => result.measurementProgress),
                 checkedTanks: eligibleResults.length,
                 completeMeasurementTankNumbers: eligibleResults
@@ -649,56 +707,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
 
     const attentionCount = counts.critical + counts.warning + counts.info;
     const completedTankCount = analysis.completeMeasurementTankNumbers.length;
-
-    const dailyActionProgress = useMemo(() => {
-        const yeastDue = new Set<string>();
-        const carbDue = new Set<string>();
-        const yeastDone = new Set<string>();
-        const carbDone = new Set<string>();
-        const day = new Date().getDay();
-
-        // Sunday routine: every cold ACTION-1 tank needs both actions. Keeping
-        // this denominator independent of the live recommendation means a task
-        // does not disappear from the progress line after it is completed.
-        if (day === 0) {
-            brews
-                .filter((tank) => Number(tank.action) === 1 && tank.stage?.name === "קר")
-                .forEach((tank) => {
-                    const number = tankLabel(tank);
-                    yeastDue.add(number);
-                    carbDue.add(number);
-                });
-        }
-
-        analysis.alerts.forEach((alert) => {
-            if (!alert.tankNumber) return;
-            const text = `${alert.recommendationKey ?? ""} ${alert.detail ?? ""}`;
-            if (/שמרים|שמרי|yeast/i.test(text)) yeastDue.add(alert.tankNumber);
-            if (/בדיקת גיזוז|carbTest/i.test(text)) carbDue.add(alert.tankNumber);
-        });
-
-        analysis.completedActions.forEach((action) => {
-            const number = String(action.tankNumber);
-            if (/שמרים|שמרי/.test(action.title)) {
-                yeastDone.add(number);
-                yeastDue.add(number);
-            }
-            if (/בדיקת גיזוז/.test(action.title)) {
-                carbDone.add(number);
-                carbDue.add(number);
-            }
-        });
-
-        const completedWithin = (done: Set<string>, due: Set<string>) =>
-            Array.from(done).filter((tank) => due.has(tank)).length;
-
-        return {
-            yeastDone: completedWithin(yeastDone, yeastDue),
-            yeastDue: yeastDue.size,
-            carbDone: completedWithin(carbDone, carbDue),
-            carbDue: carbDue.size,
-        };
-    }, [analysis.alerts, analysis.completedActions, brews]);
 
     async function ignoreAlert(alert: HealthAlert) {
         if (!alert.dismissible || !alert.tankNumber || !alert.batchNumber || !alert.recommendationKey) return;
@@ -755,14 +763,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 : `${attentionCount} דברים דורשים תשומת לב היום`}
                     </span>
                     {!analyzing && analysis.checkedTanks > 0 && (
-                        <>
-                            <span className="health-measurement-progress">
-                                סבב מלא: {completedTankCount}/{analysis.checkedTanks} מיכלים
-                            </span>
-                            <span className="health-measurement-progress">
-                                פעולות היום: שמרים {dailyActionProgress.yeastDone}/{dailyActionProgress.yeastDue} · גיזוזים {dailyActionProgress.carbDone}/{dailyActionProgress.carbDue}
-                            </span>
-                        </>
+                        <span className="health-measurement-progress">
+                            סבב מלא: {completedTankCount}/{analysis.checkedTanks} מיכלים
+                        </span>
                     )}
                 </span>
 
@@ -795,6 +798,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             </div>
                         </section>
                     )}
+
                     {ignoredRecommendations.length > 0 && (
                         <section className="health-ignored-actions" aria-label="המלצות שסומנו להתעלם היום">
                             <strong>סומן להתעלם</strong>
@@ -821,6 +825,21 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             </div>
                         </section>
                     )}
+
+                    {analysis.dailyActions.length > 0 && (
+                        <section className="health-daily-actions" aria-label="פעולות יומיות לביצוע">
+                            <strong>פעולות יומיות לביצוע</strong>
+                            <div className="health-daily-actions-list">
+                                {analysis.dailyActions.map((action) => (
+                                    <div className="health-daily-action" key={action.id}>
+                                        <span>מיכל {action.tankNumber} · {action.title}</span>
+                                        {action.detail && <small>{action.detail}</small>}
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
                     {analysis.alerts.length === 0 && !analyzing ? (
                         <div className="health-empty-state">
                             אין כרגע פעולות סלרינג לביצוע וכל המדידות הנדרשות להיום קיימות.
