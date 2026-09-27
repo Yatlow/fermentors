@@ -51,6 +51,7 @@ type HealthAlert = {
     recommendationKey?: string;
     importance?: number;
     dismissible?: boolean;
+    userDecision?: boolean;
 };
 
 type Recommendation = {
@@ -58,6 +59,7 @@ type Recommendation = {
     display?: boolean;
     reason?: string;
     importance?: number;
+    userDecision?: boolean;
 };
 
 type KeyedRecommendation = Recommendation & {
@@ -430,12 +432,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             Number.isFinite(Number(measurement.carbonation))
                         );
                         const hasTodayYeast = /שמרים|שמרי/.test(todayNotes);
+                        const hasTodayCooling = /קירור/.test(todayNotes);
                         const handledPressureAfterCarb =
                             recommendations?.pressureAdjustmentHandledToday?.completed === true;
                         const carbCompletedToday = hasTodayCarbonation || handledPressureAfterCarb;
 
                         const day = new Date().getDay();
-                        if (day === 0 && tank.stage.name === "קר") {
+                        if (day === 0 && tank.stage.name === "קר" && !hasTodayCooling) {
                             tankDailyProgress.yeastRequired = 1;
                             tankDailyProgress.yeastCompleted = hasTodayYeast ? 1 : 0;
                             tankDailyProgress.carbRequired = 1;
@@ -502,24 +505,39 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             tank.tankNumber,
                             tank.batchNumber
                         );
-                        const effectivelyCompletedScheduled = dueScheduled.filter((row) =>
-                            row.actionType === "carbTest" ? carbCompletedToday : hasTodayYeast
+                        const hasActiveUserPressureDecision = dueScheduled.some(
+                            (row) => row.actionType === "pressureChange"
                         );
+                        const effectivelyCompletedScheduled = dueScheduled.filter((row) => {
+                            if (row.actionType === "pressureChange") return handledPressureAfterCarb;
+                            return row.actionType === "carbTest" ? carbCompletedToday : hasTodayYeast;
+                        });
                         const effectivelyCompletedIds = new Set(
                             effectivelyCompletedScheduled.map((row) => row.id)
                         );
                         const manualDue = dueScheduled
                             .filter((row) => !effectivelyCompletedIds.has(row.id))
-                            .filter((row) => row.actionType === "carbTest" ? !naturalCarb : !naturalYeast);
+                            .filter((row) => {
+                                if (row.actionType === "pressureChange") return true;
+                                return row.actionType === "carbTest" ? !naturalCarb : !naturalYeast;
+                            });
 
                         [
-                            ...naturalRecommendations,
+                            ...naturalRecommendations.filter(
+                                (recommendation) => !(
+                                    hasActiveUserPressureDecision &&
+                                    recommendation.recommendationKey === "pressureAdjustment"
+                                )
+                            ),
                             ...manualDue.map((row) => ({
                                 recommendationKey: `scheduled-${row.id}`,
                                 req: true,
                                 display: true,
                                 importance: 3,
-                                reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
+                                userDecision: row.actionType === "pressureChange",
+                                reason: row.actionType === "pressureChange"
+                                    ? `החלטת משתמש: ${row.note || "יש לבצע שינוי לחץ"}`
+                                    : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
                             })),
                         ].forEach((recommendation) => {
                             if (isRecommendationIgnored(
@@ -534,13 +552,16 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             tankAlerts.push({
                                 id: `recommendation-${tank.id}-${recommendation.recommendationKey}`,
                                 severity: recommendationSeverity(importance),
-                                title: `מיכל ${number}: המלצת סלרינג`,
+                                title: recommendation.userDecision
+                                    ? `מיכל ${number}: החלטת משתמש`
+                                    : `מיכל ${number}: המלצת סלרינג`,
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
                                 recommendationKey: recommendation.recommendationKey,
                                 importance,
                                 dismissible: true,
+                                userDecision: recommendation.userDecision,
                             });
                         });
 
@@ -579,7 +600,11 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 `scheduled-${row.id}`,
                                 scheduledActionLabel(row.actionType),
                                 1,
-                                row.note ? `בוצע לפי המלצה מתוזמנת · ${row.note}` : "בוצע לפי המלצה מתוזמנת"
+                                row.actionType === "pressureChange"
+                                    ? `בוצע לפי החלטת משתמש${row.note ? ` · ${row.note}` : ""}`
+                                    : row.note
+                                        ? `בוצע לפי המלצה מתוזמנת · ${row.note}`
+                                        : "בוצע לפי המלצה מתוזמנת"
                             );
                         });
 
@@ -893,9 +918,18 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         </div>
                     ) : (
                         analysis.alerts.map((alert) => (
-                            <article key={alert.id} className={`health-alert health-alert-${alert.severity}`}>
+                            <article
+                                key={alert.id}
+                                className={`health-alert health-alert-${alert.severity}${alert.userDecision ? " health-alert-user-decision" : ""}`}
+                            >
                                 <span className="health-alert-icon" aria-hidden="true">
-                                    {alert.severity === "critical" ? "!" : alert.severity === "warning" ? "•" : "i"}
+                                    {alert.userDecision
+                                        ? "👤"
+                                        : alert.severity === "critical"
+                                            ? "!"
+                                            : alert.severity === "warning"
+                                                ? "•"
+                                                : "i"}
                                 </span>
                                 <span className="health-alert-copy">
                                     <strong>{alert.title}</strong>
