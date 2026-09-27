@@ -29,11 +29,10 @@ export type ScheduledCellarRecommendation = {
 };
 
 type DueScheduledCellarRecommendation = Omit<ScheduledCellarRecommendation, "actionType"> & {
-  // Due rows can include user pressure decisions. Some legacy callers only
-  // auto-resolve carb/yeast actions and intentionally ignore other actions.
-  // Keep the persisted action value intact while allowing those callers to
-  // perform their runtime membership check without widening their local Set.
-  actionType: ScheduledCellarActionType & string;
+  // Due rows can now also contain a user pressure decision. Legacy consumers
+  // that only auto-complete carb/yeast actions should simply ignore any other
+  // runtime action value instead of failing the TypeScript build.
+  actionType: any;
 };
 
 const COLLECTION = "scheduledCellarRecommendations";
