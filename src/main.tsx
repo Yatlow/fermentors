@@ -6,6 +6,7 @@ import CoolerShipmentLocationAlert from './components/cooler/CoolerShipmentLocat
 import { startVersionGuard } from './SERVICES/versionGuard'
 import './beerStyles.css'
 import './components/dashboard/BatchHistoryChart.mobile.css'
+import './components/dashboard/TankCard.mobile-fixes.css'
 
 startVersionGuard()
 
