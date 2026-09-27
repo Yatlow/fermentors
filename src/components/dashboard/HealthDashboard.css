@@ -208,6 +208,14 @@
     background: #f7fcff;
 }
 
+.health-alert-user-decision,
+.health-alert-critical.health-alert-user-decision,
+.health-alert-warning.health-alert-user-decision,
+.health-alert-info.health-alert-user-decision {
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+
 .health-alert-icon {
     width: 22px;
     height: 22px;
@@ -236,6 +244,18 @@
 .health-alert-info .health-alert-icon {
     color: #075985;
     background: #bae6fd;
+}
+
+.health-alert-user-decision .health-alert-icon,
+.health-alert-critical.health-alert-user-decision .health-alert-icon,
+.health-alert-warning.health-alert-user-decision .health-alert-icon,
+.health-alert-info.health-alert-user-decision .health-alert-icon {
+    color: #1d4ed8;
+    background: #dbeafe;
+}
+
+.health-alert-user-decision .health-alert-copy strong {
+    color: #1d4ed8;
 }
 
 .health-alert-copy {
