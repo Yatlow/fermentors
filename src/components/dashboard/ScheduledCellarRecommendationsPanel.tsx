@@ -194,18 +194,14 @@ export default function ScheduledCellarRecommendationsPanel({
     }
   }
 
-  async function finish(id: string, status: "completed" | "cancelled") {
+  async function cancel(id: string) {
     setSaving(true);
     setMessage("");
     try {
-      await setScheduledCellarRecommendationStatus(id, status);
-      setMessage(
-        status === "completed"
-          ? "סומן כבוצע — הפעולה תקבל ניקוד חיובי במדד של היום"
-          : "החלטת הסלרינג בוטלה ולא תוצג יותר"
-      );
+      await setScheduledCellarRecommendationStatus(id, "cancelled");
+      setMessage("החלטת הסלרינג בוטלה ולא תוצג יותר");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "עדכון ההחלטה נכשל");
+      setMessage(error instanceof Error ? error.message : "ביטול ההחלטה נכשל");
     } finally {
       setSaving(false);
     }
@@ -267,8 +263,7 @@ export default function ScheduledCellarRecommendationsPanel({
               </div>
               {row.manualId && (
                 <div className="scheduled-cellar-actions">
-                  <button type="button" disabled={saving} onClick={() => void finish(row.manualId!, "completed")}>בוצע</button>
-                  <button type="button" disabled={saving} onClick={() => void finish(row.manualId!, "cancelled")}>בטל</button>
+                  <button type="button" disabled={saving} onClick={() => void cancel(row.manualId!)}>בטל</button>
                 </div>
               )}
             </div>
