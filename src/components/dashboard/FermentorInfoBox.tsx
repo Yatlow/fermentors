@@ -15,6 +15,7 @@ import {
     setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
     todayDateKey,
+    type ScheduledCellarActionType,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import ScheduledCellarRecommendationsPanel, {
@@ -37,6 +38,7 @@ type Recommendation = {
     reason?: string;
     importance: number;
     display: boolean;
+    userDecision?: boolean;
 };
 
 function futureDateFromReason(reason: string): string | undefined {
@@ -242,10 +244,7 @@ export default function FermentorInfoBox({
         const handledPressureAfterCarb =
             recomendations?.pressureAdjustmentHandledToday?.completed === true;
 
-        const performed = new Set<"carbTest" | "yeastDrop">();
-        // A due scheduled carbonation test is considered completed if today's
-        // batch data contains a carbonation result. Also, an explicit pressure
-        // correction after an out-of-spec test logically proves the test happened.
+        const performed = new Set<ScheduledCellarActionType>();
         if (
             /בדיקת\s+גיזוז/.test(todayNotes) ||
             hasTodayCarbonation ||
@@ -254,6 +253,7 @@ export default function FermentorInfoBox({
             performed.add("carbTest");
         }
         if (/שמרים|שמרי/.test(todayNotes)) performed.add("yeastDrop");
+        if (handledPressureAfterCarb) performed.add("pressureChange");
         if (performed.size === 0) return;
 
         const due = dueScheduledForTank(
@@ -300,11 +300,21 @@ export default function FermentorInfoBox({
         scheduledRecommendations,
         tank.tankNumber,
         tank.batchNumber,
-    ).filter((row) => (
-        row.actionType === "carbTest"
+    ).filter((row) => {
+        if (row.actionType === "pressureChange") return true;
+        return row.actionType === "carbTest"
             ? !naturalCarbRecommendation
-            : !naturalYeastRecommendation
-    ));
+            : !naturalYeastRecommendation;
+    });
+    const hasActiveUserPressureDecision = dueManualRecommendations.some(
+        (row) => row.actionType === "pressureChange"
+    );
+    const pressureDecisionCandidate =
+        recomendations?.requiredPressureAdjustment?.req === true &&
+        recomendations?.requiredPressureAdjustment?.display === true &&
+        !recomendations?.pressureAdjustmentHandledToday?.completed
+            ? { reason: String(recomendations.requiredPressureAdjustment.reason ?? "") }
+            : undefined;
 
     const recommendationList: Recommendation[] = [
         ...(recomendations
@@ -319,7 +329,7 @@ export default function FermentorInfoBox({
                 recomendations.requiersDiacytelRest,
                 recomendations.neglectedStatus,
                 recomendations.requiresToCoolDown,
-                recomendations.requiredPressureAdjustment,
+                ...(!hasActiveUserPressureDecision ? [recomendations.requiredPressureAdjustment] : []),
                 recomendations.requiresWarmYeastDropCompletion,
                 recomendations.requiresColdYeastDropCompletion,
                 recomendations.requiiersWedYeastDropOnThus,
@@ -342,9 +352,12 @@ export default function FermentorInfoBox({
             : []),
         ...dueManualRecommendations.map((row) => ({
             req: true,
-            reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
+            reason: row.actionType === "pressureChange"
+                ? `החלטת משתמש: ${row.note || "יש לבצע שינוי לחץ"}`
+                : `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,
             importance: 3,
             display: true,
+            userDecision: row.actionType === "pressureChange",
         })),
     ];
 
@@ -429,7 +442,7 @@ export default function FermentorInfoBox({
                                 activeRecommendations.map((rec, index) => (
                                     <div
                                         key={index}
-                                        className={`recommendation level-${rec.importance}`}
+                                        className={`recommendation level-${rec.importance}${rec.userDecision ? " user-decision" : ""}`}
                                     >
                                         {rec.reason}
                                     </div>
@@ -444,6 +457,7 @@ export default function FermentorInfoBox({
                         batchNumber={tank.batchNumber}
                         rows={scheduledRecommendations}
                         naturalFuture={naturalFuture}
+                        pressureDecisionCandidate={pressureDecisionCandidate}
                     />
                 )}
             </div>
