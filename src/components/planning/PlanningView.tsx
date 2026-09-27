@@ -63,6 +63,36 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const data = usePlanning(today, productionTanks, readScope);
   const { settings, plans, pallets, actuals } = data;
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
+  const planningAuditStartedAt = useRef(Date.now());
+  const planningAuditLogged = useRef(false);
+
+  useEffect(() => {
+    if (data.loading || planningAuditLogged.current) return;
+    planningAuditLogged.current = true;
+    console.info("[planning-read-audit] initial planning load", {
+      tab,
+      elapsedMs: Date.now() - planningAuditStartedAt.current,
+      plans: plans.length,
+      pallets: pallets.length,
+      packagingActuals: actuals.length,
+      shipments: data.actualShipments.length,
+      snapshots: data.snapshots.length,
+      productionTanks: productionTanks.length,
+      readScope,
+      offlineOrCacheBacked: data.offline,
+    });
+  }, [
+    actuals.length,
+    data.actualShipments.length,
+    data.loading,
+    data.offline,
+    data.snapshots.length,
+    pallets.length,
+    plans.length,
+    productionTanks.length,
+    readScope,
+    tab,
+  ]);
 
   // Keep one canonical tank model for every planning calculation. In particular,
   // do not replace/augment this with a display-only list: tentative five-week
