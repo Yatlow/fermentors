@@ -1,9 +1,20 @@
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  collection,
+  doc,
+  getDocFromServer,
+  getDocsFromServer,
+  query,
+  Timestamp,
+  where,
+} from "firebase/firestore";
 import type { Fermentor } from "../../App";
-import { addDays, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
+import { runtimeConfig } from "../../config/runtimeConfig";
+import { db } from "../../firebase";
+import { addDays, parseDate, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
-import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
+import { startOfJerusalemDay, useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import {
   mergeCompletedDeliveriesBack,
   pendingPlansAfterActualShipments,
@@ -28,6 +39,13 @@ import "./planningFiveWeek.css";
 import "./planningFiveWeekCalendarSpacing.css";
 import "./planningGantt.css";
 
+type PlanningQueryTiming = {
+  label: string;
+  ms: number;
+  docs: number;
+  error?: string;
+};
+
 export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
   canEdit: boolean;
@@ -38,12 +56,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
 
-  // Once a planning dataset has been requested during this mounted planning
-  // session, keep its live listener attached. Switching tabs used to tear down
-  // pallets / packagingLog / shipments and then subscribe again on every return
-  // to the Gantt. Firestore already provides the persistent IndexedDB cache;
-  // keeping these listeners alive avoids needless query re-attachment while
-  // still delivering real-time deltas from the server.
   const stickyReadScope = useRef<PlanningReadScope>({ plans: true });
   const needsPallets = tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
   const needsActuals = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review";
@@ -65,13 +77,19 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const { holidays, error: holidayError } = useHolidays(weekStart(today), addDays(weekStart(today), 83));
   const planningAuditStartedAt = useRef(Date.now());
   const planningAuditLogged = useRef(false);
+  const planningServerProbeStarted = useRef(false);
+  const [planningAuditElapsedMs, setPlanningAuditElapsedMs] = useState<number | null>(null);
+  const [planningQueryTimings, setPlanningQueryTimings] = useState<PlanningQueryTiming[]>([]);
+  const showPreviewDiagnostics = runtimeConfig.deployEnv !== "production";
 
   useEffect(() => {
     if (data.loading || planningAuditLogged.current) return;
     planningAuditLogged.current = true;
+    const elapsedMs = Date.now() - planningAuditStartedAt.current;
+    setPlanningAuditElapsedMs(elapsedMs);
     console.info("[planning-read-audit] initial planning load", {
       tab,
-      elapsedMs: Date.now() - planningAuditStartedAt.current,
+      elapsedMs,
       plans: plans.length,
       pallets: pallets.length,
       packagingActuals: actuals.length,
@@ -94,10 +112,72 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     tab,
   ]);
 
-  // Keep one canonical tank model for every planning calculation. In particular,
-  // do not replace/augment this with a display-only list: tentative five-week
-  // recommendations and weekly tank availability are both derived from this
-  // exact capacity model.
+  useEffect(() => {
+    if (!showPreviewDiagnostics || planningServerProbeStarted.current) return;
+    planningServerProbeStarted.current = true;
+    let cancelled = false;
+    const start = weekStart(today);
+    const end = addDays(start, 84);
+    const logStart = [
+      addDays(start, -84),
+      ...productionTanks
+        .filter((tank) => tank.tankStatus !== true && tank.batchNumber)
+        .map((tank) => parseDate(tank.brewDate))
+        .filter((date): date is string => !!date && date < today),
+    ].sort()[0];
+
+    const timed = async (
+      label: string,
+      load: () => Promise<{ size?: number; exists?: () => boolean }>,
+    ): Promise<PlanningQueryTiming> => {
+      const started = performance.now();
+      try {
+        const result = await load();
+        return {
+          label,
+          ms: performance.now() - started,
+          docs: typeof result.size === "number" ? result.size : result.exists?.() ? 1 : 0,
+        };
+      } catch (error) {
+        return {
+          label,
+          ms: performance.now() - started,
+          docs: 0,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+
+    void Promise.all([
+      timed("Settings", () => getDocFromServer(doc(db, "planningSettings", "main"))),
+      timed("Plans", () => getDocsFromServer(query(
+        collection(db, "planningWeeks"),
+        where("id", ">=", addDays(start, -84)),
+        where("id", "<", end),
+      ))),
+      timed("Pallets", () => getDocsFromServer(query(
+        collection(db, "pallets"),
+        where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"]),
+      ))),
+      timed("Packaging", () => getDocsFromServer(query(
+        collection(db, "packagingLog"),
+        where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()),
+        where("timestamp", "<", startOfJerusalemDay(end).getTime()),
+      ))),
+      timed("Shipments", () => getDocsFromServer(query(
+        collection(db, "shipments"),
+        where("createdAt", ">=", Timestamp.fromDate(startOfJerusalemDay(start))),
+        where("createdAt", "<", Timestamp.fromDate(startOfJerusalemDay(end))),
+      ))),
+    ]).then((results) => {
+      if (cancelled) return;
+      setPlanningQueryTimings(results);
+      console.info("[planning-read-audit] per-query server timings", results);
+    });
+
+    return () => { cancelled = true; };
+  }, [productionTanks, showPreviewDiagnostics, today]);
+
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
 
   const identityAlignedPlans = plans;
@@ -119,9 +199,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     [settings, data.actualShipments, today],
   );
 
-  // This is the existing recommendation pipeline. It must remain the source for
-  // the Gantt: accepted decisions stay as saved; undecided weeks get the same
-  // tentative tank calculation used by the weekly/daily planning engine.
   const fiveWeekPlans = useMemo(
     () => withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings),
     [identityAlignedPlans, tanks, calendarSettings],
@@ -177,6 +254,39 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
+      {showPreviewDiagnostics && !data.loading && !data.error && (
+        <div
+          dir="ltr"
+          style={{
+            margin: "8px 12px",
+            padding: "8px 10px",
+            border: "1px dashed currentColor",
+            borderRadius: 8,
+            fontSize: 12,
+            lineHeight: 1.5,
+            overflowWrap: "anywhere",
+          }}
+        >
+          <div>
+            <strong>Planning audit</strong>
+            {` · Plans ${plans.length}`}
+            {` · Pallets ${pallets.length}`}
+            {` · Packaging ${actuals.length}`}
+            {` · Shipments ${data.actualShipments.length}`}
+            {` · Tanks ${productionTanks.length}`}
+            {planningAuditElapsedMs !== null ? ` · Load ${(planningAuditElapsedMs / 1000).toFixed(2)}s` : ""}
+            {` · ${data.offline ? "cache/offline" : "server/live"}`}
+          </div>
+          <div style={{ marginTop: 4 }}>
+            <strong>Server probes</strong>
+            {planningQueryTimings.length === 0
+              ? " · running…"
+              : planningQueryTimings.map((item) =>
+                  ` · ${item.label} ${(item.ms / 1000).toFixed(2)}s/${item.docs}${item.error ? " ERR" : ""}`
+                ).join("")}
+          </div>
+        </div>
+      )}
 
       {!data.loading && !data.error && <>
         {tab === "stock" && <PlanningStock settings={settings} pallets={pallets} today={today} plans={identityAlignedPlans}/>}

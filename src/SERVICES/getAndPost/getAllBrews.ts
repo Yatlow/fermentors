@@ -8,6 +8,7 @@ import {
   startAfter,
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { recordReadAudit } from "../readAudit";
 
 export type BrewSummary = {
   id: string;
@@ -72,6 +73,7 @@ export async function getBrewsSummaryPage(
       limit(safeSize + 1),
     ];
     const snapshot = await getDocs(query(collection(db, "brews"), ...constraints));
+    recordReadAudit("Brew summaries", snapshot.size);
     const visible = snapshot.docs.slice(0, safeSize);
     const rows = visible.map((item) => {
       const data = item.data() as Record<string, unknown>;

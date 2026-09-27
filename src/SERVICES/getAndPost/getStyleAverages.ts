@@ -1,5 +1,6 @@
 import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "../../firebase";
+import { recordReadAudit } from "../readAudit";
 
 export type StyleAverageDay = {
     temp: number | null;
@@ -36,6 +37,7 @@ export async function getStyleAverages(
 
     const ref = doc(db, "styleAverages", style);
     const snapshot = await getDoc(ref);
+    recordReadAudit("Style average detail", 1);
 
     if (!snapshot.exists()) {
         console.warn("No style averages found for:", style);
@@ -59,6 +61,7 @@ export async function getAllStyleAverageStyles(): Promise<string[]> {
 
     stylesPending = (async () => {
         const snapshot = await getDocs(collection(db, "styleAverages"));
+        recordReadAudit("Style average index", snapshot.size);
         const styles = snapshot.docs
             .map((docSnap) => docSnap.id)
             .filter((id): id is string => !!id)
