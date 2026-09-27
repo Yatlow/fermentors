@@ -6,6 +6,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
+import { recordReadAudit } from "../readAudit";
 import type { BrewRecipe } from "./brewRecipe";
 import type { IngredientDefinition } from "./ingredientLibrary";
 
@@ -31,6 +32,7 @@ export async function loadSharedBrewingLibrary(): Promise<SharedBrewingLibrary> 
     getDoc(doc(db, "specs", RECIPES_DOC)),
     getDoc(doc(db, "specs", INGREDIENTS_DOC)),
   ]);
+  recordReadAudit("Brewing shared library", 2);
 
   const recipesData = recipesSnapshot.data() as
     | { recipes?: BrewRecipe[] }
