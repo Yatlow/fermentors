@@ -1,0 +1,38 @@
+/* Mobile-only stabilization for the batch-history chart modal.
+   iOS/Android dynamic browser chrome can make vh-based fixed overlays jump
+   while the page is scrolled. Keep this modal bound to the visual viewport
+   and size the sheet with dynamic viewport units. */
+@media (max-width: 719px) {
+  .batch-chart-overlay.batch-chart-overlay {
+    position: fixed !important;
+    inset: auto !important;
+    top: 0 !important;
+    right: 0 !important;
+    bottom: auto !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100svh;
+    box-sizing: border-box;
+    padding:
+      max(env(safe-area-inset-top, 0px), 8px)
+      8px
+      max(env(safe-area-inset-bottom, 0px), 8px);
+    align-items: flex-end !important;
+    justify-content: center !important;
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+
+  .batch-chart-overlay .batch-chart-modal {
+    width: 100% !important;
+    max-width: 640px !important;
+    max-height: calc(100dvh - max(env(safe-area-inset-top, 0px), 8px) - max(env(safe-area-inset-bottom, 0px), 8px) - 16px) !important;
+    margin: 0 !important;
+    box-sizing: border-box;
+    border-radius: 16px 16px 0 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
