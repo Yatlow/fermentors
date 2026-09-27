@@ -115,6 +115,14 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const submitInFlightRef = useRef(false);
 
     const isSending = status === "sending";
+    const sourceIdentity = `${tank.id}:${Number(tank.action ?? -1)}:${String(tank.batchNumber ?? "").replace("#", "").trim()}`;
+    const sourceIdentityRef = useRef(sourceIdentity);
+
+    useEffect(() => {
+        if (sourceIdentityRef.current === sourceIdentity) return;
+        sourceIdentityRef.current = sourceIdentity;
+        if (!isSending && !packagingJob) onClose();
+    }, [sourceIdentity, isSending, packagingJob, onClose]);
 
     useEffect(() => {
         if (noteType !== "דרייהופ" || !specs || dryHopAa !== "") return;

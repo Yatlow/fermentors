@@ -86,6 +86,12 @@ export default function Dashboard({
         [brewRecipes],
     );
 
+    const liveBrewFormTank = useMemo(() => {
+        if (!brewFormTank) return null;
+        const liveTanks = healthBrews ?? filteredBrews;
+        return liveTanks.find((tank) => tank.id === brewFormTank.id) ?? null;
+    }, [brewFormTank, healthBrews, filteredBrews]);
+
     const handleStyleToggle = (style: string): void => {
         if (style === "הכל") {
             setSelectedStyles(["הכל"]);
@@ -222,9 +228,9 @@ export default function Dashboard({
                 </div>
             )}
 
-            {brewFormTank && (
+            {liveBrewFormTank && (
                 <DashboardBrewFormModal
-                    tank={brewFormTank}
+                    tank={liveBrewFormTank}
                     onClose={() => setBrewFormTank(null)}
                 />
             )}

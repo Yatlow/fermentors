@@ -418,7 +418,7 @@ function TankCard({
     return () => {
       cancelled = true;
     };
-  }, [tank.id, tank.tankNumber, tank.action]);
+  }, [tank.id, tank.tankNumber, tank.action, tank.batchNumber]);
 
   const isCLT = Number(tank.tankNumber) === 1;
 
