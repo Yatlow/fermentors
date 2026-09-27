@@ -1,0 +1,38 @@
+/* Mobile-safe layout for the per-tank note editor. */
+.Tank-note-row {
+  min-width: 0;
+}
+
+.Tank-note-row:has(input) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.Tank-note-row:has(input) > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
+}
+
+.Tank-note-row:has(input) > span {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+@media (max-width: 700px) {
+  .Tank-note-row:has(input) {
+    gap: 4px;
+  }
+
+  .Tank-note-row:has(input) > input {
+    font-size: 16px;
+  }
+
+  .Tank-note-row:has(input) .pasivation-edit-button {
+    flex: 0 0 auto;
+  }
+}
