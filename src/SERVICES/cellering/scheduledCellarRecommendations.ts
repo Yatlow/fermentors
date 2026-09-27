@@ -11,7 +11,8 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 
-export type ScheduledCellarActionType = "carbTest" | "yeastDrop";
+export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange";
+export type PressureChangeDirection = "raise" | "lower";
 export type ScheduledCellarRecommendation = {
   id: string;
   tankNumber: string;
@@ -19,6 +20,9 @@ export type ScheduledCellarRecommendation = {
   actionType: ScheduledCellarActionType;
   dueDate: string;
   note?: string;
+  pressureDirection?: PressureChangeDirection;
+  targetPressure?: number;
+  source?: "user";
   status: "active" | "completed" | "cancelled";
   createdBy?: string;
   resolvedDate?: string;
@@ -55,7 +59,9 @@ export function todayDateKey(date = new Date()): string {
 }
 
 export function scheduledActionLabel(action: ScheduledCellarActionType): string {
-  return action === "carbTest" ? "בדיקת גיזוז" : "הורדת שמרים";
+  if (action === "carbTest") return "בדיקת גיזוז";
+  if (action === "yeastDrop") return "הורדת שמרים";
+  return "שינוי לחץ";
 }
 
 export function subscribeScheduledCellarRecommendations(
@@ -87,9 +93,20 @@ export async function createScheduledCellarRecommendation(input: {
   actionType: ScheduledCellarActionType;
   dueDate: string;
   note?: string;
+  pressureDirection?: PressureChangeDirection;
+  targetPressure?: number;
+  source?: "user";
 }): Promise<string> {
   const user = auth.currentUser;
   if (!user?.email) throw new Error("אין משתמש מחובר");
+
+  const pressureFields = input.actionType === "pressureChange"
+    ? {
+        pressureDirection: input.pressureDirection,
+        targetPressure: input.targetPressure,
+        source: "user" as const,
+      }
+    : {};
 
   if (isPullRequestPreview()) {
     const id = globalThis.crypto?.randomUUID?.() ?? `preview-${Date.now()}`;
@@ -101,6 +118,7 @@ export async function createScheduledCellarRecommendation(input: {
       actionType: input.actionType,
       dueDate: input.dueDate,
       note: input.note?.trim() || "",
+      ...pressureFields,
       status: "active",
       createdBy: user.email,
     });
@@ -115,6 +133,7 @@ export async function createScheduledCellarRecommendation(input: {
     actionType: input.actionType,
     dueDate: input.dueDate,
     note: input.note?.trim() || "",
+    ...pressureFields,
     status: "active",
     createdBy: user.email,
     createdByUid: user.uid,
