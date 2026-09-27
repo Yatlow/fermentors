@@ -85,7 +85,7 @@ jobs:
           insert_before = 'test("brew size helpers keep weekly editing on single/double/triple labels", () => {'
           if insert_before not in text:
               raise SystemExit('test insertion marker not found')
-          tests = r'''test("saved early packaging approval avoids repeated readiness confirmation", () => {\n  const tank: Tank = {\n    id: "tank-approved-early",\n    number: "4",\n    batch: "approved-early",\n    style: "IPA",\n    brewed: "2026-09-01",\n    ready: "2026-09-24",\n    liters: 1000,\n    cold: true,\n  };\n  const plan = {\n    ...emptyWeek("2026-09-20"),\n    packaging: [{\n      id: "approved-early-pack",\n      productId: product.id,\n      quantity: 84,\n      date: "2026-09-22",\n      tankId: tank.id,\n      tankNumber: tank.number,\n      earlyPackagingOverride: true,\n    }],\n  };\n\n  assert.equal(validateProduction([plan], settings, [tank], [], today), null);\n});\n\n'''
+          tests = '''test("saved early packaging approval avoids repeated readiness confirmation", () => {\n  const tank: Tank = {\n    id: "tank-approved-early",\n    number: "4",\n    batch: "approved-early",\n    style: "IPA",\n    brewed: "2026-09-01",\n    ready: "2026-09-24",\n    liters: 1000,\n    cold: true,\n  };\n  const plan = {\n    ...emptyWeek("2026-09-20"),\n    packaging: [{\n      id: "approved-early-pack",\n      productId: product.id,\n      quantity: 84,\n      date: "2026-09-22",\n      tankId: tank.id,\n      tankNumber: tank.number,\n      earlyPackagingOverride: true,\n    }],\n  };\n\n  assert.equal(validateProduction([plan], settings, [tank], [], today), null);\n});\n\n'''
           path.write_text(text.replace(insert_before, tests + insert_before, 1))
           PY
 
