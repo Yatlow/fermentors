@@ -1348,9 +1348,6 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const pressureAdjustmentHandledToday = {
         completed: Boolean(
             stage.name === "קר" &&
-            lastMeasurementDate === todayDate &&
-            hasLatestCarb &&
-            latestCarbSpec.outOfSpec &&
             pressureHandledToday
         ),
         reason: pressureHandledToday
