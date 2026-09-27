@@ -185,7 +185,7 @@ service cloud.firestore {
     }
 
     match /planningSettings/{settingsId} {
-      allow read: if isBreweryPlanner();
+      allow read: if isApprovedUser();
       allow create: if isBreweryPlanner() && settingsId == 'main'
         && validPlanningRevision() && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time
         && validPlanningSettings() && atomicPlanningRevision('planningSettings', settingsId);
@@ -220,7 +220,7 @@ service cloud.firestore {
     }
 
     match /planningWeeks/{weekId} {
-      allow read: if isBreweryPlanner();
+      allow read: if isApprovedUser();
       allow create: if isBreweryPlanner() && validPlanningRevision()
         && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time && validPlanningWeek(weekId) && atomicPlanningRevision('planningWeeks', weekId);
       allow update: if isBreweryPlanner() && validPlanningRevision()
@@ -256,7 +256,7 @@ service cloud.firestore {
     }
 
     match /planningWeeks/{weekId}/revisions/{revisionId} {
-      allow read: if isBreweryPlanner();
+      allow read: if isApprovedUser();
       allow create: if isBreweryPlanner()
         && revisionId == string(request.resource.data.revision)
         && request.resource.data.updatedAt == request.time
@@ -266,7 +266,7 @@ service cloud.firestore {
     }
 
     match /planningSettings/{settingsId}/revisions/{revisionId} {
-      allow read: if isBreweryPlanner();
+      allow read: if isApprovedUser();
       allow create: if isBreweryPlanner()
         && revisionId == string(request.resource.data.revision)
         && request.resource.data.updatedAt == request.time
@@ -321,7 +321,7 @@ service cloud.firestore {
     }
 
     match /planningSnapshots/{snapshotId} {
-      allow read: if isBreweryPlanner();
+      allow read: if isApprovedUser();
       allow write: if false;
     }
   }
