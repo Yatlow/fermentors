@@ -5,6 +5,7 @@ import CoolerUndoControl from './components/cooler/CoolerUndoControl.tsx'
 import CoolerShipmentLocationAlert from './components/cooler/CoolerShipmentLocationAlert.tsx'
 import { startVersionGuard } from './SERVICES/versionGuard'
 import './beerStyles.css'
+import './components/dashboard/BatchHistoryChart.mobile.css'
 
 startVersionGuard()
 
