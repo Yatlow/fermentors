@@ -1,5 +1,5 @@
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
-import { lazy, Suspense, useEffect, useMemo, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
     collection,
     onSnapshot,
@@ -190,6 +190,7 @@ function App() {
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר">("אריזה");
     const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
+    const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
     const [resetKey, setResetKey] = useState(0);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
@@ -331,6 +332,30 @@ function App() {
             ...existingStatuses.filter((status) => !order.includes(status)),
         ];
     }, [statusCounts]);
+
+    useEffect(() => {
+        const nextIdentities = Object.fromEntries(
+            brews.map((tank) => [
+                tank.id,
+                `${Number(tank.action ?? -1)}:${String(tank.batchNumber ?? "").replace("#", "").trim()}`,
+            ]),
+        );
+        const previousIdentities = readingSourceIdentityRef.current;
+        readingSourceIdentityRef.current = nextIdentities;
+
+        setNewReadings((current) => {
+            let changed = false;
+            const next = { ...current };
+            for (const tankId of Object.keys(current)) {
+                const previousIdentity = previousIdentities[tankId];
+                if (previousIdentity !== undefined && previousIdentity !== nextIdentities[tankId]) {
+                    delete next[tankId];
+                    changed = true;
+                }
+            }
+            return changed ? next : current;
+        });
+    }, [brews]);
 
     const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
         try {

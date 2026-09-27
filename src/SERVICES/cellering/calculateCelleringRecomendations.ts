@@ -4,6 +4,7 @@ import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
+import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
 
 
@@ -793,28 +794,20 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
 
     const carbRes = lastMeasurement.carbonation;
-    const pressureHandledToday = sortedMeasurements.some((measurement) => {
-        if (getMeasurementDate(measurement.id) !== todayDate) return false;
-        const note = String(measurement.notes ?? "");
-        return (
-            note.includes("הורדת לחץ") ||
-            note.includes("העלאת לחץ") ||
-            note.includes("להוריד לחץ") ||
-            note.includes("להעלות לחץ") ||
-            note.includes("גיזוז מלמטה")
-        );
-    });
-    const noteAdjustedPrvToday =
-        lastNote?.includes("כיוון פורק") ||
-        lastNote?.includes("לכוון פורק");
+    const pressureHandledToday = hasCellarActionOnDate(
+        sortedMeasurements,
+        todayDate,
+        ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ", "גיזוז מלמטה"],
+    );
+    const prvHandledToday = hasCellarActionOnDate(
+        sortedMeasurements,
+        todayDate,
+        ["כיוון פורק", "לכוון פורק"],
+    );
 
-    // Completion is action-based, not row-based: the carbonation test and the
-    // corrective pressure action are often logged as separate rows. A normal
-    // pressure measurement alone still does not count; an explicit pressure
-    // action (including bottom carbonation) must be recorded today.
-    const prvHandledToday =
-        lastMeasurementDate === todayDate &&
-        Boolean(noteAdjustedPrvToday);
+    // Completion is action-based, not row-based: the action and later readings
+    // can be logged as separate rows. A later measurement must never reopen an
+    // action that was explicitly completed earlier today.
     const tookCare = Boolean(carbRes) && pressureHandledToday;
     let requiresCarbTest = {
         display: false,

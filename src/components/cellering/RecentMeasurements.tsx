@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ListChevronsUpDown } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Measurement } from "../../SERVICES/cellering/calculateCelleringRecomendations";
@@ -32,6 +32,20 @@ export default function RecentMeasurements({ tank, mode }: Props) {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Measurement[]>([]);
   const [error, setError] = useState("");
+  const requestVersion = useRef(0);
+  const batch = String(tank.batchNumber ?? "").replace("#", "").trim();
+  const sourceKey = `${tank.id}:${batch}`;
+
+  // Tank cards are reused as a fermentor moves to a new batch. Never carry the
+  // previous batch's local history state into the new batch, and invalidate an
+  // in-flight request so a slow old response cannot repopulate stale rows.
+  useEffect(() => {
+    requestVersion.current += 1;
+    setOpen(false);
+    setLoading(false);
+    setRows([]);
+    setError("");
+  }, [sourceKey]);
 
   async function toggle() {
     if (open) {
@@ -40,24 +54,24 @@ export default function RecentMeasurements({ tank, mode }: Props) {
     }
 
     setOpen(true);
-    if (rows.length || loading) return;
+    if (rows.length || loading || !batch) return;
 
-    const batch = String(tank.batchNumber ?? "").replace("#", "").trim();
-    if (!batch) return;
-
+    const request = ++requestVersion.current;
     setLoading(true);
     setError("");
     try {
       const measurements = await getMeasurementsByBatch(batch);
+      if (request !== requestVersion.current) return;
       const newestFive = [...measurements]
         .sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")))
         .slice(0, 5);
       setRows(newestFive.reverse());
     } catch (err) {
+      if (request !== requestVersion.current) return;
       console.error("Failed loading recent measurements", tank.tankNumber, err);
       setError("לא ניתן לטעון מדידות קודמות");
     } finally {
-      setLoading(false);
+      if (request === requestVersion.current) setLoading(false);
     }
   }
 
