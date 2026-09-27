@@ -98,7 +98,7 @@ export default function ScheduledCellarRecommendationsPanel({
       ...visibleManual.map((row) => ({
         key: `manual:${row.id}`,
         actionType: row.actionType,
-        label: `החלטת משתמש · ${scheduledActionLabel(row.actionType)}`,
+        label: `החלטת סלרינג · ${scheduledActionLabel(row.actionType)}`,
         dueDate: row.dueDate,
         detail: row.note || undefined,
         manualId: row.id,
@@ -112,7 +112,7 @@ export default function ScheduledCellarRecommendationsPanel({
   async function add() {
     if (!dueDate) return;
     if (existing.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
-      setMessage("כבר קיימת החלטת משתמש מאותו סוג לתאריך הזה");
+      setMessage("כבר קיימת החלטת סלרינג מאותו סוג לתאריך הזה");
       return;
     }
     if (naturalFuture.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
@@ -152,9 +152,9 @@ export default function ScheduledCellarRecommendationsPanel({
       setNote("");
       if (actionType === "pressureChange") setTargetPressure("");
       setOpen(false);
-      setMessage("החלטת המשתמש נשמרה");
+      setMessage("החלטת הסלרינג נשמרה");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "שמירת החלטת המשתמש נכשלה");
+      setMessage(error instanceof Error ? error.message : "שמירת החלטת הסלרינג נכשלה");
     } finally {
       setSaving(false);
     }
@@ -186,9 +186,9 @@ export default function ScheduledCellarRecommendationsPanel({
         source: "user",
       });
       setTargetPressure("");
-      setMessage("החלטת המשתמש נוספה להמלצות של היום");
+      setMessage("החלטת הסלרינג נוספה להמלצות של היום");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "שמירת החלטת המשתמש נכשלה");
+      setMessage(error instanceof Error ? error.message : "שמירת החלטת הסלרינג נכשלה");
     } finally {
       setSaving(false);
     }
@@ -202,7 +202,7 @@ export default function ScheduledCellarRecommendationsPanel({
       setMessage(
         status === "completed"
           ? "סומן כבוצע — הפעולה תקבל ניקוד חיובי במדד של היום"
-          : "החלטת המשתמש בוטלה ולא תוצג יותר"
+          : "החלטת הסלרינג בוטלה ולא תוצג יותר"
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "עדכון ההחלטה נכשל");
@@ -222,7 +222,7 @@ export default function ScheduledCellarRecommendationsPanel({
 
       {pressureDecisionCandidate && !hasTodayPressureDecision && (
         <div className="scheduled-pressure-decision">
-          <strong>החלטת משתמש בעקבות גיזוז לא תקין</strong>
+          <strong>החלטת סלרינג בעקבות גיזוז לא תקין</strong>
           <small>{pressureDecisionCandidate.reason}</small>
           <div className="scheduled-pressure-decision-form">
             <select
