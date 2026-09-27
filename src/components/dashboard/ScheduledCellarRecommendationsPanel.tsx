@@ -98,13 +98,11 @@ export default function ScheduledCellarRecommendationsPanel({
       ...visibleManual.map((row) => ({
         key: `manual:${row.id}`,
         actionType: row.actionType,
-        label: row.actionType === "pressureChange"
-          ? "החלטת משתמש · שינוי לחץ"
-          : scheduledActionLabel(row.actionType),
+        label: `החלטת משתמש · ${scheduledActionLabel(row.actionType)}`,
         dueDate: row.dueDate,
         detail: row.note || undefined,
         manualId: row.id,
-        userDecision: row.actionType === "pressureChange" || row.source === "user",
+        userDecision: true,
       })),
     ].sort((a, b) =>
       String(a.dueDate ?? "9999-99-99").localeCompare(String(b.dueDate ?? "9999-99-99"))
@@ -114,16 +112,16 @@ export default function ScheduledCellarRecommendationsPanel({
   async function add() {
     if (!dueDate) return;
     if (existing.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
-      setMessage("כבר קיימת המלצה ידנית מאותו סוג לתאריך הזה");
+      setMessage("כבר קיימת החלטת משתמש מאותו סוג לתאריך הזה");
       return;
     }
     if (naturalFuture.some((row) => row.actionType === actionType && row.dueDate === dueDate)) {
-      setMessage("כבר קיימת המלצה טבעית מאותו סוג לתאריך הזה");
+      setMessage("כבר קיימת המלצת מערכת מאותו סוג לתאריך הזה");
       return;
     }
 
     let pressureTarget: number | undefined;
-    let scheduledNote = note;
+    let scheduledNote = `יש לבצע ${scheduledActionLabel(actionType)}${note.trim() ? ` · ${note.trim()}` : ""}`;
     if (actionType === "pressureChange") {
       pressureTarget = Number(targetPressure);
       if (!Number.isFinite(pressureTarget) || pressureTarget < 0 || pressureTarget > 5) {
@@ -143,20 +141,20 @@ export default function ScheduledCellarRecommendationsPanel({
         actionType,
         dueDate,
         note: scheduledNote,
+        source: "user",
         ...(actionType === "pressureChange"
           ? {
               pressureDirection,
               targetPressure: pressureTarget,
-              source: "user" as const,
             }
           : {}),
       });
       setNote("");
       if (actionType === "pressureChange") setTargetPressure("");
       setOpen(false);
-      setMessage("ההמלצה נשמרה");
+      setMessage("החלטת המשתמש נשמרה");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "שמירת ההמלצה נכשלה");
+      setMessage(error instanceof Error ? error.message : "שמירת החלטת המשתמש נכשלה");
     } finally {
       setSaving(false);
     }
@@ -204,10 +202,10 @@ export default function ScheduledCellarRecommendationsPanel({
       setMessage(
         status === "completed"
           ? "סומן כבוצע — הפעולה תקבל ניקוד חיובי במדד של היום"
-          : "ההמלצה בוטלה ולא תוצג יותר"
+          : "החלטת המשתמש בוטלה ולא תוצג יותר"
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "עדכון ההמלצה נכשל");
+      setMessage(error instanceof Error ? error.message : "עדכון ההחלטה נכשל");
     } finally {
       setSaving(false);
     }
