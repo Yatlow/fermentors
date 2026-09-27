@@ -9,6 +9,7 @@ import {
 import { shipmentDecisionPickOptions } from "../src/SERVICES/planning/shipmentDecisionPicking";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
+import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";
 import {
   brewLitersForSize,
   brewSizeLabel,
@@ -200,6 +201,71 @@ test("an explicit emptyTank packaging decision releases the tank despite a liter
   assert.equal(releases[0].emptyDate, "2026-09-16");
   assert.equal(releases[0].date, "2026-09-21");
   assert.equal(releases[0].remaining, 0);
+});
+
+test("committed early packaging still releases a tank for the following brewing week", () => {
+  const tank: Tank = {
+    id: "tank-early",
+    number: "4",
+    batch: "early-batch",
+    style: "IPA",
+    brewed: "2026-09-01",
+    ready: "2026-09-24",
+    liters: 1000,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-09-20"),
+    packaging: [{
+      id: "early-pack",
+      productId: product.id,
+      quantity: 126,
+      date: "2026-09-22",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    }],
+  };
+
+  const releases = tankReleases(
+    [{ id: tank.id, tankNumber: 4, beerStyle: "IPA", beerVolume: 1100, tankStatus: false, action: 1 }],
+    [tank],
+    [plan],
+    settings,
+    [],
+    today,
+  );
+
+  assert.equal(releases[0].emptyDate, "2026-09-22");
+  assert.equal(releases[0].date, "2026-09-28");
+});
+
+test("committed early packaging contributes finished stock to the forecast", () => {
+  const tank: Tank = {
+    id: "tank-forecast-early",
+    number: "4",
+    batch: "forecast-early",
+    style: "IPA",
+    brewed: "2026-09-01",
+    ready: "2026-09-24",
+    liters: 1000,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-09-20"),
+    packaging: [{
+      id: "early-stock",
+      productId: product.id,
+      quantity: 84,
+      date: "2026-09-22",
+      tankId: tank.id,
+      tankNumber: tank.number,
+    }],
+  };
+
+  const forecast = dailyForecast(settings, [], [tank], [plan], [], today);
+  const point = forecast.points.find((row) => row.date === "2026-09-22" && row.productId === product.id);
+  assert.equal(point?.packed, 84);
 });
 
 test("brew size helpers keep weekly editing on single/double/triple labels", () => {
