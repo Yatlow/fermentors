@@ -54,16 +54,6 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    /*
-     * The score itself clips a fixed 0–100 colour scale. This keeps the ring
-     * cumulative: 50 shows red + red-orange, 80 continues through amber and
-     * yellow-green, and only 90+ reaches green.
-     */
-    /*
-     * Keep the filled arc geometrically equal to the score, while its colour
-     * progresses continuously across the 0–100 scale. A transparent mask
-     * starts exactly at --health-score, revealing the neutral track beneath.
-     */
     background:
         conic-gradient(
             transparent 0 var(--health-score),
@@ -365,7 +355,6 @@
     }
 }
 
-
 .health-completed-actions {
     display: grid;
     gap: 7px;
@@ -408,13 +397,11 @@
     font-size: 0.7rem;
 }
 
-
 @media (max-width: 600px) {
     .health-completed-actions-list {
         grid-template-columns: 1fr;
     }
 }
-
 
 .health-ignore-button,
 .health-restore-button {
@@ -508,8 +495,49 @@
     background: #fee2e2;
 }
 
+.health-daily-actions {
+    display: grid;
+    gap: 7px;
+    padding: 10px 11px;
+    border: 1px solid #bfdbfe;
+    border-radius: 11px;
+    background: #eff6ff;
+}
+
+.health-daily-actions > strong {
+    color: #1d4ed8;
+    font-size: 0.84rem;
+}
+
+.health-daily-actions-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px 12px;
+}
+
+.health-daily-action {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    color: #1e3a8a;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.health-daily-action span {
+    font-weight: 700;
+}
+
+.health-daily-action small {
+    flex-basis: 100%;
+    color: #475569;
+    font-size: 0.7rem;
+}
+
 @media (max-width: 600px) {
-    .health-ignored-actions-list {
+    .health-ignored-actions-list,
+    .health-daily-actions-list {
         grid-template-columns: 1fr;
     }
 
