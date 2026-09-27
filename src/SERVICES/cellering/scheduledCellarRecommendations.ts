@@ -28,6 +28,14 @@ export type ScheduledCellarRecommendation = {
   resolvedDate?: string;
 };
 
+type DueScheduledCellarRecommendation = Omit<ScheduledCellarRecommendation, "actionType"> & {
+  // Due rows can include user pressure decisions. Some legacy callers only
+  // auto-resolve carb/yeast actions and intentionally ignore other actions.
+  // Keep the persisted action value intact while allowing those callers to
+  // perform their runtime membership check without widening their local Set.
+  actionType: ScheduledCellarActionType & string;
+};
+
 const COLLECTION = "scheduledCellarRecommendations";
 const PREVIEW_STORAGE_KEY = "preview_scheduled_cellar_recommendations_v1";
 const PREVIEW_EVENT = "preview-scheduled-cellar-recommendations";
@@ -218,7 +226,7 @@ export function dueScheduledForTank(
   tankNumber: string | number | null | undefined,
   batchNumber: string | number | null | undefined,
   today = todayDateKey(),
-): ScheduledCellarRecommendation[] {
+): DueScheduledCellarRecommendation[] {
   return scheduledForTank(rows, tankNumber, batchNumber)
-    .filter((row) => row.dueDate <= today);
+    .filter((row) => row.dueDate <= today) as DueScheduledCellarRecommendation[];
 }
