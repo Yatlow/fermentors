@@ -1,6 +1,7 @@
 name: One-off audit silent state guards
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - audit/silent-state-guards
@@ -29,9 +30,6 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          # 1) Cellar completion must scan every action row from today, not just
-          # the latest note. This fixes the same silent regression for PRV that
-          # was already fixed for pressure changes.
           calc = Path('src/SERVICES/cellering/calculateCelleringRecomendations.ts')
           text = calc.read_text()
           import_marker = 'import { findOpenBottomCarbonation } from "./bottomCarbonation";\n'
@@ -86,9 +84,6 @@ jobs:
           text = text.replace(old, new, 1)
           calc.write_text(text)
 
-          # 2) Draft cellar inputs are keyed by tank id. If that tank changes
-          # batch/action while the screen stays open, discard its old draft so it
-          # can never be submitted under the new batch metadata.
           app = Path('src/App.tsx')
           text = app.read_text()
           old_import = 'import { lazy, Suspense, useEffect, useMemo, useState, useCallback } from "react";'
