@@ -1,5 +1,5 @@
 import BeerLoader from "../general/Loading";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import {
@@ -94,6 +94,8 @@ export default function PlanningBoard({
   const [selectedPackaging, setSelectedPackaging] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [earlyPackagingWarning, setEarlyPackagingWarning] = useState<string | null>(null);
+  const earlyPackagingResolver = useRef<((approved: boolean) => void) | null>(null);
 
   const closed = weekIsClosed(week, today);
   const readOnly = disabled || closed;
@@ -137,6 +139,20 @@ export default function PlanningBoard({
     `${productLabel(run.productId)} · ${Math.round(run.quantity)} · מיכל ${tanks.find((tank) => tank.id === run.tankId)?.number ?? run.tankNumber ?? "?"}${run.date ? ` · ${shortDate(run.date)}` : " · טרם שובץ ליום"}`,
   );
 
+  function requestEarlyPackagingOverride(warning: string) {
+    return new Promise<boolean>((resolve) => {
+      earlyPackagingResolver.current = resolve;
+      setEarlyPackagingWarning(warning);
+    });
+  }
+
+  function resolveEarlyPackagingOverride(approved: boolean) {
+    const resolve = earlyPackagingResolver.current;
+    earlyPackagingResolver.current = null;
+    setEarlyPackagingWarning(null);
+    resolve?.(approved);
+  }
+
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
@@ -146,7 +162,24 @@ export default function PlanningBoard({
     if (error) throw new Error(error);
 
     const datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
-    const production = validateProduction(datedOnly, settings, futureTanks(tanks, all, settings), actuals, today);
+    const validationTanks = futureTanks(tanks, all, settings);
+    let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
+    if (production?.includes("לפני מועד ההבשלה")) {
+      // Read-only users cannot reach persist at all. For users with planning
+      // write access, early packaging is an explicit operational exception.
+      setBusy(false);
+      const approved = await requestEarlyPackagingOverride(production);
+      if (!approved) throw new Error("השיבוץ בוטל.");
+      setBusy(true);
+      production = validateProduction(
+        datedOnly,
+        settings,
+        validationTanks,
+        actuals,
+        today,
+        { allowEarlyPackaging: true },
+      );
+    }
     if (production) throw new Error(production);
 
     const assignedOnly = forecastDateUndatedPackaging(all).map((w) => ({ ...w, brews: w.brews.filter((brew) => !!brew.tankId) }));
@@ -278,6 +311,22 @@ export default function PlanningBoard({
   }
 
   return <section>
+    {earlyPackagingWarning && <div className="bp-modal-backdrop" role="presentation">
+      <div className="bp-modal" role="dialog" aria-modal="true" aria-labelledby="bp-early-packaging-title">
+        <div className="bp-editor-header">
+          <div>
+            <h3 id="bp-early-packaging-title">חריגה ממועד הבשלת המיכל</h3>
+            <small>האריזה שובצה לפני המועד שבו המיכל צפוי להיות בשל.</small>
+          </div>
+        </div>
+        <p className="bp-alert">{earlyPackagingWarning}</p>
+        <p>אפשר לחרוג מההתראה ולשמור את השיבוץ בכל זאת. זו חריגה תפעולית בהחלטת המתכנן או מנהל העבודה.</p>
+        <div className="bp-actions">
+          <button type="button" onClick={() => resolveEarlyPackagingOverride(false)}>ביטול</button>
+          <button type="button" className="bp-action-warning" onClick={() => resolveEarlyPackagingOverride(true)}>חרוג ושבץ</button>
+        </div>
+      </div>
+    </div>}
     {busy && !brewDraft && <BeerLoader overlay message="שומר את התכנון…" />}
 
     <div className="bp-section-heading">
