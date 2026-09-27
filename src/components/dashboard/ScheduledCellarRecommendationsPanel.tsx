@@ -122,6 +122,18 @@ export default function ScheduledCellarRecommendationsPanel({
       return;
     }
 
+    let pressureTarget: number | undefined;
+    let scheduledNote = note;
+    if (actionType === "pressureChange") {
+      pressureTarget = Number(targetPressure);
+      if (!Number.isFinite(pressureTarget) || pressureTarget < 0 || pressureTarget > 5) {
+        setMessage("יש להזין לחץ יעד תקין בין 0 ל-5 bar");
+        return;
+      }
+      const directionLabel = pressureDirection === "raise" ? "העלאת" : "הורדת";
+      scheduledNote = `יש לבצע ${directionLabel} לחץ ל-${pressureTarget} bar${note.trim() ? ` · ${note.trim()}` : ""}`;
+    }
+
     setSaving(true);
     setMessage("");
     try {
@@ -130,9 +142,17 @@ export default function ScheduledCellarRecommendationsPanel({
         batchNumber,
         actionType,
         dueDate,
-        note,
+        note: scheduledNote,
+        ...(actionType === "pressureChange"
+          ? {
+              pressureDirection,
+              targetPressure: pressureTarget,
+              source: "user" as const,
+            }
+          : {}),
       });
       setNote("");
+      if (actionType === "pressureChange") setTargetPressure("");
       setOpen(false);
       setMessage("ההמלצה נשמרה");
     } catch (error) {
@@ -263,10 +283,36 @@ export default function ScheduledCellarRecommendationsPanel({
           <select value={actionType} onChange={(event) => setActionType(event.target.value as ScheduledCellarActionType)}>
             <option value="carbTest">בדיקת גיזוז</option>
             <option value="yeastDrop">הורדת שמרים</option>
+            <option value="pressureChange">שינוי לחץ</option>
           </select>
           <input type="date" min={todayDateKey()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+          {actionType === "pressureChange" && (
+            <>
+              <select
+                value={pressureDirection}
+                onChange={(event) => setPressureDirection(event.target.value as PressureChangeDirection)}
+              >
+                <option value="lower">הורדת לחץ</option>
+                <option value="raise">העלאת לחץ</option>
+              </select>
+              <input
+                type="number"
+                min="0"
+                max="5"
+                step="0.01"
+                inputMode="decimal"
+                value={targetPressure}
+                placeholder="לחץ יעד (bar)"
+                onChange={(event) => setTargetPressure(event.target.value)}
+              />
+            </>
+          )}
           <input value={note} placeholder="הערה (אופציונלי)" onChange={(event) => setNote(event.target.value)} />
-          <button type="button" disabled={saving || !dueDate} onClick={() => void add()}>
+          <button
+            type="button"
+            disabled={saving || !dueDate || (actionType === "pressureChange" && !targetPressure)}
+            onClick={() => void add()}
+          >
             {saving ? "שומר…" : "שמירה"}
           </button>
         </div>
