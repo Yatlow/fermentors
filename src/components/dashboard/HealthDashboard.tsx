@@ -80,11 +80,19 @@ type DailyCellarAction = {
     detail?: string;
 };
 
+type DailyActionProgress = {
+    yeastRequired: number;
+    yeastCompleted: number;
+    carbRequired: number;
+    carbCompleted: number;
+};
+
 type CellarAnalysis = {
     alerts: HealthAlert[];
     scoreRecommendations: ScoredRecommendation[];
     completedActions: CompletedCellarAction[];
     dailyActions: DailyCellarAction[];
+    dailyActionProgress: DailyActionProgress;
     measurementProgress: MeasurementIssue[];
     checkedTanks: number;
     completeMeasurementTankNumbers: string[];
@@ -95,11 +103,19 @@ type Props = {
     specs: SpecChart | null;
 };
 
+const EMPTY_DAILY_ACTION_PROGRESS: DailyActionProgress = {
+    yeastRequired: 0,
+    yeastCompleted: 0,
+    carbRequired: 0,
+    carbCompleted: 0,
+};
+
 const EMPTY_ANALYSIS: CellarAnalysis = {
     alerts: [],
     scoreRecommendations: [],
     completedActions: [],
     dailyActions: [],
+    dailyActionProgress: EMPTY_DAILY_ACTION_PROGRESS,
     measurementProgress: [],
     checkedTanks: 0,
     completeMeasurementTankNumbers: [],
@@ -196,9 +212,7 @@ function activeRecommendations(
     ];
 
     return candidates
-        .filter((item): item is { recommendationKey: string; recommendation: Recommendation } =>
-            Boolean(item.recommendation)
-        )
+        .filter((item): item is { recommendationKey: string; recommendation: Recommendation } => Boolean(item.recommendation))
         .filter((item) => isActionableHealthRecommendation(item.recommendation))
         .map((item) => ({ ...item.recommendation, recommendationKey: item.recommendationKey }))
         .sort((a, b) => Number(b.importance ?? 1) - Number(a.importance ?? 1));
@@ -243,7 +257,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
         );
         const unsubscribeIgnored = subscribeIgnoredCellarRecommendationsToday(
             setIgnoredRecommendations,
-            (error) => console.error("Failed loading ignored cellar recommendations:", error)
+            (error) => console.error("Failed loading ignored cellar recommendations for health:", error)
         );
         return () => {
             unsubscribeActive();
@@ -283,6 +297,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     const scoreRecommendations: ScoredRecommendation[] = [];
                     const completedActions: CompletedCellarAction[] = [];
                     const dailyActions: DailyCellarAction[] = [];
+                    const tankDailyProgress: DailyActionProgress = { ...EMPTY_DAILY_ACTION_PROGRESS };
                     const hotTank = isHotTank(tank);
                     const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
 
@@ -301,6 +316,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                     scoreRecommendations: [] as ScoredRecommendation[],
                                     completedActions: [] as CompletedCellarAction[],
                                     dailyActions: [] as DailyCellarAction[],
+                                    dailyActionProgress: tankDailyProgress,
                                     measurementProgress: {
                                         missingFields: [],
                                         requiredFieldCount: 0,
@@ -317,6 +333,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 scoreRecommendations: [] as ScoredRecommendation[],
                                 completedActions: [] as CompletedCellarAction[],
                                 dailyActions: [] as DailyCellarAction[],
+                                dailyActionProgress: tankDailyProgress,
                                 measurementProgress: {
                                     missingFields: [],
                                     requiredFieldCount: 0,
@@ -340,11 +357,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             )
                         );
                         const scoreProgress = measurementRoundIgnored
-                            ? {
-                                ...progress,
-                                missingFields: [],
-                                requiredFieldCount: progress.completedFieldCount,
-                            }
+                            ? { ...progress, missingFields: [], requiredFieldCount: progress.completedFieldCount }
                             : progress;
 
                         if (!completeMeasurements && !measurementRoundIgnored) {
@@ -375,6 +388,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 scoreRecommendations,
                                 completedActions,
                                 dailyActions,
+                                dailyActionProgress: tankDailyProgress,
                                 measurementProgress: scoreProgress,
                                 completeMeasurements,
                                 tankNumber: number,
@@ -418,9 +432,15 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         const hasTodayYeast = /שמרים|שמרי/.test(todayNotes);
                         const handledPressureAfterCarb =
                             recommendations?.pressureAdjustmentHandledToday?.completed === true;
+                        const carbCompletedToday = hasTodayCarbonation || handledPressureAfterCarb;
 
                         const day = new Date().getDay();
                         if (day === 0 && tank.stage.name === "קר") {
+                            tankDailyProgress.yeastRequired = 1;
+                            tankDailyProgress.yeastCompleted = hasTodayYeast ? 1 : 0;
+                            tankDailyProgress.carbRequired = 1;
+                            tankDailyProgress.carbCompleted = carbCompletedToday ? 1 : 0;
+
                             if (!hasTodayYeast) {
                                 dailyActions.push({
                                     id: `daily-sunday-yeast-${tank.id}`,
@@ -429,7 +449,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                     detail: "פעולת יום ראשון לכל מיכל קר",
                                 });
                             }
-                            if (!hasTodayCarbonation && !handledPressureAfterCarb) {
+                            if (!carbCompletedToday) {
                                 dailyActions.push({
                                     id: `daily-sunday-carb-${tank.id}`,
                                     tankNumber: number,
@@ -438,7 +458,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 });
                             }
                         } else if (day === 3 && isCalendarCarbRecommendation(recommendations?.requiresCarbTest)) {
-                            if (!hasTodayCarbonation && !handledPressureAfterCarb) {
+                            tankDailyProgress.carbRequired = 1;
+                            tankDailyProgress.carbCompleted = carbCompletedToday ? 1 : 0;
+                            if (!carbCompletedToday) {
                                 dailyActions.push({
                                     id: `daily-wednesday-carb-${tank.id}`,
                                     tankNumber: number,
@@ -449,15 +471,18 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         } else if (
                             day === 4 &&
                             recommendations?.requiiersWedYeastDropOnThus?.req === true &&
-                            recommendations?.requiiersWedYeastDropOnThus?.display === true &&
-                            !hasTodayYeast
+                            recommendations?.requiiersWedYeastDropOnThus?.display === true
                         ) {
-                            dailyActions.push({
-                                id: `daily-thursday-yeast-${tank.id}`,
-                                tankNumber: number,
-                                title: "הורדת שמרים",
-                                detail: "מתוכנן לרדת בשבוע הבא",
-                            });
+                            tankDailyProgress.yeastRequired = 1;
+                            tankDailyProgress.yeastCompleted = hasTodayYeast ? 1 : 0;
+                            if (!hasTodayYeast) {
+                                dailyActions.push({
+                                    id: `daily-thursday-yeast-${tank.id}`,
+                                    tankNumber: number,
+                                    title: "הורדת שמרים",
+                                    detail: "מתוכנן לרדת בשבוע הבא",
+                                });
+                            }
                         }
 
                         const naturalCarb = Boolean(
@@ -478,18 +503,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             tank.batchNumber
                         );
                         const effectivelyCompletedScheduled = dueScheduled.filter((row) =>
-                            row.actionType === "carbTest"
-                                ? hasTodayCarbonation || handledPressureAfterCarb
-                                : hasTodayYeast
+                            row.actionType === "carbTest" ? carbCompletedToday : hasTodayYeast
                         );
                         const effectivelyCompletedIds = new Set(
                             effectivelyCompletedScheduled.map((row) => row.id)
                         );
                         const manualDue = dueScheduled
                             .filter((row) => !effectivelyCompletedIds.has(row.id))
-                            .filter((row) =>
-                                row.actionType === "carbTest" ? !naturalCarb : !naturalYeast
-                            );
+                            .filter((row) => row.actionType === "carbTest" ? !naturalCarb : !naturalYeast);
 
                         [
                             ...naturalRecommendations,
@@ -506,17 +527,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 String(tank.tankNumber),
                                 String(tank.batchNumber),
                                 recommendation.recommendationKey
-                            )) {
-                                return;
-                            }
+                            )) return;
 
                             const importance = Math.max(1, Math.min(3, Number(recommendation.importance) || 1));
-                            const title = `מיכל ${number}: המלצת סלרינג`;
                             scoreRecommendations.push({ importance });
                             tankAlerts.push({
                                 id: `recommendation-${tank.id}-${recommendation.recommendationKey}`,
                                 severity: recommendationSeverity(importance),
-                                title,
+                                title: `מיכל ${number}: המלצת סלרינג`,
                                 detail: recommendation.reason || "נדרשת פעולת סלרינג.",
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
@@ -547,9 +565,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         );
                         const scheduledCompletedForDisplay = [
                             ...completedScheduledForTank,
-                            ...effectivelyCompletedScheduled.filter(
-                                (row) => !completedScheduledIds.has(row.id)
-                            ),
+                            ...effectivelyCompletedScheduled.filter((row) => !completedScheduledIds.has(row.id)),
                         ];
                         const completedScheduledCarb = scheduledCompletedForDisplay.some(
                             (row) => row.actionType === "carbTest"
@@ -567,24 +583,15 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             );
                         });
 
-                        if (
-                            (hasTodayCarbonation || handledPressureAfterCarb) &&
-                            !completedScheduledCarb
-                        ) {
+                        if (carbCompletedToday && !completedScheduledCarb) {
                             addCompleted(`carb-${tank.id}`, "בדיקת גיזוז");
                         }
                         if (hasTodayYeast && !completedScheduledYeast) {
                             addCompleted(`yeast-${tank.id}`, "הורדת שמרים");
                         }
-                        if (todayNotes.includes("כשות")) {
-                            addCompleted(`dryhop-${tank.id}`, "דרייהופ");
-                        }
-                        if (todayNotes.includes("קירור")) {
-                            addCompleted(`cooling-${tank.id}`, "התחלת קירור");
-                        }
-                        if (todayNotes.includes("גיזוז מלמטה")) {
-                            addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
-                        }
+                        if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
+                        if (todayNotes.includes("קירור")) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
+                        if (todayNotes.includes("גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
                         if (recommendations?.pressureAdjustmentHandledToday?.completed) {
                             const importance = Math.max(
                                 1,
@@ -604,6 +611,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             scoreRecommendations,
                             completedActions,
                             dailyActions,
+                            dailyActionProgress: tankDailyProgress,
                             measurementProgress: scoreProgress,
                             completeMeasurements,
                             tankNumber: number,
@@ -618,6 +626,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 scoreRecommendations: [] as ScoredRecommendation[],
                                 completedActions: [] as CompletedCellarAction[],
                                 dailyActions: [] as DailyCellarAction[],
+                                dailyActionProgress: tankDailyProgress,
                                 measurementProgress: {
                                     missingFields: [],
                                     requiredFieldCount: 0,
@@ -647,6 +656,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             scoreRecommendations,
                             completedActions,
                             dailyActions,
+                            dailyActionProgress: tankDailyProgress,
                             measurementProgress: {
                                 missingFields: [...missingFields],
                                 requiredFieldCount,
@@ -662,6 +672,15 @@ export default function HealthDashboard({ brews, specs }: Props) {
             if (cancelled) return;
 
             const eligibleResults = results.filter((result) => result.included);
+            const dailyActionProgress = eligibleResults.reduce<DailyActionProgress>(
+                (sum, result) => ({
+                    yeastRequired: sum.yeastRequired + result.dailyActionProgress.yeastRequired,
+                    yeastCompleted: sum.yeastCompleted + result.dailyActionProgress.yeastCompleted,
+                    carbRequired: sum.carbRequired + result.dailyActionProgress.carbRequired,
+                    carbCompleted: sum.carbCompleted + result.dailyActionProgress.carbCompleted,
+                }),
+                { ...EMPTY_DAILY_ACTION_PROGRESS }
+            );
 
             setAnalysis({
                 alerts: eligibleResults
@@ -670,6 +689,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                 scoreRecommendations: eligibleResults.flatMap((result) => result.scoreRecommendations),
                 completedActions: eligibleResults.flatMap((result) => result.completedActions ?? []),
                 dailyActions: eligibleResults.flatMap((result) => result.dailyActions ?? []),
+                dailyActionProgress,
                 measurementProgress: eligibleResults.map((result) => result.measurementProgress),
                 checkedTanks: eligibleResults.length,
                 completeMeasurementTankNumbers: eligibleResults
@@ -700,6 +720,26 @@ export default function HealthDashboard({ brews, specs }: Props) {
         warning: analysis.alerts.filter((alert) => alert.severity === "warning").length,
         info: analysis.alerts.filter((alert) => alert.severity === "info").length,
     }), [analysis.alerts]);
+
+    const groupedDailyActions = useMemo(() => {
+        const grouped = new Map<string, { tankNumber: string; titles: string[]; detail?: string }>();
+        analysis.dailyActions.forEach((action) => {
+            const existing = grouped.get(action.tankNumber);
+            if (!existing) {
+                grouped.set(action.tankNumber, {
+                    tankNumber: action.tankNumber,
+                    titles: [action.title],
+                    detail: action.detail,
+                });
+                return;
+            }
+            if (!existing.titles.includes(action.title)) existing.titles.push(action.title);
+            if (!existing.detail && action.detail) existing.detail = action.detail;
+        });
+        return Array.from(grouped.values()).sort(
+            (a, b) => Number(a.tankNumber) - Number(b.tankNumber)
+        );
+    }, [analysis.dailyActions]);
 
     const scoreStyle = {
         "--health-score": `${healthScore}%`,
@@ -767,6 +807,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             סבב מלא: {completedTankCount}/{analysis.checkedTanks} מיכלים
                         </span>
                     )}
+                    {!analyzing && (
+                        <span className="health-measurement-progress">
+                            פעולות היום: שמרים {analysis.dailyActionProgress.yeastCompleted}/{analysis.dailyActionProgress.yeastRequired}
+                            {" · "}
+                            גיזוזים {analysis.dailyActionProgress.carbCompleted}/{analysis.dailyActionProgress.carbRequired}
+                        </span>
+                    )}
                 </span>
 
                 <span className="health-summary-counts">
@@ -826,13 +873,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         </section>
                     )}
 
-                    {analysis.dailyActions.length > 0 && (
+                    {groupedDailyActions.length > 0 && (
                         <section className="health-daily-actions" aria-label="פעולות יומיות לביצוע">
                             <strong>פעולות יומיות לביצוע</strong>
                             <div className="health-daily-actions-list">
-                                {analysis.dailyActions.map((action) => (
-                                    <div className="health-daily-action" key={action.id}>
-                                        <span>מיכל {action.tankNumber} · {action.title}</span>
+                                {groupedDailyActions.map((action) => (
+                                    <div className="health-daily-action" key={`daily-${action.tankNumber}`}>
+                                        <span>מיכל {action.tankNumber} · {action.titles.join(", ")}</span>
                                         {action.detail && <small>{action.detail}</small>}
                                     </div>
                                 ))}
@@ -846,10 +893,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         </div>
                     ) : (
                         analysis.alerts.map((alert) => (
-                            <article
-                                key={alert.id}
-                                className={`health-alert health-alert-${alert.severity}`}
-                            >
+                            <article key={alert.id} className={`health-alert health-alert-${alert.severity}`}>
                                 <span className="health-alert-icon" aria-hidden="true">
                                     {alert.severity === "critical" ? "!" : alert.severity === "warning" ? "•" : "i"}
                                 </span>
