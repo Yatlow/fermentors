@@ -107,13 +107,16 @@ export async function createScheduledCellarRecommendation(input: {
   const user = auth.currentUser;
   if (!user?.email) throw new Error("אין משתמש מחובר");
 
+  const sourceFields = input.source === "user"
+    ? { source: "user" as const }
+    : {};
   const pressureFields = input.actionType === "pressureChange"
     ? {
         pressureDirection: input.pressureDirection,
         targetPressure: input.targetPressure,
         source: "user" as const,
       }
-    : {};
+    : sourceFields;
 
   if (isPullRequestPreview()) {
     const id = globalThis.crypto?.randomUUID?.() ?? `preview-${Date.now()}`;
