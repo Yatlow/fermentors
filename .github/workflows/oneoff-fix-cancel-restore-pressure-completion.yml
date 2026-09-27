@@ -1,0 +1,198 @@
+name: One-off fix cancel restore and pressure completion
+
+on:
+  push:
+    paths:
+      - '.github/workflows/oneoff-fix-cancel-restore-pressure-completion.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch production files
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # 1) Cancelling an unstarted brew: reject a cellarState snapshot that
+          # already contains the batch being deleted and recover the prior brew
+          # metadata from Drive history instead.
+          path = Path('src/components/brewing/BrewingView.tsx')
+          text = path.read_text()
+          old = '''            const cellarState =
+                tank.cellarState && typeof tank.cellarState === "object"
+                    ? tank.cellarState as Record<string, unknown>
+                    : null;
+            if (cellarState) {
+                // Restore the exact state captured by ACTION 5 immediately
+                // before it assigned this unstarted brew.
+                await updateDoc(doc(db, "fermentors", tank.id), {
+                    ...cellarState,
+                    action: 5,
+                    stage: 5,
+                    tankStatus: true,
+                    cellarState: deleteField(),
+                });
+            } else {
+                // Backward-compatible fallback for ACTION-0 assignments created
+                // before cellarState snapshots were introduced.
+                const cellarBatch = String(
+                    (tank.cellarState as { batchNumber?: string | number } | undefined)?.batchNumber || "",
+                ).replace("#", "").trim();
+                const previousRun =
+                    (cellarBatch
+                        ? productionHistory.find(
+                              (item) => String(item.batchNumber || "").replace("#", "").trim() === cellarBatch,
+                          )
+                        : undefined) ||
+                    productionHistory
+                        .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
+                        .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== run.batchNumber)
+                        .filter((item) => !!String(item.brewDate || "").trim())
+                        .sort((a, b) => {
+                            const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
+                            return Number.isFinite(batchDelta) && batchDelta !== 0
+                                ? batchDelta
+                                : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
+                        })[0];
+                await updateDoc(doc(db, "fermentors", tank.id), {
+                    batchNumber: previousRun?.batchNumber || cellarBatch || "",
+                    beerStyle: previousRun?.beerStyle || "",
+                    brewDate: previousRun?.brewDate || "",
+                    sheetUrl: previousRun?.sheetUrl || "",
+                    action: 5,
+                    stage: 5,
+                    tankStatus: true,
+                });
+            }
+            setSelectedRun(null);
+            setPendingProductionRows((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
+            setProductionHistory((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
+            const restoredBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();
+            setMessage(restoredBatch ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${restoredBatch} וה-state הקודם שלה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);'''
+          new = '''            const cellarState =
+                tank.cellarState && typeof tank.cellarState === "object"
+                    ? tank.cellarState as Record<string, unknown>
+                    : null;
+            const deletedBatch = String(run.batchNumber || "").replace("#", "").trim();
+            const cellarBatch = String(cellarState?.batchNumber || "").replace("#", "").trim();
+            const cellarStateIsPrevious = Boolean(cellarState && cellarBatch && cellarBatch !== deletedBatch);
+            const previousRun = productionHistory
+                .filter((item) => String(item.tankNumber || "") === String(tank.tankNumber ?? tank.id))
+                .filter((item) => String(item.batchNumber || "").replace("#", "").trim() !== deletedBatch)
+                .filter((item) => !!String(item.brewDate || "").trim())
+                .sort((a, b) => {
+                    const batchDelta = Number(b.batchNumber || 0) - Number(a.batchNumber || 0);
+                    return Number.isFinite(batchDelta) && batchDelta !== 0
+                        ? batchDelta
+                        : String(b.brewDate || "").localeCompare(String(a.brewDate || ""));
+                })[0];
+
+            let restoredBatch = "";
+            if (cellarStateIsPrevious) {
+                restoredBatch = cellarBatch;
+                // Restore the exact state captured by ACTION 5 only when it is
+                // genuinely the state BEFORE the batch being cancelled.
+                await updateDoc(doc(db, "fermentors", tank.id), {
+                    ...cellarState,
+                    action: 5,
+                    stage: 5,
+                    tankStatus: true,
+                    cellarState: deleteField(),
+                });
+            } else {
+                // A partially-completed ACTION-5 assignment can leave a snapshot
+                // whose batchNumber already equals the new (now deleted) brew.
+                // Keep any useful snapshot fields/currentData, but restore the
+                // canonical previous brew identity from history instead.
+                restoredBatch = String(previousRun?.batchNumber || "").replace("#", "").trim();
+                await updateDoc(doc(db, "fermentors", tank.id), {
+                    ...(cellarState || {}),
+                    batchNumber: previousRun?.batchNumber || "",
+                    beerStyle: previousRun?.beerStyle || "",
+                    brewDate: previousRun?.brewDate || "",
+                    sheetUrl: previousRun?.sheetUrl || "",
+                    action: 5,
+                    stage: 5,
+                    tankStatus: true,
+                    cellarState: deleteField(),
+                });
+            }
+            setSelectedRun(null);
+            setPendingProductionRows((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
+            setProductionHistory((current) => current.filter((row) => String(row.batchNumber || "").replace("#", "").trim() !== run.batchNumber));
+            setMessage(restoredBatch ? `✓ אצווה ${run.batchNumber} נמחקה. המיכל הוחזר למחוטא עם אצווה ${restoredBatch} וה-state הקודם שלה.` : `✓ אצווה ${run.batchNumber} נמחקה והמיכל הוחזר למחוטא.`);'''
+          if old not in text:
+              raise SystemExit('BrewingView restore block not found')
+          path.write_text(text.replace(old, new, 1))
+
+          # 2) Pressure-change completion: any pressure action recorded today
+          # counts, including bottom carbonation. Do not require it to be the
+          # same measurement row as the carbonation test.
+          path = Path('src/SERVICES/cellering/calculateCelleringRecomendations.ts')
+          text = path.read_text()
+          old = '''    const carbRes = lastMeasurement.carbonation;
+    const noteIsBottomCarbonation =
+        lastNote?.includes("גיזוז מלמטה");
+    const noteAdjustedPressureToday =
+        !noteIsBottomCarbonation &&
+        (
+            lastNote?.includes("הורדת לחץ") ||
+            lastNote?.includes("העלאת לחץ") ||
+            lastNote?.includes("להוריד לחץ") ||
+            lastNote?.includes("להעלות לחץ")
+        );
+    const noteAdjustedPrvToday =
+        lastNote?.includes("כיוון פורק") ||
+        lastNote?.includes("לכוון פורק");
+
+    // The normal pressure round is only reported once in the morning, so a
+    // different pressure value versus yesterday is NOT proof that the operator
+    // acted on today's carbonation result. A PRV adjustment is also a separate
+    // warm-pressure operation; it must not close a carbonation correction.
+    const pressureHandledToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(noteAdjustedPressureToday);'''
+          new = '''    const carbRes = lastMeasurement.carbonation;
+    const pressureHandledToday = sortedMeasurements.some((measurement) => {
+        if (getMeasurementDate(measurement.id) !== todayDate) return false;
+        const note = String(measurement.notes ?? "");
+        return (
+            note.includes("הורדת לחץ") ||
+            note.includes("העלאת לחץ") ||
+            note.includes("להוריד לחץ") ||
+            note.includes("להעלות לחץ") ||
+            note.includes("גיזוז מלמטה")
+        );
+    });
+    const noteAdjustedPrvToday =
+        lastNote?.includes("כיוון פורק") ||
+        lastNote?.includes("לכוון פורק");
+
+    // Completion is action-based, not row-based: the carbonation test and the
+    // corrective pressure action are often logged as separate rows. A normal
+    // pressure measurement alone still does not count; an explicit pressure
+    // action (including bottom carbonation) must be recorded today.'''
+          if old not in text:
+              raise SystemExit('Pressure completion block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/brewing/BrewingView.tsx src/SERVICES/cellering/calculateCelleringRecomendations.ts
+          git commit -m 'Fix cancelled brew restore and pressure completion'
+          git push origin HEAD:main
