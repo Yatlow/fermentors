@@ -1,5 +1,6 @@
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
+import { recordReadAudit } from "../readAudit";
 import type { ZoneCounts } from "./Palletservice";
 
 export function subscribeToZoneCounts(callback: (counts: ZoneCounts) => void): () => void {
@@ -14,6 +15,7 @@ export function subscribeToZoneCounts(callback: (counts: ZoneCounts) => void): (
     return onSnapshot(
         q,
         (snapshot) => {
+            if (!snapshot.metadata.fromCache) recordReadAudit("Pending badge", snapshot.size);
             callback({
                 cooler: 0,
                 pending: snapshot.size,
