@@ -1,0 +1,104 @@
+from pathlib import Path
+
+calc = Path('src/SERVICES/cellering/calculateCelleringRecomendations.ts')
+text = calc.read_text()
+import_marker = 'import { findOpenBottomCarbonation } from "./bottomCarbonation";\n'
+import_replacement = import_marker + 'import { hasCellarActionOnDate } from "./cellarActionState";\n'
+if import_replacement not in text:
+    if import_marker not in text:
+        raise SystemExit('cellar import marker not found')
+    text = text.replace(import_marker, import_replacement, 1)
+
+old = '''    const carbRes = lastMeasurement.carbonation;
+    const pressureHandledToday = sortedMeasurements.some((measurement) => {
+        if (getMeasurementDate(measurement.id) !== todayDate) return false;
+        const note = String(measurement.notes ?? "");
+        return (
+            note.includes("הורדת לחץ") ||
+            note.includes("העלאת לחץ") ||
+            note.includes("להוריד לחץ") ||
+            note.includes("להעלות לחץ") ||
+            note.includes("גיזוז מלמטה")
+        );
+    });
+    const noteAdjustedPrvToday =
+        lastNote?.includes("כיוון פורק") ||
+        lastNote?.includes("לכוון פורק");
+
+    // Completion is action-based, not row-based: the carbonation test and the
+    // corrective pressure action are often logged as separate rows. A normal
+    // pressure measurement alone still does not count; an explicit pressure
+    // action (including bottom carbonation) must be recorded today.
+    const prvHandledToday =
+        lastMeasurementDate === todayDate &&
+        Boolean(noteAdjustedPrvToday);
+'''
+new = '''    const carbRes = lastMeasurement.carbonation;
+    const pressureHandledToday = hasCellarActionOnDate(
+        sortedMeasurements,
+        todayDate,
+        ["הורדת לחץ", "העלאת לחץ", "להוריד לחץ", "להעלות לחץ", "גיזוז מלמטה"],
+    );
+    const prvHandledToday = hasCellarActionOnDate(
+        sortedMeasurements,
+        todayDate,
+        ["כיוון פורק", "לכוון פורק"],
+    );
+
+    // Completion is action-based, not row-based: the action and later readings
+    // can be logged as separate rows. A later measurement must never reopen an
+    // action that was explicitly completed earlier today.
+'''
+if old not in text:
+    raise SystemExit('cellar completion marker not found')
+calc.write_text(text.replace(old, new, 1))
+
+app = Path('src/App.tsx')
+text = app.read_text()
+old_import = 'import { lazy, Suspense, useEffect, useMemo, useState, useCallback } from "react";'
+new_import = 'import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";'
+if old_import in text:
+    text = text.replace(old_import, new_import, 1)
+elif new_import not in text:
+    raise SystemExit('App React import marker not found')
+
+state_marker = '    const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});\n'
+state_replacement = state_marker + '    const readingSourceIdentityRef = useRef<Record<string, string>>({});\n'
+if state_replacement not in text:
+    if state_marker not in text:
+        raise SystemExit('newReadings marker not found')
+    text = text.replace(state_marker, state_replacement, 1)
+
+effect_marker = '''    const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
+'''
+effect = '''    useEffect(() => {
+        const nextIdentities = Object.fromEntries(
+            brews.map((tank) => [
+                tank.id,
+                `${Number(tank.action ?? -1)}:${String(tank.batchNumber ?? "").replace("#", "").trim()}`,
+            ]),
+        );
+        const previousIdentities = readingSourceIdentityRef.current;
+        readingSourceIdentityRef.current = nextIdentities;
+
+        setNewReadings((current) => {
+            let changed = false;
+            const next = { ...current };
+            for (const tankId of Object.keys(current)) {
+                const previousIdentity = previousIdentities[tankId];
+                if (previousIdentity !== undefined && previousIdentity !== nextIdentities[tankId]) {
+                    delete next[tankId];
+                    changed = true;
+                }
+            }
+            return changed ? next : current;
+        });
+    }, [brews]);
+
+    const handleUpdatePasivation = useCallback(async (tankId: string, newDate: string) => {
+'''
+if effect not in text:
+    if effect_marker not in text:
+        raise SystemExit('pasivation marker not found')
+    text = text.replace(effect_marker, effect, 1)
+app.write_text(text)
