@@ -139,7 +139,7 @@ export function scheduledRecommendationCompletionDate(
       dateKey: scheduledEvidenceDateKey(measurement),
     }))
     .filter((entry): entry is { measurement: ScheduledCellarEvidenceMeasurement; dateKey: string } =>
-      Boolean(entry.dateKey) && entry.dateKey >= row.dueDate
+      entry.dateKey !== null && entry.dateKey >= row.dueDate
     )
     .filter((entry) => measurementCompletesScheduledAction(row.actionType, entry.measurement))
     .map((entry) => entry.dateKey)
