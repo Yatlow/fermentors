@@ -1,0 +1,35 @@
+name: One-off audit brewing identity and history
+
+on: [push]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/silent-state-guards
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply brewing identity/history audit patch
+        run: python .github/scripts/oneoff_audit_brewing_identity_and_history.py
+      - name: Verify
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+      - name: Commit patch and clean one-off files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/oneoff-audit-brewing-identity-and-history.yml .github/scripts/oneoff_audit_brewing_identity_and_history.py
+          git add src/components/brewing/BrewingView.tsx src/components/dashboard/Batchhistorychart.tsx
+          git commit -m 'Guard brewing form identity and historical chart rows'
+          git push origin HEAD:audit/silent-state-guards
