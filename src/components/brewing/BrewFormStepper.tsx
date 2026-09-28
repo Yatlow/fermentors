@@ -1642,7 +1642,13 @@ export default function BrewFormStepper({
       return;
     }
 
-    const headerRow = blockHeaderRow(run.tankType, currentBlock);
+    const blockFields =
+      execution.blocks[String(currentBlock)]?.fields || {};
+    const discoveredHeaderRow = Number(blockFields["__sheetRow.header"]);
+    const headerRow =
+      Number.isFinite(discoveredHeaderRow) && discoveredHeaderRow > 0
+        ? discoveredHeaderRow
+        : blockHeaderRow(run.tankType, currentBlock);
     const display = sheetDateFromIso(value);
     const writes: Array<{
       range: string;
