@@ -1315,11 +1315,6 @@ function getAllFermentorsFromFirebase() {
   const code =
     response.getResponseCode();
 
-  if (code >= 200 && code < 300 && FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
-    FC_CYCLE_CONTEXT_.io.firestoreWrites++;
-    FC_CYCLE_CONTEXT_.io.actionWrites++;
-  }
-
   if (
     code < 200 ||
     code >= 300
@@ -1584,6 +1579,11 @@ function updateFermentorAction(
 
   const code =
     response.getResponseCode();
+
+  if (code >= 200 && code < 300 && FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
+    FC_CYCLE_CONTEXT_.io.firestoreWrites++;
+    FC_CYCLE_CONTEXT_.io.actionWrites++;
+  }
 
   if (
     code < 200 ||
