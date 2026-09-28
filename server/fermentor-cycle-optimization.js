@@ -361,9 +361,18 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
         }
         if (next.batchNumber) {
           try {
-            const wrote = fcTimed_("latest measurement " + entry.id, function () {
-              return writeLatestMeasurementIfChanged_(projectId, next.batchNumber, sheetUrl);
-            });
+            const listenerAlreadySyncedMeasurement =
+              entry.data.cellarState &&
+              next.cellarState &&
+              entry.data.cellarState.signature === next.cellarState.signature;
+            const wrote = listenerAlreadySyncedMeasurement
+              ? false
+              : fcTimed_("latest measurement " + entry.id, function () {
+                  return writeLatestMeasurementIfChanged_(projectId, next.batchNumber, sheetUrl);
+                });
+            if (listenerAlreadySyncedMeasurement) {
+              stats.measurementAlreadySynced = (stats.measurementAlreadySynced || 0) + 1;
+            }
             if (wrote) {
               stats.latestMeasurementWrites++;
               if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
