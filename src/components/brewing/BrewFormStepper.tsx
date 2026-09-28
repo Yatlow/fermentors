@@ -2861,7 +2861,7 @@ export default function BrewFormStepper({
       return;
     }
 
-    if (!(await approveNumericValue(key, value))) return;
+    if (field !== "kettle" && !(await approveNumericValue(key, value))) return;
     const nextFields = { ...fields, [key]: value };
     const kettle = nextFields[`rinse${index}.kettle`] || "";
     const grant = nextFields[`rinse${index}.grant`] || "";
@@ -4665,7 +4665,6 @@ export default function BrewFormStepper({
                       נפח ב-Kettle
                       <input
                         type="text"
-                        inputMode="decimal"
                         required={index === 1}
                         value={localValue(`rinse${index}.kettle`)}
                         onChange={(e) =>
