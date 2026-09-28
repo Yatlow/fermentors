@@ -71,5 +71,23 @@ jobs:
           grep -R "function cellarSheetOnEdit" .
           echo "Remote listener project contains expected functions."
 
-      - name: Show deployments
-        run: clasp deployments
+      - name: Update production web app deployment
+        run: |
+          DEPLOYMENT_ID=$(clasp deployments | awk '/^- / && $NF != "@HEAD" {print $2; exit}')
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "No versioned cellar-listener deployment found."
+            exit 1
+          fi
+          echo "Updating production deployment: $DEPLOYMENT_ID"
+          clasp deploy -i "$DEPLOYMENT_ID" -d "GitHub $GITHUB_SHA"
+
+      - name: Verify production deployment
+        run: |
+          clasp deployments
+          DEPLOYMENT_ID=$(clasp deployments | awk '/^- / && $NF != "@HEAD" {print $2; exit}')
+          VERSION=$(clasp deployments | awk -v id="$DEPLOYMENT_ID" '$2 == id {print $3; exit}')
+          if [ -z "$VERSION" ] || [ "$VERSION" = "@HEAD" ]; then
+            echo "Production cellar-listener deployment was not versioned."
+            exit 1
+          fi
+          echo "Production cellar-listener deployment is now $VERSION."

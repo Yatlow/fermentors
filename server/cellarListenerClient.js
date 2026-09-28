@@ -55,8 +55,10 @@ function cellarListenerCall_(action, payload) {
   try { parsed = JSON.parse(text || "{}"); } catch (error) { parsed = null; }
 
   if (code < 200 || code >= 300 || !parsed || parsed.success !== true) {
+    const detail = String(text || "").replace(/\s+/g, " ").slice(0, 300);
     throw new Error(
-      "Cellar listener " + action + " failed: HTTP " + code + " " + text
+      "Cellar listener " + action + " failed: HTTP " + code +
+      (detail ? " " + detail : "")
     );
   }
   return parsed;
