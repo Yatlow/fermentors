@@ -1,0 +1,33 @@
+name: Kettle text and print labels fix
+
+on:
+  push:
+    branches: [fix/kettle-text-print-labels]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/kettle-text-print-labels
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: python scripts/patch-kettle-print-labels.py
+      - run: |
+          node --check server/BREWING_SHEET_SERVICE.js
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add server/BREWING_SHEET_SERVICE.js src/components/brewing/BrewFormStepper.tsx
+          git commit -m "Fix kettle text input and print labels"
+          git push origin HEAD:fix/kettle-text-print-labels
