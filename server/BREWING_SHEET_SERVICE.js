@@ -1457,7 +1457,7 @@ function brewingSheetPersistExecutionCell_(fermentor, event) {
     "brewingExecution.updatedAt"
   ];
   keys.forEach(function (key) {
-    masks.push("brewingExecution.blocks." + blockIndex + ".fields.%60" + encodeURIComponent(key) + "%60");
+    masks.push("brewingExecution.blocks.%60" + encodeURIComponent(String(blockIndex)) + "%60.fields.%60" + encodeURIComponent(key) + "%60");
   });
   const url =
     "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +

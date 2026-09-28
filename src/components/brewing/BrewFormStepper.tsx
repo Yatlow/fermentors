@@ -2791,6 +2791,30 @@ export default function BrewFormStepper({
     const rowOffset = 18 + (index - 1);
     const key = `rinse${index}.${field}`;
 
+    const withDefaultAmount = (
+      currentExecution: BrewExecution,
+      writes: Array<{ range: string; value: string | number | boolean | null }>,
+    ) => {
+      const amountKey = `rinse${index}.amount`;
+      if (
+        field !== "amount" &&
+        String(value || "").trim() &&
+        !String(fields[amountKey] || "").trim()
+      ) {
+        currentExecution = setBrewingExecutionField(
+          currentExecution,
+          currentBlock,
+          amountKey,
+          "150",
+        );
+        writes.push({
+          range: stageCell(rowOffset, "F"),
+          value: 150,
+        });
+      }
+      return currentExecution;
+    };
+
     if (field === "time") {
       if (rejectTimelineTime(key, value)) return;
 
@@ -2805,20 +2829,7 @@ export default function BrewFormStepper({
         value: string | number | boolean | null;
       }> = [{ range: stageCell(rowOffset, "E"), value }];
 
-      const amountKey = `rinse${index}.amount`;
-      if (!String(fields[amountKey] || "").trim()) {
-        nextExecution = setBrewingExecutionField(
-          nextExecution,
-          currentBlock,
-          amountKey,
-          "150",
-        );
-        writes.push({
-          range: stageCell(rowOffset, "F"),
-          value: 150,
-        });
-      }
-
+      nextExecution = withDefaultAmount(nextExecution, writes);
       setExecution(nextExecution);
       await writeSheet(key, writes);
       return;
@@ -2831,12 +2842,23 @@ export default function BrewFormStepper({
     }
     if (field === "temp") {
       if (!(await approveNumericValue(key, value))) return;
-      return commit(key, value, [
-        {
-          range: stageCell(rowOffset, "G"),
-          value: value ? `${value}°C` : "",
-        },
-      ]);
+      let nextExecution = setBrewingExecutionField(
+        execution,
+        currentBlock,
+        key,
+        value,
+      );
+      const writes: Array<{
+        range: string;
+        value: string | number | boolean | null;
+      }> = [{
+        range: stageCell(rowOffset, "G"),
+        value: value ? `${value}°C` : "",
+      }];
+      nextExecution = withDefaultAmount(nextExecution, writes);
+      setExecution(nextExecution);
+      await writeSheet(key, writes);
+      return;
     }
 
     if (!(await approveNumericValue(key, value))) return;
@@ -2845,9 +2867,20 @@ export default function BrewFormStepper({
     const grant = nextFields[`rinse${index}.grant`] || "";
     const display =
       recipe.lautering.usesGrant && grant ? `${kettle}+${grant}` : kettle;
-    return commit(key, value, [
-      { range: stageCell(rowOffset, "H"), value: display },
-    ]);
+
+    let nextExecution = setBrewingExecutionField(
+      execution,
+      currentBlock,
+      key,
+      value,
+    );
+    const writes: Array<{
+      range: string;
+      value: string | number | boolean | null;
+    }> = [{ range: stageCell(rowOffset, "H"), value: display }];
+    nextExecution = withDefaultAmount(nextExecution, writes);
+    setExecution(nextExecution);
+    await writeSheet(key, writes);
   }
 
   async function commitSugar(
@@ -4631,7 +4664,8 @@ export default function BrewFormStepper({
                     <label>
                       נפח ב-Kettle
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         required={index === 1}
                         value={localValue(`rinse${index}.kettle`)}
                         onChange={(e) =>
