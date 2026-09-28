@@ -441,6 +441,46 @@ function brewingSheetCreate_(data) {
       });
       SpreadsheetApp.flush();
     }
+
+    // The fermentation page must always expose the canonical tank-volume field.
+    // Some Master variants are missing the visible "נפח" label entirely. The
+    // dashboard extractor and ACTION 0 -> 1 transition deliberately depend on
+    // this field (not on kettle/transfer volumes), so normalize it when the
+    // Sheet is created. Resolve "דף תסיסה" after any variable mash-row inserts
+    // instead of relying on fixed template coordinates.
+    {
+      const sheet = ss.getSheets()[0];
+      const values = sheet.getDataRange().getDisplayValues();
+      let fermentationHeader = -1;
+      for (let r = 0; r < values.length; r++) {
+        if ((values[r] || []).some(function (cell) {
+          return String(cell || "").replace(/\s/g, " ").trim() === "דף תסיסה";
+        })) {
+          fermentationHeader = r;
+          break;
+        }
+      }
+      if (fermentationHeader >= 0) {
+        let hasVolumeLabel = false;
+        const searchEnd = Math.min(values.length, fermentationHeader + 8);
+        for (let r = fermentationHeader; r < searchEnd && !hasVolumeLabel; r++) {
+          hasVolumeLabel = (values[r] || []).some(function (cell) {
+            return /^נפח\s*:?$/.test(
+              String(cell || "").replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim()
+            );
+          });
+        }
+        if (!hasVolumeLabel) {
+          // Fermentation metadata lives on the first row under the title.
+          // A/B are intentionally used as a label/value pair so extractBrew's
+          // semantic scan finds the value without colliding with style/batch/tank.
+          sheet.getRange(fermentationHeader + 2, 1).setValue("נפח:");
+          sheet.getRange(fermentationHeader + 2, 2).clearContent();
+        }
+      }
+      SpreadsheetApp.flush();
+    }
+
     // New brew Sheets use Rubik throughout while preserving every existing
     // font size, weight, border, merge and alignment from the Master.
     // setFontFamily changes only the family, so the Master remains the visual
