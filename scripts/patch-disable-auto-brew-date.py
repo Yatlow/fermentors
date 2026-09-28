@@ -19,11 +19,13 @@ if not match:
     raise SystemExit('Automatic brew-date useEffect not found')
 text = text[:match.start()] + '\n' + text[match.end():]
 
-# That effect was the only consumer of this state.
+# Keep the reconciliation setter because the initial pull still marks completion,
+# but do not bind the now-unused state value.
 old = '  const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);\n'
+new = '  const [, setInitialSheetReconciled] = useState(false);\n'
 if old not in text:
     raise SystemExit('initialSheetReconciled state not found')
-text = text.replace(old, '', 1)
+text = text.replace(old, new, 1)
 
 # Remove mash-start date refresh helper entirely.
 pattern = re.compile(
