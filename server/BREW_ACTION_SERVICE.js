@@ -170,19 +170,18 @@ function processAction0(fermentor) {
     return;
   }
 
-  // extractBrewStageInfo can take long enough for the user to cancel or
-  // reassign this brew. Never let a stale ACTION-0 iteration write into the
-  // tank after that happened.
-  if (!brewActionTankStillCurrent_(fermentor)) {
-    Logger.log("Tank " + tankNumber + ": ACTION 0 became stale while reading Sheet; skipping writes.");
-    return;
-  }
+  let action0StateValidated = false;
 
   try {
 
     updateFermentorBrewProgress(
       tankNumber,
-      stageInfo
+      stageInfo,
+      function () {
+        const current = brewActionTankStillCurrent_(fermentor);
+        action0StateValidated = current;
+        return current;
+      }
     );
 
   } catch (error) {
@@ -213,6 +212,12 @@ function processAction0(fermentor) {
     : NaN;
 
   if (Number.isFinite(fermentationVolume) && fermentationVolume > 0) {
+    // If brewProgress did not need a write, no stale GET has happened yet.
+    // Validate only now, immediately before the ACTION transition.
+    if (!action0StateValidated && !brewActionTankStillCurrent_(fermentor)) {
+      Logger.log("Tank " + tankNumber + ": ACTION 0 became stale before transition; skipping ACTION write.");
+      return;
+    }
     updateFermentorAction(
       tankNumber,
       1,
@@ -242,6 +247,10 @@ function brewActionTankStillCurrent_(fermentor) {
     headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true
   });
+  if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
+    FC_CYCLE_CONTEXT_.io.firestoreReads++;
+    FC_CYCLE_CONTEXT_.io.action0StaleReads++;
+  }
   if (response.getResponseCode() !== 200) return false;
   const fields = (JSON.parse(response.getContentText()) || {}).fields || {};
   const action = Number((fields.action || {}).integerValue);
@@ -1305,6 +1314,11 @@ function getAllFermentorsFromFirebase() {
 
   const code =
     response.getResponseCode();
+
+  if (code >= 200 && code < 300 && FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
+    FC_CYCLE_CONTEXT_.io.firestoreWrites++;
+    FC_CYCLE_CONTEXT_.io.actionWrites++;
+  }
 
   if (
     code < 200 ||
