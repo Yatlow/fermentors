@@ -524,32 +524,27 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         tankDailyProgress.yeastRequired = yeastRequiredToday ? 1 : 0;
                         tankDailyProgress.yeastCompleted = yeastRequiredToday && hasTodayYeast ? 1 : 0;
 
-                        if (carbRequiredToday && !carbCompletedToday) {
+                        const weeklyCarbAction = sundayColdAction || wednesdayCarbAction;
+                        const weeklyYeastAction = sundayColdAction || thursdayYeastAction;
+
+                        if (weeklyCarbAction && !carbCompletedToday) {
                             dailyActions.push({
                                 id: `daily-carb-${tank.id}`,
                                 tankNumber: number,
                                 title: "בדיקת גיזוז",
                                 detail: sundayColdAction
                                     ? "פעולת יום ראשון לכל מיכל קר"
-                                    : wednesdayCarbAction
-                                        ? "מתוכנן לרדת בשבוע הבא"
-                                        : scheduledCarbAction
-                                            ? "המלצה מתוזמנת פעילה"
-                                            : "המלצת סלרינג פעילה",
+                                    : "מתוכנן לרדת בשבוע הבא",
                             });
                         }
-                        if (yeastRequiredToday && !hasTodayYeast) {
+                        if (weeklyYeastAction && !hasTodayYeast) {
                             dailyActions.push({
                                 id: `daily-yeast-${tank.id}`,
                                 tankNumber: number,
                                 title: "הורדת שמרים",
                                 detail: sundayColdAction
                                     ? "פעולת יום ראשון לכל מיכל קר"
-                                    : thursdayYeastAction
-                                        ? "מתוכנן לרדת בשבוע הבא"
-                                        : scheduledYeastAction
-                                            ? "המלצה מתוזמנת פעילה"
-                                            : "המלצת סלרינג פעילה",
+                                    : "מתוכנן לרדת בשבוע הבא",
                             });
                         }
 
