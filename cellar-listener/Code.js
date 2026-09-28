@@ -425,12 +425,83 @@ function syncEditedSheetToFirestore_(event, mapping) {
   if (!Object.keys(currentData).length && !measurementPatches.length) return;
 
   const batch = String(mapping.batchNumber || "").replace("#", "").trim();
+  const cellarState = measurementPatches.length
+    ? buildCellarState_(values, batch)
+    : null;
+
   commitPartialCellarUpdate_(
     String(mapping.tankNumber),
     batch,
     currentData,
-    measurementPatches
+    measurementPatches,
+    cellarState
   );
+}
+
+function cellarStateHash_(value) {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.MD5,
+    JSON.stringify(value),
+    Utilities.Charset.UTF_8
+  );
+  return bytes.map(function (b) {
+    return ((b < 0 ? b + 256 : b).toString(16)).padStart(2, "0");
+  }).join("");
+}
+
+function buildCellarState_(values, batchNumber) {
+  const batch = String(batchNumber || "").replace("#", "").trim();
+  if (!batch) return null;
+
+  const header = fermentationHeaderRow_(values);
+  const canonicalByDay = {};
+  if (header >= 0) {
+    for (let r = header + 1; r < values.length; r++) {
+      const row = values[r] || [];
+      const parsedDate = parseIsraeliDate_(row[0]);
+      if (!parsedDate) continue;
+      const hasData = [2, 3, 4, 5, 6, 7].some(function (col) {
+        return String(row[col] == null ? "" : row[col]).trim() !== "";
+      });
+      if (!hasData) continue;
+
+      const time = String(row[1] || "").trim();
+      const id = measurementId_(parsedDate, time);
+      const day = String(id || "").slice(0, 10);
+      if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      canonicalByDay[day] = {
+        id: id,
+        date: String(row[0] || "").trim(),
+        time: time,
+        temp: numberOrNull_(row[3]),
+        plato: numberOrNull_(row[2]),
+        pressure: numberOrNull_(row[4]),
+        carbonation: numberOrNull_(row[6]),
+        pH: numberOrNull_(row[5]),
+        notes: String(row[7] || "").trim()
+      };
+    }
+  }
+
+  const rows = Object.keys(canonicalByDay).sort().map(function (day) {
+    return canonicalByDay[day];
+  });
+  const measurements = {};
+  rows.forEach(function (measurement) {
+    measurements[measurement.id] = measurement;
+  });
+  const cooled = rows.some(function (measurement) {
+    return String(measurement.notes || "").includes("קירור");
+  });
+  return {
+    version: 1,
+    batchNumber: batch,
+    cooled: cooled,
+    measurementCount: rows.length,
+    lastMeasurementId: rows.length ? rows[rows.length - 1].id : null,
+    signature: cellarStateHash_({ batchNumber: batch, cooled: cooled, rows: rows }),
+    measurements: measurements
+  };
 }
 
 function editCouldAffectCellar_(event, sheet, values) {
@@ -689,7 +760,7 @@ function readPackagingFromValues_(sheet, values) {
   return result;
 }
 
-function commitPartialCellarUpdate_(tankNumber, batchNumber, currentData, measurementPatches) {
+function commitPartialCellarUpdate_(tankNumber, batchNumber, currentData, measurementPatches, cellarState) {
   const root = "projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/";
   const revision = Utilities.getUuid();
   const currentFields = {};
@@ -715,6 +786,10 @@ function commitPartialCellarUpdate_(tankNumber, batchNumber, currentData, measur
   if (patches.length) {
     fermentorFields.measurementsRevision = { stringValue: revision };
     fermentorMask.push("measurementsRevision");
+  }
+  if (cellarState) {
+    fermentorFields.cellarState = toFirestoreValue_(cellarState);
+    fermentorMask.push("cellarState");
   }
 
   const writes = [{
@@ -830,5 +905,15 @@ function toFirestoreValue_(value) {
       : { doubleValue: value };
   }
   if (value instanceof Date) return { timestampValue: value.toISOString() };
+  if (Array.isArray(value)) {
+    return { arrayValue: { values: value.map(toFirestoreValue_) } };
+  }
+  if (typeof value === "object") {
+    const fields = {};
+    Object.keys(value).forEach(function (key) {
+      fields[key] = toFirestoreValue_(value[key]);
+    });
+    return { mapValue: { fields: fields } };
+  }
   return { stringValue: String(value) };
 }

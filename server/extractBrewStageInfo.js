@@ -823,7 +823,7 @@ function brewStageToFirestoreValue_(value) {
   return { stringValue: String(value) };
 }
 
-function updateFermentorBrewProgress(tankNumber, stageInfo) {
+function updateFermentorBrewProgress(tankNumber, stageInfo, beforeWrite) {
   const fermentorId = String(tankNumber).trim();
   const stage = stageInfo.currentStage;
 
@@ -854,7 +854,14 @@ function updateFermentorBrewProgress(tankNumber, stageInfo) {
       fermentorId +
       " - skipping Firestore write."
     );
-    return;
+    return false;
+  }
+
+  // ACTION 0 callers can supply an expensive stale-state guard. Run it only
+  // after local change detection proves a Firestore write is actually needed.
+  if (typeof beforeWrite === "function" && beforeWrite() !== true) {
+    Logger.log("Brew progress write cancelled by stale-state guard for tank " + fermentorId + ".");
+    return false;
   }
 
   const url =
@@ -892,6 +899,11 @@ function updateFermentorBrewProgress(tankNumber, stageInfo) {
       response.getContentText()
     );
   }
+  if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
+    FC_CYCLE_CONTEXT_.io.firestoreWrites++;
+    FC_CYCLE_CONTEXT_.io.brewProgressWrites++;
+  }
+  return true;
 }
 
 
