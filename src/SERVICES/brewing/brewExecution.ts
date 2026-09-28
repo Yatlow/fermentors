@@ -51,6 +51,12 @@ function persistRemoteExecutionLocal(execution: BrewExecution): BrewExecution {
   return execution;
 }
 
+function isBrewingFormControlFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  return active instanceof Element && Boolean(active.closest(".brew-stepper"));
+}
+
 export function loadBrewingExecution(batchNumber: string): BrewExecution {
   try {
     const raw = window.localStorage.getItem(key(batchNumber));
@@ -138,25 +144,32 @@ export function subscribeToBrewingExecution(
   if (!clean) return () => undefined;
 
   let lastEmittedFingerprint = "";
+  let refreshAfterEditing = false;
+  let disposed = false;
 
-  return onSnapshot(doc(db, "brews", clean), (snapshot) => {
-    if (!snapshot.exists()) return;
-    const data = snapshot.data() as { brewingExecution?: BrewExecution };
-    const remote = data.brewingExecution;
-    if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
-
+  const emitRemote = (remote: BrewExecution) => {
     const fingerprint = executionFingerprint(remote);
-    lastRemoteExecutionFingerprint.set(clean, fingerprint);
 
     // A Firestore snapshot caused by our own autosave must not be fed back into
     // React state. Doing so creates a new object, re-triggers the autosave
     // effect, writes another server timestamp, and can loop indefinitely.
     if (pendingLocalWriteFingerprint.get(clean) === fingerprint) {
       pendingLocalWriteFingerprint.delete(clean);
+      lastRemoteExecutionFingerprint.set(clean, fingerprint);
       persistRemoteExecutionLocal(remote);
       lastEmittedFingerprint = fingerprint;
       return;
     }
+
+    // Never replace fields while the brewer is actively typing. A snapshot can
+    // legitimately be older than the local keystrokes that are still being
+    // committed to Firestore/Sheets. Re-read the canonical document after blur.
+    if (isBrewingFormControlFocused()) {
+      refreshAfterEditing = true;
+      return;
+    }
+
+    lastRemoteExecutionFingerprint.set(clean, fingerprint);
 
     // Firestore can deliver the same document more than once (metadata changes,
     // reconnects, or outer-field updates). Only propagate real execution changes.
@@ -167,7 +180,46 @@ export function subscribeToBrewingExecution(
 
     lastEmittedFingerprint = fingerprint;
     onExecution(persistRemoteExecutionLocal(remote));
+  };
+
+  const unsubscribe = onSnapshot(doc(db, "brews", clean), (snapshot) => {
+    if (!snapshot.exists()) return;
+    const data = snapshot.data() as { brewingExecution?: BrewExecution };
+    const remote = data.brewingExecution;
+    if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
+    emitRemote(remote);
   });
+
+  const refreshAfterBlur = () => {
+    if (!refreshAfterEditing) return;
+    window.setTimeout(() => {
+      if (disposed || isBrewingFormControlFocused() || !refreshAfterEditing) return;
+      refreshAfterEditing = false;
+      void getDoc(doc(db, "brews", clean))
+        .then((snapshot) => {
+          if (disposed || !snapshot.exists()) return;
+          const data = snapshot.data() as { brewingExecution?: BrewExecution };
+          const remote = data.brewingExecution;
+          if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
+          emitRemote(remote);
+        })
+        .catch((error) =>
+          console.warn("Failed refreshing brewing execution after edit", error),
+        );
+    }, 0);
+  };
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("focusout", refreshAfterBlur, true);
+  }
+
+  return () => {
+    disposed = true;
+    unsubscribe();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("focusout", refreshAfterBlur, true);
+    }
+  };
 }
 
 export async function loadBrewingExecutionFromFirestore(
