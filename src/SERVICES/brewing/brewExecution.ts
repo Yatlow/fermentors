@@ -14,6 +14,10 @@ export type BrewExecution = {
   updatedAt: string;
 };
 
+const lastRemoteExecutionFingerprint = new Map<string, string>();
+const pendingLocalWriteFingerprint = new Map<string, string>();
+const lastAcidHistoryFingerprint = new Map<string, string>();
+
 function emptyExecution(batchNumber: string): BrewExecution {
   return {
     batchNumber,
@@ -26,6 +30,31 @@ function emptyExecution(batchNumber: string): BrewExecution {
 
 function key(batchNumber: string) {
   return `fermentors:brewing:execution:${batchNumber}:v1`;
+}
+
+function cleanBatchNumber(batchNumber: string) {
+  return String(batchNumber || "").replace("#", "").trim();
+}
+
+function cleanForRemoteExecution(execution: BrewExecution): BrewExecution {
+  return JSON.parse(JSON.stringify(execution)) as BrewExecution;
+}
+
+function executionFingerprint(execution: BrewExecution): string {
+  return JSON.stringify(cleanForRemoteExecution(execution));
+}
+
+function persistRemoteExecutionLocal(execution: BrewExecution): BrewExecution {
+  const clean = cleanBatchNumber(execution.batchNumber);
+  if (!clean) return execution;
+  window.localStorage.setItem(key(clean), JSON.stringify(execution));
+  return execution;
+}
+
+function isBrewingFormControlFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  return active instanceof Element && Boolean(active.closest(".brew-stepper"));
 }
 
 export function loadBrewingExecution(batchNumber: string): BrewExecution {
@@ -83,7 +112,6 @@ export function setBrewingExecutionActiveBlock(
   return saveBrewingExecutionLocal({ ...execution, activeBlockIndex });
 }
 
-
 export function replaceBrewingExecutionBlockFields(
   execution: BrewExecution,
   blockIndex: number,
@@ -108,33 +136,105 @@ export function setBrewingExecutionReviewedSteps(
   return saveBrewingExecutionLocal({ ...execution, reviewedSteps: { ...reviewedSteps } });
 }
 
-
 export function subscribeToBrewingExecution(
   batchNumber: string,
   onExecution: (execution: BrewExecution) => void,
 ): () => void {
-  const clean = String(batchNumber || "").replace("#", "").trim();
+  const clean = cleanBatchNumber(batchNumber);
   if (!clean) return () => undefined;
-  return onSnapshot(doc(db, "brews", clean), (snapshot) => {
+
+  let lastEmittedFingerprint = "";
+  let refreshAfterEditing = false;
+  let disposed = false;
+
+  const emitRemote = (remote: BrewExecution) => {
+    const fingerprint = executionFingerprint(remote);
+
+    // A Firestore snapshot caused by our own autosave must not be fed back into
+    // React state. Doing so creates a new object, re-triggers the autosave
+    // effect, writes another server timestamp, and can loop indefinitely.
+    if (pendingLocalWriteFingerprint.get(clean) === fingerprint) {
+      pendingLocalWriteFingerprint.delete(clean);
+      lastRemoteExecutionFingerprint.set(clean, fingerprint);
+      persistRemoteExecutionLocal(remote);
+      lastEmittedFingerprint = fingerprint;
+      return;
+    }
+
+    // Never replace fields while the brewer is actively typing. A snapshot can
+    // legitimately be older than the local keystrokes that are still being
+    // committed to Firestore/Sheets. Re-read the canonical document after blur.
+    if (isBrewingFormControlFocused()) {
+      refreshAfterEditing = true;
+      return;
+    }
+
+    lastRemoteExecutionFingerprint.set(clean, fingerprint);
+
+    // Firestore can deliver the same document more than once (metadata changes,
+    // reconnects, or outer-field updates). Only propagate real execution changes.
+    if (fingerprint === lastEmittedFingerprint) {
+      persistRemoteExecutionLocal(remote);
+      return;
+    }
+
+    lastEmittedFingerprint = fingerprint;
+    onExecution(persistRemoteExecutionLocal(remote));
+  };
+
+  const unsubscribe = onSnapshot(doc(db, "brews", clean), (snapshot) => {
     if (!snapshot.exists()) return;
     const data = snapshot.data() as { brewingExecution?: BrewExecution };
     const remote = data.brewingExecution;
     if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
-    onExecution(saveBrewingExecutionLocal(remote));
+    emitRemote(remote);
   });
+
+  const refreshAfterBlur = () => {
+    if (!refreshAfterEditing) return;
+    window.setTimeout(() => {
+      if (disposed || isBrewingFormControlFocused() || !refreshAfterEditing) return;
+      refreshAfterEditing = false;
+      void getDoc(doc(db, "brews", clean))
+        .then((snapshot) => {
+          if (disposed || !snapshot.exists()) return;
+          const data = snapshot.data() as { brewingExecution?: BrewExecution };
+          const remote = data.brewingExecution;
+          if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
+          emitRemote(remote);
+        })
+        .catch((error) =>
+          console.warn("Failed refreshing brewing execution after edit", error),
+        );
+    }, 0);
+  };
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("focusout", refreshAfterBlur, true);
+  }
+
+  return () => {
+    disposed = true;
+    unsubscribe();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("focusout", refreshAfterBlur, true);
+    }
+  };
 }
 
 export async function loadBrewingExecutionFromFirestore(
   batchNumber: string,
 ): Promise<BrewExecution | null> {
-  const clean = String(batchNumber || "").replace("#", "").trim();
+  const clean = cleanBatchNumber(batchNumber);
   if (!clean) return null;
   const snapshot = await getDoc(doc(db, "brews", clean));
   if (!snapshot.exists()) return null;
   const data = snapshot.data() as { brewingExecution?: BrewExecution };
   const remote = data.brewingExecution;
   if (!remote || remote.batchNumber !== clean || !remote.blocks) return null;
-  return saveBrewingExecutionLocal(remote);
+
+  lastRemoteExecutionFingerprint.set(clean, executionFingerprint(remote));
+  return persistRemoteExecutionLocal(remote);
 }
 
 function acidHistoryFields(fields: Record<string, string>) {
@@ -155,7 +255,7 @@ export async function saveBrewAcidHistoryToFirestore(
   execution: BrewExecution,
   style: string,
 ): Promise<void> {
-  const clean = String(execution.batchNumber || "").replace("#", "").trim();
+  const clean = cleanBatchNumber(execution.batchNumber);
   const batch = Number(clean);
   if (!clean || !Number.isFinite(batch)) return;
   const styleKey = String(style || "").trim().toLowerCase();
@@ -168,8 +268,16 @@ export async function saveBrewAcidHistoryToFirestore(
       const compact = acidHistoryFields(fields);
       if (!Object.values(compact).some(Boolean)) return;
       const brewLetter = ["A", "B", "C"][blockIndex] as "A" | "B" | "C";
+      const historyKey = `${clean}-${brewLetter}`;
+      const fingerprint = JSON.stringify({ ...compact, styleKey });
+
+      // The brew form autosaves the whole execution on any field edit. Acid
+      // history only depends on this compact subset, so unrelated typing must
+      // not rewrite the same history document over and over.
+      if (lastAcidHistoryFingerprint.get(historyKey) === fingerprint) return;
+
       await setDoc(
-        doc(db, "brewAcidHistory", `${clean}-${brewLetter}`),
+        doc(db, "brewAcidHistory", historyKey),
         {
           batchNumber: clean,
           brewLetter,
@@ -183,6 +291,8 @@ export async function saveBrewAcidHistoryToFirestore(
         },
         { merge: true },
       );
+
+      lastAcidHistoryFingerprint.set(historyKey, fingerprint);
     }),
   );
 }
@@ -190,23 +300,36 @@ export async function saveBrewAcidHistoryToFirestore(
 export async function saveBrewingExecutionToFirestore(
   execution: BrewExecution,
 ): Promise<void> {
-  const clean = String(execution.batchNumber || "").replace("#", "").trim();
+  const clean = cleanBatchNumber(execution.batchNumber);
   if (!clean) return;
-  await setDoc(
-    doc(db, "brews", clean),
-    {
-      brewingExecution: cleanForRemoteExecution(execution),
-      brewingExecutionUpdatedAt: serverTimestamp(),
-      brewingExecutionUpdatedBy: auth.currentUser?.uid || "",
-    },
-    { merge: true },
-  );
-}
 
-function cleanForRemoteExecution(execution: BrewExecution): BrewExecution {
-  return JSON.parse(JSON.stringify(execution)) as BrewExecution;
-}
+  const remoteExecution = cleanForRemoteExecution(execution);
+  const fingerprint = executionFingerprint(remoteExecution);
 
+  // Hydration/listener echoes are not user edits. If Firestore already contains
+  // this exact execution, do not write a fresh serverTimestamp just because the
+  // component mounted or received a snapshot.
+  if (lastRemoteExecutionFingerprint.get(clean) === fingerprint) return;
+
+  pendingLocalWriteFingerprint.set(clean, fingerprint);
+  try {
+    await setDoc(
+      doc(db, "brews", clean),
+      {
+        brewingExecution: remoteExecution,
+        brewingExecutionUpdatedAt: serverTimestamp(),
+        brewingExecutionUpdatedBy: auth.currentUser?.uid || "",
+      },
+      { merge: true },
+    );
+    lastRemoteExecutionFingerprint.set(clean, fingerprint);
+  } catch (error) {
+    if (pendingLocalWriteFingerprint.get(clean) === fingerprint) {
+      pendingLocalWriteFingerprint.delete(clean);
+    }
+    throw error;
+  }
+}
 
 export type BrewingProgressUpdate = {
   blockCount: number;

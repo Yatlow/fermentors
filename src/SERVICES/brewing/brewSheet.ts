@@ -8,6 +8,84 @@ import {
 
 type TankType = BrewTankDescriptor["tankType"];
 
+let brewFormEditGeneration = 0;
+let brewFormEditTrackingInstalled = false;
+
+function ensureBrewFormEditTracking(): void {
+  if (brewFormEditTrackingInstalled || typeof document === "undefined") return;
+  const markEdit = (event: Event) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest(".brew-stepper")) {
+      brewFormEditGeneration += 1;
+    }
+  };
+  document.addEventListener("input", markEdit, true);
+  document.addEventListener("change", markEdit, true);
+  brewFormEditTrackingInstalled = true;
+}
+
+function isBrewFormControlFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  return active instanceof Element && Boolean(active.closest(".brew-stepper"));
+}
+
+function isFullBrewReconciliationRange(range: string): boolean {
+  const normalized = String(range || "").replace(/\$/g, "").replace(/\s/g, "");
+  return /(?:^|!)A1:H220$/i.test(normalized);
+}
+
+function normalizeVariableTemplateRinseRows(values: string[][]): string[][] {
+  const rows = values.map((row) => [...row]);
+  const blockHeaders = rows
+    .map((row, index) => ({
+      index,
+      b: String(row[1] ?? "").trim(),
+      d: String(row[3] ?? "").trim(),
+    }))
+    .filter((row) => row.b === "סוג:" && row.d === "אצווה:")
+    .map((row) => row.index);
+
+  blockHeaders.forEach((headerIndex, blockIndex) => {
+    const nextHeader = blockHeaders[blockIndex + 1] ?? rows.length;
+    let mashInIndex = -1;
+    for (let index = headerIndex; index < nextHeader; index += 1) {
+      if (/^הכנסת לתת$/i.test(String(rows[index]?.[3] ?? "").trim())) {
+        mashInIndex = index;
+        break;
+      }
+    }
+    if (mashInIndex < 0) return;
+
+    for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
+      const pattern = new RegExp(`^שטיפה\\s*${rinseIndex}$`, "i");
+      let semanticRow = -1;
+      for (let index = mashInIndex; index < nextHeader; index += 1) {
+        if (pattern.test(String(rows[index]?.[3] ?? "").trim())) {
+          semanticRow = index;
+          break;
+        }
+      }
+      if (semanticRow < 0) continue;
+
+      // BrewFormStepper still has a legacy fixed-offset fallback for rinse rows.
+      // Variable templates such as Wheat place the labeled rinse rows elsewhere.
+      // Mirror only E:H into the fallback position for this in-memory parse so
+      // the semantic row always wins, including when it is intentionally blank.
+      const fallbackRow = mashInIndex + 18 + (rinseIndex - 1);
+      if (fallbackRow < 0 || fallbackRow >= nextHeader || fallbackRow >= rows.length) {
+        continue;
+      }
+      if (!rows[fallbackRow]) rows[fallbackRow] = [];
+      for (let column = 4; column <= 7; column += 1) {
+        rows[fallbackRow][column] = String(rows[semanticRow]?.[column] ?? "");
+      }
+    }
+  });
+
+  return rows;
+}
+
 function layoutFor(tankType: TankType) {
   if (tankType === "single") {
     return {
@@ -32,7 +110,6 @@ function layoutFor(tankType: TankType) {
     startingPlatoFormula: '',
   };
 }
-
 
 function tankLabel(tankType: TankType) {
   return tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
@@ -97,10 +174,30 @@ export async function readBrewSheetRange(
   if (!fileId) {
     throw new Error("חסר מזהה Sheet לקריאה.");
   }
+
+  ensureBrewFormEditTracking();
+  const protectActiveForm = isFullBrewReconciliationRange(range);
+  const generationAtStart = brewFormEditGeneration;
+
+  // Full Sheet reconciliation is allowed only while the brewer is idle. The
+  // operational Firestore state stays authoritative while a field is being
+  // edited, so an older Sheet response can never jump a value backwards.
+  if (protectActiveForm && isBrewFormControlFocused()) {
+    throw new Error("סנכרון Sheet נדחה כי טופס הבישול נמצא כרגע בעריכה.");
+  }
+
   const result = await serverReadBrewSheetRange(fileId, range);
+
+  if (
+    protectActiveForm &&
+    (isBrewFormControlFocused() || generationAtStart !== brewFormEditGeneration)
+  ) {
+    throw new Error("סנכרון Sheet ישן בוטל כי הנתונים בטופס השתנו בזמן הקריאה.");
+  }
+
   const values = Array.isArray(result.values) ? result.values : [];
   rememberBrewSheetRange(fileId, range, values);
-  return values;
+  return protectActiveForm ? normalizeVariableTemplateRinseRows(values) : values;
 }
 
 type SheetCellValue = string | number | boolean | null;
@@ -272,4 +369,3 @@ export async function writeBrewSheetCells(
 ): Promise<void> {
   await queueBrewSheetCells(fileId, data);
 }
-

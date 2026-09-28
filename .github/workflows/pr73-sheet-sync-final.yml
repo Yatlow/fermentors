@@ -1,0 +1,33 @@
+name: PR73 final sheet sync fixes
+
+on:
+  push:
+    branches: [fix/firestore-brew-write-loop]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/firestore-brew-write-loop
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: python scripts/patch-pr73-sheet-sync-final.py
+      - run: |
+          node --check server/BREWING_SHEET_SERVICE.js
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add server/BREWING_SHEET_SERVICE.js src/components/brewing/BrewFormStepper.tsx
+          git commit -m "Fix brew Sheet bidirectional rinse sync"
+          git push origin HEAD:fix/firestore-brew-write-loop
