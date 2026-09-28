@@ -1823,11 +1823,45 @@ export default function BrewFormStepper({
     );
   }
 
-  function sugarSheetRow(key: string, fallbackOffset: number): number {
-    return sheetRowFromMeta(
-      `__sheetRow.sugar.${key}`,
-      baseRow + fallbackOffset,
-    );
+  async function sugarSheetRow(
+    key: string,
+    fallbackOffset: number,
+  ): Promise<number> {
+    const metaRow = Number(fields[`__sheetRow.sugar.${key}`]);
+    if (Number.isFinite(metaRow) && metaRow > 0) return metaRow;
+
+    const semanticPatterns: Record<string, RegExp> = {
+      frPlato: /^F\.R\.?\s*$/i,
+      lrPlato: /^L\.R\.?\s*$/i,
+      kettlePlato: /^סיר בישול/i,
+      kettleVolume: /^סיר בישול/i,
+      endBoilPlato: /^סוף רתיחה$/i,
+      endBoilVolume: /^סוף רתיחה$/i,
+      fermentorSamplePlato: /^תחילת תסיסה$/i,
+      cumulativeTankVolume: /^תחילת תסיסה$/i,
+    };
+    const pattern = semanticPatterns[key];
+
+    if (run.sheetId && pattern) {
+      try {
+        // Do not depend on the background full-Sheet reconciliation having
+        // finished before the brewer clicks the calculator. A narrow read is
+        // safe while the form is active and lets us resolve the visible label
+        // to its real Sheet row on variable templates.
+        const rows = await readBrewSheetRange(
+          run.sheetId,
+          "'גיליון1'!A1:C220",
+        );
+        const rowIndex = rows.findIndex((row) =>
+          pattern.test(String(row[0] ?? "").trim()),
+        );
+        if (rowIndex >= 0) return rowIndex + 1;
+      } catch (error) {
+        console.warn("Failed resolving semantic sugar row", { key, error });
+      }
+    }
+
+    return baseRow + fallbackOffset;
   }
 
   function acidSheetRow(
@@ -2898,15 +2932,13 @@ export default function BrewFormStepper({
   ) {
     if (!(await approveNumericValue(key, value))) return;
     const parsed = num(value);
+    const targetSheetRow = await sugarSheetRow(key, rowOffset);
     const writes: Array<{
       range: string;
       value: string | number | boolean | null;
     }> = [
       {
-        range: `'גיליון1'!${column}${sugarSheetRow(
-          key,
-          rowOffset,
-        )}`,
+        range: `'גיליון1'!${column}${targetSheetRow}`,
         value: parsed === null ? "" : parsed,
       },
     ];
