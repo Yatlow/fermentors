@@ -465,6 +465,7 @@ function fieldsFromSheetRows(
 
   const brewDate = isoDateFromSheet(sheetCell(rows, 0, "H"));
   if (brewDate) pulled.brewDate = brewDate;
+  pulled["__sheetRow.header"] = String(sheetStartRow);
 
   TIMELINE_STAGES.forEach((stage) => {
     const start = normalizedTime(cell(stage.rowOffset, "E"));
@@ -805,8 +806,22 @@ function fieldsFromSheetRows(
     }
   }
 
-  const yeastName = cell(23, "B");
-  const yeastLot = cell(23, "C");
+  // Yeast material rows move on variable mash layouts. Resolve the visible
+  // "שמרים" section instead of assuming the legacy base + 23 coordinate.
+  const yeastHeadingRow = findDynamicRow("A", /^שמרים$/i);
+  const yeastMaterialRow =
+    yeastHeadingRow >= 0 && yeastHeadingRow + 1 < rows.length
+      ? yeastHeadingRow + 1
+      : -1;
+  if (yeastMaterialRow >= 0) {
+    pulled["__sheetRow.material.yeast"] = String(
+      sheetStartRow + yeastMaterialRow,
+    );
+  }
+  const yeastName =
+    yeastMaterialRow >= 0 ? dynamicValue(yeastMaterialRow, "B") : "";
+  const yeastLot =
+    yeastMaterialRow >= 0 ? dynamicValue(yeastMaterialRow, "C") : "";
   if (yeastName || yeastLot) {
     pulled["sheetRawMaterial.yeast"] = [yeastName, yeastLot]
       .filter(Boolean)
@@ -846,8 +861,8 @@ function fieldsFromSheetRows(
       expectedMaterials.push({
         ingredientId: recipe.yeast.ingredientId,
         source: [
-          cell(23, "B"),
-          cell(23, "C"),
+          yeastName,
+          yeastLot,
         ].join(" "),
       });
     }
@@ -1767,8 +1782,10 @@ export default function BrewFormStepper({
           `materialLot.${yeast.id}`,
           lot.id,
         );
-        const mashHasThirdRest = recipe.mash.steps.some((step) => step.id === "rest3");
-        const row = baseRow + 23 + (mashHasThirdRest ? 4 : 0);
+        const row = sheetRowFromMeta(
+          "__sheetRow.material.yeast",
+          baseRow + 23,
+        );
         const yeastAmount =
           Math.max(0, Number(recipe.yeast.gramsPerBrew || 0)) * totalBlocks +
           Math.max(0, Number(recipe.yeast.extraPerBatch || 0));
