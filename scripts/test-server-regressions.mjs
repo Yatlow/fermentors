@@ -270,6 +270,7 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
       }),
     },
     parseAction: (value) => Number(value),
+    fcTimed_: (_label, callback) => callback(),
     getBrewFolderCandidatesCached: () => {
       eagerDriveScans += 1;
       return [];
