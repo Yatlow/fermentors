@@ -187,7 +187,12 @@ function isInFermentationMeasurementGracePeriod(
     tank: Fermentor,
     nowMs: number = Date.now()
 ): boolean {
-    const startedAtMs = timestampToMillis(tank.brewProgress?.stageStartTime);
+    // Grace starts when the tank actually enters ACTION 1. Brew-progress
+    // stageStartTime can describe an earlier brewing step and must not age the
+    // fermentation measurement grace before beer reaches the tank.
+    const startedAtMs = timestampToMillis(
+        (tank as Fermentor & { fermentationStartedAt?: unknown }).fermentationStartedAt
+    );
     if (startedAtMs === null) return false;
 
     const elapsedMs = nowMs - startedAtMs;
