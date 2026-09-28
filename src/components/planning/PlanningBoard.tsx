@@ -189,6 +189,10 @@ export default function PlanningBoard({
 
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
+    // The dedicated brew-assignment editor never edits packaging. Remember that
+    // before normalization adds derived flags, so existing packaging exceptions
+    // cannot block an unrelated brew save or open a hidden confirmation dialog.
+    const packagingWasEdited = JSON.stringify(next.packaging) !== JSON.stringify(current.packaging);
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
     let effectiveNext = normalizeEmptyTankFlagsForSchedule(
       inferDatedEmptyTankFlags(confirmedNext, tanks, settings, actuals),
@@ -220,25 +224,39 @@ export default function PlanningBoard({
     validationTanks = futureTanks(tanks, all, settings);
     let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
     if (production?.includes("לפני מועד ההבשלה")) {
-      setBusy(false);
-      const approved = await requestEarlyPackagingOverride(production);
-      if (!approved) throw new Error("השיבוץ בוטל.");
-      setBusy(true);
+      if (confirmBrews && !packagingWasEdited) {
+        // This save changes only brew order/tank assignment. Any early packaging
+        // here is an already-existing planner decision, so do not make the brew
+        // save wait for a packaging confirmation that this focused UI cannot own.
+        production = validateProduction(
+          datedOnly,
+          settings,
+          validationTanks,
+          actuals,
+          today,
+          { allowEarlyPackaging: true },
+        );
+      } else {
+        setBusy(false);
+        const approved = await requestEarlyPackagingOverride(production);
+        if (!approved) throw new Error("השיבוץ בוטל.");
+        setBusy(true);
 
-      effectiveNext = {
-        ...effectiveNext,
-        packaging: effectiveNext.packaging.map((run) => {
-          if (!run.date || !run.tankId) return run;
-          const tank = validationTanks.find((item) => item.id === run.tankId);
-          return tank && run.date < tank.ready
-            ? { ...run, earlyPackagingOverride: true }
-            : run;
-        }),
-      };
-      all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
-      datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
-      validationTanks = futureTanks(tanks, all, settings);
-      production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
+        effectiveNext = {
+          ...effectiveNext,
+          packaging: effectiveNext.packaging.map((run) => {
+            if (!run.date || !run.tankId) return run;
+            const tank = validationTanks.find((item) => item.id === run.tankId);
+            return tank && run.date < tank.ready
+              ? { ...run, earlyPackagingOverride: true }
+              : run;
+          }),
+        };
+        all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
+        datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
+        validationTanks = futureTanks(tanks, all, settings);
+        production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
+      }
     }
     if (production) throw new Error(production);
 
@@ -348,8 +366,26 @@ export default function PlanningBoard({
     }
   }
 
+  const earlyPackagingDialog = earlyPackagingWarning && <div className="bp-modal-backdrop" role="presentation">
+    <div className="bp-modal" role="dialog" aria-modal="true" aria-labelledby="bp-early-packaging-title">
+      <div className="bp-editor-header">
+        <div>
+          <h3 id="bp-early-packaging-title">חריגה ממועד הבשלת המיכל</h3>
+          <small>האריזה שובצה לפני המועד שבו המיכל צפוי להיות בשל.</small>
+        </div>
+      </div>
+      <p className="bp-alert">{earlyPackagingWarning}</p>
+      <p>אפשר לחרוג מההתראה ולשמור את השיבוץ בכל זאת. זו חריגה תפעולית בהחלטת המתכנן או מנהל העבודה.</p>
+      <div className="bp-actions">
+        <button type="button" onClick={() => resolveEarlyPackagingOverride(false)}>ביטול</button>
+        <button type="button" className="bp-action-warning" onClick={() => resolveEarlyPackagingOverride(true)}>חרוג ושבץ</button>
+      </div>
+    </div>
+  </div>;
+
   if (brewAssignmentOnly) {
     return <section className="bp-gantt-brew-assignment-only">
+      {earlyPackagingDialog}
       {busy && <BeerLoader overlay message="שומר שיבוצי בישול…" />}
       <PlanningBrewAssignmentEditor
         initial={structuredClone(current)}
@@ -371,22 +407,7 @@ export default function PlanningBoard({
   }
 
   return <section>
-    {earlyPackagingWarning && <div className="bp-modal-backdrop" role="presentation">
-      <div className="bp-modal" role="dialog" aria-modal="true" aria-labelledby="bp-early-packaging-title">
-        <div className="bp-editor-header">
-          <div>
-            <h3 id="bp-early-packaging-title">חריגה ממועד הבשלת המיכל</h3>
-            <small>האריזה שובצה לפני המועד שבו המיכל צפוי להיות בשל.</small>
-          </div>
-        </div>
-        <p className="bp-alert">{earlyPackagingWarning}</p>
-        <p>אפשר לחרוג מההתראה ולשמור את השיבוץ בכל זאת. זו חריגה תפעולית בהחלטת המתכנן או מנהל העבודה.</p>
-        <div className="bp-actions">
-          <button type="button" onClick={() => resolveEarlyPackagingOverride(false)}>ביטול</button>
-          <button type="button" className="bp-action-warning" onClick={() => resolveEarlyPackagingOverride(true)}>חרוג ושבץ</button>
-        </div>
-      </div>
-    </div>}
+    {earlyPackagingDialog}
     {busy && !brewDraft && <BeerLoader overlay message="שומר את התכנון…" />}
 
     <div className="bp-section-heading">
