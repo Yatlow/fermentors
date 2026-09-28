@@ -1,0 +1,84 @@
+name: PR73 one-shot rinse parser fix
+
+on:
+  push:
+    branches:
+      - fix/firestore-brew-write-loop
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/firestore-brew-write-loop
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch semantic rinse parsing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/components/brewing/BrewFormStepper.tsx')
+          text = path.read_text()
+          old = '''  for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
+    const rinseRow = findDynamicRow("D", new RegExp("^שטיפה\\\\s*" + rinseIndex + "$", "i"));
+    if (rinseRow < 0) continue;
+    pulled[`__sheetRow.rinse.${rinseIndex}`] = String(
+      sheetStartRow + rinseRow,
+    );
+    const time = normalizedTime(dynamicValue(rinseRow, "E"));
+    const amount = numericText(dynamicValue(rinseRow, "F"));
+    const temp = numericText(dynamicValue(rinseRow, "G"));
+    const volumeText = dynamicValue(rinseRow, "H");
+    if (time) pulled["rinse" + rinseIndex + ".time"] = time;
+    if (amount) pulled["rinse" + rinseIndex + ".amount"] = amount;
+    if (temp) pulled["rinse" + rinseIndex + ".temp"] = temp;
+    const parts = volumeText.split("+").map((part) => numericText(part)).filter(Boolean);
+    if (parts[0]) pulled["rinse" + rinseIndex + ".kettle"] = parts[0];
+    if (usesGrant && parts[1]) pulled["rinse" + rinseIndex + ".grant"] = parts[1];
+  }
+'''
+          new = '''  for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
+    const rinseRow = findDynamicRow("D", new RegExp("^שטיפה\\\\s*" + rinseIndex + "$", "i"));
+    if (rinseRow < 0) continue;
+
+    // Once the real labeled rinse row is found, it is authoritative. Clear any
+    // values that the legacy fixed-offset fallback may have picked up from a
+    // different row in non-IPA templates (for example Wheat). Blank Sheet cells
+    // must also clear stale Firestore/UI values rather than preserving a fallback.
+    const rinsePrefix = `rinse${rinseIndex}`;
+    pulled[`${rinsePrefix}.time`] = "";
+    pulled[`${rinsePrefix}.amount`] = "";
+    pulled[`${rinsePrefix}.temp`] = "";
+    pulled[`${rinsePrefix}.kettle`] = "";
+    pulled[`${rinsePrefix}.grant`] = "";
+
+    pulled[`__sheetRow.rinse.${rinseIndex}`] = String(
+      sheetStartRow + rinseRow,
+    );
+    const time = normalizedTime(dynamicValue(rinseRow, "E"));
+    const amount = numericText(dynamicValue(rinseRow, "F"));
+    const temp = numericText(dynamicValue(rinseRow, "G"));
+    const volumeText = dynamicValue(rinseRow, "H");
+    if (time) pulled[`${rinsePrefix}.time`] = time;
+    if (amount) pulled[`${rinsePrefix}.amount`] = amount;
+    if (temp) pulled[`${rinsePrefix}.temp`] = temp;
+    const parts = volumeText.split("+").map((part) => numericText(part)).filter(Boolean);
+    if (parts[0]) pulled[`${rinsePrefix}.kettle`] = parts[0];
+    if (usesGrant && parts[1]) pulled[`${rinsePrefix}.grant`] = parts[1];
+  }
+'''
+          if old not in text:
+              raise SystemExit('Expected rinse parser block not found; refusing to patch')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/components/brewing/BrewFormStepper.tsx
+          git commit -m "Fix semantic rinse parsing for variable brew templates"
+          git push origin HEAD:fix/firestore-brew-write-loop
