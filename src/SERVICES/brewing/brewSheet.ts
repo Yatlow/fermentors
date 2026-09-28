@@ -35,6 +35,57 @@ function isFullBrewReconciliationRange(range: string): boolean {
   return /(?:^|!)A1:H220$/i.test(normalized);
 }
 
+function normalizeVariableTemplateRinseRows(values: string[][]): string[][] {
+  const rows = values.map((row) => [...row]);
+  const blockHeaders = rows
+    .map((row, index) => ({
+      index,
+      b: String(row[1] ?? "").trim(),
+      d: String(row[3] ?? "").trim(),
+    }))
+    .filter((row) => row.b === "סוג:" && row.d === "אצווה:")
+    .map((row) => row.index);
+
+  blockHeaders.forEach((headerIndex, blockIndex) => {
+    const nextHeader = blockHeaders[blockIndex + 1] ?? rows.length;
+    let mashInIndex = -1;
+    for (let index = headerIndex; index < nextHeader; index += 1) {
+      if (/^הכנסת לתת$/i.test(String(rows[index]?.[3] ?? "").trim())) {
+        mashInIndex = index;
+        break;
+      }
+    }
+    if (mashInIndex < 0) return;
+
+    for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
+      const pattern = new RegExp(`^שטיפה\\s*${rinseIndex}$`, "i");
+      let semanticRow = -1;
+      for (let index = mashInIndex; index < nextHeader; index += 1) {
+        if (pattern.test(String(rows[index]?.[3] ?? "").trim())) {
+          semanticRow = index;
+          break;
+        }
+      }
+      if (semanticRow < 0) continue;
+
+      // BrewFormStepper still has a legacy fixed-offset fallback for rinse rows.
+      // Variable templates such as Wheat place the labeled rinse rows elsewhere.
+      // Mirror only E:H into the fallback position for this in-memory parse so
+      // the semantic row always wins, including when it is intentionally blank.
+      const fallbackRow = mashInIndex + 18 + (rinseIndex - 1);
+      if (fallbackRow < 0 || fallbackRow >= nextHeader || fallbackRow >= rows.length) {
+        continue;
+      }
+      if (!rows[fallbackRow]) rows[fallbackRow] = [];
+      for (let column = 4; column <= 7; column += 1) {
+        rows[fallbackRow][column] = String(rows[semanticRow]?.[column] ?? "");
+      }
+    }
+  });
+
+  return rows;
+}
+
 function layoutFor(tankType: TankType) {
   if (tankType === "single") {
     return {
@@ -146,7 +197,7 @@ export async function readBrewSheetRange(
 
   const values = Array.isArray(result.values) ? result.values : [];
   rememberBrewSheetRange(fileId, range, values);
-  return values;
+  return protectActiveForm ? normalizeVariableTemplateRinseRows(values) : values;
 }
 
 type SheetCellValue = string | number | boolean | null;
