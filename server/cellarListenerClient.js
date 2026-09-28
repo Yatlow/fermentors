@@ -98,6 +98,10 @@ function cellarListenerWriteStatusDoc_(status) {
   });
 
   const code = response.getResponseCode();
+  if (code >= 200 && code < 300 && FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
+    FC_CYCLE_CONTEXT_.io.firestoreWrites++;
+    FC_CYCLE_CONTEXT_.io.listenerStatusWrites++;
+  }
   if (code < 200 || code >= 300) {
     throw new Error(
       "Cellar listener status write failed: " + code + " " + response.getContentText()
