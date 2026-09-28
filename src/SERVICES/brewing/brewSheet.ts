@@ -8,6 +8,33 @@ import {
 
 type TankType = BrewTankDescriptor["tankType"];
 
+let brewFormEditGeneration = 0;
+let brewFormEditTrackingInstalled = false;
+
+function ensureBrewFormEditTracking(): void {
+  if (brewFormEditTrackingInstalled || typeof document === "undefined") return;
+  const markEdit = (event: Event) => {
+    const target = event.target;
+    if (target instanceof Element && target.closest(".brew-stepper")) {
+      brewFormEditGeneration += 1;
+    }
+  };
+  document.addEventListener("input", markEdit, true);
+  document.addEventListener("change", markEdit, true);
+  brewFormEditTrackingInstalled = true;
+}
+
+function isBrewFormControlFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  return active instanceof Element && Boolean(active.closest(".brew-stepper"));
+}
+
+function isFullBrewReconciliationRange(range: string): boolean {
+  const normalized = String(range || "").replace(/\$/g, "").replace(/\s/g, "");
+  return /(?:^|!)A1:H220$/i.test(normalized);
+}
+
 function layoutFor(tankType: TankType) {
   if (tankType === "single") {
     return {
@@ -32,7 +59,6 @@ function layoutFor(tankType: TankType) {
     startingPlatoFormula: '',
   };
 }
-
 
 function tankLabel(tankType: TankType) {
   return tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
@@ -97,7 +123,27 @@ export async function readBrewSheetRange(
   if (!fileId) {
     throw new Error("חסר מזהה Sheet לקריאה.");
   }
+
+  ensureBrewFormEditTracking();
+  const protectActiveForm = isFullBrewReconciliationRange(range);
+  const generationAtStart = brewFormEditGeneration;
+
+  // Full Sheet reconciliation is allowed only while the brewer is idle. The
+  // operational Firestore state stays authoritative while a field is being
+  // edited, so an older Sheet response can never jump a value backwards.
+  if (protectActiveForm && isBrewFormControlFocused()) {
+    throw new Error("סנכרון Sheet נדחה כי טופס הבישול נמצא כרגע בעריכה.");
+  }
+
   const result = await serverReadBrewSheetRange(fileId, range);
+
+  if (
+    protectActiveForm &&
+    (isBrewFormControlFocused() || generationAtStart !== brewFormEditGeneration)
+  ) {
+    throw new Error("סנכרון Sheet ישן בוטל כי הנתונים בטופס השתנו בזמן הקריאה.");
+  }
+
   const values = Array.isArray(result.values) ? result.values : [];
   rememberBrewSheetRange(fileId, range, values);
   return values;
@@ -272,4 +318,3 @@ export async function writeBrewSheetCells(
 ): Promise<void> {
   await queueBrewSheetCells(fileId, data);
 }
-
