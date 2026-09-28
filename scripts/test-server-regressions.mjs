@@ -155,6 +155,69 @@ const action = loadAppsScript("server/BREW_ACTION_SERVICE.js", {
   assert.equal(found.sheetUrl, "https://docs.google.com/spreadsheets/d/right/edit");
 }
 
+{
+  let guardCalls = 0;
+  let patchCalls = 0;
+  let progressHash = null;
+  const progress = loadAppsScript("server/extractBrewStageInfo.js", {
+    FIREBASE_PROJECT_ID: "test-project",
+    FC_CYCLE_CONTEXT_: null,
+    ScriptApp: { getOAuthToken: () => "token" },
+    UrlFetchApp: {
+      fetch() {
+        patchCalls++;
+        return { getResponseCode: () => 200, getContentText: () => "{}" };
+      },
+    },
+    hasChangedLocally_: (_key, value) => {
+      const next = JSON.stringify(value);
+      if (progressHash === next) return false;
+      progressHash = next;
+      return true;
+    },
+  });
+  const stageInfo = {
+    currentBlockIndex: 1,
+    blockCount: 2,
+    headerCount: 1,
+    currentStage: null,
+    dateAssumed: false,
+    blockStarts: [],
+  };
+
+  progress.updateFermentorBrewProgress("10", stageInfo, () => {
+    guardCalls++;
+    return true;
+  });
+  assert.equal(guardCalls, 1, "ACTION 0 stale guard must run before a real brewProgress write");
+  assert.equal(patchCalls, 1, "changed brewProgress must still be written");
+
+  progress.updateFermentorBrewProgress("10", stageInfo, () => {
+    guardCalls++;
+    return true;
+  });
+  assert.equal(guardCalls, 1, "unchanged brewProgress must skip the expensive ACTION 0 stale read");
+  assert.equal(patchCalls, 1, "unchanged brewProgress must skip Firestore write");
+}
+
+{
+  const source = readFileSync("server/BREW_ACTION_SERVICE.js", "utf8");
+  const readFn = source.slice(
+    source.indexOf("function getAllFermentorsFromFirebase()"),
+    source.indexOf("function ", source.indexOf("function getAllFermentorsFromFirebase()") + 10),
+  );
+  assert.doesNotMatch(
+    readFn,
+    /actionWrites\+\+/,
+    "the fermentor list GET must never be counted as an ACTION write",
+  );
+  const actionFn = source.slice(
+    source.indexOf("function updateFermentorAction("),
+    source.indexOf("function ", source.indexOf("function updateFermentorAction(") + 10),
+  );
+  assert.match(actionFn, /actionWrites\+\+/, "successful ACTION patches must be counted at updateFermentorAction");
+}
+
 const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
   FIREBASE_PROJECT_ID: "test-project",
   LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }) },
