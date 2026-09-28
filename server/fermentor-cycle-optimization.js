@@ -188,12 +188,30 @@ function runFermentorCycle() {
     Logger.log("CYCLE SKIPPED: another fermentor cycle is already running.");
     return { skipped: true, reason: "cycle_lease_busy" };
   }
-  FC_CYCLE_CONTEXT_ = { sheets: new Map(), sheetReads: 0, properties: null, lockHeld: false };
+  FC_CYCLE_CONTEXT_ = {
+    sheets: new Map(),
+    sheetReads: 0,
+    properties: null,
+    lockHeld: false,
+    io: {
+      firestoreReads: 0,
+      firestoreWrites: 0,
+      fermentorSnapshotReads: 0,
+      fermentorWrites: 0,
+      measurementWrites: 0,
+      brewProgressWrites: 0,
+      actionWrites: 0,
+      action0StaleReads: 0,
+      listenerStatusWrites: 0
+    }
+  };
   try {
     const projectId = FIREBASE_PROJECT_ID;
     const fermentors = fcTimed_("fetch fermentors", function () {
       return getAllFermentorsFromFirestore(projectId);
     });
+    FC_CYCLE_CONTEXT_.io.firestoreReads += fermentors.length;
+    FC_CYCLE_CONTEXT_.io.fermentorSnapshotReads += fermentors.length;
     Logger.log("Fermentors fetched once: " + fermentors.length);
     // Edit-trigger maintenance belongs to ACTION 0, not the hot path before cellar sync.
     const syncStats = fcTimed_("sync total", function () {
@@ -207,8 +225,26 @@ function runFermentorCycle() {
     Logger.log("Sheet snapshots read: " + FC_CYCLE_CONTEXT_.sheetReads);
     Logger.log("Sync -> " + JSON.stringify(syncStats));
     Logger.log("Action -> " + JSON.stringify(actionStats));
+    Logger.log("FIRESTORE IO -> " + JSON.stringify(FC_CYCLE_CONTEXT_.io));
+    Logger.log(
+      "CYCLE SUMMARY | " +
+      "duration=" + duration.toFixed(3) + "s" +
+      " | firestore reads=" + FC_CYCLE_CONTEXT_.io.firestoreReads +
+      " (snapshot=" + FC_CYCLE_CONTEXT_.io.fermentorSnapshotReads +
+      ", action0-stale=" + FC_CYCLE_CONTEXT_.io.action0StaleReads + ")" +
+      " | firestore writes=" + FC_CYCLE_CONTEXT_.io.firestoreWrites +
+      " (fermentor=" + FC_CYCLE_CONTEXT_.io.fermentorWrites +
+      ", measurement=" + FC_CYCLE_CONTEXT_.io.measurementWrites +
+      ", brewProgress=" + FC_CYCLE_CONTEXT_.io.brewProgressWrites +
+      ", action=" + FC_CYCLE_CONTEXT_.io.actionWrites +
+      ", listenerStatus=" + FC_CYCLE_CONTEXT_.io.listenerStatusWrites + ")" +
+      " | sheet revisions=" + syncStats.revisionChecks +
+      " | unchanged sheets=" + syncStats.unchangedSheets +
+      " | sheet snapshots=" + FC_CYCLE_CONTEXT_.sheetReads
+    );
     return { durationSeconds: duration, fermentorsCount: fermentors.length,
       sheetReads: FC_CYCLE_CONTEXT_.sheetReads,
+      firestoreIo: FC_CYCLE_CONTEXT_.io,
       sync: syncStats, action: actionStats };
   } finally {
     FC_CYCLE_CONTEXT_ = null;
@@ -328,7 +364,13 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
             const wrote = fcTimed_("latest measurement " + entry.id, function () {
               return writeLatestMeasurementIfChanged_(projectId, next.batchNumber, sheetUrl);
             });
-            if (wrote) stats.latestMeasurementWrites++;
+            if (wrote) {
+              stats.latestMeasurementWrites++;
+              if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
+                FC_CYCLE_CONTEXT_.io.firestoreWrites++;
+                FC_CYCLE_CONTEXT_.io.measurementWrites++;
+              }
+            }
           } catch (error) {
             tankSyncHadError = true;
             stats.measurementErrors++;
@@ -345,6 +387,10 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
         fcTimed_("fermentor write " + entry.id, function () {
           updateFermentorDocument(projectId, entry.id, payload);
         });
+        if (FC_CYCLE_CONTEXT_ && FC_CYCLE_CONTEXT_.io) {
+          FC_CYCLE_CONTEXT_.io.firestoreWrites++;
+          FC_CYCLE_CONTEXT_.io.fermentorWrites++;
+        }
         entry.data = fcMergePayload_(entry.data, payload);
         if (!tankSyncHadError) fcMarkSheetRevision_(revisionState);
         stats.updated++;
