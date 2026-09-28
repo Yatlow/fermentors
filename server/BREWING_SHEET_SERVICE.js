@@ -647,14 +647,6 @@ function brewingSheetPrintPdf_(data) {
           if (tempUnitCol < row.length) row[tempUnitCol] = "°C";
         }
 
-        const outToBoilCol = findLabelColumn(row, /^הוצאה\s*לבישול$/i);
-        if (outToBoilCol >= 0 && row.length) {
-          // On the RTL print form, the last logical column is the visual left
-          // edge. Keep the source Sheet unchanged and add the pH label only to
-          // the temporary print copy.
-          row[row.length - 1] = "pH";
-        }
-
         const sugarCol = findLabelColumn(row, /^(?:F\.R\.|L\.R\.)$/i);
         if (sugarCol >= 0) {
           // Keep the print label visible even before a measurement exists.
