@@ -823,7 +823,7 @@ function brewStageToFirestoreValue_(value) {
   return { stringValue: String(value) };
 }
 
-function updateFermentorBrewProgress(tankNumber, stageInfo) {
+function updateFermentorBrewProgress(tankNumber, stageInfo, beforeWrite) {
   const fermentorId = String(tankNumber).trim();
   const stage = stageInfo.currentStage;
 
