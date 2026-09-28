@@ -273,13 +273,11 @@ function processAction1(fermentor) {
   const tankNumber =
     String(fermentor.tankNumber || "").trim();
 
-  // Retry-safe: ACTION 0 -> 1 installs the listener immediately. If that API
-  // call ever failed transiently, each normal ACTION-1 cycle tries again using
-  // the already-fetched fermentor object. The listener service is idempotent.
-  fcTimed_("listener ensure tank " + (tankNumber || fermentor.uid || "?"), function () {
-    cellarListenerSafeEnsureForFermentor_(fermentor);
-  });
-
+  // Listener lifecycle is NOT reconciled here. ACTION 0 -> 1 performs an
+  // immediate best-effort install, while the dedicated listener project's
+  // hourly reconciliation self-heals missed installs from Firestore. Retrying
+  // the remote web app for every ACTION-1 tank made a slow/broken endpoint
+  // serialize into multi-minute full cycles.
   const tankStatus =
     fermentor.tankStatus;
 
