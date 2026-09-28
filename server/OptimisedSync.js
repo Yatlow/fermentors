@@ -75,22 +75,28 @@ function runActionFlow_(fermentors) {
     try {
       if (action === 0) {
         a0++;
-        processAction0(fermentor);
+        fcTimed_("ACTION 0 tank " + (fermentor.tankNumber || fermentor.uid || "?"), function () {
+          processAction0(fermentor);
+        });
         return;
       }
 
       if (action === 1) {
         a1++;
-        processAction1(fermentor);
+        fcTimed_("ACTION 1 tank " + (fermentor.tankNumber || fermentor.uid || "?"), function () {
+          processAction1(fermentor);
+        });
         return;
       }
 
       if (action === 5) {
         a5++;
-        processAction5(
-          fermentor,
-          action5Context
-        );
+        fcTimed_("ACTION 5 tank " + (fermentor.tankNumber || fermentor.uid || "?"), function () {
+          processAction5(
+            fermentor,
+            action5Context
+          );
+        });
       }
 
       // ACTION 3 / 4 are GUI-controlled.
@@ -112,13 +118,17 @@ function runActionFlow_(fermentors) {
   try {
     // One owner for brew edit triggers. This also removes legacy, stale and
     // duplicate handlers instead of letting ACTION 0 create them ad hoc.
-    brewingSheetReconcileEditTriggers_(fermentors);
+    fcTimed_("brew edit trigger reconcile", function () {
+      brewingSheetReconcileEditTriggers_(fermentors);
+    });
   } catch (error) {
     Logger.log("BREW EDIT TRIGGER RECONCILE ERROR: " + error.message);
   }
 
   try {
-    ensureAsyncLogTrigger_();
+    fcTimed_("async maintenance trigger ensure", function () {
+      ensureAsyncLogTrigger_();
+    });
   } catch (error) {
     Logger.log("ASYNC LOG TRIGGER ERROR: " + error.message);
   }
