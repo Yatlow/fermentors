@@ -1776,7 +1776,8 @@ export default function BrewFormStepper({
           `materialLot.${yeast.id}`,
           lot.id,
         );
-        const row = baseRow + 23;
+        const mashHasThirdRest = recipe.mash.steps.some((step) => step.id === "rest3");
+        const row = baseRow + 23 + (mashHasThirdRest ? 4 : 0);
         const yeastAmount =
           Math.max(0, Number(recipe.yeast.gramsPerBrew || 0)) * totalBlocks +
           Math.max(0, Number(recipe.yeast.extraPerBatch || 0));
