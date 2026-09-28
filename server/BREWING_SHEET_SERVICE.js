@@ -639,12 +639,20 @@ function brewingSheetPrintPdf_(data) {
           }
         }
 
-        const processCol = findLabelColumn(row, /^(?:השריה|חימום)\s*[1-3]$|^הכנסת\s*לתת$|^העברה\s*ל?\s*L\.T\.?$|^מנוחה\s*L\.T\.?$|^שטיפה\s*[1-7]$/i);
+        const processCol = findLabelColumn(row, /^(?:השריה|חימום)\s*[1-3]$|^הכנסת\s*לתת$|^העברה\s*ל?\s*L\.T\.?$|^שטיפה\s*[1-7]$/i);
         if (processCol >= 0) {
           // Legacy form: temperature unit is three logical cells after the
           // process label. Guard bounds so future narrower Masters stay safe.
           const tempUnitCol = processCol + 3;
           if (tempUnitCol < row.length) row[tempUnitCol] = "°C";
+        }
+
+        const outToBoilCol = findLabelColumn(row, /^הוצאה\s*לבישול$/i);
+        if (outToBoilCol >= 0 && row.length) {
+          // On the RTL print form, the last logical column is the visual left
+          // edge. Keep the source Sheet unchanged and add the pH label only to
+          // the temporary print copy.
+          row[row.length - 1] = "pH";
         }
 
         const sugarCol = findLabelColumn(row, /^(?:F\.R\.|L\.R\.)$/i);
