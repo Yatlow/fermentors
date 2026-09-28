@@ -1,0 +1,36 @@
+name: Fix brew tentative preload and size guard
+
+on:
+  push:
+    branches: [fix/brew-tentative-prefill-size-guard]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/brew-tentative-prefill-size-guard
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Apply patch
+        run: python scripts/patch-brew-tentative-prefill-size-guard.py
+      - name: Validate
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/fix-brew-tentative-prefill-size-guard.yml scripts/patch-brew-tentative-prefill-size-guard.py
+          git add src/components/planning/PlanningBrewAssignmentEditor.tsx
+          git commit -m "Preload tentative brew tanks and enforce tank size"
+          git push origin HEAD:fix/brew-tentative-prefill-size-guard
