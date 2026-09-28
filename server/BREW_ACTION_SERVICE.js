@@ -276,7 +276,9 @@ function processAction1(fermentor) {
   // Retry-safe: ACTION 0 -> 1 installs the listener immediately. If that API
   // call ever failed transiently, each normal ACTION-1 cycle tries again using
   // the already-fetched fermentor object. The listener service is idempotent.
-  cellarListenerSafeEnsureForFermentor_(fermentor);
+  fcTimed_("listener ensure tank " + (tankNumber || fermentor.uid || "?"), function () {
+    cellarListenerSafeEnsureForFermentor_(fermentor);
+  });
 
   const tankStatus =
     fermentor.tankStatus;
