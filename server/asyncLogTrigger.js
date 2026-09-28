@@ -293,6 +293,11 @@ function runAsyncMaintenance_() {
         });
       }
     } else {
+      Logger.log(
+        "MAINTENANCE SKIPPED — night schedule | Jerusalem time: " +
+        clock.text +
+        " | full fermentor cycle runs at most once per hour"
+      );
       action0Guard = smartRunNightAction0Guard_(FIREBASE_PROJECT_ID, now);
     }
   } catch (error) {
