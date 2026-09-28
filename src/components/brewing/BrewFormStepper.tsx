@@ -725,9 +725,14 @@ function fieldsFromSheetRows(
   sugarLabels.forEach(([key, pattern]) => {
     const rowIndex = findDynamicRow("A", pattern);
     if (rowIndex < 0) return;
-    pulled[`__sheetRow.sugar.${key}`] = String(
-      sheetStartRow + rowIndex,
-    );
+    const sheetRow = String(sheetStartRow + rowIndex);
+    pulled[`__sheetRow.sugar.${key}`] = sheetRow;
+    // Volume values live in column C of the same semantic sugar row. Keep
+    // explicit row aliases for their field keys so writes never fall back to
+    // IPA fixed offsets on variable templates.
+    if (key === "kettlePlato") pulled["__sheetRow.sugar.kettleVolume"] = sheetRow;
+    if (key === "endBoilPlato") pulled["__sheetRow.sugar.endBoilVolume"] = sheetRow;
+    if (key === "fermentorSamplePlato") pulled["__sheetRow.sugar.cumulativeTankVolume"] = sheetRow;
     const plato = numericText(dynamicValue(rowIndex, "B"));
     if (plato) pulled[key] = plato;
     const volume = numericText(dynamicValue(rowIndex, "C"));
