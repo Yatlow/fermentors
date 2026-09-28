@@ -15,7 +15,7 @@ const CELLAR_LISTENER_SECRET_PROPERTY_ = "CELLAR_LISTENER_SECRET";
 const CELLAR_LISTENER_ENSURE_PREFIX_ = "cellar_listener_ensure:";
 const CELLAR_LISTENER_ENSURE_INTERVAL_MS_ = 55 * 60 * 1000;
 const CELLAR_LISTENER_STATUS_LAST_AT_KEY_ = "cellar_listener_status_last_at_v1";
-const CELLAR_LISTENER_STATUS_INTERVAL_MS_ = 5 * 60 * 1000;
+const CELLAR_LISTENER_STATUS_INTERVAL_MS_ = 60 * 60 * 1000;
 const CELLAR_LISTENER_STATUS_DOC_ID_ = "_cellarListenerStatus";
 
 function cellarListenerConfig_() {
@@ -234,7 +234,8 @@ function cellarListenerSafeEnsureForFermentor_(fermentor) {
     if (key) {
       const lastAt = Number(PropertiesService.getScriptProperties().getProperty(key) || 0);
       if (lastAt > 0 && Date.now() - lastAt < CELLAR_LISTENER_ENSURE_INTERVAL_MS_) {
-        cellarListenerPublishStatus_(false);
+        // A cached ensure is a true no-op. Do not turn every ACTION-1 cycle into
+        // Firestore health telemetry; the listener service already self-heals hourly.
         return { success: true, skipped: true, reason: "recently_ensured" };
       }
     }
