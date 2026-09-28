@@ -215,7 +215,8 @@ function processAction0(fermentor) {
   if (Number.isFinite(fermentationVolume) && fermentationVolume > 0) {
     updateFermentorAction(
       tankNumber,
-      1
+      1,
+      true
     );
     return;
   }
@@ -1515,7 +1516,8 @@ function updateFermentorForNextBrew_(
 
 function updateFermentorAction(
   tankNumber,
-  action
+  action,
+  markFermentationStart
 ) {
 
   const fermentorId =
@@ -1528,7 +1530,8 @@ function updateFermentorAction(
     encodeURIComponent(
       fermentorId
     ) +
-    "?updateMask.fieldPaths=action";
+    "?updateMask.fieldPaths=action" +
+    (markFermentationStart ? "&updateMask.fieldPaths=fermentationStartedAt" : "");
 
   const document = {
     fields: {
@@ -1536,6 +1539,12 @@ function updateFermentorAction(
         toFirestoreValue(action)
     }
   };
+
+  if (markFermentationStart) {
+    document.fields.fermentationStartedAt = {
+      timestampValue: new Date().toISOString()
+    };
+  }
 
   const response =
     UrlFetchApp.fetch(url, {
