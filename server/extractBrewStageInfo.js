@@ -762,43 +762,6 @@ function extractBrewStageInfo(spreadSheetId, fermentorHint) {
   const blockCount = startedBlocks.length;
   const hasUnstartedHeader = headerCount > blockCount;
   const lastBlock = blockCount ? startedBlocks[startedBlocks.length - 1] : null;
-  const beerVolume = brewStageFindBeerVolume_(values);
-
-  const outStage =
-    lastBlock
-      ? lastBlock.stages.find(function (stage) {
-          return stage.code === STAGE_CODE_OUT_TO_FERMENTOR;
-        })
-      : null;
-
-  const finalOutPastGrace =
-    !!(
-      !hasUnstartedHeader &&
-      outStage &&
-      outStage.startDateTime &&
-      now.getTime() - outStage.startDateTime.getTime() >= ACTION_0_GRACE_MS
-    );
-
-  const readyForAction1 =
-    beerVolume !== null && beerVolume !== undefined
-      ? true
-      : finalOutPastGrace;
-
-  // Reconcile dates immediately before processAction0 is expected
-  // to set ACTION=1. Existing dates are left untouched.
-  if (readyForAction1) {
-    try {
-      brewStageFillMissingDates_(
-        sheet,
-        values,
-        blocks,
-        blockStarts,
-        topHeaderInfo
-      );
-    } catch (error) {
-      Logger.log("Failed filling missing brew dates: " + error.message);
-    }
-  }
 
   const dateAssumed = runtimeResolution.sources.some(function (source) {
     return source === "assumed";
@@ -817,7 +780,6 @@ function extractBrewStageInfo(spreadSheetId, fermentorHint) {
     lastBlock: lastBlock,
     currentBlockIndex: currentBlockIndex,
     currentStage: currentStage,
-    beerVolume: beerVolume,
     blockStarts: brewStageBlockStartsArray_(blockStarts)
   };
 }

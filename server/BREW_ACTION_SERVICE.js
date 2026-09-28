@@ -193,59 +193,37 @@ function processAction0(fermentor) {
     );
   }
 
-  if (
-    stageInfo.beerVolume !== null &&
-    stageInfo.beerVolume !== undefined
-  ) {
+  // ACTION 0 -> 1 is driven only by the canonical fermentation-volume
+  // extraction used by the dashboard/sync. Process times and brew dates are
+  // useful for progress display, but must never guess that beer reached the tank.
+  let canonicalBrew = null;
+  try {
+    canonicalBrew = extractBrew(sheetUrl);
+  } catch (error) {
+    Logger.log(
+      "Tank " + tankNumber +
+      ": canonical fermentation volume read failed - staying ACTION 0: " +
+      error.message
+    );
+    return;
+  }
 
+  const fermentationVolume = canonicalBrew
+    ? Number(canonicalBrew.beerVolume)
+    : NaN;
+
+  if (Number.isFinite(fermentationVolume) && fermentationVolume > 0) {
     updateFermentorAction(
       tankNumber,
       1
     );
-
     return;
   }
 
-  if (stageInfo.hasUnstartedHeader) {
-
-    Logger.log(
-      "Tank " +
-      tankNumber +
-      ": another planned brew block hasn't started yet - staying ACTION 0."
-    );
-
-    return;
-  }
-
-  const outStage =
-    stageInfo.lastBlock.stages.find(
-      function (s) {
-        return s.code === STAGE_CODE_OUT_TO_FERMENTOR;
-      }
-    );
-
-  if (
-    outStage &&
-    outStage.startDateTime
-  ) {
-
-    const graceMs =
-      2 * 60 * 60 * 1000;
-
-    if (
-      Date.now() -
-      outStage.startDateTime.getTime() >=
-      graceMs
-    ) {
-
-      updateFermentorAction(
-        tankNumber,
-        1
-      );
-
-      return;
-    }
-  }
+  Logger.log(
+    "Tank " + tankNumber +
+    ": no fermentation volume yet - staying ACTION 0."
+  );
 }
 
 
