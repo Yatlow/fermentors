@@ -465,6 +465,7 @@ function fieldsFromSheetRows(
 
   const brewDate = isoDateFromSheet(sheetCell(rows, 0, "H"));
   if (brewDate) pulled.brewDate = brewDate;
+  pulled["__sheetRow.header"] = String(sheetStartRow);
 
   TIMELINE_STAGES.forEach((stage) => {
     const start = normalizedTime(cell(stage.rowOffset, "E"));
@@ -747,7 +748,7 @@ function fieldsFromSheetRows(
       type: dynamicValue(rowIndex, "C"),
       amount: numericText(dynamicValue(rowIndex, "A")),
     }))
-    .filter((item) => /H3PO4/i.test(item.type) && !!item.amount);
+    .filter((item) => /H3PO4/i.test(item.type));
   if (acidRows[0]) {
     pulled[`__sheetRow.acid.mash`] = String(
       sheetStartRow + acidRows[0].rowIndex,
@@ -805,8 +806,22 @@ function fieldsFromSheetRows(
     }
   }
 
-  const yeastName = cell(23, "B");
-  const yeastLot = cell(23, "C");
+  // Yeast material rows move on variable mash layouts. Resolve the visible
+  // "שמרים" section instead of assuming the legacy base + 23 coordinate.
+  const yeastHeadingRow = findDynamicRow("A", /^שמרים$/i);
+  const yeastMaterialRow =
+    yeastHeadingRow >= 0 && yeastHeadingRow + 1 < rows.length
+      ? yeastHeadingRow + 1
+      : -1;
+  if (yeastMaterialRow >= 0) {
+    pulled["__sheetRow.material.yeast"] = String(
+      sheetStartRow + yeastMaterialRow,
+    );
+  }
+  const yeastName =
+    yeastMaterialRow >= 0 ? dynamicValue(yeastMaterialRow, "B") : "";
+  const yeastLot =
+    yeastMaterialRow >= 0 ? dynamicValue(yeastMaterialRow, "C") : "";
   if (yeastName || yeastLot) {
     pulled["sheetRawMaterial.yeast"] = [yeastName, yeastLot]
       .filter(Boolean)
@@ -846,8 +861,8 @@ function fieldsFromSheetRows(
       expectedMaterials.push({
         ingredientId: recipe.yeast.ingredientId,
         source: [
-          cell(23, "B"),
-          cell(23, "C"),
+          yeastName,
+          yeastLot,
         ].join(" "),
       });
     }
@@ -990,7 +1005,7 @@ export default function BrewFormStepper({
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
-  const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);
+  const [, setInitialSheetReconciled] = useState(false);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1048,20 +1063,6 @@ export default function BrewFormStepper({
     };
   }, [run.batchNumber]);
 
-  useEffect(() => {
-    if (
-      !firestoreHydrated ||
-      !initialSheetReconciled ||
-      run.started ||
-      run.brewProgress?.stageName ||
-      hasField("brewDate")
-    ) return;
-    const today = new Date();
-    const iso = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
-    void commitBrewDate(shortIsraeliDate(iso), { manual: false });
-    // Default once after hydration; commitBrewDate keeps the existing continuity validation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firestoreHydrated, initialSheetReconciled, run.started, run.brewProgress?.stageName, currentBlock]);
 
   useEffect(() => {
     if (!firestoreHydrated) return;
@@ -1641,7 +1642,13 @@ export default function BrewFormStepper({
       return;
     }
 
-    const headerRow = blockHeaderRow(run.tankType, currentBlock);
+    const currentBlockFields =
+      execution.blocks[String(currentBlock)]?.fields || {};
+    const discoveredHeaderRow = Number(currentBlockFields["__sheetRow.header"]);
+    const headerRow =
+      Number.isFinite(discoveredHeaderRow) && discoveredHeaderRow > 0
+        ? discoveredHeaderRow
+        : blockHeaderRow(run.tankType, currentBlock);
     const display = sheetDateFromIso(value);
     const writes: Array<{
       range: string;
@@ -1781,8 +1788,10 @@ export default function BrewFormStepper({
           `materialLot.${yeast.id}`,
           lot.id,
         );
-        const mashHasThirdRest = recipe.mash.steps.some((step) => step.id === "rest3");
-        const row = baseRow + 23 + (mashHasThirdRest ? 4 : 0);
+        const row = sheetRowFromMeta(
+          "__sheetRow.material.yeast",
+          baseRow + 23,
+        );
         const yeastAmount =
           Math.max(0, Number(recipe.yeast.gramsPerBrew || 0)) * totalBlocks +
           Math.max(0, Number(recipe.yeast.extraPerBatch || 0));
@@ -1955,24 +1964,6 @@ export default function BrewFormStepper({
     );
   }
 
-  function refreshAutoBrewDateOnMashStart(
-    nextExecution: BrewExecution,
-    writes: Array<{ range: string; value: string | number | boolean | null }>,
-  ) {
-    const currentFields = nextExecution.blocks[String(currentBlock)]?.fields || {};
-    const currentDate = String(currentFields.brewDate || "");
-    const manualDate = String(currentFields["brewDate.manual"] || "");
-    if (manualDate && manualDate === currentDate) return nextExecution;
-
-    const now = new Date();
-    const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
-    if (currentDate === today) return nextExecution;
-    writes.push({
-      range: `'גיליון1'!H${blockHeaderRow(run.tankType, currentBlock)}`,
-      value: sheetDateFromIso(today),
-    });
-    return setBrewingExecutionField(nextExecution, currentBlock, "brewDate", today);
-  }
 
   async function commitStageStart(stage: StageDef, value: string) {
     if (
@@ -1994,12 +1985,6 @@ export default function BrewFormStepper({
       range: string;
       value: string | number | boolean | null;
     }> = [{ range: stageCell(stage.rowOffset, "E"), value }];
-
-    // Opening an old B/C must never change its date. Only the actual mash-in
-    // start is allowed to refresh an automatically assigned date.
-    if (stage.key === "mashIn" && value) {
-      nextExecution = refreshAutoBrewDateOnMashStart(nextExecution, writes);
-    }
 
     if (stage.key === "transferLt" && !String(fields["transferLt.temp"] || "").trim()) {
       nextExecution = setBrewingExecutionField(
