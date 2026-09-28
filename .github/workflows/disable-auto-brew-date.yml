@@ -1,0 +1,32 @@
+name: Disable automatic brew date
+
+on:
+  push:
+    branches: [fix/disable-auto-brew-date]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/disable-auto-brew-date
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: python scripts/patch-disable-auto-brew-date.py
+      - run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/components/brewing/BrewFormStepper.tsx
+          git commit -m "Disable automatic brew-date writes"
+          git push origin HEAD:fix/disable-auto-brew-date
