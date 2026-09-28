@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
-import type { Release } from "../../SERVICES/planning/productionCycle";
+import { brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
 import BeerLoader from "../general/Loading";
 
@@ -65,6 +65,14 @@ function sourceForAssignedTank(brew: BrewPlanWithMeta, sources: Fermentor[]) {
     ?? sources.find((item) => String(item.tankNumber) === String(brew.tankId));
 }
 
+function canonicalTankId(brew: BrewPlanWithMeta, sources: Fermentor[]): string {
+  return sourceForAssignedTank(brew, sources)?.id ?? brew.tankId;
+}
+
+function compatibleTankForBrew(brew: BrewPlanWithMeta, tank: Fermentor): boolean {
+  return tankKind(tank.tankNumber) === brewSizeLabel(Number(brew.liters) || 0);
+}
+
 /**
  * A real ACTION-0 tank is the Firestore reservation created by the brewing
  * flow. Planning may display that identity, but never writes back to the tank.
@@ -86,6 +94,12 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
 }) {
   const [draft, setDraft] = useState<WeekPlan>(() => {
     const copy = structuredClone(initial);
+    // Weekly planning may persist a tentative tank as either the Firestore id or
+    // the human tank number. Canonicalize it on first open so the work manager
+    // sees the tentative recommendation already selected instead of starting blank.
+    copy.brews = copy.brews.map((brew) =>
+      brew.tankId ? { ...brew, tankId: canonicalTankId(brew, brews) } : brew,
+    );
     const hasSavedBatchIdentity = copy.brews.some(
       (brew) => normalizedBatch(brew.batchNumber) !== "",
     );
@@ -166,14 +180,35 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
   }
 
   function setTank(index: number, tankId: string) {
+    const selectedForGuard = orderedBrews[index];
+    const targetTank = brews.find((item) => item.id === tankId);
+    if (!selectedForGuard || !targetTank || !compatibleTankForBrew(selectedForGuard, targetTank)) {
+      const required = selectedForGuard ? brewSizeLabel(Number(selectedForGuard.liters) || 0) : "";
+      setError(required ? `בישול ${required} ניתן לשבץ רק למיכל ${required}.` : "המיכל אינו תואם לגודל הבישול.");
+      return;
+    }
+
+    const previousSource = selectedForGuard.tankId
+      ? sourceForAssignedTank(selectedForGuard, brews)
+      : undefined;
+    const otherIndexForGuard = orderedBrews.findIndex((brew, i) => i !== index && canonicalTankId(brew, brews) === tankId);
+    if (otherIndexForGuard >= 0 && previousSource) {
+      const other = orderedBrews[otherIndexForGuard];
+      if (!compatibleTankForBrew(other, previousSource)) {
+        const required = brewSizeLabel(Number(other.liters) || 0);
+        setError(`לא ניתן להחליף: אצווה ${other.batchNumber} היא בישול ${required} ומיכל ${previousSource.tankNumber} אינו ${required}.`);
+        return;
+      }
+    }
+
     const targetRelease = releases.find((item) => item.tankId === tankId);
     setDraft((current) => {
       const next = [...(current.brews as BrewPlanWithMeta[])];
       const selected = next[index];
       if (!selected) return current;
 
-      const previousTankId = selected.tankId;
-      const otherIndex = next.findIndex((brew, i) => i !== index && brew.tankId === tankId);
+      const previousTankId = selected.tankId ? canonicalTankId(selected, brews) : "";
+      const otherIndex = next.findIndex((brew, i) => i !== index && canonicalTankId(brew, brews) === tankId);
       const previousRelease = previousTankId ? releases.find((item) => item.tankId === previousTankId) : undefined;
 
       next[index] = {
@@ -201,6 +236,15 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
   async function save() {
     if (orderedBrews.some((brew) => !brew.tankId)) {
       setError("יש לשבץ מיכל לכל בישול לפני השמירה.");
+      return;
+    }
+    const incompatible = orderedBrews.find((brew) => {
+      const source = sourceForAssignedTank(brew, brews);
+      return !source || !compatibleTankForBrew(brew, source);
+    });
+    if (incompatible) {
+      const required = brewSizeLabel(Number(incompatible.liters) || 0);
+      setError(`אצווה ${incompatible.batchNumber}: בישול ${required} חייב להיות משובץ למיכל ${required}.`);
       return;
     }
     setBusy(true);
@@ -231,7 +275,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
 
         <div className="bp-brew-queue bp-brew-queue-compact" aria-label="סדר הבישולים">
           {orderedBrews.map((brew, index) => {
-            const source = brews.find((item) => item.id === brew.tankId);
+            const source = sourceForAssignedTank(brew, brews);
             return <article key={brew.id} className={`bp-brew-queue-card bp-brew-queue-card-compact ${index === selectedIndex ? "is-selected" : ""}`} onClick={() => setSelectedIndex(index)}>
               <button type="button" className="bp-brew-arrow" aria-label="העבר ימינה" title="העבר ימינה" disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(index, -1); }}>→</button>
               <button type="button" className="bp-brew-queue-main" onClick={() => setSelectedIndex(index)}>
@@ -246,20 +290,29 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
 
         {selectedBrew && <div className="bp-brew-tank-placement bp-brew-tank-placement-compact">
           <div className="bp-brew-placement-title">
-            <b>אצווה {selectedBrew.batchNumber} · {displayStyle(selectedBrew.style)}</b>
-            <small>כל המיכלים שצפויים להיות פנויים במהלך השבוע מוצגים כאן, גם אם כרגע שובצו לאצווה אחרת.</small>
+            <b>אצווה {selectedBrew.batchNumber} · {displayStyle(selectedBrew.style)} · {brewSizeLabel(Number(selectedBrew.liters) || 0)}</b>
+            <small>כל המיכלים שצפויים להיות פנויים במהלך השבוע מוצגים כאן. ניתן לבחור רק מיכל בגודל {brewSizeLabel(Number(selectedBrew.liters) || 0)}.</small>
           </div>
           <div className="bp-brew-tank-yard bp-brew-tank-row">
             {allWeekTanks.map((tank) => {
-              const isAssigned = selectedBrew.tankId === tank.id;
-              const assignedTo = orderedBrews.findIndex((brew) => brew.tankId === tank.id);
+              const compatible = compatibleTankForBrew(selectedBrew, tank);
+              const selectedTankId = canonicalTankId(selectedBrew, brews);
+              const isAssigned = selectedTankId === tank.id;
+              const assignedTo = orderedBrews.findIndex((brew) => canonicalTankId(brew, brews) === tank.id);
               const occupiedByOther = assignedTo >= 0 && assignedTo !== selectedIndex;
+              const requiredKind = brewSizeLabel(Number(selectedBrew.liters) || 0);
               return <button
                 type="button"
                 key={tank.id}
                 className={`bp-brew-tank-visual bp-brew-tank-visual-compact ${isAssigned ? "is-assigned" : ""}`}
                 onClick={() => setTank(selectedIndex, tank.id)}
-                title={occupiedByOther ? `החלף עם אצווה ${orderedBrews[assignedTo]?.batchNumber}` : `שבץ למיכל ${tank.tankNumber}`}
+                disabled={!compatible}
+                aria-disabled={!compatible}
+                title={!compatible
+                  ? `בישול ${requiredKind} ניתן לשבץ רק למיכל ${requiredKind}`
+                  : occupiedByOther
+                    ? `החלף עם אצווה ${orderedBrews[assignedTo]?.batchNumber}`
+                    : `שבץ למיכל ${tank.tankNumber}`}
               >
                 <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b><small>{tankKind(tank.tankNumber)}</small></span>
                 <span className="bp-brew-tank-cone" />
