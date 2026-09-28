@@ -1642,9 +1642,9 @@ export default function BrewFormStepper({
       return;
     }
 
-    const blockFields =
+    const currentBlockFields =
       execution.blocks[String(currentBlock)]?.fields || {};
-    const discoveredHeaderRow = Number(blockFields["__sheetRow.header"]);
+    const discoveredHeaderRow = Number(currentBlockFields["__sheetRow.header"]);
     const headerRow =
       Number.isFinite(discoveredHeaderRow) && discoveredHeaderRow > 0
         ? discoveredHeaderRow
