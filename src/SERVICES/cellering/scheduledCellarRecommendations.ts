@@ -241,6 +241,12 @@ export async function setScheduledCellarRecommendationStatus(
   status: "completed" | "cancelled",
   resolvedDateOverride?: string,
 ): Promise<void> {
+  // Safety hotfix: HealthDashboard passes an explicit completion date when it
+  // infers completion from measurements. That analysis runs repeatedly on mount
+  // and on live-data changes, so it must remain read-only. Keep manual/user
+  // status changes working (for example cancellation, which has no override).
+  if (status === "completed" && resolvedDateOverride) return;
+
   const resolvedDate = resolvedDateOverride || todayDateKey();
 
   if (isPullRequestPreview()) {
