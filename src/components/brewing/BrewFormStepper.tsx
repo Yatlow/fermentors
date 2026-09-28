@@ -3313,9 +3313,18 @@ export default function BrewFormStepper({
   async function applyBoilRecommendation() {
     if (boilRecommendation === null) return;
     const value = String(roundToFive(boilRecommendation));
+
+    // Applying the lautering boil-volume calculator is an explicit request to
+    // use this value as the kettle volume. Commit it through the same path as
+    // the boil-step input and force all recipe hop doses to be recalculated
+    // from the newly calculated volume. Avoid setLocal()+commitSugar() here:
+    // those back-to-back state writes can race and leave the boil view on the
+    // previous execution snapshot.
+    await commitSugar("kettleVolume", value, 38, "C", {
+      skipHopPrompt: true,
+      forceHopRecalc: true,
+    });
     setBoilCalcOpen(false);
-    setLocal("kettleVolume", value);
-    await commitSugar("kettleVolume", value, 38, "C");
   }
 
   function isSheetBackedExecutionKey(key: string): boolean {
