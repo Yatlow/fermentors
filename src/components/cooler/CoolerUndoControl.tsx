@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Redo2, Undo2 } from "lucide-react";
 import {
     startCoolerUndoRecorder,
@@ -22,16 +23,41 @@ export default function CoolerUndoControl() {
     const [redoCount, setRedoCount] = useState(0);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
+    const [isMobile, setIsMobile] = useState(false);
+    const [mobileHost, setMobileHost] = useState<HTMLElement | null>(null);
 
     useEffect(() => {
         const refreshVisibility = () => {
-            setVisible(Boolean(document.querySelector(".cooler-map-page")));
+            const mapPage = document.querySelector(".cooler-map-page");
+            setVisible(Boolean(mapPage));
+            setMobileHost(
+                window.matchMedia("(max-width: 768px)").matches
+                    ? document.querySelector<HTMLElement>(".cooler-map-header")
+                    : null
+            );
         };
 
         refreshVisibility();
         const observer = new MutationObserver(refreshVisibility);
         observer.observe(document.body, { childList: true, subtree: true });
         return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
+        const mediaQuery = window.matchMedia("(max-width: 768px)");
+
+        const syncMobileState = () => {
+            setIsMobile(mediaQuery.matches);
+            setMobileHost(
+                mediaQuery.matches
+                    ? document.querySelector<HTMLElement>(".cooler-map-header")
+                    : null
+            );
+        };
+
+        syncMobileState();
+        mediaQuery.addEventListener("change", syncMobileState);
+        return () => mediaQuery.removeEventListener("change", syncMobileState);
     }, []);
 
     useEffect(() => {
@@ -118,21 +144,33 @@ export default function CoolerUndoControl() {
         pointerEvents: "auto" as const,
         border: "1px solid rgba(20, 90, 150, .25)",
         borderRadius: 12,
-        padding: "9px 13px",
+        padding: isMobile ? "8px 11px" : "9px 13px",
         background: enabled ? "white" : "rgba(245,245,245,.92)",
         color: enabled ? "#155c96" : "#8a949d",
         fontWeight: 700,
-        boxShadow: "0 4px 16px rgba(0,0,0,.14)",
+        boxShadow: isMobile ? "none" : "0 4px 16px rgba(0,0,0,.14)",
         cursor: enabled && !busy ? "pointer" : "default",
         display: "inline-flex",
         alignItems: "center",
+        justifyContent: "center",
         gap: 7,
+        minHeight: 40,
     });
 
-    return (
+    const control = (
         <div
             dir="rtl"
-            style={{
+            style={isMobile ? {
+                position: "static",
+                order: 99,
+                width: "100%",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "stretch",
+                gap: 6,
+                pointerEvents: "none",
+                marginTop: 2,
+            } : {
                 position: "fixed",
                 left: 14,
                 bottom: "calc(14px + env(safe-area-inset-bottom))",
@@ -148,13 +186,13 @@ export default function CoolerUndoControl() {
                 <div
                     role="status"
                     style={{
-                        maxWidth: 320,
+                        maxWidth: isMobile ? "100%" : 320,
                         padding: "8px 11px",
                         borderRadius: 10,
                         background: "rgba(20, 30, 45, 0.92)",
                         color: "white",
                         fontSize: 13,
-                        boxShadow: "0 4px 18px rgba(0,0,0,.18)",
+                        boxShadow: isMobile ? "none" : "0 4px 18px rgba(0,0,0,.18)",
                         pointerEvents: "auto",
                     }}
                 >
@@ -162,13 +200,23 @@ export default function CoolerUndoControl() {
                 </div>
             )}
 
-            <div style={{ display: "flex", gap: 8, pointerEvents: "none" }}>
+            <div
+                style={{
+                    display: "flex",
+                    gap: 8,
+                    pointerEvents: "none",
+                    width: isMobile ? "100%" : undefined,
+                }}
+            >
                 <button
                     type="button"
                     onClick={() => void performUndo()}
                     disabled={busy || undoCount <= 0}
                     title="בטל את שינוי המיקום האחרון במקרר (Ctrl+Z / Cmd+Z)"
-                    style={buttonStyle(undoCount > 0)}
+                    style={{
+                        ...buttonStyle(undoCount > 0),
+                        flex: isMobile ? "1 1 0" : undefined,
+                    }}
                 >
                     <Undo2 size={17} strokeWidth={2.2} aria-hidden="true" />
                     <span>{busy ? "עובד…" : `בטל${undoCount > 0 ? ` (${undoCount})` : ""}`}</span>
@@ -179,7 +227,10 @@ export default function CoolerUndoControl() {
                     onClick={() => void performRedo()}
                     disabled={busy || redoCount <= 0}
                     title="בצע מחדש (Ctrl+Y / Ctrl+Shift+Z / Cmd+Shift+Z)"
-                    style={buttonStyle(redoCount > 0)}
+                    style={{
+                        ...buttonStyle(redoCount > 0),
+                        flex: isMobile ? "1 1 0" : undefined,
+                    }}
                 >
                     <Redo2 size={17} strokeWidth={2.2} aria-hidden="true" />
                     <span>{busy ? "עובד…" : `בצע מחדש${redoCount > 0 ? ` (${redoCount})` : ""}`}</span>
@@ -187,4 +238,10 @@ export default function CoolerUndoControl() {
             </div>
         </div>
     );
+
+    if (isMobile && mobileHost) {
+        return createPortal(control, mobileHost);
+    }
+
+    return control;
 }
