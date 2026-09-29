@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import type { ShipmentEvent } from "./dailyPlanner";
 import type { PlanningSnapshot } from "./planningReports";
+import { pendingDeliveriesForReservationQueue } from "./shipmentActuals";
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
@@ -412,6 +413,28 @@ export function usePlanning(
           id,
           revision: next.revision,
           brews: queueBrews,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser!.uid,
+        });
+
+        const shipmentQueueRef = doc(db, "shipmentPlanningQueue", id);
+        const weekDeliveries = Array.isArray(week.deliveries) ? week.deliveries : [];
+        const queueDeliveries = pendingDeliveriesForReservationQueue(
+          weekDeliveries,
+          actualShipments,
+          settings.products,
+        ).map((delivery) => ({
+            productId: String(delivery.productId || ""),
+            quantity: Number(delivery.quantity) || 0,
+            dispatchDate: String(delivery.dispatchDate || ""),
+            truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
+          }));
+
+        tx.set(shipmentQueueRef, {
+          id,
+          revision: next.revision,
+          projectionVersion: 1,
+          deliveries: queueDeliveries,
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser!.uid,
         });

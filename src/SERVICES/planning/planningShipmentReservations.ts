@@ -32,6 +32,7 @@ type PlannedLine = {
   productId: string;
   quantity: number;
   dispatchDate: string;
+  truckId: string;
 };
 
 export type ShipmentReservationSyncResult = {
@@ -64,25 +65,33 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   );
 
   const lines = snapshot.docs.flatMap((snapshot) => {
-    const week = snapshot.data() as WeekPlan;
+    const week = snapshot.data() as WeekPlan & { projectionVersion?: number };
+    // Ignore every legacy projection. Current queue documents are rewritten
+    // atomically with planningWeeks and explicitly carry projectionVersion=1.
+    // This makes stale pre-fix queue data fail closed instead of reserving stock.
+    if (week.projectionVersion !== 1) return [];
     return (week.deliveries ?? [])
       .filter((delivery) => delivery.quantity > 0 && delivery.dispatchDate >= today)
       .map((delivery) => ({
         productId: delivery.productId,
         quantity: delivery.quantity,
         dispatchDate: delivery.dispatchDate,
+        truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
       }));
   });
 
-  const nearestDate = lines.map((line) => line.dispatchDate).sort()[0];
-  if (!nearestDate) return [];
+  const nearest = [...lines].sort((a, b) =>
+    a.dispatchDate.localeCompare(b.dispatchDate) || a.truckId.localeCompare(b.truckId)
+  )[0];
+  if (!nearest) return [];
 
   const totals = new Map<string, PlannedLine>();
-  for (const line of lines.filter((item) => item.dispatchDate === nearestDate)) {
+  for (const line of lines.filter((item) => item.truckId === nearest.truckId)) {
     const previous = totals.get(line.productId);
     totals.set(line.productId, {
       productId: line.productId,
-      dispatchDate: nearestDate,
+      dispatchDate: line.dispatchDate,
+      truckId: line.truckId,
       quantity: (previous?.quantity ?? 0) + line.quantity,
     });
   }

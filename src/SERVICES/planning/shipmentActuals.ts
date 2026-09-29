@@ -143,6 +143,23 @@ export function matchActualShipments(
   });
 }
 
+
+export function pendingDeliveriesForReservationQueue(
+  deliveries: DeliveryPlan[],
+  actualEvents: ShipmentEvent[],
+  products: Product[],
+): DeliveryPlan[] {
+  const pendingGroupIds = new Set(
+    matchActualShipments(deliveries, actualEvents, products)
+      .filter((match) => match.status === "pending")
+      .map((match) => match.planned.id),
+  );
+  return deliveries.filter((delivery) =>
+    delivery.quantity > 0 &&
+    pendingGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`)
+  );
+}
+
 export function shipmentMatchesForPlans(
   plans: WeekPlan[],
   actualEvents: ShipmentEvent[],
