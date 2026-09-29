@@ -10,6 +10,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
+import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { todayDateKey } from "./scheduledCellarRecommendations";
 
 export type IgnoredCellarRecommendation = {
@@ -82,6 +83,7 @@ export function subscribeIgnoredCellarRecommendationsToday(
   return onSnapshot(
     query(collection(db, COLLECTION), where("ignoredDate", "==", today)),
     (snapshot) => {
+      if (!snapshot.metadata.fromCache) recordGlobalServerRead("Ignored today", snapshot.size);
       callback(snapshot.docs.map((item) => ({
         id: item.id,
         ...(item.data() as Omit<IgnoredCellarRecommendation, "id">),
