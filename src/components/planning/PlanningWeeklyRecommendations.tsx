@@ -330,7 +330,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     async function saveShipment() {
-        if (busy) return;
+        if (disabled || busy) return;
         const slots = shipmentSlots(shipDraft);
         if (slots > MAX_TRUCK_SLOTS || products.some((p) => (shipDraft[p.id] ?? 0) > maxShipmentQty(p))) {
             return setMessage("המלאי או הקיבולת השתנו. יש לעדכן את החלטת המשלוח לפני השמירה.");
@@ -895,7 +895,7 @@ export default function PlanningWeeklyRecommendations({
                             {(current.deliveries ?? []).length ? "מחק נתונים ואשר המלצה" : "צור משלוח מההמלצה"}
                         </button>
                         {openShipmentGroups.map((group, groupIndex) => <button key={group.id} disabled={disabled || busy} onClick={() => beginEdit("delivery", group.id)}>עריכת משלוח {groupIndex + 1}</button>)}
-                        <button disabled={busy} onClick={() => beginEdit("delivery", `truck:${week}:${shipmentGroups.length + 1}`)}>+ משלוח נוסף</button>
+                        <button disabled={disabled || busy} onClick={() => beginEdit("delivery", `truck:${week}:${shipmentGroups.length + 1}`)}>+ משלוח נוסף</button>
                     </>}
                 </div>
 
