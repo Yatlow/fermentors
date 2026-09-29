@@ -513,8 +513,12 @@ export function usePlanning(
           updatedBy: auth.currentUser!.uid,
         });
 
-        const shipmentQueueRef = doc(db, "shipmentPlanningQueue", id);
+        const savedDeliveries = Array.isArray(snap.data()?.deliveries) ? snap.data()!.deliveries : [];
         const weekDeliveries = Array.isArray(week.deliveries) ? week.deliveries : [];
+        const deliveriesChanged = JSON.stringify(weekDeliveries) !== JSON.stringify(savedDeliveries);
+        if (!deliveriesChanged) return next;
+
+        const shipmentQueueRef = doc(db, "shipmentPlanningQueue", id);
         const pendingQueueDeliveries = pendingDeliveriesForReservationQueue(
           weekDeliveries,
           actualShipments,
