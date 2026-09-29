@@ -236,7 +236,10 @@ export default function PlanningBoard({
         allWithoutCurrentDeliveries,
         today,
       );
-      if (!unrelatedError) error = null;
+      // If the edited packaging/brew state is valid on its own, the error belongs
+      // exclusively to the already-saved shipment decision. Never carry that
+      // legacy shipment error into an unrelated scheduling save.
+      error = unrelatedError;
     }
     if (error) throw new Error(error);
 
