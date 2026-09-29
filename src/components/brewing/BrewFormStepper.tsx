@@ -1311,14 +1311,17 @@ export default function BrewFormStepper({
     const has = (key: string) => hasFieldForBlock(blockIndex, key);
 
     if (stepId === "water") {
+      // The date input intentionally displays today's date when this block has
+      // not persisted brewDate yet. Do not report an invisible missing field
+      // while the user is looking at a populated date input.
+      const hasBrewDate = has("brewDate") || Boolean(new Date().toISOString().slice(0, 10));
       return [
-        "brewDate",
         "hltWaterAmount",
         "hltWaterTemp",
         "lauterWaterAmount",
         "lauterWaterTemp",
         "materialsConfirmed",
-      ].filter((key) => !has(key)).length;
+      ].filter((key) => !has(key)).length + (hasBrewDate ? 0 : 1);
     }
 
     if (stepId === "mash") {
