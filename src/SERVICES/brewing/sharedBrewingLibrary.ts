@@ -7,6 +7,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import { recordReadAudit } from "../readAudit";
+import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import type { BrewRecipe } from "./brewRecipe";
 import type { IngredientDefinition } from "./ingredientLibrary";
 
@@ -33,6 +34,7 @@ export async function loadSharedBrewingLibrary(): Promise<SharedBrewingLibrary> 
     getDoc(doc(db, "specs", INGREDIENTS_DOC)),
   ]);
   recordReadAudit("Brewing shared library", 2);
+  recordGlobalServerRead("Brewing shared library", Number(recipesSnapshot.exists()) + Number(ingredientsSnapshot.exists()));
 
   const recipesData = recipesSnapshot.data() as
     | { recipes?: BrewRecipe[] }

@@ -5,6 +5,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { addDays, dateKey, weekStart, type WeekPlan } from "./planningEngine";
 
 export type PlannedTankPackaging = {
@@ -69,6 +70,7 @@ async function loadFuturePackagingMaps() {
       where("id", "<=", weekStart(horizon)),
     ),
   ).then((planningSnapshot) => {
+    recordGlobalServerRead("Dashboard planning weeks", planningSnapshot.size);
     const planning = new Map<string, string>();
     const planningWeekOnly = new Map<string, string>();
     const planningByTank = new Map<string, string>();
