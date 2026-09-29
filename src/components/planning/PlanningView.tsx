@@ -13,7 +13,7 @@ import {
 } from "firebase/firestore";
 import type { Fermentor } from "../../App";
 import { runtimeConfig } from "../../config/runtimeConfig";
-import { db } from "../../firebase";
+import { auth, db } from "../../firebase";
 import { addDays, parseDate, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { startOfJerusalemDay, useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
