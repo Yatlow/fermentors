@@ -216,7 +216,128 @@ service cloud.firestore {
 
     match /shipmentPlanningQueue/{weekId} {
       allow read: if isApprovedUser();
+      allow create, update: if isBreweryPlanner()
+        && request.resource.data.keys().hasOnly([
+          'id', 'revision', 'deliveries', 'updatedAt', 'updatedBy'
+        ])
+        && request.resource.data.id == weekId
+        && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}
+
+    match /planningWeeks/{weekId} {
+      allow read: if isApprovedUser();
+      allow create: if isBreweryPlanner() && validPlanningRevision()
+        && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time && validPlanningWeek(weekId) && atomicPlanningRevision('planningWeeks', weekId);
+      allow update: if isBreweryPlanner() && validPlanningRevision()
+        && request.resource.data.revision == resource.data.revision + 1 && request.resource.data.createdAt == resource.data.get('createdAt', null) && validPlanningWeek(weekId) && atomicPlanningRevision('planningWeeks', weekId);
+      allow delete: if false;
+    }
+
+    function validPlanningWeek(weekId) {
+      return request.resource.data.keys().hasOnly(['id','packaging','brews','note','maxRuns','deliveries','deliveryDates','dismissedRecommendations','allowExceptions','changeReason','calendarEvents','calendarNotes','revision','updatedAt','updatedBy','createdAt'])
+        && request.resource.data.id == weekId
+        && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.packaging is list && request.resource.data.packaging.size() <= 60
+        && request.resource.data.brews is list && request.resource.data.brews.size() <= 30
+        && request.resource.data.note is string && request.resource.data.note.size() <= 5000
+        && request.resource.data.maxRuns in [0,1,2,3,4,5]
+        && request.resource.data.get('deliveries', []) is list
+        && request.resource.data.get('deliveries', []).size() <= 60
+        && request.resource.data.get('deliveryDates', []) is list
+        && request.resource.data.get('deliveryDates', []).size() <= 14
+        && request.resource.data.get('dismissedRecommendations', []) is list
+        && request.resource.data.get('dismissedRecommendations', []).size() <= 300
+        && request.resource.data.get('allowExceptions', false) is bool
+        && request.resource.data.get('changeReason', '') is string
+        && request.resource.data.get('changeReason', '').size() <= 200
+        && request.resource.data.get('calendarEvents', []) is list
+        && request.resource.data.get('calendarEvents', []).size() <= 100
+        && request.resource.data.get('calendarNotes', {}) is map;
+    }
+
+    function atomicPlanningRevision(collectionName, documentId) {
+      let revision = string(request.resource.data.revision);
+      return getAfter(/databases/$(database)/documents/$(collectionName)/$(documentId)/revisions/$(revision)).data == request.resource.data;
+    }
+
+    match /planningWeeks/{weekId}/revisions/{revisionId} {
+      allow read: if isApprovedUser();
+      allow create: if isBreweryPlanner()
+        && revisionId == string(request.resource.data.revision)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/planningWeeks/$(weekId)).data == request.resource.data;
+      allow update, delete: if false;
+    }
+
+    match /planningSettings/{settingsId}/revisions/{revisionId} {
+      allow read: if isApprovedUser();
+      allow create: if isBreweryPlanner()
+        && revisionId == string(request.resource.data.revision)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/planningSettings/$(settingsId)).data == request.resource.data;
+      allow update, delete: if false;
+    }
+
+    match /brewSheetCreationJobs/{batchId} {
+      // This is an operational outbox. The authenticated brewery client only
+      // enqueues/deletes jobs; the worker owns subsequent state transitions.
+      allow read: if isApprovedUser();
+      // A job contains only a request to create a Sheet; the worker validates
+      // and performs the privileged operation. Keep client updates blocked.
+      // Reads/deletes remain restricted below.
+      allow create: if isApprovedUser();
+      allow update: if false;
+      allow delete: if isApprovedUser();
+    }
+
+    match /pendingBrews/{batchId} {
+      allow read: if isApprovedUser();
+      allow create, update: if isApprovedUser()
+        && request.resource.data.keys().hasOnly([
+          'batchNumber', 'beerStyle', 'tankNumber', 'tankType',
+          'fileId', 'fileName', 'sheetUrl', 'createdAt'
+        ])
+        && request.resource.data.batchNumber == batchId
+        && batchId.matches('^[0-9]+$')
+        && request.resource.data.beerStyle is string
+        && request.resource.data.tankNumber is string
+        && request.resource.data.fileId is string
+        && request.resource.data.sheetUrl is string;
+      allow delete: if isApprovedUser();
+    }
+
+    match /brewPlanningQueue/{weekId} {
+      allow read: if isApprovedUser();
+      allow create, update: if isBreweryPlanner()
+        && request.resource.data.keys().hasOnly([
+          'id', 'revision', 'brews', 'updatedAt', 'updatedBy'
+        ])
+        && request.resource.data.id == weekId
+        && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.revision is int
+        && request.resource.data.revision >= 1
+        && request.resource.data.brews is list
+        && request.resource.data.brews.size() <= 30
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /planningSnapshots/{snapshotId} {
+      allow read: if isApprovedUser();
       allow write: if false;
+    }
+  }
+}
+)
+        && request.resource.data.revision is int
+        && request.resource.data.revision >= 1
+        && request.resource.data.deliveries is list
+        && request.resource.data.deliveries.size() <= 60
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
     }
 
     match /planningWeeks/{weekId} {
