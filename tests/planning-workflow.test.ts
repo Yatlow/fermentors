@@ -23,6 +23,7 @@ import {
 } from "../src/SERVICES/planning/workspace";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 import { tankReleases } from "../src/SERVICES/planning/productionCycle";
+import { pendingDeliveriesForReservationQueue } from "../src/SERVICES/planning/shipmentActuals";
 import { validateTruckGroups } from "../src/SERVICES/planning/truckPlanner";
 import {
   productionNeeds,
@@ -406,6 +407,25 @@ test("separate trucks on the same date are validated independently", () => {
     settings.products,
     Infinity,
   ));
+});
+test("completed shipment is excluded from reservation queue on same dispatch day", () => {
+  const deliveries = [{
+    id: "sent",
+    productId: "c",
+    quantity: 84,
+    dispatchDate: today,
+    arrivalDate: today,
+    truckId: "truck:sent",
+  }];
+  const shipments = [{
+    id: "actual-sent",
+    date: today,
+    totals: [{ itemType: "crates" as const, beerStyle: "IPA", totalQuantity: 84 }],
+  }];
+  assert.deepEqual(
+    pendingDeliveriesForReservationQueue(deliveries, shipments, settings.products),
+    [],
+  );
 });
 test("truck physical capacity remains enforced", () => {
   const w = {
