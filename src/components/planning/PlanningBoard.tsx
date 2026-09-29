@@ -193,6 +193,7 @@ export default function PlanningBoard({
     // before normalization adds derived flags, so existing packaging exceptions
     // cannot block an unrelated brew save or open a hidden confirmation dialog.
     const packagingWasEdited = JSON.stringify(next.packaging) !== JSON.stringify(current.packaging);
+    const deliveriesWereEdited = JSON.stringify(next.deliveries ?? []) !== JSON.stringify(current.deliveries ?? []);
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
     let effectiveNext = normalizeEmptyTankFlagsForSchedule(
       inferDatedEmptyTankFlags(confirmedNext, tanks, settings, actuals),
@@ -217,7 +218,26 @@ export default function PlanningBoard({
     };
 
     let all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
-    const error = validatePlanningWeek(effectiveNext, settings, all, today);
+
+    // Do not let a pre-existing shipment validation error block an unrelated
+    // packaging/brew edit. Validate the edited week as-is first; when deliveries
+    // were not touched and only the saved delivery state is invalid, validate the
+    // non-delivery edit against the same week without deliveries. Shipment edits
+    // themselves still get the full truck-capacity validation.
+    let error = validatePlanningWeek(effectiveNext, settings, all, today);
+    if (error && !deliveriesWereEdited) {
+      const withoutDeliveries = { ...effectiveNext, deliveries: [] };
+      const allWithoutCurrentDeliveries = all.map((week) =>
+        week.id === effectiveNext.id ? withoutDeliveries : week
+      );
+      const unrelatedError = validatePlanningWeek(
+        withoutDeliveries,
+        settings,
+        allWithoutCurrentDeliveries,
+        today,
+      );
+      if (!unrelatedError) error = null;
+    }
     if (error) throw new Error(error);
 
     let datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
