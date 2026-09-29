@@ -67,6 +67,7 @@ export default function Dashboard({
                 const result = await getUndatedPlannedPackagingWeekForTank({
                     tankId: tank.id,
                     tankNumber: tank.tankNumber,
+                    batchNumber: tank.batchNumber,
                 });
                 return [tank.id, result?.weekStart || ""] as const;
             } catch (error) {
