@@ -459,3 +459,100 @@ test("undated weekly keg packaging waits for tank readiness and releases it next
   assert.equal(option.availableDate, "2026-09-28");
   assert.equal(model.brewTankCapacity, 1);
 });
+
+
+test("a tank emptied in week 44 remains released when planning week 45", () => {
+  const localSettings = { ...settings, products: [product] };
+  const tank: Tank = {
+    id: "tank-2",
+    number: "2",
+    batch: "1600",
+    style: "IPA",
+    brewed: "2026-09-01",
+    ready: "2026-10-01",
+    liters: 1100,
+    cold: true,
+  };
+  const week44 = {
+    ...emptyWeek("2026-10-25"),
+    packaging: [{
+      id: "empty-tank-2",
+      productId: product.id,
+      quantity: 139,
+      date: "2026-10-29",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    }],
+  };
+  const source = {
+    id: tank.id,
+    tankNumber: 2,
+    beerStyle: "IPA",
+    beerVolume: 1100,
+    tankStatus: false,
+    action: 1,
+  };
+
+  const release = tankReleases(
+    [source],
+    [tank],
+    [week44],
+    localSettings,
+    [],
+    "2026-11-01",
+  )[0];
+
+  assert.equal(release.emptyDate, "2026-10-29");
+  assert.equal(release.date, "2026-11-02");
+  assert.equal(release.remaining, 0);
+});
+
+test("multiple tanks emptied in week 44 are all available for week 45 planning", () => {
+  const localSettings = { ...settings, products: [product] };
+  const numbers = [2, 9, 18];
+  const tanks: Tank[] = numbers.map((number) => ({
+    id: `tank-${number}`,
+    number: String(number),
+    batch: `batch-${number}`,
+    style: "IPA",
+    brewed: "2026-09-01",
+    ready: "2026-10-01",
+    liters: 1100,
+    cold: true,
+  }));
+  const week44 = {
+    ...emptyWeek("2026-10-25"),
+    packaging: tanks.map((tank) => ({
+      id: `empty-${tank.number}`,
+      productId: product.id,
+      quantity: 139,
+      date: "2026-10-29",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    })),
+  };
+  const sources = tanks.map((tank) => ({
+    id: tank.id,
+    tankNumber: Number(tank.number),
+    beerStyle: "IPA",
+    beerVolume: 1100,
+    tankStatus: false,
+    action: 1,
+  }));
+
+  const releases = tankReleases(
+    sources,
+    tanks,
+    [week44],
+    localSettings,
+    [],
+    "2026-11-01",
+  );
+
+  assert.deepEqual(
+    releases.filter((release) => release.date === "2026-11-02").map((release) => release.tankId).sort(),
+    ["tank-18", "tank-2", "tank-9"],
+  );
+});
