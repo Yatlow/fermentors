@@ -357,12 +357,12 @@ export default function PlanningWeeklyRecommendations({
         }
     }
 
-    const nearestShipmentWeek = plans
-        .filter((w) => w.id >= weekStart(today) && (w.deliveries ?? []).some((d) => d.quantity > 0))
-        .sort((a, b) => a.id.localeCompare(b.id))[0]?.id;
+    // The user may already be working on next week's shipment while the
+    // current week's persisted decision remains in history. Do not let that
+    // older decision suppress the map-marking action for the selected week.
     const isNearShipmentWeek = week === weekStart(today) || week === addDays(weekStart(today), 7);
     const markingBlocked = hasMarkedPallets(pallets);
-    const canOfferMapMarking = isNearShipmentWeek && nearestShipmentWeek === week && (current.deliveries ?? []).some((d) => d.quantity > 0);
+    const canOfferMapMarking = isNearShipmentWeek && (current.deliveries ?? []).some((d) => d.quantity > 0);
 
     async function markShipmentOnCoolerMap() {
         if (!canOfferMapMarking || disabled || busy) return;
