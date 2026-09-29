@@ -775,9 +775,10 @@ function commitPartialCellarUpdate_(tankNumber, batchNumber, currentData, measur
   });
 
   const fermentorFields = {
-    updatedAt: { timestampValue: new Date().toISOString() }
+    updatedAt: { timestampValue: new Date().toISOString() },
+    lastChangeSource: { stringValue: "SHEET" }
   };
-  const fermentorMask = ["updatedAt"];
+  const fermentorMask = ["updatedAt", "lastChangeSource"];
 
   if (currentPaths.length) {
     fermentorFields.currentData = { mapValue: { fields: currentFields } };
