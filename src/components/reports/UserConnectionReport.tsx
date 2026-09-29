@@ -7,6 +7,8 @@ type UserConnectionRow = {
     id: string;
     email: string;
     lastLoggedIn: Timestamp | Date | null;
+    lastPlanningOpenedAt: Timestamp | Date | null;
+    lastPlanningTab: string;
 };
 
 function toDate(value: UserConnectionRow["lastLoggedIn"]): Date | null {
@@ -16,7 +18,7 @@ function toDate(value: UserConnectionRow["lastLoggedIn"]): Date | null {
     return null;
 }
 
-function formatLastConnection(value: UserConnectionRow["lastLoggedIn"]): string {
+function formatTimestamp(value: Timestamp | Date | null): string {
     const date = toDate(value);
     if (!date) return "לא נרשם חיבור עדיין";
     return new Intl.DateTimeFormat("he-IL", {
@@ -51,6 +53,8 @@ export default function UserConnectionReport() {
                         id: item.id,
                         email: String(data.email ?? item.id),
                         lastLoggedIn: (data.lastLoggedIn as Timestamp | undefined) ?? null,
+                        lastPlanningOpenedAt: (data.lastPlanningOpenedAt as Timestamp | undefined) ?? null,
+                        lastPlanningTab: String(data.lastPlanningTab ?? ""),
                     };
                 }));
             } catch (err) {
@@ -102,7 +106,13 @@ export default function UserConnectionReport() {
                                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px", flexWrap: "wrap" }}
                             >
                                 <span className="spec-field-label email-label" dir="ltr">{row.email}</span>
-                                <strong>{formatLastConnection(row.lastLoggedIn)}</strong>
+                                <div style={{ textAlign: "right" }}>
+                                    <strong>{formatTimestamp(row.lastLoggedIn)}</strong>
+                                    <div style={{ marginTop: 6, fontSize: 14, fontWeight: 500 }}>
+                                        תכנון: {row.lastPlanningOpenedAt ? formatTimestamp(row.lastPlanningOpenedAt) : "לא נרשמה כניסה"}
+                                        {row.lastPlanningTab ? ` · ${row.lastPlanningTab}` : ""}
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>

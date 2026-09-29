@@ -30,7 +30,7 @@ service cloud.firestore {
       allow update: if isLoggedIn() &&
         request.auth.token.email == email &&
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['lastLoggedIn']);
+          .hasOnly(['lastLoggedIn', 'lastPlanningOpenedAt', 'lastPlanningTab']);
     }
 
     match /fermentors/{document} {
