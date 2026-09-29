@@ -897,7 +897,7 @@ export default function PlanningWeeklyRecommendations({
                     <p className="bp-alert">אין כרגע מספיק מלאי צפוי כדי להרכיב משאית מלאה. אפשר לשמור משלוח חלקי ידנית.</p>}
 
                 {canOfferMapMarking && <div className="bp-map-marking">
-                    <button type="button" disabled={disabled || busy || markingBlocked || editing === "delivery"} onClick={markShipmentOnCoolerMap}>סמן משלוח {shipmentToMarkNumber} במפת המקרר</button>
+                    <button type="button" disabled={disabled || busy || markingBlocked || editing === "delivery"} onClick={markShipmentOnCoolerMap}>{shipmentGroups.length > 1 ? `סמן משלוח ${shipmentToMarkNumber} במפת המקרר` : "סמן את המשלוח במפת המקרר"}</button>
                     {markFeedback && <p ref={markFeedbackRef} tabIndex={-1} role="status" aria-live="polite" className="bp-shipment-feedback">{markFeedback}</p>}
                     {markingBlocked && <p role="status">כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.</p>}
                 </div>}
