@@ -65,6 +65,8 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
 
   const lines = snapshot.docs.flatMap((snapshot) => {
     const week = snapshot.data() as WeekPlan;
+    // Queue rows are an operational projection. Never let a stale/legacy week
+    // reserve fresh stock once all of its dispatch dates are in the past.
     return (week.deliveries ?? [])
       .filter((delivery) => delivery.quantity > 0 && delivery.dispatchDate >= today)
       .map((delivery) => ({
