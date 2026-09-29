@@ -449,12 +449,18 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             recommendations?.requiresCarbTest?.req &&
                             recommendations?.requiresCarbTest?.display
                         );
-                        const naturalYeast = Boolean(
-                            (recommendations?.requiresWarmYeastDrop?.req && recommendations?.requiresWarmYeastDrop?.display) ||
-                            (recommendations?.requiersYeastDropAfterCooling?.req && recommendations?.requiersYeastDropAfterCooling?.display) ||
-                            (recommendations?.requiresWarmYeastDropCompletion?.req && recommendations?.requiresWarmYeastDropCompletion?.display) ||
-                            (recommendations?.requiresColdYeastDropCompletion?.req && recommendations?.requiresColdYeastDropCompletion?.display) ||
-                            (recommendations?.requiiersWedYeastDropOnThus?.req && recommendations?.requiiersWedYeastDropOnThus?.display)
+                        const naturalYeastKeys = new Set([
+                            "warmYeastDrop",
+                            "warmYeastDropCompletion",
+                            "yeastDropAfterCooling",
+                            "coldYeastDropCompletion",
+                            "wedYeastDropOnThu",
+                        ]);
+                        // Keep the KPI denominator aligned with what the dashboard
+                        // actually presents. In particular, completion/catch-up
+                        // yeast recommendations must count as a required yeast action.
+                        const naturalYeast = naturalRecommendations.some(
+                            (recommendation) => naturalYeastKeys.has(recommendation.recommendationKey)
                         );
 
                         const dueScheduled = dueScheduledForTank(

@@ -4244,7 +4244,7 @@ export default function BrewFormStepper({
                   dir="ltr"
                   placeholder="DD/MM/YY"
                   required
-                  defaultValue={shortIsraeliDate(localValue("brewDate") || new Date().toISOString().slice(0, 10))}
+                  defaultValue={shortIsraeliDate(localValue("brewDate"))}
                   onInput={(e) => {
                     e.currentTarget.value = formatIsraeliDateTyping(
                       e.currentTarget.value,

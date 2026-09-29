@@ -941,6 +941,15 @@ export default function PlanningWeeklyRecommendations({
                 <div className="bp-actions">
                     {editing === "packaging" ? <>
                         <button disabled={busy} onClick={savePackaging}>שמור שינויים</button>
+                        {canOfferMapMarking && (
+                            <button
+                                type="button"
+                                disabled={disabled || busy || markingBlocked}
+                                onClick={markShipmentOnCoolerMap}
+                            >
+                                סמן את המשלוח במפת המקרר
+                            </button>
+                        )}
                         <button onClick={() => { setEditing(null); setManualPacks([]); setCancelledPackagingKeys(new Set()); }}>ביטול עריכה</button>
                     </> : <>
                         <button disabled={disabled || busy || !visiblePackagingRecommendations.length} onClick={acceptPackagingRecommendation}>
