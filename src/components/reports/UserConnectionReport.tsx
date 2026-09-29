@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, type Timestamp } from "firebase/firestore";
 import { db } from "../../firebase";
 import BeerLoader from "../general/Loading";
+import { readPlanningReadCounts, type PlanningReadCounts } from "../../SERVICES/planning/planningReadDiagnostics";
 
 type UserConnectionRow = {
     id: string;
@@ -36,6 +37,7 @@ export default function UserConnectionReport() {
     const [rows, setRows] = useState<UserConnectionRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [planningReads] = useState<PlanningReadCounts | null>(() => readPlanningReadCounts());
 
     useEffect(() => {
         let cancelled = false;
@@ -92,6 +94,26 @@ export default function UserConnectionReport() {
             </div>
 
             {error && <div className="edit-specs-message error">{error}</div>}
+
+            {planningReads && (
+                <section className="spec-card" style={{ marginBottom: 16 }}>
+                    <div className="spec-card-header">
+                        <h2>אבחון קריאות תכנון — המכשיר הזה</h2>
+                    </div>
+                    <div className="spec-fields">
+                        <div className="spec-field" style={{ display: "block" }}>
+                            <div>נמדד: {new Intl.DateTimeFormat("he-IL", { timeZone: "Asia/Jerusalem", dateStyle: "short", timeStyle: "medium" }).format(new Date(planningReads.recordedAt))}</div>
+                            <div dir="ltr" style={{ marginTop: 8, textAlign: "left" }}>
+                                Settings: {planningReads.settings ?? "—"} · Plans: {planningReads.plans ?? "—"} · Pallets: {planningReads.pallets ?? "—"} · Packaging: {planningReads.packaging ?? "—"} · Shipments: {planningReads.shipments ?? "—"}
+                            </div>
+                            <strong dir="ltr" style={{ display: "block", marginTop: 8, textAlign: "left" }}>
+                                Total: {[planningReads.settings, planningReads.plans, planningReads.pallets, planningReads.packaging, planningReads.shipments].reduce<number>((sum, value) => sum + (value ?? 0), 0)}
+                            </strong>
+                            <div style={{ marginTop: 6, fontSize: 13 }}>נספרו רק תוצאות server של ה-listeners שכבר נטענו. האבחון לא מבצע שאילתות Firestore נוספות.</div>
+                        </div>
+                    </div>
+                </section>
+            )}
 
             {!error && (
                 <section className="spec-card">
