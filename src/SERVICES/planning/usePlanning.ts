@@ -515,16 +515,36 @@ export function usePlanning(
 
         const shipmentQueueRef = doc(db, "shipmentPlanningQueue", id);
         const weekDeliveries = Array.isArray(week.deliveries) ? week.deliveries : [];
-        const queueDeliveries = pendingDeliveriesForReservationQueue(
+        const pendingQueueDeliveries = pendingDeliveriesForReservationQueue(
           weekDeliveries,
           actualShipments,
           settings.products,
-        ).map((delivery) => ({
-            productId: String(delivery.productId || ""),
+        );
+        // Legacy planning weeks can contain many repeated delivery rows from
+        // historical edits. The operational queue only needs one row per
+        // trip/product, otherwise an unrelated packaging save can exceed the
+        // queue's 60-row Firestore limit and fail with a permissions error.
+        const queueByTripProduct = new Map<string, {
+          productId: string;
+          quantity: number;
+          dispatchDate: string;
+          truckId: string;
+        }>();
+        for (const delivery of pendingQueueDeliveries) {
+          const productId = String(delivery.productId || "");
+          const dispatchDate = String(delivery.dispatchDate || "");
+          const truckId = String(delivery.truckId || `date:${dispatchDate}`);
+          const key = `${truckId}\u0000${dispatchDate}\u0000${productId}`;
+          const existing = queueByTripProduct.get(key);
+          if (existing) existing.quantity += Number(delivery.quantity) || 0;
+          else queueByTripProduct.set(key, {
+            productId,
             quantity: Number(delivery.quantity) || 0,
-            dispatchDate: String(delivery.dispatchDate || ""),
-            truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
-          }));
+            dispatchDate,
+            truckId,
+          });
+        }
+        const queueDeliveries = [...queueByTripProduct.values()];
 
         tx.set(shipmentQueueRef, {
           id,
