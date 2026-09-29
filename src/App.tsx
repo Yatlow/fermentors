@@ -13,6 +13,7 @@ import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebas
 import { auth, db, googleProvider } from "./firebase";
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
+import { enableGlobalReadDiagnostics, recordGlobalServerRead } from "./SERVICES/globalReadDiagnostics";
 
 import "./App.css";
 import shpiro from "./assets/shpiro.jpeg";
@@ -158,6 +159,7 @@ function useAuth() {
             }
 
             try {
+                enableGlobalReadDiagnostics(nextUser.email);
                 const userData = await updateLastLoggedInAndGetAdminStatus(nextUser);
                 const approved = userData !== null;
                 setIsApproved(approved);
@@ -219,6 +221,7 @@ function App() {
             fermentorsRef,
             { includeMetadataChanges: true },
             (snapshot) => {
+                if (!snapshot.metadata.fromCache) recordGlobalServerRead("Fermentors", snapshot.size);
                 observeMeasurementRevisions(snapshot);
                 setBrews((prevBrews) => {
                     const prevById = new Map(prevBrews.map((t) => [t.id, t]));
@@ -301,6 +304,7 @@ function App() {
         const unsubscribe = onSnapshot(
             specsRef,
             (snapshot) => {
+                if (!snapshot.metadata.fromCache) recordGlobalServerRead("Specs", snapshot.size);
                 const nextSpecs: SpecChart = {};
                 snapshot.docs.forEach((firebaseDoc) => {
                     if (firebaseDoc.id.startsWith("brewing")) return;
