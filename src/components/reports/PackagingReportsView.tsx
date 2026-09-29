@@ -47,7 +47,22 @@ export type PackagingLogDoc = {
     tankNumber?: string | number;
 };
 
-type PlanningWeekDoc = {\n    packaging?: Array<{ id?: string; productId?: string; quantity?: number; date?: string; tankNumber?: string | number; tankId?: string }>;\n};\n\ntype PlanningSettingsDoc = {\n    products?: Array<{ id: string; style: string; type: "crates" | "kegs" }>;\n};\n\ntype CalendarEventDoc = {
+type PlanningWeekDoc = {
+    packaging?: Array<{
+        id?: string;
+        productId?: string;
+        quantity?: number;
+        date?: string;
+        tankNumber?: string | number;
+        tankId?: string;
+    }>;
+};
+
+type PlanningSettingsDoc = {
+    products?: Array<{ id: string; style: string; type: "crates" | "kegs" }>;
+};
+
+type CalendarEventDoc = {
     date?: string;
     timestamp?: number;
     itemType?: string;
