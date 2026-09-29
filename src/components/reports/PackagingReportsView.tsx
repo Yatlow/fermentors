@@ -62,24 +62,8 @@ type PlanningSettingsDoc = {
     products?: Array<{ id: string; style: string; type: "crates" | "kegs" }>;
 };
 
-type CalendarEventDoc = {
-    date?: string;
-    timestamp?: number;
-    itemType?: string;
-    unit?: string;
-    quantity?: number;
-    actionType?: string;
-    title?: string;
-    tankNumber?: string | number;
-    beerStyle?: string;
-    // מספר המיכל המתוכנן לאריזה
-    containerNumber?: string | number | null;
-};
-
-/** actionType בקולקציית calendar_events שמייצג אירוע אריזה/הורדה עתידית */
-const PACKAGING_ACTION_TYPE = ["הורדה", "סיום", "ביקבוק"];
-const PLANNED_PACKAGING_CACHE_MS = 60 * 1000;
 const REPORT_PAGE_SIZE = 50;
+const PLANNED_PACKAGING_CACHE_MS = 60 * 1000;
 
 type PlannedPackagingCache = {
     key: string;
@@ -89,6 +73,7 @@ type PlannedPackagingCache = {
 };
 
 let plannedPackagingCache: PlannedPackagingCache | null = null;
+
 
 // ============================================================
 // DATE HELPERS
@@ -280,8 +265,8 @@ function getWeekOptions(): Date[] {
 export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
     const currentWeekStart = getWeekStart(new Date());
     const nextWeekStart = addDays(currentWeekStart, 7);
-    const nextWeekEnd = toEndOfDay(addDays(nextWeekStart, 6));
-    const key = `${nextWeekStart.getTime()}-${nextWeekEnd.getTime()}`;
+    const nextWeekId = toDateInputValue(nextWeekStart);
+    const key = nextWeekId;
     const now = Date.now();
 
     if (
@@ -291,48 +276,28 @@ export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
     ) {
         return [...plannedPackagingCache.data];
     }
-
     if (plannedPackagingCache?.key === key && plannedPackagingCache.pending) {
         return [...await plannedPackagingCache.pending];
     }
 
-    const pending = (async () => {
-        const snapshot = await getDocs(
-            query(
-                collection(db, "calendar_events"),
-                where("actionType", "in", PACKAGING_ACTION_TYPE),
-                where("timestamp", ">=", nextWeekStart.getTime()),
-                where("timestamp", "<=", nextWeekEnd.getTime()),
-                orderBy("timestamp", "asc")
-            )
-        );
-
-        const tankNumbers = snapshot.docs
-            .map((doc) => {
-                const data = doc.data() as CalendarEventDoc;
-                return data.tankNumber;
-            })
-            .filter(
-                (tankNumber): tankNumber is number =>
-                    typeof tankNumber === "number"
-            );
-
+    const pending = getDocs(
+        query(
+            collection(db, "planningWeeks"),
+            where("id", "==", nextWeekId),
+            limit(1)
+        )
+    ).then((snapshot) => {
+        const week = snapshot.docs[0]?.data() as PlanningWeekDoc | undefined;
+        const tankNumbers = (week?.packaging ?? [])
+            .map((run) => Number(run.tankNumber ?? run.tankId))
+            .filter((tankNumber) => Number.isFinite(tankNumber) && tankNumber > 0);
         return [...new Set(tankNumbers)];
-    })();
+    });
 
-    plannedPackagingCache = {
-        key,
-        loadedAt: now,
-        pending,
-    };
-
+    plannedPackagingCache = { key, loadedAt: now, pending };
     try {
         const data = await pending;
-        plannedPackagingCache = {
-            key,
-            loadedAt: Date.now(),
-            data,
-        };
+        plannedPackagingCache = { key, loadedAt: Date.now(), data };
         return [...data];
     } catch (error) {
         if (plannedPackagingCache?.key === key) plannedPackagingCache = null;
@@ -898,7 +863,7 @@ export default function PackagingReportsView() {
                                     <th>כמות</th>
                                     <th>אצווה</th>
                                     <th>
-                                        נארז/ביומן
+                                        נארז/בתכנון
                                     </th>
                                 </tr>
                             </thead>
@@ -950,7 +915,7 @@ export default function PackagingReportsView() {
                                                 {row.source ===
                                                     "actual"
                                                     ? "נארז"
-                                                    : "ביומן"}
+                                                    : "בתכנון"}
                                             </span>
                                         </td>
                                     </tr>
