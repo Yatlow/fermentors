@@ -490,8 +490,12 @@ export function usePlanning(
 
       if (collectionName === "planningWeeks") {
         const week = persistedValue as WeekPlan;
-        const queueRef = doc(db, "brewPlanningQueue", id);
-        const queueBrews = (Array.isArray(week.brews) ? week.brews : [])
+        const savedBrews = Array.isArray(snap.data()?.brews) ? snap.data()!.brews : [];
+        const weekBrews = Array.isArray(week.brews) ? week.brews : [];
+        const brewsChanged = JSON.stringify(weekBrews) !== JSON.stringify(savedBrews);
+        if (brewsChanged) {
+          const queueRef = doc(db, "brewPlanningQueue", id);
+          const queueBrews = weekBrews
           .map((brew) => {
             const batchNumber = String(brew.batchNumber ?? "").replace("#", "").trim();
             if (!batchNumber) return null;
@@ -505,13 +509,14 @@ export function usePlanning(
           })
           .filter((brew): brew is NonNullable<typeof brew> => !!brew);
 
-        tx.set(queueRef, {
-          id,
-          revision: next.revision,
-          brews: queueBrews,
-          updatedAt: serverTimestamp(),
-          updatedBy: auth.currentUser!.uid,
-        });
+          tx.set(queueRef, {
+            id,
+            revision: next.revision,
+            brews: queueBrews,
+            updatedAt: serverTimestamp(),
+            updatedBy: auth.currentUser!.uid,
+          });
+        }
 
         const savedDeliveries = Array.isArray(snap.data()?.deliveries) ? snap.data()!.deliveries : [];
         const weekDeliveries = Array.isArray(week.deliveries) ? week.deliveries : [];
