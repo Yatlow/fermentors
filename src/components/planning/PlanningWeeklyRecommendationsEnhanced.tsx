@@ -486,6 +486,20 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const matchedTrips = shipmentMatches.filter((match) => match.status !== "pending");
     const pendingTrips = shipmentMatches.filter((match) => match.status === "pending");
 
+    async function refreshShipmentProjection() {
+        if (disabled || saving) return;
+        setSaving(true);
+        setModalMessage("");
+        try {
+            await saveWeek({ ...current, changeReason: "רענון תור משלוחים מהתכנון הקיים" });
+            setModalMessage("תור המשלוחים סונכרן מחדש.");
+        } catch (error) {
+            setModalMessage(error instanceof Error ? error.message : "סנכרון תור המשלוחים נכשל");
+        } finally {
+            setSaving(false);
+        }
+    }
+
     return <>
         {actualThisWeek.length > 0 && <div className="bp-actual-shipment-status" role="status">
             <b>✓ {actualThisWeek.length === 1 ? "בוצע משלוח" : `בוצעו ${actualThisWeek.length} משלוחים`} השבוע</b>
@@ -495,6 +509,10 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     : " · ההמלצה חושבה מחדש אחרי מה שכבר נשלח"}
             </span>
             {matchedTrips.some((match) => match.status === "actual-different") && <small>לפחות משלוח אחד בוצע בהרכב שונה מההחלטה.</small>}
+            <button type="button" disabled={disabled || saving} onClick={refreshShipmentProjection}>
+                {saving ? "מסנכרן…" : "סנכרן תכנון משלוחים"}
+            </button>
+            {modalMessage && <small role="status">{modalMessage}</small>}
         </div>}
 
         <div ref={plannerRef} onClickCapture={handleCapture} className="bp-enhanced-weekly-planner">
