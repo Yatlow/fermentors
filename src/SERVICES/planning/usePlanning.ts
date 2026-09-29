@@ -327,7 +327,26 @@ export function usePlanning(
       void runTransaction(db, async (tx) => {
         const queueRef = doc(db, "shipmentPlanningQueue", week.id);
         const queueSnap = await tx.get(queueRef);
-        if (queueSnap.data()?.projectionVersion === 1) return;
+        const existing = queueSnap.data();
+        const existingDeliveries = Array.isArray(existing?.deliveries) ? existing.deliveries : [];
+        const comparable = (deliveries: typeof queueDeliveries) =>
+          deliveries
+            .map((delivery) => ({
+              productId: String(delivery.productId || ""),
+              quantity: Number(delivery.quantity) || 0,
+              dispatchDate: String(delivery.dispatchDate || ""),
+              truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
+            }))
+            .sort((a, b) =>
+              a.truckId.localeCompare(b.truckId) ||
+              a.dispatchDate.localeCompare(b.dispatchDate) ||
+              a.productId.localeCompare(b.productId) ||
+              a.quantity - b.quantity
+            );
+        const queueIsCurrent =
+          existing?.projectionVersion === 1 &&
+          JSON.stringify(comparable(existingDeliveries)) === JSON.stringify(comparable(queueDeliveries));
+        if (queueIsCurrent) return;
         tx.set(queueRef, {
           id: week.id,
           revision: Number(week.revision) || 1,
