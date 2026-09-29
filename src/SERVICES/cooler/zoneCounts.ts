@@ -1,6 +1,7 @@
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
 import { recordReadAudit } from "../readAudit";
+import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import type { ZoneCounts } from "./Palletservice";
 
 export function subscribeToZoneCounts(callback: (counts: ZoneCounts) => void): () => void {
@@ -15,7 +16,10 @@ export function subscribeToZoneCounts(callback: (counts: ZoneCounts) => void): (
     return onSnapshot(
         q,
         (snapshot) => {
-            if (!snapshot.metadata.fromCache) recordReadAudit("Pending badge", snapshot.size);
+            if (!snapshot.metadata.fromCache) {
+                recordReadAudit("Pending badge", snapshot.size);
+                recordGlobalServerRead("Pending pallets", snapshot.size);
+            }
             callback({
                 cooler: 0,
                 pending: snapshot.size,
