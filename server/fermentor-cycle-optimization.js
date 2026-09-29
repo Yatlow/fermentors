@@ -254,7 +254,7 @@ function runFermentorCycle() {
 
 function fcFermentorPayload_(fermentor) {
   const names = ["tankNumber", "tankStatus", "batchNumber", "beerStyle", "brewDate",
-    "beerVolume", "sheetUrl", "uid", "startingPlato", "cellarState", "updatedAt"];
+    "beerVolume", "sheetUrl", "uid", "startingPlato", "cellarState", "lastChangeSource", "updatedAt"];
   const payload = {};
   names.forEach(function (name) {
     if (Object.prototype.hasOwnProperty.call(fermentor, name) && fermentor[name] !== undefined) {
@@ -386,6 +386,7 @@ function syncFermentorsFromSheets_(projectId, fermentors) {
             Logger.log("Measurement error tank " + entry.id + ": " + error.message);
           }
         }
+        next.lastChangeSource = "SHEET";
         const payload = fcFermentorPayload_(next);
         if (fcPayloadMatches_(entry.data, payload)) {
           if (!tankSyncHadError) fcMarkSheetRevision_(revisionState);
