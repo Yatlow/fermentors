@@ -427,6 +427,7 @@ export function usePlanning(
             productId: String(delivery.productId || ""),
             quantity: Number(delivery.quantity) || 0,
             dispatchDate: String(delivery.dispatchDate || ""),
+            truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
           }));
 
         tx.set(shipmentQueueRef, {
