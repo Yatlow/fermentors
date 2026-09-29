@@ -199,7 +199,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   const identityAlignedPlans = plans;
   const [message, setMessage] = useState("");
-  const disabled = !canEdit || data.loading || data.offline || !!data.error;
+  const disabled = !canEdit || data.loading || !!data.error;
 
   const executionPlans = useMemo(
     () => plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks),
