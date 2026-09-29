@@ -406,6 +406,7 @@ function TankCard({
     getPlannedPackagingForTank({
       tankId: tank.id,
       tankNumber: tank.tankNumber,
+      batchNumber: tank.batchNumber,
     })
       .then((plan) => {
         if (!cancelled) setPlannedPackaging(plan);
