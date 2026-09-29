@@ -13,6 +13,11 @@ type Entry = { data?: Measurement[]; loadedAt: number; pending?: Promise<Measure
 const cache = new Map<string, Entry>();
 const revisions = new Map<string, string>();
 const embeddedBatches = new Set<string>();
+// Once a batch has a server-confirmed compact cellarState, keep that fact for
+// the browser session. A later fermentor snapshot can temporarily omit the
+// field while another writer updates the tank; that must not evict the complete
+// measurement history and trigger a full server download again.
+const serverEmbeddedBatches = new Set<string>();
 const optimisticByBatch = new Map<string, Map<string, Measurement>>();
 let watching = false;
 let session = 0;
@@ -214,7 +219,11 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
   const fresh = new Map([...next].map(([id, values]) => [id, values.sort().join("|")]));
   new Set([...revisions.keys(), ...fresh.keys()]).forEach(id => {
     if (revisions.get(id) !== fresh.get(id)) {
-      cache.delete(id);
+      // Do not throw away an authoritative compact cellarState just because a
+      // revision changed or a transient tank write omitted cellarState. The next
+      // embedded snapshot will refresh it. Without this guard every fermentor
+      // update can fan out into full brews/{batch}/measurements downloads.
+      if (!serverEmbeddedBatches.has(id)) cache.delete(id);
       // Keep a local/authoritative same-day overlay until the compact cellarState
       // actually contains it. A revision can arrive a moment before the next
       // fermentor sync writes the embedded history.
@@ -226,6 +235,7 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
   embeddedBatches.clear();
   nextEmbedded.forEach((baseRows, id) => {
     embeddedBatches.add(id);
+    serverEmbeddedBatches.add(id);
     dropCoveredOptimisticPatches(id, baseRows);
     cache.set(id, {
       data: applyOptimisticPatches(baseRows, id),
@@ -240,6 +250,7 @@ export function stopMeasurementRevisionTracking(): void {
   watching = false;
   revisions.clear();
   embeddedBatches.clear();
+  serverEmbeddedBatches.clear();
   cache.clear();
   optimisticByBatch.clear();
   session++;
