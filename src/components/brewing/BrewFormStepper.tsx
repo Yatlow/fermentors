@@ -3872,7 +3872,7 @@ export default function BrewFormStepper({
                 <div className="brew-time-input">
                   <input
                     type="text"
-                    inputMode="numeric"
+                    inputMode="tel"
                     dir="ltr"
                     placeholder="HH:MM"
                     required
@@ -3908,7 +3908,7 @@ export default function BrewFormStepper({
                   <div className="brew-time-input">
                     <input
                       type="text"
-                      inputMode="numeric"
+                      inputMode="tel"
                       dir="ltr"
                       placeholder="HH:MM"
                       required
@@ -4240,7 +4240,7 @@ export default function BrewFormStepper({
                 <input
                   key={`${currentBlock}-${localValue("brewDate")}`}
                   type="text"
-                  inputMode="numeric"
+                  inputMode="tel"
                   dir="ltr"
                   placeholder="DD/MM/YY"
                   required
@@ -4612,7 +4612,7 @@ export default function BrewFormStepper({
                       <div className="brew-time-input">
                         <input
                           type="text"
-                          inputMode="numeric"
+                          inputMode="tel"
                           dir="ltr"
                           placeholder="HH:MM"
                           required={index === 1}
@@ -4832,7 +4832,7 @@ export default function BrewFormStepper({
                 <div className="brew-time-input">
                   <input
                     type="text"
-                    inputMode="numeric"
+                    inputMode="tel"
                     dir="ltr"
                     placeholder="HH:MM"
                     required
@@ -4906,7 +4906,7 @@ export default function BrewFormStepper({
                       שעה
                       <input
                         type="text"
-                        inputMode="numeric"
+                        inputMode="tel"
                         dir="ltr"
                         placeholder="HH:MM"
                         required
@@ -5003,7 +5003,7 @@ export default function BrewFormStepper({
                   שעה
                   <input
                     type="text"
-                    inputMode="numeric"
+                    inputMode="tel"
                     dir="ltr"
                     placeholder="HH:MM"
                     required
@@ -5064,7 +5064,7 @@ export default function BrewFormStepper({
                   <div className="brew-time-input">
                     <input
                       type="text"
-                      inputMode="numeric"
+                      inputMode="tel"
                       dir="ltr"
                       placeholder="HH:MM"
                       required
