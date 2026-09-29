@@ -49,6 +49,16 @@ function normalizeTank(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function normalizeBatch(value: unknown): string {
+  return String(value ?? "").replace("#", "").trim();
+}
+
+function planningKey(tank: unknown, batch: unknown): string {
+  const normalizedTank = normalizeTank(tank);
+  const normalizedBatch = normalizeBatch(batch);
+  return normalizedTank && normalizedBatch ? `${normalizedTank}::${normalizedBatch}` : "";
+}
+
 function calendarDate(data: CalendarPackagingEvent): string | null {
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(data.date ?? ""))) {
     return String(data.date);
@@ -92,8 +102,8 @@ async function loadFuturePackagingMaps() {
 
       (week.packaging ?? []).forEach((run) => {
         const keys = [
-          normalizeTank(run.tankNumber),
-          normalizeTank(run.tankId),
+          planningKey(run.tankNumber, run.batchNumber),
+          planningKey(run.tankId, run.batchNumber),
         ].filter(Boolean);
         if (!keys.length) return;
 
@@ -133,7 +143,18 @@ async function loadFuturePackagingMaps() {
   }
 }
 
-function lookupKeys(input: {
+function planningLookupKeys(input: {
+  tankId?: string | number | null;
+  tankNumber?: string | number | null;
+  batchNumber?: string | number | null;
+}) {
+  return [
+    planningKey(input.tankNumber, input.batchNumber),
+    planningKey(input.tankId, input.batchNumber),
+  ].filter(Boolean);
+}
+
+function calendarLookupKeys(input: {
   tankId?: string | number | null;
   tankNumber?: string | number | null;
 }) {
@@ -146,17 +167,19 @@ function lookupKeys(input: {
 export async function getPlannedPackagingForTank(input: {
   tankId?: string | number | null;
   tankNumber?: string | number | null;
+  batchNumber?: string | number | null;
 }): Promise<PlannedTankPackaging | null> {
   const maps = await loadFuturePackagingMaps();
-  const keys = lookupKeys(input);
+  const planningKeys = planningLookupKeys(input);
+  const calendarKeys = calendarLookupKeys(input);
 
-  const planningDates = keys
+  const planningDates = planningKeys
     .map((key) => maps.planning.get(key))
     .filter((value): value is string => Boolean(value))
     .sort();
   if (planningDates[0]) return { date: planningDates[0], source: "planning" };
 
-  const calendarDates = keys
+  const calendarDates = calendarKeys
     .map((key) => maps.calendar.get(key))
     .filter((value): value is string => Boolean(value))
     .sort();
@@ -168,19 +191,21 @@ export async function getPlannedPackagingForTank(input: {
 export async function getUndatedPlannedPackagingWeekForTank(input: {
   tankId?: string | number | null;
   tankNumber?: string | number | null;
+  batchNumber?: string | number | null;
 }): Promise<PlannedTankPackagingWeek | null> {
   const maps = await loadFuturePackagingMaps();
-  const keys = lookupKeys(input);
+  const planningKeys = planningLookupKeys(input);
+  const calendarKeys = calendarLookupKeys(input);
 
   // If an exact future date already exists, the regular TankCard badge is the
   // authoritative display and no week-only fallback is needed.
   const exactDates = [
-    ...keys.map((key) => maps.planning.get(key)),
-    ...keys.map((key) => maps.calendar.get(key)),
+    ...planningKeys.map((key) => maps.planning.get(key)),
+    ...calendarKeys.map((key) => maps.calendar.get(key)),
   ].filter((value): value is string => Boolean(value));
   if (exactDates.length) return null;
 
-  const weeks = keys
+  const weeks = planningKeys
     .map((key) => maps.planningWeekOnly.get(key))
     .filter((value): value is string => Boolean(value))
     .sort();
