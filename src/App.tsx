@@ -42,6 +42,7 @@ const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentRepo
 const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
 const PlanningView = lazy(() => import("./components/planning/PlanningView"));
 const BrewingView = lazy(() => import("./components/brewing/BrewingView"));
+const UserConnectionReport = lazy(() => import("./components/reports/UserConnectionReport"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -187,7 +188,7 @@ function App() {
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
-    const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר">("אריזה");
+    const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר" | "חיבורי_משתמשים">("אריזה");
     const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
@@ -439,6 +440,7 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedReports === "משלוחים" ? "active" : ""}`} onClick={() => setSelectedReports("משלוחים")}><span>תעודות משלוח</span></button>
                         <button type="button" className={`status-filter-button ${selectedReports === "מלאי_מקרר" ? "active" : ""}`} onClick={() => setSelectedReports("מלאי_מקרר")}><span>מלאי מוצר מוגמר</span></button>
                         <button type="button" className={`status-filter-button ${selectedReports === "גרפים" ? "active" : ""}`} onClick={() => setSelectedReports("גרפים")}><span>גרפים לפי אצווה</span></button>
+                        {user.email?.toLowerCase() === "yisrael@atlow.co.il" && <button type="button" className={`status-filter-button ${selectedReports === "חיבורי_משתמשים" ? "active" : ""}`} onClick={() => setSelectedReports("חיבורי_משתמשים")}><span>חיבורי משתמשים</span></button>}
                     </div>}
                     {selectedView === "ניהול" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "calculator" ? "active" : ""}`} onClick={() => setSelectedAdminTools("calculator")}><span>מחשבון למבשלן</span></button>
@@ -467,6 +469,7 @@ function App() {
                 {selectedView === "דוחות" && selectedReports === "משלוחים" && <ShipmentReportsView />}
                 {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
                 {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
+                {selectedView === "דוחות" && selectedReports === "חיבורי_משתמשים" && user.email?.toLowerCase() === "yisrael@atlow.co.il" && <UserConnectionReport />}
                 {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
