@@ -21,6 +21,7 @@ import {
 } from "../../SERVICES/planning/planningEngine";
 import { shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
+import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
@@ -283,32 +284,66 @@ export default function PlanningGantt(props: Props) {
   }, [calendarPlans, tanks, sources]);
 
   function compactShipmentItems(weekId: string): SummaryItem[] {
-    const decisions = (decisionPlanFor(weekId)?.deliveries ?? []).filter((item) => item.quantity > 0);
+    const plan = decisionPlanFor(weekId);
+    const decisions = (plan?.deliveries ?? []).filter((item) => item.quantity > 0);
     const recommended = decisions.length === 0 && weekId >= currentWeek;
     const recommendations = simulations.get(weekId)?.deliveryRecommendation ?? [];
-    const source = decisions.length
-      ? decisions.map((item) => ({ productId: item.productId, quantity: item.quantity }))
-      : recommendations.map((item) => ({ productId: item.productId, quantity: item.quantity }));
-    if (!source.length) return [];
 
-    const grouped = new Map<string, string[]>();
-    for (const item of source) {
-      const product = productFor(item.productId);
-      if (!product) continue;
-      const style = displayStyle(product.style);
-      const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(item.quantity)}`;
-      grouped.set(style, [...(grouped.get(style) ?? []), line]);
+    if (!decisions.length) {
+      if (!recommendations.length) return [];
+      const grouped = new Map<string, string[]>();
+      for (const item of recommendations) {
+        const product = productFor(item.productId);
+        if (!product) continue;
+        const style = displayStyle(product.style);
+        const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(item.quantity)}`;
+        grouped.set(style, [...(grouped.get(style) ?? []), line]);
+      }
+      const stockLines = sortedStyleEntries(grouped).map(([style, values]) => ({ style, values }));
+      return [{
+        key: `delivery-summary:${weekId}:recommended`,
+        title: "משלוח טמפו",
+        meta: stockLines.map(({ style, values }) => `${style} · ${values.join(" · ")}`).join("\n"),
+        stockLines,
+        recommended,
+      }];
     }
-    const stockLines = sortedStyleEntries(grouped).map(([style, values]) => ({ style, values }));
-    const lines = stockLines.map(({ style, values }) => `${style} · ${values.join(" · ")}`);
 
-    return [{
-      key: `delivery-summary:${weekId}`,
-      title: "משלוח טמפו",
-      meta: lines.join("\n"),
-      stockLines,
-      recommended,
-    }];
+    // A legacy week may contain many historical delivery rows from repeated edits.
+    // Render operational trips, not every persisted row. Once a trip has an actual
+    // shipment, use the actual manifest as the single source for its summary.
+    const matches = matchActualShipments(decisions, shipments, settings.products);
+    return matches.map((match, index) => {
+      const grouped = new Map<string, string[]>();
+      if (match.status !== "pending" && match.actual?.totals?.length) {
+        for (const actual of match.actual.totals) {
+          const style = displayStyle(actual.beerStyle);
+          const line = `${actual.itemType === "crates" ? "בקבוקים" : "חביות"} ${fmt(actual.totalQuantity)}`;
+          grouped.set(style, [...(grouped.get(style) ?? []), line]);
+        }
+      } else {
+        const byProduct = new Map<string, number>();
+        for (const delivery of match.planned.deliveries) {
+          byProduct.set(delivery.productId, (byProduct.get(delivery.productId) ?? 0) + delivery.quantity);
+        }
+        for (const [productId, quantity] of byProduct) {
+          const product = productFor(productId);
+          if (!product) continue;
+          const style = displayStyle(product.style);
+          const line = `${product.type === "crates" ? "בקבוקים" : "חביות"} ${fmt(quantity)}`;
+          grouped.set(style, [...(grouped.get(style) ?? []), line]);
+        }
+      }
+      const stockLines = sortedStyleEntries(grouped).map(([style, values]) => ({ style, values }));
+      const shipmentNumber = match.actual?.shipmentNumber ?? index + 1;
+      const suffix = matches.length > 1 ? ` ${shipmentNumber}` : "";
+      return {
+        key: `delivery-summary:${weekId}:${match.planned.id}`,
+        title: `משלוח טמפו${suffix}`,
+        meta: stockLines.map(({ style, values }) => `${style} · ${values.join(" · ")}`).join("\n"),
+        stockLines,
+      };
+    }).filter((item) => item.stockLines.length > 0);
   }
 
   function packagingItems(weekId: string): SummaryItem[] {
