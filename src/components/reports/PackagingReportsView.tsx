@@ -63,6 +63,16 @@ type PlanningSettingsDoc = {
 };
 
 const REPORT_PAGE_SIZE = 50;
+const PLANNED_PACKAGING_CACHE_MS = 60 * 1000;
+
+type PlannedPackagingCache = {
+    key: string;
+    loadedAt: number;
+    data?: number[];
+    pending?: Promise<number[]>;
+};
+
+let plannedPackagingCache: PlannedPackagingCache | null = null;
 
 
 // ============================================================
@@ -250,6 +260,49 @@ function getWeekOptions(): Date[] {
     return Array.from(map.values()).sort(
         (a, b) => a.getTime() - b.getTime()
     );
+}
+
+export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
+    const currentWeekStart = getWeekStart(new Date());
+    const nextWeekStart = addDays(currentWeekStart, 7);
+    const nextWeekId = toDateInputValue(nextWeekStart);
+    const key = nextWeekId;
+    const now = Date.now();
+
+    if (
+        plannedPackagingCache?.key === key &&
+        plannedPackagingCache.data &&
+        now - plannedPackagingCache.loadedAt < PLANNED_PACKAGING_CACHE_MS
+    ) {
+        return [...plannedPackagingCache.data];
+    }
+    if (plannedPackagingCache?.key === key && plannedPackagingCache.pending) {
+        return [...await plannedPackagingCache.pending];
+    }
+
+    const pending = getDocs(
+        query(
+            collection(db, "planningWeeks"),
+            where("id", "==", nextWeekId),
+            limit(1)
+        )
+    ).then((snapshot) => {
+        const week = snapshot.docs[0]?.data() as PlanningWeekDoc | undefined;
+        const tankNumbers = (week?.packaging ?? [])
+            .map((run) => Number(run.tankNumber ?? run.tankId))
+            .filter((tankNumber) => Number.isFinite(tankNumber) && tankNumber > 0);
+        return [...new Set(tankNumbers)];
+    });
+
+    plannedPackagingCache = { key, loadedAt: now, pending };
+    try {
+        const data = await pending;
+        plannedPackagingCache = { key, loadedAt: Date.now(), data };
+        return [...data];
+    } catch (error) {
+        if (plannedPackagingCache?.key === key) plannedPackagingCache = null;
+        throw error;
+    }
 }
 
 function formatISODateToDDMMYYYY(iso: string): string {
