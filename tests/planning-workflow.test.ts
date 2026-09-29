@@ -23,6 +23,7 @@ import {
 } from "../src/SERVICES/planning/workspace";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
 import { tankReleases } from "../src/SERVICES/planning/productionCycle";
+import { validateTruckGroups } from "../src/SERVICES/planning/truckPlanner";
 import {
   productionNeeds,
   productionDay,
@@ -393,6 +394,18 @@ test("legacy maximum does not block three manually scheduled collections", () =>
     validateDatedPlan(w, { ...settings, maxWeeklyDeliveries: 1 }, [], today),
     null,
   );
+});
+test("separate trucks on the same date are validated independently", () => {
+  const deliveries = [
+    { dispatchDate: today, productId: "c", quantity: 84 * 12, truckId: "truck:a" },
+    { dispatchDate: today, productId: "c", quantity: 84 * 12, truckId: "truck:b" },
+  ];
+  assert.equal(validateTruckGroups(deliveries, settings.products, Infinity), null);
+  assert.ok(validateTruckGroups(
+    [{ dispatchDate: today, productId: "c", quantity: 84 * 13, truckId: "truck:a" }],
+    settings.products,
+    Infinity,
+  ));
 });
 test("truck physical capacity remains enforced", () => {
   const w = {
