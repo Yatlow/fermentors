@@ -55,6 +55,10 @@ export const STAGE_INFO: Record<number, TankStageInfo> = {
 
 type Tank = {
   batchNumber?: unknown;
+  cellarState?: {
+    batchNumber?: unknown;
+    cooled?: unknown;
+  } | null;
   action?: unknown;
   tankStatus?: unknown;
   currentData?: {
@@ -110,6 +114,15 @@ export async function getTankStage(tank: Tank): Promise<TankStageInfo> {
   if (currentNoteShowsCooling(tank)) {
     if (batch) cooledBatchCache.set(batch, true);
     return STAGE_INFO[2];
+  }
+
+  // The server already derives the historical cooling state while reading the
+  // Sheet and embeds it on the fermentor. Trust it when it belongs to the
+  // current batch so a cold app start does not need the measurements history.
+  const cellarStateBatch = batchKey(tank.cellarState?.batchNumber);
+  if (batch && cellarStateBatch === batch && typeof tank.cellarState?.cooled === "boolean") {
+    cooledBatchCache.set(batch, tank.cellarState.cooled);
+    return tank.cellarState.cooled ? STAGE_INFO[2] : STAGE_INFO[1];
   }
 
   const cachedCoolingState = batch ? cooledBatchCache.get(batch) : undefined;
