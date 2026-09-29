@@ -215,7 +215,13 @@ export default function PlanningWeeklyRecommendations({
         Math.max(0, model.weekStartRows.get(p.id)?.breweryUnits ?? 0);
 
     function maxShipmentQty(p: Product) {
-        const units = safeShipmentQty(p) + sameWeekPackagingQty(p);
+        const committedToOtherTrips = (current.deliveries ?? [])
+            .filter((delivery) =>
+                delivery.productId === p.id &&
+                (delivery.truckId || `date:${delivery.dispatchDate}`) !== editingTruckId
+            )
+            .reduce((sum, delivery) => sum + Math.max(0, Number(delivery.quantity) || 0), 0);
+        const units = Math.max(0, safeShipmentQty(p) + sameWeekPackagingQty(p) - committedToOtherTrips);
         return units > 0 ? Math.ceil(units / palletSize(p)) * palletSize(p) : 0;
     }
 

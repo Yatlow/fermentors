@@ -126,6 +126,7 @@ export function usePlanning(
   const [ready, setReady] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [offline, setOffline] = useState<Record<string, boolean>>({});
+  const shipmentQueueBackfillAttempted = useState(() => new Set<string>())[0];
   const [serverReadCounts, setServerReadCounts] = useState<Omit<PlanningReadCounts, "recordedAt" | "tab">>({
     settings: null,
     plans: null,
@@ -298,6 +299,49 @@ export function usePlanning(
       fail("אריזות"),
     );
   }, [logStart, end, wantsActuals]);
+
+  useEffect(() => {
+    if (!wantsPlans || !wantsShipments || !auth.currentUser) return;
+    const currentWeek = weekStart(today);
+    const candidates = plans.filter((week) =>
+      week.id >= currentWeek &&
+      Array.isArray(week.deliveries) &&
+      week.deliveries.length > 0 &&
+      !shipmentQueueBackfillAttempted.has(week.id),
+    );
+    if (!candidates.length) return;
+
+    for (const week of candidates) {
+      shipmentQueueBackfillAttempted.add(week.id);
+      const queueDeliveries = pendingDeliveriesForReservationQueue(
+        week.deliveries ?? [],
+        actualShipments,
+        settings.products,
+      ).map((delivery) => ({
+        productId: String(delivery.productId || ""),
+        quantity: Number(delivery.quantity) || 0,
+        dispatchDate: String(delivery.dispatchDate || ""),
+        truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
+      }));
+
+      void runTransaction(db, async (tx) => {
+        const queueRef = doc(db, "shipmentPlanningQueue", week.id);
+        const queueSnap = await tx.get(queueRef);
+        if (queueSnap.data()?.projectionVersion === 1) return;
+        tx.set(queueRef, {
+          id: week.id,
+          revision: Number(week.revision) || 1,
+          projectionVersion: 1,
+          deliveries: queueDeliveries,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser!.uid,
+        });
+      }).catch((error) => {
+        shipmentQueueBackfillAttempted.delete(week.id);
+        console.error("Failed backfilling shipment planning queue", week.id, error);
+      });
+    }
+  }, [actualShipments, plans, settings.products, shipmentQueueBackfillAttempted, today, wantsPlans, wantsShipments]);
 
   useEffect(() => {
     if (!wantsSnapshots) {
