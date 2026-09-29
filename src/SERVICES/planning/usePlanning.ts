@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import type { ShipmentEvent } from "./dailyPlanner";
 import type { PlanningSnapshot } from "./planningReports";
+import { matchActualShipments } from "./shipmentActuals";
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
@@ -417,8 +418,17 @@ export function usePlanning(
         });
 
         const shipmentQueueRef = doc(db, "shipmentPlanningQueue", id);
-        const queueDeliveries = (Array.isArray(week.deliveries) ? week.deliveries : [])
-          .filter((delivery) => Number(delivery.quantity) > 0)
+        const weekDeliveries = Array.isArray(week.deliveries) ? week.deliveries : [];
+        const pendingGroupIds = new Set(
+          matchActualShipments(weekDeliveries, actualShipments, settings.products)
+            .filter((match) => match.status === "pending")
+            .map((match) => match.planned.id),
+        );
+        const queueDeliveries = weekDeliveries
+          .filter((delivery) =>
+            Number(delivery.quantity) > 0 &&
+            pendingGroupIds.has(delivery.truckId || `date:${delivery.dispatchDate}`)
+          )
           .map((delivery) => ({
             productId: String(delivery.productId || ""),
             quantity: Number(delivery.quantity) || 0,
