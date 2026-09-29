@@ -8,6 +8,8 @@ import {
   query,
   Timestamp,
   where,
+  updateDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import type { Fermentor } from "../../App";
 import { runtimeConfig } from "../../config/runtimeConfig";
@@ -81,6 +83,21 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const [planningAuditElapsedMs, setPlanningAuditElapsedMs] = useState<number | null>(null);
   const [planningQueryTimings, setPlanningQueryTimings] = useState<PlanningQueryTiming[]>([]);
   const showPreviewDiagnostics = runtimeConfig.deployEnv !== "production";
+
+  // One diagnostic write per PlanningView mount. This intentionally does not
+  // write again when the user switches tabs inside Planning.
+  useEffect(() => {
+    const currentUser = auth.currentUser;
+    if (!currentUser?.email) return;
+    void updateDoc(doc(db, "approvedUsers", currentUser.email), {
+      lastPlanningOpenedAt: serverTimestamp(),
+      lastPlanningTab: tab,
+    }).catch((error) => {
+      console.error("Failed to record planning open:", error);
+    });
+    // The initial tab is captured on mount only by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (data.loading || planningAuditLogged.current) return;
