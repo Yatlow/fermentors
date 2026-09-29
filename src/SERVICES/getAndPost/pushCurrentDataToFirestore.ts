@@ -192,6 +192,7 @@ export async function pushCurrentDataToFirestore(
             const tankRef = doc(db, "fermentors", reading.tankId);
             firestoreBatch.set(tankRef, {
                 currentData,
+                lastChangeSource: "APP",
                 ...(revision ? { measurementsRevision: revision } : {}),
             }, { merge: true });
             writeCount += 1;
