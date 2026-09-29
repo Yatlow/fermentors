@@ -1,3 +1,4 @@
+import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import BeerLoader from "../general/Loading";
 import { useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
@@ -97,7 +98,7 @@ export default function PlanningBoard({
   brews,
   pallets: _pallets,
   actuals,
-  shipments: _shipments,
+  shipments,
   today,
   holidays: _holidays,
   disabled,
@@ -153,7 +154,15 @@ export default function PlanningBoard({
     return product ? `${displayStyle(product.style)} · ${product.type === "crates" ? "ארגזים" : "חביות"}` : id;
   };
 
-  const shipmentSummary = (current.deliveries ?? []).map((delivery) => `${productLabel(delivery.productId)} · ${Math.round(delivery.quantity)}`);
+  const shipmentSummary = (() => {
+    const matches = matchActualShipments(current.deliveries ?? [], shipments, settings.products);
+    const pending = matches.filter((match) => match.status === "pending").flatMap((match) => match.planned.deliveries);
+    const totals = new Map<string, number>();
+    for (const delivery of pending) {
+      totals.set(delivery.productId, (totals.get(delivery.productId) ?? 0) + Number(delivery.quantity || 0));
+    }
+    return [...totals].map(([productId, quantity]) => `${productLabel(productId)} · ${Math.round(quantity)}`);
+  })();
   const brewSummary = current.brews.map((brew) => {
     if (!brew.tankId) return `${displayStyle(brew.style)} · טרם שובץ למיכל`;
     const source = brews.find((tank) => tank.id === brew.tankId);

@@ -245,21 +245,23 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly(['id','packaging','brews','note','maxRuns','deliveries','deliveryDates','dismissedRecommendations','allowExceptions','changeReason','calendarEvents','calendarNotes','revision','updatedAt','updatedBy','createdAt'])
         && request.resource.data.id == weekId
         && weekId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && request.resource.data.packaging is list && request.resource.data.packaging.size() <= 60
-        && request.resource.data.brews is list && request.resource.data.brews.size() <= 30
+        && request.resource.data.packaging is list
+        && (request.resource.data.packaging.size() <= 60 || request.resource.data.packaging == resource.data.get('packaging', []))
+        && request.resource.data.brews is list
+        && (request.resource.data.brews.size() <= 30 || request.resource.data.brews == resource.data.get('brews', []))
         && request.resource.data.note is string && request.resource.data.note.size() <= 5000
         && request.resource.data.maxRuns in [0,1,2,3,4,5]
         && request.resource.data.get('deliveries', []) is list
         && (request.resource.data.get('deliveries', []).size() <= 60 || request.resource.data.get('deliveries', []) == resource.data.get('deliveries', []))
         && request.resource.data.get('deliveryDates', []) is list
-        && request.resource.data.get('deliveryDates', []).size() <= 14
+        && (request.resource.data.get('deliveryDates', []).size() <= 14 || request.resource.data.get('deliveryDates', []) == resource.data.get('deliveryDates', []))
         && request.resource.data.get('dismissedRecommendations', []) is list
-        && request.resource.data.get('dismissedRecommendations', []).size() <= 300
+        && (request.resource.data.get('dismissedRecommendations', []).size() <= 300 || request.resource.data.get('dismissedRecommendations', []) == resource.data.get('dismissedRecommendations', []))
         && request.resource.data.get('allowExceptions', false) is bool
         && request.resource.data.get('changeReason', '') is string
         && request.resource.data.get('changeReason', '').size() <= 200
         && request.resource.data.get('calendarEvents', []) is list
-        && request.resource.data.get('calendarEvents', []).size() <= 100
+        && (request.resource.data.get('calendarEvents', []).size() <= 100 || request.resource.data.get('calendarEvents', []) == resource.data.get('calendarEvents', []))
         && request.resource.data.get('calendarNotes', {}) is map;
     }
 
