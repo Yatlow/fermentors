@@ -220,11 +220,23 @@ function activeRecommendations(
         { recommendationKey: "pressureAdjustment", recommendation: result?.requiredPressureAdjustment },
     ];
 
-    return candidates
+    const active = candidates
         .filter((item): item is { recommendationKey: string; recommendation: Recommendation } => Boolean(item.recommendation))
         .filter((item) => isActionableHealthRecommendation(item.recommendation))
         .map((item) => ({ ...item.recommendation, recommendationKey: item.recommendationKey }))
         .sort((a, b) => Number(b.importance ?? 1) - Number(a.importance ?? 1));
+
+    const yeastKeys = new Set([
+        "warmYeastDrop",
+        "warmYeastDropCompletion",
+        "yeastDropAfterCooling",
+        "coldYeastDropCompletion",
+        "wedYeastDropOnThu",
+    ]);
+    const highestPriorityYeast = active.find((item) => yeastKeys.has(item.recommendationKey));
+    return active.filter((item) =>
+        !yeastKeys.has(item.recommendationKey) || item === highestPriorityYeast
+    );
 }
 
 function recommendationSeverity(importance: number): Severity {

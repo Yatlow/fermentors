@@ -21,6 +21,8 @@ const CACHE_MS = 2 * 60 * 1000;
 type PackagingMaps = {
   planning: Map<string, string>;
   planningWeekOnly: Map<string, string>;
+  planningByTank: Map<string, string>;
+  planningWeekOnlyByTank: Map<string, string>;
 };
 
 let cache: {
@@ -41,6 +43,10 @@ function normalizeTank(value: unknown): string {
 
 function normalizeBatch(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
+}
+
+function tankKey(tank: unknown): string {
+  return normalizeTank(tank);
 }
 
 function planningKey(tank: unknown, batch: unknown): string {
@@ -65,6 +71,8 @@ async function loadFuturePackagingMaps() {
   ).then((planningSnapshot) => {
     const planning = new Map<string, string>();
     const planningWeekOnly = new Map<string, string>();
+    const planningByTank = new Map<string, string>();
+    const planningWeekOnlyByTank = new Map<string, string>();
 
     planningSnapshot.docs.forEach((snapshot) => {
       const week = snapshot.data() as WeekPlan;
@@ -75,21 +83,24 @@ async function loadFuturePackagingMaps() {
           planningKey(run.tankNumber, run.batchNumber),
           planningKey(run.tankId, run.batchNumber),
         ].filter(Boolean);
-        if (!keys.length) return;
+        const legacyTankKeys = run.batchNumber ? [] : [tankKey(run.tankNumber), tankKey(run.tankId)].filter(Boolean);
+        if (!keys.length && !legacyTankKeys.length) return;
 
         const date = String(run.date ?? "");
         if (date) {
           if (date < today) return;
           keys.forEach((key) => earliest(planning, key, date));
+          legacyTankKeys.forEach((key) => earliest(planningByTank, key, date));
           return;
         }
 
         if (!weekId || weekId < weekStart(today)) return;
         keys.forEach((key) => earliest(planningWeekOnly, key, weekId));
+        legacyTankKeys.forEach((key) => earliest(planningWeekOnlyByTank, key, weekId));
       });
     });
 
-    return { planning, planningWeekOnly };
+    return { planning, planningWeekOnly, planningByTank, planningWeekOnlyByTank };
   });
 
   cache = { loadedAt: now, pending };
@@ -124,8 +135,9 @@ export async function getPlannedPackagingForTank(input: {
 
   const planningDates = planningKeys
     .map((key) => maps.planning.get(key))
-    .filter((value): value is string => Boolean(value))
-    .sort();
+    .filter((value): value is string => Boolean(value));
+  planningDates.push(...[input.tankNumber, input.tankId].map(tankKey).filter(Boolean).map((key) => maps.planningByTank.get(key)).filter((value): value is string => Boolean(value)));
+  planningDates.sort();
 
   return planningDates[0]
     ? { date: planningDates[0], source: "planning" }
@@ -143,12 +155,14 @@ export async function getUndatedPlannedPackagingWeekForTank(input: {
   const exactDates = planningKeys
     .map((key) => maps.planning.get(key))
     .filter((value): value is string => Boolean(value));
-  if (exactDates.length) return null;
+  const legacyExactDates = [input.tankNumber, input.tankId].map(tankKey).filter(Boolean).map((key) => maps.planningByTank.get(key)).filter((value): value is string => Boolean(value));
+  if (exactDates.length || legacyExactDates.length) return null;
 
   const weeks = planningKeys
     .map((key) => maps.planningWeekOnly.get(key))
-    .filter((value): value is string => Boolean(value))
-    .sort();
+    .filter((value): value is string => Boolean(value));
+  weeks.push(...[input.tankNumber, input.tankId].map(tankKey).filter(Boolean).map((key) => maps.planningWeekOnlyByTank.get(key)).filter((value): value is string => Boolean(value)));
+  weeks.sort();
 
   return weeks[0] ? { weekStart: weeks[0] } : null;
 }
