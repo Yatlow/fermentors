@@ -124,6 +124,7 @@ async function updateLastLoggedInAndGetAdminStatus(user: User): Promise<Document
     try {
         const userRef = doc(db, "approvedUsers", user.email);
         const userDoc = await getDoc(userRef);
+        recordGlobalServerRead("Approved user", userDoc.exists() ? 1 : 0);
         if (!userDoc.exists()) {
             console.warn(`User ${user.email} was not found in approvedUsers`);
             return null;
