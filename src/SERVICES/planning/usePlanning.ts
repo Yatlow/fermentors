@@ -415,6 +415,23 @@ export function usePlanning(
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser!.uid,
         });
+
+        const shipmentQueueRef = doc(db, "shipmentPlanningQueue", id);
+        const queueDeliveries = (Array.isArray(week.deliveries) ? week.deliveries : [])
+          .filter((delivery) => Number(delivery.quantity) > 0)
+          .map((delivery) => ({
+            productId: String(delivery.productId || ""),
+            quantity: Number(delivery.quantity) || 0,
+            dispatchDate: String(delivery.dispatchDate || ""),
+          }));
+
+        tx.set(shipmentQueueRef, {
+          id,
+          revision: next.revision,
+          deliveries: queueDeliveries,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser!.uid,
+        });
       }
       return next;
     });
