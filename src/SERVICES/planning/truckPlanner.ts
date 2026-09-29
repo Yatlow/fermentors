@@ -148,16 +148,25 @@ export function validateTruckGroups(
     productId: string;
     quantity: number;
     pallets?: Pallet[];
+    truckId?: string;
   }[],
   products: Product[],
   maxDeliveries = 2,
 ): string | null {
-  const dates = [...new Set(deliveries.map((d) => d.dispatchDate))];
-  if (dates.length > maxDeliveries) return `עד ${maxDeliveries} משלוחים בשבוע`;
+  // A delivery decision may contain several product rows for the same truck.
+  // Conversely, two different trucks can leave on the same date. Capacity must
+  // therefore be validated per truck, not by collapsing every row on a date.
+  // Legacy rows without truckId keep the historical date-based grouping.
+  const groupKey = (d: { dispatchDate: string; truckId?: string }) =>
+    d.truckId ? `${d.dispatchDate}::${d.truckId}` : `${d.dispatchDate}::legacy`;
+  const groups = [...new Set(deliveries.map(groupKey))];
+  if (groups.length > maxDeliveries) return `עד ${maxDeliveries} משלוחים בשבוע`;
   const seen = new Set<string>();
-  for (const date of dates) {
+  for (const group of groups) {
+    const groupDeliveries = deliveries.filter((d) => groupKey(d) === group);
+    const date = groupDeliveries[0]?.dispatchDate ?? "";
     const manifest: Pallet[] = [];
-    for (const d of deliveries.filter((d) => d.dispatchDate === date)) {
+    for (const d of groupDeliveries) {
       const p = products.find((p) => p.id === d.productId);
       if (!p) continue;
       if (d.pallets?.length) {
