@@ -27,6 +27,7 @@ import { openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning
 import { displayStyle, isCoreStyle, CORE_STYLES, formatPalletCount } from "../../SERVICES/planning/planningPresentation";
 import { projectedPallets } from "../../SERVICES/planning/truckPlanner";
 import { nominalPlanningUnits } from "../../SERVICES/planning/shipmentRecommendation";
+import { groupPlannedShipments, matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import {
     brewLitersForSize,
@@ -112,6 +113,7 @@ export default function PlanningWeeklyRecommendations({
     const [week, setWeek] = useState(() => defaultWeek(today));
     const [editing, setEditing] = useState<Kind | null>(null);
     const [shipDraft, setShipDraft] = useState<Record<string, number>>({});
+    const [editingTruckId, setEditingTruckId] = useState<string | null>(null);
     const [packDraft, setPackDraft] = useState<Record<string, number>>({});
     const [manualPacks, setManualPacks] = useState<ManualPackDraft[]>([]);
     const [cancelledPackagingKeys, setCancelledPackagingKeys] = useState<Set<string>>(new Set());
@@ -152,8 +154,13 @@ export default function PlanningWeeklyRecommendations({
         allPackagingRecByProduct.set(r.productId, (allPackagingRecByProduct.get(r.productId) ?? 0) + r.quantity);
     }
 
-    const currentShipmentQty = (id: string) => (current.deliveries ?? [])
-        .filter((d) => d.productId === id)
+    const shipmentGroups = groupPlannedShipments(current.deliveries ?? []);
+    const shipmentMatches = matchActualShipments(current.deliveries ?? [], shipments, settings.products);
+    const openShipmentGroups = shipmentGroups.filter((group) =>
+        shipmentMatches.find((match) => match.planned.id === group.id)?.status === "pending"
+    );
+    const currentShipmentQty = (id: string, truckId?: string | null) => (current.deliveries ?? [])
+        .filter((d) => d.productId === id && (!truckId || (d.truckId || `date:${d.dispatchDate}`) === truckId))
         .reduce((s, d) => s + d.quantity, 0);
     const currentPackagingQty = (id: string) => current.packaging
         .filter((r) => r.productId === id)
@@ -281,12 +288,14 @@ export default function PlanningWeeklyRecommendations({
         (model.rows.afterShipment.get(a.id)?.totalCover ?? Infinity) - (model.rows.afterShipment.get(b.id)?.totalCover ?? Infinity),
     );
 
-    function beginEdit(kind: Kind) {
+    function beginEdit(kind: Kind, truckId?: string) {
         setEditing(kind);
         setMessage("");
         setShipmentError(null);
         if (kind === "delivery") {
-            setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id)])));
+            const targetTruckId = truckId ?? openShipmentGroups[0]?.id ?? `truck:${week}:1`;
+            setEditingTruckId(targetTruckId);
+            setShipDraft(Object.fromEntries(products.map((p) => [p.id, currentShipmentQty(p.id, targetTruckId)])));
         } else if (kind === "packaging") {
             setPackDraft(Object.fromEntries(current.packaging.map((r) => [r.id ?? `${r.productId}:${r.tankId}`, r.quantity])));
             setManualPacks([]);
@@ -325,11 +334,16 @@ export default function PlanningWeeklyRecommendations({
         setMessage("");
         try {
             const date = addDays(week, 1);
-            const deliveries: DeliveryPlan[] = products.flatMap((p) => {
+            const truckId = editingTruckId ?? `truck:${week}:1`;
+            const otherDeliveries = (current.deliveries ?? []).filter(
+                (delivery) => (delivery.truckId || `date:${delivery.dispatchDate}`) !== truckId,
+            );
+            const editedDeliveries: DeliveryPlan[] = products.flatMap((p) => {
                 const quantity = Math.max(0, shipDraft[p.id] ?? 0);
-                return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate: date, truckId: `truck:${week}`, pallets: [] }] : [];
+                return quantity ? [{ id: crypto.randomUUID(), productId: p.id, quantity, dispatchDate: date, arrivalDate: date, truckId, pallets: [] }] : [];
             });
-            await saveWeek({ ...current, deliveries, deliveryDates: deliveries.length ? [date] : [], changeReason: "עדכון החלטת משלוח שבועית" });
+            const deliveries = [...otherDeliveries, ...editedDeliveries];
+            await saveWeek({ ...current, deliveries, deliveryDates: [...new Set(deliveries.map((delivery) => delivery.dispatchDate))].sort(), changeReason: "עדכון החלטת משלוח שבועית" });
             setEditing(null);
             setMessage(`${slots > 0 && slots < MAX_TRUCK_SLOTS ? `נשמר משלוח חלקי ${slots}/${MAX_TRUCK_SLOTS}.` : "החלטת המשלוח נשמרה."}${packagingDependent ? " ⚠️ חלק מהמלאי ייארז באותו שבוע." : ""}`);
         } catch (e) {
@@ -871,7 +885,8 @@ export default function PlanningWeeklyRecommendations({
                         <button className={(current.deliveries ?? []).length ? "bp-action-warning" : ""} disabled={disabled || busy || !model.shipmentCanFillTruck} onClick={acceptShipmentRecommendation}>
                             {(current.deliveries ?? []).length ? "מחק נתונים ואשר המלצה" : "צור משלוח מההמלצה"}
                         </button>
-                        <button disabled={disabled || busy} onClick={() => beginEdit("delivery")}>עריכת המשלוח</button>
+                        {openShipmentGroups.map((group, groupIndex) => <button key={group.id} disabled={disabled || busy} onClick={() => beginEdit("delivery", group.id)}>עריכת משלוח {groupIndex + 1}</button>)}
+                        <button disabled={disabled || busy} onClick={() => beginEdit("delivery", `truck:${week}:${shipmentGroups.length + 1}`)}>+ משלוח נוסף</button>
                     </>}
                 </div>
 
