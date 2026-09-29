@@ -10,6 +10,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
+import { recordGlobalServerRead } from "../globalReadDiagnostics";
 
 export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange";
 export type PressureChangeDirection = "raise" | "lower";
@@ -168,6 +169,7 @@ export function subscribeScheduledCellarRecommendations(
   return onSnapshot(
     query(collection(db, COLLECTION), where("status", "==", "active")),
     (snapshot) => {
+      if (!snapshot.metadata.fromCache) recordGlobalServerRead("Scheduled active", snapshot.size);
       callback(snapshot.docs.map((item) => ({
         id: item.id,
         ...(item.data() as Omit<ScheduledCellarRecommendation, "id">),
@@ -284,6 +286,7 @@ export function subscribeCompletedScheduledCellarRecommendationsToday(
   return onSnapshot(
     query(collection(db, COLLECTION), where("resolvedDate", "==", today)),
     (snapshot) => {
+      if (!snapshot.metadata.fromCache) recordGlobalServerRead("Scheduled completed today", snapshot.size);
       callback(
         snapshot.docs
           .map((item) => ({

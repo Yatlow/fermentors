@@ -2,6 +2,7 @@ import { collection, getDocsFromCache, getDocsFromServer, orderBy, query, type Q
 import { db } from "../../firebase";
 import type { Measurement } from "../cellering/calculateCelleringRecomendations";
 import { recordReadAudit } from "../readAudit";
+import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import {
   collapseMeasurementsToLatestPerDay,
   measurementDayKeyFromId,
@@ -297,6 +298,7 @@ export async function getMeasurementsByBatch(
     try {
       const snapshot = await getDocsFromServer(query(collection(db, "brews", id, "measurements"), orderBy("date")));
       recordReadAudit("Measurements fallback", snapshot.size);
+      recordGlobalServerRead("Measurement fallbacks", snapshot.size);
       recordReadAudit(`Measurements #${id}`, snapshot.size);
       if (startedSession !== session) throw new Error("Measurement session changed; please retry");
       // An invalidation or newer request won the race. Never return old results.

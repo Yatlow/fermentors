@@ -3,6 +3,7 @@ import { collection, getDocs, type Timestamp } from "firebase/firestore";
 import { db } from "../../firebase";
 import BeerLoader from "../general/Loading";
 import { readPlanningReadCounts, type PlanningReadCounts } from "../../SERVICES/planning/planningReadDiagnostics";
+import { readGlobalReadDiagnostics, resetGlobalReadDiagnostics, type GlobalReadDiagnostic } from "../../SERVICES/globalReadDiagnostics";
 
 type UserConnectionRow = {
     id: string;
@@ -38,6 +39,7 @@ export default function UserConnectionReport() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
     const [planningReads] = useState<PlanningReadCounts | null>(() => readPlanningReadCounts());
+    const [globalReads, setGlobalReads] = useState<GlobalReadDiagnostic | null>(() => readGlobalReadDiagnostics());
 
     useEffect(() => {
         let cancelled = false;
@@ -94,6 +96,38 @@ export default function UserConnectionReport() {
             </div>
 
             {error && <div className="edit-specs-message error">{error}</div>}
+
+            <section className="spec-card" style={{ marginBottom: 16 }}>
+                <div className="spec-card-header">
+                    <h2>אבחון קריאות כללי — המכשיר הזה</h2>
+                </div>
+                <div className="spec-fields">
+                    <div className="spec-field" style={{ display: "block" }}>
+                        {globalReads ? (
+                            <>
+                                <div>עודכן: {new Intl.DateTimeFormat("he-IL", { timeZone: "Asia/Jerusalem", dateStyle: "short", timeStyle: "medium" }).format(new Date(globalReads.updatedAt))}</div>
+                                <div dir="ltr" style={{ marginTop: 8, textAlign: "left" }}>
+                                    {Object.entries(globalReads.counts).sort(([a], [b]) => a.localeCompare(b)).map(([label, count]) => (
+                                        <div key={label}>{label}: {count}</div>
+                                    ))}
+                                </div>
+                                <strong dir="ltr" style={{ display: "block", marginTop: 8, textAlign: "left" }}>
+                                    Total tracked: {Object.values(globalReads.counts).reduce((sum, value) => sum + value, 0)}
+                                </strong>
+                            </>
+                        ) : <div>עדיין אין מדידה במכשיר הזה.</div>}
+                        <button
+                            type="button"
+                            className="status-filter-button"
+                            style={{ marginTop: 10 }}
+                            onClick={() => { resetGlobalReadDiagnostics(); setGlobalReads(null); }}
+                        >
+                            אפס מדידה
+                        </button>
+                        <div style={{ marginTop: 6, fontSize: 13 }}>מונה מצטבר מקומי בלבד. אינו מבצע קריאות או כתיבות Firestore נוספות.</div>
+                    </div>
+                </div>
+            </section>
 
             {planningReads && (
                 <section className="spec-card" style={{ marginBottom: 16 }}>
