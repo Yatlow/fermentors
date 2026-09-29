@@ -644,6 +644,7 @@ export default function PlanningWeeklyRecommendations({
                     quantity,
                     tankId: rec.tankId,
                     tankNumber: rec.tankNumber,
+                    batchNumber: tanks.find((tank) => tank.id === rec.tankId)?.batch,
                     source: "recommendation",
                 });
             }
@@ -667,6 +668,7 @@ export default function PlanningWeeklyRecommendations({
                     quantity,
                     tankId: t.id,
                     tankNumber: String(t.number),
+                    batchNumber: t.batch,
                     source: "manual",
                 });
             }
@@ -690,6 +692,7 @@ export default function PlanningWeeklyRecommendations({
             quantity: r.quantity,
             tankId: r.tankId,
             tankNumber: r.tankNumber,
+            batchNumber: tanks.find((tank) => tank.id === r.tankId)?.batch,
             source: "recommendation",
         }));
         if (!additions.length) return;
