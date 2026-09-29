@@ -310,6 +310,7 @@ export async function getMeasurementsByBatch(
       const snapshot = await getDocsFromServer(query(collection(db, "brews", id, "measurements"), orderBy("date")));
       recordReadAudit("Measurements fallback", snapshot.size);
       recordGlobalServerRead("Measurement fallbacks", snapshot.size);
+      recordGlobalServerRead(`Measurements #${id}`, snapshot.size);
       recordReadAudit(`Measurements #${id}`, snapshot.size);
       if (startedSession !== session) throw new Error("Measurement session changed; please retry");
       // An invalidation or newer request won the race. Never return old results.
