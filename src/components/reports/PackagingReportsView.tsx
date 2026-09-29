@@ -47,7 +47,7 @@ export type PackagingLogDoc = {
     tankNumber?: string | number;
 };
 
-type CalendarEventDoc = {
+type PlanningWeekDoc = {\n    packaging?: Array<{ id?: string; productId?: string; quantity?: number; date?: string; tankNumber?: string | number; tankId?: string }>;\n};\n\ntype PlanningSettingsDoc = {\n    products?: Array<{ id: string; style: string; type: "crates" | "kegs" }>;\n};\n\ntype CalendarEventDoc = {
     date?: string;
     timestamp?: number;
     itemType?: string;
@@ -458,24 +458,24 @@ export default function PackagingReportsView() {
                 );
 
                 const todayStart = toStartOfDay(new Date(now)).getTime();
-                const estimatedStartTs = Math.max(startTs, todayStart);
                 const shouldLoadEstimated = endTs >= now;
+                const estimatedStartDate = new Date(Math.max(startTs, todayStart));
+                const estimatedEndDate = new Date(endTs);
+                const planningStart = toDateInputValue(getWeekStart(estimatedStartDate));
+                const planningEnd = toDateInputValue(addDays(getWeekStart(estimatedEndDate), 7));
 
-                const estimatedRowsPromise = shouldLoadEstimated
-                    ? getDocs(
-                        query(
-                            collection(db, "calendar_events"),
-                            where("actionType", "in", PACKAGING_ACTION_TYPE),
-                            where("timestamp", ">=", estimatedStartTs),
-                            where("timestamp", "<=", endTs),
-                            orderBy("timestamp", "asc")
-                        )
-                    )
-                    : Promise.resolve(null);
-
-                const [actualSnap, estimatedSnap] = await Promise.all([
+                const [actualSnap, planningSnap, settingsSnap] = await Promise.all([
                     actualRowsPromise,
-                    estimatedRowsPromise,
+                    shouldLoadEstimated
+                        ? getDocs(query(
+                            collection(db, "planningWeeks"),
+                            where("id", ">=", planningStart),
+                            where("id", "<", planningEnd)
+                        ))
+                        : Promise.resolve(null),
+                    shouldLoadEstimated
+                        ? getDocs(query(collection(db, "planningSettings"), limit(1)))
+                        : Promise.resolve(null),
                 ]);
                 if (cancelled) return;
 
@@ -497,22 +497,33 @@ export default function PackagingReportsView() {
                     };
                 });
 
-                const estimatedRowsRaw: PackagingRow[] = estimatedSnap
-                    ? estimatedSnap.docs.map((d) => {
-                        const data = d.data() as CalendarEventDoc;
-                        return {
-                            id: d.id,
-                            date: formatISODateToDDMMYYYY(data.date ?? ""),
-                            timestamp: data.timestamp ?? 0,
-                            expiryDateStr: "",
-                            itemLabel: normalizeItemLabel(data.beerStyle ?? data.itemType ?? data.title ?? ""),
-                            packagingType: null,
-                            unit: data.unit ?? "",
-                            quantity: Number(data.quantity ?? 0),
-                            batchNumber: null,
-                            tankNumber: data.tankNumber ?? null,
-                            source: "estimated",
-                        };
+                const products = settingsSnap?.docs[0]?.data()
+                    ? ((settingsSnap.docs[0].data() as PlanningSettingsDoc).products ?? [])
+                    : [];
+                const productById = new Map(products.map((product) => [product.id, product]));
+                const estimatedRowsRaw: PackagingRow[] = planningSnap
+                    ? planningSnap.docs.flatMap((weekDoc) => {
+                        const week = weekDoc.data() as PlanningWeekDoc;
+                        return (week.packaging ?? []).flatMap((run, index) => {
+                            if (!run.date) return [];
+                            const runDate = new Date(`${run.date}T12:00:00`);
+                            const timestamp = runDate.getTime();
+                            if (timestamp < Math.max(startTs, todayStart) || timestamp > endTs) return [];
+                            const product = productById.get(String(run.productId ?? ""));
+                            return [{
+                                id: run.id ?? `${weekDoc.id}:${index}`,
+                                date: formatISODateToDDMMYYYY(run.date),
+                                timestamp,
+                                expiryDateStr: "",
+                                itemLabel: normalizeItemLabel(product?.style ?? String(run.productId ?? "")),
+                                packagingType: product?.type === "kegs" ? "kegs" : product?.type === "crates" ? "bottles" : null,
+                                unit: product?.type === "kegs" ? "חביות" : product?.type === "crates" ? "ארגזים" : "",
+                                quantity: Number(run.quantity ?? 0),
+                                batchNumber: null,
+                                tankNumber: run.tankNumber ?? run.tankId ?? null,
+                                source: "estimated" as const,
+                            }];
+                        });
                     })
                     : [];
 
