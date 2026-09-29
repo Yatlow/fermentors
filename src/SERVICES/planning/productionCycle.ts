@@ -113,8 +113,12 @@ export function tankReleases(
   actuals: Actual[],
   today: string,
 ): Release[] {
+  // Release calculations need the complete saved packaging horizon. A tank can
+  // be planned to empty in an earlier week than the week currently being viewed;
+  // filtering those rows by `today` makes that release disappear when looking
+  // farther ahead (for example week 44 -> week 45).
   const runs = openRuns(plans, settings.products, actuals).filter(
-    (r) => r.date && r.date >= today && r.remaining > 0,
+    (r) => r.date && r.remaining > 0,
   );
   return sources.map((source) => {
     const workLiters =
