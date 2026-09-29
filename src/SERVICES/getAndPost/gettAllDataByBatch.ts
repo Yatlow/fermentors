@@ -21,6 +21,28 @@ const serverEmbeddedBatches = new Set<string>();
 const optimisticByBatch = new Map<string, Map<string, Measurement>>();
 let watching = false;
 let session = 0;
+let firstServerSnapshotPromise: Promise<void> | null = null;
+let resolveFirstServerSnapshot: (() => void) | null = null;
+
+function resetFirstServerSnapshotWait(): void {
+  firstServerSnapshotPromise = new Promise<void>((resolve) => {
+    resolveFirstServerSnapshot = resolve;
+  });
+}
+
+function markFirstServerSnapshotReady(): void {
+  watching = true;
+  resolveFirstServerSnapshot?.();
+  resolveFirstServerSnapshot = null;
+}
+
+async function waitForFirstServerSnapshot(startedSession: number): Promise<void> {
+  if (watching || startedSession !== session) return;
+  if (!firstServerSnapshotPromise) resetFirstServerSnapshotWait();
+  await firstServerSnapshotPromise;
+}
+
+resetFirstServerSnapshotWait();
 const FALLBACK_MS = 5 * 60 * 1000;
 const PERSISTED_REVISION_PREFIX = "fermentors:measurement-cache:v1:";
 const keyOf = (value: string | number) => String(value).replace("#", "").trim();
@@ -243,7 +265,7 @@ export function observeMeasurementRevisions(snapshot: QuerySnapshot<DocumentData
     });
   });
 
-  watching = true;
+  markFirstServerSnapshotReady();
 }
 
 export function stopMeasurementRevisionTracking(): void {
@@ -254,6 +276,10 @@ export function stopMeasurementRevisionTracking(): void {
   cache.clear();
   optimisticByBatch.clear();
   session++;
+  // Release any callers waiting on the old listener, then prepare a fresh gate
+  // for the next authenticated fermentors subscription.
+  resolveFirstServerSnapshot?.();
+  resetFirstServerSnapshotWait();
 }
 
 export function invalidateMeasurementsCache(batchNumber?: string | number): void {
@@ -280,6 +306,23 @@ export async function getMeasurementsByBatch(
   const tracked = watching && (revisions.has(id) || embeddedBatches.has(id));
   if (cached?.data && (tracked || Date.now() - cached.loadedAt < FALLBACK_MS)) return copy(cached.data);
   if (cached?.pending) return copy(await cached.pending);
+
+  // A cold start can render from Firestore's local fermentor cache before the
+  // first server-confirmed fermentor snapshot arrives. Do not fan that race out
+  // into full brews/{batch}/measurements downloads. Wait for the existing
+  // fermentors listener to establish authoritative cellarState/revisions first.
+  if (!watching) {
+    const startedSession = session;
+    await waitForFirstServerSnapshot(startedSession);
+    if (startedSession !== session) {
+      throw new Error("Measurement session changed; please retry");
+    }
+
+    const serverCached = cache.get(id);
+    const serverTracked = revisions.has(id) || embeddedBatches.has(id);
+    if (serverCached?.data && serverTracked) return copy(serverCached.data);
+    if (serverCached?.pending) return copy(await serverCached.pending);
+  }
 
   // Firestore already persists query results in IndexedDB. Trust that local result
   // only when the fermentor's measurement revision exactly matches the revision
