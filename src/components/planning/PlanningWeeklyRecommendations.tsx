@@ -376,7 +376,9 @@ export default function PlanningWeeklyRecommendations({
     // older decision suppress the map-marking action for the selected week.
     const isNearShipmentWeek = week === weekStart(today) || week === addDays(weekStart(today), 7);
     const markingBlocked = hasMarkedPallets(pallets);
-    const canOfferMapMarking = isNearShipmentWeek && (current.deliveries ?? []).some((d) => d.quantity > 0);
+    const canOfferMapMarking = isNearShipmentWeek && openShipmentGroups.length > 0;
+    const shipmentToMark = openShipmentGroups[0] ?? null;
+    const shipmentToMarkNumber = shipmentToMark ? Math.max(1, shipmentGroups.findIndex((group) => group.id === shipmentToMark.id) + 1) : 1;
 
     async function markShipmentOnCoolerMap() {
         if (!canOfferMapMarking || disabled || busy) return;
@@ -388,12 +390,13 @@ export default function PlanningWeeklyRecommendations({
         setMarkFeedback("בודק התאמה של המשטחים להחלטת המשלוח…");
         try {
             await new Promise<void>((resolve) => setTimeout(resolve, 0));
-            if (current.deliveries?.some((d) => d.quantity > 0 && !product(d.productId))) {
+            if (!shipmentToMark) return setMarkFeedback("אין משלוח פתוח לסימון.");
+            if (shipmentToMark.deliveries.some((d) => d.quantity > 0 && !product(d.productId))) {
                 return setMarkFeedback("ההחלטה כוללת מק״ט לא מוכר. יש לתקן את ההחלטה לפני הסימון.");
             }
 
             const shipmentLines = products
-                .map((product) => ({ product, requested: currentShipmentQty(product.id) }))
+                .map((product) => ({ product, requested: currentShipmentQty(product.id, shipmentToMark.id) }))
                 .filter((line) => line.requested > 0)
                 .map((line) => {
                     const candidates = pallets.filter((pallet) =>
@@ -894,7 +897,7 @@ export default function PlanningWeeklyRecommendations({
                     <p className="bp-alert">אין כרגע מספיק מלאי צפוי כדי להרכיב משאית מלאה. אפשר לשמור משלוח חלקי ידנית.</p>}
 
                 {canOfferMapMarking && <div className="bp-map-marking">
-                    <button type="button" disabled={disabled || busy || markingBlocked || editing === "delivery"} onClick={markShipmentOnCoolerMap}>סמן את המשלוח במפת המקרר</button>
+                    <button type="button" disabled={disabled || busy || markingBlocked || editing === "delivery"} onClick={markShipmentOnCoolerMap}>סמן משלוח {shipmentToMarkNumber} במפת המקרר</button>
                     {markFeedback && <p ref={markFeedbackRef} tabIndex={-1} role="status" aria-live="polite" className="bp-shipment-feedback">{markFeedback}</p>}
                     {markingBlocked && <p role="status">כבר יש משטחים מסומנים במפת המקרר. יש להשלים את המשלוח או לבטל את הסימון לפני סימון מתכנון.</p>}
                 </div>}
