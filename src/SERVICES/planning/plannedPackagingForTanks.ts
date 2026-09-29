@@ -22,6 +22,8 @@ type CalendarPackagingEvent = {
   actionType?: string;
   tankNumber?: string | number | null;
   containerNumber?: string | number | null;
+  batchNumber?: string | number | null;
+  batch?: string | number | null;
 };
 
 const PACKAGING_ACTIONS = new Set(["הורדה", "סיום", "ביקבוק"]);
@@ -125,8 +127,15 @@ async function loadFuturePackagingMaps() {
       if (!PACKAGING_ACTIONS.has(String(event.actionType ?? ""))) return;
       const date = calendarDate(event);
       if (!date || date < today) return;
-      const tank = normalizeTank(event.tankNumber ?? event.containerNumber);
-      earliest(calendar, tank, date);
+      const key = planningKey(
+        event.tankNumber ?? event.containerNumber,
+        event.batchNumber ?? event.batch,
+      );
+      // A tank-only calendar event is ambiguous after that tank is reused by a
+      // newer batch. Ignore it rather than attaching a stale packaging date to
+      // the current beer.
+      if (!key) return;
+      earliest(calendar, key, date);
     });
 
     return { planning, planningWeekOnly, calendar };
@@ -157,10 +166,11 @@ function planningLookupKeys(input: {
 function calendarLookupKeys(input: {
   tankId?: string | number | null;
   tankNumber?: string | number | null;
+  batchNumber?: string | number | null;
 }) {
   return [
-    normalizeTank(input.tankNumber),
-    normalizeTank(input.tankId),
+    planningKey(input.tankNumber, input.batchNumber),
+    planningKey(input.tankId, input.batchNumber),
   ].filter(Boolean);
 }
 
