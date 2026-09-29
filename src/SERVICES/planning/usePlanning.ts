@@ -13,6 +13,7 @@ import {
 import type { ShipmentEvent } from "./dailyPlanner";
 import type { PlanningSnapshot } from "./planningReports";
 import { pendingDeliveriesForReservationQueue } from "./shipmentActuals";
+import { recordPlanningReadCounts, type PlanningReadCounts } from "./planningReadDiagnostics";
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 import {
@@ -125,6 +126,13 @@ export function usePlanning(
   const [ready, setReady] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [offline, setOffline] = useState<Record<string, boolean>>({});
+  const [serverReadCounts, setServerReadCounts] = useState<Omit<PlanningReadCounts, "recordedAt" | "tab">>({
+    settings: null,
+    plans: null,
+    pallets: null,
+    packaging: null,
+    shipments: null,
+  });
 
   const start = weekStart(today);
   const end = addDays(start, 84);
@@ -141,6 +149,10 @@ export function usePlanning(
   const wantsPallets = scope.pallets !== false;
   const wantsActuals = scope.actuals !== false;
   const wantsSnapshots = scope.snapshots === true;
+
+  const recordServerCount = (key: keyof typeof serverReadCounts, count: number) => {
+    setServerReadCounts((current) => current[key] === count ? current : { ...current, [key]: count });
+  };
 
   const setPending = (key: string) => {
     setReady((current) => ({ ...current, [key]: false }));
@@ -176,6 +188,7 @@ export function usePlanning(
               : defaultSettings(),
           ),
         );
+        if (!snap.metadata.fromCache) recordServerCount("settings", snap.exists() ? 1 : 0);
         ok("הגדרות", snap.metadata.fromCache);
       },
       fail("הגדרות"),
@@ -200,6 +213,7 @@ export function usePlanning(
       { includeMetadataChanges: true },
       (snap) => {
         setPlans(snap.docs.map((item) => item.data() as WeekPlan));
+        if (!snap.metadata.fromCache) recordServerCount("plans", snap.size);
         ok("תוכניות", snap.metadata.fromCache);
       },
       fail("תוכניות"),
@@ -222,6 +236,7 @@ export function usePlanning(
       ),
       { includeMetadataChanges: true },
       (snap) => {
+        if (!snap.metadata.fromCache) recordServerCount("shipments", snap.size);
         setActualShipments(
           snap.docs.flatMap((item) => {
             const data = item.data();
@@ -255,6 +270,7 @@ export function usePlanning(
       { includeMetadataChanges: true },
       (snap) => {
         setPallets(snap.docs.map((item) => ({ ...item.data(), id: item.id }) as Pallet));
+        if (!snap.metadata.fromCache) recordServerCount("pallets", snap.size);
         ok("מלאי", snap.metadata.fromCache);
       },
       fail("מלאי"),
@@ -276,6 +292,7 @@ export function usePlanning(
       { includeMetadataChanges: true },
       (snap) => {
         setActuals(snap.docs.map((item) => ({ ...item.data(), id: item.id }) as Actual));
+        if (!snap.metadata.fromCache) recordServerCount("packaging", snap.size);
         ok("אריזות", snap.metadata.fromCache);
       },
       fail("אריזות"),
@@ -308,6 +325,22 @@ export function usePlanning(
       },
     );
   }, [start, end, wantsSnapshots]);
+
+  useEffect(() => {
+    const required = [
+      serverReadCounts.settings,
+      ...(wantsPlans ? [serverReadCounts.plans] : []),
+      ...(wantsPallets ? [serverReadCounts.pallets] : []),
+      ...(wantsActuals ? [serverReadCounts.packaging] : []),
+      ...(wantsShipments ? [serverReadCounts.shipments] : []),
+    ];
+    if (required.some((value) => value === null)) return;
+    recordPlanningReadCounts(auth.currentUser?.email, {
+      recordedAt: new Date().toISOString(),
+      tab: wantsPallets && wantsActuals && wantsShipments ? "fiveWeeks/full" : "planning",
+      ...serverReadCounts,
+    });
+  }, [serverReadCounts, wantsPlans, wantsPallets, wantsActuals, wantsShipments]);
 
   async function save(
     collectionName: string,
