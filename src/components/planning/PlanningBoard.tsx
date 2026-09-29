@@ -230,16 +230,16 @@ export default function PlanningBoard({
       const allWithoutCurrentDeliveries = all.map((week) =>
         week.id === effectiveNext.id ? withoutDeliveries : week
       );
-      const unrelatedError = validatePlanningWeek(
-        withoutDeliveries,
-        settings,
-        allWithoutCurrentDeliveries,
-        today,
+      error = validatePlanningWeek(withoutDeliveries, settings, allWithoutCurrentDeliveries, today);
+    }
+    if (error && packagingWasEdited && !confirmBrews) {
+      const packagingOnly = { ...effectiveNext, deliveries: [], brews: [] };
+      const allPackagingOnly = all.map((week) =>
+        week.id === effectiveNext.id ? packagingOnly : week
       );
-      // If the edited packaging/brew state is valid on its own, the error belongs
-      // exclusively to the already-saved shipment decision. Never carry that
-      // legacy shipment error into an unrelated scheduling save.
-      error = unrelatedError;
+      // A packaging move must not be blocked by an unchanged historical brew
+      // decision from earlier in the same week. Validate the thing being edited.
+      error = validatePlanningWeek(packagingOnly, settings, allPackagingOnly, today);
     }
     if (error) throw new Error(error);
 
