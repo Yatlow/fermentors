@@ -428,6 +428,7 @@ export function usePlanning(
         tx.set(shipmentQueueRef, {
           id,
           revision: next.revision,
+          projectionVersion: 1,
           deliveries: queueDeliveries,
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser!.uid,
