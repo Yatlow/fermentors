@@ -250,7 +250,7 @@ service cloud.firestore {
         && request.resource.data.note is string && request.resource.data.note.size() <= 5000
         && request.resource.data.maxRuns in [0,1,2,3,4,5]
         && request.resource.data.get('deliveries', []) is list
-        && request.resource.data.get('deliveries', []).size() <= 60
+        && (request.resource.data.get('deliveries', []).size() <= 60 || request.resource.data.get('deliveries', []) == resource.data.get('deliveries', []))
         && request.resource.data.get('deliveryDates', []) is list
         && request.resource.data.get('deliveryDates', []).size() <= 14
         && request.resource.data.get('dismissedRecommendations', []) is list
