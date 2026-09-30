@@ -25,7 +25,7 @@ import { buildShipmentRecommendation } from "./shipmentRecommendation";
 import { brewSizeLabel, tankReleases, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
-import { buildPlanningTimelineV2, timelineBrewCandidatesForWeek, timelinePackagingCandidatesForWeek } from "./planningTimelineV2";
+import { buildPlanningTimelineV2, compareTimelineAvailability, timelineBrewCandidatesForWeek, timelinePackagingCandidatesForWeek, type TimelineParity } from "./planningTimelineV2";
 import { planningTargetsForStyle } from "./planningTargets";
 
 export type WeeklyStage = "base" | "afterShipment" | "afterPackaging" | "committed";
@@ -96,6 +96,8 @@ export type WeeklyPlanningModel = {
   /** Tank capacity available at the start of the selected week, before that week's decisions. */
   brewTankCapacity: number;
   tankAvailableLiters: Map<string, number>;
+  /** Shadow-only V1↔V2 tank availability comparison. Never drives decisions. */
+  timelineParity: TimelineParity[];
 };
 
 function forecastSettings(settings: Settings, today: string): Settings {
@@ -543,6 +545,9 @@ export function buildWeeklyPlanningModel(args: {
     weekEnd,
   );
 
+  const legacyReleasesForParity = tankReleases(sources, tanks, forecastPlans, normalized, actuals, today);
+  const timelineParity = compareTimelineAvailability(timelineV2, legacyReleasesForParity);
+
   const brew = buildBrewRecommendation(
     normalized,
     rows.afterPackaging,
@@ -585,5 +590,6 @@ export function buildWeeklyPlanningModel(args: {
     availableBrewTanks: brew.capacity,
     brewTankCapacity: brew.capacityBeforeCurrent,
     tankAvailableLiters,
+    timelineParity,
   };
 }
