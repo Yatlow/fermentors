@@ -27,13 +27,17 @@ export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): s
   const encoded = brewIdFromRecommendationId(run.id);
   if (encoded && plans.some((week) => week.brews?.some((brew) => brew.id === encoded))) return encoded;
 
+  // Legacy snapshot inference is only safe when a batch number is present.
+  // Tank-only matching can silently attach today's physical packaging to a
+  // different future cycle planned on the same tank.
   const batch = normalizedBatch(run.batchNumber);
+  if (!batch) return null;
   const date = String(run.date ?? "");
   const brews = plans
     .flatMap((week) => week.brews ?? [])
     .filter((brew) => {
       if (run.tankId && brew.tankId !== run.tankId) return false;
-      if (batch && normalizedBatch(brew.batchNumber) !== batch) return false;
+      if (normalizedBatch(brew.batchNumber) !== batch) return false;
       if (date && brew.date > date) return false;
       return true;
     })
