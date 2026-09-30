@@ -3,6 +3,8 @@ import { db } from "../../firebase";
 import { addDays, dateKey, weekStart } from "../planning/planningEngine";
 
 export type PlannedBrewHint = {
+  /** Canonical planning cycle identity. */
+  brewId: string;
   batchNumber: string;
   style: string;
   tankId: string;
@@ -10,6 +12,7 @@ export type PlannedBrewHint = {
 };
 
 type BrewPlanWithMeta = {
+  id?: string;
   batchNumber?: string;
   style?: string;
   tankId?: string;
@@ -23,6 +26,7 @@ function hintsFromData(data: unknown): PlannedBrewHint[] {
   return brews
     .filter((brew) => !!brew.batchNumber)
     .map((brew) => ({
+      brewId: String(brew.id || ""),
       batchNumber: String(brew.batchNumber),
       style: String(brew.style || ""),
       tankId: String(brew.tankId || ""),
@@ -34,7 +38,9 @@ function mergeWeekHints(today: string, current: PlannedBrewHint[], next: Planned
   const seen = new Set<string>();
   return [...next, ...current]
     .filter((hint) => {
-      const key = String(hint.batchNumber).replace("#", "").trim();
+      // Stable brewId wins. Batch remains a legacy execution fallback for queues
+      // written before canonical planning identity existed.
+      const key = hint.brewId || `legacy-batch:${String(hint.batchNumber).replace("#", "").trim()}`;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
