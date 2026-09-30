@@ -297,9 +297,29 @@ export default function PlanningWeeklyRecommendations({
     const shipmentProducts = [...products].sort((a, b) =>
         (expectedShipmentCover(a) ?? Infinity) - (expectedShipmentCover(b) ?? Infinity),
     );
-    const packagingProducts = [...products].sort((a, b) =>
-        (model.rows.afterShipment.get(a.id)?.totalCover ?? Infinity) - (model.rows.afterShipment.get(b.id)?.totalCover ?? Infinity),
-    );
+    const specialPackagingStyles = packagingTankPool
+        .filter((tank) =>
+            tank.ready <= model.weekEnd &&
+            !isCoreStyle(tank.style) &&
+            (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20
+        )
+        .map((tank) => tank.style);
+    const packagingProducts = [
+        ...products,
+        ...settings.products.filter((p) =>
+            specialPackagingStyles.some((style) => sameStyle(style, p.style)) &&
+            !products.some((known) => known.id === p.id)
+        ),
+    ].sort((a, b) => {
+        const aCore = isCoreStyle(a.style);
+        const bCore = isCoreStyle(b.style);
+        if (aCore !== bCore) {
+            const anchor = "פייל";
+            if (!aCore && sameStyle(b.style, anchor)) return -1;
+            if (!bCore && sameStyle(a.style, anchor)) return 1;
+        }
+        return (model.rows.afterShipment.get(a.id)?.totalCover ?? Infinity) - (model.rows.afterShipment.get(b.id)?.totalCover ?? Infinity);
+    });
 
     function beginEdit(kind: Kind, truckId?: string) {
         setEditing(kind);
@@ -1065,7 +1085,7 @@ export default function PlanningWeeklyRecommendations({
                         </div> : null;
                     })()}
 
-                    {manualPacks.map((r) => {
+                    {false && manualPacks.map((r) => {
                         const remaining = r.tankId ? remainingLitersForTank(r.tankId, r.id) : 0;
                         const p = product(r.productId);
                         const max = manualMaxQuantity(p, r.tankId, r.id);
@@ -1097,7 +1117,7 @@ export default function PlanningWeeklyRecommendations({
                             </div>
                         </div>;
                     })}
-                    <button type="button" onClick={() => addManualPack()}>+ הוסף אריזה</button>
+
                 </div>}
 
                 <div className="bp-shipment-plan-table">
@@ -1117,7 +1137,7 @@ export default function PlanningWeeklyRecommendations({
                         const unavailable = rec <= 0 && remaining <= 0 && !hasPackagingSource(p);
                         return <div className={`bp-shipment-plan-row ${tone} ${remaining > 0 ? "is-decided" : ""} ${unavailable ? "is-unavailable" : ""}`} key={p.id}>
                             <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
-                            <span>{coverLabel(before?.totalCover ?? null)}</span>
+                            <span>{isCoreStyle(p.style) ? coverLabel(before?.totalCover ?? null) : "ללא יעד מלאי מוגדר"}</span>
                             <span>
                                 {rec > 0 ? `${fmt(rec)} ${p.type === "crates" ? "ארגזים" : "חביות"}` : "—"}
                                 {recTank && <small>{recTank}</small>}
