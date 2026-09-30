@@ -35,14 +35,14 @@ test("future packaging attaches to its future batch before that beer exists phys
   assert.equal(cycle.emptyDate, "2026-11-26");
 });
 
-test("legacy dated packaging binds to the latest started cycle, never a later reuse", () => {
+test("legacy dated packaging requires batch identity and never binds by tank/date alone", () => {
   const w1 = week("2026-11-01");
   w1.brews = [{ id: "b1604", style: "IPA", tankId: "tank9", date: "2026-11-02", liters: 3000, batchNumber: "1604" }];
   const w2 = week("2026-11-29");
   w2.brews = [{ id: "b1612", style: "IPA", tankId: "tank9", date: "2026-11-30", liters: 3000, batchNumber: "1612" }];
   w1.packaging = [{ id: "legacy", productId: "ipa-kegs", quantity: 100, tankId: "tank9", date: "2026-11-24", emptyTank: true }];
   const schedule = projectTankSchedules([w1, w2], settings).get("tank9")!;
-  assert.equal(schedule[0].packaging[0].planId, "legacy");
+  assert.equal(schedule[0].packaging.length, 0);
   assert.equal(schedule[1].packaging.length, 0);
 });
 
