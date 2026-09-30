@@ -285,11 +285,15 @@ export function validateBrewReleases(
     if (!b.tankId) continue;
     const tank = tanks.find((t) => t.id === b.tankId);
     const source = sources.find((s) => s.id === b.tankId);
-    const workLiters = num(source?.beerVolume) || estimatedBrewVolume(source?.tankNumber ?? tank?.number, b.style);
+    // Validate the FUTURE planned cycle against the tank's estimated brew
+    // capacity for that style. source.beerVolume is the volume of the beer
+    // physically in the tank now (e.g. after process/shrinkage) and must not
+    // cap a later planned brew.
+    const workLiters = estimatedBrewVolume(source?.tankNumber ?? tank?.number, b.style);
     if (!workLiters)
       return `למיכל ${source?.tankNumber ?? tank?.number ?? b.tankId} חסר נפח עבודה ולא ניתן היה לחשב אומדן`;
     if (b.liters > workLiters)
-      return `מיכל ${source?.tankNumber ?? tank?.number ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב הוא ${Math.round(workLiters)} ל׳`;
+      return `מיכל ${source?.tankNumber ?? tank?.number ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב לבישול ${b.style} הוא ${Math.round(workLiters)} ל׳`;
 
     const cycles = orderedTankSchedule(schedules.get(b.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
     const cycle = cycles.find((item) => item.cycleId === b.id);
