@@ -484,14 +484,29 @@ export default function PlanningGantt(props: Props) {
 
   function weeklyTotals(weekId: string) {
     const plan = simulations.get(weekId)?.effectivePlan ?? decisionPlanFor(weekId);
-    if (!plan) return { packaging: 0, brewing: 0 };
-    const packaging = plan.packaging.reduce((sum, run) => {
+    const plannedPackaging = (plan?.packaging ?? []).reduce((sum, run) => {
       const product = productFor(run.productId);
       return sum + (product && run.quantity > 0 ? packageLiters(run.quantity, product.type) : 0);
     }, 0);
+    const actualPackaging = actuals.reduce((sum, actual) => {
+      const date = actualDate(actual);
+      if (!date || weekStart(date) !== weekId || Number(actual.quantity) <= 0) return sum;
+      const product = settings.products.find((candidate) => matchesActual(candidate, actual));
+      const quantity = product ? actualUnits(product, actual) : Number(actual.quantity) || 0;
+      const type = product?.type ?? (actual.packagingType === "kegs" ? "kegs" : "crates");
+      return sum + packageLiters(quantity, type);
+    }, 0);
+    const actualBrewing = sources.reduce((sum, source) => {
+      const brewDate = parseDate(source.brewDate ?? "");
+      if (!brewDate || weekStart(brewDate) !== weekId || brewDate >= today) return sum;
+      return sum + Math.max(0, Number(source.beerVolume) || 0);
+    }, 0);
+    const plannedBrewing = (plan?.brews ?? [])
+      .filter((brew) => brew.date >= today)
+      .reduce((sum, brew) => sum + Math.max(0, Number(brew.liters) || 0), 0);
     return {
-      packaging,
-      brewing: plan.brews.reduce((sum, brew) => sum + Math.max(0, Number(brew.liters) || 0), 0),
+      packaging: actualPackaging + plannedPackaging,
+      brewing: actualBrewing + plannedBrewing,
     };
   }
 
