@@ -1061,63 +1061,6 @@ export default function PlanningWeeklyRecommendations({
                         </div>;
                     }) : <small>אין המלצות נוספות מעבר להחלטות שכבר נקבעו.</small>}
 
-                    {(() => {
-                        const recommendedCycles = new Set(model.packagingRecommendation.map((rec) =>
-                            rec.brewId ? `planned:${rec.brewId}` : rec.tankId
-                        ));
-                        const savedCycles = new Set(current.packaging.map((run) =>
-                            run.brewId ? `planned:${run.brewId}` : run.tankId
-                        ));
-                        const additionalTanks = packagingTankPool.filter((tank) =>
-                            tank.ready <= model.weekEnd &&
-                            isCoreStyle(tank.style) &&
-                            (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20 &&
-                            !recommendedCycles.has(tank.id) &&
-                            !savedCycles.has(tank.id)
-                        );
-                        return additionalTanks.length ? <div className="bp-available-tanks">
-                            <b>הצעות זמינות נוספות</b>
-                            {additionalTanks.map((tank) =>
-                                <button type="button" key={tank.id} disabled={busy} onClick={() => addManualPack(tank.id)}>
-                                    מיכל {tank.number} · {displayStyle(tank.style)} · {fmt(model.tankAvailableLiters.get(tank.id) ?? tank.liters)} ל׳{tank.id.startsWith("planned:") ? " · מתוכנן" : ""}
-                                </button>
-                            )}
-                        </div> : null;
-                    })()}
-
-                    {false && manualPacks.map((r) => {
-                        const remaining = r.tankId ? remainingLitersForTank(r.tankId, r.id) : 0;
-                        const p = product(r.productId);
-                        const max = manualMaxQuantity(p, r.tankId, r.id);
-                        const valid = !!r.tankId && !!r.productId && r.quantity > 0;
-                        return <div className="bp-manual-pack" key={r.id}>
-                            <label>מיכל
-                                <select value={r.tankId} onChange={(e) => changeManualTank(r.id, e.target.value)}>
-                                    <option value="">בחר מיכל</option>
-                                    {packagingTankPool.filter((t) => t.ready <= model.weekEnd && !isCoreStyle(t.style) && (model.tankAvailableLiters.get(t.id) ?? t.liters) >= 20).map((t) =>
-                                        <option value={t.id} key={t.id}>מיכל {t.number} · {displayStyle(t.style)} · {fmt(model.tankAvailableLiters.get(t.id) ?? t.liters)} ל׳{t.id.startsWith("planned:") ? " · מתוכנן" : ""}</option>)}
-                                </select>
-                            </label>
-                            <label>סוג אריזה
-                                <select value={r.productId} disabled={!r.tankId} onChange={(e) => changeManualProduct(r.id, e.target.value)}>
-                                    <option value="">בחר</option>
-                                    {manualProductsForTank(r.tankId).map((item) => <option value={item.id} key={item.id}>{item.type === "crates" ? "ארגזים" : "חביות"}</option>)}
-                                </select>
-                            </label>
-                            <label>כמות
-                                <input type="number" min="0" max={max || undefined} value={r.quantity || ""} onChange={(e) => {
-                                    const value = Math.max(0, Number(e.target.value));
-                                    setManualPacks((rows) => rows.map((x) => x.id === r.id ? { ...x, quantity: Math.min(value, max) } : x));
-                                }} />
-                                <small>יתרה במיכל לפני שורה זו: {fmt(remaining)} ל׳{p?.type === "crates" ? ` · עד ${MAX_MANUAL_CRATES} ארגזים באריזה ידנית` : ""}</small>
-                            </label>
-                            <div className="bp-manual-pack-actions">
-                                <button type="button" disabled={!valid || busy} onClick={savePackaging}>שמור אריזה</button>
-                                <button type="button" onClick={() => setManualPacks((rows) => rows.filter((x) => x.id !== r.id))}>הסר</button>
-                            </div>
-                        </div>;
-                    })}
-
                 </div>}
 
                 <div className="bp-shipment-plan-table">
