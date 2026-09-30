@@ -345,7 +345,7 @@ function processAction5(
     // Legacy/manual Sheets have no pendingBrews document. Only then pay for
     // Drive Changes + recursive folder discovery, once per execution.
     if (context.candidates === null) {
-      context.candidates = getBrewFolderCandidatesCached();
+      context.candidates = getBrewFolderCandidatesCached(currentBatch);
       Logger.log("ACTION 5 legacy Drive candidates prepared: " + context.candidates.length);
     }
     nextBrew = findNextBrewForTankRecursive(
@@ -696,7 +696,7 @@ function extractBrewCached(
 //
 // ============================================================
 
-function getBrewFolderCandidatesCached() {
+function getBrewFolderCandidatesCached(minBatchExclusive) {
 
   const props =
     PropertiesService.getScriptProperties();
@@ -779,8 +779,9 @@ function getBrewFolderCandidatesCached() {
       "No full scan performed."
     );
 
-    return JSON.parse(
-      snapshotJson
+    return filterBrewCandidatesAfterBatch_(
+      JSON.parse(snapshotJson),
+      minBatchExclusive
     );
   }
 
@@ -794,8 +795,9 @@ function getBrewFolderCandidatesCached() {
       "ACTION 5: Drive folder unchanged - using snapshot."
     );
 
-    return JSON.parse(
-      snapshotJson
+    return filterBrewCandidatesAfterBatch_(
+      JSON.parse(snapshotJson),
+      minBatchExclusive
     );
   }
 
@@ -826,7 +828,19 @@ function getBrewFolderCandidatesCached() {
     candidates.length
   );
 
-  return candidates;
+  return filterBrewCandidatesAfterBatch_(
+    candidates,
+    minBatchExclusive
+  );
+}
+
+
+function filterBrewCandidatesAfterBatch_(candidates, minBatchExclusive) {
+  const floor = parseBatchNumber(minBatchExclusive);
+  if (floor === null) return candidates || [];
+  return (candidates || []).filter(function (candidate) {
+    return Number(candidate.batch) > floor;
+  });
 }
 
 
