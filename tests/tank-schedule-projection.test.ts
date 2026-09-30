@@ -153,7 +153,7 @@ test("persistence diff writes only tanks whose projected lifecycle changed", () 
 
 test("tank-only legacy packaging is never projected onto a future cycle", () => {
   const plan = {
-    ...emptyWeek("2026-10-04"),
+    ...week("2026-10-04"),
     brews: [{ id: "brew-1601", style: "IPA", liters: 3000, tankId: "tank-8", date: "2026-10-05", batchNumber: "1601" }],
     packaging: [{ id: "legacy-tank-8", productId: "ipa-crates", quantity: 100, tankId: "tank-8", date: "2026-10-20", emptyTank: true }],
   };
