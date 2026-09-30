@@ -1009,7 +1009,6 @@ export default function PlanningWeeklyRecommendations({
                             {current.packaging.length ? "הוסף אריזות מהמלצה לביצוע" : "צור אריזות מההמלצה"}
                         </button>
                         <button disabled={disabled || busy} onClick={() => beginEdit("packaging")}>עריכת האריזות</button>
-                        <button disabled={disabled || busy} onClick={() => { beginEdit("packaging"); addManualPack(); }}>+ אריזה ידנית</button>
                     </>}
                 </div>
 
