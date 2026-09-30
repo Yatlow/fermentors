@@ -394,8 +394,9 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
     function updateRow(key: string, patch: Partial<PackRow>) {
         setRows((currentRows) => {
-            const edited = currentRows.find((row) => row.key === key);
-            if (!edited) return currentRows;
+            const editedIndex = currentRows.findIndex((row) => row.key === key);
+            if (editedIndex < 0) return currentRows;
+            const edited = currentRows[editedIndex];
             const nextEdited = { ...edited, ...patch };
             if (patch.tankId !== undefined || patch.productId !== undefined) {
                 nextEdited.quantity = defaultQuantityForSelection(nextEdited.productId, nextEdited.tankId, currentRows, key, nextEdited.completed);
@@ -403,25 +404,24 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
             let nextRows = currentRows.map((row) => row.key === key ? nextEdited : row);
             if (patch.quantity !== undefined && nextEdited.tankId) {
-                // A tank's packaging rows share one finite volume. When one row
-                // changes, clamp the other rows from that same tank immediately
-                // instead of only showing a stale "maximum" hint.
-                let remaining = model.tankAvailableLiters.get(nextEdited.tankId)
+                const capacity = model.tankAvailableLiters.get(nextEdited.tankId)
                     ?? tanks.find((tank) => tank.id === nextEdited.tankId)?.liters
                     ?? 0;
-                nextRows = nextRows.map((row) => {
-                    if (row.tankId !== nextEdited.tankId) return row;
+                const editedProduct = product(nextEdited.productId);
+                if (!editedProduct) return nextRows;
+
+                // The edited row wins. Rebalance the other packaging rows from
+                // the same tank against whatever volume remains.
+                let remaining = Math.max(0, capacity - pendingUnits(nextEdited) * litersPerUnit(editedProduct));
+                nextRows = nextRows.map((row, index) => {
+                    if (index === editedIndex || row.tankId !== nextEdited.tankId) return row;
                     const p = product(row.productId);
                     if (!p) return row;
-                    if (row.key === key) {
-                        remaining = Math.max(0, remaining - pendingUnits(row) * litersPerUnit(p));
-                        return row;
-                    }
                     const maxPending = Math.max(0, Math.floor((remaining + 1e-8) / litersPerUnit(p)));
-                    const wantedPending = pendingUnits(row);
-                    const clampedPending = Math.min(wantedPending, p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, maxPending) : maxPending);
+                    const capped = p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, maxPending) : maxPending;
+                    const clampedPending = Math.min(pendingUnits(row), capped);
                     remaining = Math.max(0, remaining - clampedPending * litersPerUnit(p));
-                    return clampedPending === wantedPending ? row : { ...row, quantity: row.completed + clampedPending };
+                    return clampedPending === pendingUnits(row) ? row : { ...row, quantity: row.completed + clampedPending };
                 });
             }
             return nextRows;
