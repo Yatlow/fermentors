@@ -72,3 +72,31 @@ export function upsertTankScheduleCycle(cycles: TankScheduleCycle[], incoming: T
   if (conflicts.length) throw new Error(conflicts[0].message);
   return ordered;
 }
+
+
+export function tankAvailableForBrewAt(cycles: TankScheduleCycle[], date: string): boolean {
+  return tankCycleAt(cycles, date) === null;
+}
+
+export function nextPlannedEmptying(cycles: TankScheduleCycle[], fromDate: string): string | null {
+  return orderedTankSchedule(cycles)
+    .filter((cycle) => cycle.status !== "cancelled" && cycle.emptyDate && cycle.emptyDate >= fromDate)
+    .map((cycle) => cycle.emptyDate!)
+    .sort()[0] ?? null;
+}
+
+export function packagingCyclesAt(
+  schedules: Map<string, TankScheduleCycle[]>,
+  style: string,
+  date: string,
+): Array<{ tankId: string; cycle: TankScheduleCycle }> {
+  const normalizedStyle = style.trim().toLowerCase();
+  const matches: Array<{ tankId: string; cycle: TankScheduleCycle }> = [];
+  for (const [tankId, cycles] of schedules) {
+    const cycle = tankCycleAt(cycles, date);
+    if (!cycle || cycle.style.trim().toLowerCase() !== normalizedStyle) continue;
+    if (cycle.readyDate && cycle.readyDate > date) continue;
+    matches.push({ tankId, cycle });
+  }
+  return matches.sort((a, b) => a.tankId.localeCompare(b.tankId));
+}
