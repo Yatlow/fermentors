@@ -535,7 +535,10 @@ export default function PlanningWeeklyRecommendations({
 
     function manualProductsForTank(tankId: string) {
         const t = packagingTankById(tankId);
-        return t ? products.filter((p) => sameStyle(p.style, t.style)) : [];
+        // Manual packaging is deliberately broader than the core-range planning
+        // table. Seasonal/special styles (e.g. Winter) must still expose their
+        // configured keg/crate SKUs when a real tank cycle is selected.
+        return t ? settings.products.filter((p) => sameStyle(p.style, t.style)) : [];
     }
 
     function manualMaxQuantity(p: Product | undefined, tankId: string, manualId: string) {
