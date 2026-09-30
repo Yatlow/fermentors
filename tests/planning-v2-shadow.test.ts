@@ -38,6 +38,7 @@ test("historical packaging from a previous tank lifecycle cannot empty the curre
 
 test("future brew remains an occupancy of the physical tank and can own later packaging", () => {
   const plans = [
+    week("2026-09-27", [{ productId: "ipa-kegs", quantity: 150, date: "2026-10-02", tankId: "tank-9", batchNumber: "1600", emptyTank: true }]),
     week("2026-10-04", [], [{ id: "brew-1604", style: "IPA", tankId: "tank-9", date: "2026-10-05", liters: 3000, batchNumber: "1604" }]),
     week("2026-10-25", [{ productId: "ipa-crates", quantity: 252, date: "2026-10-28", tankId: "tank-9", batchNumber: "1604", emptyTank: true }]),
   ];
@@ -74,4 +75,18 @@ test("release after week-44 emptying remains available in week 45", () => {
     plans: [week("2026-10-25", [{ productId: "ipa-kegs", quantity: 150, date: "2026-10-28", tankId: "tank-9", emptyTank: true }])],
   });
   assert.equal(timeline.availability.find((x) => x.tankId === "tank-9")?.date, "2026-11-02");
+});
+
+test("packaging after a second future brew belongs only to the second occupancy", () => {
+  const plans = [
+    week("2026-09-27", [{ productId: "ipa-kegs", quantity: 150, date: "2026-10-02", tankId: "tank-9", batchNumber: "1600", emptyTank: true }]),
+    week("2026-10-04", [], [{ id: "brew-1604", style: "IPA", tankId: "tank-9", date: "2026-10-05", liters: 3000, batchNumber: "1604" }]),
+    week("2026-10-25", [{ productId: "ipa-kegs", quantity: 150, date: "2026-10-28", tankId: "tank-9", batchNumber: "1604", emptyTank: true }], [{ id: "brew-1605", style: "IPA", tankId: "tank-9", date: "2026-10-30", liters: 3000, batchNumber: "1605" }]),
+    week("2026-11-15", [{ productId: "ipa-crates", quantity: 252, date: "2026-11-20", tankId: "tank-9", batchNumber: "1605", emptyTank: true }]),
+  ];
+  const timeline = buildPlanningTimelineV2({ today: "2026-09-30", settings, sources: [source("tank-9", 9)], tanks: [tank("tank-9", "9")], actuals: [], plans });
+  const first = timeline.occupancies.find((x) => x.id === "planned:brew-1604");
+  const second = timeline.occupancies.find((x) => x.id === "planned:brew-1605");
+  assert.deepEqual(first?.packaging.map((x) => x.date), ["2026-10-28"]);
+  assert.deepEqual(second?.packaging.map((x) => x.date), ["2026-11-20"]);
 });
