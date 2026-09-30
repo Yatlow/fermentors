@@ -14,7 +14,9 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import type { Pallet } from "../cooler/Pallettypes ";
-import { tankReleases, weekday, type TankSource } from "./productionCycle";
+import { nextBrewingWeek, tankReleases, weekday, type TankSource } from "./productionCycle";
+import { projectTankSchedules } from "./tankScheduleProjection";
+import { orderedTankSchedule } from "./tankSchedule";
 
 export type BrewProposal = BrewPlan & { reason: string; readyDate: string; dependent: boolean };
 
@@ -34,13 +36,34 @@ export function brewProposals(
   today: string,
 ): BrewProposal[] {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
-  const booked = new Set(plans.flatMap((w) => w.brews).filter((b) => b.date >= today).map((b) => b.tankId));
+  const schedules = projectTankSchedules(plans, settings);
+  const blocked = new Set<string>();
+  const committedRelease = new Map<string, string>();
+
+  // A tankId is not a permanent reservation. The latest committed cycle owns the
+  // tank until its own emptying; after that cycle it can be proposed again.
+  for (const [tankId, rawCycles] of schedules) {
+    const cycles = orderedTankSchedule(rawCycles)
+      .filter((cycle) => cycle.status !== "cancelled" && cycle.brewDate >= today);
+    const latest = cycles.at(-1);
+    if (!latest) continue;
+    if (!latest.emptyDate) blocked.add(tankId);
+    else committedRelease.set(tankId, nextBrewingWeek(latest.emptyDate));
+  }
+
+  const effectiveReleases = releases.map((release) => {
+    const committed = committedRelease.get(release.tankId);
+    return committed && (!release.date || committed > release.date)
+      ? { ...release, date: committed, emptyDate: committed, reason: "לאחר ריקון המחזור המתוכנן האחרון וניקיון חמישי" }
+      : release;
+  });
+  const booked = new Set<string>(blocked);
   const result: BrewProposal[] = [];
   const horizon = addDays(weekStart(today), 84);
 
   for (const need of brewAdvice(settings, pallets, tanks, plans, today).sort((a, b) => a.brewBy.localeCompare(b.brewBy))) {
     let remaining = need.liters;
-    for (const release of releases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
+    for (const release of effectiveReleases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
       if (remaining <= 0) break;
       const date = firstBrewDay([today, release.date!].sort().at(-1)!);
       if (date >= horizon) continue;
@@ -60,9 +83,6 @@ export function brewProposals(
     }
   }
 
-  // Capacity policy: a tank released by this plan should not stay empty merely
-  // because the strict target formula has not crossed zero yet. For every free
-  // tank still unused, choose the core style with the lowest total coverage.
   const styleCandidates = [...new Set(settings.products.filter((p) => p.monthly > 0).map((p) => styleKey(p.style)))];
   const coverage = (key: string) => {
     const products = settings.products.filter((p) => styleKey(p.style) === key && p.monthly > 0);
@@ -77,7 +97,7 @@ export function brewProposals(
     return (finished + wip + planned) / demand;
   };
 
-  for (const release of releases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
+  for (const release of effectiveReleases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
     const ranked = styleCandidates.map((key) => ({ key, cover: coverage(key) })).filter((x) => Number.isFinite(x.cover)).sort((a, b) => a.cover - b.cover);
     const chosen = ranked[0];
     if (!chosen) continue;
