@@ -128,12 +128,13 @@ export function futureTanks(
         .filter((p) => sameStyle(p.style, b.style))
         .map((p) => p.leadDays);
       if (!parseDate(b.date) || !b.tankId || !b.liters) return [];
+      const physicalTank = tanks.find((tank) => tank.id === b.tankId);
       return [
         {
           id: `planned:${b.id}`,
-          number: `${b.tankId} · בישול מתוכנן`,
+          number: String(physicalTank?.number ?? b.tankId),
           style: b.style,
-          batch: "מתוכנן",
+          batch: b.batchNumber ? String(b.batchNumber) : "מתוכנן",
           brewed: b.date,
           ready: addDays(b.date, Math.max(...leads, 21)),
           liters: b.liters * 0.9,
