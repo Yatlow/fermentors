@@ -368,31 +368,35 @@ export default function PlanningGantt(props: Props) {
         };
       });
 
-    if (decisions.length) {
-      return decisions.map((item, index) => {
-        const product = productFor(item.productId);
-        const tank = tanks.find((candidate) => candidate.id === item.tankId);
-        const resolvedTank = item.tankNumber ?? tank?.number;
-        return {
-          key: `pack:${item.id ?? index}`,
-          title: product ? `${displayStyle(product.style)} · ${tankLabel(resolvedTank)}` : item.productId,
-          meta: product ? `${fmt(item.quantity)} ${product.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, product.type))} ל׳` : fmt(item.quantity),
-          styleClass: product ? beerStyleClass(product.style).className : undefined,
-        };
-      });
-    }
-    if (actualItems.length) return actualItems;
-    if (weekId < currentWeek) return [];
-    return (simulations.get(weekId)?.packagingRecommendation ?? []).map((item) => {
+    const plannedItems: SummaryItem[] = decisions.map((item, index) => {
       const product = productFor(item.productId);
+      const tank = tanks.find((candidate) => candidate.id === item.tankId);
+      const resolvedTank = item.tankNumber ?? tank?.number;
       return {
-        key: `pack-rec:${item.id}`,
-        title: `${product ? displayStyle(product.style) : item.productId} · ${tankLabel(item.tankNumber)}`,
-        meta: `${fmt(item.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(item.quantity * (product ? (product.type === "crates" ? CRATE_LITERS : KEG_LITERS) : 1))} ל׳`,
+        key: `pack:${item.id ?? index}`,
+        title: product ? `${displayStyle(product.style)} · ${tankLabel(resolvedTank)}` : item.productId,
+        meta: product ? `${fmt(item.quantity)} ${product.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, product.type))} ל׳ · מתוכנן` : fmt(item.quantity),
         styleClass: product ? beerStyleClass(product.style).className : undefined,
-        recommended: true,
       };
     });
+
+    const recommendationItems: SummaryItem[] = decisions.length || weekId < currentWeek
+      ? []
+      : (simulations.get(weekId)?.packagingRecommendation ?? []).map((item) => {
+          const product = productFor(item.productId);
+          return {
+            key: `pack-rec:${item.id}`,
+            title: `${product ? displayStyle(product.style) : item.productId} · ${tankLabel(item.tankNumber)}`,
+            meta: `${fmt(item.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(item.quantity * (product ? (product.type === "crates" ? CRATE_LITERS : KEG_LITERS) : 1))} ל׳`,
+            styleClass: product ? beerStyleClass(product.style).className : undefined,
+            recommended: true,
+          };
+        });
+
+    // Actual packaging is historical fact and is always shown independently of
+    // the planning decision. This lets a partially elapsed week contain both
+    // completed packaging from packagingLog and the remaining planned/recommended run.
+    return [...actualItems, ...plannedItems, ...recommendationItems];
   }
 
   function brewItems(weekId: string): SummaryItem[] {
