@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { projectTankSchedules } from "../src/SERVICES/planning/tankScheduleProjection";
+import { packagingCyclesAt, tankAvailableForBrewAt } from "../src/SERVICES/planning/tankSchedule";
 import type { Settings, WeekPlan } from "../src/SERVICES/planning/planningEngine";
 
 const settings: Settings = {
@@ -58,4 +59,43 @@ test("cycle identity survives forecast batch renumbering after cancellation", ()
   assert.equal(renumbered.plannedBatchNumber, "1604");
   assert.equal(first.batchNumber, undefined);
   assert.equal(renumbered.batchNumber, undefined);
+});
+
+
+test("moving future IPA 1677 from tank 10 to tank 17 moves the same cycle and its packaging", () => {
+  const brewWeek = week("2027-04-04");
+  brewWeek.brews = [{ id: "brew-ipa-1677", style: "IPA", tankId: "tank10", date: "2027-04-05", liters: 4000, batchNumber: "1677" }];
+  const packWeek = week("2027-04-25");
+  packWeek.packaging = [{ id: "pack-1677", productId: "ipa-kegs", quantity: 100, tankId: "tank10", batchNumber: "1677", date: "2027-04-27", emptyTank: true }];
+
+  const before = projectTankSchedules([brewWeek, packWeek], settings);
+  const beforeCycle = before.get("tank10")![0];
+
+  const movedBrewWeek = structuredClone(brewWeek);
+  movedBrewWeek.brews[0].tankId = "tank17";
+  const movedPackWeek = structuredClone(packWeek);
+  movedPackWeek.packaging[0].tankId = "tank17";
+  const after = projectTankSchedules([movedBrewWeek, movedPackWeek], settings);
+  const afterCycle = after.get("tank17")![0];
+
+  assert.equal(beforeCycle.cycleId, "tank10:brew-ipa-1677");
+  assert.equal(afterCycle.cycleId, "tank17:brew-ipa-1677");
+  assert.equal(afterCycle.plannedBatchNumber, "1677");
+  assert.equal(afterCycle.packaging[0].planId, "pack-1677");
+  assert.equal(after.get("tank10"), undefined);
+});
+
+test("availability selectors see later reuse and future packaging from the projected timeline", () => {
+  const first = week("2026-11-01");
+  first.brews = [{ id: "b1604", style: "IPA", tankId: "tank9", date: "2026-11-02", liters: 3000, batchNumber: "1604" }];
+  first.packaging = [{ id: "empty1604", productId: "ipa-kegs", quantity: 100, tankId: "tank9", batchNumber: "1604", date: "2026-11-26", emptyTank: true }];
+  const second = week("2026-11-29");
+  second.brews = [{ id: "b1612", style: "IPA", tankId: "tank9", date: "2026-11-30", liters: 3000, batchNumber: "1612" }];
+  second.packaging = [{ id: "empty1612", productId: "ipa-kegs", quantity: 100, tankId: "tank9", batchNumber: "1612", date: "2026-12-24", emptyTank: true }];
+
+  const schedules = projectTankSchedules([first, second], settings);
+  const tank9 = schedules.get("tank9")!;
+  assert.equal(tankAvailableForBrewAt(tank9, "2026-11-27"), true);
+  assert.equal(tankAvailableForBrewAt(tank9, "2026-12-10"), false);
+  assert.deepEqual(packagingCyclesAt(schedules, "IPA", "2026-12-22").map((item) => item.cycle.plannedBatchNumber), ["1612"]);
 });
