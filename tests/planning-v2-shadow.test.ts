@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildPlanningTimelineV2, compareTimelineAvailability, timelineBrewCandidatesForWeek, timelineForTank, timelinePackagingCandidatesForWeek } from "../src/SERVICES/planning/planningTimelineV2";
-import type { Settings, Tank, TankInput, WeekPlan } from "../src/SERVICES/planning/planningEngine";
+import type { Settings, Tank, WeekPlan } from "../src/SERVICES/planning/planningEngine";
+import type { TankSource } from "../src/SERVICES/planning/productionCycle";
 
 const settings: Settings = {
   revision: 1, targetWeeks: 5, totalTargetWeeks: 8.5, preferredRuns: 4, lossPercent: 10,
@@ -10,7 +11,7 @@ const settings: Settings = {
     { id: "ipa-crates", sku: "ipa-crates", style: "IPA", type: "crates", monthly: 0, tempo: 0, tempoDate: "2026-09-30", leadDays: 21 },
   ],
 };
-const source = (id: string, tankNumber: number): TankInput => ({ id, tankNumber, beerStyle: "IPA", brewDate: "01/09/2026", beerVolume: 4000, batchNumber: 1600, tankStatus: false });
+const source = (id: string, tankNumber: number): TankSource => ({ id, tankNumber, beerStyle: "IPA", brewDate: "01/09/2026", beerVolume: 4000, batchNumber: 1600, tankStatus: false });
 const tank = (id: string, number: string): Tank => ({ id, number, style: "IPA", batch: "1600", brewed: "2026-09-01", ready: "2026-09-22", liters: 3000, cold: true });
 const week = (id: string, packaging: WeekPlan["packaging"] = [], brews: WeekPlan["brews"] = []): WeekPlan => ({ id, revision: 1, packaging, brews, note: "", maxRuns: 4 });
 
