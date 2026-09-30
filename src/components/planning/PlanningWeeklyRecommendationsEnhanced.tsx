@@ -524,7 +524,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         </div>}
 
         <div ref={plannerRef} onClickCapture={handleCapture} className="bp-enhanced-weekly-planner">
-            <PlanningWeeklyRecommendations {...props} />
+            <PlanningWeeklyRecommendations {...props} initialSelectedWeek={selectedWeek} />
         </div>
 
         {packStyle !== undefined && <div className="bp-pack-modal-backdrop" role="presentation" onMouseDown={(event) => {
