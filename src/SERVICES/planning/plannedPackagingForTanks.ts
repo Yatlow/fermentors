@@ -94,9 +94,10 @@ async function loadFuturePackagingMaps() {
 
         // Canonical brew identity is authoritative. The packaging row's tank and
         // batch are legacy snapshots and can be stale after a future brew is moved
-        // or renumbered.
+        // or renumbered. tankId is the stable tank key; tankNumber remains only a
+        // display/legacy lookup fallback.
         const canonicalTankId = linkedBrew?.tankId ?? run.tankId;
-        const canonicalTankNumber = linkedBrew?.tankNumber ?? run.tankNumber;
+        const canonicalTankNumber = run.tankNumber;
         const canonicalBatch = linkedBrew?.batchNumber ?? run.batchNumber;
         const keys = [
           planningKey(canonicalTankNumber, canonicalBatch),
