@@ -846,7 +846,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         // If it was missed, escalate to 3 until the test is performed.
         requiresCarbTest.importance = CoolAge > 1 ? 3 : 2;
     }
-    const YeastDroppedToday = lastNote?.includes("שמרים");
+    const todayMeasurementNotes = sortedMeasurements
+        .filter((measurement) => getMeasurementDate(measurement.id) === todayDate)
+        .map((measurement) => String(measurement.notes ?? ""))
+        .join(" | ");
+    const YeastDroppedToday = /שמרים|שמרי/.test(todayMeasurementNotes);
     const requiiersWedYeastDropOnThus = {
         req: false,
         display: false,
