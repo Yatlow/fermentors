@@ -99,3 +99,37 @@ test("availability selectors see later reuse and future packaging from the proje
   assert.equal(tankAvailableForBrewAt(tank9, "2026-12-10"), false);
   assert.deepEqual(packagingCyclesAt(schedules, "IPA", "2026-12-22").map((item) => item.cycle.plannedBatchNumber), ["1612"]);
 });
+
+
+test("week 44 emptying makes tanks 18, 2 and 9 available for week 45", () => {
+  const week44 = week("2026-10-25");
+  week44.brews = [
+    { id: "current-18", style: "IPA", tankId: "tank18", date: "2026-10-01", liters: 4000, batchNumber: "1701" },
+    { id: "current-2", style: "IPA", tankId: "tank2", date: "2026-10-02", liters: 1300, batchNumber: "1702" },
+    { id: "current-9", style: "IPA", tankId: "tank9", date: "2026-10-03", liters: 4000, batchNumber: "1703" },
+  ];
+  week44.packaging = [
+    { id: "empty-18", productId: "ipa-kegs", quantity: 100, tankId: "tank18", batchNumber: "1701", date: "2026-10-29", emptyTank: true },
+    { id: "empty-2", productId: "ipa-kegs", quantity: 50, tankId: "tank2", batchNumber: "1702", date: "2026-10-29", emptyTank: true },
+    { id: "empty-9", productId: "ipa-kegs", quantity: 100, tankId: "tank9", batchNumber: "1703", date: "2026-10-29", emptyTank: true },
+  ];
+  const schedules = projectTankSchedules([week44], settings);
+  for (const tankId of ["tank18", "tank2", "tank9"]) {
+    assert.equal(tankAvailableForBrewAt(schedules.get(tankId)!, "2026-11-02"), true, tankId);
+  }
+});
+
+test("week 45 reuse is represented without losing the week 44 release", () => {
+  const week44 = week("2026-10-25");
+  week44.brews = [{ id: "old-9", style: "IPA", tankId: "tank9", date: "2026-10-03", liters: 4000, batchNumber: "1703" }];
+  week44.packaging = [{ id: "empty-old-9", productId: "ipa-kegs", quantity: 100, tankId: "tank9", batchNumber: "1703", date: "2026-10-29", emptyTank: true }];
+  const week45 = week("2026-11-01");
+  week45.brews = [{ id: "new-9", style: "IPA", tankId: "tank9", date: "2026-11-02", liters: 4000, batchNumber: "1707" }];
+  const schedules = projectTankSchedules([week44, week45], settings);
+  const tank9 = schedules.get("tank9")!;
+  assert.equal(tank9.length, 2);
+  assert.equal(tank9[0].emptyDate, "2026-10-29");
+  assert.equal(tankAvailableForBrewAt(tank9, "2026-10-30"), true);
+  assert.equal(tankAvailableForBrewAt(tank9, "2026-11-02"), false);
+  assert.equal(tank9[1].cycleId, "new-9");
+});
