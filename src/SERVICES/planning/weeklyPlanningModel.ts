@@ -301,8 +301,8 @@ function buildPackagingRecommendation(
         if (fullByTank <= 0) continue;
         let quantity: number;
         if (p.type === "crates") {
-          const size = brewSizeLabel(originalLiters, tank.number);
-          quantity = size === "בודד" ? Math.min(252, fullByTank) : Math.min(168, fullByTank);
+          const maxByCoverage = Math.floor(Math.max(0, (targets.maxTotalWeeks - cover) * demand) + 1e-8);
+          quantity = Math.min(252, fullByTank, maxByCoverage);
         } else {
           const maxByCoverage = Math.floor(Math.max(0, (targets.maxTotalWeeks - cover) * demand) + 1e-8);
           quantity = Math.min(fullByTank, maxByCoverage);
