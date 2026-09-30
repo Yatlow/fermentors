@@ -11,7 +11,7 @@ export type TankOccupancy = {
 export type TankAvailability = { tankId: string; tankNumber: string; date: string | null; reason: string; occupancyId?: string };
 export type TimelineIssue = { severity: "warning" | "error"; tankId?: string; message: string };
 export type TimelineSupply = { occupancyId: string; tankId: string; tankNumber: string; style: string; batchNumber?: string; readyAt: string; availableLiters: number };
-export type TimelinePackagingCandidate = { occupancyId: string; tankId: string; tankNumber: string; productId: string; style: string; readyAt: string; availableLiters: number; maxUnits: number };
+export type TimelinePackagingCandidate = { occupancyId: string; tankId: string; tankNumber: string; productId: string; style: string; batchNumber?: string; brewedAt: string; readyAt: string; availableLiters: number; maxUnits: number };
 export type TimelineBrewCandidate = { tankId: string; tankNumber: string; availableAt: string; workLiters: number };
 export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[]; availability: TankAvailability[]; issues: TimelineIssue[]; supply: TimelineSupply[]; packagingCandidates: TimelinePackagingCandidate[]; brewCandidates: TimelineBrewCandidate[] };
 
@@ -140,7 +140,7 @@ export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans
       .filter((product) => sameStyle(product.style, entry.style) && weeklyDemand(product) > 0)
       .map((product) => ({
         occupancyId: entry.occupancyId, tankId: entry.tankId, tankNumber: entry.tankNumber,
-        productId: product.id, style: product.style, readyAt: entry.readyAt,
+        productId: product.id, style: product.style, batchNumber: entry.batchNumber, brewedAt: occupancies.find((item) => item.id === entry.occupancyId)?.startsAt ?? entry.readyAt, readyAt: entry.readyAt,
         availableLiters: entry.availableLiters,
         maxUnits: Math.floor(entry.availableLiters / litersPerUnit(product)),
       }))
