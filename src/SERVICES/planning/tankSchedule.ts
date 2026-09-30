@@ -100,3 +100,20 @@ export function packagingCyclesAt(
   }
   return matches.sort((a, b) => a.tankId.localeCompare(b.tankId));
 }
+
+
+export function tankCanHostCycle(
+  cycles: TankScheduleCycle[],
+  brewDate: string,
+  readyDate: string,
+  ignoreCycleId?: string,
+): boolean {
+  const active = orderedTankSchedule(cycles).filter(
+    (cycle) => cycle.status !== "cancelled" && cycle.cycleId !== ignoreCycleId,
+  );
+  if (active.some((cycle) =>
+    cycle.brewDate <= brewDate && (!cycle.emptyDate || brewDate <= cycle.emptyDate),
+  )) return false;
+  const next = active.find((cycle) => cycle.brewDate > brewDate);
+  return !next || readyDate < next.brewDate;
+}
