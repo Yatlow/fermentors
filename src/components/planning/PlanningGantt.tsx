@@ -19,7 +19,7 @@ import {
   type Tank,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
@@ -349,6 +349,25 @@ export default function PlanningGantt(props: Props) {
 
   function packagingItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.packaging ?? []).filter((item) => item.quantity > 0);
+    const actualItems: SummaryItem[] = actuals
+      .filter((actual) => {
+        const date = actualDate(actual);
+        return !!date && weekStart(date) === weekId && Number(actual.quantity) > 0;
+      })
+      .map((actual) => {
+        const product = settings.products.find((candidate) => matchesActual(candidate, actual));
+        const quantity = product ? actualUnits(product, actual) : Number(actual.quantity) || 0;
+        const type = product?.type ?? (actual.packagingType === "kegs" ? "kegs" : "crates");
+        const tankNumber = actual.tankNumber;
+        const style = product?.style ?? actual.beerStyle ?? "";
+        return {
+          key: `pack-actual:${actual.id}`,
+          title: `${displayStyle(style)} · ${tankLabel(tankNumber)}`,
+          meta: `${fmt(quantity)} ${type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(quantity, type))} ל׳ · בוצע בפועל`,
+          styleClass: style ? beerStyleClass(style).className : undefined,
+        };
+      });
+
     if (decisions.length) {
       return decisions.map((item, index) => {
         const product = productFor(item.productId);
@@ -362,6 +381,7 @@ export default function PlanningGantt(props: Props) {
         };
       });
     }
+    if (actualItems.length) return actualItems;
     if (weekId < currentWeek) return [];
     return (simulations.get(weekId)?.packagingRecommendation ?? []).map((item) => {
       const product = productFor(item.productId);
