@@ -44,3 +44,18 @@ test("legacy dated packaging binds to the latest started cycle, never a later re
   assert.equal(schedule[0].packaging[0].planId, "legacy");
   assert.equal(schedule[1].packaging.length, 0);
 });
+
+
+test("cycle identity survives forecast batch renumbering after cancellation", () => {
+  const before = week("2026-11-01");
+  before.brews = [{ id: "stable-brew-id", style: "IPA", tankId: "tank9", date: "2026-11-02", liters: 3000, batchNumber: "1605" }];
+  const after = week("2026-11-01");
+  after.brews = [{ id: "stable-brew-id", style: "IPA", tankId: "tank9", date: "2026-11-02", liters: 3000, batchNumber: "1604" }];
+  const first = projectTankSchedules([before], settings).get("tank9")![0];
+  const renumbered = projectTankSchedules([after], settings).get("tank9")![0];
+  assert.equal(first.cycleId, renumbered.cycleId);
+  assert.equal(first.plannedBatchNumber, "1605");
+  assert.equal(renumbered.plannedBatchNumber, "1604");
+  assert.equal(first.batchNumber, undefined);
+  assert.equal(renumbered.batchNumber, undefined);
+});
