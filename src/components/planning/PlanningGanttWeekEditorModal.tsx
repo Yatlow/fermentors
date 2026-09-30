@@ -1,6 +1,7 @@
-import { type ComponentProps } from "react";
+import { useEffect, useRef, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 
@@ -20,7 +21,8 @@ const KIND_LABEL: Record<EditorKind, string> = {
 };
 
 export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...plannerProps }: Props) {
- 
+  const hostRef = useRef<HTMLDivElement>(null);
+
   // The focused editor must inspect the persisted WeekPlan, not a pending/
   // execution-filtered projection. That is what decides whether packaging has
   // already been accepted and therefore whether the action is "replace".
@@ -102,7 +104,7 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
             <X size={20} aria-hidden="true" />
           </button>
         </header>
-        <div className="bp-gantt-editor-body">
+        <div className="bp-gantt-editor-body" ref={hostRef}>
           <PlanningWeeklyRecommendationsEnhanced
             {...plannerProps}
             initialSelectedWeek={week}
