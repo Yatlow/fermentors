@@ -95,7 +95,7 @@ function pruneShipmentStates(states: ShipmentSelectionState[]) {
 }
 
 export default function PlanningWeeklyRecommendations({
-    settings, plans, tanks, sources, pallets, actuals, shipments, holidays, today, disabled, saveWeek, onOpenCoolerMap: _onOpenCoolerMap,
+    settings, plans, tanks, sources, pallets, actuals, shipments, holidays, today, disabled, saveWeek, onOpenCoolerMap: _onOpenCoolerMap, initialSelectedWeek,
 }: {
     settings: Settings;
     plans: WeekPlan[];
@@ -109,8 +109,12 @@ export default function PlanningWeeklyRecommendations({
     disabled: boolean;
     saveWeek: (week: WeekPlan) => Promise<void>;
     onOpenCoolerMap?: () => void;
+    initialSelectedWeek?: string;
 }) {
-    const [week, setWeek] = useState(() => defaultWeek(today));
+    const [week, setWeek] = useState(() => initialSelectedWeek ?? defaultWeek(today));
+    useEffect(() => {
+        if (initialSelectedWeek) setWeek(initialSelectedWeek);
+    }, [initialSelectedWeek]);
     const [editing, setEditing] = useState<Kind | null>(null);
     const [shipDraft, setShipDraft] = useState<Record<string, number>>({});
     const [editingTruckId, setEditingTruckId] = useState<string | null>(null);
