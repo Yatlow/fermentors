@@ -1,13 +1,10 @@
 import type { BrewPlan, Plan, WeekPlan } from "./planningEngine";
 
+export type PackagingPlan = Plan & { brewId?: string };
 const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
 
-/**
- * Resolve a packaging row to a stable planned brew identity.
- * New rows should persist brewId. Legacy rows remain readable through their
- * historical tank/batch/date snapshots until they are edited and upgraded.
- */
-export function resolvePackagingBrewId(run: Plan, plans: WeekPlan[]): string | null {
+/** Resolve packaging to a stable brew identity, with legacy snapshot fallback. */
+export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): string | null {
   if (run.brewId) return run.brewId;
   const batch = normalizedBatch(run.batchNumber);
   const date = String(run.date ?? "");
@@ -31,11 +28,11 @@ export function brewById(plans: WeekPlan[], brewId: string): BrewPlan | null {
   return null;
 }
 
-/** Upgrade legacy packaging rows without changing their operational snapshots. */
 export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
   return plans.map((week) => ({
     ...week,
-    packaging: (week.packaging ?? []).map((run) => {
+    packaging: (week.packaging ?? []).map((raw) => {
+      const run = raw as PackagingPlan;
       if (run.brewId) return run;
       const brewId = resolvePackagingBrewId(run, plans);
       return brewId ? { ...run, brewId } : run;
