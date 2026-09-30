@@ -6,7 +6,7 @@ import {
 import type { Fermentor } from "../../App";
 import { runtimeConfig } from "../../config/runtimeConfig";
 import { auth, db } from "../../firebase";
-import { addDays, parseDate, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
+import { addDays, parseDate, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { startOfJerusalemDay, useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
@@ -28,6 +28,23 @@ import "./planningFiveWeekCalendarSpacing.css";
 import "./planningGantt.css";
 
 type PlanningQueryTiming = { label: string; ms: number; docs: number; error?: string };
+
+/**
+ * Old planning documents can contain the same delivery row many times. Keep one
+ * copy of an identical historical row; never add quantities, because the repeats
+ * are corruption rather than separate planned shipments.
+ */
+export function withoutDuplicateDeliveries(week: WeekPlan): WeekPlan {
+  if (!Array.isArray(week.deliveries) || week.deliveries.length < 2) return week;
+  const seen = new Set<string>();
+  const deliveries = week.deliveries.filter((delivery) => {
+    const key = JSON.stringify(delivery, Object.keys(delivery).sort());
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return deliveries.length === week.deliveries.length ? week : { ...week, deliveries };
+}
 
 export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   brews: Fermentor[];
@@ -107,25 +124,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     };
     void Promise.all([
       timed("Settings", () => getDocFromServer(doc(db, "planningSettings", "main"))),
-      timed("Plans", () => getDocsFromServer(query(
-        collection(db, "planningWeeks"),
-        where("id", ">=", addDays(start, -84)),
-        where("id", "<", end),
-      ))),
-      timed("Pallets", () => getDocsFromServer(query(
-        collection(db, "pallets"),
-        where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"]),
-      ))),
-      timed("Packaging", () => getDocsFromServer(query(
-        collection(db, "packagingLog"),
-        where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()),
-        where("timestamp", "<", startOfJerusalemDay(end).getTime()),
-      ))),
-      timed("Shipments", () => getDocsFromServer(query(
-        collection(db, "shipments"),
-        where("createdAt", ">=", Timestamp.fromDate(startOfJerusalemDay(start))),
-        where("createdAt", "<", Timestamp.fromDate(startOfJerusalemDay(end))),
-      ))),
+      timed("Plans", () => getDocsFromServer(query(collection(db, "planningWeeks"), where("id", ">=", addDays(start, -84)), where("id", "<", end)))),
+      timed("Pallets", () => getDocsFromServer(query(collection(db, "pallets"), where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"])))),
+      timed("Packaging", () => getDocsFromServer(query(collection(db, "packagingLog"), where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()), where("timestamp", "<", startOfJerusalemDay(end).getTime()))),
+      timed("Shipments", () => getDocsFromServer(query(collection(db, "shipments"), where("createdAt", ">=", Timestamp.fromDate(startOfJerusalemDay(start))), where("createdAt", "<", Timestamp.fromDate(startOfJerusalemDay(end))))),
     ]).then((results) => {
       if (cancelled) return;
       setPlanningQueryTimings(results);
@@ -185,7 +187,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
     const canonical = withStablePackagingIdentity(allWithEditedWeek).find((week) => week.id === merged.id) ?? merged;
-    await data.saveWeek(canonical, options);
+    await data.saveWeek(withoutDuplicateDeliveries(canonical), options);
   }
 
   return (
