@@ -121,19 +121,24 @@ test("timeline exposes brew candidates from canonical tank availability", () => 
   assert.equal(timeline.brewCandidates.find((x) => x.tankId === "tank-9")?.availableAt, "2026-11-02");
 });
 
-test("all tanks planned to empty next week remain independently visible to downstream consumers", () => {
-  const ids = [["tank-3",3],["tank-17",17],["tank-19",19]] as const;
-  const packaging = ids.map(([id,n], index) => ({
-    productId: "ipa-kegs", quantity: 150, date: `2026-10-0${5 + index}`, tankId: id, batchNumber: "1600", emptyTank: true,
+test("every committed tank emptying remains independently visible to downstream consumers", () => {
+  const fixtures = Array.from({ length: 6 }, (_, index) => ({
+    id: `tank-fixture-${index + 1}`,
+    number: index + 2,
+    date: `2026-10-${String(5 + index).padStart(2, "0")}`,
+  }));
+  const packaging = fixtures.map((fixture) => ({
+    productId: "ipa-kegs", quantity: 150, date: fixture.date,
+    tankId: fixture.id, batchNumber: `batch-${fixture.number}`, emptyTank: true,
   }));
   const timeline = buildPlanningTimelineV2({
     today: "2026-09-30", settings,
-    sources: ids.map(([id,n]) => source(id,n)),
-    tanks: ids.map(([id,n]) => tank(id,String(n))),
+    sources: fixtures.map((fixture) => source(fixture.id, fixture.number)),
+    tanks: fixtures.map((fixture) => ({ ...tank(fixture.id, String(fixture.number)), batch: `batch-${fixture.number}` })),
     actuals: [], plans: [week("2026-10-04", packaging)],
   });
   assert.deepEqual(
-    ids.map(([id]) => timeline.occupancies.find((x) => x.tankId === id)?.expectedEmptyAt),
-    ["2026-10-05","2026-10-06","2026-10-07"],
+    fixtures.map((fixture) => timeline.occupancies.find((x) => x.tankId === fixture.id)?.expectedEmptyAt),
+    fixtures.map((fixture) => fixture.date),
   );
 });
