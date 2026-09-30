@@ -32,6 +32,8 @@ export type Plan = {
   date?: string;
   source?: "manual" | "recommendation";
   tankId?: string;
+  /** Canonical planned brew cycle when packaging a future/planned tank cycle. */
+  brewId?: string;
   emptyTank?: boolean;
   earlyPackagingOverride?: boolean;
   tankNumber?: string;
