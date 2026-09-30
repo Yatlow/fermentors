@@ -1097,7 +1097,7 @@ export default function PlanningWeeklyRecommendations({
                             </div>
                         </div>;
                     })}
-                    <button type="button" onClick={addManualPack}>+ הוסף אריזה</button>
+                    <button type="button" onClick={() => addManualPack()}>+ הוסף אריזה</button>
                 </div>}
 
                 <div className="bp-shipment-plan-table">
