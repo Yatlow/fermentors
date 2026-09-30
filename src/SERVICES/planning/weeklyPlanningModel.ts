@@ -388,18 +388,46 @@ function buildBrewRecommendation(
   });
 
   const styles = [...new Set(settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style)).map((p) => displayStyle(p.style)))];
-  const ranked = styles.map((style) => {
+  const styleStates = styles.map((style) => {
     const productRows = [...rows.values()].filter((r) => sameStyle(r.product.style, style));
-    const covers = productRows.map((r) => r.totalCover).filter((value): value is number => value !== null);
-    return { style, cover: covers.length ? Math.min(...covers) : Infinity };
-  }).sort((a, b) => a.cover - b.cover);
+    const demandLiters = productRows.reduce((sum, r) => sum + weeklyDemand(r.product) * litersPerUnit(r.product), 0);
+    const stockLiters = productRows.reduce((sum, r) => {
+      const units = (r.tempoUnits ?? 0) + r.breweryUnits;
+      return sum + units * litersPerUnit(r.product);
+    }, 0);
+    const cover = demandLiters > 0 ? stockLiters / demandLiters : Infinity;
+    return { style, demandLiters, stockLiters, cover, targets: planningTargetsForStyle(settings, style) };
+  }).filter((state) => state.demandLiters > 0);
 
   const recommendations: WeeklyBrewRecommendation[] = [];
-  for (let i = 0; i < Math.min(remainingCapacity, ranked.length, availableReleases.length); i++) {
-    const release = availableReleases[i];
+  const remainingReleases = [...availableReleases];
+  const remainingStyles = [...styleStates];
+  while (recommendations.length < remainingCapacity && remainingReleases.length && remainingStyles.length) {
+    let best: { styleIndex: number; releaseIndex: number; score: number } | null = null;
+    for (let si = 0; si < remainingStyles.length; si++) {
+      const state = remainingStyles[si];
+      for (let ri = 0; ri < remainingReleases.length; ri++) {
+        const release = remainingReleases[ri];
+        const liters = release.workLiters || 2500;
+        const postCover = (state.stockLiters + liters) / state.demandLiters;
+        // Prefer filling the target without overshooting it. Large tanks are
+        // naturally penalized for slow-moving styles because they create many
+        // more weeks of cover; fast-moving styles can absorb them cheaply.
+        const targetGap = Math.max(0, state.targets.targetWeeks - postCover);
+        const overTarget = Math.max(0, postCover - state.targets.targetWeeks);
+        const overMax = Math.max(0, postCover - state.targets.maxTotalWeeks);
+        const urgency = Math.max(0, state.targets.targetWeeks - state.cover);
+        const score = targetGap * 100 + overMax * 1000 + overTarget * 10 - urgency;
+        if (!best || score < best.score) best = { styleIndex: si, releaseIndex: ri, score };
+      }
+    }
+    if (!best) break;
+    const state = remainingStyles.splice(best.styleIndex, 1)[0];
+    const release = remainingReleases.splice(best.releaseIndex, 1)[0];
     const source = sources.find((s) => s.id === release.tankId);
     const tankNumber = String(source?.tankNumber ?? release.tankId);
-    recommendations.push({ style: ranked[i].style, liters: release.workLiters || 2500, sizeLabel: brewSizeLabel(release.workLiters || 2500, source?.tankNumber), tankId: release.tankId, tankNumber, availableDate: release.date! });
+    const liters = release.workLiters || 2500;
+    recommendations.push({ style: state.style, liters, sizeLabel: brewSizeLabel(liters, source?.tankNumber), tankId: release.tankId, tankNumber, availableDate: release.date! });
   }
   return { recommendations, capacity: remainingCapacity, capacityBeforeCurrent, tankOptions };
 }
