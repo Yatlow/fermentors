@@ -5,6 +5,17 @@ import { spawnSync } from "node:child_process";
 
 const output = mkdtempSync(join(tmpdir(), "brewery-planning-tests-"));
 try {
+  const tests = [
+    "planning-workflow",
+    "shipment-picking-regression",
+    "planning-weekly-regression",
+    "planning-style-targets",
+    "shipment-actuals-regression",
+    "tank-schedule",
+    "tank-schedule-projection",
+    "planning-canonical-current-cycle",
+    "planning-cycle-packaging-regression",
+  ];
   const compile = spawnSync(
     process.execPath,
     [
@@ -21,14 +32,7 @@ try {
       "--noEmitOnError",
       "--outDir",
       output,
-      "tests/planning-workflow.test.ts",
-      "tests/shipment-picking-regression.test.ts",
-      "tests/planning-weekly-regression.test.ts",
-      "tests/planning-style-targets.test.ts",
-      "tests/shipment-actuals-regression.test.ts",
-      "tests/tank-schedule.test.ts",
-      "tests/tank-schedule-projection.test.ts",
-      "tests/planning-canonical-current-cycle.test.ts",
+      ...tests.map((name) => `tests/${name}.test.ts`),
     ],
     { stdio: "inherit" },
   );
@@ -37,17 +41,7 @@ try {
   } else {
     const run = spawnSync(
       process.execPath,
-      [
-        "--test",
-        join(output, "tests/planning-workflow.test.js"),
-        join(output, "tests/shipment-picking-regression.test.js"),
-        join(output, "tests/planning-weekly-regression.test.js"),
-        join(output, "tests/planning-style-targets.test.js"),
-        join(output, "tests/shipment-actuals-regression.test.js"),
-        join(output, "tests/tank-schedule.test.js"),
-        join(output, "tests/tank-schedule-projection.test.js"),
-        join(output, "tests/planning-canonical-current-cycle.test.js"),
-      ],
+      ["--test", ...tests.map((name) => join(output, `tests/${name}.test.js`))],
       { stdio: "inherit" },
     );
     process.exitCode = run.status ?? 1;
