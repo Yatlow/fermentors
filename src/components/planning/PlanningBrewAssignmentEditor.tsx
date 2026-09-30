@@ -136,14 +136,6 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
         .map((source) => Number(normalizedBatch(source.batchNumber)))
         .filter((value) => Number.isFinite(value) && value > 0),
     );
-    // Batch identities already committed to other planned weeks are reserved
-    // just like ACTION-0 Firestore batches. The editor may preserve the batch
-    // of this brew, but must never mint an identity that belongs to another cycle.
-    const plannedReservedBatches = new Set(
-      initial.brews
-        .map((brew) => Number(normalizedBatch(brew.batchNumber)))
-        .filter((value) => Number.isFinite(value) && value > 0),
-    );
     const used = new Set<number>();
     let next = batchBase + 1;
 
@@ -154,7 +146,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
         return { ...brew, batchNumber: String(preferredNumber) };
       }
 
-      while (used.has(next) || realReservedBatches.has(next) || plannedReservedBatches.has(next)) next += 1;
+      while (used.has(next) || realReservedBatches.has(next)) next += 1;
       const batchNumber = String(next);
       used.add(next);
       next += 1;
