@@ -14,6 +14,12 @@ export type TimelineSupply = { occupancyId: string; tankId: string; tankNumber: 
 export type TimelinePackagingCandidate = { occupancyId: string; tankId: string; tankNumber: string; productId: string; style: string; batchNumber?: string; brewedAt: string; readyAt: string; availableLiters: number; maxUnits: number };
 export type TimelineBrewCandidate = { tankId: string; tankNumber: string; availableAt: string; workLiters: number };
 export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[]; availability: TankAvailability[]; issues: TimelineIssue[]; supply: TimelineSupply[]; packagingCandidates: TimelinePackagingCandidate[]; brewCandidates: TimelineBrewCandidate[] };
+export type TimelineParity = {
+  tankId: string; tankNumber: string;
+  v1AvailableAt: string | null; v2AvailableAt: string | null;
+  v1EmptyAt: string | null; v2EmptyAt: string | null;
+  matches: boolean;
+};
 
 const leadDaysFor = (settings: Settings, style: string) => {
   const leads = settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays);
@@ -31,6 +37,25 @@ export function timelinePackagingCandidatesForWeek(timeline: PlanningTimeline, w
 export function timelineBrewCandidatesForWeek(timeline: PlanningTimeline, week: string) {
   const weekEnd = addDays(week, 6);
   return timeline.brewCandidates.filter((candidate) => candidate.availableAt <= weekEnd);
+}
+
+export function compareTimelineAvailability(timeline: PlanningTimeline, legacy: Array<{ tankId: string; date: string | null; emptyDate: string | null }>): TimelineParity[] {
+  const legacyByTank = new Map(legacy.map((entry) => [entry.tankId, entry]));
+  return timeline.availability.map((entry) => {
+    const v1 = legacyByTank.get(entry.tankId);
+    const occupancy = entry.occupancyId
+      ? timeline.occupancies.find((item) => item.id === entry.occupancyId)
+      : undefined;
+    const v1AvailableAt = v1?.date ?? null;
+    const v2AvailableAt = entry.date;
+    const v1EmptyAt = v1?.emptyDate ?? null;
+    const v2EmptyAt = occupancy?.expectedEmptyAt ?? null;
+    return {
+      tankId: entry.tankId, tankNumber: entry.tankNumber,
+      v1AvailableAt, v2AvailableAt, v1EmptyAt, v2EmptyAt,
+      matches: v1AvailableAt === v2AvailableAt && v1EmptyAt === v2EmptyAt,
+    };
+  });
 }
 
 export function timelineForTank(timeline: PlanningTimeline, tankId: string) {
