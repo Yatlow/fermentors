@@ -20,6 +20,7 @@ import TransientNumberInput from "../general/TransientNumberInput";
 
 type Props = ComponentProps<typeof PlanningWeeklyRecommendations> & {
     historyPlans?: ComponentProps<typeof PlanningWeeklyRecommendations>["plans"];
+    initialSelectedWeek?: string;
 };
 
 type PackRow = {
@@ -49,7 +50,7 @@ function tankSize(tank: Tank) {
 
 export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const { settings, plans, historyPlans = plans, tanks, actuals, shipments, today, disabled, saveWeek } = props;
-    const [selectedWeek, setSelectedWeek] = useState(() => initialWeek(today));
+    const [selectedWeek, setSelectedWeek] = useState(() => props.initialSelectedWeek ?? initialWeek(today));
     const [packStyle, setPackStyle] = useState<string | null | undefined>(undefined);
     const [rows, setRows] = useState<PackRow[]>([]);
     const [modalMessage, setModalMessage] = useState("");
@@ -392,14 +393,39 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     }
 
     function updateRow(key: string, patch: Partial<PackRow>) {
-        setRows((currentRows) => currentRows.map((row) => {
-            if (row.key !== key) return row;
-            const next = { ...row, ...patch };
+        setRows((currentRows) => {
+            const edited = currentRows.find((row) => row.key === key);
+            if (!edited) return currentRows;
+            const nextEdited = { ...edited, ...patch };
             if (patch.tankId !== undefined || patch.productId !== undefined) {
-                next.quantity = defaultQuantityForSelection(next.productId, next.tankId, currentRows, key, next.completed);
+                nextEdited.quantity = defaultQuantityForSelection(nextEdited.productId, nextEdited.tankId, currentRows, key, nextEdited.completed);
             }
-            return next;
-        }));
+
+            let nextRows = currentRows.map((row) => row.key === key ? nextEdited : row);
+            if (patch.quantity !== undefined && nextEdited.tankId) {
+                // A tank's packaging rows share one finite volume. When one row
+                // changes, clamp the other rows from that same tank immediately
+                // instead of only showing a stale "maximum" hint.
+                let remaining = model.tankAvailableLiters.get(nextEdited.tankId)
+                    ?? tanks.find((tank) => tank.id === nextEdited.tankId)?.liters
+                    ?? 0;
+                nextRows = nextRows.map((row) => {
+                    if (row.tankId !== nextEdited.tankId) return row;
+                    const p = product(row.productId);
+                    if (!p) return row;
+                    if (row.key === key) {
+                        remaining = Math.max(0, remaining - pendingUnits(row) * litersPerUnit(p));
+                        return row;
+                    }
+                    const maxPending = Math.max(0, Math.floor((remaining + 1e-8) / litersPerUnit(p)));
+                    const wantedPending = pendingUnits(row);
+                    const clampedPending = Math.min(wantedPending, p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, maxPending) : maxPending);
+                    remaining = Math.max(0, remaining - clampedPending * litersPerUnit(p));
+                    return clampedPending === wantedPending ? row : { ...row, quantity: row.completed + clampedPending };
+                });
+            }
+            return nextRows;
+        });
     }
 
     function removeRow(key: string) {
