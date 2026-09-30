@@ -109,7 +109,10 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [batchBase, setBatchBase] = useState(() => maxBatch(brews.map((brew) => brew.batchNumber)));
+  const [batchBase, setBatchBase] = useState(() => Math.max(
+    maxBatch(brews.map((brew) => brew.batchNumber)),
+    maxBatch(initial.brews.map((brew) => brew.batchNumber)),
+  ));
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -120,7 +123,11 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
     getAllBrewsSummary()
       .then((history) => {
         if (cancelled) return;
-        setBatchBase(Math.max(maxBatch(history.map((brew) => brew.batchNumber)), maxBatch(brews.map((brew) => brew.batchNumber))));
+        setBatchBase(Math.max(
+          maxBatch(history.map((brew) => brew.batchNumber)),
+          maxBatch(brews.map((brew) => brew.batchNumber)),
+          maxBatch(initial.brews.map((brew) => brew.batchNumber)),
+        ));
       })
       .catch(() => undefined)
       .finally(() => { if (!cancelled) setLoadingBatches(false); });
