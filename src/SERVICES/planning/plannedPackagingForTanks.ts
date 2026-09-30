@@ -7,6 +7,7 @@ import {
 import { db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { addDays, dateKey, weekStart, type WeekPlan } from "./planningEngine";
+import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
 
 export type PlannedTankPackaging = {
   date: string;
@@ -63,10 +64,14 @@ async function loadFuturePackagingMaps() {
 
   const today = dateKey(new Date());
   const horizon = addDays(today, 84);
+  // Packaging may belong to a brew committed in an earlier week. Load enough
+  // history to resolve its stable brewId instead of treating tank/batch snapshots
+  // as identity.
+  const historyStart = weekStart(addDays(today, -84));
   const pending = getDocsFromServer(
     query(
       collection(db, "planningWeeks"),
-      where("id", ">=", weekStart(today)),
+      where("id", ">=", historyStart),
       where("id", "<=", weekStart(horizon)),
     ),
   ).then((planningSnapshot) => {
@@ -75,32 +80,46 @@ async function loadFuturePackagingMaps() {
     const planningWeekOnly = new Map<string, string>();
     const planningByTank = new Map<string, string>();
     const planningWeekOnlyByTank = new Map<string, string>();
+    const plans = planningSnapshot.docs
+      .map((snapshot) => snapshot.data() as WeekPlan)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
-    planningSnapshot.docs.forEach((snapshot) => {
-      const week = snapshot.data() as WeekPlan;
-      const weekId = String(week.id || snapshot.id || "");
+    for (const week of plans) {
+      const weekId = String(week.id || "");
 
-      (week.packaging ?? []).forEach((run) => {
+      for (const raw of week.packaging ?? []) {
+        const run = raw as PackagingPlan;
+        const brewId = resolvePackagingBrewId(run, plans);
+        const linkedBrew = brewId ? brewById(plans, brewId) : null;
+
+        // Canonical brew identity is authoritative. The packaging row's tank and
+        // batch are legacy snapshots and can be stale after a future brew is moved
+        // or renumbered.
+        const canonicalTankId = linkedBrew?.tankId ?? run.tankId;
+        const canonicalTankNumber = linkedBrew?.tankNumber ?? run.tankNumber;
+        const canonicalBatch = linkedBrew?.batchNumber ?? run.batchNumber;
         const keys = [
-          planningKey(run.tankNumber, run.batchNumber),
-          planningKey(run.tankId, run.batchNumber),
+          planningKey(canonicalTankNumber, canonicalBatch),
+          planningKey(canonicalTankId, canonicalBatch),
         ].filter(Boolean);
-        const legacyTankKeys = run.batchNumber ? [] : [tankKey(run.tankNumber), tankKey(run.tankId)].filter(Boolean);
-        if (!keys.length && !legacyTankKeys.length) return;
+        const legacyTankKeys = canonicalBatch
+          ? []
+          : [tankKey(canonicalTankNumber), tankKey(canonicalTankId)].filter(Boolean);
+        if (!keys.length && !legacyTankKeys.length) continue;
 
         const date = String(run.date ?? "");
         if (date) {
-          if (date < today) return;
+          if (date < today) continue;
           keys.forEach((key) => earliest(planning, key, date));
           legacyTankKeys.forEach((key) => earliest(planningByTank, key, date));
-          return;
+          continue;
         }
 
-        if (!weekId || weekId < weekStart(today)) return;
+        if (!weekId || weekId < weekStart(today)) continue;
         keys.forEach((key) => earliest(planningWeekOnly, key, weekId));
         legacyTankKeys.forEach((key) => earliest(planningWeekOnlyByTank, key, weekId));
-      });
-    });
+      }
+    }
 
     return { planning, planningWeekOnly, planningByTank, planningWeekOnlyByTank };
   });
