@@ -152,7 +152,9 @@ export default function PlanningBoard({
       const candidateDate = release.date > week ? release.date : week;
       // The assignment editor only needs to show tanks with a real canonical
       // opening in this week. Style-specific readiness is validated on save.
-      return tankCanHostCycle(schedules.get(release.tankId) ?? [], candidateDate, candidateDate);
+      const currentWeekCycleIds = new Set(current.brews.map((brew) => brew.id));
+      const cycles = (schedules.get(release.tankId) ?? []).filter((cycle) => !currentWeekCycleIds.has(cycle.cycleId));
+      return tankCanHostCycle(cycles, candidateDate, candidateDate);
     });
   }, [brews, tanks, releasePlans, plans, settings, actuals, today, week]);
 
