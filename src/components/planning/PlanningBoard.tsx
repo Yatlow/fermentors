@@ -136,17 +136,13 @@ export default function PlanningBoard({
   const readOnly = disabled || closed;
   const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
   const releasePlans = useMemo(() => forecastDateUndatedPackaging(plans), [plans]);
-  const reservedOutsideWeek = useMemo(() => new Set(
-    plans
-      .filter((w) => w.id !== week)
-      .flatMap((w) => w.brews)
-      .filter((b) => !!b.tankId && b.date >= today)
-      .map((b) => b.tankId),
-  ), [plans, week, today]);
+  // Do not reserve a physical tank forever merely because another week uses its
+  // tankId. The canonical cycle validator below decides whether the previous
+  // brew has actually emptied before a later brew. Keeping all releases visible
+  // is required for legitimate tank reuse in later planning weeks.
   const releases = useMemo(
-    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today)
-      .filter((release) => !reservedOutsideWeek.has(release.tankId)),
-    [brews, tanks, releasePlans, settings, actuals, today, reservedOutsideWeek],
+    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today),
+    [brews, tanks, releasePlans, settings, actuals, today],
   );
 
   const productLabel = (id: string) => {
@@ -198,9 +194,6 @@ export default function PlanningBoard({
 
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
-    // The dedicated brew-assignment editor never edits packaging. Remember that
-    // before normalization adds derived flags, so existing packaging exceptions
-    // cannot block an unrelated brew save or open a hidden confirmation dialog.
     const packagingWasEdited = JSON.stringify(next.packaging) !== JSON.stringify(current.packaging);
     const deliveriesWereEdited = JSON.stringify(next.deliveries ?? []) !== JSON.stringify(current.deliveries ?? []);
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
@@ -208,9 +201,6 @@ export default function PlanningBoard({
       inferDatedEmptyTankFlags(confirmedNext, tanks, settings, actuals),
     );
 
-    // Rows that are already saved at the same early date necessarily passed the
-    // planner confirmation in an older build. Stamp them once so subsequent
-    // edits do not ask for the same exception again.
     let provisionalAll = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     let validationTanks = futureTanks(tanks, provisionalAll, settings);
     effectiveNext = {
@@ -227,12 +217,6 @@ export default function PlanningBoard({
     };
 
     let all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
-
-    // Do not let a pre-existing shipment validation error block an unrelated
-    // packaging/brew edit. Validate the edited week as-is first; when deliveries
-    // were not touched and only the saved delivery state is invalid, validate the
-    // non-delivery edit against the same week without deliveries. Shipment edits
-    // themselves still get the full truck-capacity validation.
     let error = validatePlanningWeek(effectiveNext, settings, all, today);
     if (error && !deliveriesWereEdited) {
       const withoutDeliveries = { ...effectiveNext, deliveries: [] };
@@ -246,8 +230,6 @@ export default function PlanningBoard({
       const allPackagingOnly = all.map((week) =>
         week.id === effectiveNext.id ? packagingOnly : week
       );
-      // A packaging move must not be blocked by an unchanged historical brew
-      // decision from earlier in the same week. Validate the thing being edited.
       error = validatePlanningWeek(packagingOnly, settings, allPackagingOnly, today);
     }
     if (error) throw new Error(error);
@@ -257,9 +239,6 @@ export default function PlanningBoard({
     let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
     if (production?.includes("לפני מועד ההבשלה")) {
       if (confirmBrews && !packagingWasEdited) {
-        // This save changes only brew order/tank assignment. Any early packaging
-        // here is an already-existing planner decision, so do not make the brew
-        // save wait for a packaging confirmation that this focused UI cannot own.
         production = validateProduction(
           datedOnly,
           settings,
