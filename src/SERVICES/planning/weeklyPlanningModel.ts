@@ -27,7 +27,7 @@ import { brewSizeLabel, tankReleases, type BrewSizeLabel, type TankSource } from
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
 import { projectTankSchedules } from "./tankScheduleProjection";
-import { orderedTankSchedule } from "./tankSchedule";
+import { tankCanHostCycle } from "./tankSchedule";
 import { planningTargetsForStyle } from "./planningTargets";
 import { resolvePackagingBrewId } from "./planIdentity";
 
@@ -385,19 +385,18 @@ function buildBrewRecommendation(
   const releaseFitsCanonicalWindow = (release: (typeof capacityReleases)[number], style?: string) => {
     const candidateDate = release.date && release.date > week ? release.date : week;
     if (candidateDate > weekEnd) return false;
-    const cycles = orderedTankSchedule(schedules.get(release.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
-    const occupying = cycles.find((cycle) =>
-      cycle.brewDate <= candidateDate && (!cycle.emptyDate || candidateDate <= cycle.emptyDate),
-    );
-    if (occupying) return false;
-    const nextCycle = cycles.find((cycle) => cycle.brewDate > candidateDate);
-    if (!nextCycle) return true;
-    if (!style) return false;
+    const cycles = schedules.get(release.tankId) ?? [];
+    if (!style) {
+      // Generic capacity is intentionally conservative: if another canonical
+      // cycle starts after this date we cannot claim the slot without knowing
+      // whether the proposed beer will be ready in time.
+      return tankCanHostCycle(cycles, candidateDate, "9999-12-31");
+    }
     const leadDays = Math.max(
       ...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays),
       21,
     );
-    return addDays(candidateDate, leadDays) < nextCycle.brewDate;
+    return tankCanHostCycle(cycles, candidateDate, addDays(candidateDate, leadDays));
   };
   const canonicalAvailableReleases = availableReleases.filter((release) => releaseFitsCanonicalWindow(release));
   const remainingCapacity = canonicalAvailableReleases.length;
