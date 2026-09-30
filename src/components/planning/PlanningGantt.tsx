@@ -198,6 +198,7 @@ export default function PlanningGantt(props: Props) {
                 quantity: item.quantity,
                 tankId: item.tankId,
                 tankNumber: item.tankNumber,
+                ...(item.brewId ? { brewId: item.brewId } : {}),
                 source: "recommendation" as const,
                 emptyTank: !all.slice(index + 1).some((later) => later.tankId === item.tankId),
               })),
