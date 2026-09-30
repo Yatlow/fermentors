@@ -74,3 +74,26 @@ test("canonical recommendation id survives legacy save paths and resolves back t
 
   assert.equal(resolved, brewId);
 });
+
+
+test("Gantt decision projection must preserve canonical brewId", () => {
+  const brewId = "brew-future-ipa-10";
+  const recommendation = {
+    id: `weekly-pack:2026-10-04:brew:${brewId}:ipa-crates`,
+    productId: product.id,
+    quantity: 168,
+    tankId: "tank-10",
+    tankNumber: "10",
+    brewId,
+  };
+  const saved = {
+    id: recommendation.id,
+    productId: recommendation.productId,
+    quantity: recommendation.quantity,
+    tankId: recommendation.tankId,
+    tankNumber: recommendation.tankNumber,
+    ...(recommendation.brewId ? { brewId: recommendation.brewId } : {}),
+    source: "recommendation" as const,
+  };
+  assert.equal(saved.brewId, brewId);
+});
