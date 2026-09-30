@@ -101,6 +101,15 @@ export function getCatalogEntry(
     return PALLET_CATALOG[`${key}__${itemType}`] ?? null;
 }
 
+export function getPackagingCatalogOptions(beerStyle: string | undefined | null): ShipmentCatalogOption[] {
+    const key = normalizeBeerStyleKey(beerStyle);
+    if (!key) return [];
+    return (["crates", "kegs"] as const).flatMap((itemType) => {
+        const entry = PALLET_CATALOG[`${key}__${itemType}`];
+        return entry ? [{ ...entry, beerStyle: STYLE_DISPLAY[key] ?? key, itemType }] : [];
+    });
+}
+
 export function getShipmentCatalogOptions(): ShipmentCatalogOption[] {
     return Object.entries(PALLET_CATALOG)
         .map(([key, entry]) => {
