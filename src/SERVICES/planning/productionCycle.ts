@@ -119,7 +119,11 @@ export function tankReleases(
     // cycle. The beerVolume belongs to the current physical cycle and may have
     // already shrunk through fermentation/packaging, so it must never become
     // the capacity of a future planning slot.
-    const workLiters = estimatedBrewVolume(source.tankNumber, source.beerStyle);
+    const estimatedNextCycleLiters = estimatedBrewVolume(source.tankNumber, source.beerStyle);
+    // Legacy/free tank records may not carry tankNumber yet. In that narrow
+    // case beerVolume is the only declared capacity signal and is safe because
+    // there is no identifiable current physical cycle to leak forward.
+    const workLiters = estimatedNextCycleLiters || (!source.tankNumber ? num(source.beerVolume) : 0);
     if (isReadyForBrew(source)) {
       const packedThisWeek = actuals
         .filter((a) => source.tankNumber != null && String(a.tankNumber) === String(source.tankNumber))
