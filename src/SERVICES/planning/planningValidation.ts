@@ -6,6 +6,12 @@ import { validateTruckGroups } from "./truckPlanner";
  * Validation for saved planning decisions.
  * Weekly brew decisions may intentionally remain without a tank; the work
  * manager assigns the physical tank later in the work board.
+ *
+ * Tank occupancy itself is intentionally NOT validated here by looking for a
+ * duplicate tankId. A physical tank may legitimately appear in several future
+ * brew decisions after the previous cycle is emptied. The canonical
+ * brew->packaging->empty->next-brew dependency is validated by
+ * validateBrewReleases / tank schedules in the production planning flow.
  */
 export function validatePlanningWeek(
   w: WeekPlan,
@@ -16,10 +22,6 @@ export function validatePlanningWeek(
   if (!Number.isInteger(w.maxRuns) || w.maxRuns < 0 || w.maxRuns > 5)
     return "מכסת האריזה חייבת להיות בין 0 ל־5";
 
-  // `maxRuns` is the weekly number of PACKAGING DAYS, not the number of
-  // individual packaging operations. Several tanks/products may therefore be
-  // packaged on the same day. Undated work is still in the waiting lane and
-  // must not consume a day until the work manager actually assigns it.
   const packagingDays = new Set<string>();
   const ids = new Set<string>();
   for (const r of w.packaging) {
@@ -71,15 +73,6 @@ export function validatePlanningWeek(
     if (!parseDate(b.date) || weekStart(b.date) !== w.id || !b.style || !Number.isFinite(b.liters) || b.liters <= 0)
       return "יש להשלים שבוע, סגנון ונפח בישול";
     if (b.date < today) return "לא ניתן ליצור בישול חדש בשבוע שכבר עבר";
-  }
-
-  const occupied = new Map<string, { date: string; style: string }>();
-  for (const b of all.flatMap((plan) => plan.brews).filter((brew) => !!brew.tankId && brew.date >= today).sort((a, b) => a.date.localeCompare(b.date))) {
-    const previous = occupied.get(b.tankId);
-    if (previous) {
-      return `מיכל ${b.tankId} כבר שובץ לבישול ${previous.style} ב־${previous.date}; אי אפשר לשבץ אליו בישול נוסף לפני שנוצר מחזור ריקון חדש`;
-    }
-    occupied.set(b.tankId, { date: b.date, style: b.style });
   }
 
   return null;
