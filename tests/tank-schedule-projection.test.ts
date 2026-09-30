@@ -18,7 +18,7 @@ test("projects several future brews on the same physical fermentor", () => {
   const w2 = week("2026-11-29");
   w2.brews = [{ id: "b1612", style: "IPA", tankId: "tank9", date: "2026-11-30", liters: 3000, batchNumber: "1612" }];
   const schedule = projectTankSchedules([w1, w2], settings).get("tank9")!;
-  assert.deepEqual(schedule.map((cycle) => cycle.batchNumber), ["1604", "1612"]);
+  assert.deepEqual(schedule.map((cycle) => cycle.plannedBatchNumber), ["1604", "1612"]);
 });
 
 test("future packaging attaches to its future batch before that beer exists physically", () => {
