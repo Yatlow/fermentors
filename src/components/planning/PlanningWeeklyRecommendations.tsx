@@ -143,6 +143,9 @@ export default function PlanningWeeklyRecommendations({
         (p.monthly > 0 && isCoreStyle(p.style)) || current.deliveries?.some((d) => d.productId === p.id && d.quantity > 0),
     );
     const product = (id: string) => settings.products.find((p) => p.id === id);
+    const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
+    const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
+
     const holidaysThisWeek = holidays.filter((h) => h.date >= week && h.date <= model.weekEnd);
     const shipmentRec = new Map(model.shipmentRecommendation.map((r) => [r.productId, r]));
 
@@ -508,7 +511,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function remainingLitersForTank(tankId: string, excludeManualId?: string) {
-        const base = model.tankAvailableLiters.get(tankId) ?? tanks.find((t) => t.id === tankId)?.liters ?? 0;
+        const base = model.tankAvailableLiters.get(tankId) ?? packagingTankById(tankId)?.liters ?? 0;
         const used = [
             ...current.packaging.map((r) => {
                 const key = r.id ?? `${r.productId}:${r.tankId}`;
@@ -531,7 +534,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function manualProductsForTank(tankId: string) {
-        const t = tanks.find((x) => x.id === tankId);
+        const t = packagingTankById(tankId);
         return t ? products.filter((p) => sameStyle(p.style, t.style)) : [];
     }
 
@@ -1028,8 +1031,8 @@ export default function PlanningWeeklyRecommendations({
                             <label>מיכל
                                 <select value={r.tankId} onChange={(e) => changeManualTank(r.id, e.target.value)}>
                                     <option value="">בחר מיכל</option>
-                                    {tanks.filter((t) => t.ready <= model.weekEnd && (model.tankAvailableLiters.get(t.id) ?? t.liters) >= 20).map((t) =>
-                                        <option value={t.id} key={t.id}>מיכל {t.number} · {displayStyle(t.style)} · {fmt(model.tankAvailableLiters.get(t.id) ?? t.liters)} ל׳</option>)}
+                                    {packagingTankPool.filter((t) => t.ready <= model.weekEnd && (model.tankAvailableLiters.get(t.id) ?? t.liters) >= 20).map((t) =>
+                                        <option value={t.id} key={t.id}>מיכל {t.number} · {displayStyle(t.style)} · {fmt(model.tankAvailableLiters.get(t.id) ?? t.liters)} ל׳{t.id.startsWith("planned:") ? " · מתוכנן" : ""}</option>)}
                                 </select>
                             </label>
                             <label>סוג אריזה
