@@ -459,3 +459,46 @@ test("undated weekly keg packaging waits for tank readiness and releases it next
   assert.equal(option.availableDate, "2026-09-28");
   assert.equal(model.brewTankCapacity, 1);
 });
+
+
+test("prior-week canonical packaging carries finished stock into the following week forecast", () => {
+  const localSettings = { ...settings, products: [product] };
+  const brewId = "future-wheat-cycle";
+  const tank: Tank = {
+    id: "tank-11",
+    number: "11",
+    batch: "old-cycle",
+    style: "IPA",
+    brewed: "2026-08-01",
+    ready: "2026-08-25",
+    liters: 1000,
+    cold: true,
+  };
+  const prior = {
+    ...emptyWeek("2026-09-20"),
+    brews: [{
+      id: brewId,
+      style: "IPA",
+      tankId: tank.id,
+      batchNumber: "1601",
+      date: "2026-09-21",
+      liters: 1100,
+    }],
+    packaging: [{
+      id: "canonical-pack",
+      productId: product.id,
+      quantity: 84,
+      tankId: tank.id,
+      tankNumber: tank.number,
+      batchNumber: "1601",
+      brewId,
+      date: "2026-09-24",
+    }],
+  };
+
+  const forecast = dailyForecast(localSettings, [], [tank], [prior], [], today);
+  const packed = forecast.points.find((row) => row.date === "2026-09-24" && row.productId === product.id);
+  const followingWeek = forecast.points.find((row) => row.date === "2026-09-27" && row.productId === product.id);
+  assert.equal(packed?.packed, 84);
+  assert.ok((followingWeek?.brewery ?? 0) > 0, "packaged stock must remain in brewery inventory next week");
+});
