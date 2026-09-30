@@ -5,6 +5,7 @@ on:
     paths:
       - "firestore.rules"
       - "firebase.json"
+      - "scripts/test-firestore-planning-rules.mjs"
       - ".github/workflows/firestore-rules-validate-pr.yml"
 
 concurrency:
@@ -19,15 +20,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
-
-      - name: Compile Firestore rules in emulator
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install rules test helper
+        run: npm install --no-save --ignore-scripts @firebase/rules-unit-testing
+      - name: Compile and exercise Firestore planning rules
         run: >-
           npx --yes firebase-tools emulators:exec
           --only firestore
           --project demo-fermentors
-          "echo Firestore rules validated"
+          "node scripts/test-firestore-planning-rules.mjs"
