@@ -34,7 +34,7 @@ export function projectPlannedPackagingMaps(plans: WeekPlan[], today: string): P
   const projectedBrewIds = new Set<string>();
   for (const [tankId, cycles] of schedules) {
     for (const cycle of cycles) {
-      projectedBrewIds.add(cycle.brewId);
+      projectedBrewIds.add(cycle.cycleId);
       const batch = cycle.batchNumber ?? cycle.plannedBatchNumber;
       const key = planningKey(tankId, batch);
       for (const item of cycle.packaging) {
@@ -51,7 +51,7 @@ export function projectPlannedPackagingMaps(plans: WeekPlan[], today: string): P
       const run = raw as PackagingPlan;
       const brewId = resolvePackagingBrewId(run, plans);
       const linkedBrew = brewId ? brewById(plans, brewId) : null;
-      if (linkedBrew && projectedBrewIds.has(brewId!)) continue;
+      if (linkedBrew && brewId && projectedBrewIds.has(brewId)) continue;
 
       const canonicalTankId = run.tankId || linkedBrew?.tankId;
       const canonicalTankNumber = run.tankNumber;
