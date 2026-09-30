@@ -1051,12 +1051,13 @@ export default function PlanningWeeklyRecommendations({
                         ));
                         const additionalTanks = packagingTankPool.filter((tank) =>
                             tank.ready <= model.weekEnd &&
+                            isCoreStyle(tank.style) &&
                             (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20 &&
                             !recommendedCycles.has(tank.id) &&
                             !savedCycles.has(tank.id)
                         );
                         return additionalTanks.length ? <div className="bp-available-tanks">
-                            <b>מיכלים זמינים נוספים</b>
+                            <b>הצעות זמינות נוספות</b>
                             {additionalTanks.map((tank) =>
                                 <button type="button" key={tank.id} disabled={busy} onClick={() => addManualPack(tank.id)}>
                                     מיכל {tank.number} · {displayStyle(tank.style)} · {fmt(model.tankAvailableLiters.get(tank.id) ?? tank.liters)} ל׳{tank.id.startsWith("planned:") ? " · מתוכנן" : ""}
@@ -1074,7 +1075,7 @@ export default function PlanningWeeklyRecommendations({
                             <label>מיכל
                                 <select value={r.tankId} onChange={(e) => changeManualTank(r.id, e.target.value)}>
                                     <option value="">בחר מיכל</option>
-                                    {packagingTankPool.filter((t) => t.ready <= model.weekEnd && (model.tankAvailableLiters.get(t.id) ?? t.liters) >= 20).map((t) =>
+                                    {packagingTankPool.filter((t) => t.ready <= model.weekEnd && !isCoreStyle(t.style) && (model.tankAvailableLiters.get(t.id) ?? t.liters) >= 20).map((t) =>
                                         <option value={t.id} key={t.id}>מיכל {t.number} · {displayStyle(t.style)} · {fmt(model.tankAvailableLiters.get(t.id) ?? t.liters)} ל׳{t.id.startsWith("planned:") ? " · מתוכנן" : ""}</option>)}
                                 </select>
                             </label>
