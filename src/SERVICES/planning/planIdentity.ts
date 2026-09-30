@@ -28,14 +28,35 @@ export function brewById(plans: WeekPlan[], brewId: string): BrewPlan | null {
   return null;
 }
 
+/**
+ * Canonicalize packaging around brewId. Once a row has a stable brew identity,
+ * tankId and batchNumber are display/legacy snapshots and must follow the brew,
+ * never become an independent relationship. This is what makes a tank move or
+ * forecast renumbering propagate consistently to every planning consumer.
+ */
 export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
-  return plans.map((week) => ({
+  const source = plans.map((week) => ({
     ...week,
-    packaging: (week.packaging ?? []).map((raw) => {
+    packaging: (week.packaging ?? []).map((raw) => ({ ...raw })),
+    brews: (week.brews ?? []).map((brew) => ({ ...brew })),
+  }));
+
+  return source.map((week) => ({
+    ...week,
+    packaging: week.packaging.map((raw) => {
       const run = raw as PackagingPlan;
-      if (run.brewId) return run;
-      const brewId = resolvePackagingBrewId(run, plans);
-      return brewId ? { ...run, brewId } : run;
+      const brewId = resolvePackagingBrewId(run, source);
+      if (!brewId) return run;
+      const brew = brewById(source, brewId);
+      if (!brew) return { ...run, brewId };
+      return {
+        ...run,
+        brewId,
+        tankId: brew.tankId,
+        ...(normalizedBatch(brew.batchNumber)
+          ? { batchNumber: normalizedBatch(brew.batchNumber) }
+          : {}),
+      };
     }),
   }));
 }
