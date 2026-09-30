@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
-import { brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
+import { brewLitersForSize, brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
 import BeerLoader from "../general/Loading";
 
@@ -98,9 +98,18 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     // Weekly planning may persist a tentative tank as either the Firestore id or
     // the human tank number. Canonicalize it on first open so the work manager
     // sees the tentative recommendation already selected instead of starting blank.
-    copy.brews = copy.brews.map((brew) =>
-      brew.tankId ? { ...brew, tankId: canonicalTankId(brew, brews) } : brew,
-    );
+    copy.brews = copy.brews.map((brew) => {
+      const size = brewSizeLabel(Number(brew.liters) || 0);
+      return {
+        ...brew,
+        // Old recommendations could persist the CURRENT beer volume of the
+        // suggested tank (1245/3810/etc.) as the future brew volume. Preserve
+        // the intended single/double/triple size, but canonicalize liters from
+        // style + size before displaying or saving the future cycle.
+        liters: brewLitersForSize(brew.style, size),
+        ...(brew.tankId ? { tankId: canonicalTankId(brew, brews) } : {}),
+      };
+    });
     const hasSavedBatchIdentity = copy.brews.some(
       (brew) => normalizedBatch(brew.batchNumber) !== "",
     );
