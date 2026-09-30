@@ -34,6 +34,7 @@ import PlanningTanks from "./PlanningTanks";
 import PlanningWeeklyReservations from "./PlanningWeeklyReservations";
 import PlanningShipmentStatusPortal from "./PlanningShipmentStatusPortal";
 import PlanningGantt from "./PlanningGantt";
+import PlanningShadowV2 from "./PlanningShadowV2";
 import type { PlanningTab } from "./planningTabs";
 import "./planning.css";
 import "./planningEnhancements.css";
@@ -340,6 +341,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
         {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
+        {tab === "settings" && <PlanningShadowV2 settings={settings} plans={identityAlignedPlans} tanks={tanks} sources={productionTanks} actuals={actuals} today={today}/>} 
       </>}
     </section>
   );
