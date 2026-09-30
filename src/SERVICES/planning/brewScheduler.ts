@@ -14,9 +14,9 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 import type { Pallet } from "../cooler/Pallettypes ";
-import { nextBrewingWeek, tankReleases, weekday, type TankSource } from "./productionCycle";
+import { tankReleases, weekday, type TankSource } from "./productionCycle";
 import { projectTankSchedules } from "./tankScheduleProjection";
-import { orderedTankSchedule } from "./tankSchedule";
+import { tankCanHostCycle } from "./tankSchedule";
 
 export type BrewProposal = BrewPlan & { reason: string; readyDate: string; dependent: boolean };
 
@@ -37,37 +37,18 @@ export function brewProposals(
 ): BrewProposal[] {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
   const schedules = projectTankSchedules(plans, settings);
-  const blocked = new Set<string>();
-  const committedRelease = new Map<string, string>();
-
-  // A tankId is not a permanent reservation. The latest committed cycle owns the
-  // tank until its own emptying; after that cycle it can be proposed again.
-  for (const [tankId, rawCycles] of schedules) {
-    const cycles = orderedTankSchedule(rawCycles)
-      .filter((cycle) => cycle.status !== "cancelled" && cycle.brewDate >= today);
-    const latest = cycles.at(-1);
-    if (!latest) continue;
-    if (!latest.emptyDate) blocked.add(tankId);
-    else committedRelease.set(tankId, nextBrewingWeek(latest.emptyDate));
-  }
-
-  const effectiveReleases = releases.map((release) => {
-    const committed = committedRelease.get(release.tankId);
-    return committed && (!release.date || committed > release.date)
-      ? { ...release, date: committed, emptyDate: committed, reason: "לאחר ריקון המחזור המתוכנן האחרון וניקיון חמישי" }
-      : release;
-  });
-  const booked = new Set<string>(blocked);
+  const booked = new Set<string>();
   const result: BrewProposal[] = [];
   const horizon = addDays(weekStart(today), 84);
 
   for (const need of brewAdvice(settings, pallets, tanks, plans, today).sort((a, b) => a.brewBy.localeCompare(b.brewBy))) {
     let remaining = need.liters;
-    for (const release of effectiveReleases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
+    for (const release of releases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
       if (remaining <= 0) break;
       const date = firstBrewDay([today, release.date!].sort().at(-1)!);
       if (date >= horizon) continue;
       const lead = Math.max(...settings.products.filter((p) => sameStyle(p.style, need.style)).map((p) => p.leadDays), 21);
+      if (!tankCanHostCycle(schedules.get(release.tankId) ?? [], date, addDays(date, lead))) continue;
       result.push({
         id: `brew:${release.tankId}:${date}:${need.style}`,
         tankId: release.tankId,
@@ -97,7 +78,7 @@ export function brewProposals(
     return (finished + wip + planned) / demand;
   };
 
-  for (const release of effectiveReleases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
+  for (const release of releases.filter((r) => r.date && r.workLiters > 0 && !booked.has(r.tankId)).sort((a, b) => a.date!.localeCompare(b.date!))) {
     const ranked = styleCandidates.map((key) => ({ key, cover: coverage(key) })).filter((x) => Number.isFinite(x.cover)).sort((a, b) => a.cover - b.cover);
     const chosen = ranked[0];
     if (!chosen) continue;
@@ -106,6 +87,7 @@ export function brewProposals(
     const date = firstBrewDay([today, release.date!].sort().at(-1)!);
     if (date >= horizon) continue;
     const lead = Math.max(...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays), 21);
+    if (!tankCanHostCycle(schedules.get(release.tankId) ?? [], date, addDays(date, lead))) continue;
     result.push({
       id: `brew:${release.tankId}:${date}:${style}:coverage`,
       tankId: release.tankId,
