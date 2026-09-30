@@ -86,7 +86,7 @@ async function loadFuturePackagingMaps() {
     // packaging from that cycle. brewId/cycleId decides ownership; tank/batch are
     // lookup snapshots only. This prevents a later brew on the same tank from
     // stealing or hiding packaging that belongs to the current cycle.
-    const schedules = projectTankSchedules(plans, { products: [] } as never);
+    const schedules = projectTankSchedules(plans);
     for (const [tankId, cycles] of schedules) {
       for (const cycle of cycles) {
         const batch = cycle.batchNumber ?? cycle.plannedBatchNumber;
