@@ -109,6 +109,18 @@ function forecastSettings(settings: Settings, today: string): Settings {
 }
 
 function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[]): WeekPlan[] {
+  const plannedBrews = plans.flatMap((week) => week.brews ?? []);
+  const readyForRun = (run: Plan) => {
+    if (run.brewId) {
+      const brew = plannedBrews.find((item) => item.id === run.brewId);
+      if (brew) return tanks.find((tank) =>
+        tank.id === brew.tankId &&
+        tank.brewed === brew.date &&
+        sameStyle(tank.style, brew.style)
+      )?.ready;
+    }
+    return run.tankId ? tanks.find((tank) => tank.id === run.tankId)?.ready : undefined;
+  };
   return plans.map((week) => {
     const next = structuredClone(week);
     const dispatch = [...(next.deliveries ?? [])]
@@ -118,7 +130,7 @@ function dateWeeklyPackaging(plans: WeekPlan[], tanks: Tank[]): WeekPlan[] {
     const forecastDate = dispatch ?? addDays(week.id, 4);
     next.packaging = next.packaging.map((run) => {
       if (run.date) return run;
-      const tankReady = run.tankId ? tanks.find((tank) => tank.id === run.tankId)?.ready : undefined;
+      const tankReady = readyForRun(run);
       return { ...run, date: tankReady && tankReady > forecastDate ? tankReady : forecastDate };
     });
     return next;
