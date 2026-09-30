@@ -149,3 +149,17 @@ test("persistence diff writes only tanks whose projected lifecycle changed", () 
   assert.equal(changed.find((item) => item.tankId === "tank9")!.cycles.length, 0);
   assert.equal(changed.some((item) => item.tankId === "tank18"), false);
 });
+
+
+test("tank-only legacy packaging is never projected onto a future cycle", () => {
+  const plan = {
+    ...emptyWeek("2026-10-04"),
+    brews: [{ id: "brew-1601", style: "IPA", liters: 3000, tankId: "tank-8", date: "2026-10-05", batchNumber: "1601" }],
+    packaging: [{ id: "legacy-tank-8", productId: "ipa-crates", quantity: 100, tankId: "tank-8", date: "2026-10-20", emptyTank: true }],
+  };
+  const schedules = projectTankSchedules([plan]);
+  const cycle = schedules.get("tank-8")?.find((item) => item.cycleId === "brew-1601");
+  assert.ok(cycle);
+  assert.equal(cycle.packaging.length, 0);
+  assert.equal(cycle.emptyDate, undefined);
+});
