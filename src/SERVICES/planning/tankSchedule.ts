@@ -10,6 +10,9 @@ export type TankSchedulePackaging = {
 
 export type TankScheduleCycle = {
   cycleId: string;
+  /** Forecast only while planned; may renumber when earlier planned brews change. */
+  plannedBatchNumber?: string;
+  /** Immutable only after the brew actually enters execution. */
   batchNumber?: string;
   style: string;
   brewDate: string;
