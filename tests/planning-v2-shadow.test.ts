@@ -59,3 +59,19 @@ test("several physical tanks can carry independent cross-week release timelines"
   });
   assert.deepEqual(ids.map(([id]) => timeline.occupancies.find((x) => x.tankId === id)?.expectedEmptyAt), ["2026-10-26","2026-10-27","2026-10-28"]);
 });
+
+
+test("a future occupancy without prior emptying is surfaced as a hard timeline conflict", () => {
+  const plans = [week("2026-10-04", [], [{ id: "brew-1604", style: "IPA", tankId: "tank-9", date: "2026-10-05", liters: 3000, batchNumber: "1604" }])];
+  const timeline = buildPlanningTimelineV2({ today: "2026-09-30", settings, sources: [source("tank-9", 9)], tanks: [tank("tank-9", "9")], actuals: [], plans });
+  assert.equal(timeline.issues.length, 1);
+  assert.match(timeline.issues[0].message, /בלי ריקון מתוכנן/);
+});
+
+test("release after week-44 emptying remains available in week 45", () => {
+  const timeline = buildPlanningTimelineV2({
+    today: "2026-09-30", settings, sources: [source("tank-9", 9)], tanks: [tank("tank-9", "9")], actuals: [],
+    plans: [week("2026-10-25", [{ productId: "ipa-kegs", quantity: 150, date: "2026-10-28", tankId: "tank-9", emptyTank: true }])],
+  });
+  assert.equal(timeline.availability.find((x) => x.tankId === "tank-9")?.date, "2026-11-02");
+});
