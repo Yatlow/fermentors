@@ -400,23 +400,40 @@ export default function PlanningGantt(props: Props) {
   }
 
   function brewItems(weekId: string): SummaryItem[] {
-    const decisions = (decisionPlanFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
-    if (decisions.length) {
-      return decisions.map((item) => ({
-        key: `brew:${item.id}`,
-        title: `${displayStyle(item.style)} · ${tankLabel(assignedBrewTankNumber(item))}`,
-        meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
-        styleClass: beerStyleClass(item.style).className,
-      }));
-    }
-    if (weekId < currentWeek) return [];
-    return (simulations.get(weekId)?.brewRecommendation ?? []).map((item, index) => ({
-      key: `brew-rec:${weekId}:${item.style}:${index}`,
-      title: `${displayStyle(item.style)} · ${tankLabel(item.tankNumber)}`,
-      meta: `${item.sizeLabel} · ${fmt(item.liters)} ל׳ · זמין ${shortDate(item.availableDate)}`,
+    const actualBrews: SummaryItem[] = sources
+      .flatMap((source) => {
+        const brewDate = parseDate(source.brewDate ?? "");
+        if (!brewDate || weekStart(brewDate) !== weekId || brewDate >= today) return [];
+        const style = source.beerStyle ?? "";
+        const liters = Math.max(0, Number(source.beerVolume) || 0);
+        return [{
+          key: `brew-actual:${source.id}:${String(source.batchNumber ?? "")}:${brewDate}`,
+          title: `${displayStyle(style)} · ${tankLabel(source.tankNumber)}`,
+          meta: `${liters > 0 ? `${fmt(liters)} ל׳ · ` : ""}${shortDate(brewDate)} · בוצע בפועל`,
+          styleClass: style ? beerStyleClass(style).className : undefined,
+        }];
+      });
+
+    const decisions = (decisionPlanFor(weekId)?.brews ?? [])
+      .filter((item) => item.liters > 0 && item.date >= today);
+    const plannedBrews: SummaryItem[] = decisions.map((item) => ({
+      key: `brew:${item.id}`,
+      title: `${displayStyle(item.style)} · ${tankLabel(assignedBrewTankNumber(item))}`,
+      meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)} · מתוכנן`,
       styleClass: beerStyleClass(item.style).className,
-      recommended: true,
     }));
+
+    const recommendationBrews: SummaryItem[] = decisions.length || weekId < currentWeek
+      ? []
+      : (simulations.get(weekId)?.brewRecommendation ?? []).map((item, index) => ({
+          key: `brew-rec:${weekId}:${item.style}:${index}`,
+          title: `${displayStyle(item.style)} · ${tankLabel(item.tankNumber)}`,
+          meta: `${item.sizeLabel} · ${fmt(item.liters)} ל׳ · זמין ${shortDate(item.availableDate)}`,
+          styleClass: beerStyleClass(item.style).className,
+          recommended: true,
+        }));
+
+    return [...actualBrews, ...plannedBrews, ...recommendationBrews];
   }
 
   function stockItems(weekId: string): SummaryItem[] {
