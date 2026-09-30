@@ -10,7 +10,7 @@ import {
     type Tank,
 } from "../../SERVICES/planning/planningEngine";
 import { futureTanks, openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
-import { displayStyle } from "../../SERVICES/planning/planningPresentation";
+import { displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPresentation";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { brewSizeLabel, weekday } from "../../SERVICES/planning/productionCycle";
 import { shipmentMatchesForPlans } from "../../SERVICES/planning/shipmentActuals";
@@ -136,10 +136,19 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             values.push(style);
         };
         settings.products.filter((item) => item.monthly > 0).forEach((item) => add(item.style));
+        // A special/seasonal beer with no stock target still belongs in the
+        // same packaging editor whenever its physical or canonical future
+        // cycle is available during the selected week.
+        packagingTankPool
+            .filter((tank) =>
+                tank.ready <= model.weekEnd &&
+                (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20
+            )
+            .forEach((tank) => add(tank.style));
         current.packaging.forEach((run) => add(product(run.productId)?.style));
         model.packagingRecommendation.forEach((run) => add(product(run.productId)?.style));
         return values;
-    }, [settings.products, current.packaging, model.packagingRecommendation]);
+    }, [settings.products, current.packaging, model.packagingRecommendation, packagingTankPool, model.weekEnd, model.tankAvailableLiters]);
 
     function tanksForStyle(style: string) {
         return packagingTankPool
@@ -551,7 +560,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     {availableStyles.map((style) => <button type="button" key={style} onClick={() => chooseStyle(style)}>{displayStyle(style)}</button>)}
                 </div> : <>
                     <div className="bp-pack-modal-summary">
-                        <span>מיכלים מוצגים לפי FIFO — הוותיק ביותר ראשון.</span>
+                        <span>{isCoreStyle(packStyle!) ? "מיכלים מוצגים לפי FIFO — הוותיק ביותר ראשון." : "ללא יעד מלאי מוגדר · מיכלים מוצגים לפי FIFO — הוותיק ביותר ראשון."}</span>
                         <button type="button" onClick={() => setPackStyle(null)}>החלף סגנון</button>
                     </div>
 
