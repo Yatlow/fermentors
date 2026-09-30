@@ -46,7 +46,6 @@ test("legacy dated packaging binds to the latest started cycle, never a later re
   assert.equal(schedule[1].packaging.length, 0);
 });
 
-
 test("cycle identity survives forecast batch renumbering after cancellation", () => {
   const before = week("2026-11-01");
   before.brews = [{ id: "stable-brew-id", style: "IPA", tankId: "tank9", date: "2026-11-02", liters: 3000, batchNumber: "1605" }];
@@ -61,27 +60,27 @@ test("cycle identity survives forecast batch renumbering after cancellation", ()
   assert.equal(renumbered.batchNumber, undefined);
 });
 
-
 test("moving future IPA 1677 from tank 10 to tank 17 moves the same cycle and its packaging", () => {
   const brewWeek = week("2027-04-04");
   brewWeek.brews = [{ id: "brew-ipa-1677", style: "IPA", tankId: "tank10", date: "2027-04-05", liters: 4000, batchNumber: "1677" }];
   const packWeek = week("2027-04-25");
-  packWeek.packaging = [{ id: "pack-1677", productId: "ipa-kegs", quantity: 100, tankId: "tank10", batchNumber: "1677", date: "2027-04-27", emptyTank: true }];
+  packWeek.packaging = [{ id: "pack-1677", brewId: "brew-ipa-1677", productId: "ipa-kegs", quantity: 100, tankId: "tank10", batchNumber: "1677", date: "2027-04-27", emptyTank: true } as WeekPlan["packaging"][number] & { brewId: string }];
 
   const before = projectTankSchedules([brewWeek, packWeek], settings);
   const beforeCycle = before.get("tank10")![0];
 
   const movedBrewWeek = structuredClone(brewWeek);
   movedBrewWeek.brews[0].tankId = "tank17";
-  const movedPackWeek = structuredClone(packWeek);
-  movedPackWeek.packaging[0].tankId = "tank17";
-  const after = projectTankSchedules([movedBrewWeek, movedPackWeek], settings);
+  // Deliberately leave the packaging snapshot pointing at tank10. brewId is the
+  // relationship; tankId/batchNumber on packaging are legacy/display snapshots.
+  const after = projectTankSchedules([movedBrewWeek, packWeek], settings);
   const afterCycle = after.get("tank17")![0];
 
   assert.equal(beforeCycle.cycleId, "brew-ipa-1677");
   assert.equal(afterCycle.cycleId, beforeCycle.cycleId);
   assert.equal(afterCycle.plannedBatchNumber, "1677");
   assert.equal(afterCycle.packaging[0].planId, "pack-1677");
+  assert.equal(afterCycle.emptyDate, "2027-04-27");
   assert.equal(after.get("tank10"), undefined);
 });
 
@@ -99,7 +98,6 @@ test("availability selectors see later reuse and future packaging from the proje
   assert.equal(tankAvailableForBrewAt(tank9, "2026-12-10"), false);
   assert.deepEqual(packagingCyclesAt(schedules, "IPA", "2026-12-22").map((item) => item.cycle.plannedBatchNumber), ["1612"]);
 });
-
 
 test("week 44 emptying makes tanks 18, 2 and 9 available for week 45", () => {
   const week44 = week("2026-10-25");
@@ -133,7 +131,6 @@ test("week 45 reuse is represented without losing the week 44 release", () => {
   assert.equal(tankAvailableForBrewAt(tank9, "2026-11-02"), false);
   assert.equal(tank9[1].cycleId, "new-9");
 });
-
 
 test("persistence diff writes only tanks whose projected lifecycle changed", () => {
   const beforeWeek = week("2026-11-01");
