@@ -66,3 +66,23 @@ export function projectTankSchedules(plans: WeekPlan[], settings: Settings): Map
 
   return byTank;
 }
+
+
+export function serializeTankSchedules(
+  schedules: Map<string, TankScheduleCycle[]>,
+): Record<string, TankScheduleCycle[]> {
+  return Object.fromEntries(
+    [...schedules.entries()].map(([tankId, cycles]) => [tankId, orderedTankSchedule(cycles)]),
+  );
+}
+
+export function changedTankSchedules(
+  previous: Map<string, TankScheduleCycle[]>,
+  next: Map<string, TankScheduleCycle[]>,
+): Array<{ tankId: string; cycles: TankScheduleCycle[] }> {
+  const tankIds = new Set([...previous.keys(), ...next.keys()]);
+  return [...tankIds]
+    .sort()
+    .filter((tankId) => JSON.stringify(previous.get(tankId) ?? []) !== JSON.stringify(next.get(tankId) ?? []))
+    .map((tankId) => ({ tankId, cycles: next.get(tankId) ?? [] }));
+}
