@@ -610,7 +610,12 @@ export default function PlanningWeeklyRecommendations({
         });
     }
 
-    const addManualPack = () => setManualPacks((rows) => [...rows, { id: crypto.randomUUID(), tankId: "", productId: "", quantity: 0 }]);
+    const addManualPack = (tankId = "") => setManualPacks((rows) => {
+        const id = crypto.randomUUID();
+        const p = tankId ? manualProductsForTank(tankId)[0] : undefined;
+        const draft = { id, tankId, productId: p?.id ?? "", quantity: 0 };
+        return [...rows, { ...draft, quantity: p ? manualMaxQuantity(p, tankId, id) : 0 }];
+    });
 
     function changeManualTank(id: string, tankId: string) {
         setManualPacks((rows) => rows.map((r) => {
@@ -1036,6 +1041,29 @@ export default function PlanningWeeklyRecommendations({
                             <button onClick={() => setPackDraft((d) => ({ ...d, [key]: value ? 0 : r.quantity }))}>{value ? "בטל" : `הוסף ${fmt(r.quantity)}`}</button>
                         </div>;
                     }) : <small>אין המלצות נוספות מעבר להחלטות שכבר נקבעו.</small>}
+
+                    {(() => {
+                        const recommendedCycles = new Set(model.packagingRecommendation.map((rec) =>
+                            rec.brewId ? `planned:${rec.brewId}` : rec.tankId
+                        ));
+                        const savedCycles = new Set(current.packaging.map((run) =>
+                            run.brewId ? `planned:${run.brewId}` : run.tankId
+                        ));
+                        const additionalTanks = packagingTankPool.filter((tank) =>
+                            tank.ready <= model.weekEnd &&
+                            (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20 &&
+                            !recommendedCycles.has(tank.id) &&
+                            !savedCycles.has(tank.id)
+                        );
+                        return additionalTanks.length ? <div className="bp-available-tanks">
+                            <b>מיכלים זמינים נוספים</b>
+                            {additionalTanks.map((tank) =>
+                                <button type="button" key={tank.id} disabled={busy} onClick={() => addManualPack(tank.id)}>
+                                    מיכל {tank.number} · {displayStyle(tank.style)} · {fmt(model.tankAvailableLiters.get(tank.id) ?? tank.liters)} ל׳{tank.id.startsWith("planned:") ? " · מתוכנן" : ""}
+                                </button>
+                            )}
+                        </div> : null;
+                    })()}
 
                     {manualPacks.map((r) => {
                         const remaining = r.tankId ? remainingLitersForTank(r.tankId, r.id) : 0;
