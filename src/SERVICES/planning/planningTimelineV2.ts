@@ -8,7 +8,9 @@ export type TankOccupancy = {
   style: string; batchNumber?: string; startsAt: string; readyAt: string;
   startingLiters: number; packaging: TimelinePackaging[]; expectedEmptyAt?: string; nextOccupancyId?: string;
 };
-export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[] };
+export type TankAvailability = { tankId: string; tankNumber: string; date: string | null; reason: string; occupancyId?: string };
+export type TimelineIssue = { severity: "warning" | "error"; tankId?: string; message: string };
+export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[]; availability: TankAvailability[]; issues: TimelineIssue[] };
 
 const leadDaysFor = (settings: Settings, style: string) => {
   const leads = settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays);
@@ -61,5 +63,35 @@ export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans
     list.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id));
     list.forEach((occupancy, index) => { occupancy.nextOccupancyId = list[index + 1]?.id; });
   }
-  return { generatedFor: today, occupancies };
+  const availability: TankAvailability[] = [];
+  const issues: TimelineIssue[] = [];
+  for (const source of sources) {
+    if (Number(source.tankNumber) === 1) continue;
+    const list = (byTank.get(source.id) ?? []).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    if (!list.length) {
+      const ready = source.tankStatus === true || Number(source.action) === 0 ||
+        ["stage-empty", "stage-clean", "stage-sanitized"].includes(source.stage?.className ?? "");
+      availability.push({
+        tankId: source.id, tankNumber: String(source.tankNumber ?? source.id),
+        date: ready ? today : null, reason: ready ? "פנוי לפי מצב המיכל בפועל" : "אין occupancy מאומת ואין שחרור מתוכנן",
+      });
+      continue;
+    }
+    list.forEach((current, index) => {
+      const next = list[index + 1];
+      if (next && !current.expectedEmptyAt) {
+        issues.push({ severity: "error", tankId: source.id, message: `מיכל ${current.tankNumber}: מתוכנן בישול נוסף ב-${next.startsAt} בלי ריקון מתוכנן של ${current.style}` });
+      } else if (next && current.expectedEmptyAt && next.startsAt < current.expectedEmptyAt) {
+        issues.push({ severity: "error", tankId: source.id, message: `מיכל ${current.tankNumber}: הבישול הבא ${next.startsAt} קודם לריקון ${current.expectedEmptyAt}` });
+      }
+    });
+    const last = list.at(-1)!;
+    availability.push({
+      tankId: source.id, tankNumber: last.tankNumber,
+      date: last.expectedEmptyAt ? addDays(last.expectedEmptyAt, 8 - new Date(`${last.expectedEmptyAt}T12:00:00Z`).getUTCDay()) : null,
+      reason: last.expectedEmptyAt ? `לאחר ריקון ${last.expectedEmptyAt} וניקיון לשבוע הבא` : `האכלוס האחרון (${last.style}) טרם כולל ריקון`,
+      occupancyId: last.id,
+    });
+  }
+  return { generatedFor: today, occupancies, availability, issues };
 }
