@@ -1,4 +1,4 @@
-import { addDays, sameStyle, type Actual, type Settings, type Tank, type TankInput, type WeekPlan } from "./planningEngine";
+import { addDays, litersPerUnit, sameStyle, type Actual, type Product, type Settings, type Tank, type TankInput, type WeekPlan } from "./planningEngine";
 import { openRuns } from "./dailyPlanner";
 
 /** Pure/read-only Planning V2 shadow model. No Firebase imports, no writes. */
@@ -10,7 +10,8 @@ export type TankOccupancy = {
 };
 export type TankAvailability = { tankId: string; tankNumber: string; date: string | null; reason: string; occupancyId?: string };
 export type TimelineIssue = { severity: "warning" | "error"; tankId?: string; message: string };
-export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[]; availability: TankAvailability[]; issues: TimelineIssue[] };
+export type TimelineSupply = { occupancyId: string; tankId: string; tankNumber: string; style: string; batchNumber?: string; readyAt: string; availableLiters: number };
+export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[]; availability: TankAvailability[]; issues: TimelineIssue[]; supply: TimelineSupply[] };
 
 const leadDaysFor = (settings: Settings, style: string) => {
   const leads = settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays);
@@ -104,5 +105,16 @@ export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans
       occupancyId: last.id,
     });
   }
-  return { generatedFor: today, occupancies, availability, issues };
+  const supply: TimelineSupply[] = occupancies.map((occupancy) => {
+    const packedLiters = occupancy.packaging.reduce((sum, run) => {
+      const product: Product | undefined = productFor(run.productId);
+      return sum + (product ? run.remaining * litersPerUnit(product) : 0);
+    }, 0);
+    return {
+      occupancyId: occupancy.id, tankId: occupancy.tankId, tankNumber: occupancy.tankNumber,
+      style: occupancy.style, batchNumber: occupancy.batchNumber, readyAt: occupancy.readyAt,
+      availableLiters: Math.max(0, occupancy.startingLiters - packedLiters),
+    };
+  });
+  return { generatedFor: today, occupancies, availability, issues, supply };
 }
