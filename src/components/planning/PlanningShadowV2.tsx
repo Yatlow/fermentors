@@ -53,5 +53,14 @@ export default function PlanningShadowV2({ settings, plans, tanks, sources, actu
         </div>;
       })}
     </details>
+    <details>
+      <summary>V2 candidates · אריזה {comparison.timeline.packagingCandidates.length} · בישול {comparison.timeline.brewCandidates.length}</summary>
+      {comparison.timeline.brewCandidates.map((item) => <div key={item.tankId}>
+        מיכל {item.tankNumber} · זמין לבישול {item.availableAt} · {Math.round(item.workLiters)} ל׳
+      </div>)}
+      {comparison.timeline.packagingCandidates.map((item) => <div key={`${item.occupancyId}:${item.productId}`}>
+        מיכל {item.tankNumber} · {item.style} · אריזה החל מ-{item.readyAt} · עד {item.maxUnits} יח׳
+      </div>)}
+    </details>
   </section>;
 }
