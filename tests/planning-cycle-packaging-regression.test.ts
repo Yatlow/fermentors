@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { resolvePackagingBrewId } from "../src/SERVICES/planning/planIdentity";
+import { tankCanHostCycle } from "../src/SERVICES/planning/tankSchedule";
 
 const product: Product = {
   id: "ipa-crates",
