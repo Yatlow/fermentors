@@ -681,10 +681,17 @@ export default function PlanningWeeklyRecommendations({
 
             for (const manual of manualPacks) {
                 if (!manual.tankId || !manual.productId || manual.quantity <= 0) continue;
-                const t = tanks.find((x) => x.id === manual.tankId)!;
+                const cycle = packagingTankById(manual.tankId);
+                if (!cycle) continue;
                 const p = product(manual.productId)!;
-                const base = model.tankAvailableLiters.get(t.id) ?? t.liters;
-                const used = packaging.filter((x) => x.tankId === t.id).reduce((sum, x) => {
+                const brewId = cycle.id.startsWith("planned:") ? cycle.id.slice("planned:".length) : undefined;
+                const plannedBrew = brewId ? plans.flatMap((plan) => plan.brews).find((brew) => brew.id === brewId) : undefined;
+                const physicalTankId = plannedBrew?.tankId ?? cycle.id;
+                const source = sources.find((item) => item.id === physicalTankId);
+                const base = model.tankAvailableLiters.get(cycle.id) ?? cycle.liters;
+                const used = packaging.filter((x) =>
+                    brewId ? x.brewId === brewId : x.tankId === physicalTankId && !x.brewId
+                ).reduce((sum, x) => {
                     const usedProduct = product(x.productId);
                     return sum + (usedProduct ? effectiveSavedRemaining(x, x.quantity) * litersPerUnit(usedProduct) : 0);
                 }, 0);
@@ -696,9 +703,10 @@ export default function PlanningWeeklyRecommendations({
                     id: manual.id,
                     productId: p.id,
                     quantity,
-                    tankId: t.id,
-                    tankNumber: String(t.number),
-                    batchNumber: t.batch,
+                    tankId: physicalTankId,
+                    tankNumber: String(source?.tankNumber ?? cycle.number),
+                    batchNumber: plannedBrew?.batchNumber ?? cycle.batch,
+                    ...(brewId ? { brewId } : {}),
                     source: "manual",
                 });
             }
@@ -993,6 +1001,7 @@ export default function PlanningWeeklyRecommendations({
                             {current.packaging.length ? "הוסף אריזות מהמלצה לביצוע" : "צור אריזות מההמלצה"}
                         </button>
                         <button disabled={disabled || busy} onClick={() => beginEdit("packaging")}>עריכת האריזות</button>
+                        <button disabled={disabled || busy} onClick={() => { beginEdit("packaging"); addManualPack(); }}>+ אריזה ידנית</button>
                     </>}
                 </div>
 
