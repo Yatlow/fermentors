@@ -853,7 +853,10 @@ export default function PlanningWeeklyRecommendations({
         ? brewDraft
         : current.brews.map((b) => ({ style: b.style, liters: b.liters }));
     const plannedBrewCount = plannedBrewRows.length;
-    const brewCapacityWarning = plannedBrewCount > model.brewTankCapacity || brewDraftExceedsSizeCapacity(plannedBrewRows);
+    // Capacity is enforced by the canonical assignment editor/save validation.
+    // Comparing a draft count/size distribution with all tanks visible in the
+    // week is a second, lossy source of truth and produced false warnings.
+    const brewCapacityWarning = false;
 
     return <section className="bp-weekly-planner">
         {busy && <BeerLoader overlay message="מעדכן את התכנון…" />}
