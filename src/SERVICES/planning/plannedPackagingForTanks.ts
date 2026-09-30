@@ -8,6 +8,7 @@ import { db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { addDays, dateKey, weekStart, type WeekPlan } from "./planningEngine";
 import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
+import { projectTankSchedules } from "./tankScheduleProjection";
 
 export type PlannedTankPackaging = {
   date: string;
@@ -64,9 +65,6 @@ async function loadFuturePackagingMaps() {
 
   const today = dateKey(new Date());
   const horizon = addDays(today, 84);
-  // Packaging may belong to a brew committed in an earlier week. Load enough
-  // history to resolve its stable brewId instead of treating tank/batch snapshots
-  // as identity.
   const historyStart = weekStart(addDays(today, -84));
   const pending = getDocsFromServer(
     query(
@@ -84,21 +82,38 @@ async function loadFuturePackagingMaps() {
       .map((snapshot) => snapshot.data() as WeekPlan)
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
+    // Canonical path: project every committed brew into its lifecycle and read
+    // packaging from that cycle. brewId/cycleId decides ownership; tank/batch are
+    // lookup snapshots only. This prevents a later brew on the same tank from
+    // stealing or hiding packaging that belongs to the current cycle.
+    const schedules = projectTankSchedules(plans, { products: [] } as never);
+    for (const [tankId, cycles] of schedules) {
+      for (const cycle of cycles) {
+        const batch = cycle.batchNumber ?? cycle.plannedBatchNumber;
+        const key = planningKey(tankId, batch);
+        for (const item of cycle.packaging) {
+          if (!item.date || item.date < today) continue;
+          if (key) earliest(planning, key, item.date);
+          if (!batch) earliest(planningByTank, tankKey(tankId), item.date);
+        }
+      }
+    }
+
+    // Legacy bridge: current physical cycles can pre-date the planning window and
+    // therefore have no projected brew cycle. Keep only rows that cannot resolve
+    // to a canonical brew; once brewId resolves, the canonical schedule above is
+    // authoritative and snapshots must not create a second relationship.
     for (const week of plans) {
       const weekId = String(week.id || "");
-
       for (const raw of week.packaging ?? []) {
         const run = raw as PackagingPlan;
         const brewId = resolvePackagingBrewId(run, plans);
         const linkedBrew = brewId ? brewById(plans, brewId) : null;
+        if (linkedBrew) continue;
 
-        // Canonical brew identity is authoritative. The packaging row's tank and
-        // batch are legacy snapshots and can be stale after a future brew is moved
-        // or renumbered. tankId is the stable tank key; tankNumber remains only a
-        // display/legacy lookup fallback.
-        const canonicalTankId = linkedBrew?.tankId ?? run.tankId;
+        const canonicalTankId = run.tankId;
         const canonicalTankNumber = run.tankNumber;
-        const canonicalBatch = linkedBrew?.batchNumber ?? run.batchNumber;
+        const canonicalBatch = run.batchNumber;
         const keys = [
           planningKey(canonicalTankNumber, canonicalBatch),
           planningKey(canonicalTankId, canonicalBatch),
