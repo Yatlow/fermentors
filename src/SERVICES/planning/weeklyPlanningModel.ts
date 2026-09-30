@@ -26,6 +26,8 @@ import { buildShipmentRecommendation } from "./shipmentRecommendation";
 import { brewSizeLabel, tankReleases, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
+import { projectTankSchedules } from "./tankScheduleProjection";
+import { orderedTankSchedule } from "./tankSchedule";
 import { planningTargetsForStyle } from "./planningTargets";
 import { resolvePackagingBrewId } from "./planIdentity";
 
@@ -377,20 +379,9 @@ function buildBrewRecommendation(
     if (release) currentReservedTankIds.add(release.tankId);
   }
 
-  // A physical tank can only host one future planned cycle until that future
-  // cycle itself has a canonical empty date. Do not recommend an earlier/later
-  // brew into a tank that is already occupied by any other planned week.
-  const occupiedByOtherPlannedCycle = new Set(
-    plans
-      .filter((plannedWeek) => plannedWeek.id !== week)
-      .flatMap((plannedWeek) => plannedWeek.brews)
-      .filter((brew) => !!brew.tankId)
-      .map((brew) => brew.tankId),
-  );
-  const availableReleases = capacityReleases.filter(
-    (r) => !currentReservedTankIds.has(r.tankId) && !occupiedByOtherPlannedCycle.has(r.tankId),
-  );
-  const capacityBeforeCurrent = capacityReleases.filter((r) => !occupiedByOtherPlannedCycle.has(r.tankId)).length;
+  const availableReleases = capacityReleases.filter((r) => !currentReservedTankIds.has(r.tankId));
+  const capacityBeforeCurrent = capacityReleases.length;
+  const schedules = projectTankSchedules(plans, settings);
   const remainingCapacity = availableReleases.length;
   const tankOptions: WeeklyBrewTankOption[] = capacityReleases.map((release) => {
     const source = sources.find((s) => s.id === release.tankId);
@@ -420,6 +411,23 @@ function buildBrewRecommendation(
       const state = remainingStyles[si];
       for (let ri = 0; ri < remainingReleases.length; ri++) {
         const release = remainingReleases[ri];
+        const candidateDate = release.date && release.date > week ? release.date : week;
+        if (candidateDate > weekEnd) continue;
+        const cycles = orderedTankSchedule(schedules.get(release.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
+        const occupying = cycles.find((cycle) =>
+          cycle.brewDate <= candidateDate && (!cycle.emptyDate || candidateDate <= cycle.emptyDate),
+        );
+        if (occupying) continue;
+        const nextCycle = cycles.find((cycle) => cycle.brewDate > candidateDate);
+        const leadDays = Math.max(
+          ...settings.products.filter((p) => sameStyle(p.style, state.style)).map((p) => p.leadDays),
+          21,
+        );
+        // A recommendation may use a tank between canonical cycles only when
+        // the proposed beer can at least reach packaging readiness before the
+        // next committed brew. This preserves legitimate multi-cycle windows
+        // without recommending overlapping cycles.
+        if (nextCycle && addDays(candidateDate, leadDays) >= nextCycle.brewDate) continue;
         const liters = release.workLiters || 2500;
         const postCover = (state.stockLiters + liters) / state.demandLiters;
         // Prefer filling the target without overshooting it. Large tanks are
