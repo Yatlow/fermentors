@@ -385,19 +385,12 @@ function buildBrewRecommendation(
   const planningStart = weekStart(today);
   const currentWeek = plans.find((w) => w.id === week);
 
-  const priorAssignedTankIds = new Set(
-    plans
-      .filter((w) => w.id >= planningStart && w.id < week)
-      .flatMap((w) => w.brews)
-      .filter((b) => !!b.tankId && b.date <= weekEnd)
-      .map((b) => b.tankId),
-  );
-
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today)
-    .filter((r) => !!r.date && r.date! <= weekEnd && !priorAssignedTankIds.has(r.tankId))
-    .sort((a, b) =>
-      (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31") ||
-      Number(sources.find((s) => s.id === a.tankId)?.tankNumber ?? Infinity) -
+    .filter((r) => !!r.date && r.date! <= weekEnd)
+    .sort(
+      (a, b) =>
+        (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31") ||
+        Number(sources.find((s) => s.id === a.tankId)?.tankNumber ?? Infinity) -
         Number(sources.find((s) => s.id === b.tankId)?.tankNumber ?? Infinity),
     );
 
