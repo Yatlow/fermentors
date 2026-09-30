@@ -382,8 +382,26 @@ function buildBrewRecommendation(
   const availableReleases = capacityReleases.filter((r) => !currentReservedTankIds.has(r.tankId));
   const capacityBeforeCurrent = capacityReleases.length;
   const schedules = projectTankSchedules(plans, settings);
-  const remainingCapacity = availableReleases.length;
-  const tankOptions: WeeklyBrewTankOption[] = capacityReleases.map((release) => {
+  const releaseFitsCanonicalWindow = (release: (typeof capacityReleases)[number], style?: string) => {
+    const candidateDate = release.date && release.date > week ? release.date : week;
+    if (candidateDate > weekEnd) return false;
+    const cycles = orderedTankSchedule(schedules.get(release.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
+    const occupying = cycles.find((cycle) =>
+      cycle.brewDate <= candidateDate && (!cycle.emptyDate || candidateDate <= cycle.emptyDate),
+    );
+    if (occupying) return false;
+    const nextCycle = cycles.find((cycle) => cycle.brewDate > candidateDate);
+    if (!nextCycle) return true;
+    if (!style) return false;
+    const leadDays = Math.max(
+      ...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays),
+      21,
+    );
+    return addDays(candidateDate, leadDays) < nextCycle.brewDate;
+  };
+  const canonicalAvailableReleases = availableReleases.filter((release) => releaseFitsCanonicalWindow(release));
+  const remainingCapacity = canonicalAvailableReleases.length;
+  const tankOptions: WeeklyBrewTankOption[] = canonicalAvailableReleases.map((release) => {
     const source = sources.find((s) => s.id === release.tankId);
     const tankNumber = String(source?.tankNumber ?? release.tankId);
     const workLiters = release.workLiters || 2500;
@@ -403,7 +421,7 @@ function buildBrewRecommendation(
   }).filter((state) => state.demandLiters > 0);
 
   const recommendations: WeeklyBrewRecommendation[] = [];
-  const remainingReleases = [...availableReleases];
+  const remainingReleases = [...canonicalAvailableReleases];
   const remainingStyles = [...styleStates];
   while (recommendations.length < remainingCapacity && remainingReleases.length && remainingStyles.length) {
     let best: { styleIndex: number; releaseIndex: number; score: number } | null = null;
@@ -411,23 +429,10 @@ function buildBrewRecommendation(
       const state = remainingStyles[si];
       for (let ri = 0; ri < remainingReleases.length; ri++) {
         const release = remainingReleases[ri];
-        const candidateDate = release.date && release.date > week ? release.date : week;
-        if (candidateDate > weekEnd) continue;
-        const cycles = orderedTankSchedule(schedules.get(release.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
-        const occupying = cycles.find((cycle) =>
-          cycle.brewDate <= candidateDate && (!cycle.emptyDate || candidateDate <= cycle.emptyDate),
-        );
-        if (occupying) continue;
-        const nextCycle = cycles.find((cycle) => cycle.brewDate > candidateDate);
-        const leadDays = Math.max(
-          ...settings.products.filter((p) => sameStyle(p.style, state.style)).map((p) => p.leadDays),
-          21,
-        );
-        // A recommendation may use a tank between canonical cycles only when
-        // the proposed beer can at least reach packaging readiness before the
-        // next committed brew. This preserves legitimate multi-cycle windows
-        // without recommending overlapping cycles.
-        if (nextCycle && addDays(candidateDate, leadDays) >= nextCycle.brewDate) continue;
+        // Tank availability and recommendation generation must use the same
+        // canonical cycle-window rule. A tank shown as available must actually
+        // be able to host this style before its next committed cycle.
+        if (!releaseFitsCanonicalWindow(release, state.style)) continue;
         const liters = release.workLiters || 2500;
         const postCover = (state.stockLiters + liters) / state.demandLiters;
         // Prefer filling the target without overshooting it. Large tanks are
