@@ -1,4 +1,4 @@
-import { addDays, litersPerUnit, sameStyle, type Actual, type Product, type Settings, type Tank, type TankInput, type WeekPlan } from "./planningEngine";
+import { addDays, litersPerUnit, sameStyle, weeklyDemand, type Actual, type Product, type Settings, type Tank, type TankInput, type WeekPlan } from "./planningEngine";
 import { openRuns } from "./dailyPlanner";
 
 /** Pure/read-only Planning V2 shadow model. No Firebase imports, no writes. */
@@ -11,7 +11,9 @@ export type TankOccupancy = {
 export type TankAvailability = { tankId: string; tankNumber: string; date: string | null; reason: string; occupancyId?: string };
 export type TimelineIssue = { severity: "warning" | "error"; tankId?: string; message: string };
 export type TimelineSupply = { occupancyId: string; tankId: string; tankNumber: string; style: string; batchNumber?: string; readyAt: string; availableLiters: number };
-export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[]; availability: TankAvailability[]; issues: TimelineIssue[]; supply: TimelineSupply[] };
+export type TimelinePackagingCandidate = { occupancyId: string; tankId: string; tankNumber: string; productId: string; style: string; readyAt: string; availableLiters: number; maxUnits: number };
+export type TimelineBrewCandidate = { tankId: string; tankNumber: string; availableAt: string; workLiters: number };
+export type PlanningTimeline = { generatedFor: string; occupancies: TankOccupancy[]; availability: TankAvailability[]; issues: TimelineIssue[]; supply: TimelineSupply[]; packagingCandidates: TimelinePackagingCandidate[]; brewCandidates: TimelineBrewCandidate[] };
 
 const leadDaysFor = (settings: Settings, style: string) => {
   const leads = settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays);
@@ -116,5 +118,29 @@ export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans
       availableLiters: Math.max(0, occupancy.startingLiters - packedLiters),
     };
   });
-  return { generatedFor: today, occupancies, availability, issues, supply };
+  const packagingCandidates: TimelinePackagingCandidate[] = supply.flatMap((entry) =>
+    settings.products
+      .filter((product) => sameStyle(product.style, entry.style) && weeklyDemand(product) > 0)
+      .map((product) => ({
+        occupancyId: entry.occupancyId, tankId: entry.tankId, tankNumber: entry.tankNumber,
+        productId: product.id, style: product.style, readyAt: entry.readyAt,
+        availableLiters: entry.availableLiters,
+        maxUnits: Math.floor(entry.availableLiters / litersPerUnit(product)),
+      }))
+      .filter((candidate) => candidate.maxUnits > 0),
+  );
+  const workLitersFor = (tankId: string) => {
+    const source = sources.find((item) => item.id === tankId);
+    const current = tanks.find((item) => item.id === tankId);
+    const raw = Number(source?.beerVolume);
+    return Number.isFinite(raw) && raw > 0 ? raw : current?.liters || 2500;
+  };
+  const brewCandidates: TimelineBrewCandidate[] = availability
+    .filter((entry): entry is TankAvailability & { date: string } => !!entry.date)
+    .map((entry) => ({
+      tankId: entry.tankId, tankNumber: entry.tankNumber, availableAt: entry.date,
+      workLiters: workLitersFor(entry.tankId),
+    }))
+    .sort((a, b) => a.availableAt.localeCompare(b.availableAt) || Number(a.tankNumber) - Number(b.tankNumber));
+  return { generatedFor: today, occupancies, availability, issues, supply, packagingCandidates, brewCandidates };
 }
