@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPlanningTimelineV2, timelineBrewCandidatesForWeek, timelineForTank, timelinePackagingCandidatesForWeek } from "../src/SERVICES/planning/planningTimelineV2";
+import { buildPlanningTimelineV2, compareTimelineAvailability, timelineBrewCandidatesForWeek, timelineForTank, timelinePackagingCandidatesForWeek } from "../src/SERVICES/planning/planningTimelineV2";
 import type { Settings, Tank, TankInput, WeekPlan } from "../src/SERVICES/planning/planningEngine";
 
 const settings: Settings = {
@@ -157,4 +157,16 @@ test("canonical V2 queries return every eligible tank rather than a first-match 
   assert.equal(timelineBrewCandidatesForWeek(timeline, "2026-10-04").length, 0);
   assert.deepEqual(ids.map(([id]) => timelineForTank(timeline, id).length), [1,1,1]);
   assert.ok(timelinePackagingCandidatesForWeek(timeline, "2026-10-04").length >= 0);
+});
+
+test("parity report distinguishes agreement from intentional V1 cross-week regression", () => {
+  const timeline = buildPlanningTimelineV2({
+    today: "2026-09-30", settings, sources: [source("tank-9", 9)], tanks: [tank("tank-9", "9")], actuals: [],
+    plans: [week("2026-10-25", [{ productId: "ipa-kegs", quantity: 150, date: "2026-10-28", tankId: "tank-9", emptyTank: true }])],
+  });
+  const matching = compareTimelineAvailability(timeline, [{ tankId: "tank-9", date: "2026-11-02", emptyDate: "2026-10-28" }]);
+  assert.equal(matching[0].matches, true);
+  const legacyMiss = compareTimelineAvailability(timeline, [{ tankId: "tank-9", date: null, emptyDate: null }]);
+  assert.equal(legacyMiss[0].matches, false);
+  assert.equal(legacyMiss[0].v2EmptyAt, "2026-10-28");
 });
