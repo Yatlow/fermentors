@@ -27,6 +27,8 @@ import {
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
 import { resolvePackagingBrewId } from "../../SERVICES/planning/planIdentity";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
+import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
+import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
 import PlanningBrewAssignmentEditor from "./PlanningBrewAssignmentEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
 
@@ -141,10 +143,18 @@ export default function PlanningBoard({
   // tankId. The canonical cycle validator below decides whether the previous
   // brew has actually emptied before a later brew. Keeping all releases visible
   // is required for legitimate tank reuse in later planning weeks.
-  const releases = useMemo(
-    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today),
-    [brews, tanks, releasePlans, settings, actuals, today],
-  );
+  const releases = useMemo(() => {
+    const base = tankReleases(brews, tanks, releasePlans, settings, actuals, today);
+    const schedules = projectTankSchedules(plans, settings);
+    const weekEnd = addDays(week, 6);
+    return base.filter((release) => {
+      if (!release.date || release.date > weekEnd) return false;
+      const candidateDate = release.date > week ? release.date : week;
+      // The assignment editor only needs to show tanks with a real canonical
+      // opening in this week. Style-specific readiness is validated on save.
+      return tankCanHostCycle(schedules.get(release.tankId) ?? [], candidateDate, candidateDate);
+    });
+  }, [brews, tanks, releasePlans, plans, settings, actuals, today, week]);
 
   const productLabel = (id: string) => {
     const product = settings.products.find((item) => item.id === id);
