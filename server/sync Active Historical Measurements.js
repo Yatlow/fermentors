@@ -7,53 +7,58 @@
 // when a Sheet row was deleted/recreated and therefore received a new time.
 //
 // Firestore cost guard: a full historical reconciliation is only required after
-// the underlying brew Sheet changed. We persist the Drive last-modified token
-// after a successful sync and skip unchanged batches on later trigger runs.
+// the fermentation measurement table itself changed. Changes elsewhere in the
+// brew Sheet no longer trigger Firestore reads for every historical row.
 // ============================================================
 
-const HISTORICAL_SYNC_REVISION_PREFIX = "historical_sheet_revision_v1:";
+const HISTORICAL_SYNC_REVISION_PREFIX = "historical_measurements_hash_v2:";
 
 function historicalMeasurementDayFromId_(id) {
   const match = String(id || "").match(/^(\d{4}-\d{2}-\d{2})(?:_\d{4})?$/);
   return match ? match[1] : null;
 }
 
-function historicalSheetRevision_(sheetUrl) {
+function historicalMeasurementsSnapshot_(sheetUrl) {
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
-  return String(DriveApp.getFileById(spreadsheetId).getLastUpdated().getTime());
+  const sheet = SpreadsheetApp.openById(spreadsheetId).getSheets()[0];
+  const values = sheet.getDataRange().getDisplayValues();
+  const headerRow = findRowContaining(values, "טמפרטורה");
+  const rows = [];
+
+  if (headerRow === -1) {
+    return { rows: rows, hash: computeHash_(rows) };
+  }
+
+  for (let r = headerRow + 1; r < values.length; r++) {
+    const dateText = String(values[r][0] || "").trim();
+    if (!parseIsraeliDate(dateText)) continue;
+
+    const row = values[r].slice(0, 8).map(function (value) {
+      return String(value || "").trim();
+    });
+
+    if (!row.slice(2).some(function (value) { return value !== ""; })) continue;
+    rows.push(row);
+  }
+
+  return { rows: rows, hash: computeHash_(rows) };
 }
 
 function historicalSyncRevisionKey_(batchNumber) {
   return HISTORICAL_SYNC_REVISION_PREFIX + String(batchNumber || "").replace("#", "").trim();
 }
 
-function historicalCanonicalIdsFromSheet_(sheetUrl) {
-  const spreadsheetId = extractSpreadsheetId(sheetUrl);
-  const sheet = SpreadsheetApp.openById(spreadsheetId).getSheets()[0];
-  const values = sheet.getDataRange().getDisplayValues();
-  const headerRow = findRowContaining(values, "טמפרטורה");
+function historicalCanonicalIdsFromRows_(rows) {
   const canonicalByDay = {};
 
-  if (headerRow === -1) return canonicalByDay;
+  rows.forEach(function (row) {
+    const date = parseIsraeliDate(row[0]);
+    if (!date) return;
 
-  for (let r = headerRow + 1; r < values.length; r++) {
-    const dateText = String(values[r][0] || "").trim();
-    const date = parseIsraeliDate(dateText);
-    if (!date) continue;
-
-    const hasAnyValue = values[r][2] || values[r][3] || values[r][4] ||
-      values[r][5] || values[r][6] || values[r][7];
-    if (!hasAnyValue) continue;
-
-    const time = String(values[r][1] || "").trim();
-    const measurementId = createMeasurementId(date, time);
+    const measurementId = createMeasurementId(date, row[1]);
     const day = historicalMeasurementDayFromId_(measurementId);
-    if (!day) continue;
-
-    // If the Sheet ever contains more than one row for a day, the last row is
-    // authoritative. Normal operation has exactly one row per day.
-    canonicalByDay[day] = measurementId;
-  }
+    if (day) canonicalByDay[day] = measurementId;
+  });
 
   return canonicalByDay;
 }
@@ -114,8 +119,8 @@ function deleteHistoricalMeasurement_(projectId, batchNumber, measurementId) {
   }
 }
 
-function dedupeHistoricalMeasurementsForBatch_(projectId, batchNumber, sheetUrl) {
-  const canonicalByDay = historicalCanonicalIdsFromSheet_(sheetUrl);
+function dedupeHistoricalMeasurementsForBatch_(projectId, batchNumber, measurementRows) {
+  const canonicalByDay = historicalCanonicalIdsFromRows_(measurementRows);
   const ids = listHistoricalMeasurementIds_(projectId, batchNumber);
   let deleted = 0;
 
@@ -214,12 +219,13 @@ function syncActiveHistoricalMeasurements() {
       // ------------------------------------------------------
 
       const revisionKey = historicalSyncRevisionKey_(batchNumber);
-      const sheetRevision = historicalSheetRevision_(sheetUrl);
-      const previousRevision = properties.getProperty(revisionKey);
+      const measurementSnapshot = historicalMeasurementsSnapshot_(sheetUrl);
+      const measurementHash = measurementSnapshot.hash;
+      const previousHash = properties.getProperty(revisionKey);
 
-      if (previousRevision === sheetRevision) {
+      if (previousHash === measurementHash) {
         unchanged++;
-        Logger.log("UNCHANGED historical sheet: " + batchNumber + " - no Firestore reconciliation needed.");
+        Logger.log("UNCHANGED fermentation measurements: " + batchNumber + " - no Firestore reconciliation needed.");
         return;
       }
 
@@ -234,7 +240,7 @@ function syncActiveHistoricalMeasurements() {
       duplicateDeletes += dedupeHistoricalMeasurementsForBatch_(
         projectId,
         batchNumber,
-        sheetUrl
+        measurementSnapshot.rows
       );
 
       // The Sheet changed since the previous successful reconciliation. Bump
@@ -242,7 +248,7 @@ function syncActiveHistoricalMeasurements() {
       touchHistoricalMeasurementRevision_(projectId, fermentorId);
 
       // Mark only after the complete upload/dedupe/revision sequence succeeded.
-      properties.setProperty(revisionKey, sheetRevision);
+      properties.setProperty(revisionKey, measurementHash);
 
       processed++;
       Logger.log("Historical measurements synced: " + batchNumber);
