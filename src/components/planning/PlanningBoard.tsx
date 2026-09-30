@@ -413,6 +413,7 @@ export default function PlanningBoard({
       {busy && <BeerLoader overlay message="שומר שיבוצי בישול…" />}
       <PlanningBrewAssignmentEditor
         initial={structuredClone(current)}
+        allPlans={plans}
         brews={brews}
         releases={releases}
         disabled={readOnly || busy}
@@ -491,6 +492,7 @@ export default function PlanningBoard({
       <div className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true" aria-label="שיבוץ בישולים למיכלים">
         <PlanningBrewAssignmentEditor
           initial={brewDraft}
+          allPlans={plans}
           brews={brews}
           releases={releases}
           disabled={readOnly || busy}
