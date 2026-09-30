@@ -51,7 +51,18 @@ try {
 
   await saveRevision(1, [{ id: 'tank8-kegs', tankNumber: '8', packageType: 'keg', date: '2026-09-29' }]);
   console.log('PASS first packaging save');
-  await runTransaction(db, async (tx) => {\n    const weekRef = doc(db, 'planningWeeks', weekId);\n    const current = await tx.get(weekRef);\n    const revision = 2;\n    const next = { ...current.data(), revision, updatedAt: serverTimestamp(), updatedBy: uid };\n    tx.set(weekRef, next);\n    tx.set(doc(weekRef, 'revisions', String(revision)), next);\n  });\n  console.log('PASS unchanged week save');\n\n  await saveRevision(3, [
+
+  await runTransaction(db, async (tx) => {
+    const weekRef = doc(db, 'planningWeeks', weekId);
+    const current = await tx.get(weekRef);
+    const revision = 2;
+    const next = { ...current.data(), revision, updatedAt: serverTimestamp(), updatedBy: uid };
+    tx.set(weekRef, next);
+    tx.set(doc(weekRef, 'revisions', String(revision)), next);
+  });
+  console.log('PASS unchanged week save');
+
+  await saveRevision(3, [
     { id: 'tank8-kegs', tankNumber: '8', packageType: 'keg', date: '2026-09-29' },
     { id: 'tank8-bottles', tankNumber: '8', packageType: 'bottle', date: '2026-09-30' },
   ]);
