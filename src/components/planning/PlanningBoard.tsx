@@ -25,6 +25,7 @@ import {
   validateBrewReleases,
 } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
+import { resolvePackagingBrewId } from "../../SERVICES/planning/planIdentity";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import PlanningBrewAssignmentEditor from "./PlanningBrewAssignmentEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
@@ -70,7 +71,7 @@ function inferDatedEmptyTankFlags(
 
   for (const tank of tanks) {
     const runs = opened
-      .filter((run) => run.tankId === tank.id)
+      .filter((run) => run.tankId === tank.id && !resolvePackagingBrewId(run, [next]))
       .sort((a, b) => (a.date ?? "9999-99-99").localeCompare(b.date ?? "9999-99-99") || a.key.localeCompare(b.key));
     if (!runs.length || runs.some((run) => !run.date)) continue;
 
@@ -82,7 +83,7 @@ function inferDatedEmptyTankFlags(
 
     const last = runs[runs.length - 1];
     next.packaging = next.packaging.map((run, index) => {
-      if (run.tankId !== tank.id) return run;
+      if (run.tankId !== tank.id || resolvePackagingBrewId(run, [next])) return run;
       const key = run.id ?? `${next.id}:${run.productId}:${index}`;
       return { ...run, emptyTank: key === last.key };
     });
