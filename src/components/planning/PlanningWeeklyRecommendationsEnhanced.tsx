@@ -9,7 +9,7 @@ import {
     type Product,
     type Tank,
 } from "../../SERVICES/planning/planningEngine";
-import { openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { futureTanks, openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { brewSizeLabel, weekday } from "../../SERVICES/planning/productionCycle";
@@ -116,6 +116,9 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     );
 
     const product = (id: string): Product | undefined => settings.products.find((item) => item.id === id);
+    const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
+    const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) => run.brewId ? `planned:${run.brewId}` : (run.tankId ?? "");
+    const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
 
     function completedForPlan(run: Plan) {
         const open = run.id
@@ -139,7 +142,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     }, [settings.products, current.packaging, model.packagingRecommendation]);
 
     function tanksForStyle(style: string) {
-        return tanks
+        return packagingTankPool
             .filter((tank) =>
                 sameStyle(tank.style, style) &&
                 tank.ready <= model.weekEnd &&
@@ -167,7 +170,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 key: run.id ?? `existing:${index}:${run.productId}:${run.tankId ?? ""}`,
                 originalId: run.id,
                 source: "existing" as const,
-                tankId: run.tankId ?? "",
+                tankId: cycleIdForRun(run),
                 productId: run.productId,
                 quantity: run.quantity,
                 completed: completedForPlan(run),
@@ -292,7 +295,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     function defaultQuantityForSelection(productId: string, tankId: string, currentRows: PackRow[], excludeKey?: string, completed = 0) {
         const p = product(productId);
         if (!p || !tankId) return completed;
-        const base = model.tankAvailableLiters.get(tankId) ?? tanks.find((tank) => tank.id === tankId)?.liters ?? 0;
+        const base = model.tankAvailableLiters.get(tankId) ?? packagingTankById(tankId)?.liters ?? 0;
         const usedByOthers = currentRows
             .filter((other) => other.key !== excludeKey && other.tankId === tankId)
             .reduce((sum, other) => {
@@ -334,7 +337,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 return [...currentRows, {
                     key: `rec:${recommended.id}`,
                     source: "recommendation",
-                    tankId: recommended.tankId,
+                    tankId: recommended.brewId ? `planned:${recommended.brewId}` : recommended.tankId,
                     productId: recommended.productId,
                     quantity: recommendationRemaining(recommended, currentRows),
                     completed: 0,
@@ -380,7 +383,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             return [...currentRows, {
                 key: `rec:${rec.id}`,
                 source: "recommendation",
-                tankId: rec.tankId,
+                tankId: rec.brewId ? `planned:${rec.brewId}` : rec.tankId,
                 productId: rec.productId,
                 quantity: remaining,
                 completed: 0,
@@ -405,7 +408,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             let nextRows = currentRows.map((row) => row.key === key ? nextEdited : row);
             if (patch.quantity !== undefined && nextEdited.tankId) {
                 const capacity = model.tankAvailableLiters.get(nextEdited.tankId)
-                    ?? tanks.find((tank) => tank.id === nextEdited.tankId)?.liters
+                    ?? packagingTankById(nextEdited.tankId)?.liters
                     ?? 0;
                 const editedProduct = product(nextEdited.productId);
                 if (!editedProduct) return nextRows;
@@ -470,17 +473,22 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             const edited: Plan[] = [];
             for (const row of rows) {
                 const p = product(row.productId);
-                const tank = tanks.find((item) => item.id === row.tankId);
+                const tank = packagingTankById(row.tankId);
                 if (!p || !tank || !sameStyle(p.style, packStyle) || !sameStyle(tank.style, packStyle)) continue;
                 const max = maxQuantityForRow(row);
                 const quantity = Math.max(row.completed, Math.min(row.quantity, max));
                 if (quantity <= 0) continue;
+                const brewId = tank.id.startsWith("planned:") ? tank.id.slice("planned:".length) : undefined;
+                const plannedBrew = brewId ? plans.flatMap((week) => week.brews).find((brew) => brew.id === brewId) : undefined;
+                const physicalTankId = plannedBrew?.tankId ?? tank.id;
                 edited.push({
                     id: row.originalId ?? row.key.replace(/^rec:/, ""),
                     productId: p.id,
                     quantity,
-                    tankId: tank.id,
+                    tankId: physicalTankId,
                     tankNumber: String(tank.number),
+                    batchNumber: plannedBrew?.batchNumber ?? tank.batch,
+                    ...(brewId ? { brewId } : {}),
                     source: row.source === "recommendation" ? "recommendation" : row.source === "manual" ? "manual" : current.packaging.find((run) => run.id === row.originalId)?.source,
                 });
             }
