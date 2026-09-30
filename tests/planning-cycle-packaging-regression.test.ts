@@ -97,3 +97,22 @@ test("Gantt decision projection must preserve canonical brewId", () => {
   };
   assert.equal(saved.brewId, brewId);
 });
+
+
+test("stale explicit brewId is not treated as canonical identity", () => {
+  const plans = [{
+    ...emptyWeek("2026-09-27"),
+    brews: [{ id: "brew-real-1571", style: "IPA", tankId: "tank-8", date: "2026-09-01", liters: 3000, batchNumber: "1571" }],
+  }];
+  const resolved = resolvePackagingBrewId({
+    id: "legacy-packaging-row",
+    productId: product.id,
+    quantity: 100,
+    tankId: "tank-8",
+    tankNumber: "8",
+    batchNumber: "1601",
+    brewId: "deleted-or-stale-brew",
+    date: "2026-10-01",
+  }, plans);
+  assert.equal(resolved, null);
+});
