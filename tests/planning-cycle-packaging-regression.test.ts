@@ -132,3 +132,54 @@ test("legacy packaging without batch never binds to a future brew by tank alone"
     date: "2026-10-20",
   }, plans), null);
 });
+
+
+test("canonical cycle windows block overlap but allow reuse after emptying", () => {
+  const cycles = [
+    {
+      cycleId: "week41",
+      style: "IPA",
+      brewDate: "2026-10-05",
+      readyDate: "2026-10-26",
+      emptyDate: "2026-10-28",
+      status: "planned" as const,
+      packaging: [],
+    },
+    {
+      cycleId: "week43",
+      style: "Lager",
+      brewDate: "2026-10-19",
+      readyDate: "2026-11-09",
+      status: "planned" as const,
+      packaging: [],
+    },
+  ];
+
+  assert.equal(tankCanHostCycle(cycles, "2026-10-12", "2026-11-02"), false);
+  assert.equal(tankCanHostCycle(cycles, "2026-10-29", "2026-11-01", "week43"), true);
+});
+
+test("canonical cycle windows allow a genuine gap between completed planned cycles", () => {
+  const cycles = [
+    {
+      cycleId: "first",
+      style: "IPA",
+      brewDate: "2026-09-01",
+      readyDate: "2026-09-22",
+      emptyDate: "2026-09-24",
+      status: "planned" as const,
+      packaging: [],
+    },
+    {
+      cycleId: "later",
+      style: "Lager",
+      brewDate: "2026-11-10",
+      readyDate: "2026-12-01",
+      status: "planned" as const,
+      packaging: [],
+    },
+  ];
+
+  assert.equal(tankCanHostCycle(cycles, "2026-10-01", "2026-10-22"), true);
+  assert.equal(tankCanHostCycle(cycles, "2026-10-25", "2026-11-15"), false);
+});
