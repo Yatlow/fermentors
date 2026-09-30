@@ -13,7 +13,6 @@ import {
 import type { ShipmentEvent } from "./dailyPlanner";
 import type { PlanningSnapshot } from "./planningReports";
 import { pendingDeliveriesForReservationQueue } from "./shipmentActuals";
-import { changedTankSchedules, projectTankSchedules } from "./tankScheduleProjection";
 import { recordPlanningReadCounts, type PlanningReadCounts } from "./planningReadDiagnostics";
 import { auth, db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
@@ -491,21 +490,6 @@ export function usePlanning(
 
       if (collectionName === "planningWeeks") {
         const week = persistedValue as WeekPlan;
-        const previousPlans = plans;
-        const nextPlans = [
-          ...previousPlans.filter((plan) => plan.id !== id),
-          { ...week, revision: next.revision } as WeekPlan,
-        ].sort((a, b) => a.id.localeCompare(b.id));
-        const scheduleChanges = changedTankSchedules(
-          projectTankSchedules(previousPlans, settings),
-          projectTankSchedules(nextPlans, settings),
-        );
-        for (const change of scheduleChanges) {
-          tx.update(doc(db, "fermentors", change.tankId), {
-            tankSchedule: change.cycles,
-          });
-        }
-
         const savedBrews = Array.isArray(snap.data()?.brews) ? snap.data()!.brews : [];
         const weekBrews = Array.isArray(week.brews) ? week.brews : [];
         const brewsChanged = JSON.stringify(weekBrews) !== JSON.stringify(savedBrews);
