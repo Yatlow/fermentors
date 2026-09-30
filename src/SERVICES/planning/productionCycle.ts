@@ -10,6 +10,9 @@ import {
 } from "./planningEngine";
 import { actualDate, openRuns } from "./dailyPlanner";
 import type { Actual } from "./planningEngine";
+import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
+import { projectTankSchedules } from "./tankScheduleProjection";
+import { orderedTankSchedule } from "./tankSchedule";
 
 export const weekday = (date: string) =>
   new Date(`${date}T12:00:00Z`).getUTCDay();
@@ -29,6 +32,8 @@ export const packagingLimit = (date: string, type: "crates" | "kegs") =>
 export type TankSource = {
   id: string;
   tankNumber?: string | number | null;
+  batchNumber?: string | number | null;
+  brewDate?: string | null;
   beerStyle?: string | null;
   beerVolume?: unknown;
   tankStatus?: unknown;
@@ -105,6 +110,21 @@ function isReadyForBrew(source: TankSource) {
   );
 }
 
+function normalizedBatch(value: unknown): string {
+  return String(value ?? "").replace("#", "").trim();
+}
+
+function canonicalRunTank(run: PackagingPlan, plans: WeekPlan[]): string | undefined {
+  const brewId = resolvePackagingBrewId(run, plans);
+  return (brewId ? brewById(plans, brewId)?.tankId : undefined) ?? run.tankId;
+}
+
+/**
+ * Return the next release of the physical cycle currently in each tank.
+ * Future cycles on the same tank are deliberately NOT folded into this answer:
+ * consumers that reason about a particular future brew validate that brew against
+ * its canonical predecessor in validateBrewReleases().
+ */
 export function tankReleases(
   sources: TankSource[],
   tanks: Tank[],
@@ -113,9 +133,11 @@ export function tankReleases(
   actuals: Actual[],
   today: string,
 ): Release[] {
-  const runs = openRuns(plans, settings.products, actuals).filter(
-    (r) => r.date && r.date >= today && r.remaining > 0,
-  );
+  const schedules = projectTankSchedules(plans, settings);
+  const legacyRuns = openRuns(plans, settings.products, actuals)
+    .filter((r) => r.date && r.date >= today && r.remaining > 0)
+    .filter((r) => !resolvePackagingBrewId(r as PackagingPlan, plans));
+
   return sources.map((source) => {
     const workLiters =
       num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, source.beerStyle);
@@ -146,6 +168,7 @@ export function tankReleases(
             : "המיכל פנוי; יש לאמת ניקיון וחיטוי",
       };
     }
+
     const tank = tanks.find((t) => t.id === source.id);
     if (!tank)
       return {
@@ -156,21 +179,41 @@ export function tankReleases(
         workLiters,
         reason: "חסרים נתוני מיכל מאומתים",
       };
+
+    // Canonical first: identify the physical cycle by batch (or brew date when
+    // available) and use that cycle's explicit emptying. This is what allows A ->
+    // empty -> B -> empty on one tank without a tank-level `break` swallowing B.
+    const cycles = orderedTankSchedule(schedules.get(source.id) ?? []);
+    const sourceBatch = normalizedBatch(source.batchNumber);
+    const canonicalCurrent = [...cycles]
+      .reverse()
+      .find((cycle) =>
+        (sourceBatch && normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) === sourceBatch) ||
+        (!!source.brewDate && cycle.brewDate === source.brewDate),
+      );
+    if (canonicalCurrent) {
+      const remaining = canonicalCurrent.emptyDate ? 0 : tank.liters;
+      return {
+        tankId: source.id,
+        date: canonicalCurrent.emptyDate ? nextBrewingWeek(canonicalCurrent.emptyDate) : null,
+        emptyDate: canonicalCurrent.emptyDate ?? null,
+        remaining,
+        workLiters,
+        reason: canonicalCurrent.emptyDate
+          ? "לאחר ריקון המחזור המתוכנן וניקיון חמישי"
+          : "למחזור הנוכחי אין עדיין ריקון מתוכנן",
+      };
+    }
+
+    // Legacy bridge only for a physical batch that predates canonical brewId.
     let remaining = tank.liters;
     let emptyDate: string | null = null;
-    for (const r of runs
-      .filter((r) => r.tankId === source.id)
+    for (const r of legacyRuns
+      .filter((r) => canonicalRunTank(r as PackagingPlan, plans) === source.id)
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
       const p = settings.products.find((p) => p.id === r.productId);
-      // Dated rows in `plans` are committed planner decisions. The save flow still
-      // warns before allowing a date earlier than nominal readiness, but once the
-      // planner approves it the release engine must honor that decision.
       if (!p || !sameStyle(p.style, tank.style)) continue;
       remaining -= r.remaining * litersPerUnit(p);
-
-      // `emptyTank` is an explicit weekly-planner decision and is authoritative.
-      // Recomputing only from liters can miss a real emptying because the dashboard
-      // volume and whole-unit conversion differ by a small operational heel.
       if (r.emptyTank || remaining < 20) {
         remaining = 0;
         emptyDate = r.date!;
@@ -184,7 +227,7 @@ export function tankReleases(
       remaining: Math.max(0, remaining),
       workLiters,
       reason: emptyDate
-        ? "לאחר ריקון מתוכנן וניקיון חמישי"
+        ? "לאחר ריקון legacy מתוכנן וניקיון חמישי"
         : "אין עדיין תוכנית לריקון המיכל",
     };
   });
@@ -197,10 +240,13 @@ export function normalizeEmptyTankFlagsForSchedule(
   const groups = new Map<string, Array<{ index: number; date?: string }>>();
 
   packaging.forEach((run, index) => {
-    if (!run.tankId) return;
-    const group = groups.get(run.tankId) ?? [];
+    // Never move an emptyTank flag between two cycles merely because both happen
+    // to use the same tank. brewId is authoritative whenever it exists.
+    const identity = run.brewId ? `brew:${run.brewId}` : run.tankId ? `legacy-tank:${run.tankId}` : "";
+    if (!identity) return;
+    const group = groups.get(identity) ?? [];
     group.push({ index, date: run.date });
-    groups.set(run.tankId, group);
+    groups.set(identity, group);
   });
 
   for (const group of groups.values()) {
@@ -239,18 +285,22 @@ export function validateProduction(
   const used = new Map<string, number>();
 
   for (const r of runs) {
-    if (!r.tankId || !r.date)
+    const linkedBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);
+    const linkedBrew = linkedBrewId ? brewById(plans, linkedBrewId) : null;
+    const tankId = linkedBrew?.tankId ?? r.tankId;
+    if (!tankId || !r.date)
       return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
-    const t = tanks.find((t) => t.id === r.tankId);
+    const t = tanks.find((t) => t.id === tankId);
     const p = settings.products.find((p) => p.id === r.productId);
-    if (!t || !p || !sameStyle(t.style, p.style))
+    if (!t || !p || !sameStyle(linkedBrew?.style ?? t.style, p.style))
       return "מיכל האריזה אינו תואם לסגנון";
     if (r.date < t.ready && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
       return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${t.ready}`;
 
-    const history = tankRuns.get(t.id) ?? [];
+    const cycleKey = linkedBrewId ? `brew:${linkedBrewId}` : `legacy:${tankId}`;
+    const history = tankRuns.get(cycleKey) ?? [];
     history.push({ date: r.date, type: p.type });
-    tankRuns.set(t.id, history);
+    tankRuns.set(cycleKey, history);
     const dates = [...new Set(history.map((x) => x.date))];
     const types = new Set(history.map((x) => x.type));
     const allowExceptions = plans.find((w) => w.id === r.week)?.allowExceptions;
@@ -259,11 +309,12 @@ export function validateProduction(
     if (!allowExceptions && dates.length > 2)
       return `מיכל ${t.number}: ניתן לפצל לכל היותר לשני ימי אריזה`;
 
-    used.set(t.id, (used.get(t.id) ?? 0) + r.remaining * litersPerUnit(p));
-    if (used.get(t.id)! > t.liters + 0.01)
-      return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין`;
-    if (r.emptyTank && t.liters - used.get(t.id)! >= 20)
-      return `מיכל ${t.number}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמיכל`;
+    used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * litersPerUnit(p));
+    const cycleLiters = linkedBrew?.liters ?? t.liters;
+    if (used.get(cycleKey)! > cycleLiters + 0.01)
+      return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
+    if (r.emptyTank && cycleLiters - used.get(cycleKey)! >= 20)
+      return `מיכל ${t.number}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
   }
   return null;
 }
@@ -277,30 +328,38 @@ export function validateBrewReleases(
   today: string,
 ): string | null {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
+  const schedules = projectTankSchedules(plans, settings);
+
   for (const b of plans.flatMap((w) => w.brews).filter((b) => b.date >= today)) {
-    // Weekly planner decisions intentionally have no tank yet. Tank release
-    // validation belongs to the daily work-manager assignment step.
     if (!b.tankId) continue;
-    if (
-      tanks.some(
-        (t) =>
-          t.id === b.tankId &&
-          t.brewed === b.date &&
-          sameStyle(t.style, b.style),
-      )
-    )
+    const tank = tanks.find((t) => t.id === b.tankId);
+    const source = sources.find((s) => s.id === b.tankId);
+    const workLiters = num(source?.beerVolume) || estimatedBrewVolume(source?.tankNumber ?? tank?.number, b.style);
+    if (!workLiters)
+      return `למיכל ${source?.tankNumber ?? tank?.number ?? b.tankId} חסר נפח עבודה ולא ניתן היה לחשב אומדן`;
+    if (b.liters > workLiters)
+      return `מיכל ${source?.tankNumber ?? tank?.number ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב הוא ${Math.round(workLiters)} ל׳`;
+
+    const cycles = orderedTankSchedule(schedules.get(b.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
+    const index = cycles.findIndex((cycle) => cycle.cycleId === b.id);
+    const previous = index > 0 ? cycles[index - 1] : null;
+    if (previous) {
+      if (!previous.emptyDate || b.date <= previous.emptyDate)
+        return `בישול ${b.style}: המחזור הקודם במיכל עדיין לא מתרוקן לפני הבישול הזה`;
       continue;
+    }
+
+    // First canonical cycle on this tank still has to respect the physical batch
+    // currently in the fermenter. Later cycles are validated against their exact
+    // canonical predecessor above, not against one tank-level release date.
+    if (
+      tank &&
+      tank.brewed === b.date &&
+      sameStyle(tank.style, b.style)
+    ) continue;
     const release = releases.find((r) => r.tankId === b.tankId);
     if (!release?.date || b.date < release.date)
       return `בישול ${b.style}: תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה`;
-    if (!release.workLiters) {
-      const source = sources.find((s) => s.id === b.tankId);
-      return `למיכל ${source?.tankNumber ?? b.tankId} חסר נפח עבודה ולא ניתן היה לחשב אומדן`;
-    }
-    if (b.liters > release.workLiters) {
-      const source = sources.find((s) => s.id === b.tankId);
-      return `מיכל ${source?.tankNumber ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב הוא ${Math.round(release.workLiters)} ל׳`;
-    }
   }
   return null;
 }
