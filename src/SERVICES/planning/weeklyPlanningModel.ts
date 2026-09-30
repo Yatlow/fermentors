@@ -486,7 +486,13 @@ export function buildWeeklyPlanningModel(args: {
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
   const coreProducts = normalized.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
-  const tankAvailableLiters = new Map(tanks.map((tank) => [tank.id, remainingTankLiters(tank, plans, coreProducts, actuals, week)] as const));
+  // Manual packaging must see canonical future cycles too, not only the
+  // physical tanks that exist today. Key planned cycles by their stable brewId
+  // so two future beers in the same physical tank never share one liters bucket.
+  const packagingTankPool = futureTanks(tanks, plans, settings);
+  const tankAvailableLiters = new Map(
+    packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, coreProducts, actuals, week)] as const),
+  );
 
   return {
     week,
