@@ -115,7 +115,11 @@ export function tankReleases(
     .filter((r) => !resolvePackagingBrewId(r as PackagingPlan, plans));
 
   return sources.map((source) => {
-    const workLiters = num(source.beerVolume) || estimatedBrewVolume(source.tankNumber, source.beerStyle);
+    // Release capacity describes what the physical tank can host on its NEXT
+    // cycle. The beerVolume belongs to the current physical cycle and may have
+    // already shrunk through fermentation/packaging, so it must never become
+    // the capacity of a future planning slot.
+    const workLiters = estimatedBrewVolume(source.tankNumber, source.beerStyle);
     if (isReadyForBrew(source)) {
       const packedThisWeek = actuals
         .filter((a) => source.tankNumber != null && String(a.tankNumber) === String(source.tankNumber))
@@ -132,7 +136,7 @@ export function tankReleases(
         reason: packedThisWeek
           ? "המיכל נארז השבוע; זמין לבישול מהשבוע הבא לאחר ניקיון"
           : Number(source.action) === 0 || source.stage?.name === "מחכה לבישול"
-            ? `המיכל מחכה לבישול וזמין לשיבוץ${num(source.beerVolume) ? "" : " · הנפח משוער לפי גודל המיכל"}`
+            ? "המיכל מחכה לבישול וזמין לשיבוץ · נפח המחזור הבא מחושב לפי גודל המיכל"
             : "המיכל פנוי; יש לאמת ניקיון וחיטוי",
       };
     }
