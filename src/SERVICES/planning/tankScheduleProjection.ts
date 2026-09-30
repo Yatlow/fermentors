@@ -10,8 +10,8 @@ function readyDateFor(style: string, brewDate: string, settings: Settings): stri
   return addDays(brewDate, Math.max(...leads, 21));
 }
 
-function cycleId(tankId: string, brewId: string) {
-  return tankId + ":" + brewId;
+function cycleId(brewId: string) {
+  return brewId;
 }
 
 /** Read-only bridge from committed planningWeeks to canonical tank lifecycle. */
@@ -24,7 +24,7 @@ export function projectTankSchedules(plans: WeekPlan[], settings: Settings): Map
       const batchNumber = normalizedBatch(brew.batchNumber) || undefined;
       const cycles = byTank.get(brew.tankId) ?? [];
       cycles.push({
-        cycleId: cycleId(brew.tankId, brew.id),
+        cycleId: cycleId(brew.id),
         plannedBatchNumber: batchNumber,
         style: brew.style,
         brewDate: brew.date,
