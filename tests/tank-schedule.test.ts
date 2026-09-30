@@ -3,7 +3,7 @@ import test from "node:test";
 import { tankCycleAt, upsertTankScheduleCycle, validateTankSchedule, type TankScheduleCycle } from "../src/SERVICES/planning/tankSchedule";
 
 const cycle = (cycleId: string, batchNumber: string, brewDate: string, emptyDate: string): TankScheduleCycle => ({
-  cycleId, batchNumber, style: "IPA", brewDate, readyDate: brewDate, emptyDate, status: "planned", packaging: [],
+  cycleId, plannedBatchNumber: batchNumber, style: "IPA", brewDate, readyDate: brewDate, emptyDate, status: "planned", packaging: [],
 });
 
 test("one tank can hold several future occupancy slots", () => {
@@ -13,8 +13,8 @@ test("one tank can hold several future occupancy slots", () => {
     cycle("t9:1612", "1612", "2026-11-30", "2026-12-24"),
   ];
   assert.deepEqual(validateTankSchedule(schedule), []);
-  assert.equal(tankCycleAt(schedule, "2026-11-20")?.batchNumber, "1604");
-  assert.equal(tankCycleAt(schedule, "2026-12-10")?.batchNumber, "1612");
+  assert.equal(tankCycleAt(schedule, "2026-11-20")?.plannedBatchNumber, "1604");
+  assert.equal(tankCycleAt(schedule, "2026-12-10")?.plannedBatchNumber, "1612");
 });
 
 test("future packaging may be committed before the beer is actually brewed", () => {
