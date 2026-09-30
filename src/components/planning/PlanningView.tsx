@@ -15,6 +15,7 @@ import type { Fermentor } from "../../App";
 import { runtimeConfig } from "../../config/runtimeConfig";
 import { auth, db } from "../../firebase";
 import { addDays, parseDate, tanksFrom, weekStart, type Settings } from "../../SERVICES/planning/planningEngine";
+import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { startOfJerusalemDay, useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
 import {
@@ -84,8 +85,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   const [planningQueryTimings, setPlanningQueryTimings] = useState<PlanningQueryTiming[]>([]);
   const showPreviewDiagnostics = runtimeConfig.deployEnv !== "production";
 
-  // One diagnostic write per PlanningView mount. This intentionally does not
-  // write again when the user switches tabs inside Planning.
   useEffect(() => {
     const currentUser = auth.currentUser;
     if (!currentUser?.email) return;
@@ -95,7 +94,6 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     }).catch((error) => {
       console.error("Failed to record planning open:", error);
     });
-    // The initial tab is captured on mount only by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -116,18 +114,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       readScope,
       offlineOrCacheBacked: data.offline,
     });
-  }, [
-    actuals.length,
-    data.actualShipments.length,
-    data.loading,
-    data.offline,
-    data.snapshots.length,
-    pallets.length,
-    plans.length,
-    productionTanks.length,
-    readScope,
-    tab,
-  ]);
+  }, [actuals.length, data.actualShipments.length, data.loading, data.offline, data.snapshots.length, pallets.length, plans.length, productionTanks.length, readScope, tab]);
 
   useEffect(() => {
     if (!showPreviewDiagnostics || planningServerProbeStarted.current) return;
@@ -143,49 +130,22 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         .filter((date): date is string => !!date && date < today),
     ].sort()[0];
 
-    const timed = async (
-      label: string,
-      load: () => Promise<{ size?: number; exists?: () => boolean }>,
-    ): Promise<PlanningQueryTiming> => {
+    const timed = async (label: string, load: () => Promise<{ size?: number; exists?: () => boolean }>): Promise<PlanningQueryTiming> => {
       const started = performance.now();
       try {
         const result = await load();
-        return {
-          label,
-          ms: performance.now() - started,
-          docs: typeof result.size === "number" ? result.size : result.exists?.() ? 1 : 0,
-        };
+        return { label, ms: performance.now() - started, docs: typeof result.size === "number" ? result.size : result.exists?.() ? 1 : 0 };
       } catch (error) {
-        return {
-          label,
-          ms: performance.now() - started,
-          docs: 0,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        return { label, ms: performance.now() - started, docs: 0, error: error instanceof Error ? error.message : String(error) };
       }
     };
 
     void Promise.all([
       timed("Settings", () => getDocFromServer(doc(db, "planningSettings", "main"))),
-      timed("Plans", () => getDocsFromServer(query(
-        collection(db, "planningWeeks"),
-        where("id", ">=", addDays(start, -84)),
-        where("id", "<", end),
-      ))),
-      timed("Pallets", () => getDocsFromServer(query(
-        collection(db, "pallets"),
-        where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"]),
-      ))),
-      timed("Packaging", () => getDocsFromServer(query(
-        collection(db, "packagingLog"),
-        where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()),
-        where("timestamp", "<", startOfJerusalemDay(end).getTime()),
-      ))),
-      timed("Shipments", () => getDocsFromServer(query(
-        collection(db, "shipments"),
-        where("createdAt", ">=", Timestamp.fromDate(startOfJerusalemDay(start))),
-        where("createdAt", "<", Timestamp.fromDate(startOfJerusalemDay(end))),
-      ))),
+      timed("Plans", () => getDocsFromServer(query(collection(db, "planningWeeks"), where("id", ">=", addDays(start, -84)), where("id", "<", end)))),
+      timed("Pallets", () => getDocsFromServer(query(collection(db, "pallets"), where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"])))),
+      timed("Packaging", () => getDocsFromServer(query(collection(db, "packagingLog"), where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()), where("timestamp", "<", startOfJerusalemDay(end).getTime()))),
+      timed("Shipments", () => getDocsFromServer(query(collection(db, "shipments"), where("createdAt", ">=", Timestamp.fromDate(startOfJerusalemDay(start))), where("createdAt", "<", Timestamp.fromDate(startOfJerusalemDay(end))))),
     ]).then((results) => {
       if (cancelled) return;
       setPlanningQueryTimings(results);
@@ -197,7 +157,9 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
 
-  const identityAlignedPlans = plans;
+  // Every planning consumer sees the same brew/packaging relationship. Legacy
+  // tankId/batchNumber fields are snapshots; brewId is authoritative once known.
+  const identityAlignedPlans = useMemo(() => withStablePackagingIdentity(plans), [plans]);
   const [message, setMessage] = useState("");
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
 
@@ -259,10 +221,16 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   }
 
   async function saveWeeklyPlan(next: Parameters<typeof data.saveWeek>[0], options?: Parameters<typeof data.saveWeek>[1]) {
-    const original = plans.find((week) => week.id === next.id);
+    const original = identityAlignedPlans.find((week) => week.id === next.id);
     let merged = original ? mergeCompletedDeliveriesBack(original, next, data.actualShipments, settings.products) : next;
     if (original) merged = mergeCompletedPackagingBack(original, merged, settings.products, actuals, productionTanks);
-    await data.saveWeek(merged, options);
+
+    // Persist the same canonical identity that the UI reads. This backfills
+    // brewId on legacy packaging and refreshes tank/batch snapshots after moves.
+    const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
+    if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
+    const canonical = withStablePackagingIdentity(allWithEditedWeek).find((week) => week.id === merged.id) ?? merged;
+    await data.saveWeek(canonical, options);
   }
 
   return (
@@ -272,18 +240,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {showPreviewDiagnostics && !data.loading && !data.error && (
-        <div
-          dir="ltr"
-          style={{
-            margin: "8px 12px",
-            padding: "8px 10px",
-            border: "1px dashed currentColor",
-            borderRadius: 8,
-            fontSize: 12,
-            lineHeight: 1.5,
-            overflowWrap: "anywhere",
-          }}
-        >
+        <div dir="ltr" style={{ margin: "8px 12px", padding: "8px 10px", border: "1px dashed currentColor", borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>
           <div>
             <strong>Planning audit</strong>
             {` · Plans ${plans.length}`}
@@ -296,11 +253,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
           </div>
           <div style={{ marginTop: 4 }}>
             <strong>Server probes</strong>
-            {planningQueryTimings.length === 0
-              ? " · running…"
-              : planningQueryTimings.map((item) =>
-                  ` · ${item.label} ${(item.ms / 1000).toFixed(2)}s/${item.docs}${item.error ? " ERR" : ""}`
-                ).join("")}
+            {planningQueryTimings.length === 0 ? " · running…" : planningQueryTimings.map((item) => ` · ${item.label} ${(item.ms / 1000).toFixed(2)}s/${item.docs}${item.error ? " ERR" : ""}`).join("")}
           </div>
         </div>
       )}
@@ -314,24 +267,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
         </>}
         {tab === "fiveWeeks" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
-          <PlanningGantt
-            settings={calendarSettings}
-            plans={fiveWeekPlans}
-            editorPlans={identityAlignedPlans}
-            historyPlans={identityAlignedPlans}
-            tanks={tanks}
-            sources={productionTanks}
-            pallets={pallets}
-            actuals={actuals}
-            shipments={data.actualShipments}
-            holidays={holidays}
-            today={today}
-            disabled={disabled}
-            canEdit={canEdit}
-            saveWeek={saveWeeklyPlan}
-            moveCalendarEvent={data.moveCalendarEvent}
-            onOpenCoolerMap={onOpenCoolerMap}
-          />
+          <PlanningGantt settings={calendarSettings} plans={fiveWeekPlans} editorPlans={identityAlignedPlans} historyPlans={identityAlignedPlans} tanks={tanks} sources={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} holidays={holidays} today={today} disabled={disabled} canEdit={canEdit} saveWeek={saveWeeklyPlan} moveCalendarEvent={data.moveCalendarEvent} onOpenCoolerMap={onOpenCoolerMap}/>
         </>}
         {tab === "schedule" && <>
           {holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}
