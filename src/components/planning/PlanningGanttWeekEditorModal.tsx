@@ -1,7 +1,6 @@
-import { useEffect, useRef, type ComponentProps } from "react";
+import { type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 
@@ -21,8 +20,7 @@ const KIND_LABEL: Record<EditorKind, string> = {
 };
 
 export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...plannerProps }: Props) {
-  const hostRef = useRef<HTMLDivElement>(null);
-
+ 
   // The focused editor must inspect the persisted WeekPlan, not a pending/
   // execution-filtered projection. That is what decides whether packaging has
   // already been accepted and therefore whether the action is "replace".
@@ -44,16 +42,6 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
         shipments: plannerProps.shipments,
       }).packagingRecommendation.filter((run) => run.quantity > 0).length
     : 0;
-
-  useEffect(() => {
-    const targetDate = shortDate(week);
-    const timer = window.setTimeout(() => {
-      const buttons = hostRef.current?.querySelectorAll<HTMLButtonElement>(".bp-week-picker button") ?? [];
-      const target = Array.from(buttons).find((button) => button.querySelector("small")?.textContent?.trim() === targetDate);
-      if (target && target.getAttribute("aria-pressed") !== "true") target.click();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [week]);
 
   useEffect(() => {
     if (kind !== "packaging" || !hasPackagingDecision) return;
@@ -114,9 +102,10 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
             <X size={20} aria-hidden="true" />
           </button>
         </header>
-        <div className="bp-gantt-editor-body" ref={hostRef}>
+        <div className="bp-gantt-editor-body">
           <PlanningWeeklyRecommendationsEnhanced
             {...plannerProps}
+            initialSelectedWeek={week}
             plans={savedPlans}
             historyPlans={savedPlans}
           />
