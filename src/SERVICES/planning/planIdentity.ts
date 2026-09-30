@@ -15,7 +15,11 @@ function brewIdFromRecommendationId(value: unknown): string {
 
 /** Resolve packaging to a stable brew identity, with legacy snapshot fallback. */
 export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): string | null {
-  if (run.brewId) return run.brewId;
+  if (run.brewId) {
+    return plans.some((week) => week.brews?.some((brew) => brew.id === run.brewId))
+      ? run.brewId
+      : null;
+  }
 
   // Weekly recommendations encode their canonical cycle key in the stable row id.
   // This keeps identity intact even through older UI save paths that preserve
