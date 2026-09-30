@@ -78,8 +78,8 @@ test("moving future IPA 1677 from tank 10 to tank 17 moves the same cycle and it
   const after = projectTankSchedules([movedBrewWeek, movedPackWeek], settings);
   const afterCycle = after.get("tank17")![0];
 
-  assert.equal(beforeCycle.cycleId, "tank10:brew-ipa-1677");
-  assert.equal(afterCycle.cycleId, "tank17:brew-ipa-1677");
+  assert.equal(beforeCycle.cycleId, "brew-ipa-1677");
+  assert.equal(afterCycle.cycleId, beforeCycle.cycleId);
   assert.equal(afterCycle.plannedBatchNumber, "1677");
   assert.equal(afterCycle.packaging[0].planId, "pack-1677");
   assert.equal(after.get("tank10"), undefined);
