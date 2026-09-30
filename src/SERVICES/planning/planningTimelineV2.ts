@@ -1,5 +1,6 @@
-import { addDays, litersPerUnit, sameStyle, weeklyDemand, type Actual, type Product, type Settings, type Tank, type TankInput, type WeekPlan } from "./planningEngine";
+import { addDays, litersPerUnit, sameStyle, weeklyDemand, type Actual, type Product, type Settings, type Tank, type WeekPlan } from "./planningEngine";
 import { openRuns } from "./dailyPlanner";
+import type { TankSource } from "./productionCycle";
 
 /** Pure/read-only Planning V2 shadow model. No Firebase imports, no writes. */
 export type TimelinePackaging = { id?: string; week: string; date?: string; productId: string; quantity: number; remaining: number; emptyTank: boolean };
@@ -25,7 +26,7 @@ const leadDaysFor = (settings: Settings, style: string) => {
   const leads = settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays);
   return leads.length ? Math.max(...leads) : style.includes("לאגר") ? 50 : 21;
 };
-const tankNumberFor = (tankId: string, sources: TankInput[], tanks: Tank[]) =>
+const tankNumberFor = (tankId: string, sources: TankSource[], tanks: Tank[]) =>
   String(tanks.find((tank) => tank.id === tankId)?.number ?? sources.find((source) => source.id === tankId)?.tankNumber ?? tankId);
 
 
@@ -65,7 +66,7 @@ export function timelineForTank(timeline: PlanningTimeline, tankId: string) {
 }
 
 export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans, actuals }: {
-  today: string; settings: Settings; sources: TankInput[]; tanks: Tank[]; plans: WeekPlan[]; actuals: Actual[];
+  today: string; settings: Settings; sources: TankSource[]; tanks: Tank[]; plans: WeekPlan[]; actuals: Actual[];
 }): PlanningTimeline {
   const opened = openRuns(plans, settings.products, actuals);
   const occupancies: TankOccupancy[] = [];
