@@ -27,6 +27,7 @@ try {
       "tests/planning-style-targets.test.ts",
       "tests/shipment-actuals-regression.test.ts",
       "tests/tank-schedule.test.ts",
+      "tests/tank-schedule-projection.test.ts",
     ],
     { stdio: "inherit" },
   );
@@ -43,6 +44,7 @@ try {
         join(output, "tests/planning-style-targets.test.js"),
         join(output, "tests/shipment-actuals-regression.test.js"),
         join(output, "tests/tank-schedule.test.js"),
+        join(output, "tests/tank-schedule-projection.test.js"),
       ],
       { stdio: "inherit" },
     );
