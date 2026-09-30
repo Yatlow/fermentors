@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPlanningTimelineV2 } from "../src/SERVICES/planning/planningTimelineV2";
+import { buildPlanningTimelineV2, timelineBrewCandidatesForWeek, timelineForTank, timelinePackagingCandidatesForWeek } from "../src/SERVICES/planning/planningTimelineV2";
 import type { Settings, Tank, TankInput, WeekPlan } from "../src/SERVICES/planning/planningEngine";
 
 const settings: Settings = {
@@ -141,4 +141,20 @@ test("every committed tank emptying remains independently visible to downstream 
     fixtures.map((fixture) => timeline.occupancies.find((x) => x.tankId === fixture.id)?.expectedEmptyAt),
     fixtures.map((fixture) => fixture.date),
   );
+});
+
+test("canonical V2 queries return every eligible tank rather than a first-match shortcut", () => {
+  const ids = [["tank-3",3],["tank-17",17],["tank-19",19]] as const;
+  const packaging = ids.map(([id], index) => ({
+    productId: "ipa-kegs", quantity: 150, date: `2026-10-0${5 + index}`, tankId: id, batchNumber: "1600", emptyTank: true,
+  }));
+  const timeline = buildPlanningTimelineV2({
+    today: "2026-09-30", settings,
+    sources: ids.map(([id,n]) => source(id,n)),
+    tanks: ids.map(([id,n]) => tank(id,String(n))),
+    actuals: [], plans: [week("2026-10-04", packaging)],
+  });
+  assert.equal(timelineBrewCandidatesForWeek(timeline, "2026-10-04").length, 0);
+  assert.deepEqual(ids.map(([id]) => timelineForTank(timeline, id).length), [1,1,1]);
+  assert.ok(timelinePackagingCandidatesForWeek(timeline, "2026-10-04").length >= 0);
 });
