@@ -116,3 +116,19 @@ test("stale explicit brewId is not treated as canonical identity", () => {
   }, plans);
   assert.equal(resolved, null);
 });
+
+
+test("legacy packaging without batch never binds to a future brew by tank alone", () => {
+  const plans = [{
+    ...emptyWeek("2026-10-04"),
+    brews: [{ id: "future-cycle-tank-8", style: "IPA", tankId: "tank-8", date: "2026-10-05", liters: 3000, batchNumber: "1601" }],
+  }];
+  assert.equal(resolvePackagingBrewId({
+    id: "physical-tank-8-packaging",
+    productId: product.id,
+    quantity: 100,
+    tankId: "tank-8",
+    tankNumber: "8",
+    date: "2026-10-20",
+  }, plans), null);
+});
