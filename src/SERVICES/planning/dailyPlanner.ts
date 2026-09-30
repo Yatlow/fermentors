@@ -1,4 +1,5 @@
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
+import { resolvePackagingBrewId } from "./planIdentity";
 import {
   projectedPallets,
   selectTruck,
@@ -228,8 +229,14 @@ export function dailyForecast(
     // flow has already warned/confirmed if the date is earlier than nominal
     // readiness, so forecast that committed work on its chosen date. Newly
     // generated recommendations below still obey normal tank readiness.
-    const committedPool = (r.tankId ? pool.filter((t) => t.id === r.tankId) : pool)
-      .map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
+    const canonicalBrewId = resolvePackagingBrewId(r, plans);
+    const committedPool = (
+      canonicalBrewId
+        ? pool.filter((t) => t.id === `planned:${canonicalBrewId}`)
+        : r.tankId
+          ? pool.filter((t) => t.id === r.tankId)
+          : pool
+    ).map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
     const allocations = allocate(
       committedPool,
       available,
