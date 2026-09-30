@@ -25,6 +25,7 @@ import { buildShipmentRecommendation } from "./shipmentRecommendation";
 import { brewSizeLabel, tankReleases, type BrewSizeLabel, type TankSource } from "./productionCycle";
 import { displayStyle, isCoreStyle } from "./planningPresentation";
 import { buildWeekStartProjection, type WeekStartProjection } from "./weekStartProjection";
+import { buildPlanningTimelineV2, timelineBrewCandidatesForWeek, timelinePackagingCandidatesForWeek } from "./planningTimelineV2";
 import { planningTargetsForStyle } from "./planningTargets";
 
 export type WeeklyStage = "base" | "afterShipment" | "afterPackaging" | "committed";
@@ -503,6 +504,13 @@ export function buildWeeklyPlanningModel(args: {
   const weekEnd = addDays(week, 6);
   const normalized = forecastSettings(settings, today);
   const forecastPlans = dateWeeklyPackaging(plans, tanks);
+  // V2 shadow source: one canonical future-state calculation for this weekly model.
+  // Recommendations below still use V1 until parity tests are complete.
+  const timelineV2 = buildPlanningTimelineV2({
+    today, settings: normalized, sources, tanks, plans: forecastPlans, actuals,
+  });
+  const v2PackagingCandidates = timelinePackagingCandidatesForWeek(timelineV2, week);
+  const v2BrewCandidates = timelineBrewCandidatesForWeek(timelineV2, week);
 
   const stages: WeeklyStage[] = ["base", "afterShipment", "afterPackaging", "committed"];
   const forecasts = {} as Record<WeeklyStage, DailyResult>;
@@ -554,6 +562,11 @@ export function buildWeeklyPlanningModel(args: {
       remainingTankLiters(tank, plans, coreProducts, actuals, week),
     ] as const),
   );
+
+  // Keep the queries live in the model path while V2 is shadow-only. This makes
+  // parity/integration work exercise the exact same inputs as the production model.
+  void v2PackagingCandidates;
+  void v2BrewCandidates;
 
   return {
     week,
