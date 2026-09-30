@@ -201,7 +201,28 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     function chooseStyle(style: string) {
         setModalMessage("");
         setPackStyle(style);
-        setRows(buildRows(style));
+        const existing = buildRows(style);
+        if (existing.length) {
+            setRows(existing);
+            return;
+        }
+        const products = styleProducts(style);
+        const styleTanks = tanksForStyle(style);
+        const defaultProduct = products[0];
+        const defaultTank = styleTanks[0];
+        if (!defaultProduct || !defaultTank) {
+            setRows([]);
+            return;
+        }
+        const key = "manual:" + crypto.randomUUID();
+        setRows([{
+            key,
+            source: "manual",
+            tankId: defaultTank.id,
+            productId: defaultProduct.id,
+            quantity: defaultQuantityForSelection(defaultProduct.id, defaultTank.id, [], key, 0),
+            completed: 0,
+        }]);
     }
 
     function replacementPackagingWithEmptyFlags(packaging: Plan[]) {
