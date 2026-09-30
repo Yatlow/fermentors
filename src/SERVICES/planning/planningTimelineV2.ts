@@ -22,6 +22,23 @@ const leadDaysFor = (settings: Settings, style: string) => {
 const tankNumberFor = (tankId: string, sources: TankInput[], tanks: Tank[]) =>
   String(tanks.find((tank) => tank.id === tankId)?.number ?? sources.find((source) => source.id === tankId)?.tankNumber ?? tankId);
 
+
+export function timelinePackagingCandidatesForWeek(timeline: PlanningTimeline, week: string) {
+  const weekEnd = addDays(week, 6);
+  return timeline.packagingCandidates.filter((candidate) => candidate.readyAt <= weekEnd);
+}
+
+export function timelineBrewCandidatesForWeek(timeline: PlanningTimeline, week: string) {
+  const weekEnd = addDays(week, 6);
+  return timeline.brewCandidates.filter((candidate) => candidate.availableAt <= weekEnd);
+}
+
+export function timelineForTank(timeline: PlanningTimeline, tankId: string) {
+  return timeline.occupancies
+    .filter((occupancy) => occupancy.tankId === tankId)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id));
+}
+
 export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans, actuals }: {
   today: string; settings: Settings; sources: TankInput[]; tanks: Tank[]; plans: WeekPlan[]; actuals: Actual[];
 }): PlanningTimeline {
