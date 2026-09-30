@@ -44,10 +44,14 @@ export default function PlanningShadowV2({ settings, plans, tanks, sources, actu
     </details>
     <details>
       <summary>Timeline ({comparison.timeline.occupancies.length} occupancies)</summary>
-      {comparison.timeline.occupancies.map((item) => <div key={item.id}>
-        <b>מיכל {item.tankNumber}</b> · {item.source === "actual" ? "בפועל" : "מתוכנן"} · {item.style}
-        {item.batchNumber ? ` · #${item.batchNumber}` : ""} · {item.startsAt} → {item.expectedEmptyAt ?? "לא ידוע"}
-      </div>)}
+      {comparison.timeline.occupancies.map((item) => {
+        const supply = comparison.timeline.supply.find((entry) => entry.occupancyId === item.id);
+        return <div key={item.id}>
+          <b>מיכל {item.tankNumber}</b> · {item.source === "actual" ? "בפועל" : "מתוכנן"} · {item.style}
+          {item.batchNumber ? ` · #${item.batchNumber}` : ""} · {item.startsAt} → {item.expectedEmptyAt ?? "לא ידוע"}
+          {supply ? ` · יתרה חזויה ${Math.round(supply.availableLiters)} ל׳` : ""}
+        </div>;
+      })}
     </details>
   </section>;
 }
