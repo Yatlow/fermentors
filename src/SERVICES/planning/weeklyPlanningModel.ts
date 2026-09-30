@@ -485,7 +485,6 @@ export function buildWeeklyPlanningModel(args: {
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
-  const coreProducts = normalized.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   // Automatic packaging stays core-range only. Manual packaging, however,
   // must expose every real/planned beer cycle (including seasonal styles).
   const packagingTankPool = futureTanks(tanks, plans, settings);
