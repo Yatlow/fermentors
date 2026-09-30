@@ -233,7 +233,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function hasPackagingSource(p: Product) {
-        return tanks.some((tank) =>
+        return packagingTankPool.some((tank) =>
             tank.ready <= model.weekEnd &&
             sameStyle(tank.style, p.style) &&
             (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20,
