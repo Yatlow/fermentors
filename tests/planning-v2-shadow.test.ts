@@ -90,3 +90,13 @@ test("packaging after a second future brew belongs only to the second occupancy"
   assert.deepEqual(first?.packaging.map((x) => x.date), ["2026-10-28"]);
   assert.deepEqual(second?.packaging.map((x) => x.date), ["2026-11-20"]);
 });
+
+test("future occupancy exposes remaining supply after its committed packaging", () => {
+  const plans = [
+    week("2026-09-27", [{ productId: "ipa-kegs", quantity: 150, date: "2026-10-02", tankId: "tank-9", batchNumber: "1600", emptyTank: true }]),
+    week("2026-10-04", [], [{ id: "brew-1604", style: "IPA", tankId: "tank-9", date: "2026-10-05", liters: 3000, batchNumber: "1604" }]),
+    week("2026-10-25", [{ productId: "ipa-kegs", quantity: 100, date: "2026-10-28", tankId: "tank-9", batchNumber: "1604", emptyTank: false }]),
+  ];
+  const timeline = buildPlanningTimelineV2({ today: "2026-09-30", settings, sources: [source("tank-9", 9)], tanks: [tank("tank-9", "9")], actuals: [], plans });
+  assert.equal(timeline.supply.find((x) => x.occupancyId === "planned:brew-1604")?.availableLiters, 1000);
+});
