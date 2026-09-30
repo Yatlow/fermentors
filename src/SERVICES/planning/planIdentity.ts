@@ -3,9 +3,26 @@ import type { BrewPlan, Plan, WeekPlan } from "./planningEngine";
 export type PackagingPlan = Plan & { brewId?: string };
 const normalizedBatch = (value: unknown) => String(value ?? "").replace("#", "").trim();
 
+function brewIdFromRecommendationId(value: unknown): string {
+  const id = String(value ?? "");
+  const marker = ":brew:";
+  const start = id.indexOf(marker);
+  if (start < 0) return "";
+  const tail = id.slice(start + marker.length);
+  const productSeparator = tail.lastIndexOf(":");
+  return (productSeparator >= 0 ? tail.slice(0, productSeparator) : tail).trim();
+}
+
 /** Resolve packaging to a stable brew identity, with legacy snapshot fallback. */
 export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): string | null {
   if (run.brewId) return run.brewId;
+
+  // Weekly recommendations encode their canonical cycle key in the stable row id.
+  // This keeps identity intact even through older UI save paths that preserve
+  // unknown fields poorly and have not yet copied brewId explicitly.
+  const encoded = brewIdFromRecommendationId(run.id);
+  if (encoded && plans.some((week) => week.brews?.some((brew) => brew.id === encoded))) return encoded;
+
   const batch = normalizedBatch(run.batchNumber);
   const date = String(run.date ?? "");
   const brews = plans
@@ -28,12 +45,6 @@ export function brewById(plans: WeekPlan[], brewId: string): BrewPlan | null {
   return null;
 }
 
-/**
- * Canonicalize packaging around brewId. Once a row has a stable brew identity,
- * tankId and batchNumber are display/legacy snapshots and must follow the brew,
- * never become an independent relationship. This is what makes a tank move or
- * forecast renumbering propagate consistently to every planning consumer.
- */
 export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
   const source = plans.map((week) => ({
     ...week,
@@ -53,9 +64,7 @@ export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
         ...run,
         brewId,
         tankId: brew.tankId,
-        ...(normalizedBatch(brew.batchNumber)
-          ? { batchNumber: normalizedBatch(brew.batchNumber) }
-          : {}),
+        ...(normalizedBatch(brew.batchNumber) ? { batchNumber: normalizedBatch(brew.batchNumber) } : {}),
       };
     }),
   }));
