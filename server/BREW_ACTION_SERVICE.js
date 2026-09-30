@@ -928,14 +928,53 @@ function checkDriveChangesSinceToken_(
         includeRemoved: true,
 
         fields:
-          "nextPageToken,newStartPageToken,changes(fileId,removed)"
+          "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,trashed,parents))"
       });
 
     const changes =
       response.changes || [];
 
-    changeCount +=
-      changes.length;
+    // Drive Changes is account-wide. Only invalidate the legacy brew snapshot
+    // when the changed item can affect BREW_FOLDER_ID. Ordinary edits to brew
+    // Sheets do not change candidate membership (fileId/name/batch), so they
+    // must not trigger a 1,400-file recursive scan.
+    changes.forEach(function (change) {
+      const file = change.file || null;
+      if (change.removed) {
+        // A removed item has no reliable parent metadata. Only care if it was
+        // actually part of the saved candidate snapshot; stale non-candidate
+        // files cannot affect ACTION 5 discovery.
+        const saved = JSON.parse(
+          PropertiesService.getScriptProperties().getProperty(BREW_CANDIDATES_SNAPSHOT_KEY) || "[]"
+        );
+        if (saved.some(function (candidate) { return candidate.fileId === change.fileId; })) {
+          changeCount++;
+        }
+        return;
+      }
+      if (!file || file.trashed) return;
+
+      const isSheet = file.mimeType === "application/vnd.google-apps.spreadsheet";
+      if (!isSheet) return;
+
+      // Existing candidate: only a rename can change its parsed batch number.
+      const saved = JSON.parse(
+        PropertiesService.getScriptProperties().getProperty(BREW_CANDIDATES_SNAPSHOT_KEY) || "[]"
+      );
+      const existing = saved.filter(function (candidate) {
+        return candidate.fileId === change.fileId;
+      })[0];
+      if (existing) {
+        if (existing.fileName !== file.name) changeCount++;
+        return;
+      }
+
+      // New/moved legacy Sheet: only rebuild when it has a valid brew filename
+      // and is somewhere under the brew root. Parent traversal is intentionally
+      // limited to this rare path, never to normal Sheet edits.
+      if (extractBatchFromFilename(file.name) === null) return;
+      if (isFileUnderBrewFolder_(file.id, file.parents || [])) changeCount++;
+    });
 
     if (
       response.newStartPageToken
@@ -960,6 +999,34 @@ function checkDriveChangesSinceToken_(
   throw new Error(
     "Drive Changes API returned no newStartPageToken."
   );
+}
+
+
+function isFileUnderBrewFolder_(fileId, initialParents) {
+  const rootId = String(BREW_FOLDER_ID);
+  let parents = (initialParents || []).slice();
+  const visited = {};
+
+  while (parents.length) {
+    const parentId = String(parents.shift());
+    if (!parentId || visited[parentId]) continue;
+    if (parentId === rootId) return true;
+    visited[parentId] = true;
+
+    try {
+      const parent = Drive.Files.get(parentId, {
+        supportsAllDrives: true,
+        fields: "id,parents"
+      });
+      (parent.parents || []).forEach(function (id) {
+        if (!visited[String(id)]) parents.push(String(id));
+      });
+    } catch (error) {
+      Logger.log("ACTION 5: parent lookup failed for " + parentId + ": " + error.message);
+    }
+  }
+
+  return false;
 }
 
 
