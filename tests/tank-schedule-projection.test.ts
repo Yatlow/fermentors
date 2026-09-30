@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { projectTankSchedules } from "../src/SERVICES/planning/tankScheduleProjection";
+import { changedTankSchedules, projectTankSchedules } from "../src/SERVICES/planning/tankScheduleProjection";
 import { packagingCyclesAt, tankAvailableForBrewAt } from "../src/SERVICES/planning/tankSchedule";
 import type { Settings, WeekPlan } from "../src/SERVICES/planning/planningEngine";
 
@@ -132,4 +132,23 @@ test("week 45 reuse is represented without losing the week 44 release", () => {
   assert.equal(tankAvailableForBrewAt(tank9, "2026-10-30"), true);
   assert.equal(tankAvailableForBrewAt(tank9, "2026-11-02"), false);
   assert.equal(tank9[1].cycleId, "new-9");
+});
+
+
+test("persistence diff writes only tanks whose projected lifecycle changed", () => {
+  const beforeWeek = week("2026-11-01");
+  beforeWeek.brews = [
+    { id: "brew9", style: "IPA", tankId: "tank9", date: "2026-11-02", liters: 3000, batchNumber: "1604" },
+    { id: "brew18", style: "IPA", tankId: "tank18", date: "2026-11-03", liters: 3000, batchNumber: "1605" },
+  ];
+  const afterWeek = structuredClone(beforeWeek);
+  afterWeek.brews[0].tankId = "tank17";
+
+  const changed = changedTankSchedules(
+    projectTankSchedules([beforeWeek], settings),
+    projectTankSchedules([afterWeek], settings),
+  );
+  assert.deepEqual(changed.map((item) => item.tankId), ["tank17", "tank9"]);
+  assert.equal(changed.find((item) => item.tankId === "tank9")!.cycles.length, 0);
+  assert.equal(changed.some((item) => item.tankId === "tank18"), false);
 });
