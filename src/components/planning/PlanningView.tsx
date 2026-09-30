@@ -124,10 +124,25 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
     };
     void Promise.all([
       timed("Settings", () => getDocFromServer(doc(db, "planningSettings", "main"))),
-      timed("Plans", () => getDocsFromServer(query(collection(db, "planningWeeks"), where("id", ">=", addDays(start, -84)), where("id", "<", end)))),
-      timed("Pallets", () => getDocsFromServer(query(collection(db, "pallets"), where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"])))),
-      timed("Packaging", () => getDocsFromServer(query(collection(db, "packagingLog"), where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()), where("timestamp", "<", startOfJerusalemDay(end).getTime()))),
-      timed("Shipments", () => getDocsFromServer(query(collection(db, "shipments"), where("createdAt", ">=", Timestamp.fromDate(startOfJerusalemDay(start))), where("createdAt", "<", Timestamp.fromDate(startOfJerusalemDay(end))))),
+      timed("Plans", () => getDocsFromServer(query(
+        collection(db, "planningWeeks"),
+        where("id", ">=", addDays(start, -84)),
+        where("id", "<", end),
+      ))),
+      timed("Pallets", () => getDocsFromServer(query(
+        collection(db, "pallets"),
+        where("zone", "in", ["cooler", "pending", "bottleRoom", "loadingDock"]),
+      ))),
+      timed("Packaging", () => getDocsFromServer(query(
+        collection(db, "packagingLog"),
+        where("timestamp", ">=", startOfJerusalemDay(logStart).getTime()),
+        where("timestamp", "<", startOfJerusalemDay(end).getTime()),
+      ))),
+      timed("Shipments", () => getDocsFromServer(query(
+        collection(db, "shipments"),
+        where("createdAt", ">=", Timestamp.fromDate(startOfJerusalemDay(start))),
+        where("createdAt", "<", Timestamp.fromDate(startOfJerusalemDay(end))),
+      ))),
     ]).then((results) => {
       if (cancelled) return;
       setPlanningQueryTimings(results);
