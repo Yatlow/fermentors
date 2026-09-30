@@ -6,13 +6,14 @@ function normalizedBatch(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
 }
 
-function readyDateFor(style: string, brewDate: string, settings: Settings): string {
+function readyDateFor(style: string, brewDate: string, settings?: Settings): string | undefined {
+  if (!settings) return undefined;
   const leads = settings.products.filter((product) => sameStyle(product.style, style)).map((product) => product.leadDays);
   return addDays(brewDate, Math.max(...leads, 21));
 }
 
 /** Read-only bridge from committed planningWeeks to canonical tank lifecycle. */
-export function projectTankSchedules(plans: WeekPlan[], settings: Settings): Map<string, TankScheduleCycle[]> {
+export function projectTankSchedules(plans: WeekPlan[], settings?: Settings): Map<string, TankScheduleCycle[]> {
   const byTank = new Map<string, TankScheduleCycle[]>();
 
   for (const week of plans) {
@@ -20,12 +21,13 @@ export function projectTankSchedules(plans: WeekPlan[], settings: Settings): Map
       if (!brew.tankId || !brew.date || !brew.style) continue;
       const batchNumber = normalizedBatch(brew.batchNumber) || undefined;
       const cycles = byTank.get(brew.tankId) ?? [];
+      const readyDate = readyDateFor(brew.style, brew.date, settings);
       cycles.push({
         cycleId: brew.id,
         plannedBatchNumber: batchNumber,
         style: brew.style,
         brewDate: brew.date,
-        readyDate: readyDateFor(brew.style, brew.date, settings),
+        ...(readyDate ? { readyDate } : {}),
         status: "planned",
         packaging: [],
       });
