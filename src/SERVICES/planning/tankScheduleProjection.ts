@@ -52,10 +52,14 @@ export function projectTankSchedules(plans: WeekPlan[], settings?: Settings): Ma
 
       let target = brewId ? cycles.find((cycle) => cycle.cycleId === brewId) : undefined;
       if (!target) {
+        // Legacy projection is only safe with an exact batch snapshot. Never
+        // attach a tank-only packaging row to whichever cycle happens to be
+        // latest on that physical tank.
         const batch = normalizedBatch(run.batchNumber);
+        if (!batch) continue;
         const dated = String(run.date ?? "");
         const candidates = cycles.filter((cycle) => {
-          if (batch && normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) !== batch) return false;
+          if (normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) !== batch) return false;
           if (!dated) return true;
           return cycle.brewDate <= dated;
         });
