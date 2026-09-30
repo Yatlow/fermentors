@@ -84,8 +84,9 @@ function realNewBrewBatch(brew: BrewPlanWithMeta, sources: Fermentor[]): string 
   return normalizedBatch(source.batchNumber);
 }
 
-export default function PlanningBrewAssignmentEditor({ initial, brews, releases, disabled, onSave, onCancel }: {
+export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews, releases, disabled, onSave, onCancel }: {
   initial: WeekPlan;
+  allPlans: WeekPlan[];
   brews: Fermentor[];
   releases: Release[];
   disabled: boolean;
@@ -111,7 +112,7 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [batchBase, setBatchBase] = useState(() => Math.max(
     maxBatch(brews.map((brew) => brew.batchNumber)),
-    maxBatch(initial.brews.map((brew) => brew.batchNumber)),
+    maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
   ));
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -126,13 +127,13 @@ export default function PlanningBrewAssignmentEditor({ initial, brews, releases,
         setBatchBase(Math.max(
           maxBatch(history.map((brew) => brew.batchNumber)),
           maxBatch(brews.map((brew) => brew.batchNumber)),
-          maxBatch(initial.brews.map((brew) => brew.batchNumber)),
+          maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
         ));
       })
       .catch(() => undefined)
       .finally(() => { if (!cancelled) setLoadingBatches(false); });
     return () => { cancelled = true; };
-  }, [brews]);
+  }, [brews, allPlans]);
 
   const orderedBrews = useMemo(() => {
     const current = draft.brews as BrewPlanWithMeta[];
