@@ -2,6 +2,7 @@ import {
   addDays,
   litersPerUnit,
   num,
+  parseDate,
   sameStyle,
   weekStart,
   type Settings,
@@ -148,9 +149,10 @@ export function tankReleases(
 
     const cycles = orderedTankSchedule(schedules.get(source.id) ?? []);
     const sourceBatch = normalizedBatch(source.batchNumber);
+    const sourceBrewDate = parseDate(source.brewDate) ?? String(source.brewDate ?? "");
     const canonicalCurrent = [...cycles].reverse().find((cycle) =>
       (sourceBatch && normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) === sourceBatch) ||
-      (!!source.brewDate && cycle.brewDate === source.brewDate),
+      (!!sourceBrewDate && cycle.brewDate === sourceBrewDate),
     );
     if (canonicalCurrent) {
       const remaining = canonicalCurrent.emptyDate ? 0 : tank.liters;
