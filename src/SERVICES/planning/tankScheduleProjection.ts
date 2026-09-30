@@ -1,4 +1,5 @@
 import { addDays, sameStyle, type Settings, type WeekPlan } from "./planningEngine";
+import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
 import { orderedTankSchedule, type TankScheduleCycle, type TankSchedulePackaging } from "./tankSchedule";
 
 function normalizedBatch(value: unknown): string {
@@ -8,10 +9,6 @@ function normalizedBatch(value: unknown): string {
 function readyDateFor(style: string, brewDate: string, settings: Settings): string {
   const leads = settings.products.filter((product) => sameStyle(product.style, style)).map((product) => product.leadDays);
   return addDays(brewDate, Math.max(...leads, 21));
-}
-
-function cycleId(brewId: string) {
-  return brewId;
 }
 
 /** Read-only bridge from committed planningWeeks to canonical tank lifecycle. */
@@ -24,7 +21,7 @@ export function projectTankSchedules(plans: WeekPlan[], settings: Settings): Map
       const batchNumber = normalizedBatch(brew.batchNumber) || undefined;
       const cycles = byTank.get(brew.tankId) ?? [];
       cycles.push({
-        cycleId: cycleId(brew.id),
+        cycleId: brew.id,
         plannedBatchNumber: batchNumber,
         style: brew.style,
         brewDate: brew.date,
@@ -39,19 +36,31 @@ export function projectTankSchedules(plans: WeekPlan[], settings: Settings): Map
   for (const [tankId, cycles] of byTank) byTank.set(tankId, orderedTankSchedule(cycles));
 
   for (const week of plans) {
-    for (const run of week.packaging ?? []) {
-      if (!run.tankId) continue;
-      const cycles = byTank.get(run.tankId);
+    for (const raw of week.packaging ?? []) {
+      const run = raw as PackagingPlan;
+      // Stable brew identity is authoritative. tankId/batchNumber are legacy
+      // snapshots only, so moving or renumbering a future brew cannot orphan its
+      // packaging. Legacy rows are resolved through their old snapshots.
+      const brewId = resolvePackagingBrewId(run, plans);
+      const linkedBrew = brewId ? brewById(plans, brewId) : null;
+      const tankId = linkedBrew?.tankId ?? run.tankId;
+      if (!tankId) continue;
+      const cycles = byTank.get(tankId);
       if (!cycles?.length) continue;
-      const batch = normalizedBatch(run.batchNumber);
-      const dated = String(run.date ?? "");
-      const candidates = cycles.filter((cycle) => {
-        if (batch && normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) !== batch) return false;
-        if (!dated) return true;
-        return cycle.brewDate <= dated;
-      });
-      const target = candidates.at(-1);
+
+      let target = brewId ? cycles.find((cycle) => cycle.cycleId === brewId) : undefined;
+      if (!target) {
+        const batch = normalizedBatch(run.batchNumber);
+        const dated = String(run.date ?? "");
+        const candidates = cycles.filter((cycle) => {
+          if (batch && normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) !== batch) return false;
+          if (!dated) return true;
+          return cycle.brewDate <= dated;
+        });
+        target = candidates.at(-1);
+      }
       if (!target) continue;
+
       const packaging: TankSchedulePackaging = {
         planId: String(run.id ?? (week.id + ":" + run.productId + ":" + (run.date ?? "undated"))),
         productId: run.productId,
@@ -66,7 +75,6 @@ export function projectTankSchedules(plans: WeekPlan[], settings: Settings): Map
 
   return byTank;
 }
-
 
 export function serializeTankSchedules(
   schedules: Map<string, TankScheduleCycle[]>,
