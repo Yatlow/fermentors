@@ -82,13 +82,11 @@ async function loadFuturePackagingMaps() {
       .map((snapshot) => snapshot.data() as WeekPlan)
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
-    // Canonical path: project every committed brew into its lifecycle and read
-    // packaging from that cycle. brewId/cycleId decides ownership; tank/batch are
-    // lookup snapshots only. This prevents a later brew on the same tank from
-    // stealing or hiding packaging that belongs to the current cycle.
     const schedules = projectTankSchedules(plans);
+    const projectedBrewIds = new Set<string>();
     for (const [tankId, cycles] of schedules) {
       for (const cycle of cycles) {
+        projectedBrewIds.add(cycle.brewId);
         const batch = cycle.batchNumber ?? cycle.plannedBatchNumber;
         const key = planningKey(tankId, batch);
         for (const item of cycle.packaging) {
@@ -99,21 +97,23 @@ async function loadFuturePackagingMaps() {
       }
     }
 
-    // Legacy bridge: current physical cycles can pre-date the planning window and
-    // therefore have no projected brew cycle. Keep only rows that cannot resolve
-    // to a canonical brew; once brewId resolves, the canonical schedule above is
-    // authoritative and snapshots must not create a second relationship.
+    // Current physical cycles may pre-date the planning window. A packaging row
+    // can still resolve to a brewId through recommendation identity even when no
+    // projected lifecycle for that brew exists in this query window. Only skip
+    // the snapshot bridge when the resolved brew is actually represented by the
+    // canonical projection above; otherwise tank/batch is the only safe bridge
+    // back to the live fermentor card.
     for (const week of plans) {
       const weekId = String(week.id || "");
       for (const raw of week.packaging ?? []) {
         const run = raw as PackagingPlan;
         const brewId = resolvePackagingBrewId(run, plans);
         const linkedBrew = brewId ? brewById(plans, brewId) : null;
-        if (linkedBrew) continue;
+        if (linkedBrew && projectedBrewIds.has(brewId!)) continue;
 
-        const canonicalTankId = run.tankId;
+        const canonicalTankId = run.tankId || linkedBrew?.tankId;
         const canonicalTankNumber = run.tankNumber;
-        const canonicalBatch = run.batchNumber;
+        const canonicalBatch = run.batchNumber || linkedBrew?.batchNumber;
         const keys = [
           planningKey(canonicalTankNumber, canonicalBatch),
           planningKey(canonicalTankId, canonicalBatch),
