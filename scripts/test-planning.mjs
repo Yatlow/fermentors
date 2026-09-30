@@ -15,6 +15,7 @@ try {
     "tank-schedule-projection",
     "planning-canonical-current-cycle",
     "planning-cycle-packaging-regression",
+    "planning-dashboard-current-cycle",
   ];
   const compile = spawnSync(
     process.execPath,
