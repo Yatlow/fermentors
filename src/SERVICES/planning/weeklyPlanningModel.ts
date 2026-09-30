@@ -377,8 +377,20 @@ function buildBrewRecommendation(
     if (release) currentReservedTankIds.add(release.tankId);
   }
 
-  const availableReleases = capacityReleases.filter((r) => !currentReservedTankIds.has(r.tankId));
-  const capacityBeforeCurrent = capacityReleases.length;
+  // A physical tank can only host one future planned cycle until that future
+  // cycle itself has a canonical empty date. Do not recommend an earlier/later
+  // brew into a tank that is already occupied by any other planned week.
+  const occupiedByOtherPlannedCycle = new Set(
+    plans
+      .filter((plannedWeek) => plannedWeek.id !== week)
+      .flatMap((plannedWeek) => plannedWeek.brews)
+      .filter((brew) => !!brew.tankId)
+      .map((brew) => brew.tankId),
+  );
+  const availableReleases = capacityReleases.filter(
+    (r) => !currentReservedTankIds.has(r.tankId) && !occupiedByOtherPlannedCycle.has(r.tankId),
+  );
+  const capacityBeforeCurrent = capacityReleases.filter((r) => !occupiedByOtherPlannedCycle.has(r.tankId)).length;
   const remainingCapacity = availableReleases.length;
   const tankOptions: WeeklyBrewTankOption[] = capacityReleases.map((release) => {
     const source = sources.find((s) => s.id === release.tankId);
