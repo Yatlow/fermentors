@@ -10,6 +10,7 @@ import {
   type Actual,
   type Holiday,
   type Product,
+  type Plan,
   type Settings,
   type Tank,
   type WeekPlan,
