@@ -25,12 +25,27 @@ export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans
   const opened = openRuns(plans, settings.products, actuals);
   const occupancies: TankOccupancy[] = [];
 
-  for (const tank of tanks) {
-    const packaging = opened
-      .filter((run) => run.tankId === tank.id && run.remaining > 0)
-      .filter((run) => !run.date || run.date >= tank.brewed)
-      .sort((a, b) => (a.date ?? "9999-99-99").localeCompare(b.date ?? "9999-99-99"))
+  const plannedBrews = plans
+    .flatMap((plan) => plan.brews)
+    .filter((brew) => !!brew.tankId && !!brew.date && brew.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+
+  const productFor = (productId: string) => settings.products.find((product) => product.id === productId);
+  const packagingForLifecycle = (tankId: string, style: string, batchNumber: string | undefined, startsAt: string, endsAt?: string) =>
+    opened
+      .filter((run) => run.tankId === tankId && run.remaining > 0 && !!run.date)
+      .filter((run) => run.date! >= startsAt && (!endsAt || run.date! < endsAt))
+      .filter((run) => !run.batchNumber || !batchNumber || String(run.batchNumber) === String(batchNumber))
+      .filter((run) => {
+        const product = productFor(run.productId);
+        return !product || sameStyle(product.style, style);
+      })
+      .sort((a, b) => a.date!.localeCompare(b.date!))
       .map((run) => ({ id: run.id, week: run.week, date: run.date, productId: run.productId, quantity: run.quantity, remaining: run.remaining, emptyTank: !!run.emptyTank }));
+
+  for (const tank of tanks) {
+    const nextBrew = plannedBrews.find((brew) => brew.tankId === tank.id && brew.date > tank.brewed);
+    const packaging = packagingForLifecycle(tank.id, tank.style, tank.batch, tank.brewed, nextBrew?.date);
     const expectedEmptyAt = packaging.filter((run) => run.emptyTank && run.date).map((run) => run.date!).sort()[0];
     occupancies.push({
       id: `actual:${tank.id}:${tank.batch}`, tankId: tank.id, tankNumber: tank.number, source: "actual",
@@ -39,35 +54,31 @@ export function buildPlanningTimelineV2({ today, settings, sources, tanks, plans
     });
   }
 
-  for (const plan of [...plans].sort((a, b) => a.id.localeCompare(b.id))) {
-    for (const brew of [...plan.brews].sort((a, b) => a.date.localeCompare(b.date))) {
-      if (!brew.tankId || !brew.date || brew.date < today) continue;
-      const packaging = opened
-        .filter((run) => run.tankId === brew.tankId && run.remaining > 0 && !!run.date && run.date! >= brew.date)
-        .sort((a, b) => (a.date ?? "9999-99-99").localeCompare(b.date ?? "9999-99-99"))
-        .map((run) => ({ id: run.id, week: run.week, date: run.date, productId: run.productId, quantity: run.quantity, remaining: run.remaining, emptyTank: !!run.emptyTank }));
-      const expectedEmptyAt = packaging.filter((run) => run.emptyTank && run.date).map((run) => run.date!).sort()[0];
-      occupancies.push({
-        id: `planned:${brew.id}`, tankId: brew.tankId, tankNumber: tankNumberFor(brew.tankId, sources, tanks), source: "planned",
-        style: brew.style, batchNumber: brew.batchNumber, startsAt: brew.date,
-        readyAt: addDays(brew.date, leadDaysFor(settings, brew.style)), startingLiters: brew.liters, packaging, expectedEmptyAt,
-      });
-    }
+  for (let index = 0; index < plannedBrews.length; index++) {
+    const brew = plannedBrews[index];
+    const nextBrew = plannedBrews.slice(index + 1).find((candidate) => candidate.tankId === brew.tankId);
+    const packaging = packagingForLifecycle(brew.tankId, brew.style, brew.batchNumber, brew.date, nextBrew?.date);
+    const expectedEmptyAt = packaging.filter((run) => run.emptyTank && run.date).map((run) => run.date!).sort()[0];
+    occupancies.push({
+      id: `planned:${brew.id}`, tankId: brew.tankId, tankNumber: tankNumberFor(brew.tankId, sources, tanks), source: "planned",
+      style: brew.style, batchNumber: brew.batchNumber, startsAt: brew.date,
+      readyAt: addDays(brew.date, leadDaysFor(settings, brew.style)), startingLiters: brew.liters, packaging, expectedEmptyAt,
+    });
   }
 
   const byTank = new Map<string, TankOccupancy[]>();
   for (const occupancy of occupancies) {
-    const list = byTank.get(occupancy.tankId) ?? []; list.push(occupancy); byTank.set(occupancy.tankId, list);
+    const list = byTank.get(occupancy.tankId) ?? [];
+    list.push(occupancy);
+    byTank.set(occupancy.tankId, list);
   }
-  for (const list of byTank.values()) {
-    list.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id));
-    list.forEach((occupancy, index) => { occupancy.nextOccupancyId = list[index + 1]?.id; });
-  }
+
   const availability: TankAvailability[] = [];
   const issues: TimelineIssue[] = [];
   for (const source of sources) {
     if (Number(source.tankNumber) === 1) continue;
-    const list = (byTank.get(source.id) ?? []).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    const list = (byTank.get(source.id) ?? []).sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id));
+    list.forEach((occupancy, index) => { occupancy.nextOccupancyId = list[index + 1]?.id; });
     if (!list.length) {
       const ready = source.tankStatus === true || Number(source.action) === 0 ||
         ["stage-empty", "stage-clean", "stage-sanitized"].includes(source.stage?.className ?? "");
