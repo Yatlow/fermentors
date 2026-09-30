@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { runtimeConfig } from "../../config/runtimeConfig";
 import { buildPlanningTimelineV2 } from "../../SERVICES/planning/planningTimelineV2";
-import { tankReleases } from "../../SERVICES/planning/productionCycle";
+import { tankReleases, type TankSource } from "../../SERVICES/planning/productionCycle";
 import type { Actual, Settings, Tank, TankInput, WeekPlan } from "../../SERVICES/planning/planningEngine";
 
 export default function PlanningShadowV2({ settings, plans, tanks, sources, actuals, today }: {
@@ -9,7 +9,16 @@ export default function PlanningShadowV2({ settings, plans, tanks, sources, actu
 }) {
   const comparison = useMemo(() => {
     const timeline = buildPlanningTimelineV2({ today, settings, plans, tanks, sources, actuals });
-    const v1 = tankReleases(sources, tanks, plans, settings, actuals, today);
+    const legacySources: TankSource[] = sources.map((source) => ({
+      id: source.id,
+      tankNumber: source.tankNumber == null ? null : String(source.tankNumber),
+      beerStyle: source.beerStyle == null ? null : String(source.beerStyle),
+      beerVolume: source.beerVolume,
+      tankStatus: source.tankStatus,
+      action: source.action,
+      stage: source.stage,
+    }));
+    const v1 = tankReleases(legacySources, tanks, plans, settings, actuals, today);
     const v1ByTank = new Map(v1.map((release) => [release.tankId, release.date]));
     const v2ByTank = new Map(timeline.availability.map((release) => [release.tankId, release.date]));
     const rows = sources.filter((source) => Number(source.tankNumber) !== 1).map((source) => {
