@@ -13,7 +13,7 @@ import { actualDate, openRuns } from "./dailyPlanner";
 import type { Actual } from "./planningEngine";
 import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
 import { projectTankSchedules } from "./tankScheduleProjection";
-import { orderedTankSchedule } from "./tankSchedule";
+import { orderedTankSchedule, tankCanHostCycle } from "./tankSchedule";
 
 export const weekday = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
 export const nextBrewingWeek = (emptied: string) => addDays(weekStart(emptied), 8);
@@ -292,13 +292,13 @@ export function validateBrewReleases(
       return `מיכל ${source?.tankNumber ?? tank?.number ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב הוא ${Math.round(workLiters)} ל׳`;
 
     const cycles = orderedTankSchedule(schedules.get(b.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
-    const index = cycles.findIndex((cycle) => cycle.cycleId === b.id);
-    const previous = index > 0 ? cycles[index - 1] : null;
-    if (previous) {
-      if (!previous.emptyDate || b.date <= previous.emptyDate)
-        return `בישול ${b.style}: המחזור הקודם במיכל עדיין לא מתרוקן לפני הבישול הזה`;
-      continue;
-    }
+    const cycle = cycles.find((item) => item.cycleId === b.id);
+    const readyDate = cycle?.readyDate ?? addDays(b.date, Math.max(
+      ...settings.products.filter((p) => sameStyle(p.style, b.style)).map((p) => p.leadDays),
+      21,
+    ));
+    if (!tankCanHostCycle(cycles, b.date, readyDate, b.id))
+      return `בישול ${b.style}: המיכל תפוס על ידי מחזור אחר בחלון הבישול המתוכנן`;
 
     if (tank && tank.brewed === b.date && sameStyle(tank.style, b.style)) continue;
     const release = releases.find((r) => r.tankId === b.tankId);
