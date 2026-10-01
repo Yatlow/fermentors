@@ -168,15 +168,42 @@ export function tankReleases(
       (!!sourceBrewDate && cycle.brewDate === sourceBrewDate),
     );
     if (canonicalCurrent) {
-      const remaining = canonicalCurrent.emptyDate ? 0 : tank.liters;
+      // Current physical cycles can predate canonical brew identity. In that
+      // transition case their packaging rows are intentionally legacy rows.
+      // Only let an exact tank + current batch match close this cycle; tank-only
+      // matching would risk attaching a future cycle's packaging here.
+      let legacyCurrentEmptyDate: string | null = null;
+      if (!canonicalCurrent.emptyDate && sourceBatch) {
+        let legacyRemaining = tank.liters;
+        for (const r of legacyRuns
+          .filter((run) =>
+            canonicalRunTank(run as PackagingPlan, plans) === source.id &&
+            normalizedBatch((run as PackagingPlan).batchNumber) === sourceBatch)
+          .sort((a, b) => a.date!.localeCompare(b.date!))) {
+          const p = settings.products.find((product) => product.id === r.productId);
+          const runStyle = r.nonInventoryStyle ?? p?.style;
+          const runType = r.nonInventoryType ?? p?.type;
+          if (!runStyle || !runType || !sameStyle(runStyle, tank.style)) continue;
+          const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
+          legacyRemaining -= r.remaining * unitLiters;
+          if (r.emptyTank || legacyRemaining < 20) {
+            legacyCurrentEmptyDate = r.date!;
+            break;
+          }
+        }
+      }
+      const emptyDate = canonicalCurrent.emptyDate ?? legacyCurrentEmptyDate;
+      const remaining = emptyDate ? 0 : tank.liters;
       return {
         tankId: source.id,
-        date: canonicalCurrent.emptyDate ? nextBrewingWeek(canonicalCurrent.emptyDate) : null,
-        emptyDate: canonicalCurrent.emptyDate ?? null,
+        date: emptyDate ? nextBrewingWeek(emptyDate) : null,
+        emptyDate,
         remaining,
         workLiters,
-        reason: canonicalCurrent.emptyDate
-          ? "לאחר ריקון המחזור המתוכנן וניקיון חמישי"
+        reason: emptyDate
+          ? legacyCurrentEmptyDate
+            ? "לאחר ריקון המחזור הפיזי המתוכנן וניקיון חמישי"
+            : "לאחר ריקון המחזור המתוכנן וניקיון חמישי"
           : "למחזור הנוכחי אין עדיין ריקון מתוכנן",
       };
     }
