@@ -126,6 +126,10 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         if (!match) return undefined;
         return virtualProduct(decodeURIComponent(match[1]), match[2] as "crates" | "kegs");
     };
+    const productForPlan = (run: Plan): Product | undefined =>
+        run.nonInventoryStyle && run.nonInventoryType
+            ? virtualProduct(run.nonInventoryStyle, run.nonInventoryType)
+            : productForPlan(run);
     const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
     const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) => run.brewId ? `planned:${run.brewId}` : (run.tankId ?? "");
     const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
@@ -163,8 +167,8 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20
             )
             .forEach((tank) => add(tank.style));
-        current.packaging.forEach((run) => add(product(run.productId)?.style));
-        model.packagingRecommendation.forEach((run) => add(product(run.productId)?.style));
+        current.packaging.forEach((run) => add(productForPlan(run)?.style));
+        model.packagingRecommendation.forEach((run) => add(productForPlan(run)?.style));
         return values;
     }, [settings.products, current.packaging, model.packagingRecommendation, packagingTankPool, model.weekEnd, model.tankAvailableLiters]);
 
@@ -191,7 +195,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
     function buildRows(style: string): PackRow[] {
         return current.packaging.flatMap((run, index) => {
-            const p = product(run.productId);
+            const p = productForPlan(run);
             if (!p || !sameStyle(p.style, style)) return [];
             return [{
                 key: run.id ?? `existing:${index}:${run.productId}:${run.tankId ?? ""}`,
@@ -249,7 +253,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         const usedByTank = new Map<string, number>();
         return packaging.map((run) => {
             if (!run.tankId) return run;
-            const p = product(run.productId);
+            const p = productForPlan(run);
             if (!p) return run;
             const base = replacementPackagingModel.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
             const usedBefore = usedByTank.get(run.tankId) ?? 0;
@@ -498,7 +502,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         const usedByTank = new Map<string, number>();
         return packaging.map((run) => {
             if (!run.tankId) return run;
-            const p = product(run.productId);
+            const p = productForPlan(run);
             if (!p) return run;
             const base = model.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
             const original = current.packaging.find((item) => item.id && run.id && item.id === run.id);
@@ -517,7 +521,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         setModalMessage("");
         try {
             const untouched = current.packaging.filter((run) => {
-                const p = product(run.productId);
+                const p = productForPlan(run);
                 return !p || !sameStyle(p.style, packStyle);
             });
             const edited: Plan[] = [];
@@ -544,7 +548,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 });
             }
             for (const original of current.packaging) {
-                const p = product(original.productId);
+                const p = productForPlan(original);
                 if (!p || !sameStyle(p.style, packStyle)) continue;
                 const stillExists = rows.some((row) => row.originalId && row.originalId === original.id);
                 if (stillExists) continue;
