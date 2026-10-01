@@ -125,6 +125,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
   ));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showUnavailableTanks, setShowUnavailableTanks] = useState(false);
   const weekEnd = addDays(initial.id, 6);
 
   useEffect(() => {
@@ -180,6 +181,20 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     .filter((source): source is Fermentor => !!source && Number(source.tankNumber) !== 1)
     .filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index)
     .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)), [releases, brews, weekEnd]);
+
+  const unavailableCompatibleTanks = useMemo(() => {
+    if (!selectedBrew) return [];
+    const visibleIds = new Set(allWeekTanks.map((tank) => tank.id));
+    return brews
+      .filter((source) => Number(source.tankNumber) !== 1)
+      .filter((source) => !visibleIds.has(source.id))
+      .filter((source) => compatibleTankForBrew(selectedBrew, source))
+      .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber));
+  }, [selectedBrew, allWeekTanks, brews]);
+
+  function unavailableTankRelease(tankId: string) {
+    return releases.find((release) => release.tankId === tankId);
+  }
 
   function move(index: number, direction: -1 | 1) {
     const slotBatchNumbers = orderedBrews.map((brew) => brew.batchNumber);
@@ -346,6 +361,45 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
             })}
             {!allWeekTanks.length && <p className="bp-muted">אין מיכלים פנויים בשבוע הזה.</p>}
           </div>
+          {unavailableCompatibleTanks.length > 0 && <div className="bp-brew-unavailable-override">
+            <button
+              type="button"
+              className="bp-secondary-action"
+              aria-expanded={showUnavailableTanks}
+              onClick={() => setShowUnavailableTanks((value) => !value)}
+            >
+              {showUnavailableTanks ? "הסתר מיכלים לא זמינים" : "שבץ מיכל לא זמין כחריגה"}
+            </button>
+            {showUnavailableTanks && <div className="bp-brew-tank-yard bp-brew-tank-row">
+              {unavailableCompatibleTanks.map((tank) => {
+                const release = unavailableTankRelease(tank.id);
+                const canUseOnDate = !!release?.date && release.date < selectedBrew.date;
+                return <button
+                  type="button"
+                  key={tank.id}
+                  className="bp-brew-tank-visual bp-brew-tank-visual-compact"
+                  disabled={!canUseOnDate}
+                  onClick={() => {
+                    if (!window.confirm(`מיכל ${tank.tankNumber} אינו זמין ברשימה הרגילה. לשבץ אותו כחריגה לבישול בתאריך ${selectedBrew.date}?`)) return;
+                    setTank(selectedIndex, tank.id);
+                    setShowUnavailableTanks(false);
+                  }}
+                  title={release?.date
+                    ? canUseOnDate
+                      ? `חריגת זמינות: המיכל מתרוקן ב-${release.date}`
+                      : `המיכל מתרוקן רק ב-${release.date}, ולכן אינו יכול לקבל את הבישול ב-${selectedBrew.date}`
+                    : "אין למיכל מועד ריקון מתוכנן לפני הבישול"}
+                >
+                  <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b><small>{tankKind(tank.tankNumber)}</small></span>
+                  <span className="bp-brew-tank-cone" />
+                  <small className="bp-brew-tank-assigned-hint">
+                    {release?.date ? `מתרוקן ${release.date}` : "לא זמין"}
+                  </small>
+                </button>;
+              })}
+            </div>}
+            {showUnavailableTanks && <small className="bp-muted">אפשר לבחור חריגה רק אם למיכל יש ריקון מתוכנן לפני יום הבישול. שיבוץ חופף נשאר חסום.</small>}
+          </div>}
         </div>}
 
         {error && <p role="alert" className="bp-alert">{error}</p>}
