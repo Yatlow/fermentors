@@ -281,7 +281,9 @@ export function tanksFrom(
         num(t.currentData?.totalLiters),
         num(t.currentData?.crates) + num(t.currentData?.kegs),
       );
-      const liters = Math.max(0, num(t.beerVolume) * 0.9 - packed);
+      // beerVolume is the synchronized NET volume available in the current tank.
+      // Do not apply planning loss/shrinkage again here.
+      const liters = Math.max(0, num(t.beerVolume) - packed);
       return [
         {
           id: t.id,
@@ -660,7 +662,9 @@ export function brewAdvice(
       const supply =
         stock +
         wip.reduce((s, t) => s + t.liters, 0) +
-        plannedByNeed.reduce((s, b) => s + b.liters * 0.9, 0);
+        // Planned brew liters use the canonical tank × style NET packaging
+        // volume, so they enter supply without another shrinkage deduction.
+        plannedByNeed.reduce((s, b) => s + b.liters, 0);
       const deficit = Math.max(
         0,
         Math.ceil(
