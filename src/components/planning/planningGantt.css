@@ -6,6 +6,11 @@
 
 .bp-gantt-heading { align-items: center; }
 
+.bp-gantt-horizon-nav { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.bp-gantt-horizon-nav button { padding: 5px 10px; }
+.bp-gantt-horizon-nav span { font-size: .72rem; font-weight: 700; color: #64748b; }
+.bp-five-week-item.is-gantt-actual { border-width: 3px; border-style: solid; font-weight: 700; }
+
 .bp-gantt-legend {
   display: flex;
   flex-wrap: wrap;
