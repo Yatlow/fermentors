@@ -187,8 +187,14 @@ export default function PlanningBoard({
     const status = assignmentStatus(brew) === "tentative" ? "מוצע" : "מאושר";
     return `${displayStyle(brew.style)} · מיכל ${tankNumber} (${status})${batch ? ` · אצווה ${batch}` : ""}`;
   });
+  const packagingLabel = (run: WeekPlan["packaging"][number]) => {
+    if (run.nonInventoryStyle && run.nonInventoryType) {
+      return `${displayStyle(run.nonInventoryStyle)} · ${run.nonInventoryType === "crates" ? "ארגזים" : "חביות"}`;
+    }
+    return productLabel(run.productId);
+  };
   const packagingSummary = current.packaging.map((run) =>
-    `${productLabel(run.productId)} · ${Math.round(run.quantity)} · מיכל ${tanks.find((tank) => tank.id === run.tankId)?.number ?? run.tankNumber ?? "?"}${run.date ? ` · ${shortDate(run.date)}` : " · טרם שובץ ליום"}`,
+    `${packagingLabel(run)} · ${Math.round(run.quantity)} · מיכל ${tanks.find((tank) => tank.id === run.tankId)?.number ?? run.tankNumber ?? "?"}${run.date ? ` · ${shortDate(run.date)}` : " · טרם שובץ ליום"}`,
   );
 
   function requestEarlyPackagingOverride(warning: string) {
