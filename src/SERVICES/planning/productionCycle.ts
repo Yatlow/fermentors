@@ -110,9 +110,14 @@ export function tankReleases(
   today: string,
 ): Release[] {
   const schedules = projectTankSchedules(plans, settings);
-  const legacyRuns = openRuns(plans, settings.products, actuals)
+  const legacyInventoryRuns = openRuns(plans, settings.products, actuals)
     .filter((r) => r.date && r.date >= today && r.remaining > 0)
     .filter((r) => !resolvePackagingBrewId(r as PackagingPlan, plans));
+  const legacySpecialRuns = plans.flatMap((week) => (week.packaging ?? [])
+    .filter((run) => !!run.nonInventoryStyle && !!run.nonInventoryType && !!run.date && run.date >= today && run.quantity > 0)
+    .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })))
+    .filter((run) => !resolvePackagingBrewId(run as PackagingPlan, plans));
+  const legacyRuns = [...legacyInventoryRuns, ...legacySpecialRuns];
 
   return sources.map((source) => {
     // Release capacity describes what the physical tank can host on its NEXT
@@ -182,8 +187,11 @@ export function tankReleases(
       .filter((r) => canonicalRunTank(r as PackagingPlan, plans) === source.id)
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
       const p = settings.products.find((p) => p.id === r.productId);
-      if (!p || !sameStyle(p.style, tank.style)) continue;
-      remaining -= r.remaining * litersPerUnit(p);
+      const runStyle = r.nonInventoryStyle ?? p?.style;
+      const runType = r.nonInventoryType ?? p?.type;
+      if (!runStyle || !runType || !sameStyle(runStyle, tank.style)) continue;
+      const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
+      remaining -= r.remaining * unitLiters;
       if (r.emptyTank || remaining < 20) {
         remaining = 0;
         emptyDate = r.date!;
