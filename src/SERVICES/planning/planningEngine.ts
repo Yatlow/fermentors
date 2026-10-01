@@ -59,6 +59,8 @@ export type BrewPlan = {
   liters: number;
   batchNumber?: string;
   tankAssignmentStatus?: "tentative" | "confirmed";
+  /** Explicit planner override: reuse this tank after its current cycle empties in the same week. */
+  availabilityOverride?: boolean;
 };
 export type WeekPlan = {
   id: string;
