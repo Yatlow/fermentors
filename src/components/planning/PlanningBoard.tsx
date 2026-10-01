@@ -491,6 +491,29 @@ export default function PlanningBoard({
 
     {closed && <p role="status">השבוע הסתיים לתכנון בתחילת יום שישי · צפייה בלבד.</p>}
     {message && <p role="status">{message}</p>}
+    {!closed && current.maxRuns < 5 && <div className="bp-same-week-warning" role="status">
+      <b>צריך 5 ימי אריזה השבוע?</b>
+      <span>זו חריגה נקודתית לשבוע הזה בלבד. ברירת המחדל לשבועות אחרים לא תשתנה.</span>
+      <button
+        type="button"
+        className="bp-action-warning"
+        disabled={readOnly || busy}
+        onClick={async () => {
+          setBusy(true);
+          setMessage("");
+          try {
+            await persist({ ...current, maxRuns: 5 });
+            setMessage("מכסת האריזה לשבוע הזה הוגדלה ל־5 ימים.");
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "שמירת חריגת האריזה נכשלה");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        אפשר 5 ימי אריזה השבוע
+      </button>
+    </div>}
 
     <div className="bp-daily-sets bp-weekly-execution-sets">
       <article className="bp-daily-set is-delivery">
