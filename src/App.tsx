@@ -14,6 +14,7 @@ import { auth, db, googleProvider } from "./firebase";
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
 import { enableGlobalReadDiagnostics, recordGlobalServerRead } from "./SERVICES/globalReadDiagnostics";
+import { hasCredibleLiveBrewProgress } from "./SERVICES/brewing/brewProgressDisplay";
 
 import "./App.css";
 import shpiro from "./assets/shpiro.jpeg";
@@ -236,7 +237,11 @@ function App() {
                             const sameData = JSON.stringify(prevRest) === JSON.stringify({ ...firestoreData, id });
                             if (sameData) return prevTank;
                         }
-                        return { ...firestoreData, id, stage: undefined } as Fermentor;
+                        const nextTank = { ...firestoreData, id, stage: undefined } as Fermentor;
+                        if (Number(nextTank.action) === 0 && !hasCredibleLiveBrewProgress(nextTank.brewProgress)) {
+                            nextTank.brewProgress = null;
+                        }
+                        return nextTank;
                     });
                     data.sort((a, b) => {
                         const numA = parseInt(String(a.uid ?? "").replace(/\D/g, ""), 10) || 0;
@@ -373,7 +378,7 @@ function App() {
     }, []);
 
     const updateReading = (tankId: string, field: keyof NewReading, value: string) => {
-        setNewReadings((prev) => ({ ...prev, [tankId]: { ...prev[tankId], [field]: value } }));
+        setNewReadings((prev) => ({ ...prev, [tankId]: { ...prev[tankId], [field]: value }));
     };
 
     const totalVolumes = useMemo<Record<string, number>>(() => {
