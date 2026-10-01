@@ -28,6 +28,9 @@ export type Settings = {
 export type Plan = {
   id?: string;
   productId: string;
+  /** Non-inventory packaging can release a special/seasonal beer cycle without a planning SKU. */
+  nonInventoryStyle?: string;
+  nonInventoryType?: "crates" | "kegs";
   quantity: number;
   date?: string;
   source?: "manual" | "recommendation";
