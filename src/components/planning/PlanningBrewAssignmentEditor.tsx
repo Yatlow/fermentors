@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { getAllBrewsSummary } from "../../SERVICES/getAndPost/getAllBrews";
+import { getBrewsSummaryPage } from "../../SERVICES/getAndPost/getAllBrews";
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { brewLitersForSize, brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
@@ -130,8 +130,11 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
 
   useEffect(() => {
     let cancelled = false;
-    getAllBrewsSummary()
-      .then((history) => {
+    // Batch numbers are ordered descending in Firestore, so only the newest row
+    // is needed to establish the global high-water mark. Avoid loading 100 brew
+    // summaries every time the assignment editor opens.
+    getBrewsSummaryPage(null, 10)
+      .then(({ rows: history }) => {
         if (cancelled) return;
         setBatchBase(Math.max(
           maxBatch(history.map((brew) => brew.batchNumber)),
