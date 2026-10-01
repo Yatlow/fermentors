@@ -29,6 +29,20 @@ import {
   type WeekPlan,
 } from "./planningEngine";
 
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, stripUndefined(item)]),
+    ) as T;
+  }
+  return value;
+}
+
 const PLANNING_TIME_ZONE = "Asia/Jerusalem";
 const JERUSALEM_PARTS = new Intl.DateTimeFormat("en-US-u-nu-latn", {
   timeZone: PLANNING_TIME_ZONE,
@@ -476,7 +490,7 @@ export function usePlanning(
             })()
           : value;
       const next = {
-        ...persistedValue,
+        ...stripUndefined(persistedValue),
         createdAt: snap.exists()
           ? (snap.data()?.createdAt ?? null)
           : serverTimestamp(),
