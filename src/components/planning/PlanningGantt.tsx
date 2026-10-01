@@ -381,7 +381,9 @@ export default function PlanningGantt(props: Props) {
     const plannedItems: SummaryItem[] = decisions.map((item, index) => {
       const product = productFor(item.productId);
       const tank = tanks.find((candidate) => candidate.id === item.tankId);
-      const resolvedTank = item.tankNumber ?? tank?.number;
+      // Canonical tankId (aligned from brewId/cycle) wins over the historical
+      // tankNumber snapshot. The snapshot is only a legacy/display fallback.
+      const resolvedTank = tank?.number ?? item.tankNumber;
       return {
         key: `pack:${item.id ?? index}`,
         title: product ? `${displayStyle(product.style)} · ${tankLabel(resolvedTank)}` : item.productId,
