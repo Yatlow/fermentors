@@ -322,19 +322,22 @@ export default function PlanningWeeklyRecommendations({
                 leadDays: 21,
             }];
         });
+    const corePackagingProducts = [...products].sort((a, b) =>
+        (model.rows.afterShipment.get(a.id)?.totalCover ?? Infinity) -
+        (model.rows.afterShipment.get(b.id)?.totalCover ?? Infinity)
+    );
+    const uniqueSpecialPackagingProducts = specialPackagingProducts.filter((p) =>
+        !products.some((known) => known.id === p.id)
+    );
+    // Special beer is a tank-release decision, not an inventory-cover decision.
+    // Keep it visually inside the actionable/low-cover section instead of
+    // sorting its null cover to the bottom with unavailable high-cover SKUs.
+    const specialInsertIndex = Math.min(3, corePackagingProducts.length);
     const packagingProducts = [
-        ...products,
-        ...specialPackagingProducts.filter((p) => !products.some((known) => known.id === p.id)),
-    ].sort((a, b) => {
-        const aCore = isCoreStyle(a.style);
-        const bCore = isCoreStyle(b.style);
-        if (aCore !== bCore) {
-            const anchor = "פייל";
-            if (!aCore && sameStyle(b.style, anchor)) return -1;
-            if (!bCore && sameStyle(a.style, anchor)) return 1;
-        }
-        return (model.rows.afterShipment.get(a.id)?.totalCover ?? Infinity) - (model.rows.afterShipment.get(b.id)?.totalCover ?? Infinity);
-    });
+        ...corePackagingProducts.slice(0, specialInsertIndex),
+        ...uniqueSpecialPackagingProducts,
+        ...corePackagingProducts.slice(specialInsertIndex),
+    ];
 
     function beginEdit(kind: Kind, truckId?: string) {
         setEditing(kind);
