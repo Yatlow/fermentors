@@ -127,6 +127,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showUnavailableTanks, setShowUnavailableTanks] = useState(false);
+  const [pendingOverrideTankId, setPendingOverrideTankId] = useState<string | null>(null);
   const weekEnd = addDays(initial.id, 6);
 
   useEffect(() => {
@@ -214,7 +215,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     setSelectedIndex((current) => Math.max(0, Math.min(orderedBrews.length - 1, current + direction)));
   }
 
-  function setTank(index: number, tankId: string) {
+  function setTank(index: number, tankId: string, availabilityOverride = false) {
     const selectedForGuard = orderedBrews[index];
     const targetTank = brews.find((item) => item.id === tankId);
     if (!selectedForGuard || !targetTank || !compatibleTankForBrew(selectedForGuard, targetTank)) {
@@ -256,6 +257,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
         tankId,
         date: earliestDate && earliestDate > selected.date ? earliestDate : selected.date,
         tankAssignmentStatus: "confirmed" as const,
+        availabilityOverride,
       };
 
       if (otherIndex >= 0) {
@@ -387,14 +389,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
                   key={tank.id}
                   className="bp-brew-tank-visual bp-brew-tank-visual-compact"
                   disabled={!canUseThisWeek}
-                  onClick={() => {
-                    const dateNote = nextBrewDate > selectedBrew.date
-                      ? ` תאריך הבישול יעבור ל-${nextBrewDate}, יום אחרי הריקון.`
-                      : "";
-                    if (!window.confirm(`מיכל ${tank.tankNumber} אינו זמין ברשימה הרגילה. לשבץ אותו כחריגה?${dateNote}`)) return;
-                    setTank(selectedIndex, tank.id);
-                    setShowUnavailableTanks(false);
-                  }}
+                  onClick={() => setPendingOverrideTankId(tank.id)}
                   title={releaseDate
                     ? canUseThisWeek
                       ? `חריגת זמינות: מתרוקן ב-${releaseDate}; ניתן לבשל החל מ-${nextBrewDate}`
@@ -410,6 +405,24 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
               })}
             </div>}
             {showUnavailableTanks && <small className="bp-muted">אפשר לבחור מיכל בגודל המתאים שמתפנה במהלך השבוע. אם צריך, הבישול יוזז אוטומטית ליום שאחרי הריקון. שיבוץ חופף נשאר חסום.</small>}
+            {pendingOverrideTankId && (() => {
+              const tank = brews.find((item) => item.id === pendingOverrideTankId);
+              const release = unavailableTankRelease(pendingOverrideTankId);
+              const nextBrewDate = release?.emptyDate ? addDays(release.emptyDate, 1) : selectedBrew.date;
+              return <div className="bp-inline-confirm" role="dialog" aria-modal="true" aria-label="אישור חריגת זמינות">
+                <strong>אישור חריגת זמינות</strong>
+                <p>מיכל {tank?.tankNumber ?? pendingOverrideTankId} אינו זמין במסלול הרגיל ומתפנה ב-{release?.emptyDate}. לשבץ אותו כחריגה?</p>
+                {nextBrewDate > selectedBrew.date && <small>תאריך הבישול יעבור אוטומטית ל-{nextBrewDate}.</small>}
+                <div className="bp-actions">
+                  <button type="button" onClick={() => {
+                    setTank(selectedIndex, pendingOverrideTankId, true);
+                    setPendingOverrideTankId(null);
+                    setShowUnavailableTanks(false);
+                  }}>אישור חריגה ושיבוץ</button>
+                  <button type="button" onClick={() => setPendingOverrideTankId(null)}>ביטול</button>
+                </div>
+              </div>;
+            })()}
           </div>}
         </div>}
 
