@@ -545,19 +545,17 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 const originalRun = row.originalId
                     ? current.packaging.find((run) => run.id === row.originalId)
                     : undefined;
-                // The modal edits a weekly decision rather than a day. Persist a
-                // concrete packaging date because production validation requires
-                // one. Keep an existing date; otherwise use the normal Thursday
-                // planning date, delayed to the cycle's ready date when needed.
-                const defaultPackagingDate = addDays(selectedWeek, 4);
-                const packagingDate = originalRun?.date
-                    ?? (tank.ready > defaultPackagingDate ? tank.ready : defaultPackagingDate);
+                // This modal saves a weekly packaging decision. A day is assigned
+                // later in the daily workboard; do not auto-schedule new decisions.
+                // Preserve a date only when editing a decision that was already
+                // explicitly assigned to a day.
+                const packagingDate = originalRun?.date;
                 edited.push({
                     id: row.originalId ?? row.key.replace(/^rec:/, ""),
                     productId: p.id.startsWith("noninventory:") ? "" : p.id,
                     ...(p.id.startsWith("noninventory:") ? { nonInventoryStyle: p.style, nonInventoryType: p.type } : {}),
                     quantity,
-                    date: packagingDate,
+                    ...(packagingDate ? { date: packagingDate } : {}),
                     tankId: physicalTankId,
                     tankNumber: String(tank.number),
                     batchNumber: plannedBrew?.batchNumber ?? tank.batch,
