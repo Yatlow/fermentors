@@ -143,8 +143,12 @@ export default function PlanningBoard({
   // tankId. The canonical cycle validator below decides whether the previous
   // brew has actually emptied before a later brew. Keeping all releases visible
   // is required for legitimate tank reuse in later planning weeks.
+  const allReleases = useMemo(
+    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today),
+    [brews, tanks, releasePlans, settings, actuals, today],
+  );
   const releases = useMemo(() => {
-    const base = tankReleases(brews, tanks, releasePlans, settings, actuals, today);
+    const base = allReleases;
     const schedules = projectTankSchedules(plans, settings);
     const weekEnd = addDays(week, 6);
     return base.filter((release) => {
@@ -156,7 +160,7 @@ export default function PlanningBoard({
       const cycles = (schedules.get(release.tankId) ?? []).filter((cycle) => !currentWeekCycleIds.has(cycle.cycleId));
       return tankCanHostCycle(cycles, candidateDate, candidateDate);
     });
-  }, [brews, tanks, releasePlans, plans, settings, actuals, today, week]);
+  }, [allReleases, plans, settings, week, current.brews]);
 
   const productLabel = (id: string) => {
     const product = settings.products.find((item) => item.id === id);
@@ -449,6 +453,7 @@ export default function PlanningBoard({
         allPlans={plans}
         brews={brews}
         releases={releases}
+        exceptionReleases={allReleases}
         disabled={readOnly || busy}
         onSave={async (next) => {
           setBusy(true);
