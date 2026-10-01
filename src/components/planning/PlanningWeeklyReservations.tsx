@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, type ComponentProps } from "react";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
-import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
-import { brewSizeLabel } from "../../SERVICES/planning/productionCycle";
+import { brewSizeLabel, tankReleases } from "../../SERVICES/planning/productionCycle";
 import { addDays, weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { palletsForPlanningShipmentPicking } from "../../SERVICES/planning/planningShipmentReservations";
+import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
+import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
 
 type Props = ComponentProps<typeof PlanningWeeklyRecommendationsEnhanced>;
 type BrewWithAssignment = BrewPlan & {
@@ -32,22 +33,34 @@ export default function PlanningWeeklyReservations(props: Props) {
   );
 
   const assignTentativeTankAssignments = useCallback((next: WeekPlan): WeekPlan => {
-    // Build the assignment pool without the week we are about to assign.
-    // Otherwise buildBrewRecommendation reserves arbitrary tanks for the same
-    // unassigned brews before this size-aware assignment pass can see them.
+    // Tentative assignment must use the same canonical release/schedule truth as
+    // the daily assignment editor. Demand recommendations must never silently
+    // opt into a tank that the assignment editor considers unavailable.
     const assignmentPlans = props.plans.filter((plan) => plan.id !== next.id);
-    const model = buildWeeklyPlanningModel({
-      settings: props.settings,
-      pallets: planningPallets,
-      tanks: props.tanks,
-      plans: assignmentPlans,
-      actuals: props.actuals,
-      sources: props.sources,
-      today: props.today,
-      week: next.id,
-      holidays: props.holidays,
-      shipments: props.shipments,
-    });
+    const weekEnd = addDays(next.id, 6);
+    const schedules = projectTankSchedules(assignmentPlans, props.settings);
+    const candidates = tankReleases(
+      props.sources,
+      props.tanks,
+      assignmentPlans,
+      props.settings,
+      props.actuals,
+      props.today,
+    )
+      .filter((release) => {
+        if (!release.date || release.date > weekEnd) return false;
+        const candidateDate = release.date > next.id ? release.date : next.id;
+        return tankCanHostCycle(schedules.get(release.tankId) ?? [], candidateDate, candidateDate);
+      })
+      .map((release) => ({
+        release,
+        source: props.sources.find((source) => source.id === release.tankId),
+      }))
+      .filter(({ source }) => !!source && Number(source.tankNumber) !== 1)
+      .sort((a, b) =>
+        (a.release.date ?? "9999-12-31").localeCompare(b.release.date ?? "9999-12-31") ||
+        Number(a.source?.tankNumber ?? Infinity) - Number(b.source?.tankNumber ?? Infinity),
+      );
 
     const usedTankIds = new Set(
       next.brews.filter((brew) => !!brew.tankId).map((brew) => brew.tankId),
@@ -58,29 +71,27 @@ export default function PlanningWeeklyReservations(props: Props) {
       if (brew.tankId || brew.date < props.today) return existing;
 
       const size = brewSizeLabel(brew.liters);
-      const option = model.brewTankOptions.find((candidate) =>
-        !usedTankIds.has(candidate.tankId) &&
-        candidate.availableDate <= brew.date &&
-        candidate.sizeLabel === size,
+      const option = candidates.find(({ release, source }) =>
+        !usedTankIds.has(release.tankId) &&
+        !!release.date &&
+        release.date <= brew.date &&
+        brewSizeLabel(0, source?.tankNumber) === size,
       );
 
       if (!option) return existing;
-      usedTankIds.add(option.tankId);
+      usedTankIds.add(option.release.tankId);
       return {
         ...brew,
-        tankId: option.tankId,
+        tankId: option.release.tankId,
         tankAssignmentStatus: "tentative",
       };
     });
 
     return { ...next, brews };
   }, [
-    planningPallets,
     props.actuals,
-    props.holidays,
     props.plans,
     props.settings,
-    props.shipments,
     props.sources,
     props.tanks,
     props.today,
