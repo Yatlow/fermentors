@@ -26,7 +26,11 @@ export function validatePlanningWeek(
   const ids = new Set<string>();
   for (const r of w.packaging) {
     const p = settings.products.find((p) => p.id === r.productId);
-    if (!p || !Number.isInteger(r.quantity) || r.quantity < 0)
+    const nonInventoryPackaging =
+      !r.productId &&
+      !!r.nonInventoryStyle &&
+      (r.nonInventoryType === "crates" || r.nonInventoryType === "kegs");
+    if ((!p && !nonInventoryPackaging) || !Number.isInteger(r.quantity) || r.quantity < 0)
       return "פריט או כמות אריזה לא תקינים";
     if (r.id && ids.has(r.id)) return "מזהה אריזה כפול";
     if (r.id) ids.add(r.id);
