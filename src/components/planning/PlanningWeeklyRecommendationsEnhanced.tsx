@@ -218,8 +218,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             setRows([]);
             return;
         }
-        setPackStyle(style);
-        setRows(buildRows(style));
+        chooseStyle(style);
     }
 
     function chooseStyle(style: string) {
