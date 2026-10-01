@@ -49,6 +49,7 @@ type SummaryItem = {
   styleClass?: string;
   recommended?: boolean;
   stockKind?: "actual" | "projected" | "history";
+  completed?: boolean;
   actual?: boolean;
   stockLines?: Array<{ style: string; values: string[] }>;
 };
@@ -681,7 +682,7 @@ export default function PlanningGantt(props: Props) {
                     )}
                     {items.map((item) => (
                       <article
-                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""} ${item.actual ? "is-gantt-actual" : ""}`}
+                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""} ${item.completed ? "is-gantt-completed" : ""} ${item.actual ? "is-gantt-actual" : ""}`}
                         key={item.key}
                       >
                         <b>{item.title}</b>
