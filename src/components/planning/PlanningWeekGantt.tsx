@@ -40,12 +40,17 @@ export default function PlanningWeekGantt({
   const tankNumber = (tankId?: string, fallback?: string | number) => tanks.find((t) => t.id === tankId)?.number ?? fallback ?? "?";
   const itemFor = (x: NonNullable<typeof current>["packaging"][number]): GanttItem => {
     const p = product(x.productId);
+    const specialStyle = x.nonInventoryStyle;
+    const specialType = x.nonInventoryType;
+    const label = specialStyle && specialType
+      ? `${displayStyle(specialStyle)} · ${specialType === "crates" ? "ארגזים" : "חביות"}`
+      : productName(x.productId);
     return {
       id: x.id,
-      text: `${productName(x.productId)} · מיכל ${tankNumber(x.tankId, x.tankNumber)}`,
+      text: `${label} · מיכל ${tankNumber(x.tankId, x.tankNumber)}`,
       tank: String(tankNumber(x.tankId, x.tankNumber)),
-      style: p ? displayStyle(p.style) : x.productId,
-      type: p?.type === "crates" ? "ארגזים" : "חביות",
+      style: specialStyle ? displayStyle(specialStyle) : (p ? displayStyle(p.style) : x.productId),
+      type: specialType === "crates" || p?.type === "crates" ? "ארגזים" : "חביות",
       quantity: Math.round(x.quantity),
     };
   };
