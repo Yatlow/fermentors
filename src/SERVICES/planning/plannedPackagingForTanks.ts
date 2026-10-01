@@ -1,4 +1,4 @@
-import { collection, getDocsFromCache, getDocsFromServer, query, where } from "firebase/firestore";
+import { collection, getDocsFromCache, getDocsFromServer, query, where, type QuerySnapshot, type DocumentData } from "firebase/firestore";
 import { db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { addDays, dateKey, weekStart, type WeekPlan } from "./planningEngine";
@@ -35,7 +35,7 @@ async function loadFuturePackagingMaps() {
     where("id", "<=", weekStart(horizon)),
   );
 
-  const project = (snapshot: Awaited<ReturnType<typeof getDocsFromServer>>) => {
+  const project = (snapshot: QuerySnapshot<DocumentData>) => {
     const plans = snapshot.docs
       .map((doc) => doc.data() as WeekPlan)
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
