@@ -560,7 +560,14 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     tankNumber: String(tank.number),
                     batchNumber: plannedBrew?.batchNumber ?? tank.batch,
                     ...(brewId ? { brewId } : {}),
-                    source: row.source === "recommendation" ? "recommendation" : row.source === "manual" ? "manual" : current.packaging.find((run) => run.id === row.originalId)?.source,
+                    ...(() => {
+                        const source = row.source === "recommendation"
+                            ? "recommendation"
+                            : row.source === "manual"
+                                ? "manual"
+                                : current.packaging.find((run) => run.id === row.originalId)?.source;
+                        return source ? { source } : {};
+                    })(),
                 });
             }
             for (const original of current.packaging) {
