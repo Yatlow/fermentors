@@ -236,7 +236,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       }
     }
 
-    const targetRelease = releases.find((item) => item.tankId === tankId);
+    const targetRelease = (exceptionReleases ?? releases).find((item) => item.tankId === tankId);
     setDraft((current) => {
       const next = [...(current.brews as BrewPlanWithMeta[])];
       const selected = next[index];
@@ -249,7 +249,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       next[index] = {
         ...selected,
         tankId,
-        date: targetRelease?.date && targetRelease.date > selected.date ? targetRelease.date : selected.date,
+        date: targetRelease?.date && addDays(targetRelease.date, 1) > selected.date ? addDays(targetRelease.date, 1) : selected.date,
         tankAssignmentStatus: "confirmed" as const,
       };
 
@@ -374,32 +374,37 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
             {showUnavailableTanks && <div className="bp-brew-tank-yard bp-brew-tank-row">
               {unavailableCompatibleTanks.map((tank) => {
                 const release = unavailableTankRelease(tank.id);
-                const canUseOnDate = !!release?.date && release.date < selectedBrew.date;
+                const releaseDate = release?.date;
+                const nextBrewDate = releaseDate ? addDays(releaseDate, 1) : "";
+                const canUseThisWeek = !!releaseDate && nextBrewDate <= weekEnd;
                 return <button
                   type="button"
                   key={tank.id}
                   className="bp-brew-tank-visual bp-brew-tank-visual-compact"
-                  disabled={!canUseOnDate}
+                  disabled={!canUseThisWeek}
                   onClick={() => {
-                    if (!window.confirm(`מיכל ${tank.tankNumber} אינו זמין ברשימה הרגילה. לשבץ אותו כחריגה לבישול בתאריך ${selectedBrew.date}?`)) return;
+                    const dateNote = nextBrewDate > selectedBrew.date
+                      ? ` תאריך הבישול יעבור ל-${nextBrewDate}, יום אחרי הריקון.`
+                      : "";
+                    if (!window.confirm(`מיכל ${tank.tankNumber} אינו זמין ברשימה הרגילה. לשבץ אותו כחריגה?${dateNote}`)) return;
                     setTank(selectedIndex, tank.id);
                     setShowUnavailableTanks(false);
                   }}
-                  title={release?.date
-                    ? canUseOnDate
-                      ? `חריגת זמינות: המיכל מתרוקן ב-${release.date}`
-                      : `המיכל מתרוקן רק ב-${release.date}, ולכן אינו יכול לקבל את הבישול ב-${selectedBrew.date}`
-                    : "אין למיכל מועד ריקון מתוכנן לפני הבישול"}
+                  title={releaseDate
+                    ? canUseThisWeek
+                      ? `חריגת זמינות: מתרוקן ב-${releaseDate}; ניתן לבשל החל מ-${nextBrewDate}`
+                      : `המיכל מתרוקן ב-${releaseDate}, מאוחר מדי לשימוש בשבוע הזה`
+                    : "אין למיכל מועד ריקון מתוכנן בשבוע הזה"}
                 >
                   <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b><small>{tankKind(tank.tankNumber)}</small></span>
                   <span className="bp-brew-tank-cone" />
                   <small className="bp-brew-tank-assigned-hint">
-                    {release?.date ? `מתרוקן ${release.date}` : "לא זמין"}
+                    {releaseDate ? `מתרוקן ${releaseDate}` : "לא זמין"}
                   </small>
                 </button>;
               })}
             </div>}
-            {showUnavailableTanks && <small className="bp-muted">אפשר לבחור חריגה רק אם למיכל יש ריקון מתוכנן לפני יום הבישול. שיבוץ חופף נשאר חסום.</small>}
+            {showUnavailableTanks && <small className="bp-muted">אפשר לבחור מיכל בגודל המתאים שמתפנה במהלך השבוע. אם צריך, הבישול יוזז אוטומטית ליום שאחרי הריקון. שיבוץ חופף נשאר חסום.</small>}
           </div>}
         </div>}
 
