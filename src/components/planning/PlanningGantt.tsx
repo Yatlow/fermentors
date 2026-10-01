@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { CalendarDays, SquarePen } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
@@ -540,6 +541,19 @@ export default function PlanningGantt(props: Props) {
       onOpenCoolerMap={props.onOpenCoolerMap}
     />
   ) : null;
+
+  const dailyEditorPlans = useMemo(
+    () => withTentativeFiveWeekTanks(editorPlans, tanks, settings).map((plan) => ({
+      ...plan,
+      brews: plan.brews.map((brew) => {
+        const tentativeTankId = (brew as typeof brew & { tentativeTankId?: string }).tentativeTankId;
+        return !brew.tankId && tentativeTankId
+          ? { ...brew, tankId: tentativeTankId, tankAssignmentStatus: "tentative" as const }
+          : brew;
+      }),
+    })),
+    [editorPlans, tanks, settings],
+  );
 
   const dailyEditor = dailyTarget && canEdit ? (
     <PlanningGanttDailyModal
