@@ -523,7 +523,7 @@ test("special beer without inventory SKU can empty and release a tank", () => {
       nonInventoryStyle: "מהדורת חורף",
       nonInventoryType: "kegs" as const,
       quantity: 50,
-      date: "2026-09-16",
+      date: "2026-09-20",
       tankId: tank.id,
       tankNumber: tank.number,
       emptyTank: true,
@@ -540,6 +540,6 @@ test("special beer without inventory SKU can empty and release a tank", () => {
     [],
     today,
   );
-  assert.equal(releases[0].emptyDate, "2026-09-16");
+  assert.equal(releases[0].emptyDate, "2026-09-20");
   assert.equal(releases[0].remaining, 0);
 });
