@@ -84,11 +84,12 @@ function realNewBrewBatch(brew: BrewPlanWithMeta, sources: Fermentor[]): string 
   return normalizedBatch(source.batchNumber);
 }
 
-export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews, releases, disabled, onSave, onCancel }: {
+export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews, releases, exceptionReleases, disabled, onSave, onCancel }: {
   initial: WeekPlan;
   allPlans: WeekPlan[];
   brews: Fermentor[];
   releases: Release[];
+  exceptionReleases?: Release[];
   disabled: boolean;
   onSave: (plan: WeekPlan) => Promise<void>;
   onCancel: () => void;
@@ -193,7 +194,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
   }, [selectedBrew, allWeekTanks, brews]);
 
   function unavailableTankRelease(tankId: string) {
-    return releases.find((release) => release.tankId === tankId);
+    return (exceptionReleases ?? releases).find((release) => release.tankId === tankId);
   }
 
   function move(index: number, direction: -1 | 1) {
