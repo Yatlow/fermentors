@@ -122,6 +122,7 @@ export default function PlanningWeeklyRecommendations({
     const [manualPacks, setManualPacks] = useState<ManualPackDraft[]>([]);
     const [cancelledPackagingKeys, setCancelledPackagingKeys] = useState<Set<string>>(new Set());
     const [brewDraft, setBrewDraft] = useState<BrewDraft[]>([]);
+    const [allowUnavailableBrewException, setAllowUnavailableBrewException] = useState(false);
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");
     const [markFeedback, setMarkFeedback] = useState("");
@@ -796,6 +797,7 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function canUseBrewSize(rows: BrewDraft[], size: BrewSizeLabel, excludeIndex = -1) {
+        if (allowUnavailableBrewException) return true;
         return brewSizeCount(rows, size, excludeIndex) < brewSizeCapacity(size);
     }
 
@@ -1123,7 +1125,15 @@ export default function PlanningWeeklyRecommendations({
                         </div>;
                     })}
                     {!brewDraft.length && <small>אין בישולים בטיוטה. הוסף בישול כדי להתחיל.</small>}
-                    <button type="button" disabled={brewDraft.length >= model.brewTankCapacity} onClick={addBrew}>+ הוסף בישול</button>
+                    <button type="button" disabled={!allowUnavailableBrewException && brewDraft.length >= model.brewTankCapacity} onClick={addBrew}>+ הוסף בישול</button>
+                    {!allowUnavailableBrewException && brewDraft.length >= model.brewTankCapacity && <button
+                        type="button"
+                        className="bp-secondary-action"
+                        onClick={() => setAllowUnavailableBrewException(true)}
+                    >
+                        הוסף בישול מעבר למיכלים הזמינים כחריגה
+                    </button>}
+                    {allowUnavailableBrewException && <small className="bp-brew-capacity-warning">חריגת זמינות פעילה לטיוטה הזו. את הבישול החריג יהיה צורך לשבץ במפורש למיכל שמתפנה לפני יום הבישול.</small>}
                 </div>}
 
                 <div className="bp-decided-list">
