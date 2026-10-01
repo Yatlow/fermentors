@@ -123,27 +123,26 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     maxBatch(brews.map((brew) => brew.batchNumber)),
     maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
   ));
-  const [loadingBatches, setLoadingBatches] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const weekEnd = addDays(initial.id, 6);
 
   useEffect(() => {
     let cancelled = false;
-    // Batch numbers are ordered descending in Firestore, so only the newest row
-    // is needed to establish the global high-water mark. Avoid loading 100 brew
-    // summaries every time the assignment editor opens.
+    // The editor already has a safe immediate high-water mark from physical
+    // tanks + planning. Refresh the single newest historical batch in the
+    // background; never block tank assignment while this query is in flight.
     getBrewsSummaryPage(null, 10)
       .then(({ rows: history }) => {
         if (cancelled) return;
-        setBatchBase(Math.max(
+        setBatchBase((current) => Math.max(
+          current,
           maxBatch(history.map((brew) => brew.batchNumber)),
           maxBatch(brews.map((brew) => brew.batchNumber)),
           maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
         ));
       })
-      .catch(() => undefined)
-      .finally(() => { if (!cancelled) setLoadingBatches(false); });
+      .catch(() => undefined);
     return () => { cancelled = true; };
   }, [brews, allPlans]);
 
@@ -288,9 +287,9 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
         <div><h3>סדר ושיבוץ בישולים</h3><small>בחר אצווה, הזז אותה ימינה/שמאלה, ואז בחר מיכל. אם המיכל כבר משובץ לבישול אחר — שתי האצוות יחליפו מיכלים.</small></div>
         <button type="button" onClick={onCancel}>סגירה</button>
       </div>
-      {(busy || loadingBatches) && <BeerLoader overlay message={busy ? "שומר שיבוצי בישול…" : "טוען מספר אצווה אחרון…"} />}
+      {busy && <BeerLoader overlay message="שומר שיבוצי בישול…" />}
 
-      <fieldset disabled={disabled || busy || loadingBatches} className="bp-fieldset bp-editor-body bp-brew-visual-editor">
+      <fieldset disabled={disabled || busy} className="bp-fieldset bp-editor-body bp-brew-visual-editor">
         {orderedBrews.length === 0 && <p className="bp-muted">לא נקבעו בישולים לשבוע הזה.</p>}
 
         <div className="bp-brew-queue bp-brew-queue-compact" aria-label="סדר הבישולים">
