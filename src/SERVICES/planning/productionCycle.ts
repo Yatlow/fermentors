@@ -234,8 +234,12 @@ export function validateProduction(
   today: string,
   options?: { allowEarlyPackaging?: boolean },
 ): string | null {
-  const runs = openRuns(plans, settings.products, actuals)
-    .filter((r) => r.remaining > 0 && (!r.date || r.date >= today))
+  const inventoryRuns = openRuns(plans, settings.products, actuals)
+    .filter((r) => r.remaining > 0 && (!r.date || r.date >= today));
+  const specialRuns = plans.flatMap((week) => (week.packaging ?? [])
+    .filter((run) => !!run.nonInventoryStyle && !!run.nonInventoryType && run.quantity > 0 && (!run.date || run.date >= today))
+    .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })));
+  const runs = [...inventoryRuns, ...specialRuns]
     .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
   const tankRuns = new Map<string, { date: string; type: "crates" | "kegs" }[]>();
   const used = new Map<string, number>();
@@ -247,7 +251,9 @@ export function validateProduction(
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
     const t = tanks.find((t) => t.id === tankId);
     const p = settings.products.find((p) => p.id === r.productId);
-    if (!t || !p || !sameStyle(linkedBrew?.style ?? t.style, p.style)) return "מיכל האריזה אינו תואם לסגנון";
+    const runStyle = r.nonInventoryStyle ?? p?.style;
+    const runType = r.nonInventoryType ?? p?.type;
+    if (!t || !runStyle || !runType || !sameStyle(linkedBrew?.style ?? t.style, runStyle)) return "מיכל האריזה אינו תואם לסגנון";
 
     const projectedCycle = linkedBrewId
       ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
@@ -258,7 +264,7 @@ export function validateProduction(
 
     const cycleKey = linkedBrewId ? `brew:${linkedBrewId}` : `legacy:${tankId}`;
     const history = tankRuns.get(cycleKey) ?? [];
-    history.push({ date: r.date, type: p.type });
+    history.push({ date: r.date, type: runType });
     tankRuns.set(cycleKey, history);
     const dates = [...new Set(history.map((x) => x.date))];
     const types = new Set(history.map((x) => x.type));
@@ -268,7 +274,8 @@ export function validateProduction(
     if (!allowExceptions && dates.length > 2)
       return `מיכל ${t.number}: ניתן לפצל לכל היותר לשני ימי אריזה`;
 
-    used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * litersPerUnit(p));
+    const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
+    used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * unitLiters);
     const cycleLiters = linkedBrew?.liters ?? t.liters;
     if (used.get(cycleKey)! > cycleLiters + 0.01)
       return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
