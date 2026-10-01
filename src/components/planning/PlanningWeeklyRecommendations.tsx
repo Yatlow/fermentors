@@ -571,20 +571,6 @@ export default function PlanningWeeklyRecommendations({
         }, 0));
     }
 
-    function manualProductsForTank(tankId: string) {
-        const t = packagingTankById(tankId);
-        // Manual packaging is deliberately broader than the core-range planning
-        // table. Seasonal/special styles (e.g. Winter) must still expose their
-        // configured keg/crate SKUs when a real tank cycle is selected.
-        return t ? settings.products.filter((p) => sameStyle(p.style, t.style)) : [];
-    }
-
-    function manualMaxQuantity(p: Product | undefined, tankId: string, manualId: string) {
-        if (!p || !tankId) return 0;
-        const unitsFromTank = Math.floor(remainingLitersForTank(tankId, manualId) / litersPerUnit(p));
-        return p.type === "crates" ? Math.min(MAX_MANUAL_CRATES, unitsFromTank) : unitsFromTank;
-    }
-
     function changeSavedPackagingQuantity(run: Plan, key: string, requested: number) {
         setPackDraft((draft) => {
             const next = {
