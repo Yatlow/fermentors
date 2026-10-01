@@ -49,7 +49,6 @@ type SummaryItem = {
   styleClass?: string;
   recommended?: boolean;
   stockKind?: "actual" | "projected" | "history";
-  completed?: boolean;
   actual?: boolean;
   stockLines?: Array<{ style: string; values: string[] }>;
 };
@@ -595,8 +594,13 @@ export default function PlanningGantt(props: Props) {
             <button type="button" aria-pressed={true}>לוח שנה</button>
           </div>
         </div>
+        <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
+          <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>
+          <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
+          <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>
+        </div>
         <div className="bp-gantt-calendar-host">
-          <PlanningFiveWeekOverview {...props} plans={calendarPlans} tanks={calendarTanks} />
+          <PlanningFiveWeekOverview {...props} plans={calendarPlans} tanks={calendarTanks} visibleWeekIds={weekIds} />
         </div>
       </section>
       {editor}
@@ -614,7 +618,12 @@ export default function PlanningGantt(props: Props) {
         </div>
       </div>
 
-        <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">\n          <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>\n          <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>\n          <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>\n        </div>\n
+        <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
+          <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>
+          <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
+          <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>
+        </div>
+
       <div className="bp-gantt-legend" aria-label="מקרא">
         {canEdit && <>
           <span className="is-actual">● מלאי נוכחי / בפועל</span>
@@ -682,7 +691,7 @@ export default function PlanningGantt(props: Props) {
                     )}
                     {items.map((item) => (
                       <article
-                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""} ${item.completed ? "is-gantt-completed" : ""} ${item.actual ? "is-gantt-actual" : ""}`}
+                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""} ${item.actual ? "is-gantt-actual" : ""}`}
                         key={item.key}
                       >
                         <b>{item.title}</b>
