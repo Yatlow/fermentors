@@ -369,6 +369,33 @@ export default function PlanningBoard({
     }
   }
 
+  async function returnSelectedPackagingToWaiting() {
+    if (!selectedPackaging || readOnly || busy) return;
+    const next = structuredClone(current);
+    const run = next.packaging.find((item) => item.id === selectedPackaging);
+    if (!run) {
+      setSelectedPackaging(null);
+      return;
+    }
+    if (!run.date) {
+      setSelectedPackaging(null);
+      setMessage("האריזה כבר ממתינה לשיבוץ.");
+      return;
+    }
+
+    delete run.date;
+    setBusy(true);
+    try {
+      await persist(next);
+      setMessage("האריזה הוחזרה לממתינות לשיבוץ.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "החזרת האריזה לממתינות נכשלה");
+    } finally {
+      setBusy(false);
+      setSelectedPackaging(null);
+    }
+  }
+
   async function assignSelectedPackagingToDate(date: string) {
     if (!selectedPackaging || readOnly || busy) return;
     const next = structuredClone(current);
@@ -490,6 +517,7 @@ export default function PlanningBoard({
       tanks={tanks}
       week={week}
       onAssignPackagingToDate={assignSelectedPackagingToDate}
+      onReturnPackagingToWaiting={returnSelectedPackagingToWaiting}
       selectedPackagingId={selectedPackaging}
       onSelectPackaging={selectPackaging}
     />
