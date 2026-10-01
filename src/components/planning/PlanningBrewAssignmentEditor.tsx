@@ -236,7 +236,12 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       }
     }
 
-    const targetRelease = (exceptionReleases ?? releases).find((item) => item.tankId === tankId);
+    const regularRelease = releases.find((item) => item.tankId === tankId);
+    const exceptionRelease = (exceptionReleases ?? releases).find((item) => item.tankId === tankId);
+    const isAvailabilityException = !regularRelease && !!exceptionRelease?.emptyDate;
+    const earliestDate = isAvailabilityException
+      ? addDays(exceptionRelease.emptyDate!, 1)
+      : regularRelease?.date ?? exceptionRelease?.date ?? "";
     setDraft((current) => {
       const next = [...(current.brews as BrewPlanWithMeta[])];
       const selected = next[index];
@@ -249,7 +254,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       next[index] = {
         ...selected,
         tankId,
-        date: targetRelease?.date && addDays(targetRelease.date, 1) > selected.date ? addDays(targetRelease.date, 1) : selected.date,
+        date: earliestDate && earliestDate > selected.date ? earliestDate : selected.date,
         tankAssignmentStatus: "confirmed" as const,
       };
 
@@ -374,9 +379,9 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
             {showUnavailableTanks && <div className="bp-brew-tank-yard bp-brew-tank-row">
               {unavailableCompatibleTanks.map((tank) => {
                 const release = unavailableTankRelease(tank.id);
-                const releaseDate = release?.date;
+                const releaseDate = release?.emptyDate;
                 const nextBrewDate = releaseDate ? addDays(releaseDate, 1) : "";
-                const canUseThisWeek = !!releaseDate && nextBrewDate <= weekEnd;
+                const canUseThisWeek = !!releaseDate && releaseDate >= initial.id && nextBrewDate <= weekEnd;
                 return <button
                   type="button"
                   key={tank.id}
