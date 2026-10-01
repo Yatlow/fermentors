@@ -56,7 +56,7 @@ export default function PlanningWeeklyReservations(props: Props) {
       const size = brewSizeLabel(brew.liters);
       const option = model.brewTankOptions.find((candidate) =>
         !usedTankIds.has(candidate.tankId) &&
-        candidate.availableDate <= brew.date &&
+        candidate.availableDate <= model.weekEnd &&
         candidate.sizeLabel === size,
       );
 
@@ -65,6 +65,7 @@ export default function PlanningWeeklyReservations(props: Props) {
       return {
         ...brew,
         tankId: option.tankId,
+        date: option.availableDate > brew.date ? option.availableDate : brew.date,
         tankAssignmentStatus: "tentative",
       };
     });
