@@ -321,10 +321,11 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             if (sku) {
                 const styleText = sku.querySelector("b")?.textContent?.trim();
                 const matched = settings.products.find((item) => displayStyle(item.style) === styleText);
-                if (matched) {
+                const style = matched?.style ?? availableStyles.find((item) => displayStyle(item) === styleText);
+                if (style) {
                     event.preventDefault();
                     event.stopPropagation();
-                    openPackEditor(matched.style);
+                    openPackEditor(style);
                 }
                 return;
             }
