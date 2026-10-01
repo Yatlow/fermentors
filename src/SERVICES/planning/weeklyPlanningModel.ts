@@ -417,7 +417,9 @@ function buildBrewRecommendation(
     const source = sources.find((s) => s.id === release.tankId);
     const tankNumber = String(source?.tankNumber ?? release.tankId);
     const workLiters = release.workLiters || 2500;
-    return { tankId: release.tankId, tankNumber, availableDate: release.date!, workLiters, sizeLabel: brewSizeLabel(workLiters, source?.tankNumber) };
+    // Tank compatibility is a physical vessel-size rule, not a volume heuristic.
+    // Derive the label from the real tank number so 2-4=single, 5-8=double, 9+=triple.
+    return { tankId: release.tankId, tankNumber, availableDate: release.date!, workLiters, sizeLabel: brewSizeLabel(0, source?.tankNumber) };
   });
 
   const styles = [...new Set(settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style)).map((p) => displayStyle(p.style)))];
