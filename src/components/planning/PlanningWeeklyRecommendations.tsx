@@ -648,15 +648,6 @@ export default function PlanningWeeklyRecommendations({
         });
     }
 
-    const addManualPack = (tankId = "") => setManualPacks((rows) => {
-        const id = crypto.randomUUID();
-        const p = tankId ? manualProductsForTank(tankId)[0] : undefined;
-        const draft = { id, tankId, productId: p?.id ?? "", quantity: 0 };
-        return [...rows, { ...draft, quantity: p ? manualMaxQuantity(p, tankId, id) : 0 }];
-    });
-
-
-
     function draftPackagingCover(p: Product) {
         const before = model.rows.afterShipment.get(p.id);
         if (!before || before.tempoUnits === null || weeklyDemand(p) <= 0) return null;
