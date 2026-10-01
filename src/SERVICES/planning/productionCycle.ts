@@ -329,7 +329,10 @@ export function validateBrewReleases(
 
     if (tank && tank.brewed === b.date && sameStyle(tank.style, b.style)) continue;
     const release = releases.find((r) => r.tankId === b.tankId);
-    if (!release?.date || b.date < release.date)
+    const requiredReleaseDate = b.availabilityOverride && release?.emptyDate
+      ? addDays(release.emptyDate, 1)
+      : release?.date;
+    if (!requiredReleaseDate || b.date < requiredReleaseDate)
       return `בישול ${b.style}: תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה`;
   }
   return null;
