@@ -162,8 +162,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const fiveWeekPlans = useMemo(() => withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings), [identityAlignedPlans, tanks, calendarSettings]);
   const pendingDailyWork = useMemo(() => {
     const firstWeek = weekStart(today);
-    const horizonEnd = addDays(firstWeek, 34);
-    const upcomingPlans = identityAlignedPlans.filter((plan) => plan.id >= firstWeek && plan.id <= horizonEnd);
+    // The badge represents pending daily assignments in the planning data, not
+    // an arbitrary five-week window. The daily board can navigate later planned
+    // weeks as well, so keep every current/future week in the count.
+    const upcomingPlans = identityAlignedPlans.filter((plan) => plan.id >= firstWeek);
     const brewsToAssign = upcomingPlans.reduce((sum, plan) => sum + plan.brews.filter((brew) => !brew.tankId).length, 0);
     const packagingToAssign = upcomingPlans.reduce((sum, plan) => sum + plan.packaging.filter((run) => run.quantity > 0 && !run.date).length, 0);
     return { brews: brewsToAssign, packaging: packagingToAssign, total: brewsToAssign + packagingToAssign };
