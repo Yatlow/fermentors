@@ -59,7 +59,7 @@ export function brewProposals(
         dependent: !!release.emptyDate,
         reason: release.reason + (date > need.brewBy ? " · מאוחר ממועד הביקוש הרצוי" : date < need.brewBy ? " · מנצל מיכל פנוי מראש כדי למנוע מחסור עתידי" : ""),
       });
-      remaining -= release.workLiters * 0.9;
+      remaining -= release.workLiters;
       booked.add(release.tankId);
     }
   }
@@ -74,7 +74,7 @@ export function brewProposals(
       return sum + (inv.brewery + inv.dock + (p.tempo ?? 0)) * litersPerUnit(p);
     }, 0);
     const wip = tanks.filter((t) => styleKey(t.style) === key).reduce((sum, t) => sum + Math.max(0, t.liters), 0);
-    const planned = [...plans.flatMap((w) => w.brews), ...result].filter((b) => styleKey(b.style) === key).reduce((sum, b) => sum + b.liters * 0.9, 0);
+    const planned = [...plans.flatMap((w) => w.brews), ...result].filter((b) => styleKey(b.style) === key).reduce((sum, b) => sum + b.liters, 0);
     return (finished + wip + planned) / demand;
   };
 
