@@ -115,7 +115,17 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         [plans, settings.products, actuals, selectedWeek],
     );
 
-    const product = (id: string): Product | undefined => settings.products.find((item) => item.id === id);
+    const specialProductId = (style: string, type: "crates" | "kegs") => `noninventory:${encodeURIComponent(style)}:${type}`;
+    const virtualProduct = (style: string, type: "crates" | "kegs"): Product => ({
+        id: specialProductId(style, type), style, type, sku: "", monthly: 0, tempo: null, tempoDate: today, leadDays: 21,
+    });
+    const product = (id: string): Product | undefined => {
+        const real = settings.products.find((item) => item.id === id);
+        if (real) return real;
+        const match = /^noninventory:(.*):(crates|kegs)$/.exec(id);
+        if (!match) return undefined;
+        return virtualProduct(decodeURIComponent(match[1]), match[2] as "crates" | "kegs");
+    };
     const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
     const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) => run.brewId ? `planned:${run.brewId}` : (run.tankId ?? "");
     const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
@@ -127,7 +137,15 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         return Math.max(0, run.quantity - (open?.remaining ?? run.quantity));
     }
 
-    const styleProducts = (style: string) => settings.products.filter((item) => sameStyle(item.style, style));
+    const styleProducts = (style: string) => {
+        const real = settings.products.filter((item) => sameStyle(item.style, style));
+        if (isCoreStyle(style)) return real;
+        const types = new Set(real.map((item) => item.type));
+        return [
+            ...real,
+            ...(["crates", "kegs"] as const).filter((type) => !types.has(type)).map((type) => virtualProduct(style, type)),
+        ];
+    };
 
     const availableStyles = useMemo(() => {
         const values: string[] = [];
@@ -180,7 +198,9 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 originalId: run.id,
                 source: "existing" as const,
                 tankId: cycleIdForRun(run),
-                productId: run.productId,
+                productId: run.nonInventoryStyle && run.nonInventoryType
+                    ? specialProductId(run.nonInventoryStyle, run.nonInventoryType)
+                    : run.productId,
                 quantity: run.quantity,
                 completed: completedForPlan(run),
             }];
@@ -513,7 +533,8 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 const physicalTankId = plannedBrew?.tankId ?? tank.id;
                 edited.push({
                     id: row.originalId ?? row.key.replace(/^rec:/, ""),
-                    productId: p.id,
+                    productId: p.id.startsWith("noninventory:") ? "" : p.id,
+                    ...(p.id.startsWith("noninventory:") ? { nonInventoryStyle: p.style, nonInventoryType: p.type } : {}),
                     quantity,
                     tankId: physicalTankId,
                     tankNumber: String(tank.number),
