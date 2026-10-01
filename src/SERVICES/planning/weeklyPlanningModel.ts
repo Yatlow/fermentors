@@ -400,10 +400,12 @@ function buildBrewRecommendation(
     if (candidateDate > weekEnd) return false;
     const cycles = schedules.get(release.tankId) ?? [];
     if (!style) {
-      // Generic capacity is intentionally conservative: if another canonical
-      // cycle starts after this date we cannot claim the slot without knowing
-      // whether the proposed beer will be ready in time.
-      return tankCanHostCycle(cycles, candidateDate, "9999-12-31");
+      // Generic capacity asks only whether the tank can START a brew in this
+      // week's slot. Requiring it to stay free until 9999 incorrectly hides a
+      // tank whenever any later planned cycle exists. Style-specific selection
+      // below still checks the real fermentation/ready window against that next
+      // committed cycle.
+      return tankCanHostCycle(cycles, candidateDate, candidateDate);
     }
     const leadDays = Math.max(
       ...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays),
