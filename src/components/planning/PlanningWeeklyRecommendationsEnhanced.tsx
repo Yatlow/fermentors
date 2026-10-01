@@ -129,7 +129,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const productForPlan = (run: Plan): Product | undefined =>
         run.nonInventoryStyle && run.nonInventoryType
             ? virtualProduct(run.nonInventoryStyle, run.nonInventoryType)
-            : productForPlan(run);
+            : product(run.productId);
     const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
     const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) => run.brewId ? `planned:${run.brewId}` : (run.tankId ?? "");
     const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
