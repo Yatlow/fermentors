@@ -48,15 +48,14 @@ function normalizeOrder(brews: BrewPlanWithMeta[], sources: Fermentor[], release
     .map((brew, index) => ({ ...brew, date: dates[index] ?? brew.date }));
 }
 
-function assignAvailableTanks(brews: BrewPlanWithMeta[], sources: Fermentor[], releases: Release[], weekEnd: string) {
+function assignAvailableTanks(brews: BrewPlanWithMeta[], sources: Fermentor[], releases: Release[], weekEnd: string): BrewPlan[] {
   const available = releases
-    .filter((release) => !!release.date && release.date <= weekEnd)
-    .map((release) => ({ release, tank: sources.find((source) => source.id === release.tankId) }))
-    .filter((entry): entry is { release: Release; tank: Fermentor } => !!entry.tank && Number(entry.tank.tankNumber) !== 1)
+    .flatMap((release) => release.date && release.date <= weekEnd ? [{ release: { ...release, date: release.date }, tank: sources.find((source) => source.id === release.tankId) }] : [])
+    .filter((entry): entry is { release: Release & { date: string }; tank: Fermentor } => !!entry.tank && Number(entry.tank.tankNumber) !== 1)
     .filter((entry, index, all) => all.findIndex((candidate) => candidate.tank.id === entry.tank.id) === index)
     .sort((a, b) => a.release.date.localeCompare(b.release.date) || Number(a.tank.tankNumber) - Number(b.tank.tankNumber));
   const used = new Set<string>();
-  return brews.map((brew) => {
+  return brews.map((brew): BrewPlan => {
     const match = available.find(({ tank }) => !used.has(tank.id) && compatibleTankForBrew(brew, tank));
     if (!match) return { ...brew, tankId: "" };
     used.add(match.tank.id);
@@ -64,7 +63,7 @@ function assignAvailableTanks(brews: BrewPlanWithMeta[], sources: Fermentor[], r
       ...brew,
       tankId: match.tank.id,
       date: match.release.date > brew.date ? match.release.date : brew.date,
-      tankAssignmentStatus: "tentative" as const,
+      tankAssignmentStatus: "tentative",
       availabilityOverride: false,
     };
   });
@@ -148,294 +147,137 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
         if (cancelled) return;
         setBatchBase((current) => Math.max(
           current,
-          maxBatch(history.map((brew) => brew.batchNumber)),
-          maxBatch(brews.map((brew) => brew.batchNumber)),
-          maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
+          maxBatch(history.map((row) => row.batchNumber)),
         ));
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [brews, allPlans]);
+  }, []);
 
-  const orderedBrews = useMemo(() => {
-    const current = draft.brews as BrewPlanWithMeta[];
-    const preferred = current.map((brew) => realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber));
-    const realReservedBatches = new Set(
-      brews
-        .filter((source) => Number(source.action) === 0)
-        .map((source) => Number(normalizedBatch(source.batchNumber)))
-        .filter((value) => Number.isFinite(value) && value > 0),
-    );
-    const used = new Set<number>();
-    let next = batchBase + 1;
-
-    return current.map((brew, index) => {
-      const preferredNumber = Number(preferred[index]);
-      if (Number.isFinite(preferredNumber) && preferredNumber > 0 && !used.has(preferredNumber)) {
-        used.add(preferredNumber);
-        return { ...brew, batchNumber: String(preferredNumber) };
-      }
-      while (used.has(next) || realReservedBatches.has(next)) next += 1;
-      const batchNumber = String(next);
-      used.add(next);
-      next += 1;
-      return { ...brew, batchNumber };
+  const assignedTankIds = useMemo(() => new Set(draft.brews.map((brew) => canonicalTankId(brew, brews)).filter(Boolean)), [draft.brews, brews]);
+  const selected = draft.brews[selectedIndex] as BrewPlanWithMeta | undefined;
+  const candidateReleases = useMemo(() => {
+    if (!selected) return [];
+    const pool = showUnavailableTanks ? [...releases, ...(exceptionReleases ?? [])] : releases;
+    return pool.filter((release, index, all) => {
+      const source = brews.find((item) => item.id === release.tankId);
+      if (!source || !compatibleTankForBrew(selected, source)) return false;
+      if (assignedTankIds.has(source.id) && canonicalTankId(selected, brews) !== source.id) return false;
+      return all.findIndex((candidate) => candidate.tankId === release.tankId) === index;
     });
-  }, [draft.brews, batchBase, brews]);
-  const selectedBrew = orderedBrews[selectedIndex] ?? null;
+  }, [selected, showUnavailableTanks, releases, exceptionReleases, brews, assignedTankIds]);
 
-  const allWeekTanks = useMemo(() => releases
-    .filter((release) => !!release.date && release.date <= weekEnd)
-    .map((release) => brews.find((source) => source.id === release.tankId))
-    .filter((source): source is Fermentor => !!source && Number(source.tankNumber) !== 1)
-    .filter((source, index, all) => all.findIndex((item) => item.id === source.id) === index)
-    .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber)), [releases, brews, weekEnd]);
-
-  const unavailableCompatibleTanks = useMemo(() => {
-    if (!selectedBrew) return [];
-    const visibleIds = new Set(allWeekTanks.map((tank) => tank.id));
-    return brews
-      .filter((source) => Number(source.tankNumber) !== 1)
-      .filter((source) => !visibleIds.has(source.id))
-      .filter((source) => compatibleTankForBrew(selectedBrew, source))
-      .sort((a, b) => Number(a.tankNumber) - Number(b.tankNumber));
-  }, [selectedBrew, allWeekTanks, brews]);
-
-  function unavailableTankRelease(tankId: string) {
-    return (exceptionReleases ?? releases).find((release) => release.tankId === tankId);
-  }
-
-  function move(index: number, direction: -1 | 1) {
-    const slotBatchNumbers = orderedBrews.map((brew) => brew.batchNumber);
-    setDraft((current) => {
-      const next = [...(current.brews as BrewPlanWithMeta[])];
-      const other = index + direction;
-      if (other < 0 || other >= next.length) return current;
-      const dates = next.map((brew) => brew.date).sort();
-      [next[index], next[other]] = [next[other], next[index]];
-      next.forEach((brew, i) => {
-        brew.date = dates[i] ?? brew.date;
-        brew.batchNumber = slotBatchNumbers[i];
-      });
-      return { ...current, brews: next };
-    });
-    setSelectedIndex((current) => Math.max(0, Math.min(orderedBrews.length - 1, current + direction)));
-  }
-
-  function setTank(index: number, tankId: string, availabilityOverride = false) {
-    const selectedForGuard = orderedBrews[index];
-    const targetTank = brews.find((item) => item.id === tankId);
-    if (!selectedForGuard || !targetTank || !compatibleTankForBrew(selectedForGuard, targetTank)) {
-      const required = selectedForGuard ? brewSizeLabel(Number(selectedForGuard.liters) || 0) : "";
-      setError(required ? `בישול ${required} ניתן לשבץ רק למיכל ${required}.` : "המיכל אינו תואם לגודל הבישול.");
+  const selectTank = (tankId: string) => {
+    if (!selected) return;
+    const isAvailable = releases.some((release) => release.tankId === tankId);
+    if (!isAvailable && !showUnavailableTanks) return;
+    if (!isAvailable) {
+      setPendingOverrideTankId(tankId);
       return;
     }
-
-    const previousSource = selectedForGuard.tankId
-      ? sourceForAssignedTank(selectedForGuard, brews)
-      : undefined;
-    const otherIndexForGuard = orderedBrews.findIndex((brew, i) => i !== index && canonicalTankId(brew, brews) === tankId);
-    if (otherIndexForGuard >= 0 && previousSource) {
-      const other = orderedBrews[otherIndexForGuard];
-      if (!compatibleTankForBrew(other, previousSource)) {
-        const required = brewSizeLabel(Number(other.liters) || 0);
-        setError(`לא ניתן להחליף: אצווה ${other.batchNumber} היא בישול ${required} ומיכל ${previousSource.tankNumber} אינו ${required}.`);
-        return;
-      }
-    }
-
-    const regularRelease = releases.find((item) => item.tankId === tankId);
-    const exceptionRelease = (exceptionReleases ?? releases).find((item) => item.tankId === tankId);
-    const isAvailabilityException = !regularRelease && !!exceptionRelease?.emptyDate;
-    const earliestDate = isAvailabilityException
-      ? addDays(exceptionRelease.emptyDate!, 1)
-      : regularRelease?.date ?? exceptionRelease?.date ?? "";
-    setDraft((current) => {
-      const next = [...(current.brews as BrewPlanWithMeta[])];
-      const selected = next[index];
-      if (!selected) return current;
-
-      const previousTankId = selected.tankId ? canonicalTankId(selected, brews) : "";
-      const otherIndex = next.findIndex((brew, i) => i !== index && canonicalTankId(brew, brews) === tankId);
-      const previousRelease = previousTankId ? releases.find((item) => item.tankId === previousTankId) : undefined;
-
-      next[index] = {
-        ...selected,
+    setDraft((current) => ({
+      ...current,
+      brews: current.brews.map((brew, index) => index === selectedIndex ? {
+        ...brew,
         tankId,
-        date: earliestDate && earliestDate > selected.date ? earliestDate : selected.date,
-        tankAssignmentStatus: "confirmed" as const,
-        availabilityOverride,
-      };
+        tankAssignmentStatus: "tentative",
+        availabilityOverride: false,
+      } : brew),
+    }));
+  };
 
-      if (otherIndex >= 0) {
-        const other = next[otherIndex];
-        next[otherIndex] = {
-          ...other,
-          tankId: previousTankId,
-          date: previousTankId && previousRelease?.date && previousRelease.date > other.date ? previousRelease.date : other.date,
-          tankAssignmentStatus: previousTankId ? "confirmed" as const : other.tankAssignmentStatus,
-        };
-      }
+  const confirmOverride = () => {
+    if (!pendingOverrideTankId) return;
+    const tankId = pendingOverrideTankId;
+    setDraft((current) => ({
+      ...current,
+      brews: current.brews.map((brew, index) => index === selectedIndex ? {
+        ...brew,
+        tankId,
+        tankAssignmentStatus: "tentative",
+        availabilityOverride: true,
+      } : brew),
+    }));
+    setPendingOverrideTankId(null);
+  };
 
-      return { ...current, brews: next };
-    });
+  const save = async () => {
     setError("");
-  }
-
-  async function save() {
-    if (orderedBrews.some((brew) => !brew.tankId)) {
-      setError("יש לשבץ מיכל לכל בישול לפני השמירה.");
+    const missingTank = draft.brews.find((brew) => !brew.tankId);
+    if (missingTank) {
+      setError(`אין מיכל משובץ עבור ${displayStyle(missingTank.style)}.`);
       return;
     }
-    const incompatible = orderedBrews.find((brew) => {
-      const source = sourceForAssignedTank(brew, brews);
-      return !source || !compatibleTankForBrew(brew, source);
-    });
-    if (incompatible) {
-      const required = brewSizeLabel(Number(incompatible.liters) || 0);
-      setError(`אצווה ${incompatible.batchNumber}: בישול ${required} חייב להיות משובץ למיכל ${required}.`);
+    const duplicate = draft.brews.find((brew, index) => draft.brews.findIndex((other) => canonicalTankId(other, brews) === canonicalTankId(brew, brews)) !== index);
+    if (duplicate) {
+      setError("אותו מיכל לא יכול להיות משובץ לשני בישולים באותו שבוע.");
       return;
     }
     setBusy(true);
-    setError("");
     try {
       await onSave({
         ...draft,
-        brews: orderedBrews.map((brew) => ({ ...brew, tankAssignmentStatus: "confirmed" as const })) as BrewPlan[],
-        changeReason: "אישור סדר ושיבוץ בישולים",
+        brews: draft.brews.map((brew) => ({ ...brew, tankId: canonicalTankId(brew, brews) })),
       });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "שמירת שיבוצי הבישול נכשלה");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "שמירת שיבוצי הבישול נכשלה.");
     } finally {
       setBusy(false);
     }
-  }
+  };
+
+  if (!selected) return null;
 
   return (
-    <section className="bp-editor bp-brew-assignment-editor">
-      <div className="bp-editor-header">
-        <div><h3>סדר ושיבוץ בישולים</h3><small>בחר אצווה, הזז אותה ימינה/שמאלה, ואז בחר מיכל. אם המיכל כבר משובץ לבישול אחר — שתי האצוות יחליפו מיכלים.</small></div>
-        <button type="button" onClick={onCancel}>סגירה</button>
+    <div className="planning-brew-assignment" dir="rtl">
+      {busy && <BeerLoader />}
+      <div className="planning-brew-assignment__header">
+        <h3>סדר ושיבוץ בישולים</h3>
+        <button type="button" onClick={onCancel}>סגור</button>
       </div>
-      {busy && <BeerLoader overlay message="שומר שיבוצי בישול…" />}
-
-      <fieldset disabled={disabled || busy} className="bp-fieldset bp-editor-body bp-brew-visual-editor">
-        {orderedBrews.length === 0 && <p className="bp-muted">לא נקבעו בישולים לשבוע הזה.</p>}
-
-        <div className="bp-brew-queue bp-brew-queue-compact" aria-label="סדר הבישולים">
-          {orderedBrews.map((brew, index) => {
-            const source = sourceForAssignedTank(brew, brews);
-            return <article key={brew.id} className={`bp-brew-queue-card bp-brew-queue-card-compact ${index === selectedIndex ? "is-selected" : ""}`} onClick={() => setSelectedIndex(index)}>
-              <button type="button" className="bp-brew-arrow" aria-label="העבר ימינה" title="העבר ימינה" disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(index, -1); }}>→</button>
-              <button type="button" className="bp-brew-queue-main" onClick={() => setSelectedIndex(index)}>
-                <strong>{displayStyle(brew.style)}</strong>
-                <small>#{brew.batchNumber}</small>
-                <span>{source ? `מיכל ${source.tankNumber}` : "ללא מיכל"}</span>
-              </button>
-              <button type="button" className="bp-brew-arrow" aria-label="העבר שמאלה" title="העבר שמאלה" disabled={index === orderedBrews.length - 1} onClick={(event) => { event.stopPropagation(); move(index, 1); }}>←</button>
-            </article>;
-          })}
-        </div>
-
-        {selectedBrew && <div className="bp-brew-tank-placement bp-brew-tank-placement-compact">
-          <div className="bp-brew-placement-title">
-            <b>אצווה {selectedBrew.batchNumber} · {displayStyle(selectedBrew.style)} · {brewSizeLabel(Number(selectedBrew.liters) || 0)}</b>
-            <small>כל המיכלים שצפויים להיות פנויים במהלך השבוע מוצגים כאן. ניתן לבחור רק מיכל בגודל {brewSizeLabel(Number(selectedBrew.liters) || 0)}.</small>
-          </div>
-          <div className="bp-brew-tank-yard bp-brew-tank-row">
-            {allWeekTanks.map((tank) => {
-              const compatible = compatibleTankForBrew(selectedBrew, tank);
-              const selectedTankId = canonicalTankId(selectedBrew, brews);
-              const isAssigned = selectedTankId === tank.id;
-              const assignedTo = orderedBrews.findIndex((brew) => canonicalTankId(brew, brews) === tank.id);
-              const occupiedByOther = assignedTo >= 0 && assignedTo !== selectedIndex;
-              const requiredKind = brewSizeLabel(Number(selectedBrew.liters) || 0);
-              return <button
-                type="button"
-                key={tank.id}
-                className={`bp-brew-tank-visual bp-brew-tank-visual-compact ${isAssigned ? "is-assigned" : ""}`}
-                onClick={() => setTank(selectedIndex, tank.id)}
-                disabled={!compatible}
-                aria-disabled={!compatible}
-                title={!compatible
-                  ? `בישול ${requiredKind} ניתן לשבץ רק למיכל ${requiredKind}`
-                  : occupiedByOther
-                    ? `החלף עם אצווה ${orderedBrews[assignedTo]?.batchNumber}`
-                    : `שבץ למיכל ${tank.tankNumber}`}
-              >
-                <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b><small>{tankKind(tank.tankNumber)}</small></span>
-                <span className="bp-brew-tank-cone" />
-                <small
-                  className="bp-brew-tank-assigned-hint"
-                  aria-hidden={!occupiedByOther}
-                  style={{ visibility: occupiedByOther ? "visible" : "hidden", minHeight: "1em" }}
-                >
-                  {occupiedByOther ? `אצווה ${orderedBrews[assignedTo]?.batchNumber}` : "אצווה 0000"}
-                </small>
-              </button>;
-            })}
-            {!allWeekTanks.length && <p className="bp-muted">אין מיכלים פנויים בשבוע הזה.</p>}
-          </div>
-          {unavailableCompatibleTanks.length > 0 && <div className="bp-brew-unavailable-override">
-            <button
-              type="button"
-              className="bp-secondary-action"
-              aria-expanded={showUnavailableTanks}
-              onClick={() => setShowUnavailableTanks((value) => !value)}
-            >
-              {showUnavailableTanks ? "הסתר מיכלים לא זמינים" : "שבץ מיכל לא זמין כחריגה"}
+      <div className="planning-brew-assignment__list">
+        {draft.brews.map((brew, index) => {
+          const source = sourceForAssignedTank(brew, brews);
+          return (
+            <button key={brew.id} type="button" className={index === selectedIndex ? "active" : ""} onClick={() => setSelectedIndex(index)}>
+              <strong>{index + 1}. {displayStyle(brew.style)}</strong>
+              <span>{brewSizeLabel(Number(brew.liters) || 0)}</span>
+              <span>{source ? `מיכל ${source.tankNumber}` : "ללא מיכל"}</span>
+              <span>{brew.date}</span>
             </button>
-            {showUnavailableTanks && <div className="bp-brew-tank-yard bp-brew-tank-row">
-              {unavailableCompatibleTanks.map((tank) => {
-                const release = unavailableTankRelease(tank.id);
-                const releaseDate = release?.emptyDate;
-                const nextBrewDate = releaseDate ? addDays(releaseDate, 1) : "";
-                const canUseThisWeek = !!releaseDate && releaseDate >= initial.id && nextBrewDate <= weekEnd;
-                return <button
-                  type="button"
-                  key={tank.id}
-                  className="bp-brew-tank-visual bp-brew-tank-visual-compact"
-                  disabled={!canUseThisWeek}
-                  onClick={() => setPendingOverrideTankId(tank.id)}
-                  title={releaseDate
-                    ? canUseThisWeek
-                      ? `חריגת זמינות: מתרוקן ב-${releaseDate}; ניתן לבשל החל מ-${nextBrewDate}`
-                      : `המיכל מתרוקן ב-${releaseDate}, מאוחר מדי לשימוש בשבוע הזה`
-                    : "אין למיכל מועד ריקון מתוכנן בשבוע הזה"}
-                >
-                  <span className="bp-brew-tank-body"><b>{tank.tankNumber}</b><small>{tankKind(tank.tankNumber)}</small></span>
-                  <span className="bp-brew-tank-cone" />
-                  <small className="bp-brew-tank-assigned-hint">
-                    {releaseDate ? `מתרוקן ${releaseDate}` : "לא זמין"}
-                  </small>
-                </button>;
-              })}
-            </div>}
-            {showUnavailableTanks && <small className="bp-muted">אפשר לבחור מיכל בגודל המתאים שמתפנה במהלך השבוע. אם צריך, הבישול יוזז אוטומטית ליום שאחרי הריקון. שיבוץ חופף נשאר חסום.</small>}
-            {pendingOverrideTankId && (() => {
-              const tank = brews.find((item) => item.id === pendingOverrideTankId);
-              const release = unavailableTankRelease(pendingOverrideTankId);
-              const nextBrewDate = release?.emptyDate ? addDays(release.emptyDate, 1) : selectedBrew.date;
-              return <div className="bp-inline-confirm" role="dialog" aria-modal="true" aria-label="אישור חריגת זמינות">
-                <strong>אישור חריגת זמינות</strong>
-                <p>מיכל {tank?.tankNumber ?? pendingOverrideTankId} אינו זמין במסלול הרגיל ומתפנה ב-{release?.emptyDate}. לשבץ אותו כחריגה?</p>
-                {nextBrewDate > selectedBrew.date && <small>תאריך הבישול יעבור אוטומטית ל-{nextBrewDate}.</small>}
-                <div className="bp-actions">
-                  <button type="button" onClick={() => {
-                    setTank(selectedIndex, pendingOverrideTankId, true);
-                    setPendingOverrideTankId(null);
-                    setShowUnavailableTanks(false);
-                  }}>אישור חריגה ושיבוץ</button>
-                  <button type="button" onClick={() => setPendingOverrideTankId(null)}>ביטול</button>
-                </div>
-              </div>;
-            })()}
-          </div>}
-        </div>}
-
-        {error && <p role="alert" className="bp-alert">{error}</p>}
-        <div className="bp-actions"><button type="button" onClick={save} disabled={orderedBrews.length === 0}>אישור סדר ושיבוץ</button><button type="button" onClick={onCancel}>ביטול</button></div>
-      </fieldset>
-    </section>
+          );
+        })}
+      </div>
+      <div className="planning-brew-assignment__tanks">
+        <h4>מיכלים מתאימים</h4>
+        {candidateReleases.map((release) => {
+          const source = brews.find((item) => item.id === release.tankId);
+          if (!source) return null;
+          const active = canonicalTankId(selected, brews) === source.id;
+          const isAvailable = releases.some((item) => item.tankId === release.tankId);
+          return (
+            <button key={release.tankId} type="button" className={active ? "active" : ""} onClick={() => selectTank(source.id)}>
+              מיכל {source.tankNumber} · {tankKind(source.tankNumber)}{release.date ? ` · פנוי ${release.date}` : ""}{!isAvailable ? " · חריגה" : ""}
+            </button>
+          );
+        })}
+        {!!exceptionReleases?.length && (
+          <button type="button" onClick={() => setShowUnavailableTanks((value) => !value)}>
+            {showUnavailableTanks ? "הסתר מיכלים לא פנויים" : "הצג גם מיכלים לא פנויים"}
+          </button>
+        )}
+      </div>
+      {pendingOverrideTankId && (
+        <div className="planning-brew-assignment__override">
+          <p>המיכל שבחרת אינו פנוי לפי התכנון. להשתמש בו בכל זאת?</p>
+          <button type="button" onClick={confirmOverride}>כן, אשר חריגה</button>
+          <button type="button" onClick={() => setPendingOverrideTankId(null)}>ביטול</button>
+        </div>
+      )}
+      {error && <p className="planning-brew-assignment__error">{error}</p>}
+      <div className="planning-brew-assignment__actions">
+        <button type="button" disabled={disabled || busy} onClick={save}>שמור שיבוצים</button>
+      </div>
+    </div>
   );
 }
