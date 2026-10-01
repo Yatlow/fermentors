@@ -304,12 +304,27 @@ export default function PlanningWeeklyRecommendations({
             (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20
         )
         .map((tank) => tank.style);
+    const specialPackagingProducts: Product[] = specialPackagingStyles
+        .filter((style, index, all) => all.findIndex((known) => sameStyle(known, style)) === index)
+        .flatMap((style) => {
+            const configured = settings.products.filter((p) => sameStyle(p.style, style));
+            if (configured.length) return configured;
+            // Presentation-only row: special beer packaging is a tank-release
+            // decision and does not require an inventory SKU.
+            return [{
+                id: `noninventory-style:${encodeURIComponent(style)}`,
+                style,
+                type: "crates" as const,
+                sku: "",
+                monthly: 0,
+                tempo: null,
+                tempoDate: today,
+                leadDays: 21,
+            }];
+        });
     const packagingProducts = [
         ...products,
-        ...settings.products.filter((p) =>
-            specialPackagingStyles.some((style) => sameStyle(style, p.style)) &&
-            !products.some((known) => known.id === p.id)
-        ),
+        ...specialPackagingProducts.filter((p) => !products.some((known) => known.id === p.id)),
     ].sort((a, b) => {
         const aCore = isCoreStyle(a.style);
         const bCore = isCoreStyle(b.style);
@@ -970,7 +985,7 @@ export default function PlanningWeeklyRecommendations({
                         const partial = draftQty > 0 ? partialCrateHint(p) : null;
                         const unavailable = maxShipmentQty(p) <= 0 && decided <= 0;
                         return <div className={`bp-shipment-plan-row ${coverageClass(expectedCover, settings.targetWeeks)} ${unavailable ? "is-unavailable" : ""}`} key={p.id}>
-                            <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
+                            <span className={`bp-week-sku ${beerStyleClass(p.style).className}`}><b>{displayStyle(p.style)}</b><small>{p.id.startsWith("noninventory-style:") ? "אריזה מיוחדת" : p.type === "crates" ? "ארגזים" : "חביות"}</small></span>
                             <span>{coverLabel(expectedCover)}</span>
                             <span>
                                 {rec ? formatPalletCount(rec.pallets) : "—"}
