@@ -571,7 +571,7 @@ export default function PlanningGantt(props: Props) {
       kind={dailyTarget.kind}
       onClose={() => setDailyTarget(null)}
       settings={settings}
-      plans={historyPlans}
+      plans={dailyEditorPlans}
       tanks={tanks}
       sources={sources}
       pallets={pallets}
