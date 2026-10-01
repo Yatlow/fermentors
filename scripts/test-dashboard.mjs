@@ -4,6 +4,14 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const output = mkdtempSync(join(tmpdir(), "brewery-dashboard-tests-"));
+const tests = [
+  "health-dashboard-model",
+  "batch-timeline-model",
+  "sync-status-model",
+  "measurement-history-model",
+  "carbonation-retest-policy",
+  "brew-progress-display",
+];
 
 try {
   const compile = spawnSync(
@@ -22,11 +30,7 @@ try {
       "--noEmitOnError",
       "--outDir",
       output,
-      "tests/health-dashboard-model.test.ts",
-      "tests/batch-timeline-model.test.ts",
-      "tests/sync-status-model.test.ts",
-      "tests/measurement-history-model.test.ts",
-      "tests/carbonation-retest-policy.test.ts",
+      ...tests.map((name) => `tests/${name}.test.ts`),
     ],
     { stdio: "inherit" },
   );
@@ -36,14 +40,7 @@ try {
   } else {
     const run = spawnSync(
       process.execPath,
-      [
-        "--test",
-        join(output, "tests/health-dashboard-model.test.js"),
-        join(output, "tests/batch-timeline-model.test.js"),
-        join(output, "tests/sync-status-model.test.js"),
-        join(output, "tests/measurement-history-model.test.js"),
-        join(output, "tests/carbonation-retest-policy.test.js"),
-      ],
+      ["--test", ...tests.map((name) => join(output, `tests/${name}.test.js`))],
       { stdio: "inherit" },
     );
     process.exitCode = run.status ?? 1;
