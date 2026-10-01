@@ -1,3 +1,4 @@
+import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
 import { resolvePackagingBrewId } from "./planIdentity";
 import {
@@ -130,15 +131,21 @@ export function futureTanks(
         .map((p) => p.leadDays);
       if (!parseDate(b.date) || !b.tankId || !b.liters) return [];
       const physicalTank = tanks.find((tank) => tank.id === b.tankId);
+      const physicalTankNumber = physicalTank?.number ?? b.tankId;
+      // Planned brew liters are already the NET packaging volume from the
+      // canonical tank × style fallback. Do not apply lossPercent/shrinkage a
+      // second time when projecting a future packaging cycle.
+      const netPackagingLiters =
+        estimatedBrewVolume(physicalTankNumber, b.style) || Number(b.liters) || 0;
       return [
         {
           id: `planned:${b.id}`,
-          number: String(physicalTank?.number ?? b.tankId),
+          number: String(physicalTankNumber),
           style: b.style,
           batch: b.batchNumber ? String(b.batchNumber) : "מתוכנן",
           brewed: b.date,
           ready: addDays(b.date, Math.max(...leads, 21)),
-          liters: b.liters * 0.9,
+          liters: netPackagingLiters,
           cold: false,
         },
       ];
