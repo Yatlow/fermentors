@@ -118,7 +118,7 @@ export default function PlanningGantt(props: Props) {
   const [weekPage, setWeekPage] = useState(0);
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
-  const planningHorizonWeeks = 13;
+  const planningHorizonWeeks = canEdit ? 13 : 4;
   const allWeekIds = useMemo(
     () => Array.from({ length: planningHorizonWeeks + 1 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
     [currentWeek],
@@ -588,16 +588,16 @@ export default function PlanningGantt(props: Props) {
     return <>
       <section className="bp-gantt-shell">
         <div className="bp-section-heading bp-gantt-heading">
-          <div><h2>לוח שנה</h2><p className="bp-muted">חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה.</p></div>
+          <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
             <button type="button" aria-pressed={false} onClick={() => setMode("summary")}>סיכום שבועי</button>
             <button type="button" aria-pressed={true}>לוח שנה</button>
           </div>
         </div>
         <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
-          <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>
+          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
           <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
-          <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>
+          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
         </div>
         <div className="bp-gantt-calendar-host">
           <PlanningFiveWeekOverview {...props} plans={calendarPlans} tanks={calendarTanks} visibleWeekIds={weekIds} />
@@ -611,7 +611,7 @@ export default function PlanningGantt(props: Props) {
   return <>
     <section className="bp-gantt-shell">
       <div className="bp-section-heading bp-gantt-heading">
-        <div><h2>גאנט</h2><p className="bp-muted">חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה.</p></div>
+        <div><h2>גאנט</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
         <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
           <button type="button" aria-pressed={true}>סיכום שבועי</button>
           <button type="button" aria-pressed={false} onClick={() => setMode("calendar")}>לוח שנה</button>
