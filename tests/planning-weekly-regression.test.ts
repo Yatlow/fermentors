@@ -502,3 +502,44 @@ test("prior-week canonical packaging carries finished stock into the following w
   assert.equal(packed?.packed, 84);
   assert.ok((followingWeek?.brewery ?? 0) > 0, "packaged stock must remain in brewery inventory next week");
 });
+
+
+test("special beer without inventory SKU can empty and release a tank", () => {
+  const tank: Tank = {
+    id: "tank-special",
+    number: "6",
+    batch: "winter-1",
+    style: "מהדורת חורף",
+    brewed: "2026-09-01",
+    ready: "2026-09-20",
+    liters: 1000,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-09-13"),
+    packaging: [{
+      id: "winter-pack",
+      productId: "",
+      nonInventoryStyle: "מהדורת חורף",
+      nonInventoryType: "kegs" as const,
+      quantity: 50,
+      date: "2026-09-16",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    }],
+  };
+  const localSettings = { ...settings, products: [product, kegProduct] };
+
+  assert.equal(validateProduction([plan], localSettings, [tank], [], today), null);
+  const releases = tankReleases(
+    [{ id: tank.id, tankNumber: 6, beerStyle: "מהדורת חורף", beerVolume: 1000, tankStatus: false, action: 1 }],
+    [tank],
+    [plan],
+    localSettings,
+    [],
+    today,
+  );
+  assert.equal(releases[0].emptyDate, "2026-09-16");
+  assert.equal(releases[0].remaining, 0);
+});
