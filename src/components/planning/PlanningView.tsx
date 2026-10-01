@@ -46,12 +46,13 @@ export function withoutDuplicateDeliveries(week: WeekPlan): WeekPlan {
   return deliveries.length === week.deliveries.length ? week : { ...week, deliveries };
 }
 
-export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
+export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onPendingDailyWorkChange }: {
   brews: Fermentor[];
   canEdit: boolean;
   tab: PlanningTab;
   onTabChange: (tab: PlanningTab) => void;
   onOpenCoolerMap?: () => void;
+  onPendingDailyWorkChange?: (count: number) => void;
 }) {
   const today = usePlanningToday();
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
@@ -169,31 +170,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
   }, [identityAlignedPlans, today]);
 
   useEffect(() => {
-    const applyBadge = () => {
-      // PlanningView is rendered inside the planning page, while the main
-      // navigation lives outside it and is not guaranteed to use a <nav> wrapper.
-      // Find the actual daily-work button by its stable tab class/text instead of
-      // depending on a DOM wrapper that may not exist.
-      const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button.status-filter-button"))
-        .find((item) => item.textContent?.includes("לוח עבודה יומי"));
-      if (!button) return;
-      if (pendingDailyWork.total > 0) {
-        button.dataset.planningBadge = String(pendingDailyWork.total);
-        button.title = `${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ בחמשת השבועות הקרובים`;
-        button.setAttribute("aria-label", `לוח עבודה יומי, ${pendingDailyWork.brews} בישולים ו־${pendingDailyWork.packaging} אריזות ממתינים לשיבוץ בחמשת השבועות הקרובים`);
-      } else {
-        delete button.dataset.planningBadge;
-        button.removeAttribute("title");
-        button.setAttribute("aria-label", "לוח עבודה יומי");
-      }
-    };
-    applyBadge();
-    const header = document.querySelector(".dashboard-header");
-    const observer = new MutationObserver(() => requestAnimationFrame(applyBadge));
-    if (header) observer.observe(header, { childList: true, subtree: true, attributes: true });
-    const interval = window.setInterval(applyBadge, 1500);
-    return () => { observer.disconnect(); window.clearInterval(interval); };
-  }, [pendingDailyWork.brews, pendingDailyWork.packaging, pendingDailyWork.total]);
+    onPendingDailyWorkChange?.(pendingDailyWork.total);
+  }, [onPendingDailyWorkChange, pendingDailyWork.total]);
 
   async function saveSettings(next: Settings) {
     await data.saveSettings(next);
