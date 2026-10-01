@@ -169,12 +169,27 @@ export default function PlanningWeeklyRecommendations({
     const currentShipmentQty = (id: string, truckId?: string | null) => (current.deliveries ?? [])
         .filter((d) => d.productId === id && (!truckId || (d.truckId || `date:${d.dispatchDate}`) === truckId))
         .reduce((s, d) => s + d.quantity, 0);
-    const currentPackagingQty = (id: string) => current.packaging
-        .filter((r) => r.productId === id)
+    const matchesPackagingProduct = (run: Plan, p: Product) =>
+        run.productId === p.id ||
+        (!!run.nonInventoryStyle &&
+            !!run.nonInventoryType &&
+            sameStyle(run.nonInventoryStyle, p.style) &&
+            run.nonInventoryType === p.type);
+    const currentPackagingQty = (p: Product) => current.packaging
+        .filter((r) => matchesPackagingProduct(r, p))
         .reduce((s, r) => s + r.quantity, 0);
-    const currentPackagingRemainingQty = (id: string) => currentOpenPackaging
-        .filter((r) => r.productId === id)
-        .reduce((s, r) => s + r.remaining, 0);
+    const currentPackagingRemainingQty = (p: Product) => {
+        if (p.id.startsWith("noninventory-style:")) {
+            // Non-inventory packaging is a tank-release decision and therefore
+            // is intentionally absent from openRuns(), which tracks inventory SKUs.
+            return current.packaging
+                .filter((r) => matchesPackagingProduct(r, p))
+                .reduce((s, r) => s + r.quantity, 0);
+        }
+        return currentOpenPackaging
+            .filter((r) => r.productId === p.id)
+            .reduce((s, r) => s + r.remaining, 0);
+    };
 
     function openRunForSavedPlan(run: Plan) {
         return run.id
@@ -287,8 +302,8 @@ export default function PlanningWeeklyRecommendations({
         return values.length ? `מיכל ${values.join(", ")}` : "";
     }
 
-    function decisionTankLabel(productId: string) {
-        const values = unique(currentOpenPackaging.filter((r) => r.productId === productId).map((r) =>
+    function decisionTankLabel(p: Product) {
+        const values = unique(current.packaging.filter((r) => matchesPackagingProduct(r, p)).map((r) =>
             r.tankNumber ?? tanks.find((t) => t.id === r.tankId)?.number,
         ));
         return values.length ? `מיכל ${values.join(", ")}` : "";
@@ -840,7 +855,7 @@ export default function PlanningWeeklyRecommendations({
         .map((x) => ({ ...x, dependency: packagingDependencyQty(x.p, x.quantity) }))
         .filter((x) => x.dependency > 0);
     const selectedWeekText = `שבוע ${weekNumber(week)} · ${shortDate(week)}–${shortDate(model.weekEnd)}`;
-    const packagingDecisionCount = currentOpenPackaging.length;
+    const packagingDecisionCount = currentOpenPackaging.length + current.packaging.filter((run) => !!run.nonInventoryStyle && !!run.nonInventoryType && run.quantity > 0).length;
     const packagingRecommendationCount = model.packagingRecommendation.length;
     const plannedBrewRows = editing === "brew"
         ? brewDraft
@@ -1026,12 +1041,12 @@ export default function PlanningWeeklyRecommendations({
                         const before = model.rows.afterShipment.get(p.id);
                         const after = model.rows.afterPackaging.get(p.id);
                         const rec = allPackagingRecByProduct.get(p.id) ?? 0;
-                        const decided = currentPackagingQty(p.id);
-                        const remaining = currentPackagingRemainingQty(p.id);
+                        const decided = currentPackagingQty(p);
+                        const remaining = currentPackagingRemainingQty(p);
                         const completed = Math.max(0, decided - remaining);
                         const shownAfter = editing === "packaging" ? draftPackagingCover(p) : after?.totalCover ?? null;
                         const recTank = recommendationTankLabel(p.id);
-                        const decisionTank = decisionTankLabel(p.id);
+                        const decisionTank = decisionTankLabel(p);
                         const recAfter = packagingRecommendationCover(p);
                         const tone = coverageClass(before?.totalCover, settings.totalTargetWeeks ?? settings.targetWeeks);
                         const unavailable = rec <= 0 && remaining <= 0 && !hasPackagingSource(p);
