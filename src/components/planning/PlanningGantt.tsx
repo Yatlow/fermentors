@@ -49,6 +49,7 @@ type SummaryItem = {
   styleClass?: string;
   recommended?: boolean;
   stockKind?: "actual" | "projected" | "history";
+  actual?: boolean;
   stockLines?: Array<{ style: string; values: string[] }>;
 };
 
@@ -114,12 +115,19 @@ export default function PlanningGantt(props: Props) {
   const [mode, setMode] = useState<GanttMode>("summary");
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
   const [dailyTarget, setDailyTarget] = useState<EditorTarget | null>(null);
+  const [weekPage, setWeekPage] = useState(0);
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
-  const weekIds = useMemo(
-    () => Array.from({ length: 5 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
+  const planningHorizonWeeks = 13;
+  const allWeekIds = useMemo(
+    () => Array.from({ length: planningHorizonWeeks + 1 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
     [currentWeek],
   );
+  const maxWeekPage = Math.max(0, Math.ceil((allWeekIds.length - 5) / 4));
+  const weekIds = useMemo(() => {
+    const start = Math.min(weekPage * 4, Math.max(0, allWeekIds.length - 5));
+    return allWeekIds.slice(start, start + 5);
+  }, [allWeekIds, weekPage]);
   const visibleRows = canEdit ? ROWS : ROWS.filter((row) => row.id !== "stock");
   const oldestInventoryUpdate = useMemo(() => settings.products
     .filter((product) => product.monthly > 0 && product.tempo !== null)
@@ -366,6 +374,7 @@ export default function PlanningGantt(props: Props) {
           title: `${displayStyle(style)} · ${tankLabel(tankNumber)}`,
           meta: `${fmt(quantity)} ${type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(quantity, type))} ל׳ · בוצע בפועל`,
           styleClass: style ? beerStyleClass(style).className : undefined,
+          actual: true,
         };
       });
 
@@ -412,6 +421,7 @@ export default function PlanningGantt(props: Props) {
           title: `${displayStyle(style)} · ${tankLabel(source.tankNumber)}`,
           meta: `${liters > 0 ? `${fmt(liters)} ל׳ · ` : ""}${shortDate(brewDate)} · בוצע בפועל`,
           styleClass: style ? beerStyleClass(style).className : undefined,
+          actual: true,
         }];
       });
 
@@ -578,7 +588,7 @@ export default function PlanningGantt(props: Props) {
     return <>
       <section className="bp-gantt-shell">
         <div className="bp-section-heading bp-gantt-heading">
-          <div><h2>לוח שנה</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
+          <div><h2>לוח שנה</h2><p className="bp-muted">חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה.</p></div>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
             <button type="button" aria-pressed={false} onClick={() => setMode("summary")}>סיכום שבועי</button>
             <button type="button" aria-pressed={true}>לוח שנה</button>
@@ -596,13 +606,14 @@ export default function PlanningGantt(props: Props) {
   return <>
     <section className="bp-gantt-shell">
       <div className="bp-section-heading bp-gantt-heading">
-        <div><h2>גאנט</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
+        <div><h2>גאנט</h2><p className="bp-muted">חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה.</p></div>
         <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
           <button type="button" aria-pressed={true}>סיכום שבועי</button>
           <button type="button" aria-pressed={false} onClick={() => setMode("calendar")}>לוח שנה</button>
         </div>
       </div>
 
+        <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">\n          <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>\n          <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>\n          <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>\n        </div>\n
       <div className="bp-gantt-legend" aria-label="מקרא">
         {canEdit && <>
           <span className="is-actual">● מלאי נוכחי / בפועל</span>
@@ -670,7 +681,7 @@ export default function PlanningGantt(props: Props) {
                     )}
                     {items.map((item) => (
                       <article
-                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""}`}
+                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""} ${item.actual ? "is-gantt-actual" : ""}`}
                         key={item.key}
                       >
                         <b>{item.title}</b>
