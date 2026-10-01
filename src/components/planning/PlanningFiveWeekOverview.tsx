@@ -123,6 +123,7 @@ export default function PlanningFiveWeekOverview({
   disabled,
   saveWeek,
   moveCalendarEvent,
+  visibleWeekIds,
 }: {
   settings: Settings;
   plans: WeekPlan[];
@@ -131,6 +132,7 @@ export default function PlanningFiveWeekOverview({
   today: string;
   disabled: boolean;
   saveWeek: (week: WeekPlan, options?: { allowClosedWeek?: boolean }) => Promise<void>;
+  visibleWeekIds?: string[];
   moveCalendarEvent: (
     sourceWeekId: string,
     targetWeekId: string,
@@ -148,8 +150,10 @@ export default function PlanningFiveWeekOverview({
 
   const currentWeek = weekStart(today);
   const weekIds = useMemo(
-    () => Array.from({ length: 5 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
-    [currentWeek],
+    () => visibleWeekIds?.length
+      ? visibleWeekIds
+      : Array.from({ length: 5 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
+    [currentWeek, visibleWeekIds],
   );
   const nextPlanningWeek = addDays(currentWeek, 7);
 
