@@ -304,7 +304,7 @@ export default function PlanningWeeklyRecommendations({
 
     function decisionTankLabel(p: Product) {
         const values = unique(current.packaging.filter((r) => matchesPackagingProduct(r, p)).map((r) =>
-            r.tankNumber ?? tanks.find((t) => t.id === r.tankId)?.number,
+            tanks.find((t) => t.id === r.tankId)?.number ?? r.tankNumber,
         ));
         return values.length ? `מיכל ${values.join(", ")}` : "";
     }
@@ -1014,7 +1014,7 @@ export default function PlanningWeeklyRecommendations({
                             const value = packDraft[key] ?? r.quantity;
                             const completed = completedQty(r);
                             return <div className="bp-rec-line is-decided" key={key}>
-                                <span><b>{p ? displayStyle(p.style) : r.productId}</b> · {p?.type === "crates" ? "ארגזים" : p?.type === "kegs" ? "חביות" : ""} · מיכל {r.tankNumber ?? tanks.find((t) => t.id === r.tankId)?.number ?? "—"}{r.emptyTank === true && <small> · יתרת המיכל</small>}{completed > 0 && <small> · {fmt(completed)} כבר בוצעו</small>}</span>
+                                <span><b>{p ? displayStyle(p.style) : r.productId}</b> · {p?.type === "crates" ? "ארגזים" : p?.type === "kegs" ? "חביות" : ""} · מיכל {tanks.find((t) => t.id === r.tankId)?.number ?? r.tankNumber ?? "—"}{r.emptyTank === true && <small> · יתרת המיכל</small>}{completed > 0 && <small> · {fmt(completed)} כבר בוצעו</small>}</span>
                                 <TransientNumberInput min={completed} value={value} onNumberChange={(next) => changeSavedPackagingQuantity(r, key, next)} />
                                 <button type="button" onClick={() => setCancelledPackagingKeys((currentKeys) => new Set([...currentKeys, key]))}>בטל אריזה</button>
                             </div>;
