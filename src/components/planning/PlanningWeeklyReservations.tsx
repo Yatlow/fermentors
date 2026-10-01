@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ComponentProps } from "react";
 import PlanningWeeklyRecommendationsEnhanced from "./PlanningWeeklyRecommendationsEnhanced";
 import { brewSizeLabel, tankReleases } from "../../SERVICES/planning/productionCycle";
-import { addDays, weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { addDays, sameStyle, weekStart, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { palletsForPlanningShipmentPicking } from "../../SERVICES/planning/planningShipmentReservations";
 import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
@@ -33,25 +33,24 @@ export default function PlanningWeeklyReservations(props: Props) {
   );
 
   const assignTentativeTankAssignments = useCallback((next: WeekPlan): WeekPlan => {
-    // Tentative assignment must use the same canonical release/schedule truth as
-    // the daily assignment editor. Demand recommendations must never silently
-    // opt into a tank that the assignment editor considers unavailable.
-    const assignmentPlans = props.plans.filter((plan) => plan.id !== next.id);
+    // Include this week's packaging in release calculation. A tank that empties
+    // during the week is a legitimate candidate for a later brew in that same
+    // week, but never before its actual empty date.
+    const otherPlans = props.plans.filter((plan) => plan.id !== next.id);
+    const fixedBrews = next.brews.filter((brew) => !!brew.tankId || brew.date < props.today);
+    let workingWeek: WeekPlan = { ...next, brews: [...fixedBrews] };
+
+    const releasePlans = [...otherPlans, workingWeek];
     const weekEnd = addDays(next.id, 6);
-    const schedules = projectTankSchedules(assignmentPlans, props.settings);
-    const candidates = tankReleases(
+    const releases = tankReleases(
       props.sources,
       props.tanks,
-      assignmentPlans,
+      releasePlans,
       props.settings,
       props.actuals,
       props.today,
     )
-      .filter((release) => {
-        if (!release.date || release.date > weekEnd) return false;
-        const candidateDate = release.date > next.id ? release.date : next.id;
-        return tankCanHostCycle(schedules.get(release.tankId) ?? [], candidateDate, candidateDate);
-      })
+      .filter((release) => !!release.date && release.date <= weekEnd)
       .map((release) => ({
         release,
         source: props.sources.find((source) => source.id === release.tankId),
@@ -62,32 +61,52 @@ export default function PlanningWeeklyReservations(props: Props) {
         Number(a.source?.tankNumber ?? Infinity) - Number(b.source?.tankNumber ?? Infinity),
       );
 
-    const usedTankIds = new Set(
-      next.brews.filter((brew) => !!brew.tankId).map((brew) => brew.tankId),
+    const assigned = new Map<string, BrewWithAssignment>(
+      fixedBrews.map((brew) => [brew.id, brew as BrewWithAssignment]),
     );
+    const pending = next.brews
+      .filter((brew) => !brew.tankId && brew.date >= props.today)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
-    const brews: BrewWithAssignment[] = next.brews.map((brew) => {
-      const existing = brew as BrewWithAssignment;
-      if (brew.tankId || brew.date < props.today) return existing;
-
+    for (const brew of pending) {
       const size = brewSizeLabel(brew.liters);
-      const option = candidates.find(({ release, source }) =>
-        !usedTankIds.has(release.tankId) &&
+      const leadDays = Math.max(
+        ...props.settings.products
+          .filter((product) => sameStyle(product.style, brew.style))
+          .map((product) => product.leadDays),
+        21,
+      );
+      const readyDate = addDays(brew.date, leadDays);
+
+      // Re-project after every assignment. This makes the allocator sequential:
+      // packaging can release a tank, and an earlier tentative brew immediately
+      // reserves it before the next brew is considered.
+      const schedules = projectTankSchedules([...otherPlans, workingWeek], props.settings);
+      const option = releases.find(({ release, source }) =>
         !!release.date &&
-        release.date <= brew.date &&
-        brewSizeLabel(0, source?.tankNumber) === size,
+        release.date < brew.date &&
+        brewSizeLabel(0, source?.tankNumber) === size &&
+        tankCanHostCycle(schedules.get(release.tankId) ?? [], brew.date, readyDate),
       );
 
-      if (!option) return existing;
-      usedTankIds.add(option.release.tankId);
-      return {
+      if (!option) {
+        assigned.set(brew.id, brew as BrewWithAssignment);
+        continue;
+      }
+
+      const enriched: BrewWithAssignment = {
         ...brew,
         tankId: option.release.tankId,
         tankAssignmentStatus: "tentative",
       };
-    });
+      assigned.set(brew.id, enriched);
+      workingWeek = { ...workingWeek, brews: [...workingWeek.brews, enriched] };
+    }
 
-    return { ...next, brews };
+    return {
+      ...next,
+      brews: next.brews.map((brew) => assigned.get(brew.id) ?? (brew as BrewWithAssignment)),
+    };
   }, [
     props.actuals,
     props.plans,
