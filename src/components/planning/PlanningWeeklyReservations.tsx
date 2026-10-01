@@ -58,10 +58,6 @@ export default function PlanningWeeklyReservations(props: Props) {
         !usedTankIds.has(candidate.tankId) &&
         candidate.availableDate <= brew.date &&
         candidate.sizeLabel === size,
-      ) ?? model.brewTankOptions.find((candidate) =>
-        !usedTankIds.has(candidate.tankId) &&
-        candidate.availableDate <= brew.date &&
-        candidate.workLiters >= brew.liters,
       );
 
       if (!option) return existing;
