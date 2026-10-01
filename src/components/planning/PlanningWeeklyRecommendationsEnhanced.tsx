@@ -122,9 +122,16 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const product = (id: string): Product | undefined => {
         const real = settings.products.find((item) => item.id === id);
         if (real) return real;
-        const match = /^noninventory:(.*):(crates|kegs)$/.exec(id);
-        if (!match) return undefined;
-        return virtualProduct(decodeURIComponent(match[1]), match[2] as "crates" | "kegs");
+        if (!id.startsWith("noninventory:")) return undefined;
+        const suffix = id.endsWith(":crates") ? "crates" : id.endsWith(":kegs") ? "kegs" : null;
+        if (!suffix) return undefined;
+        const encodedStyle = id.slice("noninventory:".length, -(`:${suffix}`.length));
+        if (!encodedStyle) return undefined;
+        try {
+            return virtualProduct(decodeURIComponent(encodedStyle), suffix);
+        } catch {
+            return undefined;
+        }
     };
     const productForPlan = (run: Plan): Product | undefined =>
         run.nonInventoryStyle && run.nonInventoryType
