@@ -9,7 +9,7 @@ import {
 import { shipmentDecisionPickOptions } from "../src/SERVICES/planning/shipmentDecisionPicking";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
-import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";
+import { dailyForecast, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
 import {
   brewLitersForSize,
   brewSizeLabel,
@@ -542,4 +542,34 @@ test("special beer without inventory SKU can empty and release a tank", () => {
   );
   assert.equal(releases[0].emptyDate, "2026-09-20");
   assert.equal(releases[0].remaining, 0);
+});
+
+
+test("planned tank cycle keeps canonical net volume without applying shrinkage twice", () => {
+  const physical: Tank = {
+    id: "tank-11",
+    number: "11",
+    batch: "old",
+    style: "IPA",
+    brewed: "2026-08-01",
+    ready: "2026-08-22",
+    liters: 500,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-10-04"),
+    brews: [{
+      id: "ipa-triple-cycle",
+      style: "IPA",
+      tankId: physical.id,
+      batchNumber: "1700",
+      date: "2026-10-05",
+      liters: brewLitersForSize("IPA", "משולש"),
+    }],
+  };
+
+  const projected = futureTanks([physical], [plan], settings);
+  const future = projected.find((tank) => tank.id === "planned:ipa-triple-cycle");
+  assert.ok(future);
+  assert.equal(future.liters, 3000, "3000 L fallback is already net packaging volume");
 });
