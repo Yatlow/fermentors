@@ -225,28 +225,21 @@ function buildPackagingRecommendation(
   const products = settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style));
   const actualDays = new Set(actuals.map(actualDate).filter((d): d is string => !!d && d >= week && d <= weekEnd));
   const capacity = Math.max(0, (plans.find((w) => w.id === week)?.maxRuns ?? settings.preferredRuns) - actualDays.size);
-
-  // Include both the physical cycle that exists now and every committed future
-  // brew cycle. The synthetic planned:* id is only an internal cycle key; saved
-  // packaging is written against the physical tankId plus stable brewId.
   const projectedTanks = futureTanks(tanks, plans, settings);
   const eligibleTanks = projectedTanks
     .filter((tank) => tank.ready <= weekEnd)
     .map((tank) => ({ tank, liters: remainingTankLiters(tank, plans, products, actuals, week) }))
     .filter((entry) => entry.liters >= 20)
     .sort((a, b) => a.tank.brewed.localeCompare(b.tank.brewed) || Number(a.tank.number) - Number(b.tank.number));
-
   const remainingByCycle = new Map(eligibleTanks.map(({ tank, liters }) => [cycleKey(tank), liters] as const));
   const virtualCover = new Map<string, number>();
   for (const p of products) virtualCover.set(p.id, rows.get(p.id)?.totalCover ?? Infinity);
-
   const fifoMeta = new Map<string, { rank: number; total: number }>();
   for (const tank of eligibleTanks.map((entry) => entry.tank)) {
     const peers = eligibleTanks.map((entry) => entry.tank).filter((candidate) => sameStyle(candidate.style, tank.style));
     const rank = peers.findIndex((candidate) => cycleKey(candidate) === cycleKey(tank)) + 1;
     fifoMeta.set(cycleKey(tank), { rank, total: peers.length });
   }
-
   const daysNeeded = (items: WeeklyPackagingRecommendation[]) => {
     const crateRuns = items.filter((x) => products.find((p) => p.id === x.productId)?.type === "crates").length;
     const totalKegs = items.reduce((sum, item) => {
@@ -255,9 +248,7 @@ function buildPackagingRecommendation(
     }, 0);
     return crateRuns + (totalKegs > 0 ? Math.ceil(totalKegs / 150) : 0);
   };
-
   const selected: WeeklyPackagingRecommendation[] = [];
-
   const makeRun = (tank: Tank, originalLiters: number, p: Product, quantity: number, id: string): WeeklyPackagingRecommendation => {
     const brewId = plannedBrewId(tank);
     const brew = brewId ? plans.flatMap((plan) => plan.brews).find((item) => item.id === brewId) : undefined;
@@ -279,7 +270,6 @@ function buildPackagingRecommendation(
       fifoTotal: fifo.total,
     };
   };
-
   const drainingBundle = (tank: Tank, originalLiters: number, first: WeeklyPackagingRecommendation) => {
     const firstProduct = products.find((p) => p.id === first.productId)!;
     const key = cycleKey(tank);
@@ -300,7 +290,6 @@ function buildPackagingRecommendation(
     }
     return { bundle, residual };
   };
-
   while (true) {
     const candidates: Array<WeeklyPackagingRecommendation & { cover: number; brewed: string; cycle: string }> = [];
     for (const { tank, liters: originalLiters } of eligibleTanks) {
@@ -323,15 +312,9 @@ function buildPackagingRecommendation(
           quantity = Math.min(fullByTank, maxByCoverage);
         }
         if (quantity <= 0) continue;
-        candidates.push({
-          ...makeRun(tank, originalLiters, p, quantity, `weekly-pack:${week}:${key}:${p.id}`),
-          cover,
-          brewed: tank.brewed,
-          cycle: key,
-        });
+        candidates.push({ ...makeRun(tank, originalLiters, p, quantity, `weekly-pack:${week}:${key}:${p.id}`), cover, brewed: tank.brewed, cycle: key });
       }
     }
-
     candidates.sort((a, b) => a.cover - b.cover || a.brewed.localeCompare(b.brewed) || a.fifoRank - b.fifoRank || a.tankNumber.localeCompare(b.tankNumber));
     let picked: { bundle: WeeklyPackagingRecommendation[]; residual: number; cycle: string } | null = null;
     for (const candidate of candidates) {
@@ -339,10 +322,7 @@ function buildPackagingRecommendation(
       if (!entry) continue;
       const attempt = drainingBundle(entry.tank, entry.liters, candidate);
       if (attempt.residual >= 20) continue;
-      if (daysNeeded([...selected, ...attempt.bundle]) <= capacity) {
-        picked = { ...attempt, cycle: candidate.cycle };
-        break;
-      }
+      if (daysNeeded([...selected, ...attempt.bundle]) <= capacity) { picked = { ...attempt, cycle: candidate.cycle }; break; }
     }
     if (!picked) break;
     selected.push(...picked.bundle);
@@ -353,7 +333,6 @@ function buildPackagingRecommendation(
       if (demand > 0) virtualCover.set(p.id, (virtualCover.get(p.id) ?? 0) + run.quantity / demand);
     }
   }
-
   return { recommendation: selected, days: daysNeeded(selected), capacity };
 }
 
@@ -373,25 +352,35 @@ function buildBrewRecommendation(
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today)
     .filter((r) => !!r.date && r.date! <= weekEnd)
     .sort((a, b) => (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31") || Number(sources.find((s) => s.id === a.tankId)?.tankNumber ?? Infinity) - Number(sources.find((s) => s.id === b.tankId)?.tankNumber ?? Infinity));
-
   const priorReservedTankIds = new Set<string>();
   const priorUnassignedBrews = plans.filter((w) => w.id >= planningStart && w.id < week).flatMap((w) => w.brews).filter((b) => !b.tankId && b.date <= weekEnd).sort((a, b) => a.date.localeCompare(b.date));
   for (const brew of priorUnassignedBrews) {
     const release = releases.find((r) => !priorReservedTankIds.has(r.tankId) && !!r.date && r.date <= brew.date);
     if (release) priorReservedTankIds.add(release.tankId);
   }
-
   const capacityReleases = releases.filter((r) => !priorReservedTankIds.has(r.tankId));
+  const canonicalReleaseTankId = (tankId: string) => {
+    const raw = String(tankId ?? "").trim();
+    if (!raw) return "";
+    if (capacityReleases.some((release) => release.tankId === raw)) return raw;
+    const byNumber = sources.find((source) => String(source.tankNumber ?? "").trim() === raw);
+    return byNumber?.id && capacityReleases.some((release) => release.tankId === byNumber.id) ? byNumber.id : raw;
+  };
   const currentReservedTankIds = new Set<string>();
   for (const brew of currentWeek?.brews.filter((b) => !!b.tankId && b.date <= weekEnd) ?? []) {
-    if (capacityReleases.some((r) => r.tankId === brew.tankId)) currentReservedTankIds.add(brew.tankId);
+    const tankId = canonicalReleaseTankId(brew.tankId);
+    if (capacityReleases.some((r) => r.tankId === tankId)) currentReservedTankIds.add(tankId);
   }
   const currentUnassigned = currentWeek?.brews.filter((b) => !b.tankId && b.date <= weekEnd) ?? [];
-  for (let i = 0; i < currentUnassigned.length; i++) {
-    const release = capacityReleases.find((r) => !currentReservedTankIds.has(r.tankId) && !!r.date && r.date <= weekEnd);
+  for (const brew of currentUnassigned) {
+    const size = brewSizeLabel(Number(brew.liters) || 0);
+    const release = capacityReleases.find((r) => {
+      if (currentReservedTankIds.has(r.tankId) || !r.date || r.date > weekEnd) return false;
+      const source = sources.find((item) => item.id === r.tankId);
+      return brewSizeLabel(0, source?.tankNumber) === size;
+    });
     if (release) currentReservedTankIds.add(release.tankId);
   }
-
   const availableReleases = capacityReleases.filter((r) => !currentReservedTankIds.has(r.tankId));
   const capacityBeforeCurrent = capacityReleases.length;
   const schedules = projectTankSchedules(plans, settings);
@@ -399,18 +388,8 @@ function buildBrewRecommendation(
     const candidateDate = release.date && release.date > week ? release.date : week;
     if (candidateDate > weekEnd) return false;
     const cycles = schedules.get(release.tankId) ?? [];
-    if (!style) {
-      // Generic capacity asks only whether the tank can START a brew in this
-      // week's slot. Requiring it to stay free until 9999 incorrectly hides a
-      // tank whenever any later planned cycle exists. Style-specific selection
-      // below still checks the real fermentation/ready window against that next
-      // committed cycle.
-      return tankCanHostCycle(cycles, candidateDate, candidateDate);
-    }
-    const leadDays = Math.max(
-      ...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays),
-      21,
-    );
+    if (!style) return tankCanHostCycle(cycles, candidateDate, candidateDate);
+    const leadDays = Math.max(...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays), 21);
     return tankCanHostCycle(cycles, candidateDate, addDays(candidateDate, leadDays));
   };
   const canonicalAvailableReleases = availableReleases.filter((release) => releaseFitsCanonicalWindow(release));
@@ -419,11 +398,8 @@ function buildBrewRecommendation(
     const source = sources.find((s) => s.id === release.tankId);
     const tankNumber = String(source?.tankNumber ?? release.tankId);
     const workLiters = release.workLiters || 2500;
-    // Tank compatibility is a physical vessel-size rule, not a volume heuristic.
-    // Derive the label from the real tank number so 2-4=single, 5-8=double, 9+=triple.
     return { tankId: release.tankId, tankNumber, availableDate: release.date!, workLiters, sizeLabel: brewSizeLabel(0, source?.tankNumber) };
   });
-
   const styles = [...new Set(settings.products.filter((p) => p.monthly > 0 && isCoreStyle(p.style)).map((p) => displayStyle(p.style)))];
   const styleStates = styles.map((style) => {
     const productRows = [...rows.values()].filter((r) => sameStyle(r.product.style, style));
@@ -435,7 +411,6 @@ function buildBrewRecommendation(
     const cover = demandLiters > 0 ? stockLiters / demandLiters : Infinity;
     return { style, demandLiters, stockLiters, cover, targets: planningTargetsForStyle(settings, style) };
   }).filter((state) => state.demandLiters > 0);
-
   const recommendations: WeeklyBrewRecommendation[] = [];
   const remainingReleases = [...canonicalAvailableReleases];
   const remainingStyles = [...styleStates];
@@ -445,15 +420,9 @@ function buildBrewRecommendation(
       const state = remainingStyles[si];
       for (let ri = 0; ri < remainingReleases.length; ri++) {
         const release = remainingReleases[ri];
-        // Tank availability and recommendation generation must use the same
-        // canonical cycle-window rule. A tank shown as available must actually
-        // be able to host this style before its next committed cycle.
         if (!releaseFitsCanonicalWindow(release, state.style)) continue;
         const liters = release.workLiters || 2500;
         const postCover = (state.stockLiters + liters) / state.demandLiters;
-        // Prefer filling the target without overshooting it. Large tanks are
-        // naturally penalized for slow-moving styles because they create many
-        // more weeks of cover; fast-moving styles can absorb them cheaply.
         const targetGap = Math.max(0, state.targets.targetWeeks - postCover);
         const overTarget = Math.max(0, postCover - state.targets.targetWeeks);
         const overMax = Math.max(0, postCover - state.targets.maxTotalWeeks);
@@ -492,24 +461,17 @@ export function buildWeeklyPlanningModel(args: {
   const stages: WeeklyStage[] = ["base", "afterShipment", "afterPackaging", "committed"];
   const forecasts = {} as Record<WeeklyStage, DailyResult>;
   const rows = {} as Record<WeeklyStage, Map<string, WeeklySkuState>>;
-
   for (const stage of stages) {
     forecasts[stage] = dailyForecast(normalized, pallets, tanks, plansAtStage(forecastPlans, week, stage), actuals, today, holidays, false, shipments);
     rows[stage] = skuRows(normalized, forecasts[stage], weekEnd);
   }
-
   const weekStartRows = buildWeekStartProjection({ settings, pallets, plans, actuals, today, week });
   const shipment = buildShipmentRecommendation(normalized, weekStartRows);
   const packaging = buildPackagingRecommendation(normalized, rows.afterShipment, tanks, plans, actuals, sources, week, weekEnd);
   const brew = buildBrewRecommendation(normalized, rows.afterPackaging, tanks, forecastPlans, actuals, sources, today, week, weekEnd);
-  // Automatic packaging stays core-range only. Manual packaging, however,
-  // must expose every real/planned beer cycle (including seasonal styles).
   const packagingTankPool = futureTanks(tanks, plans, settings);
   const allPackagingProducts = normalized.products.filter((p) => p.monthly > 0);
-  const tankAvailableLiters = new Map(
-    packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, allPackagingProducts, actuals, week)] as const),
-  );
-
+  const tankAvailableLiters = new Map(packagingTankPool.map((tank) => [tank.id, remainingTankLiters(tank, plans, allPackagingProducts, actuals, week)] as const));
   return {
     week,
     weekEnd,
