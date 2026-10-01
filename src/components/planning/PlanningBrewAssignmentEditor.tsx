@@ -48,6 +48,28 @@ function normalizeOrder(brews: BrewPlanWithMeta[], sources: Fermentor[], release
     .map((brew, index) => ({ ...brew, date: dates[index] ?? brew.date }));
 }
 
+function assignAvailableTanks(brews: BrewPlanWithMeta[], sources: Fermentor[], releases: Release[], weekEnd: string) {
+  const available = releases
+    .filter((release) => !!release.date && release.date <= weekEnd)
+    .map((release) => ({ release, tank: sources.find((source) => source.id === release.tankId) }))
+    .filter((entry): entry is { release: Release; tank: Fermentor } => !!entry.tank && Number(entry.tank.tankNumber) !== 1)
+    .filter((entry, index, all) => all.findIndex((candidate) => candidate.tank.id === entry.tank.id) === index)
+    .sort((a, b) => a.release.date.localeCompare(b.release.date) || Number(a.tank.tankNumber) - Number(b.tank.tankNumber));
+  const used = new Set<string>();
+  return brews.map((brew) => {
+    const match = available.find(({ tank }) => !used.has(tank.id) && compatibleTankForBrew(brew, tank));
+    if (!match) return { ...brew, tankId: "" };
+    used.add(match.tank.id);
+    return {
+      ...brew,
+      tankId: match.tank.id,
+      date: match.release.date > brew.date ? match.release.date : brew.date,
+      tankAssignmentStatus: "tentative" as const,
+      availabilityOverride: false,
+    };
+  });
+}
+
 function maxBatch(values: unknown[]): number {
   return values.reduce<number>((max, value) => {
     const n = Number(String(value ?? "").replace("#", "").trim());
@@ -73,11 +95,6 @@ function compatibleTankForBrew(brew: BrewPlanWithMeta, tank: Fermentor): boolean
   return tankKind(tank.tankNumber) === brewSizeLabel(Number(brew.liters) || 0);
 }
 
-/**
- * A real ACTION-0 tank is the Firestore reservation created by the brewing
- * flow. Planning may display that identity, but never writes back to the tank.
- * Older fermenting/cold batches are deliberately excluded.
- */
 function realNewBrewBatch(brew: BrewPlanWithMeta, sources: Fermentor[]): string {
   const source = sourceForAssignedTank(brew, sources);
   if (!source || Number(source.action) !== 0) return "";
@@ -94,19 +111,13 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
   onSave: (plan: WeekPlan) => Promise<void>;
   onCancel: () => void;
 }) {
+  const weekEnd = addDays(initial.id, 6);
   const [draft, setDraft] = useState<WeekPlan>(() => {
     const copy = structuredClone(initial);
-    // Weekly planning may persist a tentative tank as either the Firestore id or
-    // the human tank number. Canonicalize it on first open so the work manager
-    // sees the tentative recommendation already selected instead of starting blank.
     copy.brews = copy.brews.map((brew) => {
       const size = brewSizeLabel(Number(brew.liters) || 0);
       return {
         ...brew,
-        // Old recommendations could persist the CURRENT beer volume of the
-        // suggested tank (1245/3810/etc.) as the future brew volume. Preserve
-        // the intended single/double/triple size, but canonicalize liters from
-        // style + size before displaying or saving the future cycle.
         liters: brewLitersForSize(brew.style, size),
         ...(brew.tankId ? { tankId: canonicalTankId(brew, brews) } : {}),
       };
@@ -114,9 +125,10 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     const hasSavedBatchIdentity = copy.brews.some(
       (brew) => normalizedBatch(brew.batchNumber) !== "",
     );
-    copy.brews = hasSavedBatchIdentity
-      ? copy.brews
-      : normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
+    if (!hasSavedBatchIdentity) {
+      const ordered = normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
+      copy.brews = assignAvailableTanks(ordered, brews, releases, weekEnd);
+    }
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -128,13 +140,9 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
   const [error, setError] = useState("");
   const [showUnavailableTanks, setShowUnavailableTanks] = useState(false);
   const [pendingOverrideTankId, setPendingOverrideTankId] = useState<string | null>(null);
-  const weekEnd = addDays(initial.id, 6);
 
   useEffect(() => {
     let cancelled = false;
-    // The editor already has a safe immediate high-water mark from physical
-    // tanks + planning. Refresh the single newest historical batch in the
-    // background; never block tank assignment while this query is in flight.
     getBrewsSummaryPage(null, 10)
       .then(({ rows: history }) => {
         if (cancelled) return;
@@ -167,7 +175,6 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
         used.add(preferredNumber);
         return { ...brew, batchNumber: String(preferredNumber) };
       }
-
       while (used.has(next) || realReservedBatches.has(next)) next += 1;
       const batchNumber = String(next);
       used.add(next);
