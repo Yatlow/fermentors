@@ -50,9 +50,9 @@ function normalizeOrder(brews: BrewPlanWithMeta[], sources: Fermentor[], release
 
 function assignAvailableTanks(brews: BrewPlanWithMeta[], sources: Fermentor[], releases: Release[], weekEnd: string) {
   const available = releases
-    .filter((release) => !!release.date && release.date <= weekEnd)
+    .filter((release): release is Release & { date: string } => typeof release.date === "string" && release.date.length > 0 && release.date <= weekEnd)
     .map((release) => ({ release, tank: sources.find((source) => source.id === release.tankId) }))
-    .filter((entry): entry is { release: Release; tank: Fermentor } => !!entry.tank && Number(entry.tank.tankNumber) !== 1)
+    .filter((entry): entry is { release: Release & { date: string }; tank: Fermentor } => !!entry.tank && Number(entry.tank.tankNumber) !== 1)
     .filter((entry, index, all) => all.findIndex((candidate) => candidate.tank.id === entry.tank.id) === index)
     .sort((a, b) => a.release.date.localeCompare(b.release.date) || Number(a.tank.tankNumber) - Number(b.tank.tankNumber));
   const used = new Set<string>();
