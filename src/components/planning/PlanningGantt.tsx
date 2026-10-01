@@ -619,9 +619,9 @@ export default function PlanningGantt(props: Props) {
       </div>
 
         <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
-          <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>
+          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
           <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
-          <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>
+          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
         </div>
 
       <div className="bp-gantt-legend" aria-label="מקרא">
