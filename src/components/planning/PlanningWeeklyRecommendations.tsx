@@ -655,22 +655,7 @@ export default function PlanningWeeklyRecommendations({
         return [...rows, { ...draft, quantity: p ? manualMaxQuantity(p, tankId, id) : 0 }];
     });
 
-    function changeManualTank(id: string, tankId: string) {
-        setManualPacks((rows) => rows.map((r) => {
-            if (r.id !== id) return r;
-            const p = manualProductsForTank(tankId)[0];
-            const next = { ...r, tankId, productId: p?.id ?? "", quantity: 0 };
-            return { ...next, quantity: manualMaxQuantity(p, tankId, id) };
-        }));
-    }
 
-    function changeManualProduct(id: string, productId: string) {
-        setManualPacks((rows) => rows.map((r) => {
-            if (r.id !== id) return r;
-            const p = product(productId);
-            return { ...r, productId, quantity: manualMaxQuantity(p, r.tankId, id) };
-        }));
-    }
 
     function draftPackagingCover(p: Product) {
         const before = model.rows.afterShipment.get(p.id);
