@@ -29,6 +29,23 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
   const savedPlans = plannerProps.historyPlans ?? plannerProps.plans;
   const savedPlan = savedPlans.find((plan) => plan.id === week);
   const hasPackagingDecision = (savedPlan?.packaging ?? []).some((run) => run.quantity > 0);
+  const packagingDecisionCount = (savedPlan?.packaging ?? []).filter((run) => run.quantity > 0).length;
+  const hasBrewDecision = (savedPlan?.brews ?? []).length > 0;
+
+  const focusedModel = kind === "brews"
+    ? buildWeeklyPlanningModel({
+        settings: plannerProps.settings,
+        pallets: plannerProps.pallets,
+        tanks: plannerProps.tanks,
+        plans: savedPlans,
+        actuals: plannerProps.actuals,
+        sources: plannerProps.sources,
+        today: plannerProps.today,
+        week,
+        holidays: plannerProps.holidays,
+        shipments: plannerProps.shipments,
+      })
+    : null;
 
   const replacementPackagingCount = kind === "packaging" && hasPackagingDecision
     ? buildWeeklyPlanningModel({
@@ -46,26 +63,81 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
     : 0;
 
   useEffect(() => {
-    if (kind !== "packaging" || !hasPackagingDecision) return;
+    const syncFocusedEditor = () => {
+      const host = hostRef.current;
+      if (!host) return;
 
-    const syncReplaceAction = () => {
-      const button = hostRef.current?.querySelector<HTMLButtonElement>(".bp-week-packaging-card .bp-actions button:first-child");
-      if (!button) return;
-      if (button.textContent?.trim() !== "מחק אריזות ואשר המלצה") {
-        button.textContent = "מחק אריזות ואשר המלצה";
+      if (kind === "packaging" && hasPackagingDecision) {
+        const button = host.querySelector<HTMLButtonElement>(".bp-week-packaging-card .bp-actions button:first-child");
+        if (button) {
+          if (button.textContent?.trim() !== "מחק אריזות ואשר המלצה") {
+            button.textContent = "מחק אריזות ואשר המלצה";
+          }
+          button.classList.add("bp-action-warning");
+          button.disabled = plannerProps.disabled || replacementPackagingCount === 0;
+        }
       }
-      button.classList.add("bp-action-warning");
-      button.disabled = plannerProps.disabled || replacementPackagingCount === 0;
+
+      // The five-day note describes a real five-run packaging decision, not a
+      // general weekly hint. Do not show it before five packaging decisions exist.
+      if (packagingDecisionCount !== 5) {
+        host.querySelectorAll<HTMLElement>("p, small, div, span").forEach((node) => {
+          const text = node.textContent?.trim() ?? "";
+          if (text.includes("5 ימי אריזה") || (text.includes("חריגה נקודתית") && text.includes("ברירת המחדל"))) {
+            node.style.display = "none";
+          }
+        });
+      }
+
+      if (kind !== "brews") return;
+
+      // Once the planner has chosen brews, the old recommendation list is no
+      // longer actionable and only creates noise in the focused editor.
+      if (hasBrewDecision) {
+        const lists = host.querySelectorAll<HTMLElement>(".bp-week-brew-card .bp-decided-list");
+        lists.forEach((list) => {
+          const heading = list.querySelector("b")?.textContent?.trim();
+          if (heading === "המלצת המערכת") list.style.display = "none";
+        });
+      }
+
+      const capacity = focusedModel?.brewTankCapacity ?? 0;
+      const draftCount = host.querySelectorAll(".bp-week-brew-card .bp-brew-edit-row").length;
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>(".bp-week-brew-card button")];
+      const normalAdd = buttons.find((button) => button.textContent?.trim() === "+ הוסף בישול");
+      const oldException = buttons.find((button) => button.textContent?.includes("מעבר למיכלים הזמינים כחריגה"));
+      if (!normalAdd || draftCount < capacity) return;
+
+      // Reaching physical tank capacity must not turn into an unlimited bypass.
+      // Each additional brew requires a fresh, explicit approval.
+      normalAdd.disabled = true;
+      if (oldException) oldException.style.display = "none";
+
+      const editList = normalAdd.closest<HTMLElement>(".bp-decided-list");
+      if (!editList || editList.querySelector("[data-brew-overflow-confirm]")) return;
+      const approve = document.createElement("button");
+      approve.type = "button";
+      approve.className = "bp-secondary-action";
+      approve.dataset.brewOverflowConfirm = "true";
+      approve.textContent = "הוסף בישול עם מיכל לא פנוי";
+      approve.onclick = () => {
+        const confirmed = window.confirm("כל המיכלים הזמינים לשבוע כבר תפוסים. להוסיף בישול נוסף שידרוש שיבוץ מפורש למיכל שאינו פנוי כרגע?");
+        if (!confirmed) return;
+        normalAdd.disabled = false;
+        normalAdd.click();
+        normalAdd.disabled = true;
+      };
+      editList.appendChild(approve);
     };
 
-    const frame = window.requestAnimationFrame(syncReplaceAction);
-    const observer = new MutationObserver(syncReplaceAction);
+    const frame = window.requestAnimationFrame(syncFocusedEditor);
+    const observer = new MutationObserver(syncFocusedEditor);
     if (hostRef.current) observer.observe(hostRef.current, { childList: true, subtree: true, characterData: true });
     return () => {
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [kind, hasPackagingDecision, plannerProps.disabled, replacementPackagingCount, week]);
+  }, [kind, hasPackagingDecision, packagingDecisionCount, hasBrewDecision, plannerProps.disabled, replacementPackagingCount, focusedModel?.brewTankCapacity, week]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
