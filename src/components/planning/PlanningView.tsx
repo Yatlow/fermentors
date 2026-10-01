@@ -170,8 +170,12 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap }: {
 
   useEffect(() => {
     const applyBadge = () => {
-      const nav = document.querySelector<HTMLElement>('nav[aria-label="תכנון"]');
-      const button = Array.from(nav?.querySelectorAll<HTMLButtonElement>("button") ?? []).find((item) => item.textContent?.includes("לוח עבודה יומי"));
+      // PlanningView is rendered inside the planning page, while the main
+      // navigation lives outside it and is not guaranteed to use a <nav> wrapper.
+      // Find the actual daily-work button by its stable tab class/text instead of
+      // depending on a DOM wrapper that may not exist.
+      const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button.status-filter-button"))
+        .find((item) => item.textContent?.includes("לוח עבודה יומי"));
       if (!button) return;
       if (pendingDailyWork.total > 0) {
         button.dataset.planningBadge = String(pendingDailyWork.total);
