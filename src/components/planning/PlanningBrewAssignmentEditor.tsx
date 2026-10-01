@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { getBrewsSummaryPage } from "../../SERVICES/getAndPost/getAllBrews";
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { brewLitersForSize, brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
@@ -69,13 +68,6 @@ function assignAvailableTanks(brews: BrewPlanWithMeta[], sources: Fermentor[], r
   });
 }
 
-function maxBatch(values: unknown[]): number {
-  return values.reduce<number>((max, value) => {
-    const n = Number(String(value ?? "").replace("#", "").trim());
-    return Number.isFinite(n) ? Math.max(max, n) : max;
-  }, 0);
-}
-
 function normalizedBatch(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
 }
@@ -94,13 +86,7 @@ function compatibleTankForBrew(brew: BrewPlanWithMeta, tank: Fermentor): boolean
   return tankKind(tank.tankNumber) === brewSizeLabel(Number(brew.liters) || 0);
 }
 
-function realNewBrewBatch(brew: BrewPlanWithMeta, sources: Fermentor[]): string {
-  const source = sourceForAssignedTank(brew, sources);
-  if (!source || Number(source.action) !== 0) return "";
-  return normalizedBatch(source.batchNumber);
-}
-
-export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews, releases, exceptionReleases, disabled, onSave, onCancel }: {
+export default function PlanningBrewAssignmentEditor({ initial, brews, releases, exceptionReleases, disabled, onSave, onCancel }: {
   initial: WeekPlan;
   allPlans: WeekPlan[];
   brews: Fermentor[];
@@ -131,28 +117,10 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [batchBase, setBatchBase] = useState(() => Math.max(
-    maxBatch(brews.map((brew) => brew.batchNumber)),
-    maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
-  ));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showUnavailableTanks, setShowUnavailableTanks] = useState(false);
   const [pendingOverrideTankId, setPendingOverrideTankId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getBrewsSummaryPage(null, 10)
-      .then(({ rows: history }) => {
-        if (cancelled) return;
-        setBatchBase((current) => Math.max(
-          current,
-          maxBatch(history.map((row) => row.batchNumber)),
-        ));
-      })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
-  }, []);
 
   const assignedTankIds = useMemo(() => new Set(draft.brews.map((brew) => canonicalTankId(brew, brews)).filter(Boolean)), [draft.brews, brews]);
   const selected = draft.brews[selectedIndex] as BrewPlanWithMeta | undefined;
