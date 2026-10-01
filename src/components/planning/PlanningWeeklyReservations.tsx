@@ -32,11 +32,15 @@ export default function PlanningWeeklyReservations(props: Props) {
   );
 
   const assignTentativeTankAssignments = useCallback((next: WeekPlan): WeekPlan => {
+    // Build the assignment pool without the week we are about to assign.
+    // Otherwise buildBrewRecommendation reserves arbitrary tanks for the same
+    // unassigned brews before this size-aware assignment pass can see them.
+    const assignmentPlans = props.plans.filter((plan) => plan.id !== next.id);
     const model = buildWeeklyPlanningModel({
       settings: props.settings,
       pallets: planningPallets,
       tanks: props.tanks,
-      plans: props.plans,
+      plans: assignmentPlans,
       actuals: props.actuals,
       sources: props.sources,
       today: props.today,
@@ -56,7 +60,7 @@ export default function PlanningWeeklyReservations(props: Props) {
       const size = brewSizeLabel(brew.liters);
       const option = model.brewTankOptions.find((candidate) =>
         !usedTankIds.has(candidate.tankId) &&
-        candidate.availableDate <= model.weekEnd &&
+        candidate.availableDate <= brew.date &&
         candidate.sizeLabel === size,
       );
 
@@ -65,7 +69,6 @@ export default function PlanningWeeklyReservations(props: Props) {
       return {
         ...brew,
         tankId: option.tankId,
-        date: option.availableDate > brew.date ? option.availableDate : brew.date,
         tankAssignmentStatus: "tentative",
       };
     });
