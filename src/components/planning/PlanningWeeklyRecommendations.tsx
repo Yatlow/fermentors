@@ -548,29 +548,6 @@ export default function PlanningWeeklyRecommendations({
         return lines;
     }
 
-    function remainingLitersForTank(tankId: string, excludeManualId?: string) {
-        const base = model.tankAvailableLiters.get(tankId) ?? packagingTankById(tankId)?.liters ?? 0;
-        const used = [
-            ...current.packaging.map((r) => {
-                const key = r.id ?? `${r.productId}:${r.tankId}`;
-                return {
-                    id: `saved:${key}`,
-                    tankId: r.tankId,
-                    productId: r.productId,
-                    quantity: cancelledPackagingKeys.has(key)
-                        ? 0
-                        : effectiveSavedRemaining(r, Math.max(0, packDraft[key] ?? r.quantity)),
-                };
-            }),
-            ...visiblePackagingRecommendations.map((r) => ({ id: `rec:${r.id}`, tankId: r.tankId, productId: r.productId, quantity: Math.max(0, packDraft[`rec:${r.id}`] ?? 0) })),
-            ...manualPacks.map((r) => ({ ...r, id: `manual:${r.id}` })),
-        ].filter((r) => r.tankId === tankId && (!excludeManualId || r.id !== `manual:${excludeManualId}`));
-        return Math.max(0, base - used.reduce((sum, r) => {
-            const p = product(r.productId);
-            return sum + (p ? r.quantity * litersPerUnit(p) : 0);
-        }, 0));
-    }
-
     function changeSavedPackagingQuantity(run: Plan, key: string, requested: number) {
         setPackDraft((draft) => {
             const next = {
