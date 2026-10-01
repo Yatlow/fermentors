@@ -281,9 +281,11 @@ export function tanksFrom(
         num(t.currentData?.totalLiters),
         num(t.currentData?.crates) + num(t.currentData?.kegs),
       );
-      // beerVolume is the synchronized NET volume available in the current tank.
-      // Do not apply planning loss/shrinkage again here.
-      const liters = Math.max(0, num(t.beerVolume) - packed);
+      // Current physical beerVolume keeps the established 10% process-loss
+      // treatment. This is distinct from estimatedBrewVolume()/planned brew
+      // liters, whose tank × style fallback values are already NET and must
+      // never receive another shrinkage deduction downstream.
+      const liters = Math.max(0, num(t.beerVolume) * 0.9 - packed);
       return [
         {
           id: t.id,
