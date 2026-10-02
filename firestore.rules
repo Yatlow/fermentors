@@ -29,8 +29,9 @@ service cloud.firestore {
     }
 
     match /approvedUsers/{email} {
-      allow get: if canDiagnosticRead() && request.auth.token.email == email;
-      allow list: if canDiagnosticRead();
+      // Keep auth/bootstrap reads independent of the incident diagnostic guard.
+      allow get: if isApprovedUser() && request.auth.token.email == email;
+      allow list: if isApprovedUser();
       allow write: if isAdmin();
       allow create: if isAdmin();
       allow delete: if isAdmin();
