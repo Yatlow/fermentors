@@ -14,11 +14,11 @@ service cloud.firestore {
     }
 
     // TEMPORARY INCIDENT DIAGNOSTIC:
-    // Client reads are isolated to Yisrael only. Writes keep their normal rules.
-    // Revert immediately after the read-source test.
+    // Restore normal approved-user reads, except block Ramez.
+    // Writes keep their normal rules. Revert after the read-source test.
     function canDiagnosticRead() {
       return isApprovedUser()
-        && request.auth.token.email == 'yisrael@atlow.co.il';
+        && request.auth.token.email != 'rameznazy@gmail.com';
     }
 
     function isAdmin() {
