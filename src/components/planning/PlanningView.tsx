@@ -81,6 +81,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const [planningAuditElapsedMs, setPlanningAuditElapsedMs] = useState<number | null>(null);
   const [planningQueryTimings, setPlanningQueryTimings] = useState<PlanningQueryTiming[]>([]);
   const showPreviewDiagnostics = runtimeConfig.deployEnv !== "production";
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
 
   useEffect(() => {
     const currentUser = auth.currentUser;
@@ -104,7 +105,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   }, [actuals.length, data.actualShipments.length, data.loading, data.offline, data.snapshots.length, pallets.length, plans.length, productionTanks.length, readScope, tab]);
 
   useEffect(() => {
-    if (!showPreviewDiagnostics || planningServerProbeStarted.current) return;
+    if (!showPreviewDiagnostics || !diagnosticsEnabled || planningServerProbeStarted.current) return;
     planningServerProbeStarted.current = true;
     let cancelled = false;
     const start = weekStart(today);
@@ -150,7 +151,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       console.info("[planning-read-audit] per-query server timings", results);
     });
     return () => { cancelled = true; };
-  }, [productionTanks, showPreviewDiagnostics, today]);
+  }, [diagnosticsEnabled, productionTanks, showPreviewDiagnostics, today]);
 
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
   const identityAlignedPlans = useMemo(() => withStablePackagingIdentity(plans), [plans]);
@@ -196,9 +197,16 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       {data.offline && <p role="status">ממתין לחיבור לשרת.</p>}
       {message && (tab === "data" || tab === "settings") && <p role="status" className="bp-success">{message}</p>}
       {showPreviewDiagnostics && !data.loading && !data.error && (
-        <div dir="ltr" style={{ margin: "8px 12px", padding: "8px 10px", border: "1px dashed currentColor", borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>
-          <div><strong>Planning audit</strong>{` · Plans ${plans.length}`}{` · Pallets ${pallets.length}`}{` · Packaging ${actuals.length}`}{` · Shipments ${data.actualShipments.length}`}{` · Tanks ${productionTanks.length}`}{planningAuditElapsedMs !== null ? ` · Load ${(planningAuditElapsedMs / 1000).toFixed(2)}s` : ""}{` · ${data.offline ? "cache/offline" : "server/live"}`}</div>
-          <div style={{ marginTop: 4 }}><strong>Server probes</strong>{planningQueryTimings.length === 0 ? " · running…" : planningQueryTimings.map((item) => ` · ${item.label} ${(item.ms / 1000).toFixed(2)}s/${item.docs}${item.error ? " ERR" : ""}`).join("")}</div>
+        <div style={{ margin: "8px 12px" }}>
+          <button type="button" className="bp-secondary" aria-pressed={diagnosticsEnabled} onClick={() => setDiagnosticsEnabled((enabled) => !enabled)}>
+            {diagnosticsEnabled ? "כבה Diagnostics" : "הפעל Diagnostics"}
+          </button>
+          {diagnosticsEnabled && (
+            <div dir="ltr" style={{ marginTop: 8, padding: "8px 10px", border: "1px dashed currentColor", borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+              <div><strong>Planning audit</strong>{` · Plans ${plans.length}`}{` · Pallets ${pallets.length}`}{` · Packaging ${actuals.length}`}{` · Shipments ${data.actualShipments.length}`}{` · Tanks ${productionTanks.length}`}{planningAuditElapsedMs !== null ? ` · Load ${(planningAuditElapsedMs / 1000).toFixed(2)}s` : ""}{` · ${data.offline ? "cache/offline" : "server/live"}`}</div>
+              <div style={{ marginTop: 4 }}><strong>Server probes</strong>{planningQueryTimings.length === 0 ? " · running…" : planningQueryTimings.map((item) => ` · ${item.label} ${(item.ms / 1000).toFixed(2)}s/${item.docs}${item.error ? " ERR" : ""}`).join("")}</div>
+            </div>
+          )}
         </div>
       )}
       {!data.loading && !data.error && <>

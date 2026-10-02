@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { CalendarDays, SquarePen } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -27,6 +27,7 @@ import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVIC
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
 import PlanningGanttDailyModal from "./PlanningGanttDailyModal";
+import BeerLoader from "../general/Loading";
 
 const CRATE_LITERS = 24 * 0.33;
 const KEG_LITERS = 20;
@@ -116,6 +117,10 @@ export default function PlanningGantt(props: Props) {
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
   const [dailyTarget, setDailyTarget] = useState<EditorTarget | null>(null);
   const [weekPage, setWeekPage] = useState(0);
+  const [isPaging, startPaginationTransition] = useTransition();
+  const changeWeekPage = (next: number | ((current: number) => number)) => {
+    startPaginationTransition(() => setWeekPage(next));
+  };
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
   const planningHorizonWeeks = canEdit ? 13 : 4;
@@ -560,7 +565,7 @@ export default function PlanningGantt(props: Props) {
   ) : null;
 
   const dailyEditorPlans = useMemo(
-    () => withTentativeFiveWeekTanks(editorPlans, tanks, settings).map((plan) => ({
+    () => dailyTarget ? withTentativeFiveWeekTanks(editorPlans, tanks, settings).map((plan) => ({
       ...plan,
       brews: plan.brews.map((brew) => {
         const tentativeTankId = (brew as typeof brew & { tentativeTankId?: string }).tentativeTankId;
@@ -568,8 +573,8 @@ export default function PlanningGantt(props: Props) {
           ? { ...brew, tankId: tentativeTankId, tankAssignmentStatus: "tentative" as const }
           : brew;
       }),
-    })),
-    [editorPlans, tanks, settings],
+    })) : editorPlans,
+    [dailyTarget, editorPlans, tanks, settings],
   );
 
   const dailyEditor = dailyTarget && canEdit ? (
@@ -594,6 +599,7 @@ export default function PlanningGantt(props: Props) {
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
+        {isPaging && <BeerLoader overlay message="מעדכן את חלון התכנון…" />}
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
@@ -602,9 +608,9 @@ export default function PlanningGantt(props: Props) {
           </div>
         </div>
         <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
-          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
+          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => changeWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
           <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
-          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
+          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => changeWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
         </div>
         <div className="bp-gantt-calendar-host">
           <PlanningFiveWeekOverview {...props} plans={calendarPlans} tanks={calendarTanks} visibleWeekIds={weekIds} />
@@ -617,6 +623,7 @@ export default function PlanningGantt(props: Props) {
 
   return <>
     <section className="bp-gantt-shell">
+      {isPaging && <BeerLoader overlay message="מעדכן את חלון התכנון…" />}
       <div className="bp-section-heading bp-gantt-heading">
         <div><h2>גאנט</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
         <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
@@ -626,9 +633,9 @@ export default function PlanningGantt(props: Props) {
       </div>
 
         <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
-          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => setWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
+          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => changeWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
           <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
-          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
+          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => changeWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
         </div>
 
       <div className="bp-gantt-legend" aria-label="מקרא">
