@@ -32,21 +32,6 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
   const packagingDecisionCount = (savedPlan?.packaging ?? []).filter((run) => run.quantity > 0).length;
   const hasBrewDecision = (savedPlan?.brews ?? []).length > 0;
 
-  const focusedModel = kind === "brews"
-    ? buildWeeklyPlanningModel({
-        settings: plannerProps.settings,
-        pallets: plannerProps.pallets,
-        tanks: plannerProps.tanks,
-        plans: savedPlans,
-        actuals: plannerProps.actuals,
-        sources: plannerProps.sources,
-        today: plannerProps.today,
-        week,
-        holidays: plannerProps.holidays,
-        shipments: plannerProps.shipments,
-      })
-    : null;
-
   const replacementPackagingCount = kind === "packaging" && hasPackagingDecision
     ? buildWeeklyPlanningModel({
         settings: plannerProps.settings,
@@ -101,7 +86,10 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
         });
       }
 
-      const capacity = focusedModel?.brewTankCapacity ?? 0;
+      // Use the tanks actually shown as available in this editor. The model's
+      // broader capacity can include exception/reuse candidates and must not
+      // silently authorize extra brews.
+      const capacity = host.querySelectorAll(".bp-week-brew-card .bp-brew-tank-chip").length;
       const draftCount = host.querySelectorAll(".bp-week-brew-card .bp-brew-edit-row").length;
       const buttons = [...host.querySelectorAll<HTMLButtonElement>(".bp-week-brew-card button")];
       const normalAdd = buttons.find((button) => button.textContent?.trim() === "+ הוסף בישול");
@@ -137,7 +125,7 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
       window.cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [kind, hasPackagingDecision, packagingDecisionCount, hasBrewDecision, plannerProps.disabled, replacementPackagingCount, focusedModel?.brewTankCapacity, week]);
+  }, [kind, hasPackagingDecision, packagingDecisionCount, hasBrewDecision, plannerProps.disabled, replacementPackagingCount, week]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
