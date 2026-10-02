@@ -7,11 +7,10 @@ import {
     setDoc,
     deleteDoc,
     serverTimestamp,
-    updateDoc,
 
 } from "firebase/firestore";
 
-import { auth, db } from "../../firebase";
+import { db } from "../../firebase";
 import { Trash2 } from 'lucide-react';
 
 import emailjs from "@emailjs/browser";
@@ -23,7 +22,6 @@ import emailjs from "@emailjs/browser";
 type ApprovedUser = {
     id: string;
     email: string;
-    firestoreAccessDisabled: boolean;
 };
 
 export default function EditApprovedUsers(
@@ -55,7 +53,6 @@ export default function EditApprovedUsers(
             const data: ApprovedUser[] = snapshot.docs.map((d) => ({
                 id: d.id,
                 email: (d.data().email as string) ?? d.id,
-                firestoreAccessDisabled: d.data().firestoreAccessDisabled === true,
             }));
 
             data.sort((a, b) => a.email.localeCompare(b.email));
@@ -137,7 +134,7 @@ export default function EditApprovedUsers(
             sendApprovalEmail(email)
 
             setUsers((prev) =>
-                [...prev, { id: docId, email, firestoreAccessDisabled: false }]
+                [...prev, { id: docId, email }]
                     .sort((a, b) => a.email.localeCompare(b.email))
             );
 
@@ -155,43 +152,6 @@ export default function EditApprovedUsers(
             setError(
                 "אירעה שגיאה בהוספת האימייל"
             );
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    // ============================================================
-    // EMERGENCY FIRESTORE ACCESS SWITCH
-    // ============================================================
-
-    const handleToggleFirestoreAccess = async (user: ApprovedUser) => {
-        if (!isAdmin) {
-            setShowPermissionModal(true);
-            return;
-        }
-        if (auth.currentUser?.email?.toLowerCase() === user.id.toLowerCase()) {
-            setError("לא ניתן לחסום את המשתמש המחובר כעת.");
-            return;
-        }
-
-        const disabled = !user.firestoreAccessDisabled;
-        setError("");
-        setSuccess("");
-        try {
-            setSaving(true);
-            await updateDoc(doc(db, "approvedUsers", user.id), {
-                firestoreAccessDisabled: disabled,
-            });
-            setUsers((current) => current.map((item) =>
-                item.id === user.id ? { ...item, firestoreAccessDisabled: disabled } : item
-            ));
-            setSuccess(disabled
-                ? `גישת Firestore של ${user.email} נעצרה מיידית ✓`
-                : `גישת Firestore של ${user.email} הופעלה מחדש ✓`
-            );
-        } catch (err) {
-            console.error("Error toggling Firestore access:", err);
-            setError("אירעה שגיאה בשינוי גישת Firestore");
         } finally {
             setSaving(false);
         }
@@ -432,24 +392,14 @@ export default function EditApprovedUsers(
                                     {user.email}
                                 </span>
 
-                                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                                    <button
-                                        className="btn-primary"
-                                        onClick={() => handleToggleFirestoreAccess(user)}
-                                        disabled={saving || auth.currentUser?.email?.toLowerCase() === user.id.toLowerCase()}
-                                        title="מתג חירום בצד השרת. עוצר גם גרסה ישנה שכבר פתוחה."
-                                    >
-                                        {user.firestoreAccessDisabled ? "הפעל Firestore" : "עצור Firestore"}
-                                    </button>
-                                    <button
-                                        className="btn-primary removeEmailBtn"
-                                        onClick={() => handleRemove(user.id)}
-                                        disabled={saving}
-                                    >
-                                        <span>הסר</span>
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
+                                <button
+                                    className="btn-primary removeEmailBtn"
+                                    onClick={() => handleRemove(user.id)}
+                                    disabled={saving}
+                                >
+                                    <span>הסר</span>
+                                    <Trash2 size={16} />
+                                </button>
 
                             </div>
                         ))}
