@@ -46,10 +46,10 @@ export async function checkForNewAppVersion(): Promise<void> {
 export function startVersionGuard(): () => void {
   void checkForNewAppVersion();
 
+  // Check even while hidden. A stale background tab can otherwise keep an old
+  // Firestore listener graph alive indefinitely and never discover a deployed fix.
   const intervalId = window.setInterval(() => {
-    if (document.visibilityState === "visible") {
-      void checkForNewAppVersion();
-    }
+    void checkForNewAppVersion();
   }, CHECK_INTERVAL_MS);
 
   const handleVisibilityChange = () => {
