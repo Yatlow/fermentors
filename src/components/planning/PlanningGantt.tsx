@@ -384,11 +384,15 @@ export default function PlanningGantt(props: Props) {
       // Canonical tankId (aligned from brewId/cycle) wins over the historical
       // tankNumber snapshot. The snapshot is only a legacy/display fallback.
       const resolvedTank = tank?.number ?? item.tankNumber;
+      const style = product?.style ?? item.nonInventoryStyle ?? "";
+      const type = product?.type ?? item.nonInventoryType;
       return {
         key: `pack:${item.id ?? index}`,
-        title: product ? `${displayStyle(product.style)} · ${tankLabel(resolvedTank)}` : item.productId,
-        meta: product ? `${fmt(item.quantity)} ${product.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, product.type))} ל׳ · מתוכנן` : fmt(item.quantity),
-        styleClass: product ? beerStyleClass(product.style).className : undefined,
+        title: style ? `${displayStyle(style)} · ${tankLabel(resolvedTank)}` : item.productId,
+        meta: type
+          ? `${fmt(item.quantity)} ${type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, type))} ל׳ · מתוכנן`
+          : fmt(item.quantity),
+        styleClass: style ? beerStyleClass(style).className : undefined,
       };
     });
 
@@ -499,7 +503,8 @@ export default function PlanningGantt(props: Props) {
     const plan = simulations.get(weekId)?.effectivePlan ?? decisionPlanFor(weekId);
     const plannedPackaging = (plan?.packaging ?? []).reduce((sum, run) => {
       const product = productFor(run.productId);
-      return sum + (product && run.quantity > 0 ? packageLiters(run.quantity, product.type) : 0);
+      const type = product?.type ?? run.nonInventoryType;
+      return sum + (type && run.quantity > 0 ? packageLiters(run.quantity, type) : 0);
     }, 0);
     const actualPackaging = actuals.reduce((sum, actual) => {
       const date = actualDate(actual);

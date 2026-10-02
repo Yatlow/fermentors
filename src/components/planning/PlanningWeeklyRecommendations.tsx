@@ -771,9 +771,25 @@ export default function PlanningWeeklyRecommendations({
         }
     }
 
+    function visibleBrewRecommendations() {
+        const usedBySize = new Map<BrewSizeLabel, number>();
+        for (const brew of current.brews) {
+            const size = brewSizeLabel(brew.liters);
+            usedBySize.set(size, (usedBySize.get(size) ?? 0) + 1);
+        }
+        return model.brewRecommendations.filter((recommendation) => {
+            const size = recommendation.sizeLabel;
+            const used = usedBySize.get(size) ?? 0;
+            if (used >= brewSizeCapacity(size)) return false;
+            usedBySize.set(size, used + 1);
+            return true;
+        });
+    }
+
     async function acceptBrewRecommendations() {
-        if (!model.brewRecommendations.length) return;
-        const additions = model.brewRecommendations.map((b) => ({
+        const recommendations = visibleBrewRecommendations();
+        if (!recommendations.length) return;
+        const additions = recommendations.map((b) => ({
             id: crypto.randomUUID(), style: b.style, liters: b.liters, tankId: "", date: addDays(week, 1),
         }));
         setBusy(true);
@@ -807,7 +823,8 @@ export default function PlanningWeeklyRecommendations({
 
     function addBrew() {
         setBrewDraft((rows) => {
-            const recommendation = model.brewRecommendations[rows.length];
+            const recommendations = visibleBrewRecommendations();
+            const recommendation = recommendations[rows.length];
             const recommendedSize = recommendation?.sizeLabel;
             const size = recommendedSize && canUseBrewSize(rows, recommendedSize)
                 ? recommendedSize
@@ -815,6 +832,9 @@ export default function PlanningWeeklyRecommendations({
             const style = recommendation?.style ?? CORE_STYLES[0];
             return [...rows, { style, liters: brewLitersForSize(style, size) }];
         });
+        // An unavailable-tank override is intentionally one-shot: every extra
+        // brew beyond the available tank pool requires a fresh explicit approval.
+        if (allowUnavailableBrewException) setAllowUnavailableBrewException(false);
     }
 
     function changeBrewStyle(index: number, style: string) {
@@ -833,11 +853,12 @@ export default function PlanningWeeklyRecommendations({
     }
 
     function pushBrewRecommendationsToDraft() {
-        if (!model.brewRecommendations.length) return;
+        const recommendations = visibleBrewRecommendations();
+        if (!recommendations.length) return;
         setEditing("brew");
         setBrewDraft([
             ...current.brews.map((b) => ({ style: b.style, liters: b.liters })),
-            ...model.brewRecommendations.map((b) => ({ style: b.style, liters: b.liters })),
+            ...recommendations.map((b) => ({ style: b.style, liters: b.liters })),
         ]);
     }
 
@@ -1095,11 +1116,11 @@ export default function PlanningWeeklyRecommendations({
                 </div>}
                 <div className="bp-actions">
                     {editing === "brew" ? <>
-                        <button type="button" disabled={!model.brewRecommendations.length} onClick={pushBrewRecommendationsToDraft}>צור בישולים מההמלצות</button>
+                        <button type="button" disabled={!visibleBrewRecommendations().length} onClick={pushBrewRecommendationsToDraft}>צור בישולים מההמלצות</button>
                         <button disabled={busy} onClick={saveBrews}>שמירת הבישולים</button>
                         <button onClick={() => setEditing(null)}>ביטול</button>
                     </> : <>
-                        <button type="button" disabled={disabled || busy || !model.brewRecommendations.length} onClick={acceptBrewRecommendations}>
+                        <button type="button" disabled={disabled || busy || !visibleBrewRecommendations().length} onClick={acceptBrewRecommendations}>
                             {current.brews.length ? "הוסף המלצות לבישולים" : "צור בישולים מהמלצות"}
                         </button>
                         <button disabled={disabled || busy} onClick={() => beginEdit("brew")}>עריכת הבישולים</button>
@@ -1133,12 +1154,12 @@ export default function PlanningWeeklyRecommendations({
                     >
                         הוסף בישול מעבר למיכלים הזמינים כחריגה
                     </button>}
-                    {allowUnavailableBrewException && <small className="bp-brew-capacity-warning">חריגת זמינות פעילה לטיוטה הזו. את הבישול החריג יהיה צורך לשבץ במפורש למיכל שמתפנה לפני יום הבישול.</small>}
+                    {allowUnavailableBrewException && <small className="bp-brew-capacity-warning">אושרה חריגה לבישול הבא בלבד. לאחר הוספתו יידרש אישור חדש לכל בישול נוסף מעבר למיכלים הזמינים.</small>}
                 </div>}
 
                 <div className="bp-decided-list">
                     <b>המלצת המערכת</b>
-                    {model.brewRecommendations.length ? model.brewRecommendations.map((r, i) =>
+                    {visibleBrewRecommendations().length ? visibleBrewRecommendations().map((r, i) =>
                         <div className={`bp-rec-line ${coverageClass(styleCover(r.style), settings.totalTargetWeeks ?? settings.targetWeeks)}`} key={`${r.style}:${i}`}>
                             <span className={`bp-week-sku ${beerStyleClass(r.style).className}`}><b>{displayStyle(r.style)}</b></span>
                             <span>בישול {r.sizeLabel} · מתאים למיכל {r.tankNumber}<small> · זמין מ־{shortDate(r.availableDate)}</small></span>
