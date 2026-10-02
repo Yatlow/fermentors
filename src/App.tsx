@@ -378,7 +378,7 @@ function App() {
     }, []);
 
     const updateReading = (tankId: string, field: keyof NewReading, value: string) => {
-        setNewReadings((prev) => ({ ...prev, [tankId]: { ...prev[tankId], [field]: value }));
+        setNewReadings((prev) => ({ ...prev, [tankId]: { ...prev[tankId], [field]: value } }));
     };
 
     const totalVolumes = useMemo<Record<string, number>>(() => {
