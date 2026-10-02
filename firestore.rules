@@ -13,6 +13,14 @@ service cloud.firestore {
         );
     }
 
+    // TEMPORARY INCIDENT DIAGNOSTIC:
+    // Client reads are isolated to Yisrael only. Writes keep their normal rules.
+    // Revert immediately after the read-source test.
+    function canDiagnosticRead() {
+      return isApprovedUser()
+        && request.auth.token.email == 'yisrael@atlow.co.il';
+    }
+
     function isAdmin() {
       return isLoggedIn() &&
         get(
@@ -21,9 +29,8 @@ service cloud.firestore {
     }
 
     match /approvedUsers/{email} {
-      allow get: if isLoggedIn() &&
-        request.auth.token.email == email;
-      allow list: if isApprovedUser();
+      allow get: if canDiagnosticRead() && request.auth.token.email == email;
+      allow list: if canDiagnosticRead();
       allow write: if isAdmin();
       allow create: if isAdmin();
       allow delete: if isAdmin();
@@ -34,41 +41,41 @@ service cloud.firestore {
     }
 
     match /fermentors/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /brews/{batchId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
       match /measurements/{measurementId} {
-        allow read: if isApprovedUser();
+        allow read: if canDiagnosticRead();
         allow write: if isApprovedUser();
       }
     }
 
     match /specs/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /styleAverages/{style} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if false;
     }
 
     match /brewAcidHistory/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /packagingLog/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /calendar_events/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
@@ -78,35 +85,37 @@ service cloud.firestore {
     }
 
     match /pallets/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /coolerUndoHistory/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /counters/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /shipments/{document} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if isApprovedUser();
     }
 
     match /scheduledCellarRecommendations/{document} {
-      allow read, write: if isApprovedUser();
+      allow read: if canDiagnosticRead();
+      allow write: if isApprovedUser();
     }
 
     match /ignoredCellarRecommendations/{document} {
-      allow read, write: if isApprovedUser();
+      allow read: if canDiagnosticRead();
+      allow write: if isApprovedUser();
     }
 
     match /sheetSyncJobs/{requestId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create: if isApprovedUser()
         && request.resource.data.keys().hasOnly([
           'requestId', 'action', 'ownerUid', 'ownerEmail', 'state',
@@ -137,7 +146,7 @@ service cloud.firestore {
     }
 
     match /packagingOperations/{operationId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create: if isApprovedUser()
         && request.resource.data.operationId == operationId
         && request.resource.data.state == 'awaiting_pallets';
@@ -165,7 +174,7 @@ service cloud.firestore {
     }
 
     match /operationReceipts/{requestId} {
-      allow get: if isApprovedUser() &&
+      allow get: if canDiagnosticRead() &&
         resource.data.userEmail == request.auth.token.email;
       allow list, create, update, delete: if false;
     }
@@ -185,7 +194,7 @@ service cloud.firestore {
     }
 
     match /planningSettings/{settingsId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create: if isBreweryPlanner() && settingsId == 'main'
         && validPlanningRevision() && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time
         && validPlanningSettings() && atomicPlanningRevision('planningSettings', settingsId);
@@ -215,7 +224,7 @@ service cloud.firestore {
     }
 
     match /shipmentPlanningQueue/{weekId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create, update: if isBreweryPlanner()
         && request.resource.data.keys().hasOnly([
           'id', 'revision', 'projectionVersion', 'deliveries', 'updatedAt', 'updatedBy'
@@ -233,7 +242,7 @@ service cloud.firestore {
     }
 
     match /planningWeeks/{weekId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create: if isBreweryPlanner() && validPlanningRevision()
         && request.resource.data.revision == 1 && request.resource.data.createdAt == request.time && validPlanningWeek(weekId) && atomicPlanningRevision('planningWeeks', weekId);
       allow update: if isBreweryPlanner() && validPlanningRevision()
@@ -271,7 +280,7 @@ service cloud.firestore {
     }
 
     match /planningWeeks/{weekId}/revisions/{revisionId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create: if isBreweryPlanner()
         && revisionId == string(request.resource.data.revision)
         && request.resource.data.updatedAt == request.time
@@ -281,7 +290,7 @@ service cloud.firestore {
     }
 
     match /planningSettings/{settingsId}/revisions/{revisionId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create: if isBreweryPlanner()
         && revisionId == string(request.resource.data.revision)
         && request.resource.data.updatedAt == request.time
@@ -293,7 +302,7 @@ service cloud.firestore {
     match /brewSheetCreationJobs/{batchId} {
       // This is an operational outbox. The authenticated brewery client only
       // enqueues/deletes jobs; the worker owns subsequent state transitions.
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       // A job contains only a request to create a Sheet; the worker validates
       // and performs the privileged operation. Keep client updates blocked.
       // Reads/deletes remain restricted below.
@@ -303,7 +312,7 @@ service cloud.firestore {
     }
 
     match /pendingBrews/{batchId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create, update: if isApprovedUser()
         && request.resource.data.keys().hasOnly([
           'batchNumber', 'beerStyle', 'tankNumber', 'tankType',
@@ -319,7 +328,7 @@ service cloud.firestore {
     }
 
     match /brewPlanningQueue/{weekId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow create, update: if isBreweryPlanner()
         && request.resource.data.keys().hasOnly([
           'id', 'revision', 'brews', 'updatedAt', 'updatedBy'
@@ -336,7 +345,7 @@ service cloud.firestore {
     }
 
     match /planningSnapshots/{snapshotId} {
-      allow read: if isApprovedUser();
+      allow read: if canDiagnosticRead();
       allow write: if false;
     }
   }
