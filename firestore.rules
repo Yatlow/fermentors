@@ -14,11 +14,12 @@ service cloud.firestore {
     }
 
     // TEMPORARY INCIDENT DIAGNOSTIC:
-    // Restore normal approved-user reads, except block Ramez.
+    // Restore normal approved-user reads, except block Yochai and Jesse.
     // Writes keep their normal rules. Revert after the read-source test.
     function canDiagnosticRead() {
       return isApprovedUser()
-        && request.auth.token.email != 'rameznazy@gmail.com';
+        && request.auth.token.email != 'yochai@shapirobeer.co.il'
+        && request.auth.token.email != 'jesse.hartman3@gmail.com';
     }
 
     function isAdmin() {
