@@ -1,0 +1,33 @@
+name: Apply PR119 targeted planning fixes
+
+on:
+  push:
+    branches:
+      - planning-tank-schedule
+    paths:
+      - '.github/workflows/pr119-apply-targeted-fixes.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: planning-tank-schedule
+      - name: Apply targeted fixes
+        run: python scripts/patch-pr119-three-fixes.py
+      - name: Verify changed files
+        run: |
+          git diff --check
+          git diff -- src/components/planning/PlanningWeeklyRecommendations.tsx src/components/planning/PlanningGantt.tsx
+      - name: Commit fixes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/planning/PlanningWeeklyRecommendations.tsx src/components/planning/PlanningGantt.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m 'Fix PR119 brew capacity and special packaging UI'
+          git push origin HEAD:planning-tank-schedule
