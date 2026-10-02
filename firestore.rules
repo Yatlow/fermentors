@@ -5,16 +5,24 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Server-side circuit breaker. Because Security Rules evaluate every
+    // Firestore request, flipping firestoreAccessDisabled on approvedUsers
+    // stops even an already-running/stale client immediately; no app reload is
+    // required. Keep the approvedUsers self-get below outside this function so
+    // the UI can still explain that access is suspended.
     function isApprovedUser() {
       return isLoggedIn()
         && request.auth.token.email is string
         && exists(
           /databases/$(database)/documents/approvedUsers/$(request.auth.token.email)
-        );
+        )
+        && get(
+          /databases/$(database)/documents/approvedUsers/$(request.auth.token.email)
+        ).data.get('firestoreAccessDisabled', false) != true;
     }
 
     function isAdmin() {
-      return isLoggedIn() &&
+      return isApprovedUser() &&
         get(
           /databases/$(database)/documents/approvedUsers/$(request.auth.token.email)
         ).data.isAdmin == true;
@@ -171,9 +179,7 @@ service cloud.firestore {
     }
 
     function isBreweryPlanner() {
-      return request.auth != null
-        && request.auth.token.email is string
-        && exists(/databases/$(database)/documents/approvedUsers/$(request.auth.token.email))
+      return isApprovedUser()
         && (get(/databases/$(database)/documents/approvedUsers/$(request.auth.token.email)).data.get('isAdmin', false) == true
           || get(/databases/$(database)/documents/approvedUsers/$(request.auth.token.email)).data.get('isPlannerUser', false) == true);
     }
