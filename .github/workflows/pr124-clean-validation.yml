@@ -1,8 +1,0 @@
-name: PR124 validation cleanup marker
-on:
-  workflow_dispatch:
-jobs:
-  noop:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo validation-only
