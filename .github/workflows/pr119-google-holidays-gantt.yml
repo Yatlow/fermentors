@@ -1,0 +1,280 @@
+name: PR119 Google holidays and Gantt
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: planning-tank-schedule
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Patch holiday sync, dedupe and Gantt
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # 1. Apps Script: keep operational calendar sync, and additionally mirror
+          # Google's subscribed Israel national-holidays calendar into calendar_events.
+          p = Path('server/calendarService.js')
+          s = p.read_text()
+          needle = '''    Logger.log("Calendar sync complete: " + savedCount + " event(s).");
+    return { savedCount: savedCount };
+'''
+          repl = '''    const holidaySavedCount = calendarSyncGoogleNationalHolidays_(timeMin, timeMax);
+    Logger.log(
+      "Calendar sync complete: " + savedCount + " operational event(s), " +
+      holidaySavedCount + " national holiday event(s)."
+    );
+    return { savedCount: savedCount, holidaySavedCount: holidaySavedCount };
+'''
+          if needle not in s:
+              raise SystemExit('calendar sync return anchor not found')
+          s = s.replace(needle, repl, 1)
+
+          insert_at = s.index('\nfunction calendarProcessTankTotals_')
+          helper = r'''
+
+function calendarSyncGoogleNationalHolidays_(timeMin, timeMax) {
+  let calendars = [];
+  let pageToken = null;
+  do {
+    const page = Calendar.CalendarList.list({
+      maxResults: 250,
+      pageToken: pageToken || undefined,
+      showHidden: true
+    });
+    calendars = calendars.concat(page.items || []);
+    pageToken = page.nextPageToken || null;
+  } while (pageToken);
+
+  const israelHolidayCalendars = calendars.filter(function (calendar) {
+    const summary = String(calendar.summary || calendar.summaryOverride || "").toLowerCase();
+    const id = String(calendar.id || "").toLowerCase();
+    const looksIsraeli =
+      summary.includes("ישראל") || summary.includes("israel") || id.includes("he.jewish") || id.includes("israel");
+    const looksHoliday =
+      summary.includes("חג") || summary.includes("holiday") || id.includes("holiday");
+    return looksIsraeli && looksHoliday;
+  });
+
+  if (!israelHolidayCalendars.length) {
+    Logger.log("[Calendar holidays] Israel national-holidays calendar was not found in CalendarList.");
+    return 0;
+  }
+
+  let saved = 0;
+  const seen = {};
+  israelHolidayCalendars.forEach(function (calendar) {
+    let token = null;
+    do {
+      const page = Calendar.Events.list(calendar.id, {
+        timeMin: timeMin,
+        timeMax: timeMax,
+        singleEvents: true,
+        orderBy: "startTime",
+        pageToken: token || undefined,
+        maxResults: 2500
+      });
+      (page.items || []).forEach(function (event) {
+        if (event.status === "cancelled" || !event.start) return;
+        const dateValue = event.start.date || event.start.dateTime;
+        if (!dateValue) return;
+        const date = String(dateValue).split("T")[0];
+        const title = String(event.summary || "").trim();
+        if (!title) return;
+        const eventId = "national-holiday:" + calendar.id + ":" + event.id;
+        if (seen[eventId]) return;
+        seen[eventId] = true;
+        calendarWriteEventToFirestore_(FIREBASE_PROJECT_ID, eventId, {
+          eventId: eventId,
+          title: title,
+          date: date,
+          timestamp: new Date(date + "T12:00:00+03:00").getTime(),
+          actionType: "holiday",
+          source: "google-national-holidays",
+          calendarId: calendar.id,
+          closed: true
+        });
+        saved++;
+      });
+      token = page.nextPageToken || null;
+    } while (token);
+  });
+  return saved;
+}
+'''
+          s = s[:insert_at] + helper + s[insert_at:]
+          p.write_text(s)
+
+          # 2. Frontend: merge Google national-holiday docs with Hebcal and static
+          # civil dates, with source-aware de-duplication. Hebcal wins for the same
+          # Jewish holiday; unique civil events such as Election Day remain.
+          p = Path('src/SERVICES/planning/usePlanning.ts')
+          s = p.read_text()
+          start = s.index('export function useHolidays(start: string, end: string) {')
+          replacement = r'''export function useHolidays(start: string, end: string) {
+  const [hebcal, setHebcal] = useState<Holiday[]>([]);
+  const [googleNational, setGoogleNational] = useState<Holiday[]>([]);
+  const [error, setError] = useState("");
+
+  const staticCivil = useMemo(() => {
+    const other: Holiday[] = [];
+    for (let year = Number(start.slice(0, 4)); year <= Number(end.slice(0, 4)); year++) {
+      const nov = new Date(Date.UTC(year, 10, 1, 12));
+      const thanksgiving = 1 + ((4 - nov.getUTCDay() + 7) % 7) + 21;
+      other.push(
+        { date: `${year}-12-25`, title: "כריסטמס" },
+        { date: `${year}-11-${thanksgiving}`, title: "חג ההודיה (ארה״ב)" },
+        { date: `${year}-01-01`, title: "ראש השנה האזרחית" },
+      );
+    }
+    return other;
+  }, [start, end]);
+
+  useEffect(() => {
+    return onSnapshot(
+      query(
+        collection(db, "calendar_events"),
+        where("date", ">=", start),
+        where("date", "<=", end),
+      ),
+      (snap) => setGoogleNational(
+        snap.docs
+          .map((item) => item.data())
+          .filter((item) => item.actionType === "holiday" && item.source === "google-national-holidays")
+          .map((item) => ({
+            date: String(item.date || "").slice(0, 10),
+            title: String(item.title || ""),
+            closed: item.closed !== false,
+          }))
+          .filter((item) => !!item.date && !!item.title),
+      ),
+      () => setGoogleNational([]),
+    );
+  }, [start, end]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let disposed = false;
+    const timer = setTimeout(() => controller.abort(), 12000);
+    setError("");
+    fetch(
+      `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&i=on&lg=he&start=${start}&end=${end}`,
+      { signal: controller.signal },
+    )
+      .then((response) => {
+        if (!response.ok) throw new Error();
+        return response.json();
+      })
+      .then((data) => {
+        if (!controller.signal.aborted) setHebcal(
+          (data.items ?? [])
+            .filter((item: { category: string }) => item.category === "holiday")
+            .map((item: { date: string; hebrew?: string; title: string; yomtov?: boolean }) => ({
+              date: item.date.slice(0, 10),
+              title: item.hebrew ?? item.title,
+              closed: !!item.yomtov,
+            })),
+        );
+      })
+      .catch(() => {
+        if (!disposed) setError("לא ניתן לטעון חגים יהודיים. יש לבדוק את ימי העבודה ידנית.");
+      })
+      .finally(() => clearTimeout(timer));
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [start, end]);
+
+  const holidays = useMemo(() => {
+    const jewishTokens = [
+      "rosh hashana", "yom kippur", "sukkot", "shemini atzeret", "simchat torah",
+      "chanukah", "hanukkah", "purim", "pesach", "passover", "shavuot", "tisha b'av",
+      "tu bishvat", "lag baomer", "yom haatzmaut", "yom hazikaron", "yom hashoah",
+    ];
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9א-ת]+/g, " ").trim();
+    const result: Holiday[] = [];
+    const exact = new Set<string>();
+    const hebcalDates = new Set(hebcal.map((item) => item.date));
+
+    const add = (item: Holiday, source: "hebcal" | "google" | "static") => {
+      const title = normalize(item.title);
+      const key = `${item.date}|${title}`;
+      if (exact.has(key)) return;
+      if (source === "google" && hebcalDates.has(item.date) && jewishTokens.some((token) => title.includes(token))) return;
+      exact.add(key);
+      result.push(item);
+    };
+    hebcal.forEach((item) => add(item, "hebcal"));
+    googleNational.forEach((item) => add(item, "google"));
+    staticCivil.forEach((item) => add(item, "static"));
+    return result.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, "he"));
+  }, [hebcal, googleNational, staticCivil]);
+
+  return { holidays, error };
+}
+'''
+          s = s[:start] + replacement + '\n'
+          p.write_text(s)
+
+          # 3. Gantt: concise weekly event line in each week header.
+          p = Path('src/components/planning/PlanningGantt.tsx')
+          s = p.read_text()
+          anchor = '''          {weekIds.map((weekId) => {
+            const totals = weeklyTotals(weekId);
+            return (
+'''
+          repl = '''          {weekIds.map((weekId) => {
+            const totals = weeklyTotals(weekId);
+            const weekHolidays = holidays.filter((holiday) => holiday.date >= weekId && holiday.date <= addDays(weekId, 6));
+            return (
+'''
+          if anchor not in s:
+              raise SystemExit('Gantt header anchor not found')
+          s = s.replace(anchor, repl, 1)
+          anchor2 = '''                {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}
+                {weekId === currentWeek && <small>השבוע</small>}
+'''
+          repl2 = '''                {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}
+                {weekHolidays.length > 0 && (
+                  <small className="bp-gantt-holidays" title={weekHolidays.map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join("\n")}>
+                    {weekHolidays.slice(0, 2).map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join(" · ")}
+                    {weekHolidays.length > 2 ? ` · +${weekHolidays.length - 2}` : ""}
+                  </small>
+                )}
+                {weekId === currentWeek && <small>השבוע</small>}
+'''
+          if anchor2 not in s:
+              raise SystemExit('Gantt header content anchor not found')
+          s = s.replace(anchor2, repl2, 1)
+          p.write_text(s)
+
+          # Small styling hook, intentionally compact so it does not enlarge the Gantt.
+          p = Path('src/components/planning/planningGantt.css')
+          s = p.read_text()
+          if '.bp-gantt-holidays' not in s:
+              s += '''\n.bp-gantt-holidays {\n  display: block;\n  max-width: 100%;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-weight: 600;\n}\n'''
+          p.write_text(s)
+      - name: Validate
+        run: |
+          npm ci
+          npm run build
+          node .github/scripts/validate-apps-script-runtime.mjs
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add server/calendarService.js src/SERVICES/planning/usePlanning.ts src/components/planning/PlanningGantt.tsx src/components/planning/planningGantt.css
+          git diff --cached --quiet && exit 0
+          git commit -m "Sync Google national holidays and show them in Gantt"
+          git push origin HEAD:planning-tank-schedule
