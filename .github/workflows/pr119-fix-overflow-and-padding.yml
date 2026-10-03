@@ -1,4 +1,4 @@
-name: PR119 fix batch identity and future packaging validation
+name: PR119 remove obsolete packaging tank-style validation
 on:
   push:
     branches: [planning-tank-schedule]
@@ -18,61 +18,28 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Apply PR119 fixes
+      - name: Remove obsolete tank-style validation
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
-          # 1) Planned/forecast batch numbers must not advance the real batch sequence.
-          # A real already-created batch on a tank (action 0) remains authoritative.
-          p=Path('src/components/planning/PlanningBrewAssignmentEditor.tsx')
-          s=p.read_text(encoding='utf-8')
-          old='''  const [batchBase, setBatchBase] = useState(() => Math.max(\n    maxBatch(brews.map((brew) => brew.batchNumber)),\n    maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),\n  ));'''
-          new='''  const [batchBase, setBatchBase] = useState(() =>\n    maxBatch(brews.map((brew) => brew.batchNumber)),\n  );'''
-          if old in s:
-              s=s.replace(old,new,1)
-          elif 'maxBatch(allPlans.flatMap((plan) => plan.brews)' in s:
-              raise SystemExit('batchBase anchor changed unexpectedly')
-
-          old='''          maxBatch(history.map((brew) => brew.batchNumber)),\n          maxBatch(brews.map((brew) => brew.batchNumber)),\n          maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),'''
-          new='''          maxBatch(history.map((brew) => brew.batchNumber)),\n          maxBatch(brews.map((brew) => brew.batchNumber)),'''
-          if old in s:
-              s=s.replace(old,new,1)
-
-          old='''    const preferred = current.map((brew) => realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber));'''
-          new='''    // Only an actually created batch may pin identity here. A batchNumber stored\n    // on a future plan is a forecast and must be recalculated from real history.\n    const preferred = current.map((brew) => realNewBrewBatch(brew, brews));'''
-          if old in s:
-              s=s.replace(old,new,1)
-          elif 'realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber)' in s:
-              raise SystemExit('preferred batch anchor changed unexpectedly')
-
-          if 'maxBatch(allPlans.flatMap((plan) => plan.brews)' in s:
-              raise SystemExit('planned batch numbers still influence sequence')
-          if 'realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber)' in s:
-              raise SystemExit('forecast batch identity still pinned')
-          p.write_text(s,encoding='utf-8')
-
-          # 2) Future canonical packaging validates against its linked brew style.
-          # Legacy packaging may validate against the current physical tank style,
-          # but a future plan must never compare against stale/current tank contents.
           p=Path('src/SERVICES/planning/productionCycle.ts')
           s=p.read_text(encoding='utf-8')
-          old='''    if (!t || !runStyle || !runType || !sameStyle(linkedBrew?.style ?? t.style, runStyle)) return "מיכל האריזה אינו תואם לסגנון";'''
-          new='''    if (!t || !runStyle || !runType) return "חסרים נתוני מיכל או מוצר לאריזה";\n    if (linkedBrew && !sameStyle(linkedBrew.style, runStyle))\n      return "סגנון האריזה אינו תואם לבישול שאליו היא משויכת";\n    // Legacy rows have no canonical brew identity, so only they may fall back\n    // to the physical tank's current style. Future canonical cycles must not.\n    if (!linkedBrew && !sameStyle(t.style, runStyle))\n      return "מיכל האריזה אינו תואם לסגנון במחזור הקיים";'''
-          if old not in s:
-              raise SystemExit('packaging style validation anchor missing')
-          s=s.replace(old,new,1)
+          obsolete='''    // Legacy rows have no canonical brew identity, so only they may fall back\n    // to the physical tank's current style. Future canonical cycles must not.\n    if (!linkedBrew && !sameStyle(t.style, runStyle))\n      return "מיכל האריזה אינו תואם לסגנון במחזור הקיים";\n'''
+          if obsolete in s:
+              s=s.replace(obsolete,'',1)
+          if 'מיכל האריזה אינו תואם לסגנון' in s:
+              raise SystemExit('obsolete packaging tank-style validation still present')
           p.write_text(s,encoding='utf-8')
           PY
       - run: npm ci
       - run: npm run lint
       - run: npm test -- --run
       - run: npm run build
-      - name: Commit fixes
+      - name: Commit fix
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/components/planning/PlanningBrewAssignmentEditor.tsx src/SERVICES/planning/productionCycle.ts
+          git add src/SERVICES/planning/productionCycle.ts
           git diff --cached --quiet && exit 0
-          git commit -m "Fix batch sequence and canonical packaging style validation"
+          git commit -m "Remove obsolete packaging tank-style validation"
           git push origin HEAD:planning-tank-schedule
