@@ -1,65 +1,65 @@
 from pathlib import Path
+import re
 
-# Keep preview diagnostics available, but opt-in. No extra server reads unless the
-# user explicitly enables the preview-only toggle.
+# PlanningView: remove temporary diagnostics/server-probe machinery entirely and
+# avoid computing tab-specific derived models when their tab is not mounted.
 p = Path('src/components/planning/PlanningView.tsx')
 s = p.read_text(encoding='utf-8')
-old = '  const showPreviewDiagnostics = runtimeConfig.deployEnv !== "production";\n'
-new = '''  const showPreviewDiagnostics = runtimeConfig.deployEnv !== "production";\n  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);\n'''
-if old not in s:
-    raise SystemExit('Diagnostics environment anchor not found')
-s = s.replace(old, new, 1)
+s = s.replace('import { useEffect, useMemo, useRef, useState } from "react";', 'import { useEffect, useMemo, useRef, useState } from "react";')
+s = re.sub(r'import \{\n  collection, doc, getDocFromServer, getDocsFromServer, query, Timestamp, where, updateDoc, serverTimestamp,\n\} from "firebase/firestore";', 'import { doc, updateDoc, serverTimestamp } from "firebase/firestore";', s, count=1)
+s = s.replace('import { runtimeConfig } from "../../config/runtimeConfig";\n', '')
+s = s.replace('import { addDays, parseDate, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";', 'import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";')
+s = s.replace('import { startOfJerusalemDay, useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";', 'import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";')
+s = re.sub(r'\ntype PlanningQueryTiming = \{[^\n]+\};\n', '\n', s, count=1)
+# Remove audit/probe state plus both diagnostic effects, preserving the tank memo anchor.
+start = s.find('  const planningAuditStartedAt = useRef(Date.now());')
+end_anchor = '  const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);'
+end = s.find(end_anchor)
+if start >= 0 and end > start:
+    s = s[:start] + s[end:]
+# Remove preview diagnostics JSX if present.
+s = re.sub(r'\n      \{showPreviewDiagnostics && !data\.loading && !data\.error && \(.*?\n      \)\}', '', s, count=1, flags=re.S)
+# Do not show a second status line while the loader is already visible.
+s = s.replace('{data.offline && <p role="status">ממתין לחיבור לשרת.</p>}', '{data.offline && !data.loading && <p role="status">ממתין לחיבור לשרת.</p>}')
+# Expensive projections are only needed by their owning views. Keep the same data
+# and business functions, but skip work while another planning tab is active.
 s = s.replace(
-    '    if (!showPreviewDiagnostics || planningServerProbeStarted.current) return;',
-    '    if (!showPreviewDiagnostics || !diagnosticsEnabled || planningServerProbeStarted.current) return;',
-    1,
+    '  const executionPlans = useMemo(() => plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks), [identityAlignedPlans, settings.products, actuals, productionTanks]);',
+    '  const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);'
 )
 s = s.replace(
-    '  }, [productionTanks, showPreviewDiagnostics, today]);',
-    '  }, [diagnosticsEnabled, productionTanks, showPreviewDiagnostics, today]);',
-    1,
+    '  const weeklyPlans = useMemo(() => pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products), [executionPlans, data.actualShipments, settings.products]);',
+    '  const weeklyPlans = useMemo(() => (tab === "calendar" ? pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products) : identityAlignedPlans), [tab, executionPlans, identityAlignedPlans, data.actualShipments, settings.products]);'
 )
-old_jsx = '''      {showPreviewDiagnostics && !data.loading && !data.error && (\n        <div dir="ltr" style={{ margin: "8px 12px", padding: "8px 10px", border: "1px dashed currentColor", borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>\n          <div><strong>Planning audit</strong>{` · Plans ${plans.length}`}{` · Pallets ${pallets.length}`}{` · Packaging ${actuals.length}`}{` · Shipments ${data.actualShipments.length}`}{` · Tanks ${productionTanks.length}`}{planningAuditElapsedMs !== null ? ` · Load ${(planningAuditElapsedMs / 1000).toFixed(2)}s` : ""}{` · ${data.offline ? "cache/offline" : "server/live"}`}</div>\n          <div style={{ marginTop: 4 }}><strong>Server probes</strong>{planningQueryTimings.length === 0 ? " · running…" : planningQueryTimings.map((item) => ` · ${item.label} ${(item.ms / 1000).toFixed(2)}s/${item.docs}${item.error ? " ERR" : ""}`).join("")}</div>\n        </div>\n      )}'''
-new_jsx = '''      {showPreviewDiagnostics && !data.loading && !data.error && (\n        <div style={{ margin: "8px 12px" }}>\n          <button type="button" className="bp-secondary" aria-pressed={diagnosticsEnabled} onClick={() => setDiagnosticsEnabled((enabled) => !enabled)}>\n            {diagnosticsEnabled ? "כבה Diagnostics" : "הפעל Diagnostics"}\n          </button>\n          {diagnosticsEnabled && (\n            <div dir="ltr" style={{ marginTop: 8, padding: "8px 10px", border: "1px dashed currentColor", borderRadius: 8, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere" }}>\n              <div><strong>Planning audit</strong>{` · Plans ${plans.length}`}{` · Pallets ${pallets.length}`}{` · Packaging ${actuals.length}`}{` · Shipments ${data.actualShipments.length}`}{` · Tanks ${productionTanks.length}`}{planningAuditElapsedMs !== null ? ` · Load ${(planningAuditElapsedMs / 1000).toFixed(2)}s` : ""}{` · ${data.offline ? "cache/offline" : "server/live"}`}</div>\n              <div style={{ marginTop: 4 }}><strong>Server probes</strong>{planningQueryTimings.length === 0 ? " · running…" : planningQueryTimings.map((item) => ` · ${item.label} ${(item.ms / 1000).toFixed(2)}s/${item.docs}${item.error ? " ERR" : ""}`).join("")}</div>\n            </div>\n          )}\n        </div>\n      )}'''
-if old_jsx not in s:
-    raise SystemExit('Diagnostics JSX anchor not found')
-s = s.replace(old_jsx, new_jsx, 1)
+s = s.replace(
+    '  const calendarSettings = useMemo(() => settingsAfterActualShipments(settings, data.actualShipments, today), [settings, data.actualShipments, today]);',
+    '  const calendarSettings = useMemo(() => ((tab === "calendar" || tab === "fiveWeeks") ? settingsAfterActualShipments(settings, data.actualShipments, today) : settings), [tab, settings, data.actualShipments, today]);'
+)
+s = s.replace(
+    '  const fiveWeekPlans = useMemo(() => withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings), [identityAlignedPlans, tanks, calendarSettings]);',
+    '  const fiveWeekPlans = useMemo(() => (tab === "fiveWeeks" ? withTentativeFiveWeekTanks(identityAlignedPlans, tanks, calendarSettings) : identityAlignedPlans), [tab, identityAlignedPlans, tanks, calendarSettings]);'
+)
 p.write_text(s, encoding='utf-8')
 
-# Make Gantt pagination paint a loader immediately and defer the expensive page
-# recomputation. Also avoid tentative-tank computation while the daily modal is closed.
+# PlanningGantt: keep the existing business simulation, but pre-index plans and
+# actual packaging by week so render helpers stop repeatedly scanning full arrays.
 p = Path('src/components/planning/PlanningGantt.tsx')
 s = p.read_text(encoding='utf-8')
-if 'useTransition' not in s:
-    s = s.replace('import { Fragment, useMemo, useState } from "react";', 'import { Fragment, useMemo, useState, useTransition } from "react";', 1)
-if 'import BeerLoader from "../general/Loading";' not in s:
-    anchor = 'import PlanningGanttDailyModal from "./PlanningGanttDailyModal";\n'
+anchor = '  const actualStockLabel = oldestInventoryUpdate ? `מעודכן ל־${shortDate(oldestInventoryUpdate)}` : "בפועל";\n'
+insert = '''  const planByWeek = useMemo(() => new Map(historyPlans.map((plan) => [plan.id, plan])), [historyPlans]);\n  const actualsByWeek = useMemo(() => {\n    const grouped = new Map<string, Actual[]>();\n    for (const actual of actuals) {\n      const date = actualDate(actual);\n      if (!date) continue;\n      const week = weekStart(date);\n      grouped.set(week, [...(grouped.get(week) ?? []), actual]);\n    }\n    return grouped;\n  }, [actuals]);\n'''
+if 'const planByWeek = useMemo' not in s:
     if anchor not in s:
-        raise SystemExit('Gantt import anchor not found')
-    s = s.replace(anchor, anchor + 'import BeerLoader from "../general/Loading";\n', 1)
-anchor = '  const [weekPage, setWeekPage] = useState(0);\n'
-if anchor not in s:
-    raise SystemExit('weekPage anchor not found')
-s = s.replace(anchor, anchor + '''  const [isPaging, startPaginationTransition] = useTransition();\n  const changeWeekPage = (next: number | ((current: number) => number)) => {\n    startPaginationTransition(() => setWeekPage(next));\n  };\n''', 1)
-# Only replace actual UI setter call sites, not the setter inside changeWeekPage.
-s = s.replace('onClick={() => setWeekPage((page) => Math.max(0, page - 1))}', 'onClick={() => changeWeekPage((page) => Math.max(0, page - 1))}')
-s = s.replace('onClick={() => setWeekPage((page) => Math.min(maxWeekPage, page + 1))}', 'onClick={() => changeWeekPage((page) => Math.min(maxWeekPage, page + 1))}')
-# Render one overlay for either Gantt mode.
-s = s.replace('<section className="bp-gantt-shell">', '<section className="bp-gantt-shell">\n        {isPaging && <BeerLoader overlay message="מעדכן את חלון התכנון…" />}', 1)
-second = s.find('<section className="bp-gantt-shell">', s.find('<section className="bp-gantt-shell">') + 1)
-if second >= 0:
-    end = second + len('<section className="bp-gantt-shell">')
-    s = s[:end] + '\n      {isPaging && <BeerLoader overlay message="מעדכן את חלון התכנון…" />}' + s[end:]
-old_daily = '''  const dailyEditorPlans = useMemo(\n    () => withTentativeFiveWeekTanks(editorPlans, tanks, settings).map((plan) => ({'''
-new_daily = '''  const dailyEditorPlans = useMemo(\n    () => dailyTarget ? withTentativeFiveWeekTanks(editorPlans, tanks, settings).map((plan) => ({'''
-if old_daily not in s:
-    raise SystemExit('Daily editor memo anchor not found')
-s = s.replace(old_daily, new_daily, 1)
-s = s.replace(
-    '''      }),\n    })),\n    [editorPlans, tanks, settings],\n  );''',
-    '''      }),\n    })) : editorPlans,\n    [dailyTarget, editorPlans, tanks, settings],\n  );''',
-    1,
-)
+        raise SystemExit('Gantt indexing anchor not found')
+    s = s.replace(anchor, anchor + insert, 1)
+s = s.replace('      const saved = historyPlans.find((plan) => plan.id === week);', '      const saved = planByWeek.get(week);')
+s = s.replace('  }, [settings, pallets, tanks, historyPlans, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);', '  }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);')
+s = s.replace('  const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);', '  const decisionPlanFor = (weekId: string) => planByWeek.get(weekId);')
+old = '''    const actualItems: SummaryItem[] = actuals\n      .filter((actual) => {\n        const date = actualDate(actual);\n        return !!date && weekStart(date) === weekId && Number(actual.quantity) > 0;\n      })\n      .map((actual) => {'''
+new = '''    const actualItems: SummaryItem[] = (actualsByWeek.get(weekId) ?? [])\n      .filter((actual) => Number(actual.quantity) > 0)\n      .map((actual) => {'''
+if old in s:
+    s = s.replace(old, new, 1)
+# Keep pagination loader but make wording concise.
+s = s.replace('message="מעדכן את חלון התכנון…"', 'message="מעדכן…"')
 p.write_text(s, encoding='utf-8')
 
-print('Patched preview diagnostics toggle, pagination transition/loader, and lazy daily planning computation.')
+print('Applied deep planning responsiveness pass without changing Firestore queries or business rules.')
