@@ -35,3 +35,4 @@ jobs:
           if git diff --cached --quiet; then exit 0; fi
           git commit -m 'feat: implement cellar and tools improvements 1-9'
           git push
+# trigger after workflow exists on branch
