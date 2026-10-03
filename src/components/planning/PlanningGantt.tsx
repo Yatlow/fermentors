@@ -713,11 +713,13 @@ export default function PlanningGantt(props: Props) {
           <div className="bp-five-week-corner" />
           {weekIds.map((weekId) => {
             const totals = weeklyTotals(weekId);
+            const weekHolidays = holidays.filter((holiday) => holiday.date >= weekId && holiday.date <= addDays(weekId, 6));
             return (
               <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
                 <b>שבוע {weekNumber(weekId)}</b>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}
+                {weekHolidays.length > 0 && <small className="bp-gantt-holidays" title={weekHolidays.map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join("\n")}>{weekHolidays.slice(0, 2).map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join(" · ")}{weekHolidays.length > 2 ? ` · +${weekHolidays.length - 2}` : ""}</small>}
                 {weekId === currentWeek && <small>השבוע</small>}
                 {weekId === nextPlanningWeek && <small>שבוע התכנון הבא</small>}
               </div>

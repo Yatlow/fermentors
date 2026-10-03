@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { weekIsClosed, withSpecialTotals } from "./planningPresentation";
 import {
   collection,
@@ -725,66 +725,52 @@ export function usePlanningToday() {
 }
 
 export function useHolidays(start: string, end: string) {
-  const [holidays, setHolidays] = useState<Holiday[]>([]),
-    [error, setError] = useState("");
-  useEffect(() => {
-    const controller = new AbortController();
-    let disposed = false;
-    const timer = setTimeout(() => controller.abort(), 12000);
+  const [hebcal, setHebcal] = useState<Holiday[]>([]);
+  const [googleNational, setGoogleNational] = useState<Holiday[]>([]);
+  const [error, setError] = useState("");
+  const staticCivil = useMemo(() => {
     const other: Holiday[] = [];
-    for (
-      let year = Number(start.slice(0, 4));
-      year <= Number(end.slice(0, 4));
-      year++
-    ) {
+    for (let year = Number(start.slice(0, 4)); year <= Number(end.slice(0, 4)); year++) {
       const nov = new Date(Date.UTC(year, 10, 1, 12));
       const thanksgiving = 1 + ((4 - nov.getUTCDay() + 7) % 7) + 21;
-      other.push(
-        { date: `${year}-12-25`, title: "כריסטמס" },
-        { date: `${year}-11-${thanksgiving}`, title: "חג ההודיה (ארה״ב)" },
-        { date: `${year}-01-01`, title: "ראש השנה האזרחית" },
-      );
+      other.push({ date: `${year}-12-25`, title: "כריסטמס" }, { date: `${year}-11-${thanksgiving}`, title: "חג ההודיה (ארה״ב)" }, { date: `${year}-01-01`, title: "ראש השנה האזרחית" });
     }
-    setHolidays(other);
-    setError("");
-    fetch(
-      `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&i=on&lg=he&start=${start}&end=${end}`,
-      { signal: controller.signal },
-    )
-      .then((response) => {
-        if (!response.ok) throw new Error();
-        return response.json();
-      })
-      .then((data) => {
-        if (!controller.signal.aborted)
-          setHolidays([
-            ...other,
-            ...(data.items ?? [])
-              .filter((item: { category: string }) => item.category === "holiday")
-              .map(
-                (item: {
-                  date: string;
-                  hebrew?: string;
-                  title: string;
-                  yomtov?: boolean;
-                }) => ({
-                  date: item.date.slice(0, 10),
-                  title: item.hebrew ?? item.title,
-                  closed: !!item.yomtov,
-                }),
-              ),
-          ]);
-      })
-      .catch(() => {
-        if (!disposed)
-          setError("לא ניתן לטעון חגים יהודיים. יש לבדוק את ימי העבודה ידנית.");
-      })
-      .finally(() => clearTimeout(timer));
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-      controller.abort();
-    };
+    return other;
   }, [start, end]);
+  useEffect(() => onSnapshot(
+    query(collection(db, "calendar_events"), where("date", ">=", start), where("date", "<=", end)),
+    (snap) => setGoogleNational(snap.docs.flatMap((docSnap): Holiday[] => {
+      const item = docSnap.data();
+      if (item.actionType !== "holiday" || item.source !== "google-national-holidays") return [];
+      const date = String(item.date || "").slice(0, 10);
+      const title = String(item.title || "");
+      return date && title ? [{ date, title, closed: item.closed !== false }] : [];
+    })),
+    () => setGoogleNational([]),
+  ), [start, end]);
+  useEffect(() => {
+    const controller = new AbortController(); let disposed = false;
+    const timer = setTimeout(() => controller.abort(), 12000); setError("");
+    fetch(`https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&i=on&lg=he&start=${start}&end=${end}`, { signal: controller.signal })
+      .then((response) => { if (!response.ok) throw new Error(); return response.json(); })
+      .then((data) => { if (!controller.signal.aborted) setHebcal((data.items ?? []).filter((item: { category: string }) => item.category === "holiday").map((item: { date: string; hebrew?: string; title: string; yomtov?: boolean }) => ({ date: item.date.slice(0, 10), title: item.hebrew ?? item.title, closed: !!item.yomtov }))); })
+      .catch(() => { if (!disposed) setError("לא ניתן לטעון חגים יהודיים. יש לבדוק את ימי העבודה ידנית."); })
+      .finally(() => clearTimeout(timer));
+    return () => { disposed = true; clearTimeout(timer); controller.abort(); };
+  }, [start, end]);
+  const holidays = useMemo(() => {
+    const jewishTokens = ["rosh hashana", "yom kippur", "sukkot", "shemini atzeret", "simchat torah", "chanukah", "hanukkah", "purim", "pesach", "passover", "shavuot", "tisha b'av", "tu bishvat", "lag baomer", "yom haatzmaut", "yom hazikaron", "yom hashoah"];
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9א-ת]+/g, " ").trim();
+    const result: Holiday[] = [], exact = new Set<string>(), hebcalDates = new Set(hebcal.map((item) => item.date));
+    const add = (item: Holiday, source: "hebcal" | "google" | "static") => {
+      const title = normalize(item.title), key = `${item.date}|${title}`;
+      if (exact.has(key)) return;
+      if (source === "google" && hebcalDates.has(item.date) && jewishTokens.some((token) => title.includes(token))) return;
+      exact.add(key); result.push(item);
+    };
+    hebcal.forEach((item) => add(item, "hebcal")); googleNational.forEach((item) => add(item, "google")); staticCivil.forEach((item) => add(item, "static"));
+    return result.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, "he"));
+  }, [hebcal, googleNational, staticCivil]);
   return { holidays, error };
 }
+

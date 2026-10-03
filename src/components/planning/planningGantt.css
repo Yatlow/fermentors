@@ -282,3 +282,5 @@
 @media (prefers-reduced-motion: reduce) {
   .bp-five-week-item.is-gantt-recommendation { animation: none; }
 }
+
+.bp-gantt-holidays { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
