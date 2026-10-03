@@ -287,14 +287,19 @@ export function validateProduction(
     const t = tanks.find((t) => t.id === tankId);
     const p = settings.products.find((p) => p.id === r.productId);
     const runType = r.nonInventoryType ?? p?.type;
-    if (!t) return "חסר מיכל מקור לאריזה";
+    if (!linkedBrew && !t) return "חסר מיכל מקור לאריזה";
 
     const projectedCycle = linkedBrewId
       ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
       : null;
-    const readyDate = projectedCycle?.readyDate ?? t.ready;
-    if (r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
-      return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;
+    const fallbackLeadDays = linkedBrew
+      ? Math.max(21, ...settings.products.filter((product) => sameStyle(product.style, linkedBrew.style)).map((product) => product.leadDays))
+      : 0;
+    const readyDate = projectedCycle?.readyDate
+      ?? (linkedBrew ? addDays(linkedBrew.date, fallbackLeadDays) : t?.ready ?? "");
+    const tankLabel = t?.number ?? linkedBrew?.tankId ?? tankId;
+    if (readyDate && r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
+      return `מיכל ${tankLabel}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;
 
     // During scheduling the planner can place the future brew on a packaging day
     // before choosing crates/kegs. Type-dependent validation is deferred until
@@ -309,17 +314,18 @@ export function validateProduction(
     const types = new Set(history.map((x) => x.type));
     const allowExceptions = plans.find((w) => w.id === r.week)?.allowExceptions;
     if (!allowExceptions && dates.length > 1 && types.size < 2)
-      return `מיכל ${t.number}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`;
+      return `מיכל ${tankLabel}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`;
     if (!allowExceptions && dates.length > 2)
-      return `מיכל ${t.number}: ניתן לפצל לכל היותר לשני ימי אריזה`;
+      return `מיכל ${tankLabel}: ניתן לפצל לכל היותר לשני ימי אריזה`;
 
     const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
     used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * unitLiters);
-    const cycleLiters = linkedBrew?.liters ?? t.liters;
+    const cycleLiters = linkedBrew?.liters ?? t?.liters ?? 0;
+    if (!cycleLiters) return `מיכל ${tankLabel}: חסר נפח מחזור לחישוב האריזה`;
     if (used.get(cycleKey)! > cycleLiters + 0.01)
-      return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
+      return `מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
     if (r.emptyTank && cycleLiters - used.get(cycleKey)! >= 20)
-      return `מיכל ${t.number}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
+      return `מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
   }
   return null;
 }

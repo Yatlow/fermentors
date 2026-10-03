@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
 import type { Fermentor } from "../../App";
+import { db } from "../../firebase";
 import { getBrewsSummaryPage, type BrewSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { brewLitersForSize, brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
@@ -141,6 +143,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     maxBatch(priorPlannedBatches),
   ));
   const [existingBrews, setExistingBrews] = useState<BrewSummary[]>([]);
+  const [linkableBrews, setLinkableBrews] = useState<BrewSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showUnavailableTanks, setShowUnavailableTanks] = useState(false);
@@ -148,12 +151,40 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
 
   useEffect(() => {
     let cancelled = false;
-    getBrewsSummaryPage(null, 100)
-      .then(({ rows: history }) => {
+    Promise.all([
+      getBrewsSummaryPage(null, 100),
+      getDocs(collection(db, "pendingBrews")),
+    ])
+      .then(([{ rows: history }, pendingSnapshot]) => {
         if (cancelled) return;
+        const pending = pendingSnapshot.docs.map((item) => {
+          const data = item.data() as Record<string, unknown>;
+          return {
+            id: item.id,
+            batchNumber: String(data.batchNumber ?? item.id),
+            beerStyle: String(data.beerStyle ?? ""),
+            brewDate: String(data.brewDate ?? ""),
+            sheetUrl: String(data.sheetUrl ?? ""),
+            tankNumber: String(data.tankNumber ?? ""),
+          } satisfies BrewSummary;
+        });
+        const actionZeroBatches = new Set(
+          brews
+            .filter((source) => Number(source.action) === 0)
+            .map((source) => normalizedBatch(source.batchNumber))
+            .filter(Boolean),
+        );
+        const actionZeroHistory = history.filter((brew) => actionZeroBatches.has(normalizedBatch(brew.batchNumber)));
+        const linkable = new Map<string, BrewSummary>();
+        [...pending, ...actionZeroHistory].forEach((brew) => {
+          const key = normalizedBatch(brew.batchNumber) || brew.id;
+          if (key) linkable.set(key, brew);
+        });
         setExistingBrews(history);
+        setLinkableBrews([...linkable.values()]);
         setBatchBase(Math.max(
           maxBatch(history.map((brew) => brew.batchNumber)),
+          maxBatch(pending.map((brew) => brew.batchNumber)),
           maxBatch(brews.map((brew) => brew.batchNumber)),
           maxBatch(priorPlannedBatches),
         ));
@@ -166,7 +197,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     const current = draft.brews as BrewPlanWithMeta[];
     // Only an actually created batch may pin identity here. A batchNumber stored
     // on a future plan is a forecast and must be recalculated from real history.
-    const existingById = new Map(existingBrews.map((brew) => [brew.id, brew]));
+    const existingById = new Map([...existingBrews, ...linkableBrews].map((brew) => [brew.id, brew]));
     const preferred = current.map((brew) => {
       const linked = brew.linkedExistingBrewId ? existingById.get(brew.linkedExistingBrewId) : undefined;
       return linked?.batchNumber ?? realNewBrewBatch(brew, brews);
@@ -176,6 +207,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
         .filter((source) => Number(source.action) === 0)
         .map((source) => Number(normalizedBatch(source.batchNumber)))
         .concat(existingBrews.map((source) => Number(normalizedBatch(source.batchNumber))))
+        .concat(linkableBrews.map((source) => Number(normalizedBatch(source.batchNumber))))
         .filter((value) => Number.isFinite(value) && value > 0),
     );
     const used = new Set<number>();
@@ -193,7 +225,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       next += 1;
       return { ...brew, batchNumber };
     });
-  }, [draft.brews, batchBase, brews, existingBrews]);
+  }, [draft.brews, batchBase, brews, existingBrews, linkableBrews]);
   const selectedBrew = orderedBrews[selectedIndex] ?? null;
 
   const allWeekTanks = useMemo(() => releases
@@ -295,7 +327,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
   }
 
   function linkExistingBrew(existingId: string) {
-    const existing = existingBrews.find((brew) => brew.id === existingId);
+    const existing = linkableBrews.find((brew) => brew.id === existingId) ?? existingBrews.find((brew) => brew.id === existingId);
     if (!existing) return;
     setDraft((current) => {
       const next = [...(current.brews as BrewPlanWithMeta[])];
@@ -388,9 +420,9 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
                 onChange={(event) => event.target.value ? linkExistingBrew(event.target.value) : unlinkExistingBrew()}
               >
                 <option value="">ללא קישור — הקצה מספר מהתכנון</option>
-                {existingBrews
+                {linkableBrews
                   .filter((existing) => existing.beerStyle.trim().toLowerCase() === selectedBrew.style.trim().toLowerCase())
-                  .map((existing) => <option key={existing.id} value={existing.id}>#{existing.batchNumber} · {displayStyle(existing.beerStyle)} · מיכל {existing.tankNumber || "—"}</option>)}
+                  .map((existing) => <option key={existing.id} value={existing.id}>#{existing.batchNumber} · {displayStyle(existing.beerStyle)} · {existing.tankNumber ? `מיכל ${existing.tankNumber}` : "ממתין למיכל"}</option>)}
               </select>
               {selectedBrew.linkedExistingBrewId && <small>האצווה כבר קיימת בפועל; התכנון משתמש במספר הקיים ולא יוצר זהות חדשה.</small>}
             </div>
