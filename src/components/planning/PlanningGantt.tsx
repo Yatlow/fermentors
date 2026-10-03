@@ -116,6 +116,15 @@ export default function PlanningGantt(props: Props) {
   const [mode, setMode] = useState<GanttMode>("summary");
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
   const [dailyTarget, setDailyTarget] = useState<EditorTarget | null>(null);
+  const [isOpeningEditor, setIsOpeningEditor] = useState(false);
+  const openEditor = (target: EditorTarget, daily = false) => {
+    setIsOpeningEditor(true);
+    window.setTimeout(() => {
+      if (daily) setDailyTarget(target);
+      else setEditorTarget(target);
+      window.setTimeout(() => setIsOpeningEditor(false), 0);
+    }, 0);
+  };
   const [weekPage, setWeekPage] = useState(0);
   const [isPaging, startPaginationTransition] = useTransition();
   const changeWeekPage = (next: number | ((current: number) => number)) => {
@@ -608,6 +617,7 @@ export default function PlanningGantt(props: Props) {
     return <>
       <section className="bp-gantt-shell">
         {isPaging && <BeerLoader overlay message="מעדכן…" />}
+        {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
@@ -632,6 +642,7 @@ export default function PlanningGantt(props: Props) {
   return <>
     <section className="bp-gantt-shell">
       {isPaging && <BeerLoader overlay message="מעדכן…" />}
+      {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
       <div className="bp-section-heading bp-gantt-heading">
         <div><h2>גאנט</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
         <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
@@ -693,7 +704,7 @@ export default function PlanningGantt(props: Props) {
                           className="bp-gantt-cell-edit"
                           aria-label={`עריכת ${row.label} בשבוע ${weekNumber(weekId)}`}
                           title={`עריכת ${row.label}`}
-                          onClick={() => setEditorTarget({ week: weekId, kind: editableKind })}
+                          onClick={() => openEditor({ week: weekId, kind: editableKind })}
                         >
                           <SquarePen size={15} aria-hidden="true" />
                         </button>
@@ -703,7 +714,7 @@ export default function PlanningGantt(props: Props) {
                             className="bp-gantt-cell-edit bp-gantt-cell-calendar"
                             aria-label={`תכנון יומי של ${row.label} בשבוע ${weekNumber(weekId)}${pendingCount ? `, ${pendingCount} ממתינים לשיבוץ` : ""}`}
                             title={editableKind === "brews" ? "סדר ושיבוץ בישולים" : `תכנון יומי · ${row.label}`}
-                            onClick={() => setDailyTarget({ week: weekId, kind: editableKind })}
+                            onClick={() => openEditor({ week: weekId, kind: editableKind }, true)}
                           >
                             <CalendarDays size={15} aria-hidden="true" />
                             {pendingCount > 0 && <span className="bp-gantt-action-badge">{pendingCount}</span>}
