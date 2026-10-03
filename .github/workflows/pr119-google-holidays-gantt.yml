@@ -22,12 +22,17 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           p = Path('server/calendarService.js'); s = p.read_text()
-          needle = '    Logger.log("Calendar sync complete: " + savedCount + " event(s).\");\n    return { savedCount: savedCount };\n'
-          repl = '    const holidaySavedCount = calendarSyncGoogleNationalHolidays_(timeMin, timeMax);\n    Logger.log("Calendar sync complete: " + savedCount + " operational event(s), " + holidaySavedCount + " national holiday event(s).\");\n    return { savedCount: savedCount, holidaySavedCount: holidaySavedCount };\n'
+          needle = '''    Logger.log("Calendar sync complete: " + savedCount + " event(s).");
+    return { savedCount: savedCount };
+'''
+          repl = '''    const holidaySavedCount = calendarSyncGoogleNationalHolidays_(timeMin, timeMax);
+    Logger.log("Calendar sync complete: " + savedCount + " operational event(s), " + holidaySavedCount + " national holiday event(s).");
+    return { savedCount: savedCount, holidaySavedCount: holidaySavedCount };
+'''
           if needle not in s: raise SystemExit('calendar sync return anchor not found')
           s = s.replace(needle, repl, 1)
           insert_at = s.index('\nfunction calendarProcessTankTotals_')
-          helper = '''
+          helper = r'''
 
 function calendarSyncGoogleNationalHolidays_(timeMin, timeMax) {
   let calendars = [], pageToken = null;
@@ -67,8 +72,6 @@ function calendarSyncGoogleNationalHolidays_(timeMin, timeMax) {
 '''
           s = s[:insert_at] + helper + s[insert_at:]; p.write_text(s)
           PY
-          # The UI part of this patch is already carried by the PR119 branch workflow patch.
-          # Run that workflow's patch script directly after fixing indentation robustly.
           git show HEAD:.github/workflows/pr119-google-holidays-gantt.yml > /tmp/pr119.yml
           python - <<'PY'
           from pathlib import Path
@@ -77,9 +80,8 @@ function calendarSyncGoogleNationalHolidays_(timeMin, timeMax) {
           m = re.search(r'      - name: Patch holiday sync, dedupe and Gantt\n.*?        run: \|\n(.*?)(?=      - name: Validate\n)', s, re.S)
           if not m: raise SystemExit('PR119 patch script not found')
           script = textwrap.dedent(m.group(1))
-          # Skip the server portion because it was applied above; execute from the planning hook onward.
-          marker = "          p = Path('src/SERVICES/planning/usePlanning.ts')"
-          pos = script.find(marker.strip())
+          marker = "p = Path('src/SERVICES/planning/usePlanning.ts')"
+          pos = script.find(marker)
           if pos < 0: raise SystemExit('planning patch anchor not found')
           Path('/tmp/ui_patch.py').write_text(script[pos:])
           PY
