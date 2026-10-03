@@ -9,7 +9,7 @@ import {
 import { shipmentDecisionPickOptions } from "../src/SERVICES/planning/shipmentDecisionPicking";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { buildWeekStartProjection } from "../src/SERVICES/planning/weekStartProjection";
-import { dailyForecast } from "../src/SERVICES/planning/dailyPlanner";
+import { dailyForecast, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
 import {
   brewLitersForSize,
   brewSizeLabel,
@@ -458,4 +458,118 @@ test("undated weekly keg packaging waits for tank readiness and releases it next
   assert.ok(option);
   assert.equal(option.availableDate, "2026-09-28");
   assert.equal(model.brewTankCapacity, 1);
+});
+
+
+test("prior-week canonical packaging carries finished stock into the following week forecast", () => {
+  const localSettings = { ...settings, products: [product] };
+  const brewId = "future-wheat-cycle";
+  const tank: Tank = {
+    id: "tank-11",
+    number: "11",
+    batch: "old-cycle",
+    style: "IPA",
+    brewed: "2026-08-01",
+    ready: "2026-08-25",
+    liters: 1000,
+    cold: true,
+  };
+  const prior = {
+    ...emptyWeek("2026-09-20"),
+    brews: [{
+      id: brewId,
+      style: "IPA",
+      tankId: tank.id,
+      batchNumber: "1601",
+      date: "2026-09-21",
+      liters: 1100,
+    }],
+    packaging: [{
+      id: "canonical-pack",
+      productId: product.id,
+      quantity: 84,
+      tankId: tank.id,
+      tankNumber: tank.number,
+      batchNumber: "1601",
+      brewId,
+      date: "2026-09-24",
+    }],
+  };
+
+  const forecast = dailyForecast(localSettings, [], [tank], [prior], [], today);
+  const packed = forecast.points.find((row) => row.date === "2026-09-24" && row.productId === product.id);
+  const followingWeek = forecast.points.find((row) => row.date === "2026-09-27" && row.productId === product.id);
+  assert.equal(packed?.packed, 84);
+  assert.ok((followingWeek?.brewery ?? 0) > 0, "packaged stock must remain in brewery inventory next week");
+});
+
+
+test("special beer without inventory SKU can empty and release a tank", () => {
+  const tank: Tank = {
+    id: "tank-special",
+    number: "6",
+    batch: "winter-1",
+    style: "מהדורת חורף",
+    brewed: "2026-09-01",
+    ready: "2026-09-20",
+    liters: 1000,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-09-13"),
+    packaging: [{
+      id: "winter-pack",
+      productId: "",
+      nonInventoryStyle: "מהדורת חורף",
+      nonInventoryType: "kegs" as const,
+      quantity: 50,
+      date: "2026-09-20",
+      tankId: tank.id,
+      tankNumber: tank.number,
+      emptyTank: true,
+    }],
+  };
+  const localSettings = { ...settings, products: [product, kegProduct] };
+
+  assert.equal(validateProduction([plan], localSettings, [tank], [], today), null);
+  const releases = tankReleases(
+    [{ id: tank.id, tankNumber: 6, beerStyle: "מהדורת חורף", beerVolume: 1000, tankStatus: false, action: 1 }],
+    [tank],
+    [plan],
+    localSettings,
+    [],
+    today,
+  );
+  assert.equal(releases[0].emptyDate, "2026-09-20");
+  assert.equal(releases[0].remaining, 0);
+});
+
+
+test("planned tank cycle keeps canonical net volume without applying shrinkage twice", () => {
+  const physical: Tank = {
+    id: "tank-11",
+    number: "11",
+    batch: "old",
+    style: "IPA",
+    brewed: "2026-08-01",
+    ready: "2026-08-22",
+    liters: 500,
+    cold: true,
+  };
+  const plan = {
+    ...emptyWeek("2026-10-04"),
+    brews: [{
+      id: "ipa-triple-cycle",
+      style: "IPA",
+      tankId: physical.id,
+      batchNumber: "1700",
+      date: "2026-10-05",
+      liters: brewLitersForSize("IPA", "משולש"),
+    }],
+  };
+
+  const projected = futureTanks([physical], [plan], settings);
+  const future = projected.find((tank) => tank.id === "planned:ipa-triple-cycle");
+  assert.ok(future);
+  assert.equal(future.liters, 3000, "3000 L fallback is already net packaging volume");
 });

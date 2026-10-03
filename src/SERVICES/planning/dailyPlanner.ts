@@ -1,4 +1,6 @@
+import { estimatedBrewVolume } from "./productionCycle";
 import { packagingLimit, weekday as dayOfWeek } from "./productionCycle";
+import { resolvePackagingBrewId } from "./planIdentity";
 import {
   projectedPallets,
   selectTruck,
@@ -128,15 +130,22 @@ export function futureTanks(
         .filter((p) => sameStyle(p.style, b.style))
         .map((p) => p.leadDays);
       if (!parseDate(b.date) || !b.tankId || !b.liters) return [];
+      const physicalTank = tanks.find((tank) => tank.id === b.tankId);
+      const physicalTankNumber = physicalTank?.number ?? b.tankId;
+      // Planned brew liters are already the NET packaging volume from the
+      // canonical tank × style fallback. Do not apply lossPercent/shrinkage a
+      // second time when projecting a future packaging cycle.
+      const netPackagingLiters =
+        estimatedBrewVolume(physicalTankNumber, b.style) || Number(b.liters) || 0;
       return [
         {
           id: `planned:${b.id}`,
-          number: `${b.tankId} · בישול מתוכנן`,
+          number: String(physicalTankNumber),
           style: b.style,
-          batch: "מתוכנן",
+          batch: b.batchNumber ? String(b.batchNumber) : "מתוכנן",
           brewed: b.date,
           ready: addDays(b.date, Math.max(...leads, 21)),
-          liters: b.liters * 0.9,
+          liters: netPackagingLiters,
           cold: false,
         },
       ];
@@ -227,8 +236,14 @@ export function dailyForecast(
     // flow has already warned/confirmed if the date is earlier than nominal
     // readiness, so forecast that committed work on its chosen date. Newly
     // generated recommendations below still obey normal tank readiness.
-    const committedPool = (r.tankId ? pool.filter((t) => t.id === r.tankId) : pool)
-      .map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
+    const canonicalBrewId = resolvePackagingBrewId(r, plans);
+    const committedPool = (
+      canonicalBrewId
+        ? pool.filter((t) => t.id === `planned:${canonicalBrewId}`)
+        : r.tankId
+          ? pool.filter((t) => t.id === r.tankId)
+          : pool
+    ).map((tank) => tank.ready > r.date! ? { ...tank, ready: r.date! } : tank);
     const allocations = allocate(
       committedPool,
       available,

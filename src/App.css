@@ -6734,3 +6734,16 @@ b {
     font-size: 16px !important;
   }
 }
+
+
+/* PR119 confirmation modal inner spacing */
+.modal-box.confirm-modal {
+    box-sizing: border-box;
+    padding: 24px !important;
+}
+.modal-box.confirm-modal .modal-actions-primary {
+    margin-top: 18px;
+}
+@media (max-width: 640px) {
+    .modal-box.confirm-modal { padding: 20px !important; }
+}

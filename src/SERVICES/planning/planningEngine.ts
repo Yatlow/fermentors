@@ -28,10 +28,15 @@ export type Settings = {
 export type Plan = {
   id?: string;
   productId: string;
+  /** Non-inventory packaging can release a special/seasonal beer cycle without a planning SKU. */
+  nonInventoryStyle?: string;
+  nonInventoryType?: "crates" | "kegs";
   quantity: number;
   date?: string;
   source?: "manual" | "recommendation";
   tankId?: string;
+  /** Canonical planned brew cycle when packaging a future/planned tank cycle. */
+  brewId?: string;
   emptyTank?: boolean;
   earlyPackagingOverride?: boolean;
   tankNumber?: string;
@@ -53,7 +58,11 @@ export type BrewPlan = {
   date: string;
   liters: number;
   batchNumber?: string;
+  /** Explicit link to an already-created real brew. This survives plan rebuilds. */
+  linkedExistingBrewId?: string;
   tankAssignmentStatus?: "tentative" | "confirmed";
+  /** Explicit planner override: reuse this tank after its current cycle empties in the same week. */
+  availabilityOverride?: boolean;
 };
 export type WeekPlan = {
   id: string;
@@ -276,6 +285,10 @@ export function tanksFrom(
         num(t.currentData?.totalLiters),
         num(t.currentData?.crates) + num(t.currentData?.kegs),
       );
+      // Current physical beerVolume keeps the established 10% process-loss
+      // treatment. This is distinct from estimatedBrewVolume()/planned brew
+      // liters, whose tank × style fallback values are already NET and must
+      // never receive another shrinkage deduction downstream.
       const liters = Math.max(0, num(t.beerVolume) * 0.9 - packed);
       return [
         {
@@ -655,7 +668,9 @@ export function brewAdvice(
       const supply =
         stock +
         wip.reduce((s, t) => s + t.liters, 0) +
-        plannedByNeed.reduce((s, b) => s + b.liters * 0.9, 0);
+        // Planned brew liters use the canonical tank × style NET packaging
+        // volume, so they enter supply without another shrinkage deduction.
+        plannedByNeed.reduce((s, b) => s + b.liters, 0);
       const deficit = Math.max(
         0,
         Math.ceil(

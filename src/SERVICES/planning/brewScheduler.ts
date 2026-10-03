@@ -15,6 +15,8 @@ import {
 } from "./planningEngine";
 import type { Pallet } from "../cooler/Pallettypes ";
 import { tankReleases, weekday, type TankSource } from "./productionCycle";
+import { projectTankSchedules } from "./tankScheduleProjection";
+import { tankCanHostCycle } from "./tankSchedule";
 
 export type BrewProposal = BrewPlan & { reason: string; readyDate: string; dependent: boolean };
 
@@ -34,7 +36,8 @@ export function brewProposals(
   today: string,
 ): BrewProposal[] {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
-  const booked = new Set(plans.flatMap((w) => w.brews).filter((b) => b.date >= today).map((b) => b.tankId));
+  const schedules = projectTankSchedules(plans, settings);
+  const booked = new Set<string>();
   const result: BrewProposal[] = [];
   const horizon = addDays(weekStart(today), 84);
 
@@ -45,6 +48,7 @@ export function brewProposals(
       const date = firstBrewDay([today, release.date!].sort().at(-1)!);
       if (date >= horizon) continue;
       const lead = Math.max(...settings.products.filter((p) => sameStyle(p.style, need.style)).map((p) => p.leadDays), 21);
+      if (!tankCanHostCycle(schedules.get(release.tankId) ?? [], date, addDays(date, lead))) continue;
       result.push({
         id: `brew:${release.tankId}:${date}:${need.style}`,
         tankId: release.tankId,
@@ -55,14 +59,11 @@ export function brewProposals(
         dependent: !!release.emptyDate,
         reason: release.reason + (date > need.brewBy ? " · מאוחר ממועד הביקוש הרצוי" : date < need.brewBy ? " · מנצל מיכל פנוי מראש כדי למנוע מחסור עתידי" : ""),
       });
-      remaining -= release.workLiters * 0.9;
+      remaining -= release.workLiters;
       booked.add(release.tankId);
     }
   }
 
-  // Capacity policy: a tank released by this plan should not stay empty merely
-  // because the strict target formula has not crossed zero yet. For every free
-  // tank still unused, choose the core style with the lowest total coverage.
   const styleCandidates = [...new Set(settings.products.filter((p) => p.monthly > 0).map((p) => styleKey(p.style)))];
   const coverage = (key: string) => {
     const products = settings.products.filter((p) => styleKey(p.style) === key && p.monthly > 0);
@@ -73,7 +74,7 @@ export function brewProposals(
       return sum + (inv.brewery + inv.dock + (p.tempo ?? 0)) * litersPerUnit(p);
     }, 0);
     const wip = tanks.filter((t) => styleKey(t.style) === key).reduce((sum, t) => sum + Math.max(0, t.liters), 0);
-    const planned = [...plans.flatMap((w) => w.brews), ...result].filter((b) => styleKey(b.style) === key).reduce((sum, b) => sum + b.liters * 0.9, 0);
+    const planned = [...plans.flatMap((w) => w.brews), ...result].filter((b) => styleKey(b.style) === key).reduce((sum, b) => sum + b.liters, 0);
     return (finished + wip + planned) / demand;
   };
 
@@ -86,6 +87,7 @@ export function brewProposals(
     const date = firstBrewDay([today, release.date!].sort().at(-1)!);
     if (date >= horizon) continue;
     const lead = Math.max(...settings.products.filter((p) => sameStyle(p.style, style)).map((p) => p.leadDays), 21);
+    if (!tankCanHostCycle(schedules.get(release.tankId) ?? [], date, addDays(date, lead))) continue;
     result.push({
       id: `brew:${release.tankId}:${date}:${style}:coverage`,
       tankId: release.tankId,

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -49,6 +49,10 @@ export default function PlanningGanttDailyModal({
   disabled,
   saveWeek,
 }: Props) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const packagingDecisionCount = (plans.find((plan) => plan.id === week)?.packaging ?? [])
+    .filter((run) => run.quantity > 0).length;
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -61,6 +65,21 @@ export default function PlanningGanttDailyModal({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
+
+  useEffect(() => {
+    if (kind !== "packaging" || packagingDecisionCount === 5) return;
+    const hideIrrelevantFiveDayNote = () => {
+      const warning = bodyRef.current?.querySelector<HTMLElement>(".bp-same-week-warning");
+      if (warning?.textContent?.includes("5 ימי אריזה")) warning.style.display = "none";
+    };
+    const frame = window.requestAnimationFrame(hideIrrelevantFiveDayNote);
+    const observer = new MutationObserver(hideIrrelevantFiveDayNote);
+    if (bodyRef.current) observer.observe(bodyRef.current, { childList: true, subtree: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [kind, packagingDecisionCount, week]);
 
   return createPortal(
     <div
@@ -86,7 +105,7 @@ export default function PlanningGanttDailyModal({
             <X size={20} aria-hidden="true" />
           </button>
         </header>
-        <div className="bp-gantt-editor-body">
+        <div className="bp-gantt-editor-body" ref={bodyRef}>
           <PlanningBoard
             settings={settings}
             plans={plans}

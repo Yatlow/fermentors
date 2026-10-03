@@ -1,4 +1,5 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { CalendarDays, SquarePen } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
@@ -19,13 +20,14 @@ import {
   type Tank,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
 import PlanningGanttDailyModal from "./PlanningGanttDailyModal";
+import BeerLoader from "../general/Loading";
 
 const CRATE_LITERS = 24 * 0.33;
 const KEG_LITERS = 20;
@@ -48,6 +50,7 @@ type SummaryItem = {
   styleClass?: string;
   recommended?: boolean;
   stockKind?: "actual" | "projected" | "history";
+  actual?: boolean;
   stockLines?: Array<{ style: string; values: string[] }>;
 };
 
@@ -113,12 +116,32 @@ export default function PlanningGantt(props: Props) {
   const [mode, setMode] = useState<GanttMode>("summary");
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
   const [dailyTarget, setDailyTarget] = useState<EditorTarget | null>(null);
+  const [isOpeningEditor, setIsOpeningEditor] = useState(false);
+  const openEditor = (target: EditorTarget, daily = false) => {
+    setIsOpeningEditor(true);
+    window.setTimeout(() => {
+      if (daily) setDailyTarget(target);
+      else setEditorTarget(target);
+      window.setTimeout(() => setIsOpeningEditor(false), 0);
+    }, 0);
+  };
+  const [weekPage, setWeekPage] = useState(0);
+  const [isPaging, startPaginationTransition] = useTransition();
+  const changeWeekPage = (next: number | ((current: number) => number)) => {
+    startPaginationTransition(() => setWeekPage(next));
+  };
   const currentWeek = weekStart(today);
   const nextPlanningWeek = addDays(currentWeek, 7);
-  const weekIds = useMemo(
-    () => Array.from({ length: 5 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
+  const planningHorizonWeeks = canEdit ? 13 : 4;
+  const allWeekIds = useMemo(
+    () => Array.from({ length: planningHorizonWeeks + 1 }, (_, index) => addDays(currentWeek, (index - 1) * 7)),
     [currentWeek],
   );
+  const maxWeekPage = Math.max(0, Math.ceil((allWeekIds.length - 5) / 4));
+  const weekIds = useMemo(() => {
+    const start = Math.min(weekPage * 4, Math.max(0, allWeekIds.length - 5));
+    return allWeekIds.slice(start, start + 5);
+  }, [allWeekIds, weekPage]);
   const visibleRows = canEdit ? ROWS : ROWS.filter((row) => row.id !== "stock");
   const oldestInventoryUpdate = useMemo(() => settings.products
     .filter((product) => product.monthly > 0 && product.tempo !== null)
@@ -126,8 +149,30 @@ export default function PlanningGantt(props: Props) {
     .filter((date): date is string => !!date)
     .sort()[0], [settings.products]);
   const actualStockLabel = oldestInventoryUpdate ? `מעודכן ל־${shortDate(oldestInventoryUpdate)}` : "בפועל";
+  const planByWeek = useMemo(() => new Map(historyPlans.map((plan) => [plan.id, plan])), [historyPlans]);
+  const actualsByWeek = useMemo(() => {
+    const grouped = new Map<string, Actual[]>();
+    for (const actual of actuals) {
+      const date = actualDate(actual);
+      if (!date) continue;
+      const week = weekStart(date);
+      grouped.set(week, [...(grouped.get(week) ?? []), actual]);
+    }
+    return grouped;
+  }, [actuals]);
 
-  const simulations = useMemo(() => {
+  const [simulations, setSimulations] = useState<Map<string, SimulatedWeek>>(() => new Map());
+  const [isSimulating, setIsSimulating] = useState(true);
+  const [pendingSimulationWeeks, setPendingSimulationWeeks] = useState<Set<string>>(() => new Set());
+  const simulationGeneration = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const generation = ++simulationGeneration.current;
+    setIsSimulating(true);
+    setPendingSimulationWeeks(new Set(weekIds));
+
+    const run = async () => {
     const result = new Map<string, SimulatedWeek>();
     let effectivePlans = historyPlans.map((plan) => structuredClone(plan));
 
@@ -151,13 +196,16 @@ export default function PlanningGantt(props: Props) {
     });
 
     for (const week of weekIds) {
-      const saved = historyPlans.find((plan) => plan.id === week);
+      if (cancelled || generation !== simulationGeneration.current) return;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+      const saved = planByWeek.get(week);
       let workingPlan: WeekPlan = saved
         ? structuredClone(saved)
         : { ...emptyWeek(week), maxRuns: settings.preferredRuns };
       upsertPlan(workingPlan);
 
       let model = buildModel(week);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
       let deliveryRecommendation: WeeklyPlanningModel["shipmentRecommendation"] = [];
       let packagingRecommendation: WeeklyPlanningModel["packagingRecommendation"] = [];
       let brewRecommendation: WeeklyPlanningModel["brewRecommendations"] = [];
@@ -183,6 +231,8 @@ export default function PlanningGantt(props: Props) {
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
           }
         }
 
@@ -198,12 +248,15 @@ export default function PlanningGantt(props: Props) {
                 quantity: item.quantity,
                 tankId: item.tankId,
                 tankNumber: item.tankNumber,
+                ...(item.brewId ? { brewId: item.brewId } : {}),
                 source: "recommendation" as const,
                 emptyTank: !all.slice(index + 1).some((later) => later.tankId === item.tankId),
               })),
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
           }
         }
 
@@ -223,6 +276,8 @@ export default function PlanningGantt(props: Props) {
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
           }
         }
       }
@@ -234,13 +289,37 @@ export default function PlanningGantt(props: Props) {
         packagingRecommendation,
         brewRecommendation,
       });
+      if (cancelled || generation !== simulationGeneration.current) return;
+      const completed = result.get(week);
+      if (completed) {
+        setSimulations((previous) => {
+          const next = new Map(previous);
+          next.set(week, completed);
+          return next;
+        });
+      }
+      setPendingSimulationWeeks((previous) => {
+        const next = new Set(previous);
+        next.delete(week);
+        return next;
+      });
     }
 
-    return result;
-  }, [settings, pallets, tanks, historyPlans, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
+      if (cancelled || generation !== simulationGeneration.current) return;
+      setPendingSimulationWeeks(new Set());
+      setIsSimulating(false);
+    };
+
+    // Let the loader/previous UI paint before starting planning CPU work.
+    const timer = window.setTimeout(() => { void run(); }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
-  const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
+  const decisionPlanFor = (weekId: string) => planByWeek.get(weekId);
 
   function assignedBrewTankNumber(item: WeekPlan["brews"][number]) {
     if (!item.tankId) return undefined;
@@ -348,50 +427,96 @@ export default function PlanningGantt(props: Props) {
 
   function packagingItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.packaging ?? []).filter((item) => item.quantity > 0);
-    if (decisions.length) {
-      return decisions.map((item, index) => {
-        const product = productFor(item.productId);
-        const tank = tanks.find((candidate) => candidate.id === item.tankId);
-        const resolvedTank = item.tankNumber ?? tank?.number;
+    const actualItems: SummaryItem[] = (actualsByWeek.get(weekId) ?? [])
+      .filter((actual) => Number(actual.quantity) > 0)
+      .map((actual) => {
+        const product = settings.products.find((candidate) => matchesActual(candidate, actual));
+        const quantity = product ? actualUnits(product, actual) : Number(actual.quantity) || 0;
+        const type = product?.type ?? (actual.packagingType === "kegs" ? "kegs" : "crates");
+        const tankNumber = actual.tankNumber;
+        const style = product?.style ?? actual.beerStyle ?? "";
         return {
-          key: `pack:${item.id ?? index}`,
-          title: product ? `${displayStyle(product.style)} · ${tankLabel(resolvedTank)}` : item.productId,
-          meta: product ? `${fmt(item.quantity)} ${product.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, product.type))} ל׳` : fmt(item.quantity),
-          styleClass: product ? beerStyleClass(product.style).className : undefined,
+          key: `pack-actual:${actual.id}`,
+          title: `${displayStyle(style)} · ${tankLabel(tankNumber)}`,
+          meta: `${fmt(quantity)} ${type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(quantity, type))} ל׳ · בוצע בפועל`,
+          styleClass: style ? beerStyleClass(style).className : undefined,
+          actual: true,
         };
       });
-    }
-    if (weekId < currentWeek) return [];
-    return (simulations.get(weekId)?.packagingRecommendation ?? []).map((item) => {
+
+    const plannedItems: SummaryItem[] = decisions.map((item, index) => {
       const product = productFor(item.productId);
+      const tank = tanks.find((candidate) => candidate.id === item.tankId);
+      // Canonical tankId (aligned from brewId/cycle) wins over the historical
+      // tankNumber snapshot. The snapshot is only a legacy/display fallback.
+      const resolvedTank = tank?.number ?? item.tankNumber;
+      const style = product?.style ?? item.nonInventoryStyle ?? "";
+      const type = product?.type ?? item.nonInventoryType;
       return {
-        key: `pack-rec:${item.id}`,
-        title: `${product ? displayStyle(product.style) : item.productId} · ${tankLabel(item.tankNumber)}`,
-        meta: `${fmt(item.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(item.quantity * (product ? (product.type === "crates" ? CRATE_LITERS : KEG_LITERS) : 1))} ל׳`,
-        styleClass: product ? beerStyleClass(product.style).className : undefined,
-        recommended: true,
+        key: `pack:${item.id ?? index}`,
+        title: style ? `${displayStyle(style)} · ${tankLabel(resolvedTank)}` : item.productId,
+        meta: type
+          ? `${fmt(item.quantity)} ${type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, type))} ל׳ · מתוכנן`
+          : fmt(item.quantity),
+        styleClass: style ? beerStyleClass(style).className : undefined,
       };
     });
+
+    const recommendationItems: SummaryItem[] = decisions.length || weekId < currentWeek
+      ? []
+      : (simulations.get(weekId)?.packagingRecommendation ?? []).map((item) => {
+          const product = productFor(item.productId);
+          return {
+            key: `pack-rec:${item.id}`,
+            title: `${product ? displayStyle(product.style) : item.productId} · ${tankLabel(item.tankNumber)}`,
+            meta: `${fmt(item.quantity)} ${product?.type === "crates" ? "ארגזים" : "חביות"} · ${fmt(item.quantity * (product ? (product.type === "crates" ? CRATE_LITERS : KEG_LITERS) : 1))} ל׳`,
+            styleClass: product ? beerStyleClass(product.style).className : undefined,
+            recommended: true,
+          };
+        });
+
+    // Actual packaging is historical fact and is always shown independently of
+    // the planning decision. This lets a partially elapsed week contain both
+    // completed packaging from packagingLog and the remaining planned/recommended run.
+    return [...actualItems, ...plannedItems, ...recommendationItems];
   }
 
   function brewItems(weekId: string): SummaryItem[] {
-    const decisions = (decisionPlanFor(weekId)?.brews ?? []).filter((item) => item.liters > 0);
-    if (decisions.length) {
-      return decisions.map((item) => ({
-        key: `brew:${item.id}`,
-        title: `${displayStyle(item.style)} · ${tankLabel(assignedBrewTankNumber(item))}`,
-        meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)}`,
-        styleClass: beerStyleClass(item.style).className,
-      }));
-    }
-    if (weekId < currentWeek) return [];
-    return (simulations.get(weekId)?.brewRecommendation ?? []).map((item, index) => ({
-      key: `brew-rec:${weekId}:${item.style}:${index}`,
-      title: `${displayStyle(item.style)} · ${tankLabel(item.tankNumber)}`,
-      meta: `${item.sizeLabel} · ${fmt(item.liters)} ל׳ · זמין ${shortDate(item.availableDate)}`,
+    const actualBrews: SummaryItem[] = sources
+      .flatMap((source) => {
+        const brewDate = parseDate(source.brewDate ?? "");
+        if (!brewDate || weekStart(brewDate) !== weekId || brewDate >= today) return [];
+        const style = source.beerStyle ?? "";
+        const liters = Math.max(0, Number(source.beerVolume) || 0);
+        return [{
+          key: `brew-actual:${source.id}:${String(source.batchNumber ?? "")}:${brewDate}`,
+          title: `${displayStyle(style)} · ${tankLabel(source.tankNumber)}`,
+          meta: `${liters > 0 ? `${fmt(liters)} ל׳ · ` : ""}${shortDate(brewDate)} · בוצע בפועל`,
+          styleClass: style ? beerStyleClass(style).className : undefined,
+          actual: true,
+        }];
+      });
+
+    const decisions = (decisionPlanFor(weekId)?.brews ?? [])
+      .filter((item) => item.liters > 0 && item.date >= today);
+    const plannedBrews: SummaryItem[] = decisions.map((item) => ({
+      key: `brew:${item.id}`,
+      title: `${displayStyle(item.style)} · ${tankLabel(assignedBrewTankNumber(item))}`,
+      meta: `${fmt(item.liters)} ל׳ · ${shortDate(item.date)} · מתוכנן`,
       styleClass: beerStyleClass(item.style).className,
-      recommended: true,
     }));
+
+    const recommendationBrews: SummaryItem[] = decisions.length || weekId < currentWeek
+      ? []
+      : (simulations.get(weekId)?.brewRecommendation ?? []).map((item, index) => ({
+          key: `brew-rec:${weekId}:${item.style}:${index}`,
+          title: `${displayStyle(item.style)} · ${tankLabel(item.tankNumber)}`,
+          meta: `${item.sizeLabel} · ${fmt(item.liters)} ל׳ · זמין ${shortDate(item.availableDate)}`,
+          styleClass: beerStyleClass(item.style).className,
+          recommended: true,
+        }));
+
+    return [...actualBrews, ...plannedBrews, ...recommendationBrews];
   }
 
   function stockItems(weekId: string): SummaryItem[] {
@@ -442,14 +567,30 @@ export default function PlanningGantt(props: Props) {
 
   function weeklyTotals(weekId: string) {
     const plan = simulations.get(weekId)?.effectivePlan ?? decisionPlanFor(weekId);
-    if (!plan) return { packaging: 0, brewing: 0 };
-    const packaging = plan.packaging.reduce((sum, run) => {
+    const plannedPackaging = (plan?.packaging ?? []).reduce((sum, run) => {
       const product = productFor(run.productId);
-      return sum + (product && run.quantity > 0 ? packageLiters(run.quantity, product.type) : 0);
+      const type = product?.type ?? run.nonInventoryType;
+      return sum + (type && run.quantity > 0 ? packageLiters(run.quantity, type) : 0);
     }, 0);
+    const actualPackaging = actuals.reduce((sum, actual) => {
+      const date = actualDate(actual);
+      if (!date || weekStart(date) !== weekId || Number(actual.quantity) <= 0) return sum;
+      const product = settings.products.find((candidate) => matchesActual(candidate, actual));
+      const quantity = product ? actualUnits(product, actual) : Number(actual.quantity) || 0;
+      const type = product?.type ?? (actual.packagingType === "kegs" ? "kegs" : "crates");
+      return sum + packageLiters(quantity, type);
+    }, 0);
+    const actualBrewing = sources.reduce((sum, source) => {
+      const brewDate = parseDate(source.brewDate ?? "");
+      if (!brewDate || weekStart(brewDate) !== weekId || brewDate >= today) return sum;
+      return sum + Math.max(0, Number(source.beerVolume) || 0);
+    }, 0);
+    const plannedBrewing = (plan?.brews ?? [])
+      .filter((brew) => brew.date >= today)
+      .reduce((sum, brew) => sum + Math.max(0, Number(brew.liters) || 0), 0);
     return {
-      packaging,
-      brewing: plan.brews.reduce((sum, brew) => sum + Math.max(0, Number(brew.liters) || 0), 0),
+      packaging: actualPackaging + plannedPackaging,
+      brewing: actualBrewing + plannedBrewing,
     };
   }
 
@@ -484,13 +625,26 @@ export default function PlanningGantt(props: Props) {
     />
   ) : null;
 
+  const dailyEditorPlans = useMemo(
+    () => dailyTarget ? withTentativeFiveWeekTanks(editorPlans, tanks, settings).map((plan) => ({
+      ...plan,
+      brews: plan.brews.map((brew) => {
+        const tentativeTankId = (brew as typeof brew & { tentativeTankId?: string }).tentativeTankId;
+        return !brew.tankId && tentativeTankId
+          ? { ...brew, tankId: tentativeTankId, tankAssignmentStatus: "tentative" as const }
+          : brew;
+      }),
+    })) : editorPlans,
+    [dailyTarget, editorPlans, tanks, settings],
+  );
+
   const dailyEditor = dailyTarget && canEdit ? (
     <PlanningGanttDailyModal
       week={dailyTarget.week}
       kind={dailyTarget.kind}
       onClose={() => setDailyTarget(null)}
       settings={settings}
-      plans={historyPlans}
+      plans={dailyEditorPlans}
       tanks={tanks}
       sources={sources}
       pallets={pallets}
@@ -506,15 +660,22 @@ export default function PlanningGantt(props: Props) {
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
+        {(isPaging || isSimulating) && <BeerLoader overlay message={isPaging ? "טוען שבוע…" : "טוען המלצות שבועיות…"} />}
+        {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
         <div className="bp-section-heading bp-gantt-heading">
-          <div><h2>לוח שנה</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
+          <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
             <button type="button" aria-pressed={false} onClick={() => setMode("summary")}>סיכום שבועי</button>
             <button type="button" aria-pressed={true}>לוח שנה</button>
           </div>
         </div>
+        <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
+          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => changeWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
+          <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
+          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => changeWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
+        </div>
         <div className="bp-gantt-calendar-host">
-          <PlanningFiveWeekOverview {...props} plans={calendarPlans} tanks={calendarTanks} />
+          <PlanningFiveWeekOverview {...props} plans={calendarPlans} tanks={calendarTanks} visibleWeekIds={weekIds} />
         </div>
       </section>
       {editor}
@@ -524,13 +685,20 @@ export default function PlanningGantt(props: Props) {
 
   return <>
     <section className="bp-gantt-shell">
+      {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
       <div className="bp-section-heading bp-gantt-heading">
-        <div><h2>גאנט</h2><p className="bp-muted">שבוע קודם, השבוע הנוכחי ושלושה שבועות קדימה.</p></div>
+        <div><h2>גאנט</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
         <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
           <button type="button" aria-pressed={true}>סיכום שבועי</button>
           <button type="button" aria-pressed={false} onClick={() => setMode("calendar")}>לוח שנה</button>
         </div>
       </div>
+
+        <div className="bp-gantt-horizon-nav" role="group" aria-label="ניווט בין שבועות התכנון">
+          {canEdit && <button type="button" disabled={weekPage === 0} onClick={() => changeWeekPage((page) => Math.max(0, page - 1))}>‹ מוקדם יותר</button>}
+          <span>{shortDate(weekIds[0])}–{shortDate(addDays(weekIds[weekIds.length - 1], 6))}</span>
+          {canEdit && <button type="button" disabled={weekPage >= maxWeekPage} onClick={() => changeWeekPage((page) => Math.min(maxWeekPage, page + 1))}>מאוחר יותר ›</button>}
+        </div>
 
       <div className="bp-gantt-legend" aria-label="מקרא">
         {canEdit && <>
@@ -545,11 +713,13 @@ export default function PlanningGantt(props: Props) {
           <div className="bp-five-week-corner" />
           {weekIds.map((weekId) => {
             const totals = weeklyTotals(weekId);
+            const weekHolidays = holidays.filter((holiday) => holiday.date >= weekId && holiday.date <= addDays(weekId, 6));
             return (
               <div key={`head:${weekId}`} className={`bp-five-week-head ${weekId === currentWeek ? "is-current" : ""} ${weekId === nextPlanningWeek ? "is-next" : ""}`}>
                 <b>שבוע {weekNumber(weekId)}</b>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}
+                {weekHolidays.length > 0 && <small className="bp-gantt-holidays" title={weekHolidays.map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join("\n")}>{weekHolidays.slice(0, 2).map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join(" · ")}{weekHolidays.length > 2 ? ` · +${weekHolidays.length - 2}` : ""}</small>}
                 {weekId === currentWeek && <small>השבוע</small>}
                 {weekId === nextPlanningWeek && <small>שבוע התכנון הבא</small>}
               </div>
@@ -560,6 +730,7 @@ export default function PlanningGantt(props: Props) {
             <Fragment key={row.id}>
               <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
+                const weekPending = pendingSimulationWeeks.has(weekId);
                 const items = itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
                 const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
@@ -579,7 +750,7 @@ export default function PlanningGantt(props: Props) {
                           className="bp-gantt-cell-edit"
                           aria-label={`עריכת ${row.label} בשבוע ${weekNumber(weekId)}`}
                           title={`עריכת ${row.label}`}
-                          onClick={() => setEditorTarget({ week: weekId, kind: editableKind })}
+                          onClick={() => openEditor({ week: weekId, kind: editableKind })}
                         >
                           <SquarePen size={15} aria-hidden="true" />
                         </button>
@@ -589,7 +760,7 @@ export default function PlanningGantt(props: Props) {
                             className="bp-gantt-cell-edit bp-gantt-cell-calendar"
                             aria-label={`תכנון יומי של ${row.label} בשבוע ${weekNumber(weekId)}${pendingCount ? `, ${pendingCount} ממתינים לשיבוץ` : ""}`}
                             title={editableKind === "brews" ? "סדר ושיבוץ בישולים" : `תכנון יומי · ${row.label}`}
-                            onClick={() => setDailyTarget({ week: weekId, kind: editableKind })}
+                            onClick={() => openEditor({ week: weekId, kind: editableKind }, true)}
                           >
                             <CalendarDays size={15} aria-hidden="true" />
                             {pendingCount > 0 && <span className="bp-gantt-action-badge">{pendingCount}</span>}
@@ -599,7 +770,7 @@ export default function PlanningGantt(props: Props) {
                     )}
                     {items.map((item) => (
                       <article
-                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""}`}
+                        className={`bp-five-week-item ${item.styleClass ?? ""} ${item.recommended ? "is-gantt-recommendation" : ""} ${item.stockKind ? `is-stock-${item.stockKind}` : ""} ${item.actual ? "is-gantt-actual" : ""}`}
                         key={item.key}
                       >
                         <b>{item.title}</b>
@@ -615,7 +786,8 @@ export default function PlanningGantt(props: Props) {
                         {item.stockKind === "projected" && <span className="bp-gantt-stock-label">צפי לפתיחת השבוע</span>}
                       </article>
                     ))}
-                    {!items.length && <span className="bp-five-week-empty">—</span>}
+                    {weekPending && <div className="bp-gantt-cell-loader"><BeerLoader size="spinner" message="" /></div>}
+                    {!items.length && !weekPending && <span className="bp-five-week-empty">—</span>}
                   </div>
                 );
               })}

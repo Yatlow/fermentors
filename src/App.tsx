@@ -14,6 +14,7 @@ import { auth, db, googleProvider } from "./firebase";
 
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
 import { enableGlobalReadDiagnostics, recordGlobalServerRead } from "./SERVICES/globalReadDiagnostics";
+import { hasCredibleLiveBrewProgress } from "./SERVICES/brewing/brewProgressDisplay";
 
 import "./App.css";
 import shpiro from "./assets/shpiro.jpeg";
@@ -183,6 +184,7 @@ function useAuth() {
 
 function App() {
     const [planningTab, setPlanningTab] = useState<PlanningTab>("fiveWeeks");
+    const [pendingPlanningWork, setPendingPlanningWork] = useState(0);
     const [brewingTab, setBrewingTab] = useState<BrewingTab>("form");
     const { user, loading: authLoading, isApproved, admin, plannerUser } = useAuth();
     const [brews, setBrews] = useState<Fermentor[]>([]);
@@ -235,7 +237,11 @@ function App() {
                             const sameData = JSON.stringify(prevRest) === JSON.stringify({ ...firestoreData, id });
                             if (sameData) return prevTank;
                         }
-                        return { ...firestoreData, id, stage: undefined } as Fermentor;
+                        const nextTank = { ...firestoreData, id, stage: undefined } as Fermentor;
+                        if (Number(nextTank.action) === 0 && !hasCredibleLiveBrewProgress(nextTank.brewProgress)) {
+                            nextTank.brewProgress = null;
+                        }
+                        return nextTank;
                     });
                     data.sort((a, b) => {
                         const numA = parseInt(String(a.uid ?? "").replace(/\D/g, ""), 10) || 0;
@@ -455,13 +461,13 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
                     </div>}
                     {selectedView === "בישולים" && <nav className="status-filter" dir="rtl" aria-label="בישולים">{BREWING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${brewingTab === id ? "active" : ""}`} aria-pressed={brewingTab === id} onClick={() => setBrewingTab(id)}>{label}</button>)}</nav>}
-                    {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{(plannerUser ? PLANNING_TABS : PLANNING_TABS.filter(([id]) => id === "fiveWeeks")).map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
+                    {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{(plannerUser ? PLANNING_TABS : PLANNING_TABS.filter(([id]) => id === "fiveWeeks")).map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} data-planning-badge={id === "schedule" && pendingPlanningWork > 0 ? pendingPlanningWork : undefined} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
                 </div>
             </header>
 
             <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
                 {selectedView === "דאשבורד" && <Dashboard healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
-                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
+                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
                 {selectedView === "רישום" && <>
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
                     {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}

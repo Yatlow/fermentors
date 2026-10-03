@@ -185,6 +185,18 @@ function assignAndRefreshTank(
     action:
       action,
 
+    // brewProgress belongs to the batch, not to the physical tank. When a
+    // different batch is assigned, keeping the previous batch's runtime stage
+    // makes a brand-new empty brew look as if it is already at that old stage.
+    // Clear both the current field and the legacy block-start fallback in the
+    // same atomic PATCH as the new batch assignment. The normal ACTION-0
+    // extractor will repopulate progress only after it sees real start times.
+    brewProgress:
+      null,
+
+    brewBlockStarts:
+      null,
+
     updatedAt:
       new Date()
   };
@@ -225,6 +237,8 @@ function assignAndRefreshTank(
     "&updateMask.fieldPaths=sheetUrl" +
     "&updateMask.fieldPaths=startingPlato" +
     "&updateMask.fieldPaths=action" +
+    "&updateMask.fieldPaths=brewProgress" +
+    "&updateMask.fieldPaths=brewBlockStarts" +
     "&updateMask.fieldPaths=updatedAt";
 
 

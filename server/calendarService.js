@@ -86,14 +86,60 @@ function syncCalendarToFirestore() {
         payload.quantity + " " + (payload.unit || "")
       );
     });
-    Logger.log("Calendar sync complete: " + savedCount + " event(s).");
-    return { savedCount: savedCount };
+    const holidaySavedCount = calendarSyncGoogleNationalHolidays_(timeMin, timeMax);
+    Logger.log("Calendar sync complete: " + savedCount + " operational event(s), " + holidaySavedCount + " national holiday event(s).");
+    return { savedCount: savedCount, holidaySavedCount: holidaySavedCount };
 
   } finally {
     lock.releaseLock();
   }
 }
 
+
+
+function calendarSyncGoogleNationalHolidays_(timeMin, timeMax) {
+  let calendars = [], pageToken = null;
+  do {
+    const page = Calendar.CalendarList.list({ maxResults: 250, pageToken: pageToken || undefined, showHidden: true });
+    calendars = calendars.concat(page.items || []);
+    pageToken = page.nextPageToken || null;
+  } while (pageToken);
+  const holidayCalendars = calendars.filter(function (calendar) {
+    const summary = String(calendar.summaryOverride || calendar.summary || "").toLowerCase();
+    const id = String(calendar.id || "").toLowerCase();
+    const israel = summary.includes("ישראל") || summary.includes("israel") || id.includes("israel");
+    const holiday = summary.includes("חג") || summary.includes("holiday") || id.includes("holiday");
+    return israel && holiday;
+  });
+  if (!holidayCalendars.length) {
+    Logger.log("[Calendar holidays] Israel national-holidays calendar not found in CalendarList.");
+    return 0;
+  }
+  let saved = 0;
+  holidayCalendars.forEach(function (calendar) {
+    let token = null;
+    do {
+      const page = Calendar.Events.list(calendar.id, { timeMin: timeMin, timeMax: timeMax, singleEvents: true, orderBy: "startTime", pageToken: token || undefined, maxResults: 2500 });
+      (page.items || []).forEach(function (event) {
+        if (event.status === "cancelled" || !event.start) return;
+        const dateValue = event.start.date || event.start.dateTime;
+        const title = String(event.summary || "").trim();
+        if (!dateValue || !title) return;
+        const date = String(dateValue).split("T")[0];
+        const eventId = "national-holiday:" + calendar.id + ":" + event.id;
+        calendarWriteEventToFirestore_(FIREBASE_PROJECT_ID, eventId, {
+          eventId: eventId, title: title, date: date,
+          timestamp: new Date(date + "T12:00:00+03:00").getTime(),
+          actionType: "holiday", source: "google-national-holidays",
+          calendarId: calendar.id, closed: true
+        });
+        saved++;
+      });
+      token = page.nextPageToken || null;
+    } while (token);
+  });
+  return saved;
+}
 
 function calendarProcessTankTotals_(events) {
   events.sort(function (a, b) {

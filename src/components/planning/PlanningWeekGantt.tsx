@@ -19,6 +19,7 @@ export default function PlanningWeekGantt({
   tanks,
   week,
   onAssignPackagingToDate,
+  onReturnPackagingToWaiting,
   selectedPackagingId,
   onSelectPackaging,
 }: {
@@ -27,6 +28,7 @@ export default function PlanningWeekGantt({
   tanks: Tank[];
   week: string;
   onAssignPackagingToDate?: (date: string) => void;
+  onReturnPackagingToWaiting?: () => void;
   selectedPackagingId?: string | null;
   onSelectPackaging?: (id: string) => void;
 }) {
@@ -40,12 +42,17 @@ export default function PlanningWeekGantt({
   const tankNumber = (tankId?: string, fallback?: string | number) => tanks.find((t) => t.id === tankId)?.number ?? fallback ?? "?";
   const itemFor = (x: NonNullable<typeof current>["packaging"][number]): GanttItem => {
     const p = product(x.productId);
+    const specialStyle = x.nonInventoryStyle;
+    const specialType = x.nonInventoryType;
+    const label = specialStyle && specialType
+      ? `${displayStyle(specialStyle)} · ${specialType === "crates" ? "ארגזים" : "חביות"}`
+      : productName(x.productId);
     return {
       id: x.id,
-      text: `${productName(x.productId)} · מיכל ${tankNumber(x.tankId, x.tankNumber)}`,
+      text: `${label} · מיכל ${tankNumber(x.tankId, x.tankNumber)}`,
       tank: String(tankNumber(x.tankId, x.tankNumber)),
-      style: p ? displayStyle(p.style) : x.productId,
-      type: p?.type === "crates" ? "ארגזים" : "חביות",
+      style: specialStyle ? displayStyle(specialStyle) : (p ? displayStyle(p.style) : x.productId),
+      type: specialType === "crates" || p?.type === "crates" ? "ארגזים" : "חביות",
       quantity: Math.round(x.quantity),
     };
   };
@@ -92,11 +99,23 @@ export default function PlanningWeekGantt({
         <p className="bp-muted">בחר אריזה מאזור ההמתנה ואז לחץ על יום. אפשר לשבץ כמה אריזות לאותו יום, ולבחור שתי אריזות שכבר שובצו כדי להחליף ביניהן ימים.</p>
       </div></div>
 
-      <div className="bp-packaging-waiting-lane">
+      <div
+        className={`bp-packaging-waiting-lane ${selectedPackagingId ? "is-drop-target" : ""}`}
+        role={selectedPackagingId ? "button" : undefined}
+        tabIndex={selectedPackagingId ? 0 : undefined}
+        onClick={() => { if (selectedPackagingId) onReturnPackagingToWaiting?.(); }}
+        onKeyDown={(event) => {
+          if (!selectedPackagingId || !onReturnPackagingToWaiting) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onReturnPackagingToWaiting();
+          }
+        }}
+      >
         <div className="bp-packaging-waiting-heading">
           <b>ממתינות לשיבוץ</b>
           <span className="bp-count-badge">{undated.length}</span>
-          {selectedPackagingId && <small>אריזה נבחרה — לחץ על היום הרצוי</small>}
+          {selectedPackagingId && <small>אריזה נבחרה — לחץ כאן כדי להחזיר לממתינות, או לחץ על יום לשיבוץ</small>}
         </div>
         <div className="bp-packaging-waiting-row">
           {undated.length ? undated.map((item) => <span key={item.id ?? item.text}>{card(item)}</span>) : <small className="bp-muted">כל האריזות שובצו לימים.</small>}

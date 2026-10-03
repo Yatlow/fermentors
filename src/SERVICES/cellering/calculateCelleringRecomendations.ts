@@ -846,7 +846,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         // If it was missed, escalate to 3 until the test is performed.
         requiresCarbTest.importance = CoolAge > 1 ? 3 : 2;
     }
-    const YeastDroppedToday = lastNote?.includes("שמרים");
+    const todayMeasurementNotes = sortedMeasurements
+        .filter((measurement) => getMeasurementDate(measurement.id) === todayDate)
+        .map((measurement) => String(measurement.notes ?? ""))
+        .join(" | ");
+    const YeastDroppedToday = /שמרים|שמרי/.test(todayMeasurementNotes);
     const requiiersWedYeastDropOnThus = {
         req: false,
         display: false,
@@ -1048,6 +1052,16 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             }
         }
     }
+    // Thursday planning action is driven by next week's committed packaging,
+    // not by the current fermentation stage. A tank scheduled to empty next
+    // week must surface the yeast-drop action unless it was already done today.
+    if (corrected === 5 && tankNumber && nextWeekPack.includes(tankNumber) && !YeastDroppedToday) {
+        requiiersWedYeastDropOnThus.display = true;
+        requiiersWedYeastDropOnThus.req = true;
+        requiiersWedYeastDropOnThus.reason = `לפי נתוני היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא. מומלץ להוריד שמרים`;
+        requiiersWedYeastDropOnThus.importance = 1;
+    }
+
     const requiersDiacytelRest = {
         req: isLager && lastMeasurement?.plato && Number(lastMeasurement?.plato) < (givenSpecs.tolorances.dycitalRestMinPlato || 8) &&
             Number(lastMeasurement?.temp) > 9 && Number(lastMeasurement?.temp) < 13 &&

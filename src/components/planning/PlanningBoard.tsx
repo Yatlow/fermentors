@@ -25,7 +25,10 @@ import {
   validateBrewReleases,
 } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
+import { resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/planning/planIdentity";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
+import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
+import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
 import PlanningBrewAssignmentEditor from "./PlanningBrewAssignmentEditor";
 import PlanningWeekGantt from "./PlanningWeekGantt";
 
@@ -70,7 +73,7 @@ function inferDatedEmptyTankFlags(
 
   for (const tank of tanks) {
     const runs = opened
-      .filter((run) => run.tankId === tank.id)
+      .filter((run) => run.tankId === tank.id && !resolvePackagingBrewId(run, [next]))
       .sort((a, b) => (a.date ?? "9999-99-99").localeCompare(b.date ?? "9999-99-99") || a.key.localeCompare(b.key));
     if (!runs.length || runs.some((run) => !run.date)) continue;
 
@@ -82,7 +85,7 @@ function inferDatedEmptyTankFlags(
 
     const last = runs[runs.length - 1];
     next.packaging = next.packaging.map((run, index) => {
-      if (run.tankId !== tank.id) return run;
+      if (run.tankId !== tank.id || resolvePackagingBrewId(run, [next])) return run;
       const key = run.id ?? `${next.id}:${run.productId}:${index}`;
       return { ...run, emptyTank: key === last.key };
     });
@@ -136,18 +139,28 @@ export default function PlanningBoard({
   const readOnly = disabled || closed;
   const current = plans.find((w) => w.id === week) ?? { ...emptyWeek(week), maxRuns: settings.preferredRuns };
   const releasePlans = useMemo(() => forecastDateUndatedPackaging(plans), [plans]);
-  const reservedOutsideWeek = useMemo(() => new Set(
-    plans
-      .filter((w) => w.id !== week)
-      .flatMap((w) => w.brews)
-      .filter((b) => !!b.tankId && b.date >= today)
-      .map((b) => b.tankId),
-  ), [plans, week, today]);
-  const releases = useMemo(
-    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today)
-      .filter((release) => !reservedOutsideWeek.has(release.tankId)),
-    [brews, tanks, releasePlans, settings, actuals, today, reservedOutsideWeek],
+  // Do not reserve a physical tank forever merely because another week uses its
+  // tankId. The canonical cycle validator below decides whether the previous
+  // brew has actually emptied before a later brew. Keeping all releases visible
+  // is required for legitimate tank reuse in later planning weeks.
+  const allReleases = useMemo(
+    () => tankReleases(brews, tanks, releasePlans, settings, actuals, today),
+    [brews, tanks, releasePlans, settings, actuals, today],
   );
+  const releases = useMemo(() => {
+    const base = allReleases;
+    const schedules = projectTankSchedules(plans, settings);
+    const weekEnd = addDays(week, 6);
+    return base.filter((release) => {
+      if (!release.date || release.date > weekEnd) return false;
+      const candidateDate = release.date > week ? release.date : week;
+      // The assignment editor only needs to show tanks with a real canonical
+      // opening in this week. Style-specific readiness is validated on save.
+      const currentWeekCycleIds = new Set(current.brews.map((brew) => brew.id));
+      const cycles = (schedules.get(release.tankId) ?? []).filter((cycle) => !currentWeekCycleIds.has(cycle.cycleId));
+      return tankCanHostCycle(cycles, candidateDate, candidateDate);
+    });
+  }, [allReleases, plans, settings, week, current.brews]);
 
   const productLabel = (id: string) => {
     const product = settings.products.find((item) => item.id === id);
@@ -178,8 +191,14 @@ export default function PlanningBoard({
     const status = assignmentStatus(brew) === "tentative" ? "מוצע" : "מאושר";
     return `${displayStyle(brew.style)} · מיכל ${tankNumber} (${status})${batch ? ` · אצווה ${batch}` : ""}`;
   });
+  const packagingLabel = (run: WeekPlan["packaging"][number]) => {
+    if (run.nonInventoryStyle && run.nonInventoryType) {
+      return `${displayStyle(run.nonInventoryStyle)} · ${run.nonInventoryType === "crates" ? "ארגזים" : "חביות"}`;
+    }
+    return productLabel(run.productId);
+  };
   const packagingSummary = current.packaging.map((run) =>
-    `${productLabel(run.productId)} · ${Math.round(run.quantity)} · מיכל ${tanks.find((tank) => tank.id === run.tankId)?.number ?? run.tankNumber ?? "?"}${run.date ? ` · ${shortDate(run.date)}` : " · טרם שובץ ליום"}`,
+    `${packagingLabel(run)} · ${Math.round(run.quantity)} · מיכל ${tanks.find((tank) => tank.id === run.tankId)?.number ?? run.tankNumber ?? "?"}${run.date ? ` · ${shortDate(run.date)}` : " · טרם שובץ ליום"}`,
   );
 
   function requestEarlyPackagingOverride(warning: string) {
@@ -196,11 +215,38 @@ export default function PlanningBoard({
     resolve?.(approved);
   }
 
+  function attachCanonicalBrewToEditedPackaging(next: WeekPlan): WeekPlan {
+    const allForMatch = [...plans.filter((w) => w.id !== next.id), next];
+    return {
+      ...next,
+      packaging: next.packaging.map((run) => {
+        const saved = current.packaging.find((item) => item.id === run.id);
+        const wasEdited = JSON.stringify(saved ?? null) !== JSON.stringify(run);
+        if (!wasEdited || resolvePackagingBrewId(run as PackagingPlan, allForMatch)) return run;
+        if (!run.tankId || !run.date) return run;
+        const runDate = run.date;
+        const product = settings.products.find((item) => item.id === run.productId);
+        const style = run.nonInventoryStyle ?? product?.style;
+        if (!style) return run;
+        const candidates = allForMatch
+          .flatMap((week) => week.brews ?? [])
+          .filter((brew) => brew.tankId === run.tankId && brew.date <= runDate && sameStyle(brew.style, style))
+          .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+        const brew = candidates.at(-1);
+        if (!brew) return run;
+        return {
+          ...run,
+          brewId: brew.id,
+          tankId: brew.tankId,
+          ...(brew.batchNumber ? { batchNumber: brew.batchNumber } : {}),
+        };
+      }),
+    };
+  }
+
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
-    // The dedicated brew-assignment editor never edits packaging. Remember that
-    // before normalization adds derived flags, so existing packaging exceptions
-    // cannot block an unrelated brew save or open a hidden confirmation dialog.
+    next = attachCanonicalBrewToEditedPackaging(next);
     const packagingWasEdited = JSON.stringify(next.packaging) !== JSON.stringify(current.packaging);
     const deliveriesWereEdited = JSON.stringify(next.deliveries ?? []) !== JSON.stringify(current.deliveries ?? []);
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;
@@ -208,9 +254,6 @@ export default function PlanningBoard({
       inferDatedEmptyTankFlags(confirmedNext, tanks, settings, actuals),
     );
 
-    // Rows that are already saved at the same early date necessarily passed the
-    // planner confirmation in an older build. Stamp them once so subsequent
-    // edits do not ask for the same exception again.
     let provisionalAll = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     let validationTanks = futureTanks(tanks, provisionalAll, settings);
     effectiveNext = {
@@ -227,12 +270,6 @@ export default function PlanningBoard({
     };
 
     let all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
-
-    // Do not let a pre-existing shipment validation error block an unrelated
-    // packaging/brew edit. Validate the edited week as-is first; when deliveries
-    // were not touched and only the saved delivery state is invalid, validate the
-    // non-delivery edit against the same week without deliveries. Shipment edits
-    // themselves still get the full truck-capacity validation.
     let error = validatePlanningWeek(effectiveNext, settings, all, today);
     if (error && !deliveriesWereEdited) {
       const withoutDeliveries = { ...effectiveNext, deliveries: [] };
@@ -246,8 +283,6 @@ export default function PlanningBoard({
       const allPackagingOnly = all.map((week) =>
         week.id === effectiveNext.id ? packagingOnly : week
       );
-      // A packaging move must not be blocked by an unchanged historical brew
-      // decision from earlier in the same week. Validate the thing being edited.
       error = validatePlanningWeek(packagingOnly, settings, allPackagingOnly, today);
     }
     if (error) throw new Error(error);
@@ -257,9 +292,6 @@ export default function PlanningBoard({
     let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
     if (production?.includes("לפני מועד ההבשלה")) {
       if (confirmBrews && !packagingWasEdited) {
-        // This save changes only brew order/tank assignment. Any early packaging
-        // here is an already-existing planner decision, so do not make the brew
-        // save wait for a packaging confirmation that this focused UI cannot own.
         production = validateProduction(
           datedOnly,
           settings,
@@ -371,6 +403,33 @@ export default function PlanningBoard({
     }
   }
 
+  async function returnSelectedPackagingToWaiting() {
+    if (!selectedPackaging || readOnly || busy) return;
+    const next = structuredClone(current);
+    const run = next.packaging.find((item) => item.id === selectedPackaging);
+    if (!run) {
+      setSelectedPackaging(null);
+      return;
+    }
+    if (!run.date) {
+      setSelectedPackaging(null);
+      setMessage("האריזה כבר ממתינה לשיבוץ.");
+      return;
+    }
+
+    delete run.date;
+    setBusy(true);
+    try {
+      await persist(next);
+      setMessage("האריזה הוחזרה לממתינות לשיבוץ.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "החזרת האריזה לממתינות נכשלה");
+    } finally {
+      setBusy(false);
+      setSelectedPackaging(null);
+    }
+  }
+
   async function assignSelectedPackagingToDate(date: string) {
     if (!selectedPackaging || readOnly || busy) return;
     const next = structuredClone(current);
@@ -421,8 +480,10 @@ export default function PlanningBoard({
       {busy && <BeerLoader overlay message="שומר שיבוצי בישול…" />}
       <PlanningBrewAssignmentEditor
         initial={structuredClone(current)}
+        allPlans={plans}
         brews={brews}
         releases={releases}
+        exceptionReleases={allReleases}
         disabled={readOnly || busy}
         onSave={async (next) => {
           setBusy(true);
@@ -465,6 +526,29 @@ export default function PlanningBoard({
 
     {closed && <p role="status">השבוע הסתיים לתכנון בתחילת יום שישי · צפייה בלבד.</p>}
     {message && <p role="status">{message}</p>}
+    {!closed && current.maxRuns < 5 && <div className="bp-same-week-warning" role="status">
+      <b>צריך 5 ימי אריזה השבוע?</b>
+      <span>זו חריגה נקודתית לשבוע הזה בלבד. ברירת המחדל לשבועות אחרים לא תשתנה.</span>
+      <button
+        type="button"
+        className="bp-action-warning"
+        disabled={readOnly || busy}
+        onClick={async () => {
+          setBusy(true);
+          setMessage("");
+          try {
+            await persist({ ...current, maxRuns: 5 });
+            setMessage("מכסת האריזה לשבוע הזה הוגדלה ל־5 ימים.");
+          } catch (error) {
+            setMessage(error instanceof Error ? error.message : "שמירת חריגת האריזה נכשלה");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        אפשר 5 ימי אריזה השבוע
+      </button>
+    </div>}
 
     <div className="bp-daily-sets bp-weekly-execution-sets">
       <article className="bp-daily-set is-delivery">
@@ -491,6 +575,7 @@ export default function PlanningBoard({
       tanks={tanks}
       week={week}
       onAssignPackagingToDate={assignSelectedPackagingToDate}
+      onReturnPackagingToWaiting={returnSelectedPackagingToWaiting}
       selectedPackagingId={selectedPackaging}
       onSelectPackaging={selectPackaging}
     />
@@ -499,6 +584,7 @@ export default function PlanningBoard({
       <div className="bp-modal bp-planning-scroll-modal" role="dialog" aria-modal="true" aria-label="שיבוץ בישולים למיכלים">
         <PlanningBrewAssignmentEditor
           initial={brewDraft}
+          allPlans={plans}
           brews={brews}
           releases={releases}
           disabled={readOnly || busy}

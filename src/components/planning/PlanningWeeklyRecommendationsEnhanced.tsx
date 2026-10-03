@@ -9,8 +9,8 @@ import {
     type Product,
     type Tank,
 } from "../../SERVICES/planning/planningEngine";
-import { openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
-import { displayStyle } from "../../SERVICES/planning/planningPresentation";
+import { futureTanks, openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPresentation";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import { brewSizeLabel, weekday } from "../../SERVICES/planning/productionCycle";
 import { shipmentMatchesForPlans } from "../../SERVICES/planning/shipmentActuals";
@@ -20,6 +20,7 @@ import TransientNumberInput from "../general/TransientNumberInput";
 
 type Props = ComponentProps<typeof PlanningWeeklyRecommendations> & {
     historyPlans?: ComponentProps<typeof PlanningWeeklyRecommendations>["plans"];
+    initialSelectedWeek?: string;
 };
 
 type PackRow = {
@@ -49,8 +50,9 @@ function tankSize(tank: Tank) {
 
 export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const { settings, plans, historyPlans = plans, tanks, actuals, shipments, today, disabled, saveWeek } = props;
-    const [selectedWeek, setSelectedWeek] = useState(() => initialWeek(today));
+    const [selectedWeek, setSelectedWeek] = useState(() => props.initialSelectedWeek ?? initialWeek(today));
     const [packStyle, setPackStyle] = useState<string | null | undefined>(undefined);
+    const [preferredPackType, setPreferredPackType] = useState<"crates" | "kegs" | undefined>(undefined);
     const [rows, setRows] = useState<PackRow[]>([]);
     const [modalMessage, setModalMessage] = useState("");
     const [saving, setSaving] = useState(false);
@@ -114,7 +116,31 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         [plans, settings.products, actuals, selectedWeek],
     );
 
-    const product = (id: string): Product | undefined => settings.products.find((item) => item.id === id);
+    const specialProductId = (style: string, type: "crates" | "kegs") => `noninventory:${encodeURIComponent(style)}:${type}`;
+    const virtualProduct = (style: string, type: "crates" | "kegs"): Product => ({
+        id: specialProductId(style, type), style, type, sku: "", monthly: 0, tempo: null, tempoDate: today, leadDays: 21,
+    });
+    const product = (id: string): Product | undefined => {
+        const real = settings.products.find((item) => item.id === id);
+        if (real) return real;
+        if (!id.startsWith("noninventory:")) return undefined;
+        const suffix = id.endsWith(":crates") ? "crates" : id.endsWith(":kegs") ? "kegs" : null;
+        if (!suffix) return undefined;
+        const encodedStyle = id.slice("noninventory:".length, -(`:${suffix}`.length));
+        if (!encodedStyle) return undefined;
+        try {
+            return virtualProduct(decodeURIComponent(encodedStyle), suffix);
+        } catch {
+            return undefined;
+        }
+    };
+    const productForPlan = (run: Plan): Product | undefined =>
+        run.nonInventoryStyle && run.nonInventoryType
+            ? virtualProduct(run.nonInventoryStyle, run.nonInventoryType)
+            : product(run.productId);
+    const packagingTankPool = useMemo(() => futureTanks(tanks, plans, settings), [tanks, plans, settings]);
+    const cycleIdForRun = (run: Pick<Plan, "tankId" | "brewId">) => run.brewId ? `planned:${run.brewId}` : (run.tankId ?? "");
+    const packagingTankById = (id: string) => packagingTankPool.find((tank) => tank.id === id);
 
     function completedForPlan(run: Plan) {
         const open = run.id
@@ -123,7 +149,15 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         return Math.max(0, run.quantity - (open?.remaining ?? run.quantity));
     }
 
-    const styleProducts = (style: string) => settings.products.filter((item) => sameStyle(item.style, style));
+    const styleProducts = (style: string) => {
+        const real = settings.products.filter((item) => sameStyle(item.style, style));
+        if (isCoreStyle(style)) return real;
+        const types = new Set(real.map((item) => item.type));
+        return [
+            ...real,
+            ...(["crates", "kegs"] as const).filter((type) => !types.has(type)).map((type) => virtualProduct(style, type)),
+        ];
+    };
 
     const availableStyles = useMemo(() => {
         const values: string[] = [];
@@ -132,13 +166,22 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             values.push(style);
         };
         settings.products.filter((item) => item.monthly > 0).forEach((item) => add(item.style));
-        current.packaging.forEach((run) => add(product(run.productId)?.style));
-        model.packagingRecommendation.forEach((run) => add(product(run.productId)?.style));
+        // A special/seasonal beer with no stock target still belongs in the
+        // same packaging editor whenever its physical or canonical future
+        // cycle is available during the selected week.
+        packagingTankPool
+            .filter((tank) =>
+                tank.ready <= model.weekEnd &&
+                (model.tankAvailableLiters.get(tank.id) ?? tank.liters) >= 20
+            )
+            .forEach((tank) => add(tank.style));
+        current.packaging.forEach((run) => add(productForPlan(run)?.style));
+        model.packagingRecommendation.forEach((run) => add(productForPlan(run)?.style));
         return values;
-    }, [settings.products, current.packaging, model.packagingRecommendation]);
+    }, [settings.products, current.packaging, model.packagingRecommendation, packagingTankPool, model.weekEnd, model.tankAvailableLiters]);
 
     function tanksForStyle(style: string) {
-        return tanks
+        return packagingTankPool
             .filter((tank) =>
                 sameStyle(tank.style, style) &&
                 tank.ready <= model.weekEnd &&
@@ -160,42 +203,65 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
 
     function buildRows(style: string): PackRow[] {
         return current.packaging.flatMap((run, index) => {
-            const p = product(run.productId);
+            const p = productForPlan(run);
             if (!p || !sameStyle(p.style, style)) return [];
             return [{
                 key: run.id ?? `existing:${index}:${run.productId}:${run.tankId ?? ""}`,
                 originalId: run.id,
                 source: "existing" as const,
-                tankId: run.tankId ?? "",
-                productId: run.productId,
+                tankId: cycleIdForRun(run),
+                productId: run.nonInventoryStyle && run.nonInventoryType
+                    ? specialProductId(run.nonInventoryStyle, run.nonInventoryType)
+                    : run.productId,
                 quantity: run.quantity,
                 completed: completedForPlan(run),
             }];
         });
     }
 
-    function openPackEditor(style?: string) {
+    function openPackEditor(style?: string, preferredType?: "crates" | "kegs") {
         setModalMessage("");
+        setPreferredPackType(preferredType);
         if (!style) {
             setPackStyle(null);
             setRows([]);
             return;
         }
-        setPackStyle(style);
-        setRows(buildRows(style));
+        chooseStyle(style, preferredType);
     }
 
-    function chooseStyle(style: string) {
+    function chooseStyle(style: string, preferredType = preferredPackType) {
         setModalMessage("");
         setPackStyle(style);
-        setRows(buildRows(style));
+        const existing = buildRows(style);
+        if (existing.length) {
+            setRows(existing);
+            return;
+        }
+        const products = styleProducts(style);
+        const styleTanks = tanksForStyle(style);
+        const defaultProduct = (preferredType ? products.find((item) => item.type === preferredType) : undefined) ?? products[0];
+        const defaultTank = styleTanks[0];
+        if (!defaultProduct || !defaultTank) {
+            setRows([]);
+            return;
+        }
+        const key = "manual:" + crypto.randomUUID();
+        setRows([{
+            key,
+            source: "manual",
+            tankId: defaultTank.id,
+            productId: defaultProduct.id,
+            quantity: defaultQuantityForSelection(defaultProduct.id, defaultTank.id, [], key, 0),
+            completed: 0,
+        }]);
     }
 
     function replacementPackagingWithEmptyFlags(packaging: Plan[]) {
         const usedByTank = new Map<string, number>();
         return packaging.map((run) => {
             if (!run.tankId) return run;
-            const p = product(run.productId);
+            const p = productForPlan(run);
             if (!p) return run;
             const base = replacementPackagingModel.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
             const usedBefore = usedByTank.get(run.tankId) ?? 0;
@@ -238,6 +304,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             if (date) {
                 setSelectedWeek(date);
                 setPackStyle(undefined);
+                setPreferredPackType(undefined);
                 setRows([]);
             }
             return;
@@ -263,10 +330,13 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             if (sku) {
                 const styleText = sku.querySelector("b")?.textContent?.trim();
                 const matched = settings.products.find((item) => displayStyle(item.style) === styleText);
-                if (matched) {
+                const style = matched?.style ?? availableStyles.find((item) => displayStyle(item) === styleText);
+                if (style) {
                     event.preventDefault();
                     event.stopPropagation();
-                    openPackEditor(matched.style);
+                    const skuText = sku.textContent ?? "";
+                    const preferredType = skuText.includes("חביות") ? "kegs" : skuText.includes("בקבוקים") || skuText.includes("ארגז") ? "crates" : undefined;
+                    openPackEditor(style, preferredType);
                 }
                 return;
             }
@@ -291,7 +361,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     function defaultQuantityForSelection(productId: string, tankId: string, currentRows: PackRow[], excludeKey?: string, completed = 0) {
         const p = product(productId);
         if (!p || !tankId) return completed;
-        const base = model.tankAvailableLiters.get(tankId) ?? tanks.find((tank) => tank.id === tankId)?.liters ?? 0;
+        const base = model.tankAvailableLiters.get(tankId) ?? packagingTankById(tankId)?.liters ?? 0;
         const usedByOthers = currentRows
             .filter((other) => other.key !== excludeKey && other.tankId === tankId)
             .reduce((sum, other) => {
@@ -333,7 +403,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 return [...currentRows, {
                     key: `rec:${recommended.id}`,
                     source: "recommendation",
-                    tankId: recommended.tankId,
+                    tankId: recommended.brewId ? `planned:${recommended.brewId}` : recommended.tankId,
                     productId: recommended.productId,
                     quantity: recommendationRemaining(recommended, currentRows),
                     completed: 0,
@@ -379,7 +449,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             return [...currentRows, {
                 key: `rec:${rec.id}`,
                 source: "recommendation",
-                tankId: rec.tankId,
+                tankId: rec.brewId ? `planned:${rec.brewId}` : rec.tankId,
                 productId: rec.productId,
                 quantity: remaining,
                 completed: 0,
@@ -392,14 +462,39 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     }
 
     function updateRow(key: string, patch: Partial<PackRow>) {
-        setRows((currentRows) => currentRows.map((row) => {
-            if (row.key !== key) return row;
-            const next = { ...row, ...patch };
+        setRows((currentRows) => {
+            const editedIndex = currentRows.findIndex((row) => row.key === key);
+            if (editedIndex < 0) return currentRows;
+            const edited = currentRows[editedIndex];
+            const nextEdited = { ...edited, ...patch };
             if (patch.tankId !== undefined || patch.productId !== undefined) {
-                next.quantity = defaultQuantityForSelection(next.productId, next.tankId, currentRows, key, next.completed);
+                nextEdited.quantity = defaultQuantityForSelection(nextEdited.productId, nextEdited.tankId, currentRows, key, nextEdited.completed);
             }
-            return next;
-        }));
+
+            let nextRows = currentRows.map((row) => row.key === key ? nextEdited : row);
+            if (patch.quantity !== undefined && nextEdited.tankId) {
+                const capacity = model.tankAvailableLiters.get(nextEdited.tankId)
+                    ?? packagingTankById(nextEdited.tankId)?.liters
+                    ?? 0;
+                const editedProduct = product(nextEdited.productId);
+                if (!editedProduct) return nextRows;
+
+                // The edited row wins. Rebalance the other packaging rows from
+                // the same tank against whatever volume remains.
+                let remaining = Math.max(0, capacity - pendingUnits(nextEdited) * litersPerUnit(editedProduct));
+                nextRows = nextRows.map((row, index) => {
+                    if (index === editedIndex || row.tankId !== nextEdited.tankId) return row;
+                    const p = product(row.productId);
+                    if (!p) return row;
+                    const maxPending = Math.max(0, Math.floor((remaining + 1e-8) / litersPerUnit(p)));
+                    const capped = p.type === "crates" ? Math.min(MAX_CRATES_PER_RUN, maxPending) : maxPending;
+                    const clampedPending = Math.min(pendingUnits(row), capped);
+                    remaining = Math.max(0, remaining - clampedPending * litersPerUnit(p));
+                    return clampedPending === pendingUnits(row) ? row : { ...row, quantity: row.completed + clampedPending };
+                });
+            }
+            return nextRows;
+        });
     }
 
     function removeRow(key: string) {
@@ -419,7 +514,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         const usedByTank = new Map<string, number>();
         return packaging.map((run) => {
             if (!run.tankId) return run;
-            const p = product(run.productId);
+            const p = productForPlan(run);
             if (!p) return run;
             const base = model.tankAvailableLiters.get(run.tankId) ?? tanks.find((tank) => tank.id === run.tankId)?.liters ?? 0;
             const original = current.packaging.find((item) => item.id && run.id && item.id === run.id);
@@ -438,28 +533,50 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         setModalMessage("");
         try {
             const untouched = current.packaging.filter((run) => {
-                const p = product(run.productId);
+                const p = productForPlan(run);
                 return !p || !sameStyle(p.style, packStyle);
             });
             const edited: Plan[] = [];
             for (const row of rows) {
                 const p = product(row.productId);
-                const tank = tanks.find((item) => item.id === row.tankId);
+                const tank = packagingTankById(row.tankId);
                 if (!p || !tank || !sameStyle(p.style, packStyle) || !sameStyle(tank.style, packStyle)) continue;
                 const max = maxQuantityForRow(row);
                 const quantity = Math.max(row.completed, Math.min(row.quantity, max));
                 if (quantity <= 0) continue;
+                const brewId = tank.id.startsWith("planned:") ? tank.id.slice("planned:".length) : undefined;
+                const plannedBrew = brewId ? plans.flatMap((week) => week.brews).find((brew) => brew.id === brewId) : undefined;
+                const physicalTankId = plannedBrew?.tankId ?? tank.id;
+                const originalRun = row.originalId
+                    ? current.packaging.find((run) => run.id === row.originalId)
+                    : undefined;
+                // This modal saves a weekly packaging decision. A day is assigned
+                // later in the daily workboard; do not auto-schedule new decisions.
+                // Preserve a date only when editing a decision that was already
+                // explicitly assigned to a day.
+                const packagingDate = originalRun?.date;
                 edited.push({
                     id: row.originalId ?? row.key.replace(/^rec:/, ""),
-                    productId: p.id,
+                    productId: p.id.startsWith("noninventory:") ? "" : p.id,
+                    ...(p.id.startsWith("noninventory:") ? { nonInventoryStyle: p.style, nonInventoryType: p.type } : {}),
                     quantity,
-                    tankId: tank.id,
+                    ...(packagingDate ? { date: packagingDate } : {}),
+                    tankId: physicalTankId,
                     tankNumber: String(tank.number),
-                    source: row.source === "recommendation" ? "recommendation" : row.source === "manual" ? "manual" : current.packaging.find((run) => run.id === row.originalId)?.source,
+                    batchNumber: plannedBrew?.batchNumber ?? tank.batch,
+                    ...(brewId ? { brewId } : {}),
+                    ...(() => {
+                        const source = row.source === "recommendation"
+                            ? "recommendation"
+                            : row.source === "manual"
+                                ? "manual"
+                                : current.packaging.find((run) => run.id === row.originalId)?.source;
+                        return source ? { source } : {};
+                    })(),
                 });
             }
             for (const original of current.packaging) {
-                const p = product(original.productId);
+                const p = productForPlan(original);
                 if (!p || !sameStyle(p.style, packStyle)) continue;
                 const stillExists = rows.some((row) => row.originalId && row.originalId === original.id);
                 if (stillExists) continue;
@@ -498,7 +615,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         </div>}
 
         <div ref={plannerRef} onClickCapture={handleCapture} className="bp-enhanced-weekly-planner">
-            <PlanningWeeklyRecommendations {...props} />
+            <PlanningWeeklyRecommendations {...props} initialSelectedWeek={selectedWeek} />
         </div>
 
         {packStyle !== undefined && <div className="bp-pack-modal-backdrop" role="presentation" onMouseDown={(event) => {
@@ -517,7 +634,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                     {availableStyles.map((style) => <button type="button" key={style} onClick={() => chooseStyle(style)}>{displayStyle(style)}</button>)}
                 </div> : <>
                     <div className="bp-pack-modal-summary">
-                        <span>מיכלים מוצגים לפי FIFO — הוותיק ביותר ראשון.</span>
+                        <span>{isCoreStyle(packStyle!) ? "מיכלים מוצגים לפי FIFO — הוותיק ביותר ראשון." : "ללא יעד מלאי מוגדר · מיכלים מוצגים לפי FIFO — הוותיק ביותר ראשון."}</span>
                         <button type="button" onClick={() => setPackStyle(null)}>החלף סגנון</button>
                     </div>
 

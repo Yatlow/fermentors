@@ -1,0 +1,45 @@
+name: PR119 remove obsolete packaging tank-style validation
+on:
+  push:
+    branches: [planning-tank-schedule]
+    paths:
+      - '.github/workflows/pr119-fix-overflow-and-padding.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: planning-tank-schedule
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Remove obsolete tank-style validation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/SERVICES/planning/productionCycle.ts')
+          s=p.read_text(encoding='utf-8')
+          obsolete='''    // Legacy rows have no canonical brew identity, so only they may fall back\n    // to the physical tank's current style. Future canonical cycles must not.\n    if (!linkedBrew && !sameStyle(t.style, runStyle))\n      return "מיכל האריזה אינו תואם לסגנון במחזור הקיים";\n'''
+          if obsolete in s:
+              s=s.replace(obsolete,'',1)
+          if 'מיכל האריזה אינו תואם לסגנון' in s:
+              raise SystemExit('obsolete packaging tank-style validation still present')
+          p.write_text(s,encoding='utf-8')
+          PY
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --run
+      - run: npm run build
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/SERVICES/planning/productionCycle.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "Remove obsolete packaging tank-style validation"
+          git push origin HEAD:planning-tank-schedule

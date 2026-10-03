@@ -55,7 +55,8 @@ export default function PlanningTanks({ tanks, sources, plans, settings, actuals
         .at(-1);
       const plannedEmpty = release?.emptyDate ?? null;
       const emptyWasUndated = !!originalEmptyPlan && !originalEmptyPlan.date && plannedEmpty === addDays(originalEmptyPlan.week, 4);
-      return { source, tank, release, next, plannedEmpty, emptyWasUndated };
+      const oneDayTurnaround = !!(plannedEmpty && next && next.date === addDays(plannedEmpty, 1));
+      return { source, tank, release, next, plannedEmpty, emptyWasUndated, oneDayTurnaround };
     })
     .sort((a, b) => Number(a.source.tankNumber) - Number(b.source.tankNumber));
 
@@ -68,7 +69,7 @@ export default function PlanningTanks({ tanks, sources, plans, settings, actuals
       <div className="bp-table-scroll">
         <table className="bp-stock-table bp-tank-table">
           <thead><tr><th>מיכל</th><th>סוג</th><th>תכולה נוכחית</th><th>מילוי נוכחי</th><th>הבשלה</th><th>ריקון</th><th>סטטוס לשיבוץ</th><th>בישול הבא</th></tr></thead>
-          <tbody>{rows.map(({ source, tank, release, next, plannedEmpty, emptyWasUndated }) => (
+          <tbody>{rows.map(({ source, tank, release, next, plannedEmpty, emptyWasUndated, oneDayTurnaround }) => (
             <tr key={source.id}>
               <th>#{source.tankNumber}</th>
               <td><b>{tankType(source.tankNumber)}</b></td>
@@ -76,7 +77,7 @@ export default function PlanningTanks({ tanks, sources, plans, settings, actuals
               <td>{tank?.brewed ? shortDate(tank.brewed) : "—"}</td>
               <td>{tank?.ready ? shortDate(tank.ready) : "—"}</td>
               <td>{plannedEmpty ? <><strong>{shortDate(plannedEmpty)}</strong><small className="bp-status"> {emptyWasUndated ? "תחזית עד שיבוץ יום" : "נקבע"}</small></> : "טרם נקבע"}</td>
-              <td>{next ? <span className="bp-warning-chip">שמור לבישול {shortDate(next.date)}</span> : release?.date ? <span className="bp-ready-chip">פנוי מ־{shortDate(release.date)}</span> : "תלוי בריקון"}</td>
+              <td>{next ? <><span className="bp-warning-chip">שמור לבישול {shortDate(next.date)}</span>{oneDayTurnaround && <small className="bp-status"> ⚠ ריקון יום קודם · נדרש ניקוי וחיטוי</small>}</> : release?.date ? <span className="bp-ready-chip">פנוי מ־{shortDate(release.date)}</span> : "תלוי בריקון"}</td>
               <td>{next ? <><strong>{displayStyle(next.style)}</strong> · {shortDate(next.date)}</> : release?.date && release.date <= addDays(today, 84) ? <span className="bp-ready-chip">פנוי לשיבוץ</span> : "—"}</td>
             </tr>
           ))}</tbody>
