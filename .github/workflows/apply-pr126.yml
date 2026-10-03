@@ -1,0 +1,37 @@
+name: Apply PR126 cellar tools
+on:
+  push:
+    branches: [feat/cellar-tools-admin-packaging]
+    paths:
+      - '.github/scripts/apply_pr126.py'
+      - '.github/workflows/apply-pr126.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/cellar-tools-admin-packaging
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply requested changes
+        run: python .github/scripts/apply_pr126.py
+      - name: Install
+        run: npm ci
+      - name: Typecheck and build
+        run: npm run build
+      - name: Tests
+        run: npm test -- --run
+      - name: Commit generated changes
+        if: success()
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src server firestore.rules
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'feat: implement cellar and tools improvements 1-9'
+          git push
