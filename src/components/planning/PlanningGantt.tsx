@@ -169,6 +169,7 @@ export default function PlanningGantt(props: Props) {
     let cancelled = false;
     const generation = ++simulationGeneration.current;
     setIsSimulating(true);
+    setSimulations(new Map());
 
     const run = async () => {
     const result = new Map<string, SimulatedWeek>();
@@ -287,10 +288,11 @@ export default function PlanningGantt(props: Props) {
         packagingRecommendation,
         brewRecommendation,
       });
+      if (cancelled || generation !== simulationGeneration.current) return;
+      setSimulations(new Map(result));
     }
 
       if (cancelled || generation !== simulationGeneration.current) return;
-      setSimulations(result);
       setIsSimulating(false);
     };
 
@@ -644,7 +646,7 @@ export default function PlanningGantt(props: Props) {
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
-        {(isPaging || isSimulating) && <BeerLoader overlay message="מעדכן…" />}
+        {(isPaging || isSimulating) && <BeerLoader overlay message={isPaging ? "טוען שבוע…" : "טוען המלצות שבועיות…"} />}
         {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
@@ -669,7 +671,6 @@ export default function PlanningGantt(props: Props) {
 
   return <>
     <section className="bp-gantt-shell">
-      {isPaging && <BeerLoader overlay message="מעדכן…" />}
       {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
       <div className="bp-section-heading bp-gantt-heading">
         <div><h2>גאנט</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
@@ -713,7 +714,8 @@ export default function PlanningGantt(props: Props) {
             <Fragment key={row.id}>
               <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
-                const items = itemsFor(row.id, weekId);
+                const weekPending = isSimulating && !simulations.has(weekId);
+                const items = weekPending ? [] : itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
                 const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
                 const plan = decisionPlanFor(weekId);
@@ -768,7 +770,7 @@ export default function PlanningGantt(props: Props) {
                         {item.stockKind === "projected" && <span className="bp-gantt-stock-label">צפי לפתיחת השבוע</span>}
                       </article>
                     ))}
-                    {!items.length && <span className="bp-five-week-empty">—</span>}
+                    {weekPending ? <BeerLoader size="spinner" message="" /> : !items.length && <span className="bp-five-week-empty">—</span>}
                   </div>
                 );
               })}
