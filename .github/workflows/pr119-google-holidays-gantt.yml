@@ -9,6 +9,7 @@ on:
 permissions:
   contents: write
 
+# Re-triggered after verifying the holiday patch had not been applied to the branch.
 jobs:
   patch:
     runs-on: ubuntu-latest
