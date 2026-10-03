@@ -1,0 +1,61 @@
+name: PR119 fix overflow and modal padding
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: planning-tank-schedule
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('src/components/planning/PlanningWeeklyRecommendations.tsx')
+          s=p.read_text()
+          needle='''    function addBrew() {\n        setBrewDraft((rows) => {'''
+          repl='''    function addBrew() {\n        setBrewDraft((rows) => {'''
+          assert needle in s
+          # Add an explicit bridge for the focused Gantt modal. This bypasses only
+          # the UI capacity gate for one add; save/business validation stays intact.
+          hook='''\n    useEffect(() => {\n        const approveOverflowAdd = () => {\n            setAllowUnavailableBrewException(true);\n            setBrewDraft((rows) => {\n                const recommendations = visibleBrewRecommendations();\n                const recommendation = recommendations[rows.length];\n                const recommendedSize = recommendation?.sizeLabel;\n                const size = recommendedSize ?? BREW_SIZES.find((candidate) => brewSizeCapacity(candidate) > 0) ?? "כפול";\n                const style = recommendation?.style ?? CORE_STYLES[0];\n                return [...rows, { style, liters: brewLitersForSize(style, size) }];\n            });\n            // one-shot approval; a further overflow brew requires another confirmation\n            window.setTimeout(() => setAllowUnavailableBrewException(false), 0);\n        };\n        window.addEventListener("bp-approve-brew-overflow", approveOverflowAdd);\n        return () => window.removeEventListener("bp-approve-brew-overflow", approveOverflowAdd);\n    });\n'''
+          marker='''    function changeBrewStyle(index: number, style: string) {'''
+          assert marker in s
+          s=s.replace(marker, hook+'\n'+marker,1)
+          p.write_text(s)
+
+          p=Path('src/components/planning/PlanningGanttWeekEditorModal.tsx')
+          s=p.read_text()
+          old='''  const approveOverflowBrew = () => {\n    const host = hostRef.current;\n    const normalAdd = [...(host?.querySelectorAll<HTMLButtonElement>(".bp-week-brew-card button") ?? [])]\n      .find((button) => button.textContent?.trim() === "+ הוסף בישול");\n    if (!normalAdd) {\n      setConfirmOverflow(false);\n      return;\n    }\n    normalAdd.disabled = false;\n    normalAdd.click();\n    normalAdd.disabled = true;\n    setConfirmOverflow(false);\n  };'''
+          new='''  const approveOverflowBrew = () => {\n    // Ask the actual weekly editor to perform one explicit overflow add. Do not\n    // fake-enable/click a React-controlled disabled button.\n    window.dispatchEvent(new Event("bp-approve-brew-overflow"));\n    setConfirmOverflow(false);\n  };'''
+          assert old in s
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          p=Path('src/App.css')
+          s=p.read_text()
+          css='''\n\n/* PR119 focused planning modal spacing + nested confirmation */\n.brew-planning .bp-gantt-editor-modal {\n    padding: 0 !important;\n}\n.brew-planning .bp-gantt-editor-header {\n    padding: 18px 24px 14px !important;\n}\n.brew-planning .bp-gantt-editor-body {\n    padding: 18px 24px 24px !important;\n}\n.brew-planning .bp-inline-confirm-backdrop {\n    position: absolute;\n    inset: 0;\n    z-index: 20;\n    display: grid;\n    place-items: center;\n    padding: 24px;\n    background: rgba(15, 23, 42, .38);\n    border-radius: inherit;\n}\n.brew-planning .bp-inline-confirm {\n    width: min(480px, 100%);\n    padding: 22px;\n    border-radius: 14px;\n    background: #fff;\n    box-shadow: 0 18px 55px rgba(15,23,42,.24);\n}\n.brew-planning .bp-inline-confirm-actions {\n    display: flex;\n    gap: 10px;\n    margin-top: 18px;\n}\n@media (max-width: 640px) {\n    .brew-planning .bp-gantt-editor-header { padding: 14px 16px 12px !important; }\n    .brew-planning .bp-gantt-editor-body { padding: 14px 16px 18px !important; }\n}\n'''
+          if 'PR119 focused planning modal spacing + nested confirmation' not in s:
+              s += css
+          p.write_text(s)
+          PY
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --run
+      - run: npm run build
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/components/planning/PlanningWeeklyRecommendations.tsx src/components/planning/PlanningGanttWeekEditorModal.tsx src/App.css
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix PR119 overflow approval and editor padding"
+          git push origin HEAD:planning-tank-schedule
