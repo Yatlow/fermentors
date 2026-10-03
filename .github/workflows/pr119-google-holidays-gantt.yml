@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [.github/workflows/pr119-google-holidays-gantt.yml]
+    paths:
+      - .github/workflows/pr119-google-holidays-gantt.yml
+      - .github/scripts/apply-pr119-holidays.py
 
 permissions:
   contents: write
@@ -16,79 +18,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: planning-tank-schedule
-          fetch-depth: 1
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Apply holiday patch from PR119 branch
+      - name: Apply holiday patch
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('server/calendarService.js'); s = p.read_text()
-          needle = '''    Logger.log("Calendar sync complete: " + savedCount + " event(s).");
-    return { savedCount: savedCount };
-'''
-          repl = '''    const holidaySavedCount = calendarSyncGoogleNationalHolidays_(timeMin, timeMax);
-    Logger.log("Calendar sync complete: " + savedCount + " operational event(s), " + holidaySavedCount + " national holiday event(s).");
-    return { savedCount: savedCount, holidaySavedCount: holidaySavedCount };
-'''
-          if needle not in s: raise SystemExit('calendar sync return anchor not found')
-          s = s.replace(needle, repl, 1)
-          insert_at = s.index('\nfunction calendarProcessTankTotals_')
-          helper = r'''
-
-function calendarSyncGoogleNationalHolidays_(timeMin, timeMax) {
-  let calendars = [], pageToken = null;
-  do {
-    const page = Calendar.CalendarList.list({ maxResults: 250, pageToken: pageToken || undefined, showHidden: true });
-    calendars = calendars.concat(page.items || []);
-    pageToken = page.nextPageToken || null;
-  } while (pageToken);
-  const holidayCalendars = calendars.filter(function (calendar) {
-    const summary = String(calendar.summaryOverride || calendar.summary || "").toLowerCase();
-    const id = String(calendar.id || "").toLowerCase();
-    const israel = summary.includes("ישראל") || summary.includes("israel") || id.includes("israel");
-    const holiday = summary.includes("חג") || summary.includes("holiday") || id.includes("holiday");
-    return israel && holiday;
-  });
-  if (!holidayCalendars.length) { Logger.log("[Calendar holidays] Israel national-holidays calendar not found in CalendarList."); return 0; }
-  let saved = 0;
-  holidayCalendars.forEach(function (calendar) {
-    let token = null;
-    do {
-      const page = Calendar.Events.list(calendar.id, { timeMin: timeMin, timeMax: timeMax, singleEvents: true, orderBy: "startTime", pageToken: token || undefined, maxResults: 2500 });
-      (page.items || []).forEach(function (event) {
-        if (event.status === "cancelled" || !event.start) return;
-        const dateValue = event.start.date || event.start.dateTime;
-        const title = String(event.summary || "").trim();
-        if (!dateValue || !title) return;
-        const date = String(dateValue).split("T")[0];
-        const eventId = "national-holiday:" + calendar.id + ":" + event.id;
-        calendarWriteEventToFirestore_(FIREBASE_PROJECT_ID, eventId, { eventId: eventId, title: title, date: date, timestamp: new Date(date + "T12:00:00+03:00").getTime(), actionType: "holiday", source: "google-national-holidays", calendarId: calendar.id, closed: true });
-        saved++;
-      });
-      token = page.nextPageToken || null;
-    } while (token);
-  });
-  return saved;
-}
-'''
-          s = s[:insert_at] + helper + s[insert_at:]; p.write_text(s)
-          PY
-          git show HEAD:.github/workflows/pr119-google-holidays-gantt.yml > /tmp/pr119.yml
-          python - <<'PY'
-          from pathlib import Path
-          import re, textwrap
-          s = Path('/tmp/pr119.yml').read_text()
-          m = re.search(r'      - name: Patch holiday sync, dedupe and Gantt\n.*?        run: \|\n(.*?)(?=      - name: Validate\n)', s, re.S)
-          if not m: raise SystemExit('PR119 patch script not found')
-          script = textwrap.dedent(m.group(1))
-          marker = "p = Path('src/SERVICES/planning/usePlanning.ts')"
-          pos = script.find(marker)
-          if pos < 0: raise SystemExit('planning patch anchor not found')
-          Path('/tmp/ui_patch.py').write_text(script[pos:])
-          PY
-          python /tmp/ui_patch.py
+          git fetch origin main
+          git show origin/main:.github/scripts/apply-pr119-holidays.py > /tmp/apply-pr119-holidays.py
+          python /tmp/apply-pr119-holidays.py
       - name: Validate
         run: |
           npm ci
