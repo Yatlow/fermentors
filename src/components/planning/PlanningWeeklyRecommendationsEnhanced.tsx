@@ -52,6 +52,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     const { settings, plans, historyPlans = plans, tanks, actuals, shipments, today, disabled, saveWeek } = props;
     const [selectedWeek, setSelectedWeek] = useState(() => props.initialSelectedWeek ?? initialWeek(today));
     const [packStyle, setPackStyle] = useState<string | null | undefined>(undefined);
+    const [preferredPackType, setPreferredPackType] = useState<"crates" | "kegs" | undefined>(undefined);
     const [rows, setRows] = useState<PackRow[]>([]);
     const [modalMessage, setModalMessage] = useState("");
     const [saving, setSaving] = useState(false);
@@ -218,17 +219,18 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         });
     }
 
-    function openPackEditor(style?: string) {
+    function openPackEditor(style?: string, preferredType?: "crates" | "kegs") {
         setModalMessage("");
+        setPreferredPackType(preferredType);
         if (!style) {
             setPackStyle(null);
             setRows([]);
             return;
         }
-        chooseStyle(style);
+        chooseStyle(style, preferredType);
     }
 
-    function chooseStyle(style: string) {
+    function chooseStyle(style: string, preferredType = preferredPackType) {
         setModalMessage("");
         setPackStyle(style);
         const existing = buildRows(style);
@@ -238,7 +240,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         }
         const products = styleProducts(style);
         const styleTanks = tanksForStyle(style);
-        const defaultProduct = products[0];
+        const defaultProduct = (preferredType ? products.find((item) => item.type === preferredType) : undefined) ?? products[0];
         const defaultTank = styleTanks[0];
         if (!defaultProduct || !defaultTank) {
             setRows([]);
@@ -302,6 +304,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             if (date) {
                 setSelectedWeek(date);
                 setPackStyle(undefined);
+                setPreferredPackType(undefined);
                 setRows([]);
             }
             return;
@@ -331,7 +334,9 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 if (style) {
                     event.preventDefault();
                     event.stopPropagation();
-                    openPackEditor(style);
+                    const skuText = sku.textContent ?? "";
+                    const preferredType = skuText.includes("חביות") ? "kegs" : skuText.includes("בקבוקים") || skuText.includes("ארגז") ? "crates" : undefined;
+                    openPackEditor(style, preferredType);
                 }
                 return;
             }

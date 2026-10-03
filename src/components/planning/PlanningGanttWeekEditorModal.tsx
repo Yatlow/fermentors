@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
@@ -22,6 +22,7 @@ const KIND_LABEL: Record<EditorKind, string> = {
 
 export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...plannerProps }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const [confirmOverflow, setConfirmOverflow] = useState(false);
 
   // The focused editor must inspect the persisted WeekPlan, not a pending/
   // execution-filtered projection. That is what decides whether packaging has
@@ -108,13 +109,7 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
       approve.className = "bp-secondary-action";
       approve.dataset.brewOverflowConfirm = "true";
       approve.textContent = "הוסף בישול עם מיכל לא פנוי";
-      approve.onclick = () => {
-        const confirmed = window.confirm("כל המיכלים הזמינים לשבוע כבר תפוסים. להוסיף בישול נוסף שידרוש שיבוץ מפורש למיכל שאינו פנוי כרגע?");
-        if (!confirmed) return;
-        normalAdd.disabled = false;
-        normalAdd.click();
-        normalAdd.disabled = true;
-      };
+      approve.onclick = () => setConfirmOverflow(true);
       editList.appendChild(approve);
     };
 
@@ -126,6 +121,20 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
       observer.disconnect();
     };
   }, [kind, hasPackagingDecision, packagingDecisionCount, hasBrewDecision, plannerProps.disabled, replacementPackagingCount, week]);
+
+  const approveOverflowBrew = () => {
+    const host = hostRef.current;
+    const normalAdd = [...(host?.querySelectorAll<HTMLButtonElement>(".bp-week-brew-card button") ?? [])]
+      .find((button) => button.textContent?.trim() === "+ הוסף בישול");
+    if (!normalAdd) {
+      setConfirmOverflow(false);
+      return;
+    }
+    normalAdd.disabled = false;
+    normalAdd.click();
+    normalAdd.disabled = true;
+    setConfirmOverflow(false);
+  };
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -172,6 +181,18 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
             historyPlans={savedPlans}
           />
         </div>
+        {confirmOverflow && <div className="bp-inline-confirm-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setConfirmOverflow(false);
+        }}>
+          <section className="bp-inline-confirm" role="alertdialog" aria-modal="true" aria-labelledby="brew-overflow-title">
+            <h3 id="brew-overflow-title">שיבוץ במיכל שאינו פנוי</h3>
+            <p>כל המיכלים הזמינים לשבוע כבר תפוסים. הבישול הנוסף ידרוש שיבוץ מפורש למיכל שאינו פנוי כרגע.</p>
+            <div className="bp-inline-confirm-actions">
+              <button type="button" onClick={() => setConfirmOverflow(false)}>ביטול</button>
+              <button type="button" className="bp-action-warning" onClick={approveOverflowBrew}>אשר והוסף בישול</button>
+            </div>
+          </section>
+        </div>}
       </section>
     </div>
   );
