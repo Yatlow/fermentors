@@ -270,6 +270,7 @@ function runAsyncMaintenance_() {
   let brewCreation = null;
   let packagingCleanup = null;
   let operationReceiptCleanup = null;
+  let transientCleanup = null;
   let styleModels = null;
   let logs = null;
 
@@ -335,6 +336,12 @@ function runAsyncMaintenance_() {
   }
 
   try {
+    transientCleanup = cleanupTransientCollections_();
+  } catch (error) {
+    console.log("Transient collection cleanup failed: " + error.message);
+  }
+
+  try {
     styleModels = calculateWeeklyStyleAverages(false);
   } catch (error) {
     console.log("Weekly style averages maintenance failed: " + error.message);
@@ -358,6 +365,7 @@ function runAsyncMaintenance_() {
     brewCreation: brewCreation,
     packagingCleanup: packagingCleanup,
     operationReceiptCleanup: operationReceiptCleanup,
+    transientCleanup: transientCleanup,
     styleModels: styleModels,
     logs: logs
   };

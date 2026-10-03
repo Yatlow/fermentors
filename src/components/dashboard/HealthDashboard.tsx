@@ -39,6 +39,7 @@ import {
     subscribeIgnoredCellarRecommendationsToday,
     type IgnoredCellarRecommendation,
 } from "../../SERVICES/cellering/ignoredCellarRecommendations";
+import BeerCelebration from "../../COMPONENTS/BeerCelebration";
 import "./HealthDashboard.css";
 
 type Severity = "critical" | "warning" | "info";
@@ -795,6 +796,17 @@ export default function HealthDashboard({ brews, specs }: Props) {
         [analysis.scoreRecommendations, analysis.measurementProgress, analysis.completedActions]
     );
     const overallClass = healthBand(healthScore);
+    const previousSettledScoreRef = useRef<number | null>(null);
+    const [celebrationOpen, setCelebrationOpen] = useState(false);
+
+    useEffect(() => {
+        if (analyzing) return;
+        const previous = previousSettledScoreRef.current;
+        if (previous !== null && previous < 100 && healthScore === 100) {
+            setCelebrationOpen(true);
+        }
+        previousSettledScoreRef.current = healthScore;
+    }, [analyzing, healthScore]);
 
     const counts = useMemo(() => ({
         critical: analysis.alerts.filter((alert) => alert.severity === "critical").length,
@@ -860,6 +872,8 @@ export default function HealthDashboard({ brews, specs }: Props) {
     }
 
     return (
+        <>
+        <BeerCelebration open={celebrationOpen} onClose={() => setCelebrationOpen(false)} />
         <section className={`health-dashboard health-${overallClass}`} dir="rtl">
             <button
                 type="button"
@@ -1009,5 +1023,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
                 </div>
             )}
         </section>
+        </>
     );
 }

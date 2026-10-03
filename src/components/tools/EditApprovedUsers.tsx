@@ -24,6 +24,9 @@ type ApprovedUser = {
     id: string;
     email: string;
     firestoreAccessDisabled: boolean;
+    isAdmin: boolean;
+    isCellarManager: boolean;
+    isPlannerUser: boolean;
 };
 
 export default function EditApprovedUsers(
@@ -56,6 +59,9 @@ export default function EditApprovedUsers(
                 id: d.id,
                 email: (d.data().email as string) ?? d.id,
                 firestoreAccessDisabled: d.data().firestoreAccessDisabled === true,
+                isAdmin: d.data().isAdmin === true,
+                isCellarManager: d.data().isCellarManager === true,
+                isPlannerUser: d.data().isPlannerUser === true,
             }));
 
             data.sort((a, b) => a.email.localeCompare(b.email));
@@ -137,7 +143,7 @@ export default function EditApprovedUsers(
             sendApprovalEmail(email)
 
             setUsers((prev) =>
-                [...prev, { id: docId, email, firestoreAccessDisabled: false }]
+                [...prev, { id: docId, email, firestoreAccessDisabled: false, isAdmin: false, isCellarManager: false, isPlannerUser: false }]
                     .sort((a, b) => a.email.localeCompare(b.email))
             );
 
@@ -195,6 +201,24 @@ export default function EditApprovedUsers(
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleToggleRole = async (user: ApprovedUser, role: "isAdmin" | "isCellarManager" | "isPlannerUser") => {
+        if (!isAdmin) { setShowPermissionModal(true); return; }
+        if (role === "isAdmin" && auth.currentUser?.email?.toLowerCase() === user.id.toLowerCase() && user.isAdmin) {
+            setError("לא ניתן להסיר הרשאת אדמין מהמשתמש המחובר כעת.");
+            return;
+        }
+        const next = !user[role];
+        try {
+            setSaving(true); setError(""); setSuccess("");
+            await updateDoc(doc(db, "approvedUsers", user.id), { [role]: next });
+            setUsers((current) => current.map((item) => item.id === user.id ? { ...item, [role]: next } : item));
+            setSuccess(`ההרשאה של ${user.email} עודכנה ✓`);
+        } catch (err) {
+            console.error("Error toggling role:", err);
+            setError("אירעה שגיאה בשינוי ההרשאה");
+        } finally { setSaving(false); }
     };
 
     // ============================================================
@@ -320,11 +344,11 @@ export default function EditApprovedUsers(
 
                 <div>
                     <p className="editSpecsHeaderH1">
-                        ניהול משתמשים מאושרים
+                        משתמשים והרשאות
                     </p>
 
                     <p className="editSpecsHeaderH2">
-                        הוספה והסרה של כתובות אימייל בעלות גישה למערכת
+                        גישה למערכת והרשאות אדמין, מנהל סלרינג ומתכנן
                     </p>
                 </div>
 
@@ -432,7 +456,10 @@ export default function EditApprovedUsers(
                                     {user.email}
                                 </span>
 
-                                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                                    <button className={`btn-primary ${user.isCellarManager ? "active" : ""}`} onClick={() => handleToggleRole(user, "isCellarManager")} disabled={saving}>מנהל סלרינג {user.isCellarManager ? "✓" : ""}</button>
+                                    <button className={`btn-primary ${user.isPlannerUser ? "active" : ""}`} onClick={() => handleToggleRole(user, "isPlannerUser")} disabled={saving}>מתכנן {user.isPlannerUser ? "✓" : ""}</button>
+                                    <button className={`btn-primary ${user.isAdmin ? "active" : ""}`} onClick={() => handleToggleRole(user, "isAdmin")} disabled={saving}>אדמין {user.isAdmin ? "✓" : ""}</button>
                                     <button
                                         className="btn-primary"
                                         onClick={() => handleToggleFirestoreAccess(user)}

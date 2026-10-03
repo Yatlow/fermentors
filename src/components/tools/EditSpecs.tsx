@@ -1,7 +1,7 @@
 import BeerLoader from "../general/Loading";
 import TransientNumberInput from "../general/TransientNumberInput";
 import { useEffect, useState } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 
 import { db } from "../../firebase";
 import {
@@ -13,10 +13,18 @@ const fieldTranslations: Record<string, string> = {
     bottleExpDat: "תוקף (מספר חודשים)",
     kegBBE: "חבית",
     tolorances: "הגדרות כלליות לחישוב המלצות",
-    hops: "aa%",
-    citra_aa: "סיטרה",
-    cascade_aa: "קסקייד",
-    talos_aa: "טאלוס",
+    yeastDropMinimums: "מינימום דליי שמרים להוצאה",
+    ipa_double_warm: "IPA כפול · חם", ipa_double_cold: "IPA כפול · קר",
+    ipa_triple_warm: "IPA משולש · חם", ipa_triple_cold: "IPA משולש · קר",
+    פייל_double_warm: "פייל כפול · חם", פייל_double_cold: "פייל כפול · קר",
+    פייל_triple_warm: "פייל משולש · חם", פייל_triple_cold: "פייל משולש · קר",
+    חיטה_single_warm: "חיטה בודד · חם", חיטה_single_cold: "חיטה בודד · קר",
+    חיטה_double_warm: "חיטה כפול · חם", חיטה_double_cold: "חיטה כפול · קר",
+    חיטה_triple_warm: "חיטה משולש · חם", חיטה_triple_cold: "חיטה משולש · קר",
+    לאגר_triple_warm: "לאגר משולש · חם", לאגר_triple_cold: "לאגר משולש · קר",
+    הופי_double_warm: "הופי כפול · חם", הופי_double_cold: "הופי כפול · קר",
+    הופי_triple_warm: "הופי משולש · חם", הופי_triple_cold: "הופי משולש · קר",
+    סטאוט_single_warm: "סטאוט בודד · חם", סטאוט_single_cold: "סטאוט בודד · קר",
 
     carbonation: "גיזוז תקין",
     dryHopMinPlato: "פלאטו שמתחתיו מומלץ על דרייהופ",
@@ -57,7 +65,18 @@ export default function EditSpecs({ isAdmin }: { isAdmin: boolean }) {
             try {
                 setLoading(true);
                 setError("");
-                setSpecs(await getSpecsFromFb());
+                const loaded = await getSpecsFromFb();
+                if (!loaded.yeastDropMinimums) {
+                    loaded.yeastDropMinimums = {
+                        ipa_double_warm:8, ipa_double_cold:8, ipa_triple_warm:12, ipa_triple_cold:12,
+                        פייל_double_warm:7, פייל_double_cold:7, פייל_triple_warm:8, פייל_triple_cold:8,
+                        חיטה_single_warm:1, חיטה_single_cold:1, חיטה_double_warm:2, חיטה_double_cold:2, חיטה_triple_warm:4, חיטה_triple_cold:4,
+                        לאגר_triple_warm:7, לאגר_triple_cold:7, הופי_double_warm:7, הופי_double_cold:5, הופי_triple_warm:7, הופי_triple_cold:6,
+                        סטאוט_single_warm:3, סטאוט_single_cold:1
+                    };
+                }
+                delete loaded.hops;
+                setSpecs(loaded);
             } catch (err) {
                 console.error("Error loading specs:", err);
                 setError("אירעה שגיאה בטעינת הנתונים");
@@ -97,7 +116,7 @@ export default function EditSpecs({ isAdmin }: { isAdmin: boolean }) {
 
             await Promise.all(
                 Object.entries(specs).map(async ([documentId, values]) => {
-                    await updateDoc(doc(db, "specs", documentId), values);
+                    await setDoc(doc(db, "specs", documentId), values, { merge: true });
                 })
             );
 

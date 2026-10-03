@@ -151,7 +151,7 @@ const HEBREW_NUMBERS: Record<string, number> = {
 
 type TankSize = "single" | "double" | "triple";
 
-const YEAST_DROP_SPECS: Record<
+const DEFAULT_YEAST_DROP_SPECS: Record<
     string,
     Partial<Record<TankSize, { warm: number; cold: number }>>
 > = {
@@ -174,7 +174,8 @@ function getTankSize(tankNumber: number | undefined): TankSize | null {
 function getYeastDropSpec(
     beerStyle: string,
     tankNumber: number | undefined,
-    type: YeastDropType
+    type: YeastDropType,
+    givenSpecs: SpecChart
 ): number | null {
     const size = getTankSize(tankNumber);
     if (!size) return null;
@@ -192,7 +193,9 @@ function getYeastDropSpec(
 
     if (!styleKey) return null;
 
-    return YEAST_DROP_SPECS[styleKey]?.[size]?.[type] ?? null;
+    const configured = Number(givenSpecs?.yeastDropMinimums?.[`${styleKey}_${size}_${type}`]);
+    if (Number.isFinite(configured) && configured >= 0) return configured;
+    return DEFAULT_YEAST_DROP_SPECS[styleKey]?.[size]?.[type] ?? null;
 }
 
 function normalizeHebrewNumberText(value: string): string {
@@ -1568,7 +1571,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         getYeastDropSpec(
             style,
             tankNumber,
-            "warm"
+            "warm",
+            givenSpecs
         );
 
 
@@ -1579,7 +1583,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         getYeastDropSpec(
             style,
             tankNumber,
-            "cold"
+            "cold",
+            givenSpecs
         );
 
 

@@ -719,7 +719,7 @@ export default function PlanningGantt(props: Props) {
                 <b>שבוע {weekNumber(weekId)}</b>
                 <span>{shortDate(weekId)}–{shortDate(addDays(weekId, 6))}</span>
                 {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}
-                {weekHolidays.length > 0 && <small className="bp-gantt-holidays" title={weekHolidays.map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join("\n")}>{weekHolidays.slice(0, 2).map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join(" · ")}{weekHolidays.length > 2 ? ` · +${weekHolidays.length - 2}` : ""}</small>}
+                {weekHolidays.length > 0 && <div className="bp-gantt-holidays" aria-label="אירועי השבוע">{weekHolidays.slice(0, 3).map((holiday) => <span className="bp-gantt-holiday-chip" key={`${holiday.date}:${holiday.title}`}><b>{shortDate(holiday.date)}</b><span>{holiday.title}</span></span>)}{weekHolidays.length > 3 && <span className="bp-gantt-holiday-more" title={weekHolidays.slice(3).map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join("\n")}>+{weekHolidays.length - 3} אירועים</span>}</div>}
                 {weekId === currentWeek && <small>השבוע</small>}
                 {weekId === nextPlanningWeek && <small>שבוע התכנון הבא</small>}
               </div>

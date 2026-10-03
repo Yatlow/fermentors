@@ -47,6 +47,7 @@ const CoolerInventoryReportView = lazy(() => import("./components/reports/Cooler
 const PlanningView = lazy(() => import("./components/planning/PlanningView"));
 const BrewingView = lazy(() => import("./components/brewing/BrewingView"));
 const UserConnectionReport = lazy(() => import("./components/reports/UserConnectionReport"));
+const PackagingSheetGenerator = lazy(() => import("./COMPONENTS/PackagingSheetGenerator"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -147,6 +148,7 @@ function useAuth() {
     const [isApproved, setIsApproved] = useState<boolean | null>(null);
     const [admin, setAdmin] = useState(false);
     const [plannerUser, setPlannerUser] = useState(false);
+    const [cellarManager, setCellarManager] = useState(false);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
@@ -158,6 +160,7 @@ function useAuth() {
                 setIsApproved(false);
                 setAdmin(false);
                 setPlannerUser(false);
+                setCellarManager(false);
                 setLoading(false);
                 return;
             }
@@ -169,11 +172,13 @@ function useAuth() {
                 setIsApproved(approved);
                 setAdmin(approved && userData?.isAdmin === true);
                 setPlannerUser(approved && userData?.isPlannerUser === true);
+                setCellarManager(approved && (userData?.isCellarManager === true || userData?.isAdmin === true));
             } catch (error) {
                 console.error("Error updating last logged in:", error);
                 setIsApproved(false);
                 setAdmin(false);
                 setPlannerUser(false);
+                setCellarManager(false);
             } finally {
                 setLoading(false);
             }
@@ -181,14 +186,14 @@ function useAuth() {
         return () => unsubscribe();
     }, []);
 
-    return { user, loading, isApproved, admin, plannerUser };
+    return { user, loading, isApproved, admin, plannerUser, cellarManager };
 }
 
 function App() {
     const [planningTab, setPlanningTab] = useState<PlanningTab>("fiveWeeks");
     const [pendingPlanningWork, setPendingPlanningWork] = useState(0);
     const [brewingTab, setBrewingTab] = useState<BrewingTab>("form");
-    const { user, loading: authLoading, isApproved, admin, plannerUser } = useAuth();
+    const { user, loading: authLoading, isApproved, admin, plannerUser, cellarManager } = useAuth();
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
@@ -196,7 +201,7 @@ function App() {
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר" | "חיבורי_משתמשים">("אריזה");
-    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails">("calculator");
+    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
@@ -457,10 +462,11 @@ function App() {
                     </div>}
                     {selectedView === "ניהול" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "calculator" ? "active" : ""}`} onClick={() => setSelectedAdminTools("calculator")}><span>מחשבון למבשלן</span></button>
-                        <button type="button" className={`status-filter-button ${selectedAdminTools === "specs" ? "active" : ""}`} onClick={() => setSelectedAdminTools("specs")}><span>הגדרות מערכת</span></button>
-                        <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>
-                        <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>
-                        <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>אימיילים מורשים</span></button>
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "packagingSheet" ? "active" : ""}`} onClick={() => setSelectedAdminTools("packagingSheet")}><span>דף אריזה להדפסה</span></button>
+                        {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "specs" ? "active" : ""}`} onClick={() => setSelectedAdminTools("specs")}><span>הגדרות סלרינג</span></button>}
+                        {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>}
+                        {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>}
+                        {admin && <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>משתמשים והרשאות</span></button>}
                     </div>}
                     {selectedView === "בישולים" && <nav className="status-filter" dir="rtl" aria-label="בישולים">{BREWING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${brewingTab === id ? "active" : ""}`} aria-pressed={brewingTab === id} onClick={() => setBrewingTab(id)}>{label}</button>)}</nav>}
                     {selectedView === "תכנון" && <nav className="status-filter" dir="rtl" aria-label="תכנון">{(plannerUser ? PLANNING_TABS : PLANNING_TABS.filter(([id]) => id === "fiveWeeks")).map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${planningTab === id ? "active" : ""}`} aria-pressed={planningTab === id} data-planning-badge={id === "schedule" && pendingPlanningWork > 0 ? pendingPlanningWork : undefined} onClick={() => setPlanningTab(id)}>{label}</button>)}</nav>}
@@ -483,10 +489,11 @@ function App() {
                 {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
                 {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
                 {selectedView === "דוחות" && selectedReports === "חיבורי_משתמשים" && user.email?.toLowerCase() === "yisrael@atlow.co.il" && <UserConnectionReport />}
-                {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "specs" && cellarManager && <EditSpecs isAdmin={cellarManager} />}
                 {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
-                {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
-                {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
+                {selectedView === "ניהול" && selectedAdminTools === "packagingSheet" && <PackagingSheetGenerator brews={brews} specs={specs} />}
+                {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={cellarManager} />}
+                {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={cellarManager} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
                 {selectedView === "מקרר" && <>
                     <CoolerMap brews={brews} />

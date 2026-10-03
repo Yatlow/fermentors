@@ -1,4 +1,5 @@
 import type { SpecChart } from "../getAndPost/getSpecsFromFb";
+import { DEFAULT_INGREDIENT_LIBRARY, activeLot } from "../brewing/ingredientLibrary";
 
 export type DryHopStyleCategory = "ipa" | "pale" | "hoppy" | "other";
 export type DryHopCalc = { grams: number; hopType: string; needsManualInput: boolean };
@@ -55,32 +56,20 @@ export function getClosingPressureForStyle(
     return typeof value === "number" ? value : null;
 }
 
-/**
- * Returns the aa percentage configured in the hops document.
- * Both the document id and field names are matched case-insensitively so
- * Firestore values such as hops/Hops and Citra_aa/citra_aa all resolve.
- */
+/** AA source of truth: the current/active lot in the ingredient library. */
 export function getHopAa(
     hopType: string | null | undefined,
-    specs: SpecChart | null | undefined
+    _specs?: SpecChart | null
 ): number | null {
-    const normalizedHop = String(hopType || "").trim().toLowerCase();
-    if (!specs || !normalizedHop) return null;
-
-    const hopsEntry = Object.entries(specs).find(
-        ([docId]) => docId.trim().toLowerCase() === "hops"
+    const normalized = String(hopType || "").trim().toLowerCase();
+    if (!normalized) return null;
+    const aliases: Record<string,string> = { talos: "talus" };
+    const key = aliases[normalized] ?? normalized;
+    const ingredient = DEFAULT_INGREDIENT_LIBRARY.find((item) =>
+        item.category === "hop" && (item.id.toLowerCase() === key || item.name.toLowerCase() === key)
     );
-    const hops = hopsEntry?.[1];
-    if (!hops) return null;
-
-    const expectedKey = `${normalizedHop}_aa`;
-    const match = Object.entries(hops).find(
-        ([fieldName]) => fieldName.trim().toLowerCase() === expectedKey
-    );
-
-    if (!match) return null;
-    const value = Number(match[1]);
-    return Number.isFinite(value) ? value : null;
+    const alpha = ingredient ? activeLot(ingredient)?.alpha : undefined;
+    return alpha !== undefined && Number.isFinite(Number(alpha)) ? Number(alpha) : null;
 }
 
 export function isValidHopAa(value: string | number | null | undefined): boolean {
