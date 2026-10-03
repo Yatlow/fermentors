@@ -1,0 +1,131 @@
+from pathlib import Path
+
+# Server: sync the Google Calendar Israel holidays calendar into calendar_events.
+p = Path('server/calendarService.js')
+s = p.read_text()
+needle = '    Logger.log("Calendar sync complete: " + savedCount + " event(s).\");\n    return { savedCount: savedCount };\n'
+# tolerate the actual source form without the accidental escape used by an earlier workflow
+needle = needle.replace('.\\");', '.");')
+repl = '    const holidaySavedCount = calendarSyncGoogleNationalHolidays_(timeMin, timeMax);\n    Logger.log("Calendar sync complete: " + savedCount + " operational event(s), " + holidaySavedCount + " national holiday event(s).\");\n    return { savedCount: savedCount, holidaySavedCount: holidaySavedCount };\n'.replace('.\\");', '.");')
+if needle not in s:
+    raise SystemExit('calendar sync return anchor not found')
+s = s.replace(needle, repl, 1)
+insert_at = s.index('\nfunction calendarProcessTankTotals_')
+helper = r'''
+
+function calendarSyncGoogleNationalHolidays_(timeMin, timeMax) {
+  let calendars = [], pageToken = null;
+  do {
+    const page = Calendar.CalendarList.list({ maxResults: 250, pageToken: pageToken || undefined, showHidden: true });
+    calendars = calendars.concat(page.items || []);
+    pageToken = page.nextPageToken || null;
+  } while (pageToken);
+  const holidayCalendars = calendars.filter(function (calendar) {
+    const summary = String(calendar.summaryOverride || calendar.summary || "").toLowerCase();
+    const id = String(calendar.id || "").toLowerCase();
+    const israel = summary.includes("ישראל") || summary.includes("israel") || id.includes("israel");
+    const holiday = summary.includes("חג") || summary.includes("holiday") || id.includes("holiday");
+    return israel && holiday;
+  });
+  if (!holidayCalendars.length) {
+    Logger.log("[Calendar holidays] Israel national-holidays calendar not found in CalendarList.");
+    return 0;
+  }
+  let saved = 0;
+  holidayCalendars.forEach(function (calendar) {
+    let token = null;
+    do {
+      const page = Calendar.Events.list(calendar.id, { timeMin: timeMin, timeMax: timeMax, singleEvents: true, orderBy: "startTime", pageToken: token || undefined, maxResults: 2500 });
+      (page.items || []).forEach(function (event) {
+        if (event.status === "cancelled" || !event.start) return;
+        const dateValue = event.start.date || event.start.dateTime;
+        const title = String(event.summary || "").trim();
+        if (!dateValue || !title) return;
+        const date = String(dateValue).split("T")[0];
+        const eventId = "national-holiday:" + calendar.id + ":" + event.id;
+        calendarWriteEventToFirestore_(FIREBASE_PROJECT_ID, eventId, {
+          eventId: eventId, title: title, date: date,
+          timestamp: new Date(date + "T12:00:00+03:00").getTime(),
+          actionType: "holiday", source: "google-national-holidays",
+          calendarId: calendar.id, closed: true
+        });
+        saved++;
+      });
+      token = page.nextPageToken || null;
+    } while (token);
+  });
+  return saved;
+}
+'''
+s = s[:insert_at] + helper + s[insert_at:]
+p.write_text(s)
+
+# Frontend: combine Hebcal + Google national/civil holidays and dedupe overlaps.
+p = Path('src/SERVICES/planning/usePlanning.ts')
+s = p.read_text()
+start = s.index('export function useHolidays(start: string, end: string) {')
+replacement = r'''export function useHolidays(start: string, end: string) {
+  const [hebcal, setHebcal] = useState<Holiday[]>([]);
+  const [googleNational, setGoogleNational] = useState<Holiday[]>([]);
+  const [error, setError] = useState("");
+  const staticCivil = useMemo(() => {
+    const other: Holiday[] = [];
+    for (let year = Number(start.slice(0, 4)); year <= Number(end.slice(0, 4)); year++) {
+      const nov = new Date(Date.UTC(year, 10, 1, 12));
+      const thanksgiving = 1 + ((4 - nov.getUTCDay() + 7) % 7) + 21;
+      other.push({ date: `${year}-12-25`, title: "כריסטמס" }, { date: `${year}-11-${thanksgiving}`, title: "חג ההודיה (ארה״ב)" }, { date: `${year}-01-01`, title: "ראש השנה האזרחית" });
+    }
+    return other;
+  }, [start, end]);
+  useEffect(() => onSnapshot(
+    query(collection(db, "calendar_events"), where("date", ">=", start), where("date", "<=", end)),
+    (snap) => setGoogleNational(snap.docs.map((item) => item.data()).filter((item) => item.actionType === "holiday" && item.source === "google-national-holidays").map((item) => ({ date: String(item.date || "").slice(0, 10), title: String(item.title || ""), closed: item.closed !== false })).filter((item) => !!item.date && !!item.title)),
+    () => setGoogleNational([]),
+  ), [start, end]);
+  useEffect(() => {
+    const controller = new AbortController(); let disposed = false;
+    const timer = setTimeout(() => controller.abort(), 12000); setError("");
+    fetch(`https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&i=on&lg=he&start=${start}&end=${end}`, { signal: controller.signal })
+      .then((response) => { if (!response.ok) throw new Error(); return response.json(); })
+      .then((data) => { if (!controller.signal.aborted) setHebcal((data.items ?? []).filter((item: { category: string }) => item.category === "holiday").map((item: { date: string; hebrew?: string; title: string; yomtov?: boolean }) => ({ date: item.date.slice(0, 10), title: item.hebrew ?? item.title, closed: !!item.yomtov }))); })
+      .catch(() => { if (!disposed) setError("לא ניתן לטעון חגים יהודיים. יש לבדוק את ימי העבודה ידנית."); })
+      .finally(() => clearTimeout(timer));
+    return () => { disposed = true; clearTimeout(timer); controller.abort(); };
+  }, [start, end]);
+  const holidays = useMemo(() => {
+    const jewishTokens = ["rosh hashana", "yom kippur", "sukkot", "shemini atzeret", "simchat torah", "chanukah", "hanukkah", "purim", "pesach", "passover", "shavuot", "tisha b'av", "tu bishvat", "lag baomer", "yom haatzmaut", "yom hazikaron", "yom hashoah"];
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9א-ת]+/g, " ").trim();
+    const result: Holiday[] = [], exact = new Set<string>(), hebcalDates = new Set(hebcal.map((item) => item.date));
+    const add = (item: Holiday, source: "hebcal" | "google" | "static") => {
+      const title = normalize(item.title), key = `${item.date}|${title}`;
+      if (exact.has(key)) return;
+      if (source === "google" && hebcalDates.has(item.date) && jewishTokens.some((token) => title.includes(token))) return;
+      exact.add(key); result.push(item);
+    };
+    hebcal.forEach((item) => add(item, "hebcal")); googleNational.forEach((item) => add(item, "google")); staticCivil.forEach((item) => add(item, "static"));
+    return result.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title, "he"));
+  }, [hebcal, googleNational, staticCivil]);
+  return { holidays, error };
+}
+'''
+s = s[:start] + replacement + '\n'
+p.write_text(s)
+
+# Gantt: show holidays in each weekly header.
+p = Path('src/components/planning/PlanningGantt.tsx')
+s = p.read_text()
+a = '          {weekIds.map((weekId) => {\n            const totals = weeklyTotals(weekId);\n            return (\n'
+b = '          {weekIds.map((weekId) => {\n            const totals = weeklyTotals(weekId);\n            const weekHolidays = holidays.filter((holiday) => holiday.date >= weekId && holiday.date <= addDays(weekId, 6));\n            return (\n'
+if a not in s: raise SystemExit('Gantt header anchor not found')
+s = s.replace(a, b, 1)
+a = '                {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}\n                {weekId === currentWeek && <small>השבוע</small>}\n'
+b = '                {(totals.packaging > 0 || totals.brewing > 0) && <small>אריזה {fmt(totals.packaging)} ל׳ · בישול {fmt(totals.brewing)} ל׳</small>}\n                {weekHolidays.length > 0 && <small className="bp-gantt-holidays" title={weekHolidays.map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join("\\n")}>{weekHolidays.slice(0, 2).map((holiday) => `${shortDate(holiday.date)} · ${holiday.title}`).join(" · ")}{weekHolidays.length > 2 ? ` · +${weekHolidays.length - 2}` : ""}</small>}\n                {weekId === currentWeek && <small>השבוע</small>}\n'
+if a not in s: raise SystemExit('Gantt header content anchor not found')
+s = s.replace(a, b, 1)
+p.write_text(s)
+
+p = Path('src/components/planning/planningGantt.css')
+s = p.read_text()
+if '.bp-gantt-holidays' not in s:
+    s += '\n.bp-gantt-holidays { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }\n'
+p.write_text(s)
