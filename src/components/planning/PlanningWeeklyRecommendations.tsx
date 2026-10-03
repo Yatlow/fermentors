@@ -37,7 +37,7 @@ import {
 import TransientNumberInput from "../general/TransientNumberInput";
 
 type Kind = "delivery" | "packaging" | "brew";
-type BrewDraft = { style: string; liters: number };
+type BrewDraft = { style: string; liters: number; allowUnavailable?: boolean };
 type ManualPackDraft = { id: string; tankId: string; productId: string; quantity: number };
 type ShipmentSelectionState = {
     selected: Pallet[];
@@ -830,12 +830,29 @@ export default function PlanningWeeklyRecommendations({
                 ? recommendedSize
                 : BREW_SIZES.find((candidate) => canUseBrewSize(rows, candidate)) ?? recommendedSize ?? "כפול";
             const style = recommendation?.style ?? CORE_STYLES[0];
-            return [...rows, { style, liters: brewLitersForSize(style, size) }];
+            return [...rows, { style, liters: brewLitersForSize(style, size), ...(allowUnavailableBrewException ? { allowUnavailable: true } : {}) }];
         });
         // An unavailable-tank override is intentionally one-shot: every extra
         // brew beyond the available tank pool requires a fresh explicit approval.
         if (allowUnavailableBrewException) setAllowUnavailableBrewException(false);
     }
+
+    useEffect(() => {
+        const approveOverflowAdd = () => {
+            setAllowUnavailableBrewException(true);
+            setBrewDraft((rows) => {
+                const recommendations = visibleBrewRecommendations();
+                const recommendation = recommendations[rows.length];
+                const recommendedSize = recommendation?.sizeLabel;
+                const size = recommendedSize ?? BREW_SIZES.find((candidate) => brewSizeCapacity(candidate) > 0) ?? "כפול";
+                const style = recommendation?.style ?? CORE_STYLES[0];
+                return [...rows, { style, liters: brewLitersForSize(style, size), allowUnavailable: true }];
+            });
+            setAllowUnavailableBrewException(false);
+        };
+        window.addEventListener("bp-approve-brew-overflow", approveOverflowAdd);
+        return () => window.removeEventListener("bp-approve-brew-overflow", approveOverflowAdd);
+    });
 
     function changeBrewStyle(index: number, style: string) {
         setBrewDraft((rows) => rows.map((row, i) => i === index
@@ -845,7 +862,7 @@ export default function PlanningWeeklyRecommendations({
 
     function changeBrewSize(index: number, size: BrewSizeLabel) {
         setBrewDraft((rows) => {
-            if (!canUseBrewSize(rows, size, index)) return rows;
+            if (!rows[index]?.allowUnavailable && !canUseBrewSize(rows, size, index)) return rows;
             return rows.map((row, i) => i === index
                 ? { ...row, liters: brewLitersForSize(row.style, size) }
                 : row);
@@ -1139,7 +1156,7 @@ export default function PlanningWeeklyRecommendations({
                                 {BREW_SIZES.map((size) => <option
                                     value={size}
                                     key={size}
-                                    disabled={size !== currentSize && !canUseBrewSize(brewDraft, size, i)}
+                                    disabled={!b.allowUnavailable && size !== currentSize && !canUseBrewSize(brewDraft, size, i)}
                                 >בישול {size} · {brewSizeCapacity(size)} מיכלים</option>)}
                             </select>
                             <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>

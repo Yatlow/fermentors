@@ -83,27 +83,8 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
   }, [kind, hasPackagingDecision, packagingDecisionCount, hasBrewDecision, plannerProps.disabled, replacementPackagingCount, week]);
 
   const approveOverflowBrew = () => {
-    const host = hostRef.current;
-    if (!host) { setConfirmOverflow(false); return; }
-    const buttons = [...host.querySelectorAll<HTMLButtonElement>(".bp-week-brew-card button")];
-    const nativeException = buttons.find((button) => button.textContent?.includes("מעבר למיכלים הזמינים כחריגה"));
-    if (!nativeException) { setConfirmOverflow(false); return; }
-
-    // First update the planner's real React state (one-shot authorization).
-    nativeException.click();
+    window.dispatchEvent(new Event("bp-approve-brew-overflow"));
     setConfirmOverflow(false);
-
-    // Let React commit allowUnavailableBrewException=true, then invoke the real
-    // add button. addBrew itself immediately consumes/resets that authorization.
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const refreshed = [...(hostRef.current?.querySelectorAll<HTMLButtonElement>(".bp-week-brew-card button") ?? [])];
-        const normalAdd = refreshed.find((button) => button.textContent?.trim() === "+ הוסף בישול");
-        if (!normalAdd) return;
-        normalAdd.disabled = false;
-        normalAdd.click();
-      });
-    });
   };
 
   useEffect(() => {
