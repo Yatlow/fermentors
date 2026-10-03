@@ -6,23 +6,20 @@ import re
 p = Path('src/components/planning/PlanningView.tsx')
 s = p.read_text(encoding='utf-8')
 s = s.replace('import { useEffect, useMemo, useRef, useState } from "react";', 'import { useEffect, useMemo, useRef, useState } from "react";')
-s = re.sub(r'import \{\n  collection, doc, getDocFromServer, getDocsFromServer, query, Timestamp, where, updateDoc, serverTimestamp,\n\} from "firebase/firestore";', 'import { doc, updateDoc, serverTimestamp } from "firebase/firestore";', s, count=1)
+s = re.sub(r'import \{\n  collection, doc, getDocFromServer, getDocsFromServer, query, Timestamp, where, updateDoc, serverTimestamp,\n\} from "firebase/firestore";\n', '', s, count=1)
+s = s.replace('import { doc, updateDoc, serverTimestamp } from "firebase/firestore";\n', '')
+s = s.replace('import { auth, db } from "../../firebase";\n', '')
 s = s.replace('import { runtimeConfig } from "../../config/runtimeConfig";\n', '')
 s = s.replace('import { addDays, parseDate, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";', 'import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";')
 s = s.replace('import { startOfJerusalemDay, useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";', 'import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";')
 s = re.sub(r'\ntype PlanningQueryTiming = \{[^\n]+\};\n', '\n', s, count=1)
-# Remove audit/probe state plus both diagnostic effects, preserving the tank memo anchor.
 start = s.find('  const planningAuditStartedAt = useRef(Date.now());')
 end_anchor = '  const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);'
 end = s.find(end_anchor)
 if start >= 0 and end > start:
     s = s[:start] + s[end:]
-# Remove preview diagnostics JSX if present.
 s = re.sub(r'\n      \{showPreviewDiagnostics && !data\.loading && !data\.error && \(.*?\n      \)\}', '', s, count=1, flags=re.S)
-# Do not show a second status line while the loader is already visible.
 s = s.replace('{data.offline && <p role="status">ממתין לחיבור לשרת.</p>}', '{data.offline && !data.loading && <p role="status">ממתין לחיבור לשרת.</p>}')
-# Expensive projections are only needed by their owning views. Keep the same data
-# and business functions, but skip work while another planning tab is active.
 s = s.replace(
     '  const executionPlans = useMemo(() => plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks), [identityAlignedPlans, settings.products, actuals, productionTanks]);',
     '  const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);'
@@ -58,7 +55,6 @@ old = '''    const actualItems: SummaryItem[] = actuals\n      .filter((actual) 
 new = '''    const actualItems: SummaryItem[] = (actualsByWeek.get(weekId) ?? [])\n      .filter((actual) => Number(actual.quantity) > 0)\n      .map((actual) => {'''
 if old in s:
     s = s.replace(old, new, 1)
-# Keep pagination loader but make wording concise.
 s = s.replace('message="מעדכן את חלון התכנון…"', 'message="מעדכן…"')
 p.write_text(s, encoding='utf-8')
 
