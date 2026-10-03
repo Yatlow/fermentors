@@ -163,13 +163,14 @@ export default function PlanningGantt(props: Props) {
 
   const [simulations, setSimulations] = useState<Map<string, SimulatedWeek>>(() => new Map());
   const [isSimulating, setIsSimulating] = useState(true);
+  const [pendingSimulationWeeks, setPendingSimulationWeeks] = useState<Set<string>>(() => new Set());
   const simulationGeneration = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     const generation = ++simulationGeneration.current;
     setIsSimulating(true);
-    setSimulations(new Map());
+    setPendingSimulationWeeks(new Set(weekIds));
 
     const run = async () => {
     const result = new Map<string, SimulatedWeek>();
@@ -289,10 +290,23 @@ export default function PlanningGantt(props: Props) {
         brewRecommendation,
       });
       if (cancelled || generation !== simulationGeneration.current) return;
-      setSimulations(new Map(result));
+      const completed = result.get(week);
+      if (completed) {
+        setSimulations((previous) => {
+          const next = new Map(previous);
+          next.set(week, completed);
+          return next;
+        });
+      }
+      setPendingSimulationWeeks((previous) => {
+        const next = new Set(previous);
+        next.delete(week);
+        return next;
+      });
     }
 
       if (cancelled || generation !== simulationGeneration.current) return;
+      setPendingSimulationWeeks(new Set());
       setIsSimulating(false);
     };
 
@@ -714,8 +728,8 @@ export default function PlanningGantt(props: Props) {
             <Fragment key={row.id}>
               <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
-                const weekPending = isSimulating && !simulations.has(weekId);
-                const items = weekPending ? [] : itemsFor(row.id, weekId);
+                const weekPending = pendingSimulationWeeks.has(weekId);
+                const items = itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
                 const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
                 const plan = decisionPlanFor(weekId);
@@ -770,7 +784,8 @@ export default function PlanningGantt(props: Props) {
                         {item.stockKind === "projected" && <span className="bp-gantt-stock-label">צפי לפתיחת השבוע</span>}
                       </article>
                     ))}
-                    {weekPending ? <BeerLoader size="spinner" message="" /> : !items.length && <span className="bp-five-week-empty">—</span>}
+                    {weekPending && <div className="bp-gantt-cell-loader"><BeerLoader size="spinner" message="" /></div>}
+                    {!items.length && !weekPending && <span className="bp-five-week-empty">—</span>}
                   </div>
                 );
               })}
