@@ -1,0 +1,105 @@
+name: Apply PR119 canonical validation and batch sequence fix
+on:
+  workflow_dispatch:
+  push:
+    branches: [planning-tank-schedule]
+    paths: ['.github/workflows/pr119-canonical-validation-batches.yml']
+permissions:
+  contents: write
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: planning-tank-schedule
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply targeted fixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) Packaging/day edits must not be blocked by validation of brews that
+          # do not yet have a canonical tank assignment.
+          p = Path('src/components/planning/PlanningBoard.tsx')
+          s = p.read_text()
+          old = '''    let datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
+    validationTanks = futureTanks(tanks, all, settings);
+    let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);'''
+          new = '''    // Production validation may compare planned tank volume/style with a brew.
+    // An unassigned brew has no canonical brew↔tank relationship yet, so using
+    // it here creates false blockers (for example 3000L vs 1960L, or a warning
+    // for an unrelated style). Validate only cycles that already have a tank.
+    let datedOnly = all.map((w) => ({
+      ...w,
+      packaging: w.packaging.filter((run) => !!run.date),
+      brews: w.brews.filter((brew) => !!brew.tankId),
+    }));
+    validationTanks = futureTanks(tanks, datedOnly, settings);
+    let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);'''
+          if old not in s:
+              raise SystemExit('PlanningBoard production-validation anchor not found')
+          s = s.replace(old, new, 1)
+          old2 = '''        datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
+        validationTanks = futureTanks(tanks, all, settings);'''
+          new2 = '''        datedOnly = all.map((w) => ({
+          ...w,
+          packaging: w.packaging.filter((run) => !!run.date),
+          brews: w.brews.filter((brew) => !!brew.tankId),
+        }));
+        validationTanks = futureTanks(tanks, datedOnly, settings);'''
+          if old2 not in s:
+              raise SystemExit('PlanningBoard override-validation anchor not found')
+          s = s.replace(old2, new2, 1)
+          p.write_text(s)
+
+          # 2) Batch numbers are a chronological projection. A week must start
+          # after actual batches and batches in earlier planning weeks only; a
+          # later planned week must never push an earlier week's sequence forward.
+          p = Path('src/components/planning/PlanningBrewAssignmentEditor.tsx')
+          s = p.read_text()
+          old = '''  const [batchBase, setBatchBase] = useState(() => Math.max(
+    maxBatch(brews.map((brew) => brew.batchNumber)),
+    maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
+  ));'''
+          new = '''  const priorPlannedBatches = () => allPlans
+    .filter((plan) => plan.id < initial.id)
+    .flatMap((plan) => plan.brews)
+    .map((brew) => brew.batchNumber);
+  const [batchBase, setBatchBase] = useState(() => Math.max(
+    maxBatch(brews.map((brew) => brew.batchNumber)),
+    maxBatch(priorPlannedBatches()),
+  ));'''
+          if old not in s:
+              raise SystemExit('Batch base anchor not found')
+          s = s.replace(old, new, 1)
+          old2 = '''          maxBatch(brews.map((brew) => brew.batchNumber)),
+          maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),'''
+          new2 = '''          maxBatch(brews.map((brew) => brew.batchNumber)),
+          maxBatch(allPlans
+            .filter((plan) => plan.id < initial.id)
+            .flatMap((plan) => plan.brews)
+            .map((brew) => brew.batchNumber)),'''
+          if old2 not in s:
+              raise SystemExit('Async batch base anchor not found')
+          s = s.replace(old2, new2, 1)
+          s = s.replace('  }, [brews, allPlans]);', '  }, [brews, allPlans, initial.id]);', 1)
+          p.write_text(s)
+          PY
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --run
+      - run: npm run build
+      - name: Commit fixes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/components/planning/PlanningBoard.tsx src/components/planning/PlanningBrewAssignmentEditor.tsx
+          git diff --cached --check
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Fix canonical planning validation and batch sequence'
+          git push origin HEAD:planning-tank-schedule
