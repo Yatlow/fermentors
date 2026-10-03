@@ -7,6 +7,7 @@ import { startReadAudit } from './SERVICES/readAudit'
 import './beerStyles.css'
 import './components/dashboard/BatchHistoryChart.mobile.css'
 import './components/dashboard/TankCard.mobile-fixes.css'
+import './components/tools/permissions-modern.css'
 
 startVersionGuard()
 startFirestoreLifecycleGuard()

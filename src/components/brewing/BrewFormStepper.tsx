@@ -3808,6 +3808,23 @@ export default function BrewFormStepper({
     }
   }
 
+  const [lauterClockTick, setLauterClockTick] = useState(0);
+  useEffect(() => {
+    if (currentStep.id !== "lautering" || localValue("endTransfer.start") || !localValue("outToBoil.start")) return;
+    const timer = window.setInterval(() => setLauterClockTick((value) => value + 1), 30000);
+    return () => window.clearInterval(timer);
+  }, [currentStep.id, currentBlock, fields["endTransfer.start"], fields["outToBoil.start"]]);
+
+  function liveLauterDurationText(): string {
+    void lauterClockTick;
+    if (localValue("endTransfer.start")) return "";
+    const start = localValue("outToBoil.start");
+    if (!start) return "";
+    const minutes = forwardMinutes(start, hhmmNow());
+    if (minutes === null || minutes > 8 * 60) return "";
+    return `זמן מתחילת לאוטר: ${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  }
+
   function transferDurationText(): string {
     const start = localValue("outToBoil.start");
     const end = localValue("endTransfer.start");
@@ -4605,7 +4622,7 @@ export default function BrewFormStepper({
                   (_, index) => index + 1,
                 ).map((index) => (
                   <div className="brew-rinse-row" key={index}>
-                    <strong>שטיפה {index}</strong>
+                    <strong>שטיפה {index}{index === visibleRinseCount && liveLauterDurationText() ? <small className="brew-stage-duration"> · {liveLauterDurationText()}</small> : null}</strong>
 
                     <label>
                       שעה
