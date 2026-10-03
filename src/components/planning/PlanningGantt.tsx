@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { CalendarDays, SquarePen } from "lucide-react";
 import type { Fermentor } from "../../App";
@@ -161,7 +161,16 @@ export default function PlanningGantt(props: Props) {
     return grouped;
   }, [actuals]);
 
-  const simulations = useMemo(() => {
+  const [simulations, setSimulations] = useState<Map<string, SimulatedWeek>>(() => new Map());
+  const [isSimulating, setIsSimulating] = useState(true);
+  const simulationGeneration = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const generation = ++simulationGeneration.current;
+    setIsSimulating(true);
+
+    const run = async () => {
     const result = new Map<string, SimulatedWeek>();
     let effectivePlans = historyPlans.map((plan) => structuredClone(plan));
 
@@ -185,6 +194,8 @@ export default function PlanningGantt(props: Props) {
     });
 
     for (const week of weekIds) {
+      if (cancelled || generation !== simulationGeneration.current) return;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
       const saved = planByWeek.get(week);
       let workingPlan: WeekPlan = saved
         ? structuredClone(saved)
@@ -192,6 +203,7 @@ export default function PlanningGantt(props: Props) {
       upsertPlan(workingPlan);
 
       let model = buildModel(week);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
       let deliveryRecommendation: WeeklyPlanningModel["shipmentRecommendation"] = [];
       let packagingRecommendation: WeeklyPlanningModel["packagingRecommendation"] = [];
       let brewRecommendation: WeeklyPlanningModel["brewRecommendations"] = [];
@@ -217,6 +229,8 @@ export default function PlanningGantt(props: Props) {
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
           }
         }
 
@@ -239,6 +253,8 @@ export default function PlanningGantt(props: Props) {
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
           }
         }
 
@@ -258,6 +274,8 @@ export default function PlanningGantt(props: Props) {
             };
             upsertPlan(workingPlan);
             model = buildModel(week);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => window.setTimeout(resolve, 0)));
           }
         }
       }
@@ -271,7 +289,17 @@ export default function PlanningGantt(props: Props) {
       });
     }
 
-    return result;
+      if (cancelled || generation !== simulationGeneration.current) return;
+      setSimulations(result);
+      setIsSimulating(false);
+    };
+
+    // Let the loader/previous UI paint before starting planning CPU work.
+    const timer = window.setTimeout(() => { void run(); }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
@@ -616,7 +644,7 @@ export default function PlanningGantt(props: Props) {
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
-        {isPaging && <BeerLoader overlay message="מעדכן…" />}
+        {(isPaging || isSimulating) && <BeerLoader overlay message="מעדכן…" />}
         {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
