@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
-import { getBrewsSummaryPage } from "../../SERVICES/getAndPost/getAllBrews";
+import { getBrewsSummaryPage, type BrewSummary } from "../../SERVICES/getAndPost/getAllBrews";
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { brewLitersForSize, brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
@@ -132,9 +132,15 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [batchBase, setBatchBase] = useState(() =>
+  const priorPlannedBatches = useMemo(() => allPlans
+    .filter((plan) => plan.id < initial.id)
+    .flatMap((plan) => plan.brews)
+    .map((brew) => brew.batchNumber), [allPlans, initial.id]);
+  const [batchBase, setBatchBase] = useState(() => Math.max(
     maxBatch(brews.map((brew) => brew.batchNumber)),
-  );
+    maxBatch(priorPlannedBatches),
+  ));
+  const [existingBrews, setExistingBrews] = useState<BrewSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showUnavailableTanks, setShowUnavailableTanks] = useState(false);
@@ -142,28 +148,34 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
 
   useEffect(() => {
     let cancelled = false;
-    getBrewsSummaryPage(null, 10)
+    getBrewsSummaryPage(null, 100)
       .then(({ rows: history }) => {
         if (cancelled) return;
-        setBatchBase((current) => Math.max(
-          current,
+        setExistingBrews(history);
+        setBatchBase(Math.max(
           maxBatch(history.map((brew) => brew.batchNumber)),
           maxBatch(brews.map((brew) => brew.batchNumber)),
+          maxBatch(priorPlannedBatches),
         ));
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [brews, allPlans]);
+  }, [brews, priorPlannedBatches]);
 
   const orderedBrews = useMemo(() => {
     const current = draft.brews as BrewPlanWithMeta[];
     // Only an actually created batch may pin identity here. A batchNumber stored
     // on a future plan is a forecast and must be recalculated from real history.
-    const preferred = current.map((brew) => realNewBrewBatch(brew, brews));
+    const existingById = new Map(existingBrews.map((brew) => [brew.id, brew]));
+    const preferred = current.map((brew) => {
+      const linked = brew.linkedExistingBrewId ? existingById.get(brew.linkedExistingBrewId) : undefined;
+      return linked?.batchNumber ?? realNewBrewBatch(brew, brews);
+    });
     const realReservedBatches = new Set(
       brews
         .filter((source) => Number(source.action) === 0)
         .map((source) => Number(normalizedBatch(source.batchNumber)))
+        .concat(existingBrews.map((source) => Number(normalizedBatch(source.batchNumber))))
         .filter((value) => Number.isFinite(value) && value > 0),
     );
     const used = new Set<number>();
@@ -181,7 +193,7 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       next += 1;
       return { ...brew, batchNumber };
     });
-  }, [draft.brews, batchBase, brews]);
+  }, [draft.brews, batchBase, brews, existingBrews]);
   const selectedBrew = orderedBrews[selectedIndex] ?? null;
 
   const allWeekTanks = useMemo(() => releases
@@ -282,6 +294,34 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     setError("");
   }
 
+  function linkExistingBrew(existingId: string) {
+    const existing = existingBrews.find((brew) => brew.id === existingId);
+    if (!existing) return;
+    setDraft((current) => {
+      const next = [...(current.brews as BrewPlanWithMeta[])];
+      const selected = next[selectedIndex];
+      if (!selected) return current;
+      next[selectedIndex] = {
+        ...selected,
+        linkedExistingBrewId: existing.id,
+        batchNumber: normalizedBatch(existing.batchNumber),
+      };
+      return { ...current, brews: next };
+    });
+    setError("");
+  }
+
+  function unlinkExistingBrew() {
+    setDraft((current) => {
+      const next = [...(current.brews as BrewPlanWithMeta[])];
+      const selected = next[selectedIndex];
+      if (!selected) return current;
+      const { linkedExistingBrewId: _removed, ...rest } = selected;
+      next[selectedIndex] = rest as BrewPlanWithMeta;
+      return { ...current, brews: next };
+    });
+  }
+
   async function save() {
     if (orderedBrews.some((brew) => !brew.tankId)) {
       setError("יש לשבץ מיכל לכל בישול לפני השמירה.");
@@ -341,6 +381,19 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
           <div className="bp-brew-placement-title">
             <b>אצווה {selectedBrew.batchNumber} · {displayStyle(selectedBrew.style)} · {brewSizeLabel(Number(selectedBrew.liters) || 0)}</b>
             <small>כל המיכלים שצפויים להיות פנויים במהלך השבוע מוצגים כאן. ניתן לבחור רק מיכל בגודל {brewSizeLabel(Number(selectedBrew.liters) || 0)}.</small>
+            <div className="bp-brew-existing-link">
+              <label>קישור לאצווה קיימת</label>
+              <select
+                value={selectedBrew.linkedExistingBrewId ?? ""}
+                onChange={(event) => event.target.value ? linkExistingBrew(event.target.value) : unlinkExistingBrew()}
+              >
+                <option value="">ללא קישור — הקצה מספר מהתכנון</option>
+                {existingBrews
+                  .filter((existing) => existing.beerStyle.trim().toLowerCase() === selectedBrew.style.trim().toLowerCase())
+                  .map((existing) => <option key={existing.id} value={existing.id}>#{existing.batchNumber} · {displayStyle(existing.beerStyle)} · מיכל {existing.tankNumber || "—"}</option>)}
+              </select>
+              {selectedBrew.linkedExistingBrewId && <small>האצווה כבר קיימת בפועל; התכנון משתמש במספר הקיים ולא יוצר זהות חדשה.</small>}
+            </div>
           </div>
           <div className="bp-brew-tank-yard bp-brew-tank-row">
             {allWeekTanks.map((tank) => {

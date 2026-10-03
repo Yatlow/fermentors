@@ -58,6 +58,8 @@ export type BrewPlan = {
   date: string;
   liters: number;
   batchNumber?: string;
+  /** Explicit link to an already-created real brew. This survives plan rebuilds. */
+  linkedExistingBrewId?: string;
   tankAssignmentStatus?: "tentative" | "confirmed";
   /** Explicit planner override: reuse this tank after its current cycle empties in the same week. */
   availabilityOverride?: boolean;

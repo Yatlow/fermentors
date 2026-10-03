@@ -286,11 +286,8 @@ export function validateProduction(
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
     const t = tanks.find((t) => t.id === tankId);
     const p = settings.products.find((p) => p.id === r.productId);
-    const runStyle = r.nonInventoryStyle ?? p?.style;
     const runType = r.nonInventoryType ?? p?.type;
-    if (!t || !runStyle || !runType) return "חסרים נתוני מיכל או מוצר לאריזה";
-    if (linkedBrew && !sameStyle(linkedBrew.style, runStyle))
-      return "סגנון האריזה אינו תואם לבישול שאליו היא משויכת";
+    if (!t) return "חסר מיכל מקור לאריזה";
 
     const projectedCycle = linkedBrewId
       ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
@@ -298,6 +295,11 @@ export function validateProduction(
     const readyDate = projectedCycle?.readyDate ?? t.ready;
     if (r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
       return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;
+
+    // During scheduling the planner can place the future brew on a packaging day
+    // before choosing crates/kegs. Type-dependent validation is deferred until
+    // the packaging product/type is actually defined.
+    if (!runType) continue;
 
     const cycleKey = linkedBrewId ? `brew:${linkedBrewId}` : `legacy:${tankId}`;
     const history = tankRuns.get(cycleKey) ?? [];
