@@ -4,7 +4,6 @@ from pathlib import Path
 p = Path('server/calendarService.js')
 s = p.read_text()
 needle = '    Logger.log("Calendar sync complete: " + savedCount + " event(s).\");\n    return { savedCount: savedCount };\n'
-# tolerate the actual source form without the accidental escape used by an earlier workflow
 needle = needle.replace('.\\");', '.");')
 repl = '    const holidaySavedCount = calendarSyncGoogleNationalHolidays_(timeMin, timeMax);\n    Logger.log("Calendar sync complete: " + savedCount + " operational event(s), " + holidaySavedCount + " national holiday event(s).\");\n    return { savedCount: savedCount, holidaySavedCount: holidaySavedCount };\n'.replace('.\\");', '.");')
 if needle not in s:
@@ -63,6 +62,7 @@ p.write_text(s)
 # Frontend: combine Hebcal + Google national/civil holidays and dedupe overlaps.
 p = Path('src/SERVICES/planning/usePlanning.ts')
 s = p.read_text()
+s = s.replace('import { useEffect, useState } from "react";', 'import { useEffect, useMemo, useState } from "react";', 1)
 start = s.index('export function useHolidays(start: string, end: string) {')
 replacement = r'''export function useHolidays(start: string, end: string) {
   const [hebcal, setHebcal] = useState<Holiday[]>([]);
@@ -79,7 +79,13 @@ replacement = r'''export function useHolidays(start: string, end: string) {
   }, [start, end]);
   useEffect(() => onSnapshot(
     query(collection(db, "calendar_events"), where("date", ">=", start), where("date", "<=", end)),
-    (snap) => setGoogleNational(snap.docs.map((item) => item.data()).filter((item) => item.actionType === "holiday" && item.source === "google-national-holidays").map((item) => ({ date: String(item.date || "").slice(0, 10), title: String(item.title || ""), closed: item.closed !== false })).filter((item) => !!item.date && !!item.title)),
+    (snap) => setGoogleNational(snap.docs.flatMap((docSnap): Holiday[] => {
+      const item = docSnap.data();
+      if (item.actionType !== "holiday" || item.source !== "google-national-holidays") return [];
+      const date = String(item.date || "").slice(0, 10);
+      const title = String(item.title || "");
+      return date && title ? [{ date, title, closed: item.closed !== false }] : [];
+    })),
     () => setGoogleNational([]),
   ), [start, end]);
   useEffect(() => {
