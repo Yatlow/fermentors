@@ -25,7 +25,7 @@ import {
   validateBrewReleases,
 } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
-import { resolvePackagingBrewId } from "../../SERVICES/planning/planIdentity";
+import { resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/planning/planIdentity";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
 import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
@@ -215,8 +215,38 @@ export default function PlanningBoard({
     resolve?.(approved);
   }
 
+  function attachCanonicalBrewToEditedPackaging(next: WeekPlan): WeekPlan {
+    const allForMatch = [...plans.filter((w) => w.id !== next.id), next];
+    return {
+      ...next,
+      packaging: next.packaging.map((run) => {
+        const saved = current.packaging.find((item) => item.id === run.id);
+        const wasEdited = JSON.stringify(saved ?? null) !== JSON.stringify(run);
+        if (!wasEdited || resolvePackagingBrewId(run as PackagingPlan, allForMatch)) return run;
+        if (!run.tankId || !run.date) return run;
+        const runDate = run.date;
+        const product = settings.products.find((item) => item.id === run.productId);
+        const style = run.nonInventoryStyle ?? product?.style;
+        if (!style) return run;
+        const candidates = allForMatch
+          .flatMap((week) => week.brews ?? [])
+          .filter((brew) => brew.tankId === run.tankId && brew.date <= runDate && sameStyle(brew.style, style))
+          .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+        const brew = candidates.at(-1);
+        if (!brew) return run;
+        return {
+          ...run,
+          brewId: brew.id,
+          tankId: brew.tankId,
+          ...(brew.batchNumber ? { batchNumber: brew.batchNumber } : {}),
+        };
+      }),
+    };
+  }
+
   async function persist(next: WeekPlan, confirmBrews = false) {
     if (weekIsClosed(next.id, today)) throw new Error("השבוע נסגר לתכנון בתחילת יום שישי.");
+    next = attachCanonicalBrewToEditedPackaging(next);
     const packagingWasEdited = JSON.stringify(next.packaging) !== JSON.stringify(current.packaging);
     const deliveriesWereEdited = JSON.stringify(next.deliveries ?? []) !== JSON.stringify(current.deliveries ?? []);
     const confirmedNext = confirmBrews ? confirmAssignedBrews(next) : next;

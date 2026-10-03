@@ -138,10 +138,10 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     .filter((plan) => plan.id < initial.id)
     .flatMap((plan) => plan.brews)
     .map((brew) => brew.batchNumber), [allPlans, initial.id]);
-  const [batchBase, setBatchBase] = useState(() => Math.max(
-    maxBatch(brews.map((brew) => brew.batchNumber)),
-    maxBatch(priorPlannedBatches),
-  ));
+  const [batchBase, setBatchBase] = useState(() => {
+    const priorBase = maxBatch(priorPlannedBatches);
+    return priorBase > 0 ? priorBase : maxBatch(brews.map((brew) => brew.batchNumber));
+  });
   const [existingBrews, setExistingBrews] = useState<BrewSummary[]>([]);
   const [linkableBrews, setLinkableBrews] = useState<BrewSummary[]>([]);
   const [busy, setBusy] = useState(false);
@@ -182,12 +182,14 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
         });
         setExistingBrews(history);
         setLinkableBrews([...linkable.values()]);
-        setBatchBase(Math.max(
-          maxBatch(history.map((brew) => brew.batchNumber)),
-          maxBatch(pending.map((brew) => brew.batchNumber)),
-          maxBatch(brews.map((brew) => brew.batchNumber)),
-          maxBatch(priorPlannedBatches),
-        ));
+        const priorBase = maxBatch(priorPlannedBatches);
+        setBatchBase(priorBase > 0
+          ? priorBase
+          : Math.max(
+              maxBatch(history.map((brew) => brew.batchNumber)),
+              maxBatch(pending.map((brew) => brew.batchNumber)),
+              maxBatch(brews.map((brew) => brew.batchNumber)),
+            ));
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
