@@ -1,0 +1,33 @@
+name: Apply PR119 packaging UX fixes
+
+on:
+  push:
+    branches: [planning-tank-schedule]
+    paths: ['.github/workflows/pr119-packaging-ux.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: planning-tank-schedule
+      - run: python scripts/patch-pr119-packaging-ux.py
+      - run: npm ci
+      - name: Validate planning UX fixes
+        run: |
+          npm run lint
+          npm test -- --run
+          npm run build
+          git diff --check
+      - name: Commit targeted changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/planning/PlanningWeeklyRecommendationsEnhanced.tsx src/components/planning/PlanningGanttWeekEditorModal.tsx src/components/planning/planningPackagingModal.css
+          git diff --cached --quiet && exit 0
+          git commit -m 'Polish planning recommendation and overflow UX'
+          git push origin HEAD:planning-tank-schedule
