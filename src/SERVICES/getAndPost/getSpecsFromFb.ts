@@ -9,50 +9,19 @@ import { db } from "../../firebase";
 export type SpecChart = Record<string, Record<string, number>>;
 
 // ============================================================
-// GET ALL MEASUREMENTS FOR BATCH
+// GET CELLAR SPECS
 // ============================================================
-
-// export async function getSpecsFromFb()<<SpecChart>() => []> {
 export async function getSpecsFromFb() {
-
-
-
-    // ----------------------------------------------------------
-    // NORMALIZE BATCH ID
-    // ----------------------------------------------------------
-
-    // ----------------------------------------------------------
-    // FIRESTORE PATH
-    // ----------------------------------------------------------
-
-    const measurementsRef = collection(
-        db,
-        "specs",
-    );
-
-    // ----------------------------------------------------------
-    // QUERY
-    // ----------------------------------------------------------
-
-    const measurementsQuery = query(
-        measurementsRef);
-
-    // ----------------------------------------------------------
-    // GET DATA
-    // ----------------------------------------------------------
-
-    const snapshot = await getDocs(
-        measurementsQuery
-    );
-
-    // ----------------------------------------------------------
-    // CONVERT FIRESTORE DATA
-    // ----------------------------------------------------------
-
+    const measurementsRef = collection(db, "specs");
+    const measurementsQuery = query(measurementsRef);
+    const snapshot = await getDocs(measurementsQuery);
     const specs: SpecChart = {};
 
     snapshot.docs.forEach((doc) => {
-        if (doc.id.startsWith("brewing")) return;
+        // Brewing configuration and the legacy hops AA document are not cellar
+        // specs. Hop AA now has a single source of truth in the brewing
+        // ingredient library.
+        if (doc.id.startsWith("brewing") || doc.id === "hops") return;
         specs[doc.id] = doc.data() as Record<string, number>;
     });
 
