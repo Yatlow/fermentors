@@ -13,7 +13,7 @@ function brewIdFromRecommendationId(value: unknown): string {
   return (productSeparator >= 0 ? tail.slice(0, productSeparator) : tail).trim();
 }
 
-/** Resolve packaging to a stable brew identity, with safe migration fallbacks. */
+/** Resolve packaging to a stable brew identity, with legacy snapshot fallback. */
 export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): string | null {
   if (run.brewId) {
     return plans.some((week) => week.brews?.some((brew) => brew.id === run.brewId))
@@ -27,38 +27,22 @@ export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): s
   const encoded = brewIdFromRecommendationId(run.id);
   if (encoded && plans.some((week) => week.brews?.some((brew) => brew.id === encoded))) return encoded;
 
-  const date = String(run.date ?? "");
+  // Legacy snapshot inference is only safe when a batch number is present.
+  // Tank-only matching can silently attach today's physical packaging to a
+  // different future cycle planned on the same tank.
   const batch = normalizedBatch(run.batchNumber);
-  const allBrews = plans.flatMap((week) => week.brews ?? []);
-
-  // A batch number is the strongest legacy identity signal after brewId.
-  if (batch) {
-    const byBatch = allBrews
-      .filter((brew) => {
-        if (run.tankId && brew.tankId !== run.tankId) return false;
-        if (normalizedBatch(brew.batchNumber) !== batch) return false;
-        if (date && brew.date > date) return false;
-        return true;
-      })
-      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-    const match = byBatch.at(-1);
-    if (match) return match.id;
-  }
-
-  // Migration bridge for already-approved future packaging rows created before
-  // brewId was persisted. A dated row on a tank may safely attach to the latest
-  // planned brew on that same tank that occurs before the packaging date. This
-  // does NOT use tank-only matching for undated/current packaging, so a physical
-  // cycle cannot leak into a different future cycle.
-  if (run.tankId && date) {
-    const byTankAndDate = allBrews
-      .filter((brew) => brew.tankId === run.tankId && brew.date <= date)
-      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-    const match = byTankAndDate.at(-1);
-    if (match) return match.id;
-  }
-
-  return null;
+  if (!batch) return null;
+  const date = String(run.date ?? "");
+  const brews = plans
+    .flatMap((week) => week.brews ?? [])
+    .filter((brew) => {
+      if (run.tankId && brew.tankId !== run.tankId) return false;
+      if (normalizedBatch(brew.batchNumber) !== batch) return false;
+      if (date && brew.date > date) return false;
+      return true;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  return brews.at(-1)?.id ?? null;
 }
 
 export function brewById(plans: WeekPlan[], brewId: string): BrewPlan | null {
