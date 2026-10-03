@@ -1,0 +1,35 @@
+name: PR123 patch App
+on:
+  push:
+    branches: [fix/firestore-read-budget-root]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/App.tsx'); s=p.read_text()
+          a='const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));\n'
+          if 'const CoolerUndoControl = lazy(' not in s:
+            s=s.replace(a,a+'const CoolerUndoControl = lazy(() => import("./components/cooler/CoolerUndoControl"));\nconst CoolerShipmentLocationAlert = lazy(() => import("./components/cooler/CoolerShipmentLocationAlert"));\n',1)
+          old='                {selectedView === "מקרר" && <CoolerMap brews={brews} />}\n'
+          new='                {selectedView === "מקרר" && <>\n                    <CoolerMap brews={brews} />\n                    <CoolerUndoControl />\n                    <CoolerShipmentLocationAlert />\n                </>}\n'
+          if old not in s: raise SystemExit('render anchor not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          npm ci
+          npm run build
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/App.tsx
+          git commit -m "Mount cooler helpers only in cooler view"
+          git push
