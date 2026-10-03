@@ -288,7 +288,13 @@ export function validateProduction(
     const p = settings.products.find((p) => p.id === r.productId);
     const runStyle = r.nonInventoryStyle ?? p?.style;
     const runType = r.nonInventoryType ?? p?.type;
-    if (!t || !runStyle || !runType || !sameStyle(linkedBrew?.style ?? t.style, runStyle)) return "מיכל האריזה אינו תואם לסגנון";
+    if (!t || !runStyle || !runType) return "חסרים נתוני מיכל או מוצר לאריזה";
+    if (linkedBrew && !sameStyle(linkedBrew.style, runStyle))
+      return "סגנון האריזה אינו תואם לבישול שאליו היא משויכת";
+    // Legacy rows have no canonical brew identity, so only they may fall back
+    // to the physical tank's current style. Future canonical cycles must not.
+    if (!linkedBrew && !sameStyle(t.style, runStyle))
+      return "מיכל האריזה אינו תואם לסגנון במחזור הקיים";
 
     const projectedCycle = linkedBrewId
       ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)

@@ -132,10 +132,9 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
     return copy;
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [batchBase, setBatchBase] = useState(() => Math.max(
+  const [batchBase, setBatchBase] = useState(() =>
     maxBatch(brews.map((brew) => brew.batchNumber)),
-    maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
-  ));
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showUnavailableTanks, setShowUnavailableTanks] = useState(false);
@@ -150,7 +149,6 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
           current,
           maxBatch(history.map((brew) => brew.batchNumber)),
           maxBatch(brews.map((brew) => brew.batchNumber)),
-          maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),
         ));
       })
       .catch(() => undefined);
@@ -159,7 +157,9 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
 
   const orderedBrews = useMemo(() => {
     const current = draft.brews as BrewPlanWithMeta[];
-    const preferred = current.map((brew) => realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber));
+    // Only an actually created batch may pin identity here. A batchNumber stored
+    // on a future plan is a forecast and must be recalculated from real history.
+    const preferred = current.map((brew) => realNewBrewBatch(brew, brews));
     const realReservedBatches = new Set(
       brews
         .filter((source) => Number(source.action) === 0)
