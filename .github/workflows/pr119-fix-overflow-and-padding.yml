@@ -18,50 +18,48 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Apply both fixes
+      - name: Fix exceptional brew persistence and highlight
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('src/components/planning/PlanningWeeklyRecommendations.tsx')
           s=p.read_text(encoding='utf-8')
-          s=s.replace('type BrewDraft = { style: string; liters: number };','type BrewDraft = { style: string; liters: number; allowUnavailable?: boolean };',1)
-          old='return [...rows, { style, liters: brewLitersForSize(style, size) }];'
-          new='return [...rows, { style, liters: brewLitersForSize(style, size), ...(allowUnavailableBrewException ? { allowUnavailable: true } : {}) }];'
-          if old in s: s=s.replace(old,new,1)
-          old='if (!canUseBrewSize(rows, size, index)) return rows;'
-          new='if (!rows[index]?.allowUnavailable && !canUseBrewSize(rows, size, index)) return rows;'
-          if old in s: s=s.replace(old,new,1)
-          old='disabled={size !== currentSize && !canUseBrewSize(brewDraft, size, i)}'
-          new='disabled={!b.allowUnavailable && size !== currentSize && !canUseBrewSize(brewDraft, size, i)}'
-          if old in s: s=s.replace(old,new,1)
-          # The focused Gantt modal must create the exceptional row through React state,
-          # not by temporarily enabling a DOM button.
-          marker='    function changeBrewStyle(index: number, style: string) {'
-          if 'bp-approve-brew-overflow' not in s:
-              hook='''    useEffect(() => {\n        const approveOverflowAdd = () => {\n            setAllowUnavailableBrewException(true);\n            setBrewDraft((rows) => {\n                const recommendations = visibleBrewRecommendations();\n                const recommendation = recommendations[rows.length];\n                const recommendedSize = recommendation?.sizeLabel;\n                const size = recommendedSize ?? BREW_SIZES.find((candidate) => brewSizeCapacity(candidate) > 0) ?? "כפול";\n                const style = recommendation?.style ?? CORE_STYLES[0];\n                return [...rows, { style, liters: brewLitersForSize(style, size), allowUnavailable: true }];\n            });\n            setAllowUnavailableBrewException(false);\n        };\n        window.addEventListener("bp-approve-brew-overflow", approveOverflowAdd);\n        return () => window.removeEventListener("bp-approve-brew-overflow", approveOverflowAdd);\n    });\n\n'''
-              if marker not in s: raise SystemExit('changeBrewStyle marker missing')
-              s=s.replace(marker,hook+marker,1)
-          required=['allowUnavailable?: boolean','rows[index]?.allowUnavailable','!b.allowUnavailable','bp-approve-brew-overflow']
+
+          # Changing beer style used to replace the entire row and silently drop
+          # allowUnavailable. That is why an approved exceptional brew became
+          # locked again as soon as its style was changed.
+          old='''        setBrewDraft((rows) => rows.map((row, i) => i === index\n            ? { style, liters: brewLitersForSize(style, brewSizeLabel(row.liters)) }\n            : row));'''
+          new='''        setBrewDraft((rows) => rows.map((row, i) => i === index\n            ? { ...row, style, liters: brewLitersForSize(style, brewSizeLabel(row.liters)) }\n            : row));'''
+          if old in s:
+              s=s.replace(old,new,1)
+          elif '? { ...row, style, liters:' not in s:
+              raise SystemExit('changeBrewStyle anchor missing')
+
+          # Give approved exceptional rows a persistent visual treatment and label.
+          old='<div className="bp-brew-edit-row" key={i}>'
+          new='<div className={`bp-brew-edit-row ${b.allowUnavailable ? "is-approved-exception" : ""}`} key={i}>'
+          if old in s:
+              s=s.replace(old,new,1)
+          elif 'is-approved-exception' not in s:
+              raise SystemExit('brew edit row anchor missing')
+
+          anchor='''                            <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>'''
+          replacement='''                            <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>\n                            {b.allowUnavailable && <small className="bp-brew-exception-label">חריגה מאושרת · ניתן לבחור כל גודל</small>}'''
+          if anchor in s:
+              s=s.replace(anchor,replacement,1)
+          elif 'bp-brew-exception-label' not in s:
+              raise SystemExit('remove button anchor missing')
+
+          required=['? { ...row, style, liters:','is-approved-exception','bp-brew-exception-label','!b.allowUnavailable && size !== currentSize']
           missing=[x for x in required if x not in s]
-          if missing: raise SystemExit('brew override incomplete: '+repr(missing))
+          if missing: raise SystemExit('exception fix incomplete: '+repr(missing))
           p.write_text(s,encoding='utf-8')
 
-          p=Path('src/components/planning/PlanningGanttWeekEditorModal.tsx')
+          p=Path('src/components/planning/planningPackagingModal.css')
           s=p.read_text(encoding='utf-8')
-          start=s.index('  const approveOverflowBrew = () => {')
-          end=s.index('\n\n  useEffect(() => {',start)
-          handler='''  const approveOverflowBrew = () => {\n    window.dispatchEvent(new Event("bp-approve-brew-overflow"));\n    setConfirmOverflow(false);\n  };'''
-          s=s[:start]+handler+s[end:]
-          p.write_text(s,encoding='utf-8')
-
-          # The confirmation dialog used for approving early packaging had no
-          # inner breathing room. Apply padding to the shared confirm box itself,
-          # while preserving existing modal sizing/logic.
-          p=Path('src/App.css')
-          s=p.read_text(encoding='utf-8')
-          tag='/* PR119 confirmation modal inner spacing */'
+          tag='/* Approved unavailable-tank brew exception */'
           if tag not in s:
-              s += '''\n\n/* PR119 confirmation modal inner spacing */\n.modal-box.confirm-modal {\n    box-sizing: border-box;\n    padding: 24px !important;\n}\n.modal-box.confirm-modal .modal-actions-primary {\n    margin-top: 18px;\n}\n@media (max-width: 640px) {\n    .modal-box.confirm-modal { padding: 20px !important; }\n}\n'''
+              s += '''\n\n/* Approved unavailable-tank brew exception */\n.bp-brew-edit-row.is-approved-exception {\n  border: 2px solid #f59e0b;\n  border-radius: 10px;\n  padding: 8px;\n  background: #fff7ed;\n}\n.bp-brew-exception-label {\n  color: #b45309;\n  font-weight: 700;\n}\n'''
           p.write_text(s,encoding='utf-8')
           PY
       - run: npm ci
@@ -72,7 +70,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/components/planning/PlanningWeeklyRecommendations.tsx src/components/planning/PlanningGanttWeekEditorModal.tsx src/App.css
+          git add src/components/planning/PlanningWeeklyRecommendations.tsx src/components/planning/planningPackagingModal.css
           git diff --cached --quiet && exit 0
-          git commit -m "Fix per-row brew override and confirmation modal padding"
+          git commit -m "Fix exceptional brew editing and highlight approved exception"
           git push origin HEAD:planning-tank-schedule
