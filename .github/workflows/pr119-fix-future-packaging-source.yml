@@ -1,0 +1,46 @@
+name: Fix PR119 future packaging source
+on:
+  push:
+    branches: [planning-tank-schedule]
+    paths: ['.github/workflows/pr119-fix-future-packaging-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: planning-tank-schedule
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply targeted future-packaging fix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/SERVICES/planning/productionCycle.ts')
+          s = p.read_text()
+          old = '''  for (const r of runs) {\n    const linkedBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);\n    const linkedBrew = linkedBrewId ? brewById(plans, linkedBrewId) : null;\n    const tankId = linkedBrew?.tankId ?? r.tankId;'''
+          new = '''  for (const r of runs) {\n    // Prefer explicit canonical identity, but scheduling a packaging day may be\n    // the first edit that turns an approved future packaging decision into a\n    // dated row. Older recommendation/save paths can therefore arrive here\n    // without brewId even though the source is an unambiguous planned brew.\n    // Resolve that narrow case from tank + style + chronology before treating\n    // it as legacy physical-tank packaging.\n    const explicitBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);\n    const product = settings.products.find((candidate) => candidate.id === r.productId);\n    const runStyle = r.nonInventoryStyle ?? product?.style;\n    const inferredBrew = !explicitBrewId && r.tankId && r.date && runStyle\n      ? plans\n          .flatMap((week) => week.brews ?? [])\n          .filter((brew) =>\n            brew.tankId === r.tankId &&\n            brew.date <= r.date! &&\n            sameStyle(brew.style, runStyle)\n          )\n          .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))\n          .at(-1) ?? null\n      : null;\n    const linkedBrewId = explicitBrewId ?? inferredBrew?.id ?? null;\n    const linkedBrew = linkedBrewId ? brewById(plans, linkedBrewId) : null;\n    const tankId = linkedBrew?.tankId ?? r.tankId;'''
+          if old not in s:
+              raise SystemExit('validateProduction identity anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --run
+      - run: npm run build
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/SERVICES/planning/productionCycle.ts
+          git diff --cached --check
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Fix future packaging source resolution'
+          git push origin HEAD:planning-tank-schedule
