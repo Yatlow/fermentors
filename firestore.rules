@@ -5,6 +5,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isSuperAdmin() {
+      return isLoggedIn() && request.auth.token.email == 'yisrael@atlow.co.il';
+    }
+
     // Server-side circuit breaker. Because Security Rules evaluate every
     // Firestore request, flipping firestoreAccessDisabled on approvedUsers
     // stops even an already-running/stale client immediately; no app reload is
@@ -36,12 +40,13 @@ service cloud.firestore {
     }
 
     match /approvedUsers/{email} {
-      allow get: if isLoggedIn() &&
-        request.auth.token.email == email;
+      allow get: if isLoggedIn() && request.auth.token.email == email;
       allow list: if isAdmin();
-      allow write: if isAdmin();
       allow create: if isAdmin();
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() && email != 'yisrael@atlow.co.il';
+      allow update: if isAdmin()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['firestoreAccessDisabled']) || isSuperAdmin())
+        && (email != 'yisrael@atlow.co.il' || request.resource.data.get('isAdmin', false) == true);
       allow update: if isLoggedIn() &&
         request.auth.token.email == email &&
         request.resource.data.diff(resource.data).affectedKeys()
@@ -304,12 +309,7 @@ service cloud.firestore {
     }
 
     match /brewSheetCreationJobs/{batchId} {
-      // This is an operational outbox. The authenticated brewery client only
-      // enqueues/deletes jobs; the worker owns subsequent state transitions.
       allow read: if isApprovedUser();
-      // A job contains only a request to create a Sheet; the worker validates
-      // and performs the privileged operation. Keep client updates blocked.
-      // Reads/deletes remain restricted below.
       allow create: if isApprovedUser();
       allow update: if false;
       allow delete: if isApprovedUser();
