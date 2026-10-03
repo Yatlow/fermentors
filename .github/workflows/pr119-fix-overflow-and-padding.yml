@@ -1,4 +1,4 @@
-name: PR119 fix brew override and confirmation padding
+name: PR119 fix batch identity and future packaging validation
 on:
   push:
     branches: [planning-tank-schedule]
@@ -18,48 +18,50 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Fix exceptional brew persistence and highlight
+      - name: Apply PR119 fixes
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('src/components/planning/PlanningWeeklyRecommendations.tsx')
+
+          # 1) Planned/forecast batch numbers must not advance the real batch sequence.
+          # A real already-created batch on a tank (action 0) remains authoritative.
+          p=Path('src/components/planning/PlanningBrewAssignmentEditor.tsx')
           s=p.read_text(encoding='utf-8')
-
-          # Changing beer style used to replace the entire row and silently drop
-          # allowUnavailable. That is why an approved exceptional brew became
-          # locked again as soon as its style was changed.
-          old='''        setBrewDraft((rows) => rows.map((row, i) => i === index\n            ? { style, liters: brewLitersForSize(style, brewSizeLabel(row.liters)) }\n            : row));'''
-          new='''        setBrewDraft((rows) => rows.map((row, i) => i === index\n            ? { ...row, style, liters: brewLitersForSize(style, brewSizeLabel(row.liters)) }\n            : row));'''
+          old='''  const [batchBase, setBatchBase] = useState(() => Math.max(\n    maxBatch(brews.map((brew) => brew.batchNumber)),\n    maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),\n  ));'''
+          new='''  const [batchBase, setBatchBase] = useState(() =>\n    maxBatch(brews.map((brew) => brew.batchNumber)),\n  );'''
           if old in s:
               s=s.replace(old,new,1)
-          elif '? { ...row, style, liters:' not in s:
-              raise SystemExit('changeBrewStyle anchor missing')
+          elif 'maxBatch(allPlans.flatMap((plan) => plan.brews)' in s:
+              raise SystemExit('batchBase anchor changed unexpectedly')
 
-          # Give approved exceptional rows a persistent visual treatment and label.
-          old='<div className="bp-brew-edit-row" key={i}>'
-          new='<div className={`bp-brew-edit-row ${b.allowUnavailable ? "is-approved-exception" : ""}`} key={i}>'
+          old='''          maxBatch(history.map((brew) => brew.batchNumber)),\n          maxBatch(brews.map((brew) => brew.batchNumber)),\n          maxBatch(allPlans.flatMap((plan) => plan.brews).map((brew) => brew.batchNumber)),'''
+          new='''          maxBatch(history.map((brew) => brew.batchNumber)),\n          maxBatch(brews.map((brew) => brew.batchNumber)),'''
           if old in s:
               s=s.replace(old,new,1)
-          elif 'is-approved-exception' not in s:
-              raise SystemExit('brew edit row anchor missing')
 
-          anchor='''                            <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>'''
-          replacement='''                            <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>\n                            {b.allowUnavailable && <small className="bp-brew-exception-label">חריגה מאושרת · ניתן לבחור כל גודל</small>}'''
-          if anchor in s:
-              s=s.replace(anchor,replacement,1)
-          elif 'bp-brew-exception-label' not in s:
-              raise SystemExit('remove button anchor missing')
+          old='''    const preferred = current.map((brew) => realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber));'''
+          new='''    // Only an actually created batch may pin identity here. A batchNumber stored\n    // on a future plan is a forecast and must be recalculated from real history.\n    const preferred = current.map((brew) => realNewBrewBatch(brew, brews));'''
+          if old in s:
+              s=s.replace(old,new,1)
+          elif 'realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber)' in s:
+              raise SystemExit('preferred batch anchor changed unexpectedly')
 
-          required=['? { ...row, style, liters:','is-approved-exception','bp-brew-exception-label','!b.allowUnavailable && size !== currentSize']
-          missing=[x for x in required if x not in s]
-          if missing: raise SystemExit('exception fix incomplete: '+repr(missing))
+          if 'maxBatch(allPlans.flatMap((plan) => plan.brews)' in s:
+              raise SystemExit('planned batch numbers still influence sequence')
+          if 'realNewBrewBatch(brew, brews) || normalizedBatch(brew.batchNumber)' in s:
+              raise SystemExit('forecast batch identity still pinned')
           p.write_text(s,encoding='utf-8')
 
-          p=Path('src/components/planning/planningPackagingModal.css')
+          # 2) Future canonical packaging validates against its linked brew style.
+          # Legacy packaging may validate against the current physical tank style,
+          # but a future plan must never compare against stale/current tank contents.
+          p=Path('src/SERVICES/planning/productionCycle.ts')
           s=p.read_text(encoding='utf-8')
-          tag='/* Approved unavailable-tank brew exception */'
-          if tag not in s:
-              s += '''\n\n/* Approved unavailable-tank brew exception */\n.bp-brew-edit-row.is-approved-exception {\n  border: 2px solid #f59e0b;\n  border-radius: 10px;\n  padding: 8px;\n  background: #fff7ed;\n}\n.bp-brew-exception-label {\n  color: #b45309;\n  font-weight: 700;\n}\n'''
+          old='''    if (!t || !runStyle || !runType || !sameStyle(linkedBrew?.style ?? t.style, runStyle)) return "מיכל האריזה אינו תואם לסגנון";'''
+          new='''    if (!t || !runStyle || !runType) return "חסרים נתוני מיכל או מוצר לאריזה";\n    if (linkedBrew && !sameStyle(linkedBrew.style, runStyle))\n      return "סגנון האריזה אינו תואם לבישול שאליו היא משויכת";\n    // Legacy rows have no canonical brew identity, so only they may fall back\n    // to the physical tank's current style. Future canonical cycles must not.\n    if (!linkedBrew && !sameStyle(t.style, runStyle))\n      return "מיכל האריזה אינו תואם לסגנון במחזור הקיים";'''
+          if old not in s:
+              raise SystemExit('packaging style validation anchor missing')
+          s=s.replace(old,new,1)
           p.write_text(s,encoding='utf-8')
           PY
       - run: npm ci
@@ -70,7 +72,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/components/planning/PlanningWeeklyRecommendations.tsx src/components/planning/planningPackagingModal.css
+          git add src/components/planning/PlanningBrewAssignmentEditor.tsx src/SERVICES/planning/productionCycle.ts
           git diff --cached --quiet && exit 0
-          git commit -m "Fix exceptional brew editing and highlight approved exception"
+          git commit -m "Fix batch sequence and canonical packaging style validation"
           git push origin HEAD:planning-tank-schedule
