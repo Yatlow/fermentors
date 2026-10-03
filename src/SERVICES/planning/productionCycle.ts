@@ -280,7 +280,27 @@ export function validateProduction(
   const used = new Map<string, number>();
 
   for (const r of runs) {
-    const linkedBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);
+    // Prefer explicit canonical identity, but scheduling a packaging day may be
+    // the first edit that turns an approved future packaging decision into a
+    // dated row. Older recommendation/save paths can therefore arrive here
+    // without brewId even though the source is an unambiguous planned brew.
+    // Resolve that narrow case from tank + style + chronology before treating
+    // it as legacy physical-tank packaging.
+    const explicitBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);
+    const product = settings.products.find((candidate) => candidate.id === r.productId);
+    const runStyle = r.nonInventoryStyle ?? product?.style;
+    const inferredBrew = !explicitBrewId && r.tankId && r.date && runStyle
+      ? plans
+          .flatMap((week) => week.brews ?? [])
+          .filter((brew) =>
+            brew.tankId === r.tankId &&
+            brew.date <= r.date! &&
+            sameStyle(brew.style, runStyle)
+          )
+          .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+          .at(-1) ?? null
+      : null;
+    const linkedBrewId = explicitBrewId ?? inferredBrew?.id ?? null;
     const linkedBrew = linkedBrewId ? brewById(plans, linkedBrewId) : null;
     const tankId = linkedBrew?.tankId ?? r.tankId;
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
