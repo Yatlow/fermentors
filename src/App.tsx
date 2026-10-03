@@ -40,6 +40,8 @@ const ManualBatchAssignment = lazy(() => import("./components/tools/ManualBatchA
 const ManualStatusAssignment = lazy(() => import("./components/tools/Manualstatusassignment "));
 const EditApprovedUsers = lazy(() => import("./components/tools/EditApprovedUsers"));
 const CoolerMap = lazy(() => import("./components/cooler/Coolermap"));
+const CoolerUndoControl = lazy(() => import("./components/cooler/CoolerUndoControl"));
+const CoolerShipmentLocationAlert = lazy(() => import("./components/cooler/CoolerShipmentLocationAlert"));
 const ShipmentReportsView = lazy(() => import("./components/reports/ShipmentReportsView"));
 const CoolerInventoryReportView = lazy(() => import("./components/reports/CoolerReportsView "));
 const PlanningView = lazy(() => import("./components/planning/PlanningView"));
@@ -486,7 +488,11 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
-                {selectedView === "מקרר" && <CoolerMap brews={brews} />}
+                {selectedView === "מקרר" && <>
+                    <CoolerMap brews={brews} />
+                    <CoolerUndoControl />
+                    <CoolerShipmentLocationAlert />
+                </>}
                 {selectedView === "בישולים" && <BrewingView brews={brews} tab={brewingTab} />}
             </Suspense>
         </div>
