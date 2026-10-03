@@ -196,3 +196,16 @@
   .bp-gantt-editor-body { padding: 10px 12px 14px; }
   .bp-inline-confirm-backdrop { padding: 12px; }
 }
+
+
+/* Approved unavailable-tank brew exception */
+.bp-brew-edit-row.is-approved-exception {
+  border: 2px solid #f59e0b;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fff7ed;
+}
+.bp-brew-exception-label {
+  color: #b45309;
+  font-weight: 700;
+}

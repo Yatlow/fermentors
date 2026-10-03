@@ -856,7 +856,7 @@ export default function PlanningWeeklyRecommendations({
 
     function changeBrewStyle(index: number, style: string) {
         setBrewDraft((rows) => rows.map((row, i) => i === index
-            ? { style, liters: brewLitersForSize(style, brewSizeLabel(row.liters)) }
+            ? { ...row, style, liters: brewLitersForSize(style, brewSizeLabel(row.liters)) }
             : row));
     }
 
@@ -1148,7 +1148,7 @@ export default function PlanningWeeklyRecommendations({
                     <b>עריכת הבישולים</b>
                     {brewDraft.map((b, i) => {
                         const currentSize = brewSizeLabel(b.liters);
-                        return <div className="bp-brew-edit-row" key={i}>
+                        return <div className={`bp-brew-edit-row ${b.allowUnavailable ? "is-approved-exception" : ""}`} key={i}>
                             <select value={b.style} onChange={(e) => changeBrewStyle(i, e.target.value)}>
                                 {CORE_STYLES.map((s) => <option value={s} key={s}>{displayStyle(s)}</option>)}<option value="אחר">אחר</option>
                             </select>
@@ -1160,6 +1160,7 @@ export default function PlanningWeeklyRecommendations({
                                 >בישול {size} · {brewSizeCapacity(size)} מיכלים</option>)}
                             </select>
                             <button onClick={() => setBrewDraft((d) => d.filter((_, j) => j !== i))}>הסר</button>
+                            {b.allowUnavailable && <small className="bp-brew-exception-label">חריגה מאושרת · ניתן לבחור כל גודל</small>}
                         </div>;
                     })}
                     {!brewDraft.length && <small>אין בישולים בטיוטה. הוסף בישול כדי להתחיל.</small>}
