@@ -1,4 +1,4 @@
-name: Apply PR119 batch linking, sequence and packaging guard
+name: Apply PR119 stage0 relink and canonical packaging fix
 on:
   workflow_dispatch:
   push:
@@ -23,85 +23,89 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # 1) BrewPlan can explicitly link back to an already-created real brew.
-          p = Path('src/SERVICES/planning/planningEngine.ts')
-          s = p.read_text()
-          old = '''  batchNumber?: string;\n  tankAssignmentStatus?: "tentative" | "confirmed";'''
-          new = '''  batchNumber?: string;\n  /** Explicit link to an already-created real brew. This survives plan rebuilds. */\n  linkedExistingBrewId?: string;\n  tankAssignmentStatus?: "tentative" | "confirmed";'''
-          if old not in s:
-              raise SystemExit('BrewPlan linkedExistingBrewId anchor not found')
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          # 2) Assignment editor: previous planning weeks advance the sequence;
-          # real brews reserve numbers; planner may explicitly relink a rebuilt
-          # plan row to an already-created brew (e.g. Hoppy Lager 1601).
+          # 1) Existing-brew relinking is only for real brews still waiting to be brewed
+          # (stage 0 / action 0). Active/fermenting historical batches are not valid
+          # candidates for reconnecting a rebuilt future plan.
           p = Path('src/components/planning/PlanningBrewAssignmentEditor.tsx')
           s = p.read_text()
-          s = s.replace(
-            'import { getBrewsSummaryPage } from "../../SERVICES/getAndPost/getAllBrews";',
-            'import { getBrewsSummaryPage, type BrewSummary } from "../../SERVICES/getAndPost/getAllBrews";',
-            1,
-          )
-
-          old = '''  const [batchBase, setBatchBase] = useState(() =>\n    maxBatch(brews.map((brew) => brew.batchNumber)),\n  );\n  const [busy, setBusy] = useState(false);'''
-          new = '''  const priorPlannedBatches = useMemo(() => allPlans\n    .filter((plan) => plan.id < initial.id)\n    .flatMap((plan) => plan.brews)\n    .map((brew) => brew.batchNumber), [allPlans, initial.id]);\n  const [batchBase, setBatchBase] = useState(() => Math.max(\n    maxBatch(brews.map((brew) => brew.batchNumber)),\n    maxBatch(priorPlannedBatches),\n  ));\n  const [existingBrews, setExistingBrews] = useState<BrewSummary[]>([]);\n  const [busy, setBusy] = useState(false);'''
+          old = '''                {existingBrews
+                  .filter((existing) => existing.beerStyle.trim().toLowerCase() === selectedBrew.style.trim().toLowerCase())
+                  .map((existing) => <option key={existing.id} value={existing.id}>#{existing.batchNumber} · {displayStyle(existing.beerStyle)} · מיכל {existing.tankNumber || "—"}</option>)}'''
+          new = '''                {existingBrews
+                  .filter((existing) => existing.beerStyle.trim().toLowerCase() === selectedBrew.style.trim().toLowerCase())
+                  .filter((existing) => brews.some((source) =>
+                    Number(source.action) === 0 &&
+                    normalizedBatch(source.batchNumber) === normalizedBatch(existing.batchNumber)
+                  ))
+                  .map((existing) => <option key={existing.id} value={existing.id}>#{existing.batchNumber} · {displayStyle(existing.beerStyle)} · מיכל {existing.tankNumber || "—"}</option>)}'''
           if old not in s:
-              raise SystemExit('Current batchBase anchor not found')
-          s = s.replace(old, new, 1)
-
-          old = '''    getBrewsSummaryPage(null, 10)\n      .then(({ rows: history }) => {\n        if (cancelled) return;\n        setBatchBase((current) => Math.max(\n          current,\n          maxBatch(history.map((brew) => brew.batchNumber)),\n          maxBatch(brews.map((brew) => brew.batchNumber)),\n        ));\n      })'''
-          new = '''    getBrewsSummaryPage(null, 100)\n      .then(({ rows: history }) => {\n        if (cancelled) return;\n        setExistingBrews(history);\n        setBatchBase(Math.max(\n          maxBatch(history.map((brew) => brew.batchNumber)),\n          maxBatch(brews.map((brew) => brew.batchNumber)),\n          maxBatch(priorPlannedBatches),\n        ));\n      })'''
-          if old not in s:
-              raise SystemExit('History batchBase anchor not found')
-          s = s.replace(old, new, 1)
-          s = s.replace('  }, [brews, allPlans]);', '  }, [brews, priorPlannedBatches]);', 1)
-
-          old = '''    const preferred = current.map((brew) => realNewBrewBatch(brew, brews));\n    const realReservedBatches = new Set('''
-          new = '''    const existingById = new Map(existingBrews.map((brew) => [brew.id, brew]));\n    const preferred = current.map((brew) => {\n      const linked = brew.linkedExistingBrewId ? existingById.get(brew.linkedExistingBrewId) : undefined;\n      return linked?.batchNumber ?? realNewBrewBatch(brew, brews);\n    });\n    const realReservedBatches = new Set('''
-          if old not in s:
-              raise SystemExit('Preferred batch anchor not found')
-          s = s.replace(old, new, 1)
-
-          old = '''        .filter((source) => Number(source.action) === 0)\n        .map((source) => Number(normalizedBatch(source.batchNumber)))\n        .filter((value) => Number.isFinite(value) && value > 0),\n    );'''
-          new = '''        .filter((source) => Number(source.action) === 0)\n        .map((source) => Number(normalizedBatch(source.batchNumber)))\n        .concat(existingBrews.map((source) => Number(normalizedBatch(source.batchNumber))))\n        .filter((value) => Number.isFinite(value) && value > 0),\n    );'''
-          if old not in s:
-              raise SystemExit('Reserved batches anchor not found')
-          s = s.replace(old, new, 1)
-          s = s.replace('  }, [draft.brews, batchBase, brews]);', '  }, [draft.brews, batchBase, brews, existingBrews]);', 1)
-
-          # Add explicit relink handler before save().
-          old = '''  async function save() {'''
-          new = '''  function linkExistingBrew(existingId: string) {\n    const existing = existingBrews.find((brew) => brew.id === existingId);\n    if (!existing) return;\n    setDraft((current) => {\n      const next = [...(current.brews as BrewPlanWithMeta[])];\n      const selected = next[selectedIndex];\n      if (!selected) return current;\n      next[selectedIndex] = {\n        ...selected,\n        linkedExistingBrewId: existing.id,\n        batchNumber: normalizedBatch(existing.batchNumber),\n      };\n      return { ...current, brews: next };\n    });\n    setError(\"\");\n  }\n\n  function unlinkExistingBrew() {\n    setDraft((current) => {\n      const next = [...(current.brews as BrewPlanWithMeta[])];\n      const selected = next[selectedIndex];\n      if (!selected) return current;\n      const { linkedExistingBrewId: _removed, ...rest } = selected;\n      next[selectedIndex] = rest as BrewPlanWithMeta;\n      return { ...current, brews: next };\n    });\n  }\n\n  async function save() {'''
-          if old not in s:
-              raise SystemExit('save anchor not found')
-          s = s.replace(old, new, 1)
-
-          # Show relink control under selected brew heading. Only compatible style
-          # candidates are offered, but selection is always explicit by the user.
-          old = '''          <div className="bp-brew-placement-title">\n            <b>אצווה {selectedBrew.batchNumber} · {displayStyle(selectedBrew.style)} · {brewSizeLabel(Number(selectedBrew.liters) || 0)}</b>\n            <small>כל המיכלים שצפויים להיות פנויים במהלך השבוע מוצגים כאן. ניתן לבחור רק מיכל בגודל {brewSizeLabel(Number(selectedBrew.liters) || 0)}.</small>\n          </div>'''
-          new = '''          <div className="bp-brew-placement-title">\n            <b>אצווה {selectedBrew.batchNumber} · {displayStyle(selectedBrew.style)} · {brewSizeLabel(Number(selectedBrew.liters) || 0)}</b>\n            <small>כל המיכלים שצפויים להיות פנויים במהלך השבוע מוצגים כאן. ניתן לבחור רק מיכל בגודל {brewSizeLabel(Number(selectedBrew.liters) || 0)}.</small>\n            <div className="bp-brew-existing-link">\n              <label>קישור לאצווה קיימת</label>\n              <select\n                value={selectedBrew.linkedExistingBrewId ?? \"\"}\n                onChange={(event) => event.target.value ? linkExistingBrew(event.target.value) : unlinkExistingBrew()}\n              >\n                <option value="">ללא קישור — הקצה מספר מהתכנון</option>\n                {existingBrews\n                  .filter((existing) => existing.beerStyle.trim().toLowerCase() === selectedBrew.style.trim().toLowerCase())\n                  .map((existing) => <option key={existing.id} value={existing.id}>#{existing.batchNumber} · {displayStyle(existing.beerStyle)} · מיכל {existing.tankNumber || \"—\"}</option>)}\n              </select>\n              {selectedBrew.linkedExistingBrewId && <small>האצווה כבר קיימת בפועל; התכנון משתמש במספר הקיים ולא יוצר זהות חדשה.</small>}\n            </div>\n          </div>'''
-          if old not in s:
-              raise SystemExit('Placement title anchor not found')
+              raise SystemExit('Stage-0 relink options anchor not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
 
-          # 3) Future packaging validation: style is not a tank invariant. Also an
-          # incomplete product/type must not block assigning a future brew to a
-          # packaging day. Keep maturity validation; defer type/volume checks until
-          # an actual packaging type exists.
+          # 2) A canonical future packaging row is linked to a planned brew cycle.
+          # That cycle may target a tank which is currently empty and therefore absent
+          # from the physical Tank[] snapshot. Do not require a current physical Tank
+          # record for canonical future cycles; projection + linked brew are the truth.
           p = Path('src/SERVICES/planning/productionCycle.ts')
           s = p.read_text()
-          old = '''    const p = settings.products.find((p) => p.id === r.productId);\n    const runStyle = r.nonInventoryStyle ?? p?.style;\n    const runType = r.nonInventoryType ?? p?.type;\n    if (!t || !runStyle || !runType) return \"חסרים נתוני מיכל או מוצר לאריזה\";\n    if (linkedBrew && !sameStyle(linkedBrew.style, runStyle))\n      return \"סגנון האריזה אינו תואם לבישול שאליו היא משויכת\";\n\n    const projectedCycle = linkedBrewId'''
-          new = '''    const p = settings.products.find((p) => p.id === r.productId);\n    const runType = r.nonInventoryType ?? p?.type;\n    if (!t) return \"חסר מיכל מקור לאריזה\";\n\n    const projectedCycle = linkedBrewId'''
+          old = '''    const t = tanks.find((t) => t.id === tankId);
+    const p = settings.products.find((p) => p.id === r.productId);
+    const runType = r.nonInventoryType ?? p?.type;
+    if (!t) return "חסר מיכל מקור לאריזה";
+
+    const projectedCycle = linkedBrewId
+      ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
+      : null;
+    const readyDate = projectedCycle?.readyDate ?? t.ready;
+    if (r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
+      return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;'''
+          new = '''    const t = tanks.find((t) => t.id === tankId);
+    const p = settings.products.find((p) => p.id === r.productId);
+    const runType = r.nonInventoryType ?? p?.type;
+    // Legacy tank-only packaging still needs a physical Tank snapshot. A canonical
+    // future brew does not: the planned brew + projected tank cycle are authoritative.
+    if (!linkedBrew && !t) return "חסר מיכל מקור לאריזה";
+
+    const projectedCycle = linkedBrewId
+      ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
+      : null;
+    const readyDate = projectedCycle?.readyDate ?? t?.ready;
+    const tankLabel = t?.number ?? linkedBrew?.tankId ?? tankId;
+    if (readyDate && r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
+      return `מיכל ${tankLabel}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;'''
           if old not in s:
-              raise SystemExit('Packaging style guard anchor not found')
+              raise SystemExit('Canonical packaging tank guard anchor not found')
           s = s.replace(old, new, 1)
 
-          old = '''    if (r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)\n      return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;\n\n    const cycleKey = linkedBrewId ? `brew:${linkedBrewId}` : `legacy:${tankId}`;'''
-          new = '''    if (r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)\n      return `מיכל ${t.number}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;\n\n    // During scheduling the planner can place the future brew on a packaging day\n    // before choosing crates/kegs. Type-dependent validation is deferred until\n    // the packaging product/type is actually defined.\n    if (!runType) continue;\n\n    const cycleKey = linkedBrewId ? `brew:${linkedBrewId}` : `legacy:${tankId}`;'''
+          old = '''    const allowExceptions = plans.find((w) => w.id === r.week)?.allowExceptions;
+    if (!allowExceptions && dates.length > 1 && types.size < 2)
+      return `מיכל ${t.number}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`;
+    if (!allowExceptions && dates.length > 2)
+      return `מיכל ${t.number}: ניתן לפצל לכל היותר לשני ימי אריזה`;
+
+    const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
+    used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * unitLiters);
+    const cycleLiters = linkedBrew?.liters ?? t.liters;
+    if (used.get(cycleKey)! > cycleLiters + 0.01)
+      return `מיכל ${t.number}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
+    if (r.emptyTank && cycleLiters - used.get(cycleKey)! >= 20)
+      return `מיכל ${t.number}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;'''
+          new = '''    const allowExceptions = plans.find((w) => w.id === r.week)?.allowExceptions;
+    if (!allowExceptions && dates.length > 1 && types.size < 2)
+      return `מיכל ${tankLabel}: פיצול לימים שונים מותר רק בין בקבוקים לחביות`;
+    if (!allowExceptions && dates.length > 2)
+      return `מיכל ${tankLabel}: ניתן לפצל לכל היותר לשני ימי אריזה`;
+
+    const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
+    used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * unitLiters);
+    const cycleLiters = linkedBrew?.liters ?? t?.liters ?? 0;
+    if (cycleLiters > 0 && used.get(cycleKey)! > cycleLiters + 0.01)
+      return `מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
+    if (cycleLiters > 0 && r.emptyTank && cycleLiters - used.get(cycleKey)! >= 20)
+      return `מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;'''
           if old not in s:
-              raise SystemExit('Packaging deferred type anchor not found')
+              raise SystemExit('Canonical packaging t-number anchor not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
           PY
@@ -113,8 +117,8 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/SERVICES/planning/planningEngine.ts src/components/planning/PlanningBrewAssignmentEditor.tsx src/SERVICES/planning/productionCycle.ts
+          git add src/components/planning/PlanningBrewAssignmentEditor.tsx src/SERVICES/planning/productionCycle.ts
           git diff --cached --check
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'Fix existing brew links, batch sequence and packaging scheduling'
+          git commit -m 'Fix stage0 brew relink and future packaging source validation'
           git push origin HEAD:planning-tank-schedule
