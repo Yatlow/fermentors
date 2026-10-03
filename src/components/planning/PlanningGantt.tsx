@@ -140,6 +140,17 @@ export default function PlanningGantt(props: Props) {
     .filter((date): date is string => !!date)
     .sort()[0], [settings.products]);
   const actualStockLabel = oldestInventoryUpdate ? `מעודכן ל־${shortDate(oldestInventoryUpdate)}` : "בפועל";
+  const planByWeek = useMemo(() => new Map(historyPlans.map((plan) => [plan.id, plan])), [historyPlans]);
+  const actualsByWeek = useMemo(() => {
+    const grouped = new Map<string, Actual[]>();
+    for (const actual of actuals) {
+      const date = actualDate(actual);
+      if (!date) continue;
+      const week = weekStart(date);
+      grouped.set(week, [...(grouped.get(week) ?? []), actual]);
+    }
+    return grouped;
+  }, [actuals]);
 
   const simulations = useMemo(() => {
     const result = new Map<string, SimulatedWeek>();
@@ -165,7 +176,7 @@ export default function PlanningGantt(props: Props) {
     });
 
     for (const week of weekIds) {
-      const saved = historyPlans.find((plan) => plan.id === week);
+      const saved = planByWeek.get(week);
       let workingPlan: WeekPlan = saved
         ? structuredClone(saved)
         : { ...emptyWeek(week), maxRuns: settings.preferredRuns };
@@ -252,10 +263,10 @@ export default function PlanningGantt(props: Props) {
     }
 
     return result;
-  }, [settings, pallets, tanks, historyPlans, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
+  }, [settings, pallets, tanks, historyPlans, planByWeek, actuals, sources, today, weekIds, holidays, shipments, currentWeek]);
 
   const productFor = (id: string) => settings.products.find((product) => product.id === id);
-  const decisionPlanFor = (weekId: string) => historyPlans.find((plan) => plan.id === weekId);
+  const decisionPlanFor = (weekId: string) => planByWeek.get(weekId);
 
   function assignedBrewTankNumber(item: WeekPlan["brews"][number]) {
     if (!item.tankId) return undefined;
@@ -363,11 +374,8 @@ export default function PlanningGantt(props: Props) {
 
   function packagingItems(weekId: string): SummaryItem[] {
     const decisions = (decisionPlanFor(weekId)?.packaging ?? []).filter((item) => item.quantity > 0);
-    const actualItems: SummaryItem[] = actuals
-      .filter((actual) => {
-        const date = actualDate(actual);
-        return !!date && weekStart(date) === weekId && Number(actual.quantity) > 0;
-      })
+    const actualItems: SummaryItem[] = (actualsByWeek.get(weekId) ?? [])
+      .filter((actual) => Number(actual.quantity) > 0)
       .map((actual) => {
         const product = settings.products.find((candidate) => matchesActual(candidate, actual));
         const quantity = product ? actualUnits(product, actual) : Number(actual.quantity) || 0;
@@ -599,7 +607,7 @@ export default function PlanningGantt(props: Props) {
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
-        {isPaging && <BeerLoader overlay message="מעדכן את חלון התכנון…" />}
+        {isPaging && <BeerLoader overlay message="מעדכן…" />}
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
           <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
@@ -623,7 +631,7 @@ export default function PlanningGantt(props: Props) {
 
   return <>
     <section className="bp-gantt-shell">
-      {isPaging && <BeerLoader overlay message="מעדכן את חלון התכנון…" />}
+      {isPaging && <BeerLoader overlay message="מעדכן…" />}
       <div className="bp-section-heading bp-gantt-heading">
         <div><h2>גאנט</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
         <div className="bp-five-week-toggle" role="group" aria-label="אופן תצוגה">
