@@ -697,9 +697,18 @@ function brewingSheetPrintPdf_(data) {
         // Keep the source Sheet untouched; hide only those placeholders in the
         // temporary print copy.
         const hopLabelCol = findLabelColumn(row, /^\d+\).+/);
-        if (hopLabelCol >= 0) {
-          for (let col = 0; col < hopLabelCol; col++) {
-            if (/^0(?:\.0+)?\s*g$/i.test(String(row[col] || "").trim())) row[col] = "";
+        if (hopLabelCol >= 2) {
+          // Masters do not all share the same number formats (notably Wheat).
+          // Normalize the print copy only: hide a zero planning quantity and
+          // always show alpha acid with the same %aa suffix as the other forms.
+          const amountCol = hopLabelCol - 2;
+          const alphaCol = hopLabelCol - 1;
+          const amountText = String(row[amountCol] == null ? "" : row[amountCol]).trim();
+          const alphaText = String(row[alphaCol] == null ? "" : row[alphaCol]).trim();
+          if (/^0(?:\.0+)?(?:\s*g)?$/i.test(amountText)) row[amountCol] = "";
+          if (/^-?\d+(?:[.,]\d+)?$/.test(alphaText)) {
+            const alphaNumber = Number(alphaText.replace(",", "."));
+            if (Number.isFinite(alphaNumber)) row[alphaCol] = alphaNumber.toFixed(1) + "%aa";
           }
         }
 
