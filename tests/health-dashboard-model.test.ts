@@ -194,6 +194,31 @@ test("zero completed work stays at zero even with many recommendations", () => {
 });
 
 
+
+
+test("pending daily routine action carries the same low-priority weight as completing it earns", () => {
+    const measurements = [
+        { missingFields: [], requiredFieldCount: 2, completedFieldCount: 2 },
+    ];
+
+    const pending = calculateCellarHealthScore([], measurements, [], 1);
+    const completed = calculateCellarHealthScore([], measurements, [{ importance: 1 }], 0);
+
+    assert.equal(pending, 50);
+    assert.equal(completed, 100);
+});
+
+test("multiple unfinished daily routine actions accumulate in the denominator", () => {
+    const score = calculateCellarHealthScore(
+        [],
+        [{ missingFields: [], requiredFieldCount: 4, completedFieldCount: 4 }],
+        [],
+        2,
+    );
+
+    assert.equal(score, 50);
+});
+
 test("completed cellar actions add earned action credit", () => {
     const score = calculateCellarHealthScore(
         [{ importance: 3 }],
