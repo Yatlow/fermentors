@@ -11,6 +11,7 @@ import { db } from "../../firebase";
 import { getCatalogEntry } from "../cooler/PalletCatalog";
 import type { Pallet, PalletZone } from "../cooler/Pallettypes ";
 import { dateKey, sameStyle, weekStart, type WeekPlan } from "./planningEngine";
+import { completedShipmentQueueTruckId } from "./shipmentActuals";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
 
@@ -109,6 +110,57 @@ function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
     a.overage - b.overage,
   )[0];
   return best?.selected ?? [];
+}
+
+/**
+ * Close the current Tempo trip in the reservation projection immediately after
+ * the shipment is committed. This removes the race where newly-created pallets
+ * could still see today's already-departed trip before usePlanning repaired the queue.
+ */
+export async function closeCompletedTempoShipmentReservation(
+  shippedPallets: Pallet[],
+  shipmentDate = dateKey(new Date()),
+): Promise<string | null> {
+  const actualByProduct: Record<string, number> = {};
+  shippedPallets.forEach((pallet) => {
+    const productId = skuForPallet(pallet);
+    if (!productId) return;
+    actualByProduct[productId] =
+      (actualByProduct[productId] ?? 0) + palletQuantity(pallet);
+  });
+
+  const queueRef = doc(db, "shipmentPlanningQueue", weekStart(shipmentDate));
+  let closedTruckId: string | null = null;
+
+  await runTransaction(db, async (tx) => {
+    const queueSnap = await tx.get(queueRef);
+    if (!queueSnap.exists()) return;
+
+    const week = queueSnap.data() as WeekPlan & { projectionVersion?: number };
+    if (week.projectionVersion !== 1) return;
+
+    const deliveries = (week.deliveries ?? []).filter((delivery) => delivery.quantity > 0);
+    const truckId = completedShipmentQueueTruckId(deliveries, actualByProduct, shipmentDate);
+    if (!truckId) return;
+
+    const remaining = deliveries.filter((delivery) =>
+      String(delivery.truckId || `date:${delivery.dispatchDate}`) !== truckId
+    );
+
+    tx.update(queueRef, {
+      deliveries: remaining,
+      updatedAt: serverTimestamp(),
+    });
+    closedTruckId = truckId;
+  });
+
+  if (closedTruckId) {
+    console.info("Closed completed shipment reservation", {
+      shipmentDate,
+      truckId: closedTruckId,
+    });
+  }
+  return closedTruckId;
 }
 
 /**
