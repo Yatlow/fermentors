@@ -9,6 +9,7 @@ import {
     MAX_TRUCK_SLOTS,
     type ShipmentCustomerOption,
 } from "../../SERVICES/cooler/Palletservice";
+import { closeCompletedTempoShipmentReservation } from "../../SERVICES/planning/planningShipmentReservations";
 import BeerLoader from "../general/Loading";
 import { getCatalogEntry } from "../../SERVICES/cooler/PalletCatalog";
 
@@ -125,6 +126,18 @@ export default function LoadingDockView({ pallets }: { pallets: Pallet[] }) {
         try {
             const palletsForShipment = pallets.filter((p) => selected.has(p.id));
             const shipmentId = await createShipment(palletsForShipment.map((p) => p.id), trimmedName, customerId);
+
+            const isTempoShipment = customerId === "tempo" || /טמפו|tempo/i.test(trimmedName);
+            if (isTempoShipment) {
+                try {
+                    await closeCompletedTempoShipmentReservation(palletsForShipment);
+                } catch (reservationError) {
+                    // The physical shipment has already been committed. Do not turn a
+                    // projection-repair failure into a fake shipment failure/retry.
+                    console.error("Failed closing completed Tempo shipment reservation", reservationError);
+                }
+            }
+
             setLastShipmentId(shipmentId);
             setLastCustomerName(trimmedName);
             setShipmentPallets(palletsForShipment);
