@@ -13,7 +13,7 @@ const wave = (y: number, amp: number) => {
     return `${d} V100 H0 Z`;
 };
 
-const FOAM_WAVE = wave(17, 4);
+const FOAM_WAVE = wave(15, 4);
 const BACK_WAVE = wave(24, 5);
 const FRONT_WAVE = wave(26, 5);
 const GLASS_CLOSED = "M10 14 L16 84 Q16.5 88 21 88 H43 Q47.5 88 48 84 L54 14 Z";
@@ -58,6 +58,7 @@ export default function BeerLoader({
                     <path className="beer-pint-glass" d={GLASS_CLOSED} />
                     <g clipPath={`url(#${clipId})`}>
                         <g className="beer-pint-level">
+                            <rect className="beer-pint-foam-fill" x="8" y="14" width="48" height="8" />
                             <path className="beer-pint-wave-foam" d={FOAM_WAVE} />
                             <path className="beer-pint-wave-back" d={BACK_WAVE} />
                             <path className="beer-pint-wave-front" d={FRONT_WAVE} />
