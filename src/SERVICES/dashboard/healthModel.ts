@@ -164,7 +164,10 @@ export function missingDailyMeasurementFields(
  * - grace-period bonus fields add earned units without adding required units;
  * - actionable cellar recommendations add unresolved weighted units to the
  *   denominator. When the recommendation is handled and disappears, those
- *   unresolved units disappear too and the score rises.
+ *   unresolved units disappear too and the score rises;
+ * - pending calendar/routine cellar actions add the same low-priority weight
+ *   they earn when completed, so an unfinished Sunday routine can no longer
+ *   leave the index near 100.
  *
  * This additive model avoids the old "100 minus penalties" floor where a real
  * partial measurement could still display 0/100 simply because other tanks had
@@ -173,7 +176,8 @@ export function missingDailyMeasurementFields(
 export function calculateCellarHealthScore(
     recommendations: ScoredRecommendation[],
     measurementProgress: MeasurementIssue[],
-    completedActions: CompletedHealthAction[] = []
+    completedActions: CompletedHealthAction[] = [],
+    pendingDailyActionCount = 0
 ): number {
     const measurementPossible = measurementProgress.reduce(
         (sum, progress) => sum + Math.max(0, Number(progress.requiredFieldCount) || 0),
@@ -198,8 +202,18 @@ export function calculateCellarHealthScore(
         (sum, action) => sum + healthActionPoints(action.importance),
         0
     );
+    // Routine calendar actions are intentionally low priority (importance 1).
+    // Completed yeast/carb actions already enter completedActions with this same
+    // +2 weight, so an unfinished routine contributes the matching two unearned
+    // points instead of being invisible to the index.
+    const pendingDailyActionWeight =
+        Math.max(0, Math.floor(Number(pendingDailyActionCount) || 0)) * healthActionPoints(1);
 
-    const possible = measurementPossible + unresolvedRecommendationWeight + completedActionWeight;
+    const possible =
+        measurementPossible +
+        unresolvedRecommendationWeight +
+        completedActionWeight +
+        pendingDailyActionWeight;
     if (possible <= 0) return 100;
 
     return Math.max(

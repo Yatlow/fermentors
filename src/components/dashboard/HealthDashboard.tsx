@@ -84,6 +84,8 @@ type DailyCellarAction = {
     tankNumber: string;
     title: string;
     detail?: string;
+    /** False when the same physical action is already represented by a scored recommendation. */
+    scoreEligible?: boolean;
 };
 
 type DailyActionProgress = {
@@ -581,6 +583,10 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 detail: sundayColdAction
                                     ? "פעולת יום ראשון לכל מיכל קר"
                                     : "מתוכנן לרדת בשבוע הבא",
+                                // Wednesday/scheduled/natural carb work is already
+                                // represented in scoreRecommendations. Only add a
+                                // separate score unit for the standalone Sunday routine.
+                                scoreEligible: sundayColdAction && !naturalCarb && !scheduledCarbAction,
                             });
                         }
                         if (weeklyYeastAction && !hasTodayYeast) {
@@ -591,6 +597,10 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 detail: sundayColdAction
                                     ? "פעולת יום ראשון לכל מיכל קר"
                                     : "מתוכנן לרדת בשבוע הבא",
+                                // Thursday/scheduled/natural yeast work is already
+                                // scored as a recommendation. The pure Sunday routine
+                                // needs its own low-priority score unit.
+                                scoreEligible: sundayColdAction && !naturalYeast && !scheduledYeastAction,
                             });
                         }
 
@@ -809,13 +819,24 @@ export default function HealthDashboard({ brews, specs }: Props) {
         };
     }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations]);
 
+    const pendingDailyScoreActionCount = useMemo(
+        () => analysis.dailyActions.filter((action) => action.scoreEligible !== false).length,
+        [analysis.dailyActions]
+    );
+
     const healthScore = useMemo(
         () => calculateCellarHealthScore(
             analysis.scoreRecommendations,
             analysis.measurementProgress,
-            analysis.completedActions
+            analysis.completedActions,
+            pendingDailyScoreActionCount
         ),
-        [analysis.scoreRecommendations, analysis.measurementProgress, analysis.completedActions]
+        [
+            analysis.scoreRecommendations,
+            analysis.measurementProgress,
+            analysis.completedActions,
+            pendingDailyScoreActionCount,
+        ]
     );
     const overallClass = healthBand(healthScore);
     const previousSettledScoreRef = useRef<number | null>(null);
