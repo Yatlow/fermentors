@@ -10,18 +10,16 @@ def replace_once(path: str, old: str, new: str) -> None:
     p.write_text(text.replace(old, new, 1))
 
 
-def replace_once_after(path: str, marker: str, old: str, new: str) -> None:
+def replace_first_after(path: str, marker: str, old: str, new: str) -> None:
     p = Path(path)
     text = p.read_text()
     marker_index = text.find(marker)
     if marker_index < 0:
         raise SystemExit(f"{path}: marker not found: {marker!r}")
-    prefix = text[:marker_index]
-    suffix = text[marker_index:]
-    count = suffix.count(old)
-    if count != 1:
-        raise SystemExit(f"{path}: expected one post-marker anchor, found {count}: {old[:100]!r}")
-    p.write_text(prefix + suffix.replace(old, new, 1))
+    anchor_index = text.find(old, marker_index)
+    if anchor_index < 0:
+        raise SystemExit(f"{path}: post-marker anchor not found: {old[:100]!r}")
+    p.write_text(text[:anchor_index] + new + text[anchor_index + len(old):])
 
 
 server = "server/BREWING_SHEET_SERVICE.js"
@@ -96,7 +94,7 @@ replace_once(
                                     return (
 """,
 )
-replace_once_after(
+replace_first_after(
     view,
     '<article className="brewing-tank-card brewing-pending-card"',
     """                                                <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
