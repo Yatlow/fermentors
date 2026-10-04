@@ -5,12 +5,20 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  Timestamp,
   where,
 } from "firebase/firestore";
 import { db } from "../../firebase";
 import { getCatalogEntry } from "../cooler/PalletCatalog";
 import type { Pallet, PalletZone } from "../cooler/Pallettypes ";
-import { dateKey, sameStyle, weekStart, type WeekPlan } from "./planningEngine";
+import {
+  addDays,
+  dateKey,
+  sameStyle,
+  weekStart,
+  type DeliveryPlan,
+  type WeekPlan,
+} from "./planningEngine";
 import { completedShipmentQueueTruckId } from "./shipmentActuals";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
@@ -36,6 +44,11 @@ type PlannedLine = {
   truckId: string;
 };
 
+type ActualQueueShipment = {
+  date: string;
+  actualByProduct: Record<string, number>;
+};
+
 export type ShipmentReservationSyncResult = {
   dispatchDate: string | null;
   markedIds: string[];
@@ -52,34 +65,102 @@ export type ShipmentReservationSyncResult = {
   }>;
 };
 
+function isTempoShipment(data: Record<string, unknown>): boolean {
+  const customerId = typeof data.customerId === "string" ? data.customerId.trim().toLowerCase() : "";
+  if (customerId) return customerId === "tempo";
+  return /טמפו|tempo/i.test(String(data.customerName ?? "").trim());
+}
+
+function shipmentProducts(data: Record<string, unknown>): Record<string, number> {
+  const totals = Array.isArray(data.totals) ? data.totals : [];
+  const result: Record<string, number> = {};
+  totals.forEach((raw) => {
+    if (!raw || typeof raw !== "object") return;
+    const line = raw as Record<string, unknown>;
+    const itemType = line.itemType === "crates" || line.itemType === "kegs"
+      ? line.itemType
+      : null;
+    const beerStyle = String(line.beerStyle ?? "").trim();
+    const quantity = Number(line.totalQuantity ?? 0);
+    if (!itemType || !beerStyle || !Number.isFinite(quantity) || quantity <= 0) return;
+    const productId = getCatalogEntry(beerStyle, itemType)?.sku;
+    if (!productId) return;
+    result[productId] = (result[productId] ?? 0) + quantity;
+  });
+  return result;
+}
+
+async function actualTempoShipmentsThisWeek(today: string): Promise<ActualQueueShipment[]> {
+  const currentWeek = weekStart(today);
+  // Query one extra UTC day so Jerusalem midnight/DST can never exclude an
+  // early-Sunday shipment. We filter back to the exact operational week below.
+  const queryStart = Timestamp.fromDate(
+    new Date(`${addDays(currentWeek, -1)}T00:00:00Z`),
+  );
+  const snapshot = await getDocsFromServer(
+    query(collection(db, "shipments"), where("createdAt", ">=", queryStart)),
+  );
+
+  return snapshot.docs.flatMap((item) => {
+    const data = item.data() as Record<string, unknown>;
+    if (!isTempoShipment(data)) return [];
+    const createdAt = data.createdAt as { toDate?: () => Date } | undefined;
+    const created = createdAt?.toDate?.();
+    if (!created || !Number.isFinite(created.getTime())) return [];
+    const date = dateKey(created);
+    if (weekStart(date) !== currentWeek) return [];
+    return [{ date, actualByProduct: shipmentProducts(data) }];
+  });
+}
+
 /**
- * The saved weekly delivery decision is the reservation source of truth.
- * We deliberately do not create a second reservation collection: future
- * packaging simply fills the nearest still-open planned delivery.
+ * The saved weekly delivery decision is the reservation source of truth, but the
+ * queue is only a projection. Actual shipments are checked on every reservation
+ * pass so a stale queue can never re-reserve stock for a truck that already left.
  */
 async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   // Operational packaging users are approved brewery users, but they are not
   // necessarily planners. Read the restricted shipment projection instead of
   // the full planningWeeks documents (same pattern as brewPlanningQueue).
-  const snapshot = await getDocsFromServer(
-    query(collection(db, "shipmentPlanningQueue"), where("id", ">=", weekStart(today)))
-  );
+  const [snapshot, actualShipments] = await Promise.all([
+    getDocsFromServer(
+      query(collection(db, "shipmentPlanningQueue"), where("id", ">=", weekStart(today)))
+    ),
+    actualTempoShipmentsThisWeek(today),
+  ]);
 
-  const lines = snapshot.docs.flatMap((snapshot) => {
+  let openDeliveries: DeliveryPlan[] = snapshot.docs.flatMap((snapshot) => {
     const week = snapshot.data() as WeekPlan & { projectionVersion?: number };
     // Ignore every legacy projection. Current queue documents are rewritten
     // atomically with planningWeeks and explicitly carry projectionVersion=1.
-    // This makes stale pre-fix queue data fail closed instead of reserving stock.
     if (week.projectionVersion !== 1) return [];
-    return (week.deliveries ?? [])
-      .filter((delivery) => delivery.quantity > 0 && delivery.dispatchDate >= today)
-      .map((delivery) => ({
-        productId: delivery.productId,
-        quantity: delivery.quantity,
-        dispatchDate: delivery.dispatchDate,
-        truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
-      }));
+    return (week.deliveries ?? []).filter((delivery) => delivery.quantity > 0);
   });
+
+  // Close actual shipments in-memory before choosing the next reservation.
+  // This is deliberately independent of the planner-only queue write permission:
+  // even if usePlanning has not repaired Firestore yet, operational users cannot
+  // accidentally reserve new pallets against an already completed truck.
+  for (const actual of [...actualShipments].sort((a, b) => a.date.localeCompare(b.date))) {
+    const closedTruckId = completedShipmentQueueTruckId(
+      openDeliveries,
+      actual.actualByProduct,
+      actual.date,
+    );
+    if (!closedTruckId) continue;
+    openDeliveries = openDeliveries.filter((delivery) =>
+      String(delivery.truckId || `date:${delivery.dispatchDate}`) !== closedTruckId
+    );
+  }
+
+  const lines = openDeliveries
+    .filter((delivery) => delivery.dispatchDate >= today)
+    .map((delivery) => ({
+      productId: delivery.productId,
+      quantity: delivery.quantity,
+      dispatchDate: delivery.dispatchDate,
+      truckId: String(delivery.truckId || `date:${delivery.dispatchDate}`),
+    }));
 
   const nearest = [...lines].sort((a, b) =>
     a.dispatchDate.localeCompare(b.dispatchDate) || a.truckId.localeCompare(b.truckId)
@@ -110,57 +191,6 @@ function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
     a.overage - b.overage,
   )[0];
   return best?.selected ?? [];
-}
-
-/**
- * Close the current Tempo trip in the reservation projection immediately after
- * the shipment is committed. This removes the race where newly-created pallets
- * could still see today's already-departed trip before usePlanning repaired the queue.
- */
-export async function closeCompletedTempoShipmentReservation(
-  shippedPallets: Pallet[],
-  shipmentDate = dateKey(new Date()),
-): Promise<string | null> {
-  const actualByProduct: Record<string, number> = {};
-  shippedPallets.forEach((pallet) => {
-    const productId = skuForPallet(pallet);
-    if (!productId) return;
-    actualByProduct[productId] =
-      (actualByProduct[productId] ?? 0) + palletQuantity(pallet);
-  });
-
-  const queueRef = doc(db, "shipmentPlanningQueue", weekStart(shipmentDate));
-  let closedTruckId: string | null = null;
-
-  await runTransaction(db, async (tx) => {
-    const queueSnap = await tx.get(queueRef);
-    if (!queueSnap.exists()) return;
-
-    const week = queueSnap.data() as WeekPlan & { projectionVersion?: number };
-    if (week.projectionVersion !== 1) return;
-
-    const deliveries = (week.deliveries ?? []).filter((delivery) => delivery.quantity > 0);
-    const truckId = completedShipmentQueueTruckId(deliveries, actualByProduct, shipmentDate);
-    if (!truckId) return;
-
-    const remaining = deliveries.filter((delivery) =>
-      String(delivery.truckId || `date:${delivery.dispatchDate}`) !== truckId
-    );
-
-    tx.update(queueRef, {
-      deliveries: remaining,
-      updatedAt: serverTimestamp(),
-    });
-    closedTruckId = truckId;
-  });
-
-  if (closedTruckId) {
-    console.info("Closed completed shipment reservation", {
-      shipmentDate,
-      truckId: closedTruckId,
-    });
-  }
-  return closedTruckId;
 }
 
 /**
