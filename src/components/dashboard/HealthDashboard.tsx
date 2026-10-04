@@ -23,6 +23,7 @@ import {
     type MeasurementIssue,
     type ScoredRecommendation,
 } from "../../SERVICES/dashboard/healthModel";
+import { getPlannedPackagingForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
 import {
     dueScheduledForTank,
     scheduledActionLabel,
@@ -439,7 +440,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 : []
                         );
 
-                        const today = localDateKey(new Date());
+                        const now = new Date();
+                        const today = localDateKey(now);
+                        const day = now.getDay();
                         const todayRows = measurements.filter(
                             (measurement) => measurementDateKey(measurement) === today
                         );
@@ -515,8 +518,27 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             return row.actionType === "carbTest" ? !naturalCarb : !naturalYeast;
                         });
 
-                        const day = new Date().getDay();
-                        const sundayColdAction = day === 0 && tank.stage.name === "קר" && !hasTodayCooling;
+                        let packagingToday = false;
+                        if (day === 0 && tank.stage.name === "קר") {
+                            try {
+                                const plannedPackaging = await getPlannedPackagingForTank({
+                                    tankId: tank.id,
+                                    tankNumber: tank.tankNumber,
+                                    batchNumber: tank.batchNumber,
+                                });
+                                packagingToday = plannedPackaging?.date === today;
+                            } catch (error) {
+                                // Planning metadata should never break cellar analysis.
+                                // If it cannot be loaded, keep the established Sunday routine.
+                                console.warn("Failed checking today's packaging plan for cellar routine:", error);
+                            }
+                        }
+
+                        const sundayColdAction =
+                            day === 0 &&
+                            tank.stage.name === "קר" &&
+                            !hasTodayCooling &&
+                            !packagingToday;
                         const wednesdayCarbAction =
                             day === 3 && isCalendarCarbRecommendation(recommendations?.requiresCarbTest);
                         const thursdayYeastAction =
