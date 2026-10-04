@@ -442,6 +442,30 @@ function brewingSheetCreate_(data) {
       SpreadsheetApp.flush();
     }
 
+    // Keep the out-to-boil pH unit consistent across all Master variants. Wheat
+    // inserts extra mash rows and its Master can be missing the visible pH label,
+    // even though column H is still the canonical outToBoilPh value cell. Resolve
+    // the process row semantically after all row insertions and fill only a
+    // genuinely missing label in column I, leaving Masters that already have it
+    // untouched.
+    {
+      const sheet = ss.getSheets()[0];
+      const values = sheet.getDataRange().getDisplayValues();
+      let updated = false;
+      values.forEach(function (row, index) {
+        const outToBoilLabel = String((row || [])[3] || "").trim();
+        if (!/^הוצאה\s*לבישול$/i.test(outToBoilLabel)) return;
+        const hasPhLabel = (row || []).some(function (cell) {
+          return /^pH$/i.test(String(cell || "").trim());
+        });
+        if (!hasPhLabel) {
+          sheet.getRange(index + 1, 9).setValue("pH");
+          updated = true;
+        }
+      });
+      if (updated) SpreadsheetApp.flush();
+    }
+
     // The fermentation page must always expose the canonical tank-volume field.
     // Some Master variants are missing the visible "נפח" label entirely. The
     // dashboard extractor and ACTION 0 -> 1 transition deliberately depend on
@@ -685,6 +709,17 @@ function brewingSheetPrintPdf_(data) {
           // process label. Guard bounds so future narrower Masters stay safe.
           const tempUnitCol = processCol + 3;
           if (tempUnitCol < row.length) row[tempUnitCol] = "°C";
+        }
+
+        const outToBoilCol = findLabelColumn(row, /^הוצאה\s*לבישול$/i);
+        if (outToBoilCol >= 0 && row.length) {
+          // Existing Wheat Sheets may predate the creation-time normalization.
+          // Add the print-only label only when no pH label already exists, so
+          // standard Masters never get the duplicate that an earlier fix caused.
+          const hasPhLabel = row.some(function (cell) {
+            return /^pH$/i.test(String(cell || "").trim());
+          });
+          if (!hasPhLabel) row[row.length - 1] = "pH";
         }
 
         const sugarCol = findLabelColumn(row, /^(?:F\.R\.|L\.R\.)$/i);
