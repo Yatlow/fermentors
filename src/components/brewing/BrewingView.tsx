@@ -1214,7 +1214,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                                 }
                                             }}
                                         >
-                                            ערוך אצווה
+                                            ערוך מספר אצווה
                                         </button>
                                         <button
                                             type="button"
@@ -1446,7 +1446,7 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                                         })
                                                     }
                                                 >
-                                                    ערוך אצווה
+                                                    ערוך מספר אצווה
                                                 </button>
                                                 <button type="button" className="brewing-danger-button" disabled={isDeletingBatch(run.batchNumber)} onClick={() => setDeleteConfirmation(run)}>מחק</button>
                                             </div>
