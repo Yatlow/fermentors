@@ -105,6 +105,56 @@ export function shipmentMatchScore(
   return union > 0 ? overlap / union : null;
 }
 
+/**
+ * Choose the still-open queue trip that an actual shipment closes.
+ * Queue rows already use product ids/SKUs, so this version does not depend on a
+ * settings snapshot and can run synchronously in the shipment completion flow.
+ */
+export function completedShipmentQueueTruckId(
+  deliveries: DeliveryPlan[],
+  actualByProduct: Readonly<Record<string, number>>,
+  shipmentDate: string,
+): string | null {
+  const groups = groupPlannedShipments(deliveries)
+    .filter((group) => weekStart(group.dispatchDate) === weekStart(shipmentDate));
+  if (!groups.length) return null;
+
+  const actualKeys = Object.keys(actualByProduct);
+  const ranked = groups.map((group) => {
+    const planned = new Map<string, number>();
+    group.deliveries.forEach((delivery) => {
+      planned.set(
+        delivery.productId,
+        (planned.get(delivery.productId) ?? 0) + Number(delivery.quantity || 0),
+      );
+    });
+    const keys = new Set([...planned.keys(), ...actualKeys]);
+    let overlap = 0;
+    let union = 0;
+    keys.forEach((productId) => {
+      const expected = planned.get(productId) ?? 0;
+      const sent = Number(actualByProduct[productId] ?? 0);
+      overlap += Math.min(expected, sent);
+      union += Math.max(expected, sent);
+    });
+    return {
+      group,
+      score: union > 0 ? overlap / union : null,
+      distance: Math.abs(
+        Date.parse(`${shipmentDate}T12:00:00Z`) -
+        Date.parse(`${group.dispatchDate}T12:00:00Z`),
+      ),
+    };
+  });
+
+  ranked.sort((a, b) =>
+    (b.score ?? -1) - (a.score ?? -1) ||
+    a.distance - b.distance ||
+    a.group.id.localeCompare(b.group.id),
+  );
+  return ranked[0]?.group.id ?? null;
+}
+
 export function matchActualShipments(
   deliveries: DeliveryPlan[],
   actualEvents: ShipmentEvent[],
