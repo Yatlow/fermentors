@@ -1408,6 +1408,8 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                             <div className="brewing-tank-grid">
                                 {pendingProductionRuns.map((run) => {
                                     const style = beerStyleClass(run.style);
+                                    const recipe =
+                                        recipes.find((item) => sameStyle(item.style, run.style)) || null;
                                     return (
                                         <article className="brewing-tank-card brewing-pending-card" key={`pending-${run.batchNumber}`}>
                                             <div className="brewing-tank-card-top">
@@ -1420,6 +1422,16 @@ html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sa
                                             </div>
                                             <div className="brewing-card-actions">
                                                 <a className="brewing-sheet-link" href={run.sheetUrl} target="_blank" rel="noreferrer">פתח Sheet</a>
+                                                <button
+                                                    type="button"
+                                                    disabled={!recipe}
+                                                    onClick={() => {
+                                                        setMessage("");
+                                                        setSelectedRun(run);
+                                                    }}
+                                                >
+                                                    {!recipe ? "חסר מתכון תואם" : "עריכת נתוני בישול"}
+                                                </button>
                                                 <button type="button" onClick={() => printBrewCover(run)}>הדפס דף בישול</button>
                                                 <button
                                                     type="button"
