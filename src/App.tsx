@@ -463,7 +463,7 @@ function App() {
                     {selectedView === "ניהול" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "calculator" ? "active" : ""}`} onClick={() => setSelectedAdminTools("calculator")}><span>מחשבון למבשלן</span></button>
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "packagingSheet" ? "active" : ""}`} onClick={() => setSelectedAdminTools("packagingSheet")}><span>דף אריזה להדפסה</span></button>
-                        {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "specs" ? "active" : ""}`} onClick={() => setSelectedAdminTools("specs")}><span>הגדרות סלרינג</span></button>}
+                        <button type="button" className={`status-filter-button ${selectedAdminTools === "specs" ? "active" : ""}`} onClick={() => setSelectedAdminTools("specs")}><span>הגדרות סלרינג</span></button>
                         {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>}
                         {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>}
                         {admin && <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>משתמשים והרשאות</span></button>}
@@ -489,7 +489,7 @@ function App() {
                 {selectedView === "דוחות" && selectedReports === "מלאי_מקרר" && <CoolerInventoryReportView />}
                 {selectedView === "דוחות" && selectedReports === "גרפים" && <BatchReportsView currentFermentors={brews} />}
                 {selectedView === "דוחות" && selectedReports === "חיבורי_משתמשים" && user.email?.toLowerCase() === "yisrael@atlow.co.il" && <UserConnectionReport />}
-                {selectedView === "ניהול" && selectedAdminTools === "specs" && cellarManager && <EditSpecs isAdmin={cellarManager} />}
+                {selectedView === "ניהול" && selectedAdminTools === "specs" && <EditSpecs isAdmin={cellarManager} />}
                 {selectedView === "ניהול" && selectedAdminTools === "calculator" && <BrewCalc brews={brews} />}
                 {selectedView === "ניהול" && selectedAdminTools === "packagingSheet" && <PackagingSheetGenerator brews={brews} specs={specs} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={cellarManager} />}
