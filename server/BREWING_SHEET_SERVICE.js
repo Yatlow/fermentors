@@ -181,6 +181,35 @@ function brewingSheetMirrorFinalTankVolume_(sheet, row, col, rawValue) {
   return false;
 }
 
+function brewingSheetResolveFermentationMetadataRange_(sheet, range) {
+  // App writes historically target the Master fermentation metadata row
+  // (59/106/156). Variable mash layouts insert rows before fermentation, so
+  // resolve the real row from its visible labels instead of applying offsets.
+  if (!sheet || !range || range.getNumRows() !== 1 || range.getNumColumns() !== 1) {
+    return range;
+  }
+
+  const col = range.getColumn();
+  const row = range.getRow();
+  if ([2, 4, 7].indexOf(col) < 0 || [59, 106, 156].indexOf(row) < 0) {
+    return range;
+  }
+
+  const data = sheet.getDataRange().getDisplayValues();
+  for (let r = 0; r < data.length; r++) {
+    const current = data[r] || [];
+    if (
+      /^יום\s*בישול/i.test(String(current[0] || "").trim()) &&
+      /^סוכר\s*תחילי/i.test(String(current[2] || "").trim()) &&
+      /שעת\s*הוספת\s*שמרים/i.test(String(current[4] || "").trim())
+    ) {
+      return sheet.getRange(r + 1, col);
+    }
+  }
+
+  return range;
+}
+
 function brewingSheetWriteCells_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   const writes = Array.isArray(data.writes) ? data.writes : [];
@@ -204,7 +233,8 @@ function brewingSheetWriteCells_(data) {
     const sheetName = rawSheetName.replace(/^'(.*)'$/, "$1").replace(/''/g, "'");
     const sheet = (sheetName ? ss.getSheetByName(sheetName) : null) || ss.getSheets()[0];
     if (!sheet) throw new Error("Brew Sheet has no sheets");
-    const range = sheet.getRange(a1);
+    let range = sheet.getRange(a1);
+    range = brewingSheetResolveFermentationMetadataRange_(sheet, range);
 
     if (
       item &&
