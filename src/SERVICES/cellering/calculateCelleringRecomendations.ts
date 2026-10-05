@@ -1324,7 +1324,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         ...givenSpecs,
         pressure: {
             ...pressureSpecs,
-            [normalizedStyle]: effectivePressureTarget,
+            [normalizedStyle]: Number(effectivePressureTarget),
         },
     };
 
