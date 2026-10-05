@@ -600,12 +600,10 @@ function extractBrew(spreadSheetId) {
         .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
         .trim();
       if (!/^נפח\s*:?$/.test(label)) continue;
-      for (let valueCol = c + 1; valueCol < Math.min(row.length, c + 5); valueCol++) {
-        const volume = extractNumber(row[valueCol]);
-        if (volume !== null && volume > 0) {
-          brew.beerVolume = volume;
-          break volumeSearch;
-        }
+      const volume = extractNumber(row[c + 1]);
+      if (volume !== null && volume > 0) {
+        brew.beerVolume = volume;
+        break volumeSearch;
       }
     }
   }
