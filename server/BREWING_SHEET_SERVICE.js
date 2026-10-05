@@ -136,6 +136,51 @@ function brewingSheetReadRange_(data) {
   };
 }
 
+function brewingSheetMirrorFinalTankVolume_(sheet, row, col, rawValue) {
+  // "תחילת תסיסה" column C is the cumulative tank volume for each brew block.
+  // Only the final brew block represents the finished tank volume. Mirror that
+  // value into the canonical "נפח:" field used by extractBrew/ACTION 0 -> 1.
+  if (!sheet || col !== 3 || row < 1) return false;
+
+  const data = sheet.getDataRange().getDisplayValues();
+  const rowData = data[row - 1] || [];
+  if (!/^תחילת\s*תסיסה$/i.test(String(rowData[0] || "").trim())) return false;
+
+  const headers = findBrewBlockStarts(data);
+  if (!headers.length) return false;
+  const lastHeader = headers[headers.length - 1];
+  if (row - 1 < lastHeader) return false;
+
+  let fermentationHeader = -1;
+  for (let r = row; r < data.length; r++) {
+    if ((data[r] || []).some(function (cell) {
+      return String(cell || "").replace(/\s/g, " ").trim() === "דף תסיסה";
+    })) {
+      fermentationHeader = r;
+      break;
+    }
+  }
+  if (fermentationHeader < 0) return false;
+
+  const searchEnd = Math.min(data.length, fermentationHeader + 8);
+  for (let r = fermentationHeader; r < searchEnd; r++) {
+    const volumeCol = (data[r] || []).findIndex(function (cell) {
+      return /^נפח\s*:?$/.test(
+        String(cell || "").replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim()
+      );
+    });
+    if (volumeCol < 0) continue;
+
+    const numeric = String(rawValue == null ? "" : rawValue)
+      .trim()
+      .replace(/[^0-9.,-]/g, "")
+      .replace(",", ".");
+    sheet.getRange(r + 1, volumeCol + 2).setValue(numeric ? Number(numeric) : "");
+    return true;
+  }
+  return false;
+}
+
 function brewingSheetWriteCells_(data) {
   const fileId = brewingSheetAssertAllowedFile_(data.spreadsheetId || data.sheetUrl);
   const writes = Array.isArray(data.writes) ? data.writes : [];
@@ -180,6 +225,16 @@ function brewingSheetWriteCells_(data) {
     }
 
     range.setValue(brewingSheetCellValue_(item.value));
+    // App-originated writes do not fire installable onEdit triggers. Mirror the
+    // final block's cumulative fermentation volume in the same request.
+    if (range.getNumRows() === 1 && range.getNumColumns() === 1) {
+      brewingSheetMirrorFinalTankVolume_(
+        sheet,
+        range.getRow(),
+        range.getColumn(),
+        item.value
+      );
+    }
     updated++;
   });
 
@@ -1600,6 +1655,22 @@ function brewingSheetOnEdit_(event) {
     if (!knownTank) {
       brewingSheetRememberEditTank_(spreadsheetId, fermentor.tankNumber);
       brewingSheetPublishEditRevision_(fermentor.tankNumber, event);
+    }
+
+    // Direct Sheet edits do fire onEdit. Mirror the final block's cumulative
+    // tank volume before extracting stage info so ACTION 0 -> 1 sees the same
+    // canonical field immediately.
+    if (
+      event.range &&
+      event.range.getNumRows() === 1 &&
+      event.range.getNumColumns() === 1
+    ) {
+      brewingSheetMirrorFinalTankVolume_(
+        event.range.getSheet(),
+        event.range.getRow(),
+        event.range.getColumn(),
+        event.range.getDisplayValue()
+      );
     }
 
     brewingSheetPersistExecutionCell_(fermentor, event);
