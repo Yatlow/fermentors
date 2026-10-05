@@ -189,9 +189,9 @@ export default function SendMessurmentsHeader({
                     const recomendations: RecommendationsByTank =
                         Object.fromEntries(entries);
 
-                    return recomendations;
+                    return { recommendations: recomendations, completedIds };
                 };
-                const recommendations = await getRecs();
+                const { recommendations, completedIds } = await getRecs();
 
                 setCompletedScheduledIds(completedIds);
                 setRcs(recommendations);
