@@ -6,6 +6,7 @@ import { calcCelleringRecomendations, type Measurement } from "../../SERVICES/ce
 import {
     dueScheduledForTank,
     scheduledActionLabel,
+    scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
     type ScheduledCellarRecommendation,
@@ -70,6 +71,7 @@ export default function SendMessurmentsHeader({
     const [showSendStatus, setShowSendStatus] = useState(false);
     const [rcs, setRcs] = useState<RecommendationsByTank>({});
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
+    const [completedScheduledIds, setCompletedScheduledIds] = useState<Set<string>>(new Set());
 
     // חדש: מתריע אם הכתיבה בפועל לגיליון נכשלה ברקע, אחרי שכבר הוצגו המלצות למשתמש
     const [writeWarning, setWriteWarning] = useState<writeReadingResult[] | null>(null);
@@ -144,9 +146,19 @@ export default function SendMessurmentsHeader({
                 setSendingReading("getRecs")
                 const getRecs = async () => {
                     const fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
+                    const completedIds = new Set<string>();
                     const entries = await Promise.all(
                         fullTanks.map(async (tank: Fermentor) => {
                             const messurments = await getMeasurementsByBatch(tank.batchNumber ?? "");
+                            dueScheduledForTank(
+                                scheduledRecommendations,
+                                tank.tankNumber,
+                                tank.batchNumber,
+                            ).forEach((row) => {
+                                if (scheduledRecommendationCompletionDate(row, messurments)) {
+                                    completedIds.add(row.id);
+                                }
+                            });
                             if (!tank.stage) {
                                 console.warn(
                                     "Cannot calculate recommendations: tank stage is missing",
@@ -177,10 +189,11 @@ export default function SendMessurmentsHeader({
                     const recomendations: RecommendationsByTank =
                         Object.fromEntries(entries);
 
-                    return recomendations;
+                    return { recommendations: recomendations, completedIds };
                 };
-                const recommendations = await getRecs();
+                const { recommendations, completedIds } = await getRecs();
 
+                setCompletedScheduledIds(completedIds);
                 setRcs(recommendations);
                 setSendingReading("sent");
                 setSendingReading(Object.keys(recommendations).length ? "sent" : "error");
@@ -868,7 +881,8 @@ export default function SendMessurmentsHeader({
                 tank.tankNumber,
                 tank.batchNumber,
               )
-                .filter((row) => row.actionType === "carbTest" ? !naturalCarb : !naturalYeast)
+                .filter((row) => !completedScheduledIds.has(row.id))
+                .filter((row) => row.actionType === "carbTest" ? !naturalCarb : row.actionType === "yeastDrop" ? !naturalYeast : true)
                 .map((row) => ({
                     req: true,
                     reason: `המלצה מתוזמנת: ${scheduledActionLabel(row.actionType)}${row.note ? ` — ${row.note}` : ""}`,

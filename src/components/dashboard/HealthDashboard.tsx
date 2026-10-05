@@ -845,10 +845,19 @@ export default function HealthDashboard({ brews, specs }: Props) {
     useEffect(() => {
         if (analyzing) return;
         const previous = previousSettledScoreRef.current;
-        if (previous !== null && previous < 100 && healthScore === 100) {
-            setCelebrationOpen(true);
-        }
         previousSettledScoreRef.current = healthScore;
+
+        // Live Firestore updates arrive tank-by-tank while a measurement round is
+        // being saved. A transient intermediate analysis can briefly report 100
+        // before the remaining tanks settle (for example the final score is 70).
+        // Celebrate only when 100 remains the settled score.
+        if (previous === null || previous >= 100 || healthScore !== 100) return;
+        const timer = window.setTimeout(() => {
+            if (previousSettledScoreRef.current === 100) {
+                setCelebrationOpen(true);
+            }
+        }, 1200);
+        return () => window.clearTimeout(timer);
     }, [analyzing, healthScore]);
 
     const counts = useMemo(() => ({

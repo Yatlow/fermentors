@@ -1298,8 +1298,37 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
 
     const pressureSpecs: Record<string, number> = givenSpecs.pressure;
 
+    // For one-off / seasonal beers that do not have a style entry in specs,
+    // preserve the pressure target the brewer actually chose when the vent was
+    // closed. Notes such as "סגירת נשם, כיוון פורק 1.4" are the source of truth
+    // for that batch instead of rendering an undefined style target.
+    const explicitPressureSpec = pressureSpecs?.[normalizedStyle];
+    const configuredFallbackPressureSpec = pressureSpecs?.other;
+    const pressureCloseTarget = [...sortedMeasurements]
+        .reverse()
+        .map((measurement) => String(measurement.notes ?? ""))
+        .filter((note) => /סגיר(?:ת|ה).*(?:נשם|לחץ)|כיוון\s*פורק/.test(note))
+        .map((note) => {
+            const match = note.match(/(?:כיוון\s*פורק|פורק|לחץ)\s*(?:ל[-־]?|[:=]?\s*)?(\d+(?:[.,]\d+)?)/);
+            return match ? Number(match[1].replace(",", ".")) : NaN;
+        })
+        .find((value) => Number.isFinite(value));
+    const effectivePressureTarget =
+        Number.isFinite(explicitPressureSpec)
+            ? explicitPressureSpec
+            : Number.isFinite(pressureCloseTarget)
+                ? pressureCloseTarget
+                : (Number.isFinite(configuredFallbackPressureSpec) ? configuredFallbackPressureSpec : 1.5);
 
-    const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style, givenSpecs)
+    const pressureSpecsForTank: SpecChart = {
+        ...givenSpecs,
+        pressure: {
+            ...pressureSpecs,
+            [normalizedStyle]: Number(effectivePressureTarget),
+        },
+    };
+
+    const isPressureOutOfRangeVal = isPressureOutOfRange(lastMeasurement?.pressure, style, pressureSpecsForTank)
 
     const latestCarbSpec = isCarbonationOutOfRange(lastMeasurement?.carbonation, style, givenSpecs);
     const hasLatestCarb = lastMeasurement?.carbonation !== null &&
@@ -1371,7 +1400,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
         req: warmPressureNeedsAdjustment || coldCarbNeedsPressureAdjustment,
         reason: coldCarbNeedsPressureAdjustment
             ? `הגיזוז היום לא תקין (${lastMeasurement?.carbonation}, גיזוז רצוי- ${carbonationTarget}). מומלץ לבצע שינוי לחץ בהתאם או לוודא שבוצע.`
-            : `מומלץ לכוון פורק ל ${pressureSpecs[normalizedStyle]}, הלחץ כרגע ${pressureSpecs[normalizedStyle] > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
+            : `מומלץ לכוון פורק ל ${effectivePressureTarget}, הלחץ כרגע ${Number(effectivePressureTarget) > Number(lastMeasurement?.pressure) ? "נמוך" : "גבוה"} (${lastMeasurement?.pressure})`,
         importance: coldCarbNeedsPressureAdjustment
             ? latestCarbSpec.importance
             : isPressureOutOfRangeVal.howBad
