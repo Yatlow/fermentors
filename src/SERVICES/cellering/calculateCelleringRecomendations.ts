@@ -1318,7 +1318,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             ? explicitPressureSpec
             : Number.isFinite(pressureCloseTarget)
                 ? pressureCloseTarget
-                : configuredFallbackPressureSpec;
+                : (Number.isFinite(configuredFallbackPressureSpec) ? configuredFallbackPressureSpec : 1.5);
 
     const pressureSpecsForTank: SpecChart = {
         ...givenSpecs,
