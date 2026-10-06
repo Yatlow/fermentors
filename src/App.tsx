@@ -28,7 +28,7 @@ import PackagingForm from "./components/cellering/PackagingForm";
 import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
 import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
 import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
-import { subscribeToProductCatalog } from "./SERVICES/cooler/PalletCatalog";
+import { subscribeToProductCatalog } from "./SERVICES/cooler/PalletCatalogFirestore";
 import BeerLoader from "./components/general/Loading";
 import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningTabs";
 import { BREWING_TABS, type BrewingTab } from "./components/brewing/brewingTabs";
