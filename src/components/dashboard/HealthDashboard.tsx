@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../../firebase";
 import { LightbulbOff, Undo2, UserShield } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -840,26 +842,58 @@ export default function HealthDashboard({ brews, specs }: Props) {
     );
     const overallClass = healthBand(healthScore);
     const previousSettledScoreRef = useRef<number | null>(null);
+    const persistedHealthWriteRef = useRef<boolean | null>(null);
     const [celebrationOpen, setCelebrationOpen] = useState(false);
+    const cellarStateTank = useMemo(
+        () => brews.find((tank) => Number(tank.tankNumber) === 1) as
+            | (Fermentor & { cellarHealthIs100?: boolean })
+            | undefined,
+        [brews]
+    );
+    const persistedHealthIs100 = cellarStateTank?.cellarHealthIs100 === true;
 
     useEffect(() => {
-        if (analyzing) return;
+        if (analyzing || !cellarStateTank?.id) return;
+
         const previous = previousSettledScoreRef.current;
         previousSettledScoreRef.current = healthScore;
+        const desiredIs100 = healthScore === 100;
 
-        // Mounting the dashboard at 100 is not an achievement event. Celebrate
-        // only a real transition from below 100 to a settled 100. If a later
-        // measurement creates new work and drops the score, completing that work
-        // can legitimately produce another celebration.
-        if (previous === null || previous >= 100 || healthScore !== 100) return;
+        // Tank 1 is already part of the app's fermentor listener, so this gives
+        // the celebration a tiny shared state without adding another listener/read.
+        // It is written only when the score crosses the 100 boundary.
+        if (persistedHealthIs100 === desiredIs100) {
+            persistedHealthWriteRef.current = null;
+            return;
+        }
+        if (persistedHealthWriteRef.current === desiredIs100) return;
+        persistedHealthWriteRef.current = desiredIs100;
+
+        const shouldCelebrate =
+            previous !== null &&
+            previous < 100 &&
+            desiredIs100 &&
+            !persistedHealthIs100;
 
         const timer = window.setTimeout(() => {
-            if (previousSettledScoreRef.current === 100) {
-                setCelebrationOpen(true);
-            }
+            if (previousSettledScoreRef.current !== healthScore) return;
+            void updateDoc(doc(db, "fermentors", String(cellarStateTank.id)), {
+                cellarHealthIs100: desiredIs100,
+            }).then(() => {
+                if (shouldCelebrate) setCelebrationOpen(true);
+            }).catch((error) => {
+                persistedHealthWriteRef.current = null;
+                console.error("Failed persisting cellar health celebration state:", error);
+            });
         }, 1200);
+
         return () => window.clearTimeout(timer);
-    }, [analyzing, healthScore]);
+    }, [
+        analyzing,
+        healthScore,
+        cellarStateTank?.id,
+        persistedHealthIs100,
+    ]);
 
     const counts = useMemo(() => ({
         critical: analysis.alerts.filter((alert) => alert.severity === "critical").length,
