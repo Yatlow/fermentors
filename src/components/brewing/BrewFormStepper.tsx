@@ -349,6 +349,29 @@ function addMinutesToTime(value: string, minutes: number): string {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function formatTimeWhileTyping(value: string): string {
+  const raw = value.replace(/\s/g, "").replace(".", ":");
+  if (!raw) return "";
+
+  // Keep an explicitly typed colon and otherwise insert it after two digits.
+  // Limit the field to HH:MM while still allowing compact 1845 input.
+  if (raw.includes(":")) {
+    const [hours = "", minutes = ""] = raw.split(":");
+    return `${hours.replace(/\D/g, "").slice(0, 2)}:${minutes.replace(/\D/g, "").slice(0, 2)}`;
+  }
+
+  const digits = raw.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+function insertTimeColon(value: string): string {
+  if (value.includes(":")) return value;
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits + ":";
+  return digits.slice(0, 2) + ":" + digits.slice(2);
+}
+
 function normalizeUserTime(value: string): string | null {
   const text = value.trim().replace(".", ":");
   if (!text) return "";
@@ -2580,12 +2603,22 @@ export default function BrewFormStepper({
     }
 
     if (hardError) {
-      restoreCommittedField(key);
+      const approved = await askValidationConfirmation(
+        `${hardError} כדאי לבדוק שאין TYPO לפני שממשיכים.`,
+      );
+      if (!approved) {
+        restoreCommittedField(key);
+        setValidationNotice({
+          kind: "warning",
+          text: `${hardError} השמירה בוטלה כדי לאפשר תיקון.`,
+        });
+        return false;
+      }
       setValidationNotice({
-        kind: "error",
-        text: `${hardError} הנתון לא נשמר — בדוק שאין TYPO.`,
+        kind: "warning",
+        text: `${hardError} הנתון נשמר לאחר אישור חריגה.`,
       });
-      return false;
+      return true;
     }
 
     if (warning) {
@@ -3900,7 +3933,7 @@ export default function BrewFormStepper({
                     }
                     value={localValue(`${stage.key}.start`)}
                     onChange={(e) =>
-                      setLocal(`${stage.key}.start`, e.target.value)
+                      setLocal(`${stage.key}.start`, formatTimeWhileTyping(e.target.value))
                     }
                     onBlur={(e) =>
                       void commitTypedStageTime(
@@ -3910,6 +3943,17 @@ export default function BrewFormStepper({
                       )
                     }
                   />
+                  <button
+                    type="button"
+                    className="brew-time-colon"
+                    aria-label="הוסף נקודתיים"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() =>
+                      setLocal(`${stage.key}.start`, insertTimeColon(localValue(`${stage.key}.start`)))
+                    }
+                  >
+                    :
+                  </button>
                   <button
                     type="button"
                     onClick={() => void setNow(stage, "start")}
@@ -3936,7 +3980,7 @@ export default function BrewFormStepper({
                       }
                       value={localValue(`${stage.key}.end`)}
                       onChange={(e) =>
-                        setLocal(`${stage.key}.end`, e.target.value)
+                        setLocal(`${stage.key}.end`, formatTimeWhileTyping(e.target.value))
                       }
                       onBlur={(e) =>
                         void commitTypedStageTime(
@@ -4637,7 +4681,7 @@ export default function BrewFormStepper({
                           onChange={(e) =>
                             setLocal(
                               `rinse${index}.time`,
-                              e.target.value,
+                              formatTimeWhileTyping(e.target.value),
                             )
                           }
                           onBlur={(e) => {
@@ -4744,14 +4788,14 @@ export default function BrewFormStepper({
                           onChange={(e) =>
                             setLocal(
                               `rinse${index}.grant`,
-                              e.target.value,
+                              formatTimeWhileTyping(e.target.value),
                             )
                           }
                           onBlur={(e) =>
                             void commitRinse(
                               index,
                               "grant",
-                              e.target.value,
+                              formatTimeWhileTyping(e.target.value),
                             )
                           }
                         />
@@ -5087,10 +5131,21 @@ export default function BrewFormStepper({
                       required
                   value={localValue("yeastPitchTime")}
                       onChange={(e) =>
-                        setLocal("yeastPitchTime", e.target.value)
+                        setLocal("yeastPitchTime", formatTimeWhileTyping(e.target.value))
                       }
                       onBlur={(e) => void commitYeastPitch(e.target.value)}
                     />
+                    <button
+                      type="button"
+                      className="brew-time-colon"
+                      aria-label="הוסף נקודתיים"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() =>
+                        setLocal("yeastPitchTime", insertTimeColon(localValue("yeastPitchTime")))
+                      }
+                    >
+                      :
+                    </button>
                     <button
                       type="button"
                       onClick={() => void commitYeastPitch(hhmmNow())}
