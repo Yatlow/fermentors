@@ -1,10 +1,10 @@
 type PackagingSource = {
-  id?: string | number;
-  tankNumber?: string | number;
-  batchNumber?: string | number;
-  tankStatus?: boolean;
-  action?: string | number;
-  stage?: { className?: string };
+  id?: unknown;
+  tankNumber?: unknown;
+  batchNumber?: unknown;
+  tankStatus?: unknown;
+  action?: unknown;
+  stage?: unknown;
 };
 import type { Actual, Plan, Product, WeekPlan } from "./planningEngine";
 import { openRuns } from "./dailyPlanner";
@@ -37,7 +37,9 @@ function sourceShowsTankClosed(run: Plan, source: PackagingSource | undefined) {
   if ([3, 4, 5].includes(Number(source.action))) return true;
 
   return ["stage-empty", "stage-clean", "stage-sanitized"].includes(
-    source.stage?.className ?? "",
+    typeof source.stage === "object" && source.stage !== null && "className" in source.stage
+      ? String((source.stage as { className?: unknown }).className ?? "")
+      : "",
   );
 }
 
