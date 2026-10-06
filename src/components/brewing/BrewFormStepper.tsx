@@ -3888,9 +3888,9 @@ export default function BrewFormStepper({
               <div className="brew-stage-label">
                 <strong>{stage.label}</strong>
                 {target && (
-                  <small>
-                    יעד {target.targetTemp}°C
-                    {duration ? ` · ${duration} דק׳` : ""}
+                  <small dir="rtl">
+                    יעד <bdi dir="ltr">{target.targetTemp}°C</bdi>
+                    {duration && <> · <bdi dir="ltr">{duration} דק׳</bdi></>}
                   </small>
                 )}
                 {!target && duration && (
