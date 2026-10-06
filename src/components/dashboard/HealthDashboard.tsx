@@ -841,29 +841,23 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const overallClass = healthBand(healthScore);
     const previousSettledScoreRef = useRef<number | null>(null);
     const [celebrationOpen, setCelebrationOpen] = useState(false);
-    const celebrationStorageKey = `cellar-celebration:${localDateKey(new Date())}`;
 
     useEffect(() => {
         if (analyzing) return;
         const previous = previousSettledScoreRef.current;
         previousSettledScoreRef.current = healthScore;
 
-        // A celebration is a once-per-day event, not a property of mounting the
-        // dashboard. Persist it for the day so navigation/remounts cannot replay it.
+        // Mounting at 100 is not an achievement event. Celebrate only a real,
+        // settled transition from below 100 to 100. If the score later drops,
+        // a future return to 100 is a new completion and should celebrate again.
         if (previous === null || previous >= 100 || healthScore !== 100) return;
-        if (window.localStorage.getItem(celebrationStorageKey) === "shown") return;
-
         const timer = window.setTimeout(() => {
-            if (
-                previousSettledScoreRef.current === 100 &&
-                window.localStorage.getItem(celebrationStorageKey) !== "shown"
-            ) {
-                window.localStorage.setItem(celebrationStorageKey, "shown");
+            if (previousSettledScoreRef.current === 100) {
                 setCelebrationOpen(true);
             }
         }, 1200);
         return () => window.clearTimeout(timer);
-    }, [analyzing, healthScore, celebrationStorageKey]);
+    }, [analyzing, healthScore]);
 
     const counts = useMemo(() => ({
         critical: analysis.alerts.filter((alert) => alert.severity === "critical").length,
