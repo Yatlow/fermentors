@@ -422,6 +422,7 @@ export default function PlanningGantt(props: Props) {
         title: `משלוח טמפו${suffix}`,
         meta: stockLines.map(({ style, values }) => `${style} · ${values.join(" · ")}`).join("\n"),
         stockLines,
+        actual: match.status !== "pending",
       };
     }).filter((item) => item.stockLines.length > 0);
   }
