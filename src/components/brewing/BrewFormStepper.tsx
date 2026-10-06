@@ -21,6 +21,7 @@ import {
   writeBrewSheetCells,
 } from "../../SERVICES/brewing/brewSheet";
 import BeerLoader from "../general/Loading";
+import { CalculatorIconButton, CalculatorModal } from "../tools/BrewingMeasurementCalculators";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
 import {
   activeLot,
@@ -998,6 +999,7 @@ export default function BrewFormStepper({
   const [acidHistoryError, setAcidHistoryError] = useState("");
   const [acidHistory, setAcidHistory] = useState<MashAcidHistoryRow[]>([]);
   const [boilCalcOpen, setBoilCalcOpen] = useState(false);
+  const [hydrometerTarget, setHydrometerTarget] = useState<"frPlato" | "lrPlato" | "kettlePlato" | "endBoilPlato" | "fermentorSamplePlato" | null>(null);
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
@@ -4630,6 +4632,7 @@ export default function BrewFormStepper({
                     void commitSugar("frPlato", e.target.value, 36, "B")
                   }
                 />
+                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("frPlato")} />
               </label>
             </div>
 
@@ -4820,6 +4823,7 @@ export default function BrewFormStepper({
                       void commitSugar("lrPlato", e.target.value, 37, "B")
                     }
                   />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("lrPlato")} />
                 </label>
               </div>
             </div>
@@ -4846,6 +4850,7 @@ export default function BrewFormStepper({
                     void commitSugar("kettlePlato", e.target.value, 38, "B")
                   }
                 />
+                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("kettlePlato")} />
               </label>
 
               <label>
@@ -5085,6 +5090,7 @@ export default function BrewFormStepper({
                     void commitSugar("endBoilPlato", e.target.value, 39, "B")
                   }
                 />
+                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("endBoilPlato")} />
               </label>
               <label>
                 נפח סוף רתיחה
@@ -5167,6 +5173,7 @@ export default function BrewFormStepper({
                     )
                   }
                 />
+                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("fermentorSamplePlato")} />
               </label>
 
               <label>
@@ -5785,6 +5792,27 @@ export default function BrewFormStepper({
             </div>
           </section>
         </div>
+      )}
+
+      {hydrometerTarget && (
+        <CalculatorModal
+          kind="hydrometer"
+          onClose={() => setHydrometerTarget(null)}
+          onUse={(result) => {
+            const value = result.toFixed(2);
+            setLocal(hydrometerTarget, value);
+            const config = {
+              frPlato: [36, "B"],
+              lrPlato: [37, "B"],
+              kettlePlato: [38, "B"],
+              endBoilPlato: [39, "B"],
+              fermentorSamplePlato: [40, "B"],
+            } as const;
+            const [row, column] = config[hydrometerTarget];
+            void commitSugar(hydrometerTarget, value, row, column);
+            setHydrometerTarget(null);
+          }}
+        />
       )}
 
       <div className="brew-step-footer">
