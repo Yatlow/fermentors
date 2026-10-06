@@ -31,8 +31,6 @@ try {
       "--esModuleInterop",
       "--skipLibCheck",
       "--noEmitOnError",
-      "--moduleResolution",
-      "node",
       "--outDir",
       output,
       ...tests.map((name) => `tests/${name}.test.ts`),
