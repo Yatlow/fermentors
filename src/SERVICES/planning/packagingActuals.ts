@@ -1,4 +1,4 @@
-import type { Fermentor } from "../../App";
+type PackagingSource = {\n  id?: string | number;\n  tankNumber?: string | number;\n  batchNumber?: string | number;\n  tankStatus?: boolean;\n  action?: string | number;\n  stage?: { className?: string };\n};
 import type { Actual, Plan, Product, WeekPlan } from "./planningEngine";
 import { openRuns } from "./dailyPlanner";
 
@@ -10,14 +10,14 @@ function openRunKey(week: WeekPlan, run: Plan, index: number) {
   return run.id ?? `${week.id}:${run.productId}:${index}`;
 }
 
-function sourceForRun(run: Plan, sources: Fermentor[]) {
+function sourceForRun(run: Plan, sources: PackagingSource[]) {
   return sources.find((source) =>
     (!!run.tankId && source.id === run.tankId) ||
     (!!run.tankNumber && String(source.tankNumber) === String(run.tankNumber)),
   );
 }
 
-function sourceShowsTankClosed(run: Plan, source: Fermentor | undefined) {
+function sourceShowsTankClosed(run: Plan, source: PackagingSource | undefined) {
   if (!source) return false;
 
   if (
@@ -65,7 +65,7 @@ export function plansAfterActualPackagingCompletion(
   plans: WeekPlan[],
   products: Product[],
   actuals: Actual[],
-  sources: Fermentor[],
+  sources: PackagingSource[],
 ): WeekPlan[] {
   return plans.map((week) => {
     const completed = completionMap(week, products, actuals);
@@ -95,7 +95,7 @@ export function mergeCompletedPackagingBack(
   edited: WeekPlan,
   products: Product[],
   actuals: Actual[],
-  sources: Fermentor[],
+  sources: PackagingSource[],
 ): WeekPlan {
   const open = completionMap(original, products, actuals);
   const completed = new Map<string, Plan>();
