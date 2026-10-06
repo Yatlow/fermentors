@@ -1,5 +1,6 @@
 import type { Fermentor, NewReading } from "../../App";
 import RecentMeasurements from "./RecentMeasurements";
+import { beerStyleVisual } from "../../SERVICES/beerStyleVisual";
 
 export type DailyPressureAndTempProps = {
   brews: Fermentor[],
@@ -33,13 +34,13 @@ export default function DailyPressureAndTemp({
                     מיכל {fv.tankNumber}
                   </div>
                   {Number(fv.action) === 1 &&
-                    <div className="measurement-style">
+                    <div className="measurement-style" style={{ background: beerStyleVisual(fv.beerStyle).background, borderColor: beerStyleVisual(fv.beerStyle).border, color: beerStyleVisual(fv.beerStyle).text }}>
                       {fv.beerStyle ?? "-"}
                     </div>}
                 </div>
 
 
-                <div className="measurement-batch">
+                <div className="measurement-batch" style={Number(fv.action) === 1 ? { borderInlineStart: `4px solid ${beerStyleVisual(fv.beerStyle).border}`, paddingInlineStart: 8 } : undefined}>
                   {Number(fv.action) === 1 ? `אצווה #${fv.batchNumber ?? "-"}` : `מיכל ${fv.stage?.name}`}
                 </div>
 
