@@ -1306,7 +1306,8 @@ export default function BrewFormStepper({
     ];
     return Array.from({ length: totalBlocks }, (_, index) => index + 1)
       .flatMap((blockIndex) => labels.map(([id, label]) => ({
-        label: totalBlocks > 1 ? "בישול " + (["A", "B", "C"] as const)[blockIndex - 1] + " · " + label : label,
+        brewLabel: totalBlocks > 1 ? (["A", "B", "C"] as const)[blockIndex - 1] : "",
+        label,
         count: stepMissingCountForBlock(blockIndex, id),
       })))
       .filter((item) => item.count > 0);
@@ -5297,8 +5298,9 @@ export default function BrewFormStepper({
               {missingItems.length > 0 && (
                 <ul>
                   {missingItems.map((item) => (
-                    <li key={item.label}>
-                      {item.label} — חסרים {item.count}
+                    <li key={`${item.brewLabel}-${item.label}`} dir="rtl">
+                      {item.brewLabel && <>בישול <bdi dir="ltr">{item.brewLabel}</bdi> · </>}
+                      <bdi dir="auto">{item.label}</bdi> — חסרים <bdi dir="ltr">{item.count}</bdi>
                     </li>
                   ))}
                 </ul>
@@ -5309,23 +5311,7 @@ export default function BrewFormStepper({
               </p>
             </div>
 
-            <div className="brew-summary-sync">
-              <button
-                type="button"
-                className="brew-button-secondary"
-                disabled={pulling || !!syncing || !run.sheetId}
-                onClick={() => void syncFromSheet()}
-              >
-                {pulling ? (
-                  <BeerLoader size="spinner" message="מסנכרן…" />
-                ) : (
-                  "↻ סנכרן עכשיו מה-Sheet"
-                )}
-              </button>
-              <small>
-                מושך שינויים שנעשו ידנית ב-Sheet אל טופס הבישול.
-              </small>
-            </div>
+
           </div>
         )}
       </section>
