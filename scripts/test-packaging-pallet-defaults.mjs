@@ -53,7 +53,7 @@ assert.doesNotMatch(
   ),
   /createPalletsForPlan\(/,
   "reconciliation must never create missing physical pallets automatically");
-assert.match(logger, /reserveNewPalletsForNearestShipment\([\s\S]*matchingPallets\.map/,
+assert.match(logger, /reserveNewPalletsForNearestShipment\(reconciledIds\)/,
   "successful reconciliation must still re-evaluate planned shipment reservations");
 assert.match(syncStatus, /בדוק והשלם אריזה/,
   "dashboard recovery action must describe reconciliation rather than blind pallet recreation");
