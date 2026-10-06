@@ -223,7 +223,7 @@ export function defaultSettings(): Settings {
                 monthly: 0,
                 tempo: null,
                 tempoDate: "",
-                leadDays: style.includes("לאגר") ? 50 : 21,
+                leadDays: 21,
               },
             ]
           : [];
@@ -258,9 +258,7 @@ export function tanksFrom(
         .map((p) => p.leadDays);
       const lead = leads.length
         ? Math.max(...leads)
-        : t.beerStyle.includes("לאגר")
-          ? 50
-          : 21;
+        : 21;
       // Existing TankCard treats currentData.crates/kegs as liters, not unit counts.
       // Use max of synchronized legacy totals and packaging log totals, never their sum.
       const logged = actuals
