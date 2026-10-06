@@ -5121,17 +5121,6 @@ export default function BrewFormStepper({
                     />
                     <button
                       type="button"
-                      className="brew-time-colon"
-                      aria-label="הוסף נקודתיים"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() =>
-                        setLocal("yeastPitchTime", insertTimeColon(localValue("yeastPitchTime")))
-                      }
-                    >
-                      :
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => void commitYeastPitch(hhmmNow())}
                     >
                       עכשיו
