@@ -18,6 +18,15 @@ export function correctedPlato(observedPlato: number, tempC: number): number {
   const correctedSg = platoToSg(observedPlato) * hydrometerFactorF(tempF) / hydrometerFactorF(referenceF);
   return sgToPlato(correctedSg);
 }
+function roundCarbonationLikePrintedTable(value: number): number {
+  // Printed chart convention requested by brewery: third decimal 0–5 goes down,
+  // 6–9 goes up. This intentionally differs from Math.round at an exact x.xx5.
+  const scaled = value * 100;
+  const hundredths = Math.floor(scaled + 1e-9);
+  const thirdDigit = Math.floor(value * 1000 + 1e-7) % 10;
+  return (thirdDigit <= 5 ? hundredths : hundredths + 1) / 100;
+}
+
 export function carbonationVolumes(pressurePsi: number, tempF: number): number {
   // Inverse of the ASBC/Zahm & Nagel pressure/temperature relationship.
   // Example from the photographed chart: 10 PSI at 38°F = 2.38 volumes.
@@ -27,7 +36,8 @@ export function carbonationVolumes(pressurePsi: number, tempF: number): number {
   const discriminant = b * b - 4 * a * c;
   if (discriminant < 0) return NaN;
   const roots = [(-b + Math.sqrt(discriminant)) / (2 * a), (-b - Math.sqrt(discriminant)) / (2 * a)];
-  return roots.find(v => v >= 0 && v <= 10) ?? NaN;
+  const raw = roots.find(v => v >= 0 && v <= 10) ?? NaN;
+  return Number.isFinite(raw) ? roundCarbonationLikePrintedTable(raw) : raw;
 }
 
 function NumberBox({label,value,onChange,unit}:{label:string;value:Num;onChange:(v:Num)=>void;unit:string}) {
@@ -68,6 +78,23 @@ export function CalculatorModal({kind,onClose,onUse}:{kind:"hydrometer"|"carbona
   </div></div>;
 }
 export function CalculatorIconButton({label,onClick}:{label:string;onClick:()=>void}) {
-  return <button type="button" className="brewCalcIconButton" title={label} aria-label={label} onClick={onClick}><Calculator size={16}/><CalculatorCss/></button>;
+  return <button type="button" className="brewCalcIconButton" title={label} aria-label={label} onPointerDown={e=>e.preventDefault()} onClick={onClick}><Calculator size={16}/><CalculatorCss/></button>;
 }
-function CalculatorCss(){return <style>{`.brewCalcMini{display:grid;gap:12px}.brewCalcMini.compact{padding:10px}.brewCalcMiniGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.brewCalcMiniField{display:grid;gap:5px;font-weight:700}.brewCalcMiniField>div{display:flex;align-items:center;gap:6px}.brewCalcMiniField input{min-width:0;width:100%;max-width:150px;height:38px;border:1px solid #cbd5e1;border-radius:9px;padding:0 10px;font:inherit}.brewCalcMiniField b{white-space:nowrap;font-size:12px;color:#64748b}.brewCalcMini small{color:#64748b}.brewCalcUse{justify-self:start}.brewCalcOverlay{position:fixed;inset:0;z-index:10050;background:#0f172a66;display:flex;align-items:center;justify-content:center;padding:18px}.brewCalcDialog{position:relative;width:min(520px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 24px 70px #0004}.brewCalcDialog h3{margin:0 0 16px}.brewCalcClose{position:absolute;left:12px;top:12px;border:0;background:#f1f5f9;border-radius:50%;width:36px;height:36px;display:grid;place-items:center;cursor:pointer}.brewCalcIconButton{border:1px solid #cbd5e1;background:#fff;border-radius:8px;width:34px;height:34px;display:inline-grid;place-items:center;cursor:pointer;color:#245f91;vertical-align:middle}@media(max-width:520px){.brewCalcMiniGrid{grid-template-columns:1fr 1fr;gap:8px}.brewCalcMiniField input{max-width:120px}}`}</style>}
+function CalculatorCss(){return <style>{`
+.brewCalcMini{display:grid;gap:14px}
+.brewCalcMini.compact{padding:2px 0 0}
+.brewCalcMiniGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.brewCalcMiniField{display:grid;gap:6px;font-weight:700;font-size:.86rem}
+.brewCalcMiniField>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px}
+.brewCalcMiniField input{min-width:0;width:100%;height:40px;border:1px solid #cbd5e1;border-radius:10px;padding:0 10px;font:inherit;background:#fff}
+.brewCalcMiniField b{white-space:nowrap;font-size:12px;color:#64748b}
+.calc-result{padding:11px 12px;border-radius:11px;background:#f1f5f9;text-align:center}
+.brewCalcMini small{color:#64748b}
+.brewCalcUse{justify-self:stretch;min-height:42px}
+.brewCalcOverlay{position:fixed;inset:0;z-index:10050;background:#0f172a66;display:flex;align-items:center;justify-content:center;padding:18px}
+.brewCalcDialog{position:relative;width:min(430px,calc(100vw - 28px));background:#fff;border-radius:16px;padding:18px;box-shadow:0 24px 70px #0004}
+.brewCalcDialog h3{margin:0 0 16px;padding-inline-end:38px}
+.brewCalcClose{position:absolute;left:12px;top:12px;border:0;background:#f1f5f9;border-radius:50%;width:34px;height:34px;display:grid;place-items:center;cursor:pointer}
+.brewCalcIconButton{border:1px solid #cbd5e1;background:#f8fafc;border-radius:8px;width:36px;height:40px;display:inline-grid;place-items:center;cursor:pointer;color:#245f91;vertical-align:middle;flex:0 0 auto}
+@media(max-width:520px){.brewCalcDialog{padding:16px}.brewCalcMiniGrid{gap:8px}.brewCalcMiniField input{height:38px}.brewCalcIconButton{height:38px}}
+`}</style>}
