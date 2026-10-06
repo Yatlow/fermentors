@@ -4623,7 +4623,8 @@ export default function BrewFormStepper({
             <div className="brew-lauter-reading-row">
               <label>
                 F.R.
-                <input
+                <div className="brew-field-with-action">
+                  <input
                   type="number"
                   step="0.01"
                   value={localValue("frPlato")}
@@ -4632,7 +4633,8 @@ export default function BrewFormStepper({
                     void commitSugar("frPlato", e.target.value, 36, "B")
                   }
                 />
-                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("frPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("frPlato")} />
+                </div>
               </label>
             </div>
 
@@ -4808,6 +4810,7 @@ export default function BrewFormStepper({
               <div className="brew-lauter-reading-row">
                 <label>
                   L.R.
+                  <div className="brew-field-with-action">
                   <input
                     type="number"
                     step="0.01"
@@ -4824,6 +4827,7 @@ export default function BrewFormStepper({
                     }
                   />
                   <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("lrPlato")} />
+                </div>
                 </label>
               </div>
             </div>
@@ -4840,7 +4844,8 @@ export default function BrewFormStepper({
             <div className="brew-boil-opening-grid">
               <label>
                 Plato בסיר
-                <input
+                <div className="brew-field-with-action">
+                  <input
                   type="number"
                   step="0.01"
                   required
@@ -4850,7 +4855,8 @@ export default function BrewFormStepper({
                     void commitSugar("kettlePlato", e.target.value, 38, "B")
                   }
                 />
-                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("kettlePlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("kettlePlato")} />
+                </div>
               </label>
 
               <label>
@@ -5080,7 +5086,8 @@ export default function BrewFormStepper({
             <div className="brew-boil-opening-grid">
               <label>
                 סוף רתיחה °P
-                <input
+                <div className="brew-field-with-action">
+                  <input
                   type="number"
                   step="0.01"
                   required
@@ -5090,7 +5097,8 @@ export default function BrewFormStepper({
                     void commitSugar("endBoilPlato", e.target.value, 39, "B")
                   }
                 />
-                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("endBoilPlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("endBoilPlato")} />
+                </div>
               </label>
               <label>
                 נפח סוף רתיחה
@@ -5156,7 +5164,8 @@ export default function BrewFormStepper({
             <div className="brew-sugar-grid">
               <label>
                 תחילת תסיסה °P
-                <input
+                <div className="brew-field-with-action">
+                  <input
                   type="number"
                   step="0.01"
                   required
@@ -5173,7 +5182,8 @@ export default function BrewFormStepper({
                     )
                   }
                 />
-                <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("fermentorSamplePlato")} />
+                  <CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("fermentorSamplePlato")} />
+                </div>
               </label>
 
               <label>
