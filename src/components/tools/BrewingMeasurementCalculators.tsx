@@ -18,6 +18,15 @@ export function correctedPlato(observedPlato: number, tempC: number): number {
   const correctedSg = platoToSg(observedPlato) * hydrometerFactorF(tempF) / hydrometerFactorF(referenceF);
   return sgToPlato(correctedSg);
 }
+function roundCarbonationLikePrintedTable(value: number): number {
+  // Printed chart convention requested by brewery: third decimal 0–5 goes down,
+  // 6–9 goes up. This intentionally differs from Math.round at an exact x.xx5.
+  const scaled = value * 100;
+  const hundredths = Math.floor(scaled + 1e-9);
+  const thirdDigit = Math.floor(value * 1000 + 1e-7) % 10;
+  return (thirdDigit <= 5 ? hundredths : hundredths + 1) / 100;
+}
+
 export function carbonationVolumes(pressurePsi: number, tempF: number): number {
   // Inverse of the ASBC/Zahm & Nagel pressure/temperature relationship.
   // Example from the photographed chart: 10 PSI at 38°F = 2.38 volumes.
@@ -27,7 +36,8 @@ export function carbonationVolumes(pressurePsi: number, tempF: number): number {
   const discriminant = b * b - 4 * a * c;
   if (discriminant < 0) return NaN;
   const roots = [(-b + Math.sqrt(discriminant)) / (2 * a), (-b - Math.sqrt(discriminant)) / (2 * a)];
-  return roots.find(v => v >= 0 && v <= 10) ?? NaN;
+  const raw = roots.find(v => v >= 0 && v <= 10) ?? NaN;
+  return Number.isFinite(raw) ? roundCarbonationLikePrintedTable(raw) : raw;
 }
 
 function NumberBox({label,value,onChange,unit}:{label:string;value:Num;onChange:(v:Num)=>void;unit:string}) {
