@@ -361,15 +361,10 @@ function formatTimeWhileTyping(value: string): string {
   }
 
   const digits = raw.replace(/\D/g, "").slice(0, 4);
-  if (digits.length <= 2) return digits;
+  // Keep 3-digit compact times intact while typing so 845 can normalize to
+  // 08:45 on blur. Four digits are unambiguous and can be formatted eagerly.
+  if (digits.length <= 3) return digits;
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
-}
-
-function insertTimeColon(value: string): string {
-  if (value.includes(":")) return value;
-  const digits = value.replace(/\D/g, "").slice(0, 4);
-  if (digits.length <= 2) return digits + ":";
-  return digits.slice(0, 2) + ":" + digits.slice(2);
 }
 
 function normalizeUserTime(value: string): string | null {
@@ -3943,17 +3938,6 @@ export default function BrewFormStepper({
                       )
                     }
                   />
-                  <button
-                    type="button"
-                    className="brew-time-colon"
-                    aria-label="הוסף נקודתיים"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() =>
-                      setLocal(`${stage.key}.start`, insertTimeColon(localValue(`${stage.key}.start`)))
-                    }
-                  >
-                    :
-                  </button>
                   <button
                     type="button"
                     onClick={() => void setNow(stage, "start")}
