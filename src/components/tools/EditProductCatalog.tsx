@@ -61,7 +61,6 @@ export default function EditProductCatalog({ isAdmin }: { isAdmin: boolean }) {
       <div className="catalog-editor-header">
         <div>
           <h2>ניהול קטלוג מוצר מוגמר</h2>
-          <p>המק״ט והתיאור משמשים בדפי אריזה ובמסמכי משלוח. שינויים נשמרים ב-Firestore וזמינים לכל המשתמשים.</p>
         </div>
         <button type="button" className="status-filter-button" onClick={add}>+ מוצר</button>
       </div>
@@ -84,9 +83,9 @@ export default function EditProductCatalog({ isAdmin }: { isAdmin: boolean }) {
             <label className="catalog-description">תיאור מוצר
               <input value={row.displayText} onChange={(e) => patch(row.id, { displayText: e.target.value })} />
             </label>
-            <label className="catalog-enabled">
-              <input type="checkbox" checked={row.enabled} onChange={(e) => patch(row.id, { enabled: e.target.checked })} />
-              פעיל
+            <label className="catalog-enabled catalog-enabled-switch">
+              <span>פעיל</span>
+              <input type="checkbox" role="switch" checked={row.enabled} onChange={(e) => patch(row.id, { enabled: e.target.checked })} />
             </label>
             <button type="button" className="status-filter-button active" disabled={saving === row.id} onClick={() => save(row)}>
               {saving === row.id ? "שומר…" : "שמור"}
