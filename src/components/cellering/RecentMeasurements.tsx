@@ -62,7 +62,11 @@ export default function RecentMeasurements({ tank, mode }: Props) {
     try {
       const measurements = await getMeasurementsByBatch(batch);
       if (request !== requestVersion.current) return;
+      const hasRelevantValue = (measurement: Measurement) => mode === "pressure"
+        ? [measurement.temp, measurement.pressure].some((item) => item !== undefined && item !== null && item !== "")
+        : [measurement.plato, measurement.pH].some((item) => item !== undefined && item !== null && item !== "");
       const newestFive = [...measurements]
+        .filter(hasRelevantValue)
         .sort((a, b) => String(b.id ?? "").localeCompare(String(a.id ?? "")))
         .slice(0, 5);
       setRows(newestFive.reverse());
