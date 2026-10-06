@@ -855,7 +855,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
     useEffect(() => {
         if (analyzing || !cellarStateTank?.id) return;
 
-        const previous = previousSettledScoreRef.current;
         previousSettledScoreRef.current = healthScore;
         const desiredIs100 = healthScore === 100;
 
@@ -870,8 +869,6 @@ export default function HealthDashboard({ brews, specs }: Props) {
         persistedHealthWriteRef.current = desiredIs100;
 
         const shouldCelebrate =
-            previous !== null &&
-            previous < 100 &&
             desiredIs100 &&
             !persistedHealthIs100;
 

@@ -52,7 +52,8 @@ export function HydrometerCorrectionCalculator({compact=false,onUse}:{compact?:b
     {!compact&&<div className="spec-card-header"><h2>תיקון הידרומטר</h2></div>}
     <div className="brewCalcMiniGrid"><NumberBox label="פלאטו שנמדד" value={plato} onChange={setPlato} unit="°P"/><NumberBox label="טמפרטורת הדגימה" value={temp} onChange={setTemp} unit="°C"/></div>
     <div className="calc-result">פלאטו מתוקן ל־20°C: <strong>{result===null?"חסר נתון":result.toFixed(2)+"°P"}</strong></div>
-    {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}\n    {!compact&&<small>מחושב לפי תיקון צפיפות הידרומטר סטנדרטי ב־20°C, התואם לטבלת NBS המצולמת.</small>}
+    {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}
+    {!compact&&<small>מחושב לפי תיקון צפיפות הידרומטר סטנדרטי ב־20°C, התואם לטבלת NBS המצולמת.</small>}
     <CalculatorCss/>
   </section>;
 }
