@@ -5600,7 +5600,7 @@ export default function BrewFormStepper({
               const base = num(heightBaseLiters);
               const calculated =
                 spec && height !== null && base !== null
-                  ? roundToFive(base + (100 * height) / spec.cmPer100)
+                  ? Math.round(base + (100 * height) / spec.cmPer100)
                   : null;
 
               return (
@@ -5655,7 +5655,7 @@ export default function BrewFormStepper({
                         <strong>
                           {calculated === null ? "—" : `${calculated} ל׳`}
                         </strong>
-                        {calculated !== null && <small>מעוגל ל־5 ל׳</small>}
+                        {calculated !== null && <small>מעוגל לליטר שלם</small>}
                       </div>
                     </>
                   )}
