@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   getEditableCatalogEntries,
-  saveCatalogEntry,
-  subscribeToProductCatalog,
   type EditableCatalogEntry,
 } from "../../SERVICES/cooler/PalletCatalog";
+import { saveCatalogEntry, subscribeToProductCatalog } from "../../SERVICES/cooler/PalletCatalogFirestore";
 
 export default function EditProductCatalog({ isAdmin }: { isAdmin: boolean }) {
   const [rows, setRows] = useState<EditableCatalogEntry[]>([]);
@@ -48,8 +47,8 @@ export default function EditProductCatalog({ isAdmin }: { isAdmin: boolean }) {
         enabled: row.enabled,
       });
       setMessage("הקטלוג נשמר");
-    } catch (error: any) {
-      setMessage(error?.message ?? "שמירת הקטלוג נכשלה");
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "שמירת הקטלוג נכשלה");
     } finally {
       setSaving(null);
     }
@@ -71,7 +70,7 @@ export default function EditProductCatalog({ isAdmin }: { isAdmin: boolean }) {
         {rows.map((row) => (
           <article className="catalog-editor-row" key={row.id}>
             <label>סגנון
-              <input value={row.beerStyle} onChange={(e) => patch(row.id, { beerStyle: e.target.value, styleKey: row.styleKey || e.target.value })} />
+              <input value={row.beerStyle} onChange={(e) => patch(row.id, { beerStyle: e.target.value, styleKey: row.id.startsWith("new-") ? "" : row.styleKey })} />
             </label>
             <label>אריזה
               <select value={row.itemType} onChange={(e) => patch(row.id, { itemType: e.target.value as "crates" | "kegs" })}>
