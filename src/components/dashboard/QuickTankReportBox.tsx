@@ -25,6 +25,8 @@ import {
 import { pushCurrentDataToFirestore } from "../../SERVICES/getAndPost/pushCurrentDataToFirestore";
 import PackagingPalletsModal from "../cooler/PackagingPalletsModal";
 import type { PackagingJobInput } from "../../SERVICES/cooler/usePackagingPalletsFlow";
+import { CalculatorIconButton, CalculatorModal } from "../tools/BrewingMeasurementCalculators";
+import { upsertMeasurementInCache } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import {
     Bubbles,
     BottleWine,
@@ -95,6 +97,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
     const isColdTank = tank.stage?.name === "קר";
 
     const [noteType, setNoteType] = useState("");
+    const [carbonationCalcOpen, setCarbonationCalcOpen] = useState(false);
     const [reportTypeOpen, setReportTypeOpen] = useState(false);
     const [value, setValue] = useState("");
     const [value2, setValue2] = useState("");
@@ -296,6 +299,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                 ...reading,
                 sheetResult: successfulResult?.result,
             }]);
+            upsertMeasurementInCache(tank.batchNumber ?? "", reading);
             setStatus("sent");
             onClose();
 
@@ -520,8 +524,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                             )}
 
                             {noteType === "גיזוז" && (
-                                <input type="number" min={0} max={15} placeholder="גיזוז" value={value} disabled={isSending}
-                                    onChange={(e) => setValue(e.target.value)} />
+                                <div className="quickReportInline">
+                                    <input type="number" min={0} max={15} placeholder="גיזוז" value={value} disabled={isSending}
+                                        onChange={(e) => setValue(e.target.value)} />
+                                    <CalculatorIconButton label="פתח מחשבון גיזוז" onClick={() => setCarbonationCalcOpen(true)} />
+                                </div>
                             )}
 
                             {(noteType === "גיזוז מלמטה התחלה" || noteType === "גיזוז מלמטה סגירה") && (
@@ -694,6 +701,10 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                         {status === "error" && <p className="status-error">שגיאה: {errorMsg}</p>}
                     </div>
                 </div>
+            )}
+
+            {carbonationCalcOpen && (
+                <CalculatorModal kind="carbonation" onClose={() => setCarbonationCalcOpen(false)} onUse={(result) => { setValue(result.toFixed(2)); setCarbonationCalcOpen(false); }} />
             )}
 
             {packagingJob && (
