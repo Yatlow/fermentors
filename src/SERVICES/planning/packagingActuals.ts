@@ -1,4 +1,11 @@
-type PackagingSource = {\n  id?: string | number;\n  tankNumber?: string | number;\n  batchNumber?: string | number;\n  tankStatus?: boolean;\n  action?: string | number;\n  stage?: { className?: string };\n};
+type PackagingSource = {
+  id?: string | number;
+  tankNumber?: string | number;
+  batchNumber?: string | number;
+  tankStatus?: boolean;
+  action?: string | number;
+  stage?: { className?: string };
+};
 import type { Actual, Plan, Product, WeekPlan } from "./planningEngine";
 import { openRuns } from "./dailyPlanner";
 
