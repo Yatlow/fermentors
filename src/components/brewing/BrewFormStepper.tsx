@@ -474,7 +474,6 @@ function fieldsFromSheetRows(
   ingredientLibrary: IngredientDefinition[] = [],
   baseOffset = 0,
   sheetStartRow = 1,
-  blockIndex = 1,
 ): Record<string, string> {
   const pulled: Record<string, string> = {};
   const cell = (
