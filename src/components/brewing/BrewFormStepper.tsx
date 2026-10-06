@@ -913,21 +913,9 @@ function fieldsFromSheetRows(
       pulled[`materialLot.${ingredient.id}`] = matchingLot.id;
     });
 
-    const materialsRequiredForThisBlock =
-      blockIndex === 1
-        ? expectedMaterials
-        : expectedMaterials.filter(
-            ({ ingredientId }) => ingredientId !== recipe.yeast.ingredientId,
-          );
-
-    if (
-      materialsRequiredForThisBlock.length > 0 &&
-      materialsRequiredForThisBlock.every((ingredient) =>
-        Boolean(pulled[`materialLot.${ingredient.ingredientId}`]),
-      )
-    ) {
-      pulled.materialsConfirmed = "yes";
-    }
+    // Sheet reconciliation may identify material lots, but confirmation is a
+    // deliberate brewer action. Never infer materialsConfirmed from Sheet
+    // contents; confirmMaterials() is the only path that may set it to "yes".
   }
 
   return pulled;
