@@ -322,6 +322,9 @@ export function dueScheduledForTank(
   batchNumber: string | number | null | undefined,
   today = todayDateKey(),
 ): DueScheduledCellarRecommendation[] {
+  // Scheduled cellar work is date-specific, not an overdue task queue.
+  // Showing older/future rows in today's recommendation modal makes the first
+  // post-measurement load surface actions that were not scheduled for today.
   return scheduledForTank(rows, tankNumber, batchNumber)
-    .filter((row) => row.dueDate <= today) as DueScheduledCellarRecommendation[];
+    .filter((row) => row.dueDate === today) as DueScheduledCellarRecommendation[];
 }
