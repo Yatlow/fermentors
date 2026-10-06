@@ -5446,6 +5446,10 @@ export default function BrewFormStepper({
                       : "—"}
                   </strong>
                 </div>
+                <div>
+                  <span>pH תחילת רתיחה</span>
+                  <strong>{localValue("boilPh") || "—"}</strong>
+                </div>
               </div>
             )}
 
