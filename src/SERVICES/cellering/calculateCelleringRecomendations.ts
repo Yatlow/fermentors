@@ -1307,10 +1307,15 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const pressureCloseTarget = [...sortedMeasurements]
         .reverse()
         .map((measurement) => String(measurement.notes ?? ""))
-        .filter((note) => /סגיר(?:ת|ה).*(?:נשם|לחץ)|כיוון\s*פורק/.test(note))
+        // Seasonal / one-off beers inherit the pressure that was explicitly
+        // chosen at tank closure. Do not let the generic "other" spec override it.
+        .filter((note) => /סגיר(?:ת|ה).*(?:נשם|לחץ|פורק)/.test(note))
         .map((note) => {
-            const match = note.match(/(?:כיוון\s*פורק|פורק|לחץ)\s*(?:ל[-־]?|[:=]?\s*)?(\d+(?:[.,]\d+)?)/);
-            return match ? Number(match[1].replace(",", ".")) : NaN;
+            const normalized = note.replace(/,/g, ".");
+            const explicit = normalized.match(/(?:כיוון\s*פורק|פורק|לחץ)[^\d]{0,12}(\d+(?:\.\d+)?)/);
+            if (explicit) return Number(explicit[1]);
+            const anyNumber = normalized.match(/(\d+(?:\.\d+)?)/);
+            return anyNumber ? Number(anyNumber[1]) : NaN;
         })
         .find((value) => Number.isFinite(value));
     const effectivePressureTarget =

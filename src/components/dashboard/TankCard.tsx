@@ -9,6 +9,7 @@ import {
 import { ClipboardPlus, FileSpreadsheet, ListClock, ChartNoAxesCombined } from "lucide-react";
 import { updateTankStatus } from "../../SERVICES/cellering/updateTank";
 import { isCarbonationOutOfRange, isPressureOutOfRange } from "../../SERVICES/cellering/calculateCelleringRecomendations";
+import { beerStyleVisual } from "../../SERVICES/beerStyleVisual";
 
 import type {
   Fermentor,
@@ -1097,7 +1098,7 @@ function TankCard({
           )
         )}
 
-        {Number(tank.tankNumber) > 1 && <div className="batch-number">
+        {Number(tank.tankNumber) > 1 && <div className="batch-number" style={tank.beerStyle ? { background: beerStyleVisual(tank.beerStyle).background, borderInlineStart: `4px solid ${beerStyleVisual(tank.beerStyle).border}`, color: beerStyleVisual(tank.beerStyle).text, borderRadius: 8, paddingInline: 8 } : undefined}>
 
           #
           {tank.batchNumber ??
