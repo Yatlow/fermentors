@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import type { Fermentor } from "../../App";
+import { CarbonationReadingCalculator, HydrometerCorrectionCalculator } from "./BrewingMeasurementCalculators";
 
 type FVType = "triple" | "double" | "6";
 
@@ -429,6 +430,9 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                         {calcValues.calcPacagingVol.leftToPackLabel}
                     </div>
                 </section>
+
+                <HydrometerCorrectionCalculator />
+                <CarbonationReadingCalculator />
             </div>
         </div>
     );
