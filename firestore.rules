@@ -102,6 +102,11 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
+    match /productCatalog/{document} {
+      allow read: if isApprovedUser();
+      allow write: if isAdmin();
+    }
+
     match /coolerUndoHistory/{document} {
       allow read: if isApprovedUser();
       allow write: if isApprovedUser();

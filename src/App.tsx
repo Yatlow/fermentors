@@ -28,6 +28,7 @@ import PackagingForm from "./components/cellering/PackagingForm";
 import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
 import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
 import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
+import { subscribeToProductCatalog } from "./SERVICES/cooler/PalletCatalogFirestore";
 import BeerLoader from "./components/general/Loading";
 import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningTabs";
 import { BREWING_TABS, type BrewingTab } from "./components/brewing/brewingTabs";
@@ -48,6 +49,7 @@ const PlanningView = lazy(() => import("./components/planning/PlanningView"));
 const BrewingView = lazy(() => import("./components/brewing/BrewingView"));
 const UserConnectionReport = lazy(() => import("./components/reports/UserConnectionReport"));
 const PackagingSheetGenerator = lazy(() => import("./COMPONENTS/PackagingSheetGenerator"));
+const EditProductCatalog = lazy(() => import("./components/tools/EditProductCatalog"));
 
 export type FirestoreTimestamp = {
     seconds?: number;
@@ -201,7 +203,7 @@ function App() {
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר" | "חיבורי_משתמשים">("אריזה");
-    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet">("calculator");
+    const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet" | "catalog">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
@@ -216,6 +218,11 @@ function App() {
             return;
         }
         return subscribeToZoneCounts(setZoneCounts);
+    }, [user, isApproved]);
+
+    useEffect(() => {
+        if (!user || !isApproved) return;
+        return subscribeToProductCatalog();
     }, [user, isApproved]);
 
     useEffect(() => {
@@ -466,6 +473,7 @@ function App() {
                         <button type="button" className={`status-filter-button ${selectedAdminTools === "specs" ? "active" : ""}`} onClick={() => setSelectedAdminTools("specs")}><span>הגדרות סלרינג</span></button>
                         {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeBatchNumInFv" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeBatchNumInFv")}><span>שינוי אצווה במיכל- ידנית</span></button>}
                         {cellarManager && <button type="button" className={`status-filter-button ${selectedAdminTools === "changeFvStatus" ? "active" : ""}`} onClick={() => setSelectedAdminTools("changeFvStatus")}><span>שינוי סטטוס במיכל- ידנית</span></button>}
+                        {admin && <button type="button" className={`status-filter-button ${selectedAdminTools === "catalog" ? "active" : ""}`} onClick={() => setSelectedAdminTools("catalog")}><span>ניהול קטלוג</span></button>}
                         {admin && <button type="button" className={`status-filter-button ${selectedAdminTools === "editEmails" ? "active" : ""}`} onClick={() => setSelectedAdminTools("editEmails")}><span>משתמשים והרשאות</span></button>}
                     </div>}
                     {selectedView === "בישולים" && <nav className="status-filter" dir="rtl" aria-label="בישולים">{BREWING_TABS.map(([id, label]) => <button key={id} type="button" className={`status-filter-button ${brewingTab === id ? "active" : ""}`} aria-pressed={brewingTab === id} onClick={() => setBrewingTab(id)}>{label}</button>)}</nav>}
@@ -494,6 +502,7 @@ function App() {
                 {selectedView === "ניהול" && selectedAdminTools === "packagingSheet" && <PackagingSheetGenerator brews={brews} specs={specs} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeBatchNumInFv" && <ManualBatchAssignment brews={brews} isAdmin={cellarManager} />}
                 {selectedView === "ניהול" && selectedAdminTools === "changeFvStatus" && <ManualStatusAssignment brews={brews} isAdmin={cellarManager} />}
+                {selectedView === "ניהול" && selectedAdminTools === "catalog" && <EditProductCatalog isAdmin={admin} />}
                 {selectedView === "ניהול" && selectedAdminTools === "editEmails" && <EditApprovedUsers isAdmin={admin} />}
                 {selectedView === "מקרר" && <>
                     <CoolerMap brews={brews} />

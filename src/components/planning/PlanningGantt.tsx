@@ -23,6 +23,7 @@ import {
 import { actualDate, actualUnits, matchesActual, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
+import { plansAfterActualPackagingCompletion } from "../../SERVICES/planning/packagingActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
@@ -421,12 +422,17 @@ export default function PlanningGantt(props: Props) {
         title: `משלוח טמפו${suffix}`,
         meta: stockLines.map(({ style, values }) => `${style} · ${values.join(" · ")}`).join("\n"),
         stockLines,
+        actual: match.status !== "pending",
       };
     }).filter((item) => item.stockLines.length > 0);
   }
 
   function packagingItems(weekId: string): SummaryItem[] {
-    const decisions = (decisionPlanFor(weekId)?.packaging ?? []).filter((item) => item.quantity > 0);
+    const rawDecisionPlan = decisionPlanFor(weekId) ?? emptyWeek(weekId);
+    const completionAwarePlan = plansAfterActualPackagingCompletion(
+      [rawDecisionPlan], settings.products, actuals, sources,
+    )[0];
+    const decisions = (completionAwarePlan?.packaging ?? []).filter((item) => item.quantity > 0);
     const actualItems: SummaryItem[] = (actualsByWeek.get(weekId) ?? [])
       .filter((actual) => Number(actual.quantity) > 0)
       .map((actual) => {
@@ -448,7 +454,7 @@ export default function PlanningGantt(props: Props) {
     // the summary. Keep unmatched/partially open planning rows visible, but do
     // not render the same tank/package cycle twice as "actual" + "planned".
     const openByKey = new Map(
-      openRuns([decisionPlanFor(weekId) ?? emptyWeek(weekId)], settings.products, actuals)
+      openRuns([completionAwarePlan ?? rawDecisionPlan], settings.products, actuals)
         .map((run) => [run.id ?? run.key, run.remaining] as const),
     );
     const plannedItems: SummaryItem[] = decisions.flatMap((item, index) => {

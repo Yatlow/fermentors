@@ -113,66 +113,76 @@ export async function recoverPackagingOperation(operationId: string): Promise<st
     const batchPallets = batchNumber
         ? await getDocs(query(collection(db, "pallets"), where("batchNumber", "==", batchNumber)))
         : null;
+    const operationCreatedMs =
+        typeof operation.createdAt?.toMillis === "function" ? operation.createdAt.toMillis() : 0;
     const exactPhysicalPallets = (batchPallets?.docs ?? []).filter((palletDoc) => {
         const pallet = palletDoc.data();
         if (pallet.zone === "shipped") return false;
         if (pallet.itemType !== itemType) return false;
         if (String(pallet.beerStyle ?? "").trim() !== beerStyle) return false;
         if (expiryDateStr && String(pallet.expiryDateStr ?? "").trim() !== expiryDateStr) return false;
-        return true;
-    });
-    const conflictingLinks = exactPhysicalPallets.filter((palletDoc) => {
-        const linkedOperation = String(palletDoc.data().packagingOperationId ?? "").trim();
-        return linkedOperation && linkedOperation !== operationId;
-    });
-    if (conflictingLinks.length > 0) {
-        throw new Error("נמצאו משטחים תואמים שכבר מקושרים לפעולת אריזה אחרת. לא בוצע שינוי אוטומטי.");
-    }
-    const matchingPallets = exactPhysicalPallets;
 
-    const inventoryQuantity = matchingPallets.reduce(
+        const linkedOperation = String(pallet.packagingOperationId ?? "").trim();
+        if (linkedOperation === operationId) return true;
+        if (linkedOperation) return false;
+
+        // An unlinked manual pallet is eligible only if it was created as part
+        // of this packaging window. This prevents an older pallet from the same
+        // batch/style/expiry from silently satisfying a new packaging report.
+        const palletCreatedMs =
+            typeof pallet.createdAt?.toMillis === "function" ? pallet.createdAt.toMillis() : 0;
+        return operationCreatedMs > 0 && palletCreatedMs >= operationCreatedMs;
+    });
+
+    const inventoryQuantity = exactPhysicalPallets.reduce(
         (sum, palletDoc) => sum + Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
         0
     );
     if (inventoryQuantity > expectedQuantity) {
         throw new Error(
-            `נמצאו ${inventoryQuantity} פריטים פעילים שמתאימים לדוח של ${expectedQuantity}. קיימת עמימות ולכן לא בוצע שינוי אוטומטי.`
+            `נמצאו ${inventoryQuantity} פריטים חדשים שמתאימים לדוח של ${expectedQuantity}. קיימת עמימות ולכן לא בוצע שינוי אוטומטי.`
         );
     }
 
-    // If the physical inventory already equals the packaging report, missing
-    // operation links are bookkeeping only. Link them; do not create pallets.
-    if (inventoryQuantity === expectedQuantity) {
-        const unlinked = matchingPallets.filter(
-            (palletDoc) => !String(palletDoc.data().packagingOperationId ?? "").trim()
-        );
-        if (unlinked.length > 0) {
-            const batch = writeBatch(db);
-            unlinked.forEach((palletDoc) => {
-                batch.update(palletDoc.ref, {
-                    packagingOperationId: operationId,
-                    packagingSource: "manual",
-                    packagingAppliedQuantity: Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
-                    updatedAt: serverTimestamp(),
-                });
-            });
-            await batch.commit();
-        }
-        // Re-run the normal shipment reservation picker after reconciliation.
-        // This does not give reconciled/new pallets priority: the reservation
-        // service evaluates the complete eligible stock pool using FEFO/access.
-        await reserveNewPalletsForNearestShipment(
-            matchingPallets.map((palletDoc) => palletDoc.id)
-        );
-        await markPackagingPalletsCompleted(operationId);
-        return [];
-    }
-
-    const unit = itemType === "kegs" ? "חביות" : "ארגזים";
-    const missingQuantity = expectedQuantity - inventoryQuantity;
-    throw new Error(
-        `דוח האריזה הוא ${expectedQuantity} ${unit}, ובמשטחים הפעילים נמצאו ${inventoryQuantity}. חסרים ${missingQuantity}; לא נוצרו משטחים אוטומטית. יש לבדוק את המלאי לפני השלמה.`
+    // Adopt matching manual pallets first. Automatic creation is always based
+    // on the uncovered remainder, never on the original report quantity.
+    const unlinked = exactPhysicalPallets.filter(
+        (palletDoc) => !String(palletDoc.data().packagingOperationId ?? "").trim()
     );
+    if (unlinked.length > 0) {
+        const batch = writeBatch(db);
+        unlinked.forEach((palletDoc) => {
+            batch.update(palletDoc.ref, {
+                packagingOperationId: operationId,
+                packagingSource: "manual",
+                packagingAppliedQuantity: Math.max(0, Number(palletDoc.data().quantity ?? 0) || 0),
+                updatedAt: serverTimestamp(),
+            });
+        });
+        await batch.commit();
+    }
+
+    const missingQuantity = expectedQuantity - inventoryQuantity;
+    let createdIds: string[] = [];
+    if (missingQuantity > 0) {
+        const missingSplits = getDefaultPalletSplit(itemType, missingQuantity)
+            .map((split, index) => ({ ...split, operationSplitIndex: 1000 + index }));
+        createdIds = await createPalletsFromCustomSplit({
+            itemType,
+            expectedTotalQuantity: missingQuantity,
+            beerStyle,
+            batchNumber,
+            expiryDateStr,
+            sourceTankNumber: operation.tankNumber ?? null,
+            operationId,
+            splits: missingSplits,
+        });
+    }
+
+    const reconciledIds = [...exactPhysicalPallets.map((palletDoc) => palletDoc.id), ...createdIds];
+    await reserveNewPalletsForNearestShipment(reconciledIds);
+    await markPackagingPalletsCompleted(operationId);
+    return createdIds;
 }
 
 export async function markPackagingPalletsCompleted(operationId: string): Promise<void> {
