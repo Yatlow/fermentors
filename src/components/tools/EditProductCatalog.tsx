@@ -22,7 +22,7 @@ export default function EditProductCatalog({ isAdmin }: { isAdmin: boolean }) {
 
   const add = () => {
     const id = `new-${Date.now()}`;
-    setRows((current) => [...current, {
+    setRows((current) => [{
       id,
       styleKey: "",
       beerStyle: "",
@@ -30,7 +30,7 @@ export default function EditProductCatalog({ isAdmin }: { isAdmin: boolean }) {
       sku: "",
       displayText: "",
       enabled: true,
-    }]);
+    }, ...current]);
   };
 
   const save = async (row: EditableCatalogEntry) => {
