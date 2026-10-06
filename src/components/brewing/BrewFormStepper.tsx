@@ -2603,12 +2603,22 @@ export default function BrewFormStepper({
     }
 
     if (hardError) {
-      restoreCommittedField(key);
+      const approved = await askValidationConfirmation(
+        `${hardError} כדאי לבדוק שאין TYPO לפני שממשיכים.`,
+      );
+      if (!approved) {
+        restoreCommittedField(key);
+        setValidationNotice({
+          kind: "warning",
+          text: `${hardError} השמירה בוטלה כדי לאפשר תיקון.`,
+        });
+        return false;
+      }
       setValidationNotice({
-        kind: "error",
-        text: `${hardError} הנתון לא נשמר — בדוק שאין TYPO.`,
+        kind: "warning",
+        text: `${hardError} הנתון נשמר לאחר אישור חריגה.`,
       });
-      return false;
+      return true;
     }
 
     if (warning) {
