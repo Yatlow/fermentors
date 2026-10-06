@@ -34,7 +34,7 @@ function NumberBox({label,value,onChange,unit}:{label:string;value:Num;onChange:
   return <label className="brewCalcMiniField"><span>{label}</span><div><input type="number" step="0.1" value={value} onChange={e=>onChange(e.target.value===""?"":Number(e.target.value))}/><b>{unit}</b></div></label>;
 }
 
-export function HydrometerCorrectionCalculator({compact=false}:{compact?:boolean}) {
+export function HydrometerCorrectionCalculator({compact=false,onUse}:{compact?:boolean;onUse?:(v:number)=>void}) {
   const [plato,setPlato]=useState<Num>("");
   const [temp,setTemp]=useState<Num>(20);
   const result=plato!==""&&temp!==""?correctedPlato(plato,temp):null;
@@ -42,7 +42,7 @@ export function HydrometerCorrectionCalculator({compact=false}:{compact?:boolean
     {!compact&&<div className="spec-card-header"><h2>תיקון הידרומטר</h2></div>}
     <div className="brewCalcMiniGrid"><NumberBox label="פלאטו שנמדד" value={plato} onChange={setPlato} unit="°P"/><NumberBox label="טמפרטורת הדגימה" value={temp} onChange={setTemp} unit="°C"/></div>
     <div className="calc-result">פלאטו מתוקן ל־20°C: <strong>{result===null?"חסר נתון":result.toFixed(2)+"°P"}</strong></div>
-    {!compact&&<small>מחושב לפי תיקון צפיפות הידרומטר סטנדרטי ב־20°C, התואם לטבלת NBS המצולמת.</small>}
+    {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}\n    {!compact&&<small>מחושב לפי תיקון צפיפות הידרומטר סטנדרטי ב־20°C, התואם לטבלת NBS המצולמת.</small>}
     <CalculatorCss/>
   </section>;
 }
@@ -63,7 +63,7 @@ export function CalculatorModal({kind,onClose,onUse}:{kind:"hydrometer"|"carbona
   return <div className="brewCalcOverlay" onClick={onClose}><div className="brewCalcDialog" dir="rtl" onClick={e=>e.stopPropagation()}>
     <button type="button" className="brewCalcClose" onClick={onClose} aria-label="סגור"><X size={20}/></button>
     <h3>{kind==="hydrometer"?"תיקון הידרומטר":"מחשבון גיזוז"}</h3>
-    {kind==="hydrometer"?<HydrometerCorrectionCalculator compact/>:<CarbonationReadingCalculator compact onUse={onUse}/>}
+    {kind==="hydrometer"?<HydrometerCorrectionCalculator compact onUse={onUse}/>:<CarbonationReadingCalculator compact onUse={onUse}/>}
     <CalculatorCss/>
   </div></div>;
 }
