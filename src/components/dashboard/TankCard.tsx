@@ -1098,7 +1098,7 @@ function TankCard({
           )
         )}
 
-        {Number(tank.tankNumber) > 1 && <div className="batch-number" style={tank.beerStyle ? { background: beerStyleVisual(tank.beerStyle).background, borderInlineStart: `4px solid ${beerStyleVisual(tank.beerStyle).border}`, color: beerStyleVisual(tank.beerStyle).text, borderRadius: 8, paddingInline: 8 } : undefined}>
+        {Number(tank.tankNumber) > 1 && <div className="batch-number" style={tank.beerStyle ? { background: beerStyleVisual(tank.beerStyle).background, borderInlineStart: `4px solid ${beerStyleVisual(tank.beerStyle).border}`, color: beerStyleVisual(tank.beerStyle).text, borderRadius: 8, paddingInline: 8, width: "fit-content", maxWidth: "100%" } : undefined}>
 
           #
           {tank.batchNumber ??

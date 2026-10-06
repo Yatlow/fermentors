@@ -524,10 +524,10 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
                             )}
 
                             {noteType === "גיזוז" && (
-                                <div className="quickReportInline">
-                                    <input type="number" min={0} max={15} placeholder="גיזוז" value={value} disabled={isSending}
+                                <div className="quickReportInline" style={{ flexWrap: "nowrap" }}>
+                                    <input style={{ flex: "1 1 auto", minWidth: 0, width: "auto" }} type="number" min={0} max={15} placeholder="גיזוז" value={value} disabled={isSending}
                                         onChange={(e) => setValue(e.target.value)} />
-                                    <CalculatorIconButton label="פתח מחשבון גיזוז" onClick={() => setCarbonationCalcOpen(true)} />
+                                    <span style={{ flex: "0 0 auto" }}><CalculatorIconButton label="פתח מחשבון גיזוז" onClick={() => setCarbonationCalcOpen(true)} /></span>
                                 </div>
                             )}
 

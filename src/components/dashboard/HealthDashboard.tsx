@@ -847,11 +847,12 @@ export default function HealthDashboard({ brews, specs }: Props) {
         const previous = previousSettledScoreRef.current;
         previousSettledScoreRef.current = healthScore;
 
-        // Live Firestore updates arrive tank-by-tank while a measurement round is
-        // being saved. A transient intermediate analysis can briefly report 100
-        // before the remaining tanks settle (for example the final score is 70).
-        // Celebrate only when 100 remains the settled score.
+        // Mounting the dashboard at 100 is not an achievement event. Celebrate
+        // only a real transition from below 100 to a settled 100. If a later
+        // measurement creates new work and drops the score, completing that work
+        // can legitimately produce another celebration.
         if (previous === null || previous >= 100 || healthScore !== 100) return;
+
         const timer = window.setTimeout(() => {
             if (previousSettledScoreRef.current === 100) {
                 setCelebrationOpen(true);
