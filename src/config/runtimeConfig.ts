@@ -1,5 +1,5 @@
-function env(name: keyof ImportMetaEnv, fallback: string): string {
-  const value = import.meta.env[name];
+function env(name: string, fallback: string): string {
+  const value = (import.meta as unknown as { env: Record<string, unknown> }).env[name];
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
