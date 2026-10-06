@@ -28,6 +28,7 @@ import PackagingForm from "./components/cellering/PackagingForm";
 import { type SpecChart } from "./SERVICES/getAndPost/getSpecsFromFb";
 import { type ZoneCounts } from "./SERVICES/cooler/Palletservice";
 import { subscribeToZoneCounts } from "./SERVICES/cooler/zoneCounts";
+import { subscribeToProductCatalog } from "./SERVICES/cooler/PalletCatalog";
 import BeerLoader from "./components/general/Loading";
 import { PLANNING_TABS, type PlanningTab } from "./components/planning/planningTabs";
 import { BREWING_TABS, type BrewingTab } from "./components/brewing/brewingTabs";
@@ -217,6 +218,11 @@ function App() {
             return;
         }
         return subscribeToZoneCounts(setZoneCounts);
+    }, [user, isApproved]);
+
+    useEffect(() => {
+        if (!user || !isApproved) return;
+        return subscribeToProductCatalog();
     }, [user, isApproved]);
 
     useEffect(() => {
