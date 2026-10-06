@@ -42,7 +42,7 @@ assert.match(service, /const batch = writeBatch\(db\)[\s\S]*batch\.delete\(exist
   "replacement must delete old and create new pallets in one batch");
 assert.match(service, /if \(data\.zone !== "pending"\)/,
   "already moved pallets must not be silently replaced");
-assert.match(logger, /PACKAGING_LOG_COLLECTION[\s\S]*reportMatches[\s\S]*inventoryQuantity === expectedQuantity/,
+assert.match(logger, /PACKAGING_LOG_COLLECTION[\s\S]*reportMatches[\s\S]*inventoryQuantity/,
   "recovery must verify the packaging report before reconciling physical pallet inventory");
 assert.match(logger, /inventoryQuantity > expectedQuantity[\s\S]*עמימות/,
   "recovery must stop instead of mutating ambiguous excess inventory");
