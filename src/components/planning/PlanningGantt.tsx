@@ -20,7 +20,7 @@ import {
   type Tank,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import { actualDate, actualUnits, matchesActual, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
@@ -444,7 +444,16 @@ export default function PlanningGantt(props: Props) {
         };
       });
 
-    const plannedItems: SummaryItem[] = decisions.map((item, index) => {
+    // A completed operational report replaces the matching planning card in
+    // the summary. Keep unmatched/partially open planning rows visible, but do
+    // not render the same tank/package cycle twice as "actual" + "planned".
+    const openByKey = new Map(
+      openRuns([decisionPlanFor(weekId) ?? emptyWeek(weekId)], settings.products, actuals)
+        .map((run) => [run.id ?? run.key, run.remaining] as const),
+    );
+    const plannedItems: SummaryItem[] = decisions.flatMap((item, index) => {
+      const remaining = openByKey.get(item.id ?? `${weekId}:${item.productId}:${index}`) ?? item.quantity;
+      if (remaining <= 0) return [];
       const product = productFor(item.productId);
       const tank = tanks.find((candidate) => candidate.id === item.tankId);
       // Canonical tankId (aligned from brewId/cycle) wins over the historical
@@ -452,14 +461,14 @@ export default function PlanningGantt(props: Props) {
       const resolvedTank = tank?.number ?? item.tankNumber;
       const style = product?.style ?? item.nonInventoryStyle ?? "";
       const type = product?.type ?? item.nonInventoryType;
-      return {
+      return [{
         key: `pack:${item.id ?? index}`,
         title: style ? `${displayStyle(style)} · ${tankLabel(resolvedTank)}` : item.productId,
         meta: type
-          ? `${fmt(item.quantity)} ${type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(item.quantity, type))} ל׳ · מתוכנן`
-          : fmt(item.quantity),
+          ? `${fmt(remaining)} ${type === "crates" ? "ארגזים" : "חביות"} · ${fmt(packageLiters(remaining, type))} ל׳ · מתוכנן`
+          : fmt(remaining),
         styleClass: style ? beerStyleClass(style).className : undefined,
-      };
+      }];
     });
 
     const recommendationItems: SummaryItem[] = decisions.length || weekId < currentWeek
@@ -475,9 +484,6 @@ export default function PlanningGantt(props: Props) {
           };
         });
 
-    // Actual packaging is historical fact and is always shown independently of
-    // the planning decision. This lets a partially elapsed week contain both
-    // completed packaging from packagingLog and the remaining planned/recommended run.
     return [...actualItems, ...plannedItems, ...recommendationItems];
   }
 

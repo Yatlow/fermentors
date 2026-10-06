@@ -174,8 +174,7 @@ service cloud.firestore {
         && request.resource.data.get('recoveryRevision', 0) >= resource.data.get('recoveryRevision', 0)
         && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['palletSplits'])
-          || (resource.data.state == 'awaiting_pallets'
-            && !resource.data.keys().hasAny(['palletSplits']))
+          || resource.data.state == 'awaiting_pallets'
         )
         && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['cleanupAfter'])

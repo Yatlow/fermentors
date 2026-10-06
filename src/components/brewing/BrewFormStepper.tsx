@@ -474,7 +474,6 @@ function fieldsFromSheetRows(
   ingredientLibrary: IngredientDefinition[] = [],
   baseOffset = 0,
   sheetStartRow = 1,
-  blockIndex = 1,
 ): Record<string, string> {
   const pulled: Record<string, string> = {};
   const cell = (
@@ -913,21 +912,9 @@ function fieldsFromSheetRows(
       pulled[`materialLot.${ingredient.id}`] = matchingLot.id;
     });
 
-    const materialsRequiredForThisBlock =
-      blockIndex === 1
-        ? expectedMaterials
-        : expectedMaterials.filter(
-            ({ ingredientId }) => ingredientId !== recipe.yeast.ingredientId,
-          );
-
-    if (
-      materialsRequiredForThisBlock.length > 0 &&
-      materialsRequiredForThisBlock.every((ingredient) =>
-        Boolean(pulled[`materialLot.${ingredient.ingredientId}`]),
-      )
-    ) {
-      pulled.materialsConfirmed = "yes";
-    }
+    // Sheet reconciliation may identify material lots, but confirmation is a
+    // deliberate brewer action. Never infer materialsConfirmed from Sheet
+    // contents; confirmMaterials() is the only path that may set it to "yes".
   }
 
   return pulled;
@@ -3900,9 +3887,9 @@ export default function BrewFormStepper({
               <div className="brew-stage-label">
                 <strong>{stage.label}</strong>
                 {target && (
-                  <small>
-                    יעד {target.targetTemp}°C
-                    {duration ? ` · ${duration} דק׳` : ""}
+                  <small dir="rtl">
+                    יעד <bdi dir="ltr">{target.targetTemp}°C</bdi>
+                    {duration && <> · <bdi dir="ltr">{duration} דק׳</bdi></>}
                   </small>
                 )}
                 {!target && duration && (
