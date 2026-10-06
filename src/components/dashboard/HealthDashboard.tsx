@@ -847,10 +847,12 @@ export default function HealthDashboard({ brews, specs }: Props) {
         const previous = previousSettledScoreRef.current;
         previousSettledScoreRef.current = healthScore;
 
-        // Mounting at 100 is not an achievement event. Celebrate only a real,
-        // settled transition from below 100 to 100. If the score later drops,
-        // a future return to 100 is a new completion and should celebrate again.
+        // Mounting the dashboard at 100 is not an achievement event. Celebrate
+        // only a real transition from below 100 to a settled 100. If a later
+        // measurement creates new work and drops the score, completing that work
+        // can legitimately produce another celebration.
         if (previous === null || previous >= 100 || healthScore !== 100) return;
+
         const timer = window.setTimeout(() => {
             if (previousSettledScoreRef.current === 100) {
                 setCelebrationOpen(true);
