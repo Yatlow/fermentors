@@ -841,24 +841,29 @@ export default function HealthDashboard({ brews, specs }: Props) {
     const overallClass = healthBand(healthScore);
     const previousSettledScoreRef = useRef<number | null>(null);
     const [celebrationOpen, setCelebrationOpen] = useState(false);
+    const celebrationStorageKey = `cellar-celebration:${localDateKey(new Date())}`;
 
     useEffect(() => {
         if (analyzing) return;
         const previous = previousSettledScoreRef.current;
         previousSettledScoreRef.current = healthScore;
 
-        // Live Firestore updates arrive tank-by-tank while a measurement round is
-        // being saved. A transient intermediate analysis can briefly report 100
-        // before the remaining tanks settle (for example the final score is 70).
-        // Celebrate only when 100 remains the settled score.
+        // A celebration is a once-per-day event, not a property of mounting the
+        // dashboard. Persist it for the day so navigation/remounts cannot replay it.
         if (previous === null || previous >= 100 || healthScore !== 100) return;
+        if (window.localStorage.getItem(celebrationStorageKey) === "shown") return;
+
         const timer = window.setTimeout(() => {
-            if (previousSettledScoreRef.current === 100) {
+            if (
+                previousSettledScoreRef.current === 100 &&
+                window.localStorage.getItem(celebrationStorageKey) !== "shown"
+            ) {
+                window.localStorage.setItem(celebrationStorageKey, "shown");
                 setCelebrationOpen(true);
             }
         }, 1200);
         return () => window.clearTimeout(timer);
-    }, [analyzing, healthScore]);
+    }, [analyzing, healthScore, celebrationStorageKey]);
 
     const counts = useMemo(() => ({
         critical: analysis.alerts.filter((alert) => alert.severity === "critical").length,
