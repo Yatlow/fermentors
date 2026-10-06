@@ -442,22 +442,42 @@ export async function replacePackagingOperationPallets(params: CreatePalletsFrom
         where("packagingOperationId", "==", operationId),
     ));
     const operationRef = doc(db, "packagingOperations", operationId);
-    const refs = sanitized.map((_, index) =>
-        doc(db, PALLETS_COLLECTION, `pkg_${operationId}_approved_${index + 1}`)
-    );
     const batch = writeBatch(db);
 
+    // Manual pallets are physical inventory, not an editable draft. Preserve
+    // them and consume their coverage before creating/replacing automatic
+    // pallets. Once any linked pallet has left pending, the split is locked.
+    let manualCoverage = 0;
     linked.docs.forEach((existing) => {
         const data = existing.data();
-        // Never silently delete a pallet that has already left the editable
-        // pending state. At that point changing the split needs manual handling.
         if (data.zone !== "pending") {
             throw new Error("לא ניתן לשנות חלוקת משטחים אחרי שאחד המשטחים כבר שובץ או הועבר");
+        }
+        if (data.packagingSource === "manual") {
+            manualCoverage += Math.max(
+                0,
+                Number(data.packagingAppliedQuantity ?? data.quantity ?? 0) || 0,
+            );
+            return;
         }
         batch.delete(existing.ref);
     });
 
+    const remainingEntries: Array<{ quantity: number; subLabel: string | null; splitIndex: number }> = [];
     sanitized.forEach((entry, index) => {
+        let quantity = entry.quantity;
+        if (manualCoverage > 0) {
+            const consumed = Math.min(quantity, manualCoverage);
+            quantity -= consumed;
+            manualCoverage -= consumed;
+        }
+        if (quantity > 0) remainingEntries.push({ ...entry, quantity, splitIndex: index });
+    });
+
+    const refs = remainingEntries.map((entry) =>
+        doc(db, PALLETS_COLLECTION, `pkg_${operationId}_approved_${entry.splitIndex + 1}`)
+    );
+    remainingEntries.forEach((entry, index) => {
         batch.set(refs[index], {
             ...palletCreateData({
                 itemType,
@@ -469,7 +489,7 @@ export async function replacePackagingOperationPallets(params: CreatePalletsFrom
                 sourceTankNumber: sourceTankNumber ?? null,
             }),
             packagingOperationId: operationId,
-            packagingSplitIndex: index,
+            packagingSplitIndex: entry.splitIndex,
             packagingAppliedQuantity: entry.quantity,
             packagingSource: "approved",
         });
