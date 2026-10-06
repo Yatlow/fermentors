@@ -1,5 +1,3 @@
-import { collection, doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
-import { db } from "../../firebase";
 import type { Pallet } from "../cooler/Pallettypes ";
 
 export type CatalogEntry = {
@@ -17,8 +15,6 @@ export type EditableCatalogEntry = ShipmentCatalogOption & {
     styleKey: string;
     enabled: boolean;
 };
-
-const CATALOG_COLLECTION = "productCatalog";
 
 function normalizeBeerStyleKey(beerStyle: string | undefined | null): string | null {
     if (!beerStyle) return null;
@@ -66,28 +62,8 @@ function mergedCatalog(): Record<string, EditableCatalogEntry> {
     return { ...DEFAULT_CATALOG, ...overrides };
 }
 
-export function subscribeToProductCatalog(onChange?: () => void): () => void {
-    return onSnapshot(collection(db, CATALOG_COLLECTION), (snapshot) => {
-        const next: Record<string, EditableCatalogEntry> = {};
-        snapshot.docs.forEach((catalogDoc) => {
-            const data = catalogDoc.data();
-            const itemType = data.itemType === "kegs" ? "kegs" : "crates";
-            const styleKey = String(data.styleKey ?? catalogDoc.id.split("__")[0] ?? "").trim().toLocaleLowerCase("he-IL");
-            if (!styleKey) return;
-            const id = `${styleKey}__${itemType}`;
-            next[id] = {
-                id,
-                styleKey,
-                beerStyle: String(data.beerStyle ?? styleKey).trim(),
-                itemType,
-                sku: String(data.sku ?? "").trim(),
-                displayText: String(data.displayText ?? "").trim(),
-                enabled: data.enabled !== false,
-            };
-        });
-        overrides = next;
-        onChange?.();
-    });
+export function applyProductCatalogOverrides(entries: EditableCatalogEntry[]): void {
+    overrides = Object.fromEntries(entries.map((entry) => [entry.id, { ...entry }]));
 }
 
 export function getEditableCatalogEntries(): EditableCatalogEntry[] {
@@ -96,21 +72,8 @@ export function getEditableCatalogEntries(): EditableCatalogEntry[] {
     );
 }
 
-export async function saveCatalogEntry(entry: Omit<EditableCatalogEntry, "id">): Promise<void> {
-    const styleKey = normalizeBeerStyleKey(entry.styleKey || entry.beerStyle);
-    if (!styleKey) throw new Error("יש להזין סגנון בירה");
-    if (!entry.sku.trim()) throw new Error('יש להזין מק"ט');
-    if (!entry.displayText.trim()) throw new Error("יש להזין תיאור מוצר");
-    const id = `${styleKey}__${entry.itemType}`;
-    await setDoc(doc(db, CATALOG_COLLECTION, id), {
-        styleKey,
-        beerStyle: entry.beerStyle.trim(),
-        itemType: entry.itemType,
-        sku: entry.sku.trim(),
-        displayText: entry.displayText.trim(),
-        enabled: entry.enabled,
-        updatedAt: serverTimestamp(),
-    }, { merge: true });
+export function normalizedCatalogStyleKey(beerStyle: string | undefined | null): string | null {
+    return normalizeBeerStyleKey(beerStyle);
 }
 
 export function getCatalogEntry(
