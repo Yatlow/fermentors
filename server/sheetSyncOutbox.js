@@ -163,6 +163,12 @@ function sheetSyncSanitizedReadings_(jobDocument) {
       plato: reading.plato,
       pH: reading.pH,
       carbonation: reading.carbonation,
+      isEmpty: reading.isEmpty,
+      kegs: reading.kegs,
+      crates: reading.crates,
+      totalLiters: reading.totalLiters,
+      shrinkagePercent: reading.shrinkagePercent,
+      boldNotes: reading.boldNotes,
       notes: notes
     };
   });
