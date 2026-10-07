@@ -273,31 +273,22 @@ export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
         return [...await plannedPackagingCache.pending];
     }
 
-    // Packaging decisions can point to a brew created in an earlier planning
-    // week. Loading only next week's document makes resolvePackagingBrewId()
-    // blind to that brew, so a run without its own tank (for example tank 16)
-    // disappears from the Wednesday/Thursday cellar recommendations.
-    const historyStart = toDateInputValue(addDays(nextWeekStart, -84));
+    // Cellar daily actions only need next week's committed packaging. New saves
+    // canonicalize packaging identity/tank in PlanningView, so this hot path
+    // should read exactly one planning-week document instead of replaying
+    // twelve weeks of history for every recommendation calculation.
     const pending = getDocs(
         query(
             collection(db, "planningWeeks"),
-            where("id", ">=", historyStart),
-            where("id", "<=", nextWeekId)
+            where("id", "==", nextWeekId),
+            limit(1)
         )
     ).then((snapshot) => {
-        const plans = snapshot.docs
-            .map((doc) => doc.data() as PlanningWeekDoc)
-            .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-        const week = plans.find((plan) => String(plan.id) === nextWeekId);
+        const week = snapshot.docs[0]?.data() as PlanningWeekDoc | undefined;
         if (!week) return [];
 
         const tankNumbers = (week.packaging ?? [])
-            .map((raw) => {
-                const run = raw as PackagingPlan;
-                const brewId = resolvePackagingBrewId(run, plans);
-                const linkedBrew = brewId ? brewById(plans, brewId) : null;
-                return Number(run.tankNumber ?? run.tankId ?? linkedBrew?.tankId);
-            })
+            .map((raw) => Number((raw as PackagingPlan).tankNumber ?? (raw as PackagingPlan).tankId))
             .filter((tankNumber) => Number.isFinite(tankNumber) && tankNumber > 0);
         return [...new Set(tankNumbers)];
     });
