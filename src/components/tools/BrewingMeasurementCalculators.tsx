@@ -82,7 +82,7 @@ export function CalculatorIconButton({label,onClick}:{label:string;onClick:()=>v
   return <button type="button" className="brewCalcIconButton" title={label} aria-label={label} onPointerDown={e=>e.preventDefault()} onClick={onClick}><Calculator size={16}/><CalculatorCss/></button>;
 }
 function CalculatorCss(){return <style>{`
-.brewCalcMini{display:grid;gap:14px}
+.brewCalcMini{display:grid;gap:14px;padding:18px}
 .brewCalcMini.compact{padding:2px 0 0}
 .brewCalcMiniGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .brewCalcMiniField{display:grid;gap:6px;font-weight:700;font-size:.86rem}
