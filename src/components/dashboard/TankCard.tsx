@@ -1563,10 +1563,9 @@ function TankCard({
 
 
 
-        <style>{`
-        .tank-date-field{position:relative;display:flex;align-items:center;min-width:0}
-        .tank-date-text{padding-inline-end:38px!important;font-variant-numeric:tabular-nums;cursor:pointer}
-        .tank-date-field>svg{position:absolute;inset-inline-end:11px;pointer-events:none;color:#64748b}
+      <style>{`
+        .pasivation-date-picker-button{border:0;background:transparent;padding:2px 0;display:inline-flex;align-items:center;gap:7px;color:inherit;font:inherit;cursor:pointer}
+        .pasivation-date-picker-button:hover{opacity:.78}
         .tank-native-date{position:fixed!important;left:-9999px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}
       `}</style>
       <div className="pasivation-date-row">
@@ -1578,29 +1577,10 @@ function TankCard({
 
           {showEmptyTankSelect && (
 
-            <label className="tank-date-field" onClick={(event) => event.stopPropagation()}>
-              <input
-                type="text"
-                inputMode="numeric"
-                className="tank-status-input tank-date-text"
-                value={state.pasivationDate ? state.pasivationDate.split("-").reverse().join("/") : ""}
-                placeholder="DD/MM/YYYY"
-                readOnly
-                onClick={(event) => {
-                  const picker = event.currentTarget.nextElementSibling as HTMLInputElement | null;
-                  try { picker?.showPicker(); } catch { picker?.click(); }
-                }}
-              />
-              <CalendarDays size={18} aria-hidden="true" />
-              <input
-                type="date"
-                className="tank-native-date"
-                value={state.pasivationDate}
-                onChange={handlePasivationDateChange}
-                tabIndex={-1}
-                aria-hidden="true"
-              />
-            </label>
+            <>
+              <button type="button" className="pasivation-display pasivation-date-picker-button" onClick={(event) => { event.stopPropagation(); const picker = event.currentTarget.nextElementSibling as HTMLInputElement | null; try { picker?.showPicker(); } catch { picker?.click(); } }}><CalendarDays size={16}/><span>{state.pasivationDate ? state.pasivationDate.split("-").reverse().join("/") : "בחר תאריך"}</span></button>
+              <input type="date" className="tank-native-date" value={state.pasivationDate} onChange={handlePasivationDateChange} tabIndex={-1} aria-hidden="true"/>
+            </>
 
           )}
 
@@ -1656,33 +1636,7 @@ function TankCard({
 
               ) : (
 
-                <label className="tank-date-field" onClick={(event) => event.stopPropagation()}>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    className="tank-status-input tank-date-text"
-                    value={state.pasivationDate ? state.pasivationDate.split("-").reverse().join("/") : ""}
-                    placeholder="DD/MM/YYYY"
-                    readOnly
-                    autoFocus
-                    onFocus={(event) => {
-                      const picker = event.currentTarget.nextElementSibling?.nextElementSibling as HTMLInputElement | null;
-                      try { picker?.showPicker(); } catch { picker?.click(); }
-                    }}
-                  />
-                  <CalendarDays size={18} aria-hidden="true" />
-                  <input
-                    type="date"
-                    className="tank-native-date"
-                    value={state.pasivationDate}
-                    onChange={(event) => {
-                      handlePasivationDateChange(event);
-                      setState((prev) => ({ ...prev, editPasivationDate: false }));
-                    }}
-                    tabIndex={-1}
-                    aria-hidden="true"
-                  />
-                </label>
+                <>\n                  <button type="button" className="pasivation-display pasivation-date-picker-button" autoFocus onClick={(event) => { event.stopPropagation(); const picker = event.currentTarget.nextElementSibling as HTMLInputElement | null; try { picker?.showPicker(); } catch { picker?.click(); } }}><CalendarDays size={16}/><span>{state.pasivationDate ? state.pasivationDate.split("-").reverse().join("/") : "בחר תאריך"}</span></button>\n                  <input type="date" className="tank-native-date" value={state.pasivationDate} onChange={(event) => { handlePasivationDateChange(event); setState((prev) => ({ ...prev, editPasivationDate: false })); }} tabIndex={-1} aria-hidden="true"/>\n                </>
 
               )}
 

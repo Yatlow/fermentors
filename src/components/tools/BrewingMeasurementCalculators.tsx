@@ -53,7 +53,6 @@ export function HydrometerCorrectionCalculator({compact=false,onUse}:{compact?:b
     <div className="brewCalcMiniGrid"><NumberBox label="פלאטו שנמדד" value={plato} onChange={setPlato} unit="°P"/><NumberBox label="טמפרטורת הדגימה" value={temp} onChange={setTemp} unit="°C"/></div>
     <div className="calc-result">פלאטו מתוקן ל־20°C: <strong>{result===null?"חסר נתון":result.toFixed(2)+"°P"}</strong></div>
     {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}
-    {!compact&&<small>מחושב לפי תיקון צפיפות הידרומטר סטנדרטי ב־20°C, התואם לטבלת NBS המצולמת.</small>}
     <CalculatorCss/>
   </section>;
 }
@@ -66,7 +65,6 @@ export function CarbonationReadingCalculator({compact=false,onUse}:{compact?:boo
     <div className="brewCalcMiniGrid"><NumberBox label="לחץ" value={psi} onChange={setPsi} unit="PSI"/><NumberBox label="טמפרטורה" value={tempF} onChange={setTempF} unit="°F"/></div>
     <div className="calc-result">CO₂: <strong>{result===null?"חסר נתון":result.toFixed(2)+" volumes"}</strong></div>
     {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}
-    {!compact&&<small>לפי נוסחת האינטרפולציה המקובלת לטבלת Zahm & Nagel / ASBC שבתמונה.</small>}
     <CalculatorCss/>
   </section>;
 }
