@@ -986,7 +986,7 @@ export default function BrewFormStepper({
   const [acidHistoryError, setAcidHistoryError] = useState("");
   const [acidHistory, setAcidHistory] = useState<MashAcidHistoryRow[]>([]);
   const [boilCalcOpen, setBoilCalcOpen] = useState(false);
-  const [hydrometerTarget, setHydrometerTarget] = useState<"frPlato" | "lrPlato" | "kettlePlato" | "endBoilPlato" | "fermentorSamplePlato" | null>(null);
+  const [hydrometerTarget, setHydrometerTarget] = useState<"frPlato" | "lrPlato" | "kettlePlato" | "endBoilPlato" | "fermentorSamplePlato" | "boilSamplePlato" | null>(null);
   const [lastPushAt, setLastPushAt] = useState<Date | null>(null);
   const [lastPullAt, setLastPullAt] = useState<Date | null>(null);
   const [syncMismatches, setSyncMismatches] = useState<SyncMismatch[]>([]);
@@ -5728,14 +5728,20 @@ export default function BrewFormStepper({
               </label>
               <label>
                 Plato בדגימה
-                <input
-                  type="number"
-                  step="0.01"
-                  value={localValue("boilSamplePlato")}
-                  onChange={(e) =>
-                    setLocal("boilSamplePlato", e.target.value)
-                  }
-                />
+                <div className="brew-field-with-calculator">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={localValue("boilSamplePlato")}
+                    onChange={(e) =>
+                      setLocal("boilSamplePlato", e.target.value)
+                    }
+                  />
+                  <CalculatorIconButton
+                    label="תיקון טמפרטורה לפלאטו"
+                    onClick={() => setHydrometerTarget("boilSamplePlato")}
+                  />
+                </div>
               </label>
               <label>
                 פקטור אידוי (ל׳)
@@ -5788,6 +5794,11 @@ export default function BrewFormStepper({
           onUse={async (result) => {
             const target = hydrometerTarget;
             const value = result.toFixed(2);
+            if (target === "boilSamplePlato") {
+              setLocal("boilSamplePlato", value);
+              setHydrometerTarget(null);
+              return;
+            }
             const config = {
               frPlato: [36, "B"],
               lrPlato: [37, "B"],
