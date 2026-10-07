@@ -7,6 +7,41 @@ type VersionFile = {
 };
 
 let reloadStarted = false;
+let pendingReload = false;
+let editingDepth = 0;
+
+function hasUnsavedEditing(): boolean {
+  return editingDepth > 0;
+}
+
+export function beginUnsavedEditing(): () => void {
+  editingDepth += 1;
+  let ended = false;
+
+  return () => {
+    if (ended) return;
+    ended = true;
+    editingDepth = Math.max(0, editingDepth - 1);
+
+    if (editingDepth === 0 && pendingReload && !reloadStarted) {
+      reloadStarted = true;
+      window.location.reload();
+    }
+  };
+}
+
+export function setUnsavedEditing(isEditing: boolean): void {
+  if (isEditing) {
+    editingDepth = Math.max(1, editingDepth);
+    return;
+  }
+
+  editingDepth = 0;
+  if (pendingReload && !reloadStarted) {
+    reloadStarted = true;
+    window.location.reload();
+  }
+}
 
 async function fetchDeployedVersion(): Promise<string | null> {
   try {
@@ -34,12 +69,18 @@ export async function checkForNewAppVersion(): Promise<void> {
   const deployedVersion = await fetchDeployedVersion();
   if (!deployedVersion || deployedVersion === APP_VERSION) return;
 
-  reloadStarted = true;
   console.info("New app version detected", {
     current: APP_VERSION,
     deployed: deployedVersion,
   });
 
+  if (hasUnsavedEditing()) {
+    pendingReload = true;
+    console.info("Deferring app reload until unsaved editing is finished");
+    return;
+  }
+
+  reloadStarted = true;
   window.location.reload();
 }
 
@@ -65,9 +106,17 @@ export function startVersionGuard(): () => void {
   document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("focus", handleFocus);
 
+  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (!hasUnsavedEditing()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+  window.addEventListener("beforeunload", handleBeforeUnload);
+
   return () => {
     window.clearInterval(intervalId);
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("focus", handleFocus);
+    window.removeEventListener("beforeunload", handleBeforeUnload);
   };
 }
