@@ -1577,7 +1577,7 @@ function TankCard({
 
           {showEmptyTankSelect && (
 
-            <button type="button" className="pasivation-display pasivation-date-picker-button" onClick={(event) => { event.stopPropagation(); const picker = event.currentTarget.nextElementSibling as HTMLInputElement | null; try { picker?.showPicker(); } catch { picker?.click(); } }}><CalendarDays size={16}/><span>{state.pasivationDate ? state.pasivationDate.split("-").reverse().join("/") : "בחר תאריך"}</span></button><input type="date" className="tank-native-date" value={state.pasivationDate} onChange={handlePasivationDateChange} tabIndex={-1} aria-hidden="true"/>
+            <>\n              <button type="button" className="pasivation-display pasivation-date-picker-button" onClick={(event) => { event.stopPropagation(); const picker = event.currentTarget.nextElementSibling as HTMLInputElement | null; try { picker?.showPicker(); } catch { picker?.click(); } }}><CalendarDays size={16}/><span>{state.pasivationDate ? state.pasivationDate.split("-").reverse().join("/") : "בחר תאריך"}</span></button>\n              <input type="date" className="tank-native-date" value={state.pasivationDate} onChange={handlePasivationDateChange} tabIndex={-1} aria-hidden="true"/>\n            </>
 
           )}
 
