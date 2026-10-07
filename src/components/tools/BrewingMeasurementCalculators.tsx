@@ -51,7 +51,7 @@ export function HydrometerCorrectionCalculator({compact=false,onUse}:{compact?:b
   return <section className={compact?"brewCalcMini compact":"spec-card brewCalcMini"}>
     {!compact&&<div className="spec-card-header"><h2>תיקון הידרומטר</h2></div>}
     <div className="brewCalcMiniGrid"><NumberBox label="פלאטו שנמדד" value={plato} onChange={setPlato} unit="°P"/><NumberBox label="טמפרטורת הדגימה" value={temp} onChange={setTemp} unit="°C"/></div>
-    <div className="brewCalcResult">פלאטו מתוקן ל־20°C: <strong>{result===null?"חסר נתון":result.toFixed(2)+"°P"}</strong></div>
+    <div className="calc-result">פלאטו מתוקן ל־20°C: <strong>{result===null?"חסר נתון":result.toFixed(2)+"°P"}</strong></div>
     {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}
     <CalculatorCss/>
   </section>;
@@ -63,7 +63,7 @@ export function CarbonationReadingCalculator({compact=false,onUse}:{compact?:boo
   return <section className={compact?"brewCalcMini compact":"spec-card brewCalcMini"}>
     {!compact&&<div className="spec-card-header"><h2>קריאת גיזוז</h2></div>}
     <div className="brewCalcMiniGrid"><NumberBox label="לחץ" value={psi} onChange={setPsi} unit="PSI"/><NumberBox label="טמפרטורה" value={tempF} onChange={setTempF} unit="°F"/></div>
-    <div className="brewCalcResult">CO₂: <strong>{result===null?"חסר נתון":result.toFixed(2)+" volumes"}</strong></div>
+    <div className="calc-result">CO₂: <strong>{result===null?"חסר נתון":result.toFixed(2)+" volumes"}</strong></div>
     {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}
     <CalculatorCss/>
   </section>;
@@ -87,7 +87,6 @@ function CalculatorCss(){return <style>{`
 .brewCalcMiniField>div{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px}
 .brewCalcMiniField input{min-width:0;width:100%;height:40px;border:1px solid #cbd5e1;border-radius:10px;padding:0 10px;font:inherit;background:#fff}
 .brewCalcMiniField b{white-space:nowrap;font-size:12px;color:#64748b}
-.brewCalcResult{min-height:42px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:4px;padding:8px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;text-align:center;font-weight:600}
 .brewCalcMini small{color:#64748b}
 .brewCalcUse{justify-self:stretch;min-height:42px}
 .brewCalcOverlay{position:fixed;inset:0;z-index:10050;background:#0f172a66;display:flex;align-items:center;justify-content:center;padding:18px}
