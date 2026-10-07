@@ -113,6 +113,12 @@ function sheetOutboxPayload(readings: ReadingLike[]): string {
             plato: reading.plato ?? null,
             pH: reading.pH ?? null,
             carbonation: reading.carbonation ?? null,
+            isEmpty: reading.isEmpty ?? null,
+            kegs: reading.kegs ?? null,
+            crates: reading.crates ?? null,
+            totalLiters: reading.totalLiters ?? null,
+            shrinkagePercent: reading.shrinkagePercent ?? null,
+            boldNotes: reading.boldNotes ?? null,
             notes: String(reading.notes ?? "").trim(),
         }))
     );
