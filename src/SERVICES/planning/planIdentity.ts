@@ -72,7 +72,7 @@ export function withStablePackagingIdentity(plans: WeekPlan[]): WeekPlan[] {
         ...run,
         brewId,
         tankId: brew.tankId,
-        ...(brew.tankId ? { tankNumber: Number(brew.tankId) || brew.tankId } : {}),
+        ...(brew.tankId ? { tankNumber: String(brew.tankId) } : {}),
         ...(normalizedBatch(brew.batchNumber) ? { batchNumber: normalizedBatch(brew.batchNumber) } : {}),
       };
     }),
