@@ -273,17 +273,24 @@ export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
         return [...await plannedPackagingCache.pending];
     }
 
+    // Packaging decisions can point to a brew created in an earlier planning
+    // week. Loading only next week's document makes resolvePackagingBrewId()
+    // blind to that brew, so a run without its own tank (for example tank 16)
+    // disappears from the Wednesday/Thursday cellar recommendations.
+    const historyStart = toDateInputValue(addDays(nextWeekStart, -84));
     const pending = getDocs(
         query(
             collection(db, "planningWeeks"),
-            where("id", "==", nextWeekId),
-            limit(1)
+            where("id", ">=", historyStart),
+            where("id", "<=", nextWeekId)
         )
     ).then((snapshot) => {
-        const week = snapshot.docs[0]?.data() as PlanningWeekDoc | undefined;
+        const plans = snapshot.docs
+            .map((doc) => doc.data() as PlanningWeekDoc)
+            .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+        const week = plans.find((plan) => String(plan.id) === nextWeekId);
         if (!week) return [];
 
-        const plans = [week];
         const tankNumbers = (week.packaging ?? [])
             .map((raw) => {
                 const run = raw as PackagingPlan;
