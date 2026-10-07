@@ -35,35 +35,6 @@ function hasPackagingFields(reading: PackagingReading): boolean {
     );
 }
 
-function isNoteOnlyReading(reading: ReadingToSend): boolean {
-    const candidate = reading as PackagingReading & {
-        temp?: unknown;
-        pressure?: unknown;
-        plato?: unknown;
-        pH?: unknown;
-        carbonation?: unknown;
-        notes?: unknown;
-        boldNotes?: unknown;
-    };
-
-    if (hasPackagingFields(candidate) || candidate.boldNotes === true) return false;
-
-    const hasMeasurement = [
-        candidate.temp,
-        candidate.pressure,
-        candidate.plato,
-        candidate.pH,
-        candidate.carbonation,
-    ].some((value) => value !== undefined && value !== null && value !== "");
-
-    const hasNotes =
-        candidate.notes !== undefined &&
-        candidate.notes !== null &&
-        String(candidate.notes).trim() !== "";
-
-    return !hasMeasurement && hasNotes;
-}
-
 function isPullRequestPreview(): boolean {
     return typeof window !== "undefined" && window.location.hostname.includes("--pr");
 }
@@ -238,13 +209,12 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-    const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
     const durableCellarBatch = readings.length > 0 && readings.every((reading) => !hasPackagingFields(reading as PackagingReading));
     const requestId = createAppsScriptRequestId("addFermentationMeasurements");
 
-    // For note-only work the same Firestore commit that updates currentData also
-    // persists an outbox job. The UI therefore stays fast, but closing Safari or
-    // losing connectivity cannot silently abandon the Google Sheet write.
+    // Every non-packaging cellar reading is committed to Firestore together with a
+    // durable outbox job before the Sheet side effect starts. The UI stays fast,
+    // and closing Safari or losing connectivity cannot abandon the Sheet write.
     const optimisticFirestorePromise = persistFirestoreState(
         readings,
         durableCellarBatch,
@@ -267,7 +237,7 @@ export async function writeReadingsToSheets(
             .then(async (parsed) => {
                 if (!parsed.success) {
                     console.error(
-                        "Background note Sheet sync returned failure:",
+                        "Background cellar Sheet sync returned failure:",
                         parsed.error || parsed.message
                     );
                     showBackgroundSheetWarning(readings);
@@ -277,7 +247,7 @@ export async function writeReadingsToSheets(
                 const results = (parsed.results as writeReadingResult[] | undefined) ?? [];
                 const failed = results.filter((result) => !result.success);
                 if (failed.length > 0) {
-                    console.error("Background note Sheet sync partially failed:", failed);
+                    console.error("Background cellar Sheet sync partially failed:", failed);
                     showBackgroundSheetWarning(readings, failed);
                     return;
                 }
@@ -289,7 +259,7 @@ export async function writeReadingsToSheets(
                 await clearSheetSyncJob(requestId);
             })
             .catch((error) => {
-                console.error("Background note Sheet sync failed:", error);
+                console.error("Background cellar Sheet sync failed:", error);
                 showBackgroundSheetWarning(readings);
                 // Keep the outbox entry pending; Apps Script maintenance will
                 // retry/confirm it later with this exact same requestId.
