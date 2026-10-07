@@ -117,7 +117,7 @@ async function clearSheetSyncJob(requestId: string): Promise<void> {
 
 async function persistFirestoreState(
     readings: ReadingToSend[],
-    durableCellarBatch: boolean,
+    durableMeasurementBatch: boolean,
     requestId: string
 ): Promise<void> {
     // PR Hosting previews run against the currently deployed production
@@ -126,17 +126,17 @@ async function persistFirestoreState(
     // waited for permission-denied, then retried without the outbox. That made
     // every note/action report in Preview pay an unnecessary failed network
     // round-trip. Skip that known-to-fail write up front in Preview.
-    if (durableCellarBatch && isPullRequestPreview()) {
+    if (durableMeasurementBatch && isPullRequestPreview()) {
         await pushCurrentDataToFirestore(readings);
         return;
     }
 
     try {
         await pushCurrentDataToFirestore(readings, {
-            sheetSyncRequestId: durableCellarBatch ? requestId : undefined,
+            sheetSyncRequestId: durableMeasurementBatch ? requestId : undefined,
         });
     } catch (error) {
-        if (durableCellarBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
+        if (durableMeasurementBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
             await pushCurrentDataToFirestore(readings);
             return;
         }
@@ -209,19 +209,19 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-    const durableCellarBatch = readings.length > 0 && readings.every((reading) => !hasPackagingFields(reading as PackagingReading));
+    const durableMeasurementBatch = readings.length > 0;
     const requestId = createAppsScriptRequestId("addFermentationMeasurements");
 
-    // Every non-packaging cellar reading is committed to Firestore together with a
+    // Every cellar/packaging measurement is committed to Firestore together with a
     // durable outbox job before the Sheet side effect starts. The UI stays fast,
     // and closing Safari or losing connectivity cannot abandon the Sheet write.
     const optimisticFirestorePromise = persistFirestoreState(
         readings,
-        durableCellarBatch,
+        durableMeasurementBatch,
         requestId
     );
 
-    if (durableCellarBatch) {
+    if (durableMeasurementBatch) {
         // Make Firestore + outbox durable BEFORE the side effect starts. This
         // avoids the inverse partial state where Sheets succeeds but Firestore
         // failed to record either the action or its recovery job.
@@ -232,6 +232,11 @@ export async function writeReadingsToSheets(
             requestId,
             readings,
         });
+
+        // Packaging-cell metadata is independent from the fermentation row and
+        // should never keep the reporting UI open. It is idempotent and can run
+        // alongside the background Sheet write.
+        void syncPackagingInfoInParallel(readings);
 
         void sheetPromise
             .then(async (parsed) => {
@@ -273,24 +278,5 @@ export async function writeReadingsToSheets(
         }));
     }
 
-    // Packaging still needs its authoritative Sheet response,
-    // so run Firestore, Sheets and packaging-cell sync in parallel.
-    const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
-        action: "addFermentationMeasurements",
-        requestId,
-        readings,
-    });
-    const packagingInfoPromise = syncPackagingInfoInParallel(readings);
-
-    const [parsed] = await Promise.all([
-        sheetPromise,
-        optimisticFirestorePromise,
-        packagingInfoPromise,
-    ]);
-
-    if (!parsed.success) {
-        throw new Error(parsed.error || parsed.message || "Batch update failed");
-    }
-
-    return (parsed.results as writeReadingResult[] | undefined) ?? [];
+    return [];
 }
