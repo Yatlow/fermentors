@@ -14,6 +14,8 @@ import {
     type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "../../firebase";
+import { brewById, resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/planning/planIdentity";
+import type { WeekPlan } from "../../SERVICES/planning/planningEngine";
 
 // ============================================================
 // TYPES
@@ -47,16 +49,7 @@ export type PackagingLogDoc = {
     tankNumber?: string | number;
 };
 
-type PlanningWeekDoc = {
-    packaging?: Array<{
-        id?: string;
-        productId?: string;
-        quantity?: number;
-        date?: string;
-        tankNumber?: string | number;
-        tankId?: string;
-    }>;
-};
+type PlanningWeekDoc = WeekPlan;
 
 type PlanningSettingsDoc = {
     products?: Array<{ id: string; style: string; type: "crates" | "kegs" }>;
@@ -288,8 +281,16 @@ export async function getPlannedPackagingContainerNumbers(): Promise<number[]> {
         )
     ).then((snapshot) => {
         const week = snapshot.docs[0]?.data() as PlanningWeekDoc | undefined;
-        const tankNumbers = (week?.packaging ?? [])
-            .map((run) => Number(run.tankNumber ?? run.tankId))
+        if (!week) return [];
+
+        const plans = [week];
+        const tankNumbers = (week.packaging ?? [])
+            .map((raw) => {
+                const run = raw as PackagingPlan;
+                const brewId = resolvePackagingBrewId(run, plans);
+                const linkedBrew = brewId ? brewById(plans, brewId) : null;
+                return Number(run.tankNumber ?? run.tankId ?? linkedBrew?.tankId);
+            })
             .filter((tankNumber) => Number.isFinite(tankNumber) && tankNumber > 0);
         return [...new Set(tankNumbers)];
     });
