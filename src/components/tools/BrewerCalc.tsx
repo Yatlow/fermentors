@@ -1,7 +1,7 @@
 
 import { useState } from "react";
 import type { Fermentor } from "../../App";
-import { CarbonationReadingCalculator, HydrometerCorrectionCalculator } from "./BrewingMeasurementCalculators";
+import { CalculatorIconButton, CalculatorModal, CarbonationReadingCalculator, HydrometerCorrectionCalculator } from "./BrewingMeasurementCalculators";
 
 type FVType = "triple" | "double" | "6";
 
@@ -45,6 +45,7 @@ type CalcValues = {
 };
 
 export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
+    const [hydrometerTarget, setHydrometerTarget] = useState<"testPlato" | "desiredPlato" | null>(null);
     const [calcValues, setCalcValues] = useState<CalcValues>({
         BoilVol: {
             label: "נפח רתיחה",
@@ -192,6 +193,7 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                     value
                                 )
                             }
+                            action={<CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("testPlato")} />}
                         />
 
                         <NumberField
@@ -204,6 +206,7 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                                     value
                                 )
                             }
+                            action={<CalculatorIconButton label="תיקון טמפרטורה לפלאטו" onClick={() => setHydrometerTarget("desiredPlato")} />}
                         />
 
                         <NumberField
@@ -434,6 +437,16 @@ export default function BrewCalc({ brews }: { brews: Fermentor[] }) {
                 <HydrometerCorrectionCalculator />
                 <CarbonationReadingCalculator />
             </div>
+            {hydrometerTarget && (
+                <CalculatorModal
+                    kind="hydrometer"
+                    onClose={() => setHydrometerTarget(null)}
+                    onUse={(value) => {
+                        updateField("BoilVol", hydrometerTarget === "testPlato" ? "testPlato" : "DesiredPlato", Number(value.toFixed(2)));
+                        setHydrometerTarget(null);
+                    }}
+                />
+            )}
         </div>
     );
 }
@@ -442,12 +455,14 @@ type NumberFieldProps = {
     label: string;
     value: OptionalNumber;
     onChange: (value: OptionalNumber) => void;
+    action?: React.ReactNode;
 };
 
-function NumberField({ label, value, onChange }: NumberFieldProps) {
+function NumberField({ label, value, onChange, action }: NumberFieldProps) {
     return (
         <label className="spec-field">
             <span className="spec-field-label">{label}</span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
                 className="spec-input"
                 type="number"
@@ -458,6 +473,8 @@ function NumberField({ label, value, onChange }: NumberFieldProps) {
                     onChange(rawValue === "" ? "" : Number(rawValue));
                 }}
             />
+            {action}
+            </div>
         </label>
     );
 }
