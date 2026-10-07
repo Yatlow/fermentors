@@ -102,12 +102,23 @@ function asSheetResult(value: unknown): SheetResult | null {
     return value as SheetResult;
 }
 
-function noteOutboxPayload(readings: ReadingLike[]): string {
+function sheetOutboxPayload(readings: ReadingLike[]): string {
     return JSON.stringify(
         readings.map((reading) => ({
             tankId: String(reading.tankId),
             tankNumber: reading.tankNumber == null ? null : String(reading.tankNumber),
             batchNumber: reading.batchNumber == null ? null : String(reading.batchNumber),
+            temp: reading.temp ?? null,
+            pressure: reading.pressure ?? null,
+            plato: reading.plato ?? null,
+            pH: reading.pH ?? null,
+            carbonation: reading.carbonation ?? null,
+            isEmpty: reading.isEmpty ?? null,
+            kegs: reading.kegs ?? null,
+            crates: reading.crates ?? null,
+            totalLiters: reading.totalLiters ?? null,
+            shrinkagePercent: reading.shrinkagePercent ?? null,
+            boldNotes: reading.boldNotes ?? null,
             notes: String(reading.notes ?? "").trim(),
         }))
     );
@@ -270,7 +281,7 @@ export async function pushCurrentDataToFirestore(
             ownerEmail: user.email,
             state: "pending",
             attempts: 0,
-            readingsJson: noteOutboxPayload(readings),
+            readingsJson: sheetOutboxPayload(readings),
             createdAt: serverTimestamp(),
         });
         writeCount += 1;

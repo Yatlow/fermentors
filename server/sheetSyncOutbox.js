@@ -124,9 +124,14 @@ function sheetSyncSanitizedReadings_(jobDocument) {
     const tankId = String(reading && reading.tankId || "").trim();
     const notes = String(reading && reading.notes || "").trim();
     const expectedBatch = sheetSyncNormalizeBatch_(reading && reading.batchNumber);
+    const hasValue = function (value) {
+      return value !== undefined && value !== null && value !== "";
+    };
+    const hasMeasurement = ["temp", "pressure", "plato", "pH", "carbonation"]
+      .some(function (field) { return hasValue(reading && reading[field]); });
 
-    if (!tankId || !notes) {
-      throw new Error("Outbox reading is missing tankId or notes");
+    if (!tankId || (!notes && !hasMeasurement)) {
+      throw new Error("Outbox reading is missing tankId or measurement data");
     }
 
     const fermentor = sheetSyncGetFermentor_(tankId);
@@ -153,6 +158,17 @@ function sheetSyncSanitizedReadings_(jobDocument) {
       tankNumber: sheetSyncField_(fermentor, "tankNumber") || reading.tankNumber || tankId,
       batchNumber: currentBatch || expectedBatch || null,
       sheetUrl: sheetUrl,
+      temp: reading.temp,
+      pressure: reading.pressure,
+      plato: reading.plato,
+      pH: reading.pH,
+      carbonation: reading.carbonation,
+      isEmpty: reading.isEmpty,
+      kegs: reading.kegs,
+      crates: reading.crates,
+      totalLiters: reading.totalLiters,
+      shrinkagePercent: reading.shrinkagePercent,
+      boldNotes: reading.boldNotes,
       notes: notes
     };
   });

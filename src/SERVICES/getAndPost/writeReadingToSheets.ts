@@ -35,35 +35,6 @@ function hasPackagingFields(reading: PackagingReading): boolean {
     );
 }
 
-function isNoteOnlyReading(reading: ReadingToSend): boolean {
-    const candidate = reading as PackagingReading & {
-        temp?: unknown;
-        pressure?: unknown;
-        plato?: unknown;
-        pH?: unknown;
-        carbonation?: unknown;
-        notes?: unknown;
-        boldNotes?: unknown;
-    };
-
-    if (hasPackagingFields(candidate) || candidate.boldNotes === true) return false;
-
-    const hasMeasurement = [
-        candidate.temp,
-        candidate.pressure,
-        candidate.plato,
-        candidate.pH,
-        candidate.carbonation,
-    ].some((value) => value !== undefined && value !== null && value !== "");
-
-    const hasNotes =
-        candidate.notes !== undefined &&
-        candidate.notes !== null &&
-        String(candidate.notes).trim() !== "";
-
-    return !hasMeasurement && hasNotes;
-}
-
 function isPullRequestPreview(): boolean {
     return typeof window !== "undefined" && window.location.hostname.includes("--pr");
 }
@@ -146,7 +117,7 @@ async function clearSheetSyncJob(requestId: string): Promise<void> {
 
 async function persistFirestoreState(
     readings: ReadingToSend[],
-    noteOnlyBatch: boolean,
+    durableMeasurementBatch: boolean,
     requestId: string
 ): Promise<void> {
     // PR Hosting previews run against the currently deployed production
@@ -155,17 +126,17 @@ async function persistFirestoreState(
     // waited for permission-denied, then retried without the outbox. That made
     // every note/action report in Preview pay an unnecessary failed network
     // round-trip. Skip that known-to-fail write up front in Preview.
-    if (noteOnlyBatch && isPullRequestPreview()) {
+    if (durableMeasurementBatch && isPullRequestPreview()) {
         await pushCurrentDataToFirestore(readings);
         return;
     }
 
     try {
         await pushCurrentDataToFirestore(readings, {
-            sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
+            sheetSyncRequestId: durableMeasurementBatch ? requestId : undefined,
         });
     } catch (error) {
-        if (noteOnlyBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
+        if (durableMeasurementBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
             await pushCurrentDataToFirestore(readings);
             return;
         }
@@ -238,19 +209,19 @@ async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<v
 export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
-    const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
+    const durableMeasurementBatch = readings.length > 0;
     const requestId = createAppsScriptRequestId("addFermentationMeasurements");
 
-    // For note-only work the same Firestore commit that updates currentData also
-    // persists an outbox job. The UI therefore stays fast, but closing Safari or
-    // losing connectivity cannot silently abandon the Google Sheet write.
+    // Every cellar/packaging measurement is committed to Firestore together with a
+    // durable outbox job before the Sheet side effect starts. The UI stays fast,
+    // and closing Safari or losing connectivity cannot abandon the Sheet write.
     const optimisticFirestorePromise = persistFirestoreState(
         readings,
-        noteOnlyBatch,
+        durableMeasurementBatch,
         requestId
     );
 
-    if (noteOnlyBatch) {
+    if (durableMeasurementBatch) {
         // Make Firestore + outbox durable BEFORE the side effect starts. This
         // avoids the inverse partial state where Sheets succeeds but Firestore
         // failed to record either the action or its recovery job.
@@ -262,11 +233,16 @@ export async function writeReadingsToSheets(
             readings,
         });
 
+        // Packaging-cell metadata is independent from the fermentation row and
+        // should never keep the reporting UI open. It is idempotent and can run
+        // alongside the background Sheet write.
+        void syncPackagingInfoInParallel(readings);
+
         void sheetPromise
             .then(async (parsed) => {
                 if (!parsed.success) {
                     console.error(
-                        "Background note Sheet sync returned failure:",
+                        "Background cellar Sheet sync returned failure:",
                         parsed.error || parsed.message
                     );
                     showBackgroundSheetWarning(readings);
@@ -276,7 +252,7 @@ export async function writeReadingsToSheets(
                 const results = (parsed.results as writeReadingResult[] | undefined) ?? [];
                 const failed = results.filter((result) => !result.success);
                 if (failed.length > 0) {
-                    console.error("Background note Sheet sync partially failed:", failed);
+                    console.error("Background cellar Sheet sync partially failed:", failed);
                     showBackgroundSheetWarning(readings, failed);
                     return;
                 }
@@ -288,7 +264,7 @@ export async function writeReadingsToSheets(
                 await clearSheetSyncJob(requestId);
             })
             .catch((error) => {
-                console.error("Background note Sheet sync failed:", error);
+                console.error("Background cellar Sheet sync failed:", error);
                 showBackgroundSheetWarning(readings);
                 // Keep the outbox entry pending; Apps Script maintenance will
                 // retry/confirm it later with this exact same requestId.
@@ -302,24 +278,5 @@ export async function writeReadingsToSheets(
         }));
     }
 
-    // Measurements and packaging still need their authoritative Sheet response,
-    // so run Firestore, Sheets and packaging-cell sync in parallel.
-    const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
-        action: "addFermentationMeasurements",
-        requestId,
-        readings,
-    });
-    const packagingInfoPromise = syncPackagingInfoInParallel(readings);
-
-    const [parsed] = await Promise.all([
-        sheetPromise,
-        optimisticFirestorePromise,
-        packagingInfoPromise,
-    ]);
-
-    if (!parsed.success) {
-        throw new Error(parsed.error || parsed.message || "Batch update failed");
-    }
-
-    return (parsed.results as writeReadingResult[] | undefined) ?? [];
+    return [];
 }

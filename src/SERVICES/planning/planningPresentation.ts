@@ -62,9 +62,7 @@ export function withSpecialTotals(settings: Settings): Settings {
       ...p,
       leadDays: leads.length
         ? Math.max(...leads)
-        : p.style.includes("לאגר")
-          ? 50
-          : 21,
+        : 21,
     };
   });
   return { ...settings, products };
