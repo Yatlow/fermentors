@@ -239,6 +239,7 @@ export async function writeReadingsToSheets(
     readings: ReadingToSend[]
 ): Promise<writeReadingResult[]> {
     const noteOnlyBatch = readings.length > 0 && readings.every(isNoteOnlyReading);
+    const durableCellarBatch = readings.length > 0 && readings.every((reading) => !hasPackagingFields(reading as PackagingReading));
     const requestId = createAppsScriptRequestId("addFermentationMeasurements");
 
     // For note-only work the same Firestore commit that updates currentData also
@@ -246,11 +247,11 @@ export async function writeReadingsToSheets(
     // losing connectivity cannot silently abandon the Google Sheet write.
     const optimisticFirestorePromise = persistFirestoreState(
         readings,
-        noteOnlyBatch,
+        durableCellarBatch,
         requestId
     );
 
-    if (noteOnlyBatch) {
+    if (durableCellarBatch) {
         // Make Firestore + outbox durable BEFORE the side effect starts. This
         // avoids the inverse partial state where Sheets succeeds but Firestore
         // failed to record either the action or its recovery job.
@@ -302,7 +303,7 @@ export async function writeReadingsToSheets(
         }));
     }
 
-    // Measurements and packaging still need their authoritative Sheet response,
+    // Packaging still needs its authoritative Sheet response,
     // so run Firestore, Sheets and packaging-cell sync in parallel.
     const sheetPromise = callAppsScriptPost<AppsScriptEnvelope<writeReadingResult[]>>({
         action: "addFermentationMeasurements",
