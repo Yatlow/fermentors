@@ -1552,9 +1552,11 @@ function updateFermentorForNextBrew_(
     "startingPlato",
     "sheetUrl",
     "cellarState",
-    // Including currentData in the update mask while omitting it from fields
-    // deletes the completed batch's measurements atomically.
-    "currentData"
+    // currentData and brewProgress belong to the completed batch. Deleting
+    // both in the same PATCH prevents the newly assigned waiting brew from
+    // inheriting stale cellar measurements or a stale brewing-stage label.
+    "currentData",
+    "brewProgress"
   ];
 
   const url =
