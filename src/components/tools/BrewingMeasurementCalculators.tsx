@@ -51,7 +51,7 @@ export function HydrometerCorrectionCalculator({compact=false,onUse}:{compact?:b
   return <section className={compact?"brewCalcMini compact":"spec-card brewCalcMini"}>
     {!compact&&<div className="spec-card-header"><h2>תיקון הידרומטר</h2></div>}
     <div className="brewCalcMiniGrid"><NumberBox label="פלאטו שנמדד" value={plato} onChange={setPlato} unit="°P"/><NumberBox label="טמפרטורת הדגימה" value={temp} onChange={setTemp} unit="°C"/></div>
-    <div className="calc-result">פלאטו מתוקן ל־20°C: <strong>{result===null?"חסר נתון":result.toFixed(2)+"°P"}</strong></div>
+    <div className="brewCalcResultExact">פלאטו מתוקן ל־20°C: <strong>{result===null?"חסר נתון":result.toFixed(2)+"°P"}</strong></div>
     {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}
     <CalculatorCss/>
   </section>;
@@ -63,7 +63,7 @@ export function CarbonationReadingCalculator({compact=false,onUse}:{compact?:boo
   return <section className={compact?"brewCalcMini compact":"spec-card brewCalcMini"}>
     {!compact&&<div className="spec-card-header"><h2>קריאת גיזוז</h2></div>}
     <div className="brewCalcMiniGrid"><NumberBox label="לחץ" value={psi} onChange={setPsi} unit="PSI"/><NumberBox label="טמפרטורה" value={tempF} onChange={setTempF} unit="°F"/></div>
-    <div className="calc-result">CO₂: <strong>{result===null?"חסר נתון":result.toFixed(2)+" volumes"}</strong></div>
+    <div className="brewCalcResultExact">CO₂: <strong>{result===null?"חסר נתון":result.toFixed(2)+" volumes"}</strong></div>
     {onUse&&result!==null&&<button type="button" className="btn-primary brewCalcUse" onClick={()=>onUse(result)}>השתמש בתוצאה</button>}
     <CalculatorCss/>
   </section>;
@@ -88,6 +88,7 @@ function CalculatorCss(){return <style>{`
 .brewCalcMiniField input{min-width:0;width:100%;height:40px;border:1px solid #cbd5e1;border-radius:10px;padding:0 10px;font:inherit;background:#fff}
 .brewCalcMiniField b{white-space:nowrap;font-size:12px;color:#64748b}
 .brewCalcMini small{color:#64748b}
+.brewCalcResultExact{color:#2a4a2e;font-weight:bold;margin-top:12px;padding:10px 12px;border:1px solid #edf2f7;border-radius:8px;background:#f8fafc}
 .brewCalcUse{justify-self:stretch;min-height:42px}
 .brewCalcOverlay{position:fixed;inset:0;z-index:10050;background:#0f172a66;display:flex;align-items:center;justify-content:center;padding:18px}
 .brewCalcDialog{position:relative;width:min(430px,calc(100vw - 28px));background:#fff;border-radius:16px;padding:18px;box-shadow:0 24px 70px #0004}
