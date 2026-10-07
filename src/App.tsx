@@ -15,6 +15,7 @@ import { auth, db, googleProvider } from "./firebase";
 import { getTankStage, type TankStageInfo } from "./SERVICES/dashboard/tankstage"
 import { enableGlobalReadDiagnostics, recordGlobalServerRead } from "./SERVICES/globalReadDiagnostics";
 import { hasCredibleLiveBrewProgress } from "./SERVICES/brewing/brewProgressDisplay";
+import { setUnsavedEditing } from "./SERVICES/versionGuard";
 
 import "./App.css";
 import shpiro from "./assets/shpiro.jpeg";
@@ -207,6 +208,18 @@ function App() {
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
+
+    const hasUnsavedCellarReading = useMemo(
+        () => Object.values(newReadings).some((reading) =>
+            Object.values(reading ?? {}).some((value) => value !== undefined && value !== null && value !== "")
+        ),
+        [newReadings],
+    );
+
+    useEffect(() => {
+        setUnsavedEditing(hasUnsavedCellarReading);
+        return () => setUnsavedEditing(false);
+    }, [hasUnsavedCellarReading]);
     const [resetKey, setResetKey] = useState(0);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
