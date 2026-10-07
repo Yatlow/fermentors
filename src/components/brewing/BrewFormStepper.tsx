@@ -5791,7 +5791,7 @@ export default function BrewFormStepper({
         <CalculatorModal
           kind="hydrometer"
           onClose={() => setHydrometerTarget(null)}
-          onUse={async (result) => {
+          onUse={(result) => {
             const target = hydrometerTarget;
             const value = result.toFixed(2);
             if (target === "boilSamplePlato") {
@@ -5807,11 +5807,11 @@ export default function BrewFormStepper({
               fermentorSamplePlato: [40, "B"],
             } as const;
             const [row, column] = config[target];
-            // Commit once from the current execution snapshot. Calling setLocal
-            // immediately before commitSugar made the corrected value race with
-            // the previous field value on some devices.
-            await commitSugar(target, value, row, column);
+            // Update and close immediately; persistence can finish in the
+            // background instead of making the calculator feel blocked.
+            setLocal(target, value);
             setHydrometerTarget(null);
+            void commitSugar(target, value, row, column);
           }}
         />
       )}
