@@ -459,22 +459,24 @@ type NumberFieldProps = {
 };
 
 function NumberField({ label, value, onChange, action }: NumberFieldProps) {
+    const inputId = `brewer-calc-${label.replace(/\\s+/g, "-")}`;
     return (
-        <label className="spec-field">
-            <span className="spec-field-label">{label}</span>
+        <div className="spec-field">
+            <label className="spec-field-label" htmlFor={inputId}>{label}</label>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-                className="spec-input"
-                type="number"
-                step="any"
-                value={value}
-                onChange={(e) => {
-                    const rawValue = e.target.value;
-                    onChange(rawValue === "" ? "" : Number(rawValue));
-                }}
-            />
-            {action}
+                <input
+                    id={inputId}
+                    className="spec-input"
+                    type="number"
+                    step="any"
+                    value={value}
+                    onChange={(e) => {
+                        const rawValue = e.target.value;
+                        onChange(rawValue === "" ? "" : Number(rawValue));
+                    }}
+                />
+                {action}
             </div>
-        </label>
+        </div>
     );
 }
