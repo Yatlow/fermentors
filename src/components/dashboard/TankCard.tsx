@@ -1605,7 +1605,7 @@ function TankCard({
                   </span>
 
 
-                  <button
+                  {showEmptyTankSelect && <button
                     type="button"
 
                     className="pasivation-edit-button"
@@ -1630,7 +1630,7 @@ function TankCard({
 
                     <Pencil size={16} />
 
-                  </button>
+                  </button>}
 
                 </div>
 
