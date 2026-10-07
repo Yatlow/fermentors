@@ -14,7 +14,7 @@ import {
     type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "../../firebase";
-import { brewById, resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/planning/planIdentity";
+import type { PackagingPlan } from "../../SERVICES/planning/planIdentity";
 import type { WeekPlan } from "../../SERVICES/planning/planningEngine";
 
 // ============================================================
