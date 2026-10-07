@@ -146,7 +146,7 @@ async function clearSheetSyncJob(requestId: string): Promise<void> {
 
 async function persistFirestoreState(
     readings: ReadingToSend[],
-    noteOnlyBatch: boolean,
+    durableCellarBatch: boolean,
     requestId: string
 ): Promise<void> {
     // PR Hosting previews run against the currently deployed production
@@ -155,17 +155,17 @@ async function persistFirestoreState(
     // waited for permission-denied, then retried without the outbox. That made
     // every note/action report in Preview pay an unnecessary failed network
     // round-trip. Skip that known-to-fail write up front in Preview.
-    if (noteOnlyBatch && isPullRequestPreview()) {
+    if (durableCellarBatch && isPullRequestPreview()) {
         await pushCurrentDataToFirestore(readings);
         return;
     }
 
     try {
         await pushCurrentDataToFirestore(readings, {
-            sheetSyncRequestId: noteOnlyBatch ? requestId : undefined,
+            sheetSyncRequestId: durableCellarBatch ? requestId : undefined,
         });
     } catch (error) {
-        if (noteOnlyBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
+        if (durableCellarBatch && isPullRequestPreview() && isFirestorePermissionDenied(error)) {
             await pushCurrentDataToFirestore(readings);
             return;
         }
