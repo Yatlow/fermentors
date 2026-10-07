@@ -7,6 +7,14 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [
       {
+        "source": "/gauge-poc.html",
+        "headers": [{"key":"Cache-Control","value":"no-store, max-age=0"}]
+      },
+      {
+        "source": "/temperature-panel-poc.html",
+        "headers": [{"key":"Cache-Control","value":"no-store, max-age=0"}]
+      },
+      {
         "source": "/app-version.json",
         "headers": [
           {
