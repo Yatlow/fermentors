@@ -1,0 +1,36 @@
+// Regression tests for camera PoC geometry. Run: node --test tests/camera-poc.test.cjs
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+function loadFunction(file,name,globals={}) {
+ const src=fs.readFileSync(file,'utf8');const start=src.indexOf('function '+name+'(');
+ assert.ok(start>=0,'missing '+name);let p=src.indexOf('{',start),depth=0,end=-1;
+ for(let i=p;i<src.length;i++){if(src[i]==='{')depth++;if(src[i]==='}'&&--depth===0){end=i+1;break}}
+ assert.ok(end>p,'unclosed '+name);const ctx=vm.createContext(globals);
+ return vm.runInContext('('+src.slice(start,end)+')',ctx);
+}
+const panel='public/temperature-panel-poc.html',gauge='public/gauge-poc.html';
+const c={width:1200,height:2000};let messages=[];
+const assign=loadFunction(panel,'assign',{c,log:x=>messages.push(x)});
+function controller(x,y){return{x,y,w:42,h:26}}
+function grid(x,rows){return rows.flatMap((n,i)=>Array.from({length:n},(_,j)=>controller(x+j*105,240+i*240)))}
+const physical=[...grid(120,[3,3,3,2]),...grid(780,[3,3,2])];
+test('19 physical controllers map exactly to tanks 2–19 and exclude CLT 1',()=>{
+ const result=assign(physical);assert.ok(result);assert.equal(result.length,18);
+ assert.deepEqual([...result.map(v=>v.n)].sort((a,b)=>a-b),Array.from({length:18},(_,i)=>i+2));
+ assert.equal(result.find(v=>v.n===2).x,885); // skip first right cabinet controller (#1)
+ assert.equal(result.find(v=>v.n===9).x,120);
+});
+test('missing controller never shifts tank labels',()=>{
+ for(const i of [0,2,5,10,11,14,18])assert.equal(assign(physical.filter((_,j)=>j!==i)),null);
+});
+test('extra red component is rejected rather than assigned to a tank',()=>{
+ assert.equal(assign([...physical,controller(600,1300)]),null);
+});
+test('pressure angle maps zero, midpoint and maximum without tenth-bar rounding',()=>{
+ const f=loadFunction(gauge,'pressureFromAngle');
+ assert.equal(f(135,4),0);assert.equal(f(270,4),2);assert.equal(f(405,4),4);
+ assert.equal(Number(f(225.45,4).toFixed(2)),1.34);
+});
+test('non-gauge blank scene does not pass dial evidence',()=>{
+ const f=loadFunction(gauge,'dialEvidence');const W=900,H=900;
+ assert.equal(f(new Uint8Array(W*H).fill(210),W,H).ok,false);
+});
