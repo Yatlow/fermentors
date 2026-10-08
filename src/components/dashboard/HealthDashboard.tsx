@@ -556,6 +556,27 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             (row) => row.actionType === "yeastDrop"
                         );
 
+                        // Ignored cellar recommendations must not reappear as weekly
+                        // actions or remain in the daily KPI denominator.
+                        const ignoredForToday = (key: string) => isRecommendationIgnored(
+                            ignoredRecommendations,
+                            String(tank.tankNumber),
+                            String(tank.batchNumber),
+                            key
+                        );
+                        const carbRecommendationKeys = [
+                            "requiresCarbTest", "bottomCarbonationFollowUp",
+                            ...unresolvedScheduled.filter((row) => row.actionType === "carbTest")
+                                .map((row) => `scheduled-${row.id}`),
+                        ];
+                        const yeastRecommendationKeys = [
+                            ...naturalYeastKeys,
+                            ...unresolvedScheduled.filter((row) => row.actionType === "yeastDrop")
+                                .map((row) => `scheduled-${row.id}`),
+                        ];
+                        const carbIgnored = carbRecommendationKeys.some(ignoredForToday);
+                        const yeastIgnored = yeastRecommendationKeys.some(ignoredForToday);
+
                         const carbRequiredToday =
                             sundayColdAction ||
                             wednesdayCarbAction ||
@@ -569,15 +590,15 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             scheduledYeastAction ||
                             hasTodayYeast;
 
-                        tankDailyProgress.carbRequired = carbRequiredToday ? 1 : 0;
+                        tankDailyProgress.carbRequired = carbRequiredToday && !carbIgnored ? 1 : 0;
                         tankDailyProgress.carbCompleted = carbRequiredToday && carbCompletedToday ? 1 : 0;
-                        tankDailyProgress.yeastRequired = yeastRequiredToday ? 1 : 0;
+                        tankDailyProgress.yeastRequired = yeastRequiredToday && !yeastIgnored ? 1 : 0;
                         tankDailyProgress.yeastCompleted = yeastRequiredToday && hasTodayYeast ? 1 : 0;
 
                         const weeklyCarbAction = sundayColdAction || wednesdayCarbAction;
                         const weeklyYeastAction = sundayColdAction || thursdayYeastAction;
 
-                        if (weeklyCarbAction && !carbCompletedToday) {
+                        if (weeklyCarbAction && !carbCompletedToday && !carbIgnored) {
                             dailyActions.push({
                                 id: `daily-carb-${tank.id}`,
                                 tankNumber: number,
@@ -591,7 +612,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 scoreEligible: sundayColdAction && !naturalCarb && !scheduledCarbAction,
                             });
                         }
-                        if (weeklyYeastAction && !hasTodayYeast) {
+                        if (weeklyYeastAction && !hasTodayYeast && !yeastIgnored) {
                             dailyActions.push({
                                 id: `daily-yeast-${tank.id}`,
                                 tankNumber: number,
