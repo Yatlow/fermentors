@@ -11,9 +11,10 @@
     "test:planning": "node scripts/test-planning.mjs",
     "test:dashboard": "node scripts/test-dashboard.mjs",
     "test:planning-snapshots": "node scripts/test-planning-snapshots.mjs",
-    "test": "npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets",
+    "test": "npm run test:planning && npm run test:dashboard && npm run test:planning-snapshots && npm run test:server-regressions && npm run test:packaging-pallets && npm run test:camera-poc",
     "test:server-regressions": "node scripts/test-server-regressions.mjs",
-    "test:packaging-pallets": "node scripts/test-packaging-pallet-defaults.mjs"
+    "test:packaging-pallets": "node scripts/test-packaging-pallet-defaults.mjs",
+    "test:camera-poc": "node --test tests/camera-poc.test.cjs"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
