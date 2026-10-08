@@ -86,7 +86,7 @@ function readBox(src,b){
  const best=candidates[0],other=candidates.find(q=>q.txt!==best.txt);
  if(best.score<.65||(other&&best.score-other.score<.10))return '?';
  // These PV panels display one decimal place; do not silently invent a decimal.
- if(!/^\\d{1,2}\\.\\d$/.test(best.txt))return '?';
+ if(!/^\d{1,2}\.\d$/.test(best.txt))return '?';
  return Number(best.txt).toFixed(1)+'°';
 }
 async function run(src){busy=true;draw(src);const boxes=clusterDisplays(redMaskBoxes()),map=assign(boxes);log('red groups='+boxes.length+' assigned='+(map?map.length:0));if(!map){hint.innerHTML='<span class=bad>לא זוהה מבנה הלוח בביטחון — נסה להתיישר ולכלול את שני הארונות.</span>';busy=false;return}const vals={};show(vals);for(const b of map){x.strokeStyle='#58e58d';x.lineWidth=3;x.strokeRect(b.x,b.y,b.w,b.h);x.fillStyle='#58e58d';x.font='18px system-ui';x.fillText(b.n,b.x,b.y-3);vals[b.n]=await readBox(c,b);log('tank '+b.n+' = '+vals[b.n]);show(vals)}const accepted=Object.values(vals).filter(a=>a!=='?').length;hint.innerHTML='<span class='+(accepted===18?'oktxt':'bad')+'>זוהו '+accepted+' מתוך 18 ערכי טמפרטורה. ? = נדרשת בדיקה ידנית; אין שמירה אוטומטית.</span>';log('decoded '+accepted+'/18');c.style.display='none';busy=false}
