@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp } from "lucide-react";
 import type {
     Dispatch,
     SetStateAction
@@ -13,9 +14,9 @@ export type DashboardProps = {
     totalTanks: number;
     statuses: string[];
 
-    sortByAge: "tank" | "oldest";
+    sortByAge: "tank" | "oldest" | "newest";
     setSortByAge:
-    Dispatch<SetStateAction<"tank" | "oldest">>;
+    Dispatch<SetStateAction<"tank" | "oldest" | "newest">>;
 };
 
 export default function DashboardHeader({
@@ -143,15 +144,15 @@ export default function DashboardHeader({
 
                 <button
                     type="button"
-                    className={`status-filter-button ${sortByAge === "oldest"
+                    className={`status-filter-button ${sortByAge !== "tank"
                             ? "active"
                             : ""
                         }`}
                     onClick={() =>
-                        setSortByAge("oldest")
+                        setSortByAge((previous) => previous === "oldest" ? "newest" : "oldest")
                     }
                 >
-                    גיל בירה ↓
+                    גיל בירה {sortByAge === "newest" ? <ArrowUp size={16} aria-hidden="true" /> : <ArrowDown size={16} aria-hidden="true" />}
                 </button>
 
             </div></>
