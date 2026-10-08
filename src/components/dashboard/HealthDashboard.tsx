@@ -442,6 +442,10 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             bottomCarb
                                 ? [{ recommendationKey: "bottomCarbonationFollowUp", recommendation: bottomCarb }]
                                 : []
+                        ).filter((recommendation) =>
+                            // Neglect is a weekday-only reminder; other recommendations remain available.
+                            !(recommendation.recommendationKey === "neglectedStatus" &&
+                              [5, 6].includes(new Date().getDay()))
                         );
 
                         const now = new Date();
@@ -1099,12 +1103,25 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         </section>
                     )}
 
+                    {analysis.alerts.some((alert) => alert.recommendationKey === "measurementRound") && (
+                        <section className="health-daily-actions health-required-measurements" aria-label="מדידות נדרשות">
+                            <strong>מדידות נדרשות</strong>
+                            <div className="health-daily-actions-list">
+                                {analysis.alerts.filter((alert) => alert.recommendationKey === "measurementRound").map((alert) => (
+                                    <div className="health-daily-action" key={alert.id}>
+                                        <span>מיכל {alert.tankNumber} · {alert.detail}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
                     {analysis.alerts.length === 0 && !analyzing ? (
                         <div className="health-empty-state">
                             אין כרגע פעולות סלרינג לביצוע וכל המדידות הנדרשות להיום קיימות.
                         </div>
                     ) : (
-                        analysis.alerts.map((alert) => (
+                        analysis.alerts.filter((alert) => alert.recommendationKey !== "measurementRound").map((alert) => (
                             <article
                                 key={alert.id}
                                 className={`health-alert health-alert-${alert.severity}${alert.userDecision ? " health-alert-user-decision" : ""}`}
