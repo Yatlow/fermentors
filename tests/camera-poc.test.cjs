@@ -49,3 +49,18 @@ test('dense real-looking dial tick pattern is not rejected merely for 36 dark se
  assert.ok(result.variation>.065);
  assert.equal(result.ok,true);
 });
+
+// Guard against a regression where a frozen camera frame bypasses the dial gate.
+test('frozen camera capture checks dial evidence before displaying a pressure',()=>{
+ const source=fs.readFileSync(gauge,'utf8');
+ const capture=source.slice(source.indexOf('async function captureBurst()'),source.indexOf('async function analyzeImage('));
+ assert.match(capture,/dialEvidence\(gd,c\.width,c\.height\)/);
+ assert.match(capture,/if\(!dial\.ok\)/);
+ assert.ok(capture.indexOf('if(!dial.ok)')<capture.indexOf('res.textContent=p.toFixed(2)'));
+});
+test('offline image cannot turn the guide green before a successful read',()=>{
+ const source=fs.readFileSync(gauge,'utf8');
+ const analyze=source.slice(source.indexOf('async function analyzeImage('));
+ assert.doesNotMatch(analyze,/guide\.classList\.toggle\('ok',quality/);
+ assert.ok(analyze.indexOf("guide.classList.add('ok')")>analyze.indexOf('if(p==null||!quality||needle.ambiguous)'));
+});
