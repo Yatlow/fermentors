@@ -34,3 +34,18 @@ test('non-gauge blank scene does not pass dial evidence',()=>{
  const f=loadFunction(gauge,'dialEvidence');const W=900,H=900;
  assert.equal(f(new Uint8Array(W*H).fill(210),W,H).ok,false);
 });
+
+test('dense real-looking dial tick pattern is not rejected merely for 36 dark sectors',()=>{
+ const f=loadFunction(gauge,'dialEvidence'),W=900,H=900,d=new Uint8Array(W*H).fill(255);
+ for(let deg=0;deg<360;deg+=10){
+  const a=deg*Math.PI/180,gray=(deg/10)%2===0?55:150;
+  for(let rr=.28;rr<=.40;rr+=.003){
+   const x=Math.round(W/2+Math.cos(a)*W*rr),y=Math.round(H/2+Math.sin(a)*H*rr);
+   for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)d[(y+dy)*W+x+dx]=gray;
+  }
+ }
+ const result=f(d,W,H);
+ assert.equal(result.hits,36);
+ assert.ok(result.variation>.065);
+ assert.equal(result.ok,true);
+});
