@@ -726,6 +726,18 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         if (hasTodayYeast && !completedScheduledYeast) {
                             addCompleted(`yeast-${tank.id}`, "הורדת שמרים");
                         }
+                        // Reports submitted in the app are persisted in the day's measurement notes.
+                        // Recognize explicit action labels, avoiding broad words such as "לחץ" or "חום".
+                        const reportedActions = [
+                            { key: "vent-adjust", label: "כיוון פורק", pattern: /כיוון פורק|כיוון הפורק|כיוונתי פורק/ },
+                            { key: "pressure-close", label: "סגירת נשם / מיכל", pattern: /סגירת נשם|סגירת הנשם|סגירת מיכל|סגרתי נשם/ },
+                            { key: "diacetyl", label: "מנוחת דיאצטיל", pattern: /מנוחת דיאצ[י׳']?טיל|דיאצטיל/ },
+                            { key: "pressure-change", label: "שינוי לחץ", pattern: /שינוי לחץ|שיניתי לחץ|שינוי בלחץ/ },
+                            { key: "other", label: "פעולה אחרת", pattern: /(?:^|[|\\n])\\s*אחר\\s*[:：-]/ },
+                        ];
+                        reportedActions.forEach(({ key, label, pattern }) => {
+                            if (pattern.test(todayNotes)) addCompleted(`reported-${key}-${tank.id}`, label);
+                        });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
                         if (todayNotes.includes("קירור")) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
                         if (todayNotes.includes("גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
