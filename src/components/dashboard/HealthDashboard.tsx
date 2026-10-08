@@ -565,7 +565,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             key
                         );
                         const carbRecommendationKeys = [
-                            "requiresCarbTest", "bottomCarbonationFollowUp",
+                            "carbTest", "bottomCarbonationFollowUp",
                             ...unresolvedScheduled.filter((row) => row.actionType === "carbTest")
                                 .map((row) => `scheduled-${row.id}`),
                         ];
@@ -591,9 +591,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             hasTodayYeast;
 
                         tankDailyProgress.carbRequired = carbRequiredToday && !carbIgnored ? 1 : 0;
-                        tankDailyProgress.carbCompleted = carbRequiredToday && carbCompletedToday ? 1 : 0;
+                        tankDailyProgress.carbCompleted = carbRequiredToday && !carbIgnored && carbCompletedToday ? 1 : 0;
                         tankDailyProgress.yeastRequired = yeastRequiredToday && !yeastIgnored ? 1 : 0;
-                        tankDailyProgress.yeastCompleted = yeastRequiredToday && hasTodayYeast ? 1 : 0;
+                        tankDailyProgress.yeastCompleted = yeastRequiredToday && !yeastIgnored && hasTodayYeast ? 1 : 0;
 
                         const weeklyCarbAction = sundayColdAction || wednesdayCarbAction;
                         const weeklyYeastAction = sundayColdAction || thursdayYeastAction;
