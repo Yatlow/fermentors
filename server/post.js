@@ -363,7 +363,18 @@ function doPost(e) {
       " requestId=" + String(data.requestId || "none")
     );
 
+    const executionStartedAt = Date.now();
     const response = runPostActionIdempotently_(data);
+    const executionMs = Date.now() - executionStartedAt;
+    logToSheet(
+      "POST RESULT action=" + String(data.action || "unknown") +
+      " requestId=" + String(data.requestId || "none") +
+      " success=" + String(response && response.success === true) +
+      " duplicate=" + String(Boolean(response && response.duplicate)) +
+      " executionMs=" + executionMs +
+      " authMs=" + authMs +
+      " totalMs=" + (Date.now() - startTime)
+    );
 
     // Kept as a no-op compatibility hook. Successful mutations are confirmed
     // through one idempotent retry when Google's ContentService loses JSON.
@@ -376,7 +387,11 @@ function doPost(e) {
         ? error.message
         : (error && error.message ? error.message : "Request failed");
 
-    logToSheet("doPost ERROR: " + message);
+    logToSheet(
+      "doPost ERROR: " + message +
+      " elapsedMs=" + (Date.now() - startTime) +
+      " type=" + String(error && error.name || "Error")
+    );
     return jsonResponse({ success: false, error: message });
   } finally {
     logToSheet("Total doPost time: " + (Date.now() - startTime) + "ms");
