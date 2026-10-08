@@ -223,7 +223,7 @@ function App() {
     const [resetKey, setResetKey] = useState(0);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
-    const [sortByAge, setSortByAge] = useState<"tank" | "oldest">("tank");
+    const [sortByAge, setSortByAge] = useState<"tank" | "oldest" | "newest">("tank");
 
     useEffect(() => {
         if (!user || !isApproved) {
@@ -438,8 +438,14 @@ function App() {
     }
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
-        if (sortByAge === "oldest") {
-            return [...filteredBrews].sort((a, b) => getBrewDateValue(a.brewDate) - getBrewDateValue(b.brewDate));
+        if (sortByAge === "oldest" || sortByAge === "newest") {
+            return [...filteredBrews].sort((a, b) => {
+                const aDate = getBrewDateValue(a.brewDate);
+                const bDate = getBrewDateValue(b.brewDate);
+                if (!aDate) return bDate ? 1 : 0;
+                if (!bDate) return -1;
+                return sortByAge === "oldest" ? aDate - bDate : bDate - aDate;
+            });
         }
         return filteredBrews;
     }, [filteredBrews, sortByAge]);
