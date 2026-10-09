@@ -108,6 +108,54 @@ type CellarAnalysis = {
     completeMeasurementTankNumbers: string[];
 };
 
+type ConditionalForecast = {
+    id: string;
+    tankNumber: string;
+    dueDate: string;
+    title: string;
+    basis: string;
+};
+
+/** Pure projection from measurements already loaded for the health engine.
+ * These are possible due dates assuming no new action is logged, not predictions
+ * of future Plato, temperature, or carbonation.
+ */
+function projectColdCellarMilestones(tank: Fermentor, measurements: Measurement[], today: string): ConditionalForecast[] {
+    if (tank.stage?.name !== "קר") return [];
+    const sorted = [...measurements].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+    const cooling = [...sorted].reverse().find((item) => /קירור/.test(String(item.notes ?? "")));
+    const cooledOn = String(cooling?.id ?? "").match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+    if (!cooledOn || cooledOn > today) return [];
+    const postCooling = sorted.filter((item) => String(item.id ?? "").slice(0, 10) >= cooledOn);
+    const hasCarb = postCooling.some((item) => item.carbonation !== null && item.carbonation !== undefined &&
+        item.carbonation !== "" && Number.isFinite(Number(item.carbonation)));
+    const yeastActions = postCooling.filter((item) =>
+        String(item.id ?? "") > String(cooling?.id ?? "") && /שמרים|שמרי/.test(String(item.notes ?? "")));
+    const result: ConditionalForecast[] = [];
+    const add = (date: string, key: string, title: string, basis: string) => {
+        // Do not silently move an overdue recommendation to a fabricated future date.
+        if (date < today) return;
+        result.push({ id: `${tank.id}:${key}:${date}`, tankNumber: tankLabel(tank),
+            dueDate: date, title, basis });
+    };
+    const addDays = (day: string, count: number) => {
+        const date = new Date(`${day}T12:00:00Z`);
+        date.setUTCDate(date.getUTCDate() + count);
+        return date.toISOString().slice(0, 10);
+    };
+    if (!hasCarb) add(addDays(cooledOn, 1), "first-carb", "בדיקת גיזוז ראשונה", "יום אחרי קירור, אם טרם תתבצע מדידה");
+    if (!yeastActions.length) {
+        add(addDays(cooledOn, 2), "first-yeast", "הורדת שמרים אחרי קירור", "יומיים אחרי קירור, בכפוף למדידות");
+    } else if (yeastActions.length === 1) {
+        const firstDate = String(yeastActions[0].id ?? "").slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(firstDate) &&
+            new Date(`${firstDate}T12:00:00Z`).getUTCDay() === 0) {
+            add(addDays(firstDate, 2), "second-yeast", "הורדת שמרים נוספת", "יומיים אחרי הורדת שמרים ביום ראשון");
+        }
+    }
+    return result;
+}
+
 type Props = {
     brews: Fermentor[];
     specs: SpecChart | null;
@@ -275,6 +323,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const [analyzing, setAnalyzing] = useState(true);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
     const [forecastExpanded, setForecastExpanded] = useState(false);
+    const [conditionalForecast, setConditionalForecast] = useState<ConditionalForecast[]>([]);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
@@ -325,6 +374,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
             setAnalyzing(true);
 
+            const projectedActions: ConditionalForecast[] = [];
             const results = await Promise.all(
                 fullTanks.map(async (tank) => {
                     const number = tankLabel(tank);
@@ -341,6 +391,10 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         const measurements: Measurement[] = tank.batchNumber
                             ? await getMeasurementsByBatch(tank.batchNumber)
                             : [];
+
+                        if (!inGracePeriod) {
+                            projectedActions.push(...projectColdCellarMilestones(tank, measurements, localDateKey(new Date())));
+                        }
 
                         if (inGracePeriod) {
                             const observed = dailyMeasurementProgress(measurements, true);
@@ -843,6 +897,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 { ...EMPTY_DAILY_ACTION_PROGRESS }
             );
 
+            setConditionalForecast(projectedActions);
             setAnalysis({
                 alerts: eligibleResults
                     .flatMap((result) => result.alerts)
@@ -1093,6 +1148,14 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         {rows.length ? rows.map((item) =>
                                             <span key={item.id}>מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · {item.dueDate < key ? "באיחור מאז " + item.dueDate : "מתוזמן"}</span>
                                         ) : <span>אין פעולות מתוזמנות ידועות</span>}
+                                        {conditionalForecast.filter((item) => item.dueDate === key &&
+                                            !scheduledRecommendations.some((scheduled) =>
+                                                scheduled.tankNumber === item.tankNumber &&
+                                                scheduled.dueDate === key &&
+                                                (item.title.includes("גיזוז") ? scheduled.actionType === "carbTest" : scheduled.actionType === "yeastDrop")
+                                            )).map((item) =>
+                                            <span key={item.id}>מיכל {item.tankNumber} · {item.title} · מותנה: {item.basis}</span>
+                                        )}
                                     </div>;
                                 })}
                                 <div className="health-daily-action">
@@ -1105,7 +1168,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     ))}
                                     <small>אלה המלצות המנוע לפי המדידות האחרונות, לא תחזית שהפעולה תידרש ביום מסוים. הן עשויות להשתנות עם המדידות הבאות.</small>
                                 </div>
-                                <small>פעולות מתוזמנות מוצגות לפי מועד שנקבע; פעולות מותנות מוצגות בנפרד ללא תאריך מומצא.</small>
+                                <small>פעולות מתוזמנות מוצגות לפי מועד שנקבע; אבני דרך מותנות בקירור מחושבות מתאריכי פעולות שנמדדו בפועל. יתר הפעולות המותנות נשארות ללא תאריך.</small>
                             </div>
                         )}
                     </section>
