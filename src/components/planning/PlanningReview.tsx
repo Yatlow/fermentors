@@ -144,18 +144,18 @@ export default function PlanningReview({
             const stock = tempoNow(product, week);
             const demand = weeklyDemand(product);
             if (stock === null || demand <= 0) return null;
-            const packaging = baseline.packaging.filter((run) => run.productId === product.id)
-              .reduce((sum, run) => sum + run.quantity, 0);
             const deliveries = (baseline.deliveries ?? []).filter((run) => run.productId === product.id)
               .reduce((sum, run) => sum + run.quantity, 0);
-            const endStock = stock + packaging - deliveries - demand;
+            // Tempo is downstream stock: dispatches add to it; packaged beer
+            // stays in the brewery until a recorded/planned transfer.
+            const endStock = stock + deliveries - demand;
             const cover = endStock / demand;
             return { product, cover, shortage: Math.max(0, -endStock), excess: Math.max(0, cover - target) };
           }).filter((row): row is NonNullable<typeof row> => row !== null);
           return <div>
             <h4>סיכוני מלאי לפי תמונת התכנון שנשמרה</h4>
             <p>פריטים עם נתוני מלאי וביקוש: {rows.length} · תחזית מלאי שלילי: {rows.filter((row) => row.shortage > 0).length} · מעל יעד כיסוי {fmt(target)} שבועות: {rows.filter((row) => row.excess > 0).length}</p>
-            <small>סימולציה בלבד על בסיס מלאי טמפו שהוקפא, ביקוש ממוצע, אריזות ומשלוחים שתוכננו. אינה כוללת מלאי היסטורי מאומת, ביצועי משלוחים בפועל או מלאי במבשלה; לכן אינה מודדת מחסור או עודף שהתממשו.</small>
+            <small>סימולציה בלבד על בסיס מלאי טמפו שהוקפא, ביקוש ממוצע ומשלוחים שתוכננו להגיע לטמפו. אינה כוללת מלאי היסטורי מאומת, ביצועי משלוחים בפועל או מלאי במבשלה; לכן אינה מודדת מחסור או עודף שהתממשו.</small>
           </div>;
         })() : <p>סיכוני מלאי: אין תמונת תכנון והגדרות היסטוריות אמינות.</p>}
         {baseline ? (() => {
