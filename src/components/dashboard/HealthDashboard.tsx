@@ -1147,7 +1147,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         <strong>{key}</strong>
                                         {rows.length ? rows.map((item) =>
                                             <span key={item.id}>מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · {item.dueDate < key ? "באיחור מאז " + item.dueDate : "מתוזמן"}</span>
-                                        ) : <span>אין פעולות מתוזמנות ידועות</span>}
+                                        ) : <span>אין פעולות מתוזמנות ידועות ליום זה</span>}
                                         {conditionalForecast.filter((item) => item.dueDate === key &&
                                             !scheduledRecommendations.some((scheduled) =>
                                                 scheduled.tankNumber === item.tankNumber &&
