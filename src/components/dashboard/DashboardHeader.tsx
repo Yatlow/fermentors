@@ -14,9 +14,9 @@ export type DashboardProps = {
     totalTanks: number;
     statuses: string[];
 
-    sortByAge: "tank" | "oldest" | "newest";
+    sortByAge: "tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater";
     setSortByAge:
-    Dispatch<SetStateAction<"tank" | "oldest" | "newest">>;
+    Dispatch<SetStateAction<"tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater">>;
 };
 
 export default function DashboardHeader({
@@ -153,6 +153,12 @@ export default function DashboardHeader({
                     }
                 >
                     גיל בירה {sortByAge === "newest" ? <ArrowUp size={16} aria-hidden="true" /> : <ArrowDown size={16} aria-hidden="true" />}
+                </button>
+                <button type="button"
+                    className={`status-filter-button ${sortByAge === "packagingSoon" || sortByAge === "packagingLater" ? "active" : ""}`}
+                    onClick={() => setSortByAge((previous) => previous === "packagingSoon" ? "packagingLater" : "packagingSoon")}
+                >
+                    תאריך אריזה {sortByAge === "packagingLater" ? <ArrowUp size={16} aria-hidden="true" /> : <ArrowDown size={16} aria-hidden="true" />}
                 </button>
 
             </div></>
