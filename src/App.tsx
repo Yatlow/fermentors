@@ -223,6 +223,8 @@ function App() {
     const [resetKey, setResetKey] = useState(0);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
+    const [onlyWithCellarRecommendations, setOnlyWithCellarRecommendations] = useState(false);
+    const [recommendedTankNumbers, setRecommendedTankNumbers] = useState<string[]>([]);
     const [sortByAge, setSortByAge] = useState<"tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater">("tank");
 
     useEffect(() => {
@@ -472,7 +474,7 @@ function App() {
                             <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>
                         </div>
                     </div>
-                    {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} />}
+                    {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} onlyWithCellarRecommendations={onlyWithCellarRecommendations} setOnlyWithCellarRecommendations={setOnlyWithCellarRecommendations} />}
                     {selectedView === "רישום" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>סבב יומי- טמפ' ולחץ</span></button>
                         <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>בדיקות סוכר וpH למיכלים חמים</span></button>
@@ -501,7 +503,7 @@ function App() {
             </header>
 
             <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
-                {selectedView === "דאשבורד" && <Dashboard sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
+                {selectedView === "דאשבורד" && <Dashboard onlyWithCellarRecommendations={onlyWithCellarRecommendations} recommendedTankNumbers={recommendedTankNumbers} onRecommendedTanksChange={setRecommendedTankNumbers} sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
                 {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
                 {selectedView === "רישום" && <>
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
