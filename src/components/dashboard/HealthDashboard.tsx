@@ -27,8 +27,8 @@ import {
 } from "../../SERVICES/dashboard/healthModel";
 import { getPlannedPackagingForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
 import {
-    dueScheduledForTank,
     scheduledActionLabel,
+    dueScheduledForTank,
     scheduledRecommendationCompletionDate,
     setScheduledCellarRecommendationStatus,
     subscribeCompletedScheduledCellarRecommendationsToday,
@@ -274,6 +274,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         : [];
     const [analyzing, setAnalyzing] = useState(true);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
+    const [forecastExpanded, setForecastExpanded] = useState(false);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
@@ -1074,6 +1075,30 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
             {expanded && (
                 <div className="health-dashboard-details">
+                    <section className="health-daily-actions" aria-label="תחזית סלרינג לשבעה ימים">
+                        <button type="button" className="health-restore-button" aria-expanded={forecastExpanded} onClick={() => setForecastExpanded((value) => !value)}>
+                            תחזית סלרינג · 7 ימים {forecastExpanded ? "▴" : "▾"}
+                        </button>
+                        {forecastExpanded && (
+                            <div className="health-daily-actions-list">
+                                {Array.from({ length: 7 }, (_, offset) => {
+                                    const date = new Date();
+                                    date.setDate(date.getDate() + offset);
+                                    const key = localDateKey(date);
+                                    const rows = scheduledRecommendations.filter((item) => item.dueDate === key &&
+                                        brews.some((tank) => String(tank.tankNumber) === item.tankNumber &&
+                                            String(tank.batchNumber) === item.batchNumber));
+                                    return <div className="health-daily-action" key={key}>
+                                        <strong>{key}</strong>
+                                        {rows.length ? rows.map((item) =>
+                                            <span key={item.id}>מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · מתוזמן</span>
+                                        ) : <span>אין פעולות מתוזמנות ידועות</span>}
+                                    </div>;
+                                })}
+                                <small>מוצגות פעולות מתוזמנות בלבד. פעולות שתלויות במדידות עתידיות אינן תחזית ודאית ולא נכללו.</small>
+                            </div>
+                        )}
+                    </section>
                     {analysis.completedActions.length > 0 && (
                         <section className="health-completed-actions" aria-label="פעולות שבוצעו היום">
                             <strong>בוצע היום</strong>
