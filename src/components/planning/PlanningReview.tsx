@@ -107,6 +107,79 @@ export default function PlanningReview({
           השבוע טרם הסתיים: הביצוע והפערים המוצגים הם זמניים.
         </p>
       )}
+      <section className="bp-card" aria-label="צומתי החלטה לשיפור">
+        <h3>איפה כדאי לשפר את ההחלטה הבאה?</h3>
+        {!baseline ? <p>בחר שבוע ונקודת השוואה עם תמונת תכנון שמורה. בלי תמונת מצב אמינה אי אפשר לייחס פער להחלטה.</p> : (() => {
+          const completedWeek = addDays(week, 7) <= today;
+          if (!completedWeek) return <p>השבוע טרם הסתיים. ניתוח החלטות יתאפשר אחרי סיום הביצוע, כדי לא להסיק מסקנות מוקדם מדי.</p>;
+          const findings: Array<{ key: string; subject: string; junction: string; evidence: string; next: string; severity: number }> = [];
+          for (const product of products) {
+            const result = compareProduct(product, baseline, actuals, week);
+            const planned = result.planned ?? 0;
+            if (planned <= 0) continue;
+            const label = `${product.style} · ${product.type === "crates" ? "ארגזים" : "חביות"}`;
+            const timeline = compareSnapshots(product, snapshots, week);
+            const firstChange = timeline.slice(1).find((point, index) => {
+              const previous = timeline[index];
+              return point.quantity !== null && previous.quantity !== null && point.quantity !== previous.quantity;
+            });
+            const junction = firstChange ? `כבר ב${checkpointLabel[firstChange.key]}` :
+              `בתוכנית ${checkpointLabel[checkpoint]}`;
+            if (result.performed < planned * 0.9) {
+              findings.push({
+                key: product.id + ":short",
+                subject: label,
+                junction,
+                evidence: `תוכננו ${fmt(planned)}, בוצעו ${fmt(result.performed)} (${fmt(result.attainment)}%).`,
+                next: "לבדוק במועד קבלת ההחלטה מוכנות מיכל, חומרי אריזה ומכסת ימי עבודה; אין די מידע לקבוע מה גרם לפער.",
+                severity: (planned - result.performed) / planned,
+              });
+            } else if (result.delay !== null && result.delay > 1) {
+              findings.push({
+                key: product.id + ":late",
+                subject: label,
+                junction,
+                evidence: `כמות האריזה שבוצעה ואפשר להתאים לתוכנית איחרה בממוצע ${fmt(result.delay)} ימים.`,
+                next: "לבחון האם תאריך האריזה נקבע לפני מוכנות הבירה או ללא מרווח לקיבולת ולתקלות.",
+                severity: result.delay / 7,
+              });
+            } else if (result.performed > planned * 1.1) {
+              findings.push({
+                key: product.id + ":over",
+                subject: label,
+                junction,
+                evidence: `תוכננו ${fmt(planned)}, בוצעו ${fmt(result.performed)} (${fmt(result.attainment)}%).`,
+                next: "לבדוק האם היה צורך שהתגלה מאוחר בתכנון, או ביצוע שגלש מתוכנית אחרת.",
+                severity: (result.performed - planned) / planned,
+              });
+            }
+          }
+          for (const match of matchActualShipments(baseline.deliveries ?? [], shipments, products)) {
+            if (!match.actual || match.score === null || match.score >= 0.85) continue;
+            findings.push({
+              key: "shipment:" + match.planned.id,
+              subject: `משלוח ${shortDate(match.planned.dispatchDate)}`,
+              junction: "בהחלטת הרכב המשלוח",
+              evidence: `התאמת הרכב מדווח מול תכנון: ${fmt(match.score * 100)}%.`,
+              next: "לבדוק אילו פריטים הוחלפו ולמה, מול זמינות משטחים ומלאי בזמן השיבוץ.",
+              severity: 1 - match.score,
+            });
+          }
+          const top = findings.sort((a, b) => b.severity - a.severity).slice(0, 5);
+          if (!top.length) return <p>לא אותרו פערי ביצוע בולטים בנתונים המהימנים של השבוע. אין משמעות הדבר שכל ההחלטות היו מיטביות.</p>;
+          return <>
+            <p>אלה עד חמישה צמתים שבהם ניכר פער בין התוכנית לביצוע. הם מצביעים **היכן לבדוק**, לא מוכיחים מי טעה או מה הסיבה.</p>
+            {top.map((item) => <article key={item.key} className="bp-card">
+              <h4>{item.subject}</h4>
+              <p><strong>נקודת בדיקה:</strong> {item.junction}</p>
+              <p><strong>מה קרה:</strong> {item.evidence}</p>
+              <p><strong>מה לבחון לפני ההחלטה הבאה:</strong> {item.next}</p>
+            </article>)}
+          </>;
+        })()}
+      </section>
+      <details>
+        <summary>פתח נתוני עומק, מדדים וטבלאות השוואה</summary>
       <section className="bp-card" aria-label="מדדי תוצאות תכנון">
         <h3>מדדי תוצאות — אריזה ומשלוחים</h3>
         {baseline ? (() => {
@@ -383,6 +456,7 @@ export default function PlanningReview({
         עדיין נתוני מכירות, מלאי היסטורי בטמפו או היסטוריית מוכנות איכות מספקים
         למדידת מחסור בפועל או ללמידת זמני הבשלה ופחת.
       </p>
+      </details>
     </section>
   );
 }
