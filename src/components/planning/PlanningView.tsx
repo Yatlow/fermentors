@@ -2,6 +2,8 @@ import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
+import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
@@ -104,7 +106,40 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
     const canonical = withStablePackagingIdentity(allWithEditedWeek).find((week) => week.id === merged.id) ?? merged;
-    await data.saveWeek(withoutDuplicateDeliveries(canonical), options);
+    const changed: RecommendationKind[] = [];
+    if (JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? [])) changed.push("shipment");
+    if (JSON.stringify(original?.packaging ?? []) !== JSON.stringify(canonical.packaging ?? [])) changed.push("packaging");
+    if (JSON.stringify(original?.brews ?? []) !== JSON.stringify(canonical.brews ?? [])) changed.push("brewing");
+    // Reuse the same already-loaded inputs as the planner; no extra Firestore reads.
+    // Compute before writing the decision. Never backfill a past recommendation.
+    const recommendation = changed.length ? buildWeeklyPlanningModel({
+      settings, pallets, tanks, plans: identityAlignedPlans, actuals,
+      sources: productionTanks, today, week: canonical.id, holidays,
+      shipments: data.actualShipments,
+    }) : null;
+    const capturedAt = new Date().toISOString();
+    const evidence: RecommendationEvidence[] = changed.map((kind) => ({
+      id: `${canonical.id}:${kind}:${capturedAt}`,
+      weekId: canonical.id,
+      kind,
+      capturedAt,
+      algorithmVersion: "weeklyPlanningModel-2026-10",
+      provenance: "decision-time",
+      recommended: (kind === "shipment" ? recommendation!.shipmentRecommendation
+        : kind === "packaging" ? recommendation!.packagingRecommendation
+        : recommendation!.brewRecommendations).map((item) => ({ ...item })),
+      decided: (kind === "shipment" ? canonical.deliveries ?? []
+        : kind === "packaging" ? canonical.packaging : canonical.brews).map((item) => ({ ...item })),
+    }));
+    const previousEvidence = original?.recommendationEvidence ?? [];
+    const suppliedEvidence = canonical.recommendationEvidence ?? [];
+    const uniqueEvidence = [...previousEvidence, ...suppliedEvidence, ...evidence].filter(
+      (item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index,
+    );
+    await data.saveWeek(withoutDuplicateDeliveries({
+      ...canonical,
+      recommendationEvidence: uniqueEvidence,
+    }), options);
   }
 
   return (
