@@ -18,8 +18,11 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState(false);
 
-    useEffect(() => subscribeScheduledCellarRecommendations(setScheduled,
-        (error) => console.error("Failed to load cellar forecast schedule", error)), []);
+    useEffect(() => {
+        if (!expanded) return;
+        return subscribeScheduledCellarRecommendations(setScheduled,
+            (error) => console.error("Failed to load cellar forecast schedule", error));
+    }, [expanded]);
     useEffect(() => {
         const refreshData = () => setRefresh((previous) => previous + 1);
         window.addEventListener(MEASUREMENTS_UPDATED_EVENT, refreshData);
@@ -31,7 +34,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
 
     useEffect(() => {
         let cancelled = false;
-        if (!specs) return;
+        if (!specs || !expanded) return;
         const today = localDateKey(new Date());
         setLoading(true);
         void Promise.all(active.map(async (tank) => {
@@ -51,7 +54,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
             if (!cancelled) setLoading(false);
         });
         return () => { cancelled = true; };
-    }, [active, specs, refresh]);
+    }, [active, specs, refresh, expanded]);
 
     const days = useMemo(() => {
         const today = localDateKey(new Date());
