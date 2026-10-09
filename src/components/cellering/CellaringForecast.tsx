@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
-import { projectColdCellarMilestones, type ConditionalForecast } from "../dashboard/HealthDashboard";
+import { projectColdCellarMilestones, type ConditionalForecast } from "../../SERVICES/cellering/coldCellarForecast";
 import { projectPlatoThresholdRecheck } from "../../SERVICES/cellering/platoThresholdForecast";
 import {
     subscribeScheduledCellarRecommendations, scheduledActionLabel,
