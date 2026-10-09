@@ -144,7 +144,7 @@ export default function PlanningReview({
             const stock = tempoNow(product, week);
             const demand = weeklyDemand(product);
             if (stock === null || demand <= 0) return null;
-            const deliveries = (baseline.deliveries ?? []).filter((run) => run.productId === product.id)
+            const deliveries = (baseline.deliveries ?? []).filter((run) => run.productId === product.id && run.arrivalDate <= addDays(week, 6))
               .reduce((sum, run) => sum + run.quantity, 0);
             // Tempo is downstream stock: dispatches add to it; packaged beer
             // stays in the brewery until a recorded/planned transfer.
