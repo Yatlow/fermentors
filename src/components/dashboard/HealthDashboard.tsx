@@ -1095,7 +1095,17 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         ) : <span>אין פעולות מתוזמנות ידועות</span>}
                                     </div>;
                                 })}
-                                <small>מוצגות פעולות מתוזמנות בלבד. פעולות שתלויות במדידות עתידיות אינן תחזית ודאית ולא נכללו.</small>
+                                <div className="health-daily-action">
+                                    <strong>פעולות מותנות · תאריך עדיין לא ידוע</strong>
+                                    {analysis.alerts.filter((alert) => alert.recommendationKey &&
+                                        !["measurementRound", "neglectedStatus"].includes(alert.recommendationKey) &&
+                                        !alert.recommendationKey.startsWith("scheduled-")
+                                    ).map((alert) => (
+                                        <span key={alert.id}>מיכל {alert.tankNumber} · {alert.title} · תלוי במדידות ובהתקדמות המיכל</span>
+                                    ))}
+                                    <small>אלה המלצות המנוע לפי המדידות האחרונות, לא תחזית שהפעולה תידרש ביום מסוים. הן עשויות להשתנות עם המדידות הבאות.</small>
+                                </div>
+                                <small>פעולות מתוזמנות מוצגות לפי מועד שנקבע; פעולות מותנות מוצגות בנפרד ללא תאריך מומצא.</small>
                             </div>
                         )}
                     </section>
