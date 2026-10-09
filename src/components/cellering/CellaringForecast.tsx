@@ -9,6 +9,7 @@ import {
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
+import "../dashboard/HealthDashboard.css";
 
 export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]; specs: SpecChart | null }) {
     const [scheduled, setScheduled] = useState<ScheduledCellarRecommendation[]>([]);
