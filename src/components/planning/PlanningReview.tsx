@@ -9,6 +9,8 @@ import {
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
 import { actualDate, matchesActual, shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
+import type { ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import {
   CHECKPOINTS,
   checkpointLabel,
@@ -24,6 +26,7 @@ export default function PlanningReview({
   settings,
   plans,
   actuals,
+  shipments,
   snapshots,
   error,
   today,
@@ -31,6 +34,7 @@ export default function PlanningReview({
   settings: Settings;
   plans: WeekPlan[];
   actuals: Actual[];
+  shipments: ShipmentEvent[];
   snapshots: PlanningSnapshot[];
   error: string;
   today: string;
@@ -104,7 +108,24 @@ export default function PlanningReview({
         </p>
       )}
       <section className="bp-card" aria-label="מדדי תוצאות תכנון">
-        <h3>מדדי תוצאות — אריזה</h3>
+        <h3>מדדי תוצאות — אריזה ומשלוחים</h3>
+        {baseline ? (() => {
+          const matched = matchActualShipments(baseline.deliveries ?? [], shipments, products);
+          const completed = matched.filter((row) => row.actual);
+          const withQuantities = completed.filter((row) => row.score !== null);
+          const delay = completed.reduce((sum, row) => sum +
+            Math.round((Date.parse(row.actual!.date + "T12:00:00Z") -
+              Date.parse(row.planned.dispatchDate + "T12:00:00Z")) / 86400000), 0);
+          return <div>
+            <p>משלוחים שבוצעו: {completed.length} מתוך {matched.length} מתוכננים.
+              {" · "}התאמת הרכב וכמויות: {withQuantities.length ?
+                `${fmt(withQuantities.reduce((sum, row) => sum + row.score! * 100, 0) / withQuantities.length)}%` :
+                "חסר פירוט כמויות מאומת"}.
+              {" · "}סטייה ממוצעת בתאריך: {completed.length ? `${fmt(delay / completed.length)} ימים` : "אין משלוח מתאים"}.
+            </p>
+            <small>ההתאמה נעשית רק בין משלוח מתוכנן למשלוח מדווח באותו שבוע; משלוח שלא תועד נשאר חסר ולא מיוחס לו ביצוע.</small>
+          </div>;
+        })() : null}
         {baseline && addDays(week, 7) <= today ? (() => {
           const results = products.map((product) => compareProduct(product, baseline, actuals, week));
           const withPlan = results.filter((item) => (item.planned ?? 0) > 0);
