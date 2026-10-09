@@ -884,7 +884,13 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             pendingDailyScoreActionCount,
         ]
     );
-    const overallClass = healthBand(healthScore);
+    const cellarStateForDisplay = brews.find((tank) => Number(tank.tankNumber) === 1) as
+        | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string })
+        | undefined;
+    const completedForToday = cellarStateForDisplay?.cellarHealthIs100 === true &&
+        cellarStateForDisplay.cellarHealthCompletedDay === localDateKey(new Date());
+    const displayedHealthScore = completedForToday ? 100 : healthScore;
+    const overallClass = healthBand(displayedHealthScore);
     const previousSettledScoreRef = useRef<number | null>(null);
     const persistedHealthWriteRef = useRef<boolean | null>(null);
     const [celebrationOpen, setCelebrationOpen] = useState(false);
@@ -968,7 +974,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     }, [analysis.dailyActions]);
 
     const scoreStyle = {
-        "--health-score": `${healthScore}%`,
+        "--health-score": `${displayedHealthScore}%`,
     } as CSSProperties;
 
     const attentionCount = counts.critical + counts.warning + counts.info;
@@ -1014,9 +1020,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 onClick={() => setExpanded((current) => !current)}
                 aria-expanded={expanded}
             >
-                <span className="health-score-ring" style={scoreStyle} aria-label={`מדד סלרינג ${healthScore} מתוך 100`}>
+                <span className="health-score-ring" style={scoreStyle} aria-label={`מדד סלרינג ${displayedHealthScore} מתוך 100`}>
                     <span>
-                        <strong>{analyzing ? "…" : healthScore}</strong>
+                        <strong>{analyzing ? "…" : displayedHealthScore}</strong>
                         <small>/100</small>
                     </span>
                 </span>
