@@ -168,7 +168,7 @@ export default function DashboardHeader({
                     className={`status-filter-button ${sortByAge === "packagingSoon" || sortByAge === "packagingLater" ? "active" : ""}`}
                     onClick={() => setSortByAge((previous) => previous === "packagingSoon" ? "packagingLater" : "packagingSoon")}
                 >
-                    תאריך אריזה {sortByAge === "packagingLater" ? <ArrowUp size={16} aria-hidden="true" /> : <ArrowDown size={16} aria-hidden="true" />}
+                    תאריך אריזה {sortByAge === "packagingLater" ? <ArrowDown size={16} aria-hidden="true" /> : <ArrowUp size={16} aria-hidden="true" />}
                 </button>
                 </div>
             </div></>
