@@ -890,7 +890,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const [celebrationOpen, setCelebrationOpen] = useState(false);
     const cellarStateTank = useMemo(
         () => brews.find((tank) => Number(tank.tankNumber) === 1) as
-            | (Fermentor & { cellarHealthIs100?: boolean })
+            | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string })
             | undefined,
         [brews]
     );
@@ -900,7 +900,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         if (analyzing || !cellarStateTank?.id) return;
 
         previousSettledScoreRef.current = healthScore;
-        const desiredIs100 = healthScore === 100;
+        const todayKey = localDateKey(new Date());
+        // A completed daily round stays completed through the end of its day.
+        // A new fermentation tank leaving its 12-hour grace must not reopen it.
+        const completedToday = cellarStateTank.cellarHealthCompletedDay === todayKey;
+        const desiredIs100 = healthScore === 100 || (completedToday && persistedHealthIs100);
 
         // Tank 1 is already part of the app's fermentor listener, so this gives
         // the celebration a tiny shared state without adding another listener/read.
@@ -920,6 +924,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             if (previousSettledScoreRef.current !== healthScore) return;
             void updateDoc(doc(db, "fermentors", String(cellarStateTank.id)), {
                 cellarHealthIs100: desiredIs100,
+                ...(desiredIs100 ? { cellarHealthCompletedDay: todayKey } : {}),
             }).then(() => {
                 if (shouldCelebrate) setCelebrationOpen(true);
             }).catch((error) => {
