@@ -1,4 +1,4 @@
-import { addDays, daysBetween, litersPerUnit, parseDate, sameStyle, tempoNow, weeklyDemand, type Actual, type Product, type Settings } from "./planningEngine";
+import { addDays, daysBetween, litersPerUnit, parseDate, sameStyle, tempoNow, weeklyDemand, type Actual, type Settings } from "./planningEngine";
 import { actualDate, actualUnits, matchesActual } from "./dailyPlanner";
 import type { PlanningSnapshot } from "./planningReports";
 import { planningTargetsForStyle } from "./planningTargets";
