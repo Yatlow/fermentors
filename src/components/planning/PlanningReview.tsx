@@ -10,6 +10,7 @@ import {
 } from "../../SERVICES/planning/planningEngine";
 import { actualDate, matchesActual, shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
+import { planningMacroInsights } from "../../SERVICES/planning/planningMacroInsights";
 import type { ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import {
   CHECKPOINTS,
@@ -46,6 +47,7 @@ export default function PlanningReview({
   );
   const baseline = snapshot?.state === "captured" ? snapshot.plan : null;
   const products = snapshot?.settings?.products ?? settings.products;
+  const macroInsights = planningMacroInsights(settings, snapshots, actuals, today);
   const suggestions = learningAdvice(
     settings.products,
     snapshots,
@@ -107,6 +109,15 @@ export default function PlanningReview({
           השבוע טרם הסתיים: הביצוע והפערים המוצגים הם זמניים.
         </p>
       )}
+      <section className="bp-card" aria-label="מגמות תכנון שחוזרות לאורך שבועות">
+        <h3>מגמות לאורך שבועות — במה כדאי לשנות את שיטת התכנון?</h3>
+        {!macroInsights.length ? <p>עדיין אין מספיק ראיות חוזרות כדי להמליץ על שינוי שיטת התכנון. נדרשות לפחות ארבע תמונות פתיחת שבוע או דגימות מלאי מתוארכות.</p> :
+          macroInsights.map((insight) => <article className="bp-card" key={insight.id}>
+            <h4>{insight.title}</h4>
+            <p>{insight.evidence}</p>
+            <p><strong>מה לבדוק:</strong> {insight.recommendation}</p>
+          </article>)}
+      </section>
       <section className="bp-card" aria-label="צומתי החלטה לשיפור">
         <h3>איפה כדאי לשפר את ההחלטה הבאה?</h3>
         {!baseline ? <p>בחר שבוע ונקודת השוואה עם תמונת תכנון שמורה. בלי תמונת מצב אמינה אי אפשר לייחס פער להחלטה.</p> : (() => {
