@@ -103,7 +103,7 @@ export default function PlanningReview({
       )}
       <section className="bp-card" aria-label="מדדי תוצאות תכנון">
         <h3>מדדי תוצאות — אריזה</h3>
-        {baseline ? (() => {
+        {baseline && addDays(week, 7) <= today ? (() => {
           const results = products.map((product) => compareProduct(product, baseline, actuals, week));
           const withPlan = results.filter((item) => (item.planned ?? 0) > 0);
           const matched = results.reduce((sum, item) => sum + item.matched, 0);
@@ -114,7 +114,7 @@ export default function PlanningReview({
             <p>סטייה ממוצעת בתזמון ליחידות שהותאמו: {matched > 0 ? `${fmt(delayed / matched)} ימים` : "אין התאמות מתוארכות"}</p>
             <small>המדד הוא ממוצע לא־משוקלל בין פריטי אריזה שונים. אין חיבור מלאכותי בין חביות לארגזים. לשבוע שטרם הסתיים הנתונים זמניים.</small>
           </>;
-        })() : <p>לא ניתן לחשב מדד ביצוע ללא תמונת תכנון היסטורית אמינה.</p>}
+        })() : <p>{!baseline ? "לא ניתן לחשב מדד ביצוע ללא תמונת תכנון היסטורית אמינה." : "השבוע טרם הסתיים — מדד הביצוע הסופי יוצג לאחר סיומו."}</p>}
         <p>איכות עסקית: מחסור, עודף מלאי וניצול קיבולת — טרם ניתנים לניקוד מהראיות הזמינות. לא מוצג ציון מלאכותי.</p>
       </section>
       <section className="bp-card" aria-label="ראיות להחלטות המתכנן">
