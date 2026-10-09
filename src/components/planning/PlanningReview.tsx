@@ -158,6 +158,38 @@ export default function PlanningReview({
             <small>סימולציה בלבד על בסיס מלאי טמפו שהוקפא, ביקוש ממוצע ומשלוחים שתוכננו להגיע לטמפו. אינה כוללת מלאי היסטורי מאומת, ביצועי משלוחים בפועל או מלאי במבשלה; לכן אינה מודדת מחסור או עודף שהתממשו.</small>
           </div>;
         })() : <p>סיכוני מלאי: אין תמונת תכנון והגדרות היסטוריות אמינות.</p>}
+        {(() => {
+          // A saved checkpoint does not prove an inventory count: only a
+          // product with an explicitly dated Tempo observation may qualify.
+          const weekEnd = addDays(week, 6);
+          const observed = products.flatMap((product) => {
+            const candidates = snapshots
+              .filter((entry) => entry.state === "captured" && entry.settings && entry.scheduledFor)
+              .flatMap((entry) => {
+                const value = entry.settings!.products.find((item) => item.id === product.id);
+                if (value?.tempo == null || !value.tempoDate) return [];
+                const date = value.tempoDate.match(/^\\d{4}-\\d{2}-\\d{2}$/)
+                  ? value.tempoDate
+                  : value.tempoDate.split("/").reverse().join("-");
+                if (date < week || date > addDays(weekEnd, 7)) return [];
+                const captured = new Date(entry.capturedAt?.seconds ? entry.capturedAt.seconds * 1000 :
+                  entry.scheduledFor!.seconds * 1000).toISOString().slice(0, 10);
+                if (captured < date) return [];
+                return [{ value: value.tempo, date, product }];
+              })
+              .sort((a, b) => a.date.localeCompare(b.date));
+            return candidates.length ? [candidates[0]] : [];
+          });
+          if (!observed.length) return <p>מלאי בפועל: טרם קיימות דגימות טמפו מתוארכות לתקופה שנבחרה. סיכוני המחסור והעודף נשארים תחזית בלבד.</p>;
+          const empty = observed.filter((row) => row.value === 0);
+          const high = observed.filter((row) => weeklyDemand(row.product) > 0 &&
+            row.value / weeklyDemand(row.product) > (snapshot?.settings?.targetWeeks ?? settings.targetWeeks));
+          return <p>דגימות מלאי טמפו שדווחו סביב השבוע: {observed.length} פריטים;
+            {" "}{empty.length} דגימות מלאי אפס;
+            {" "}{high.length} דגימות מעל יעד כיסוי.
+            <small>דגימה של אפס מלאי אינה הוכחה למכירות שאבדו. הדגימות עשויות להגיע עד שבוע אחרי התקופה, ואינן מיוחסות אוטומטית להחלטת תכנון מסוימת.</small>
+          </p>;
+        })()}
         {baseline ? (() => {
           const plannedDates = new Set(baseline.packaging.map((run) => run.date).filter((date): date is string => Boolean(date)));
           const actualDates = new Set(actuals.filter((row) => products.some((product) => matchesActual(product, row)))
