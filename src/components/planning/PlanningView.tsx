@@ -123,7 +123,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       shipments: data.actualShipments,
     }) : null;
     const capturedAt = new Date().toISOString();
-    const evidence: RecommendationEvidence[] = changed.map((kind) => ({
+    const suppliedOriginalKinds = new Set((canonical.recommendationEvidence ?? [])
+      .filter((row) => row.provenance === "decision-time" && row.weekId === canonical.id)
+      .map((row) => row.kind));
+    const evidence: RecommendationEvidence[] = changed.filter((kind) => !suppliedOriginalKinds.has(kind)).map((kind) => ({
       id: `${canonical.id}:${kind}:${capturedAt}`,
       weekId: canonical.id,
       kind,
