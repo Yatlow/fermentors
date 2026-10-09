@@ -136,6 +136,28 @@ export default function PlanningReview({
                 {" "}{recomputed.length} המלצות שחושבו מחדש בעת השמירה (לא המלצה היסטורית)
               </p>;
             })}
+            {(() => {
+              const eligible = evidence.filter((entry) => entry.provenance === "decision-time" && entry.recommended.length > 0);
+              if (!eligible.length) return <p>איכות המלצות המנוע: אין עדיין זוגות המלצה–החלטה מקוריים למדידה.</p>;
+              const comparable = eligible.map((entry) => {
+                const totals = (items: Record<string, unknown>[]) => {
+                  const map = new Map<string, number>();
+                  for (const item of items) {
+                    const key = entry.kind === "brewing" ? String(item.style ?? "") : String(item.productId ?? "");
+                    const quantity = Number(entry.kind === "brewing" ? item.liters : item.quantity);
+                    if (!key || !Number.isFinite(quantity) || quantity < 0) continue;
+                    map.set(key, (map.get(key) ?? 0) + quantity);
+                  }
+                  return map;
+                };
+                const recommended = totals(entry.recommended), decided = totals(entry.decided);
+                const keys = new Set([...recommended.keys(), ...decided.keys()]);
+                const distance = [...keys].reduce((sum, key) => sum + Math.abs((recommended.get(key) ?? 0) - (decided.get(key) ?? 0)), 0);
+                const scale = [...keys].reduce((sum, key) => sum + Math.max(recommended.get(key) ?? 0, decided.get(key) ?? 0), 0);
+                return scale > 0 ? Math.max(0, 100 * (1 - distance / scale)) : null;
+              }).filter((value): value is number => value !== null);
+              return <p>התאמה כמותית בין המלצת המנוע להחלטה: {comparable.length ? `${fmt(comparable.reduce((sum, value) => sum + value, 0) / comparable.length)}%` : "אין זוגות כמותיים תקפים"} · מדד משני בלבד, לא איכות החלטה ולא איכות עסקית.</p>;
+            })()}
             <small>תיעוד אינו ציון איכות. מדדי מחסור, עודף מלאי וניצול קיבולת מחייבים נתוני תוצאה אמינים, ואינם מוסקים מהסכמה עם המנוע.</small>
           </>;
         })()}
