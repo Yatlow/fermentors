@@ -1,6 +1,6 @@
-import type { Fermentor } from "../../App";
-import type { Measurement } from "./calculateCelleringRecomendations";
-import type { SpecChart } from "../getAndPost/getSpecsFromFb";
+export type PlatoForecastTank = { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
+export type PlatoForecastReading = { id?: string | number | null; plato?: string | number | null; notes?: string | number | null };
+export type PlatoForecastSpecs = { tolorances: Record<string, number> };
 
 /** A date to re-measure, not a prediction that an action is already justified. */
 export type PlatoThresholdHint = {
@@ -15,7 +15,7 @@ export type PlatoThresholdHint = {
  * Future pressure and temperature are deliberately NOT extrapolated.
  */
 export function projectPlatoThresholdRecheck(
-  tank: Fermentor, readings: Measurement[], today: string, specs: SpecChart,
+  tank: PlatoForecastTank, readings: PlatoForecastReading[], today: string, specs: PlatoForecastSpecs,
 ): PlatoThresholdHint[] {
   if (tank.stage?.name !== "בתסיסה") return [];
   const style = String(tank.beerStyle ?? "").toLowerCase();
