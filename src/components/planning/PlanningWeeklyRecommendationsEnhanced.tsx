@@ -77,6 +77,38 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         shipments,
     }), [settings, props.pallets, tanks, plans, actuals, props.sources, today, selectedWeek, props.holidays, shipments]);
 
+    // Capture the in-memory recommendation displayed by this planner before any
+    // save changes its inputs. The parent saves the evidence in the same write.
+    async function saveWithDisplayedEvidence(
+        next: Parameters<typeof saveWeek>[0],
+        options?: Parameters<typeof saveWeek>[1]
+    ) {
+        if (next.id !== selectedWeek) return saveWeek(next, options);
+        const capturedAt = new Date().toISOString();
+        const kinds: RecommendationKind[] = [];
+        if (JSON.stringify(current.deliveries ?? []) !== JSON.stringify(next.deliveries ?? [])) kinds.push("shipment");
+        if (JSON.stringify(current.packaging ?? []) !== JSON.stringify(next.packaging ?? [])) kinds.push("packaging");
+        if (JSON.stringify(current.brews ?? []) !== JSON.stringify(next.brews ?? [])) kinds.push("brewing");
+        const evidence: RecommendationEvidence[] = kinds.map((kind) => ({
+            id: `${selectedWeek}:${kind}:displayed:${capturedAt}`,
+            weekId: selectedWeek,
+            kind,
+            capturedAt,
+            algorithmVersion: "weeklyPlanningModel-2026-10",
+            provenance: "decision-time",
+            recommended: (kind === "shipment" ? model.shipmentRecommendation
+                : kind === "packaging" ? (next.changeReason === "מחיקת החלטות אריזה ואישור המלצת המערכת"
+                    ? replacementPackagingModel.packagingRecommendation : model.packagingRecommendation)
+                : model.brewRecommendations).map((item) => ({ ...item })),
+            decided: (kind === "shipment" ? next.deliveries ?? []
+                : kind === "packaging" ? next.packaging : next.brews).map((item) => ({ ...item })),
+        }));
+        return saveWeek({
+            ...next,
+            recommendationEvidence: [...(next.recommendationEvidence ?? []), ...evidence],
+        }, options);
+    }
+
     const hasDecisions = Boolean((current.deliveries ?? []).length || current.packaging.length || current.brews.length);
     const hasBaseline = (current.recommendationEvidence ?? []).some((item) => item.provenance === "existing-plan-baseline");
     const [baselineSaving, setBaselineSaving] = useState(false);
@@ -317,7 +349,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         setSaving(true);
         setModalMessage("");
         try {
-            await saveWeek({
+            await saveWithDisplayedEvidence({
                 ...current,
                 packaging: replacementPackagingWithEmptyFlags(packaging),
                 changeReason: "מחיקת החלטות אריזה ואישור המלצת המערכת",
@@ -616,7 +648,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 const completed = completedForPlan(original);
                 if (completed > 0) edited.push({ ...original, quantity: completed, emptyTank: false });
             }
-            await saveWeek({
+            await saveWithDisplayedEvidence({
                 ...current,
                 packaging: recomputeEmptyFlags([...untouched, ...edited]),
                 changeReason: `עריכת אריזות ${displayStyle(packStyle)}`,
@@ -654,7 +686,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             </button>
         </div>}
                 <div ref={plannerRef} onClickCapture={handleCapture} className="bp-enhanced-weekly-planner">
-            <PlanningWeeklyRecommendations {...props} initialSelectedWeek={selectedWeek} />
+            <PlanningWeeklyRecommendations {...props} saveWeek={saveWithDisplayedEvidence} initialSelectedWeek={selectedWeek} />
         </div>
 
         {packStyle !== undefined && <div className="bp-pack-modal-backdrop" role="presentation" onMouseDown={(event) => {
