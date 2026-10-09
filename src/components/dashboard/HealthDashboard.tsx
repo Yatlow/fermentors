@@ -1085,7 +1085,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     const date = new Date();
                                     date.setDate(date.getDate() + offset);
                                     const key = localDateKey(date);
-                                    const rows = scheduledRecommendations.filter((item) => item.dueDate <= key &&
+                                    const rows = scheduledRecommendations.filter((item) => (item.dueDate === key || (offset === 0 && item.dueDate < key)) &&
                                         brews.some((tank) => String(tank.tankNumber) === item.tankNumber &&
                                             String(tank.batchNumber) === item.batchNumber));
                                     return <div className="health-daily-action" key={key}>
