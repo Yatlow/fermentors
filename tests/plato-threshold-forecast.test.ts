@@ -17,6 +17,16 @@ test("IPA Plato trend projects a conditional recheck, not an automatic dry hop",
   assert.match(result[0].basis, /טמפרטורה ולחץ/);
 });
 
+test("Pale and Hoppy are classified as dry-hop styles", () => {
+  for (const style of ["Pale", "Hoppy"]) {
+    const forecast = projectPlatoThresholdRecheck(fermentor(style), [
+      { id: "2026-10-08_0800", plato: 10 },
+      { id: "2026-10-09_0800", plato: 9 },
+    ], "2026-10-09", specs);
+    assert.equal(forecast[0]?.title, "בדיקת תנאים לדרייהופ");
+  }
+});
+
 test("does not project thresholds from stale or flat Plato readings", () => {
   const tank = fermentor("IPA");
   assert.deepEqual(projectPlatoThresholdRecheck(tank, [
