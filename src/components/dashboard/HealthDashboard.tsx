@@ -1085,13 +1085,13 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     const date = new Date();
                                     date.setDate(date.getDate() + offset);
                                     const key = localDateKey(date);
-                                    const rows = scheduledRecommendations.filter((item) => item.dueDate === key &&
+                                    const rows = scheduledRecommendations.filter((item) => item.dueDate <= key &&
                                         brews.some((tank) => String(tank.tankNumber) === item.tankNumber &&
                                             String(tank.batchNumber) === item.batchNumber));
                                     return <div className="health-daily-action" key={key}>
                                         <strong>{key}</strong>
                                         {rows.length ? rows.map((item) =>
-                                            <span key={item.id}>מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · מתוזמן</span>
+                                            <span key={item.id}>מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · {item.dueDate < key ? "באיחור מאז " + item.dueDate : "מתוזמן"}</span>
                                         ) : <span>אין פעולות מתוזמנות ידועות</span>}
                                     </div>;
                                 })}
