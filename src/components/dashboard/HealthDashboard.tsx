@@ -8,6 +8,7 @@ import {
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
+import { projectPlatoThresholdRecheck } from "../../SERVICES/cellering/platoThresholdForecast";
 import {
     getMeasurementsByBatch,
     MEASUREMENTS_UPDATED_EVENT,
@@ -394,6 +395,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
                         if (!inGracePeriod) {
                             projectedActions.push(...projectColdCellarMilestones(tank, measurements, localDateKey(new Date())));
+                            projectedActions.push(...projectPlatoThresholdRecheck(tank, measurements, localDateKey(new Date()), specs));
                         }
 
                         if (inGracePeriod) {
