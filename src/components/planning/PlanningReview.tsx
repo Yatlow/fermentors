@@ -8,7 +8,7 @@ import {
   type Settings,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { actualDate, matchesActual, shortDate } from "../../SERVICES/planning/dailyPlanner";
 import {
   CHECKPOINTS,
   checkpointLabel,
@@ -137,7 +137,17 @@ export default function PlanningReview({
             <small>סימולציה בלבד על בסיס מלאי טמפו שהוקפא, ביקוש ממוצע, אריזות ומשלוחים שתוכננו. אינה כוללת מלאי היסטורי מאומת, ביצועי משלוחים בפועל או מלאי במבשלה; לכן אינה מודדת מחסור או עודף שהתממשו.</small>
           </div>;
         })() : <p>סיכוני מלאי: אין תמונת תכנון והגדרות היסטוריות אמינות.</p>}
-        {baseline ? <p>ניצול ימי אריזה מתוכננים: {baseline.packaging.filter((run) => !!run.date).length} פעולות מתוארכות מתוך {baseline.packaging.length} · מכסת ימי אריזה: {baseline.maxRuns}. מספר פעולות אינו מספר ימי עבודה; ניצול קיבולת בפועל דורש זמני משמרות וביצוע.</p> : null}
+        {baseline ? (() => {
+          const plannedDates = new Set(baseline.packaging.map((run) => run.date).filter((date): date is string => Boolean(date)));
+          const actualDates = new Set(actuals.filter((row) => products.some((product) => matchesActual(product, row)))
+            .map(actualDate).filter((date): date is string => Boolean(date) && weekStart(date!) === week));
+          const capacity = baseline.maxRuns;
+          return <p>ניצול מכסת ימי אריזה: {actualDates.size} ימי ביצוע מתוך מכסה של {capacity}
+            {capacity > 0 ? ` (${fmt(actualDates.size / capacity * 100)}%)` : " (ללא מכסה)"}
+            {" · "}תוכננו {plannedDates.size} ימים מתוארכים.
+            <small>נמדד לפי ימי אריזה ייחודיים בדיווחי ביצוע. חריגה מעל 100% אפשרית. לא מודד שעות, תפוקה או יעילות משמרת.</small>
+          </p>;
+        })() : null}
         <p>ציון איכות עסקית בפועל אינו מחושב ללא תוצאות מלאי ומשלוח היסטוריות מאומתות.</p>
       </section>
       <section className="bp-card" aria-label="ראיות להחלטות המתכנן">
