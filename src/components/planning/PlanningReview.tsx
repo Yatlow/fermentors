@@ -2,6 +2,8 @@ import { useState } from "react";
 import {
   addDays,
   weekStart,
+  weeklyDemand,
+  tempoNow,
   type Actual,
   type Settings,
   type WeekPlan,
@@ -115,7 +117,28 @@ export default function PlanningReview({
             <small>המדד הוא ממוצע לא־משוקלל בין פריטי אריזה שונים. אין חיבור מלאכותי בין חביות לארגזים. לשבוע שטרם הסתיים הנתונים זמניים.</small>
           </>;
         })() : <p>{!baseline ? "לא ניתן לחשב מדד ביצוע ללא תמונת תכנון היסטורית אמינה." : "השבוע טרם הסתיים — מדד הביצוע הסופי יוצג לאחר סיומו."}</p>}
-        <p>איכות עסקית: מחסור, עודף מלאי וניצול קיבולת — טרם ניתנים לניקוד מהראיות הזמינות. לא מוצג ציון מלאכותי.</p>
+        {baseline && snapshot?.settings ? (() => {
+          const target = snapshot.settings.targetWeeks;
+          const rows = products.filter((product) => product.monthly > 0).map((product) => {
+            const stock = tempoNow(product, week);
+            const demand = weeklyDemand(product);
+            if (stock === null || demand <= 0) return null;
+            const packaging = baseline.packaging.filter((run) => run.productId === product.id)
+              .reduce((sum, run) => sum + run.quantity, 0);
+            const deliveries = (baseline.deliveries ?? []).filter((run) => run.productId === product.id)
+              .reduce((sum, run) => sum + run.quantity, 0);
+            const endStock = stock + packaging - deliveries - demand;
+            const cover = endStock / demand;
+            return { product, cover, shortage: Math.max(0, -endStock), excess: Math.max(0, cover - target) };
+          }).filter((row): row is NonNullable<typeof row> => row !== null);
+          return <div>
+            <h4>סיכוני מלאי לפי תמונת התכנון שנשמרה</h4>
+            <p>פריטים עם נתוני מלאי וביקוש: {rows.length} · תחזית מלאי שלילי: {rows.filter((row) => row.shortage > 0).length} · מעל יעד כיסוי {fmt(target)} שבועות: {rows.filter((row) => row.excess > 0).length}</p>
+            <small>סימולציה בלבד על בסיס מלאי טמפו שהוקפא, ביקוש ממוצע, אריזות ומשלוחים שתוכננו. אינה כוללת מלאי היסטורי מאומת, ביצועי משלוחים בפועל או מלאי במבשלה; לכן אינה מודדת מחסור או עודף שהתממשו.</small>
+          </div>;
+        })() : <p>סיכוני מלאי: אין תמונת תכנון והגדרות היסטוריות אמינות.</p>}
+        {baseline ? <p>ניצול ימי אריזה מתוכננים: {baseline.packaging.filter((run) => !!run.date).length} פעולות מתוארכות מתוך {baseline.packaging.length} · מכסת ימי אריזה: {baseline.maxRuns}. מספר פעולות אינו מספר ימי עבודה; ניצול קיבולת בפועל דורש זמני משמרות וביצוע.</p> : null}
+        <p>ציון איכות עסקית בפועל אינו מחושב ללא תוצאות מלאי ומשלוח היסטוריות מאומתות.</p>
       </section>
       <section className="bp-card" aria-label="ראיות להחלטות המתכנן">
         <h3>תיעוד החלטות והמלצות</h3>
