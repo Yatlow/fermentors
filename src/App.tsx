@@ -223,7 +223,7 @@ function App() {
     const [resetKey, setResetKey] = useState(0);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
-    const [sortByAge, setSortByAge] = useState<"tank" | "oldest" | "newest">("tank");
+    const [sortByAge, setSortByAge] = useState<"tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater">("tank");
 
     useEffect(() => {
         if (!user || !isApproved) {
@@ -438,6 +438,15 @@ function App() {
     }
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
+        if (sortByAge === "packagingSoon" || sortByAge === "packagingLater") {
+            const packagingDate = (tank: Fermentor) => String(tank.plannedPackagingDate ?? "");
+            return [...filteredBrews].sort((a, b) => {
+                const aDate = packagingDate(a), bDate = packagingDate(b);
+                if (!aDate) return bDate ? 1 : 0;
+                if (!bDate) return -1;
+                return sortByAge === "packagingSoon" ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
+            });
+        }
         if (sortByAge === "oldest" || sortByAge === "newest") {
             return [...filteredBrews].sort((a, b) => {
                 const aDate = getBrewDateValue(a.brewDate);
