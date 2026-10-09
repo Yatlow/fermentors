@@ -434,9 +434,15 @@ function App() {
 
     function getBrewDateValue(brewDate?: string | null): number {
         if (!brewDate) return 0;
-        const [day, month, year] = brewDate.split("/").map(Number);
-        if (!day || !month || !year) return 0;
-        return new Date(year, month - 1, day).getTime();
+        const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(brewDate.trim());
+        if (!match) return 0;
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const rawYear = Number(match[3]);
+        const year = match[3].length === 2 ? 2000 + rawYear : rawYear;
+        const date = new Date(year, month - 1, day);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return 0;
+        return date.getTime();
     }
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
