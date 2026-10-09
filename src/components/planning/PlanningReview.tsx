@@ -101,6 +101,27 @@ export default function PlanningReview({
           השבוע טרם הסתיים: הביצוע והפערים המוצגים הם זמניים.
         </p>
       )}
+      <section className="bp-card" aria-label="ראיות להחלטות המתכנן">
+        <h3>תיעוד החלטות והמלצות</h3>
+        {(() => {
+          const evidence = plans.find((plan) => plan.id === week)?.recommendationEvidence ?? [];
+          if (!evidence.length) return <p>אין תיעוד החלטות שנשמר לשבוע זה. אין להסיק מכך שלא התקבלו החלטות.</p>;
+          return <>
+            <p>נשמרו {evidence.length} נקודות תיעוד. תאריך השמירה אינו תאריך ההחלטה המקורית של תוכנית קיימת.</p>
+            {(["shipment", "packaging", "brewing"] as const).map((kind) => {
+              const rows = evidence.filter((entry) => entry.kind === kind);
+              const original = rows.filter((entry) => entry.provenance === "decision-time" && entry.recommended.length > 0);
+              const baselineRows = rows.filter((entry) => entry.provenance === "existing-plan-baseline");
+              return <p key={kind}>
+                {kind === "shipment" ? "משלוחים" : kind === "packaging" ? "אריזות" : "בישולים"}:
+                {" "}{original.length} השוואות המלצה–החלטה;
+                {" "}{baselineRows.length} צילומי החלטה קיימת ללא המלצת עבר
+              </p>;
+            })}
+            <small>תיעוד אינו ציון איכות. מדדי מחסור, עודף מלאי וניצול קיבולת מחייבים נתוני תוצאה אמינים, ואינם מוסקים מהסכמה עם המנוע.</small>
+          </>;
+        })()}
+      </section>
       <div className="bp-table-wrap">
         <table>
           <thead>
