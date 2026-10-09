@@ -103,7 +103,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
                 : kind === "packaging" ? week.packaging : week.brews)
                 .map((item) => ({ ...item })),
         }));
-        await saveWithRecommendationEvidence({
+        await saveWeek({
             ...week,
             recommendationEvidence: [...(current.recommendationEvidence ?? []), ...evidence],
         });
