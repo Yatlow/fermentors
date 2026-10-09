@@ -19,7 +19,7 @@ export function projectPlatoThresholdRecheck(
 ): PlatoThresholdHint[] {
   if (tank.stage?.name !== "בתסיסה") return [];
   const style = String(tank.beerStyle ?? "").toLowerCase();
-  const hoppy = /ipa|איפא|פייל|הופי/.test(style);
+  const hoppy = /ipa|פייל|הופי|pale|hoppy/.test(style);
   const notes = readings.map((item) => String(item.notes ?? "")).join(" ");
   if (hoppy ? notes.includes("כשות") : /סגיר(?:ת|ה).*(?:נשם|לחץ)/.test(notes)) return [];
   const dates = new Map<string, number>();
