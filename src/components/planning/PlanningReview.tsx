@@ -168,7 +168,7 @@ export default function PlanningReview({
           const top = findings.sort((a, b) => b.severity - a.severity).slice(0, 5);
           if (!top.length) return <p>לא אותרו פערי ביצוע בולטים בנתונים המהימנים של השבוע. אין משמעות הדבר שכל ההחלטות היו מיטביות.</p>;
           return <>
-            <p>אלה עד חמישה צמתים שבהם ניכר פער בין התוכנית לביצוע. הם מצביעים **היכן לבדוק**, לא מוכיחים מי טעה או מה הסיבה.</p>
+            <p>עד חמישה צמתים שבהם ניכר פער בין התוכנית לביצוע — נקודות לבדיקה, לא קביעה מי טעה או מה גרם לפער.</p>
             {top.map((item) => <article key={item.key} className="bp-card">
               <h4>{item.subject}</h4>
               <p><strong>נקודת בדיקה:</strong> {item.junction}</p>
