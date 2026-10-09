@@ -83,12 +83,14 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
             const snapshot = await getDocs(query(collection(db, "planningWeeks"), where("id", "==", week), limit(1)));
             const plan = snapshot.docs[0]?.data();
             const numbers = (Array.isArray(plan?.packaging) ? plan.packaging : []).flatMap((run: {
-                tankNumber?: string | number; tankId?: string | number; quantity?: number;
+                tankNumber?: string | number; tankId?: string | number; batchNumber?: string | number; quantity?: number;
             }) => {
                 if (!(Number(run.quantity) > 0)) return [];
                 const match = active.find((tank) =>
-                    String(tank.tankNumber) === String(run.tankNumber ?? "") ||
-                    String(tank.id) === String(run.tankId ?? ""));
+                    (String(tank.tankNumber) === String(run.tankNumber ?? "") ||
+                     String(tank.id) === String(run.tankId ?? "") ||
+                     String(tank.tankNumber) === String(run.tankId ?? "")) &&
+                    (!run.batchNumber || String(tank.batchNumber).replace("#", "") === String(run.batchNumber).replace("#", "")));
                 return match ? [String(match.tankNumber)] : [];
             });
             return [week, [...new Set(numbers)].sort((a, b) => Number(a) - Number(b))] as const;
