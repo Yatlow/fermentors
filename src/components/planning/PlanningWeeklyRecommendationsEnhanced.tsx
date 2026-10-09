@@ -80,10 +80,9 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
     // Capture the in-memory recommendation displayed by this planner before any
     // save changes its inputs. The parent saves the evidence in the same write.
     async function saveWithDisplayedEvidence(
-        next: Parameters<typeof saveWeek>[0],
-        options?: Parameters<typeof saveWeek>[1]
+        next: Parameters<typeof saveWeek>[0]
     ) {
-        if (next.id !== selectedWeek) return saveWeek(next, options);
+        if (next.id !== selectedWeek) return saveWeek(next);
         const capturedAt = new Date().toISOString();
         const kinds: RecommendationKind[] = [];
         if (JSON.stringify(current.deliveries ?? []) !== JSON.stringify(next.deliveries ?? [])) kinds.push("shipment");
@@ -106,7 +105,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         return saveWeek({
             ...next,
             recommendationEvidence: [...(next.recommendationEvidence ?? []), ...evidence],
-        }, options);
+        });
     }
 
     const hasDecisions = Boolean((current.deliveries ?? []).length || current.packaging.length || current.brews.length);
