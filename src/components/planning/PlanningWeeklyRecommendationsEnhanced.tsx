@@ -8,7 +8,6 @@ import {
     type Plan,
     type Product,
     type Tank,
-    type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
 import { futureTanks, openRuns, shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, isCoreStyle } from "../../SERVICES/planning/planningPresentation";
@@ -77,38 +76,6 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
         holidays: props.holidays,
         shipments,
     }), [settings, props.pallets, tanks, plans, actuals, props.sources, today, selectedWeek, props.holidays, shipments]);
-
-    // Capture recommendations as they existed at the moment of saving, never by replaying
-    // a later inventory state. Each save records the affected planning dimension only.
-    const saveWithRecommendationEvidence = async (week: WeekPlan) => {
-        const changed: RecommendationKind[] = [];
-        if (JSON.stringify(week.deliveries ?? []) !== JSON.stringify(current.deliveries ?? [])) changed.push("shipment");
-        if (JSON.stringify(week.packaging) !== JSON.stringify(current.packaging)) changed.push("packaging");
-        if (JSON.stringify(week.brews) !== JSON.stringify(current.brews)) changed.push("brewing");
-        if (week.id !== selectedWeek || changed.length === 0) {
-            await saveWeek(week);
-            return;
-        }
-        const now = new Date().toISOString();
-        const evidence: RecommendationEvidence[] = changed.map((kind) => ({
-            id: `${week.id}:${kind}:${now}`,
-            weekId: week.id,
-            kind,
-            capturedAt: now,
-            algorithmVersion: "weeklyPlanningModel-2026-10",
-            provenance: "decision-time",
-            recommended: (kind === "shipment" ? model.shipmentRecommendation
-                : kind === "packaging" ? model.packagingRecommendation : model.brewRecommendations)
-                .map((item) => ({ ...item })),
-            decided: (kind === "shipment" ? week.deliveries ?? []
-                : kind === "packaging" ? week.packaging : week.brews)
-                .map((item) => ({ ...item })),
-        }));
-        await saveWeek({
-            ...week,
-            recommendationEvidence: [...(current.recommendationEvidence ?? []), ...evidence],
-        });
-    };
 
     const hasDecisions = Boolean((current.deliveries ?? []).length || current.packaging.length || current.brews.length);
     const hasBaseline = (current.recommendationEvidence ?? []).some((item) => item.provenance === "existing-plan-baseline");
@@ -687,7 +654,7 @@ export default function PlanningWeeklyRecommendationsEnhanced(props: Props) {
             </button>
         </div>}
                 <div ref={plannerRef} onClickCapture={handleCapture} className="bp-enhanced-weekly-planner">
-            <PlanningWeeklyRecommendations {...props} saveWeek={saveWithRecommendationEvidence} initialSelectedWeek={selectedWeek} />
+            <PlanningWeeklyRecommendations {...props} initialSelectedWeek={selectedWeek} />
         </div>
 
         {packStyle !== undefined && <div className="bp-pack-modal-backdrop" role="presentation" onMouseDown={(event) => {
