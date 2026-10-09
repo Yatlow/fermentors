@@ -105,14 +105,14 @@ export default function PlanningReview({
         <h3>מדדי תוצאות — אריזה</h3>
         {baseline ? (() => {
           const results = products.map((product) => compareProduct(product, baseline, actuals, week));
-          const planned = results.reduce((sum, item) => sum + (item.planned ?? 0), 0);
-          const performed = results.reduce((sum, item) => sum + item.performed, 0);
+          const withPlan = results.filter((item) => (item.planned ?? 0) > 0);
           const matched = results.reduce((sum, item) => sum + item.matched, 0);
           const delayed = results.reduce((sum, item) => sum + (item.delay ?? 0) * item.matched, 0);
           return <>
-            <p>עמידה בכמויות אריזה: {planned > 0 ? `${Math.round(Math.min(100, performed / planned * 100))}%` : "אין כמות מתוכננת למדידה"}</p>
-            <p>אריזות שבוצעו: {fmt(performed)} · תוכננו: {fmt(planned)} · סטייה ממוצעת בתזמון: {matched > 0 ? `${fmt(delayed / matched)} ימים` : "אין התאמות מתוארכות"}</p>
-            <small>כמויות מסוגי אריזה שונים אינן יחידות מלאי בנות־השוואה; הסיכום הוא מדד עמידה בתוכנית בלבד, לא מדד מחסור או עודף מלאי. לשבוע שטרם הסתיים הנתונים זמניים.</small>
+            <p>פריטי אריזה עם תוכנית מדידה: {withPlan.length} מתוך {products.length}</p>
+            <p>עמידה ממוצעת בכמויות לפי פריט: {withPlan.length ? `${fmt(withPlan.reduce((sum, item) => sum + Math.min(100, item.attainment ?? 0), 0) / withPlan.length)}%` : "אין כמות מתוכננת למדידה"}</p>
+            <p>סטייה ממוצעת בתזמון ליחידות שהותאמו: {matched > 0 ? `${fmt(delayed / matched)} ימים` : "אין התאמות מתוארכות"}</p>
+            <small>המדד הוא ממוצע לא־משוקלל בין פריטי אריזה שונים. אין חיבור מלאכותי בין חביות לארגזים. לשבוע שטרם הסתיים הנתונים זמניים.</small>
           </>;
         })() : <p>לא ניתן לחשב מדד ביצוע ללא תמונת תכנון היסטורית אמינה.</p>}
         <p>איכות עסקית: מחסור, עודף מלאי וניצול קיבולת — טרם ניתנים לניקוד מהראיות הזמינות. לא מוצג ציון מלאכותי.</p>
