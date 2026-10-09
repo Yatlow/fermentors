@@ -14,6 +14,8 @@ export type DashboardProps = {
     totalTanks: number;
     statuses: string[];
 
+    onlyWithCellarRecommendations: boolean;
+    setOnlyWithCellarRecommendations: Dispatch<SetStateAction<boolean>>;
     sortByAge: "tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater";
     setSortByAge:
     Dispatch<SetStateAction<"tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater">>;
@@ -26,6 +28,8 @@ export default function DashboardHeader({
     totalTanks,
     statuses,
     sortByAge,
+    onlyWithCellarRecommendations,
+    setOnlyWithCellarRecommendations,
     setSortByAge
 }: DashboardProps) {
 
@@ -128,6 +132,11 @@ export default function DashboardHeader({
 
             </div>
             <div className="sort-filter">
+                <button type="button" className={`status-filter-button ${onlyWithCellarRecommendations ? "active" : ""}`}
+                    aria-pressed={onlyWithCellarRecommendations}
+                    onClick={() => setOnlyWithCellarRecommendations((value) => !value)}>
+                    רק מיכלים עם המלצות סלרינג
+                </button>
                 <div>מיין לפי:</div>
                 <button
                     type="button"
