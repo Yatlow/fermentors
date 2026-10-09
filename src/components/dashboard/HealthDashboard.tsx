@@ -8,7 +8,6 @@ import {
     type Measurement,
 } from "../../SERVICES/cellering/calculateCelleringRecomendations";
 import { bottomCarbonationRecommendation } from "../../SERVICES/cellering/bottomCarbonation";
-import { projectPlatoThresholdRecheck } from "../../SERVICES/cellering/platoThresholdForecast";
 import {
     getMeasurementsByBatch,
     MEASUREMENTS_UPDATED_EVENT,
@@ -109,7 +108,7 @@ type CellarAnalysis = {
     completeMeasurementTankNumbers: string[];
 };
 
-type ConditionalForecast = {
+export type ConditionalForecast = {
     id: string;
     tankNumber: string;
     dueDate: string;
@@ -121,7 +120,7 @@ type ConditionalForecast = {
  * These are possible due dates assuming no new action is logged, not predictions
  * of future Plato, temperature, or carbonation.
  */
-function projectColdCellarMilestones(tank: Fermentor, measurements: Measurement[], today: string): ConditionalForecast[] {
+export function projectColdCellarMilestones(tank: Fermentor, measurements: Measurement[], today: string): ConditionalForecast[] {
     if (tank.stage?.name !== "קר") return [];
     const sorted = [...measurements].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
     const cooling = [...sorted].reverse().find((item) => /קירור/.test(String(item.notes ?? "")));
@@ -323,8 +322,6 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         : [];
     const [analyzing, setAnalyzing] = useState(true);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
-    const [forecastExpanded, setForecastExpanded] = useState(false);
-    const [conditionalForecast, setConditionalForecast] = useState<ConditionalForecast[]>([]);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
@@ -375,7 +372,6 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
             setAnalyzing(true);
 
-            const projectedActions: ConditionalForecast[] = [];
             const results = await Promise.all(
                 fullTanks.map(async (tank) => {
                     const number = tankLabel(tank);
@@ -392,11 +388,6 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         const measurements: Measurement[] = tank.batchNumber
                             ? await getMeasurementsByBatch(tank.batchNumber)
                             : [];
-
-                        if (!inGracePeriod) {
-                            projectedActions.push(...projectColdCellarMilestones(tank, measurements, localDateKey(new Date())));
-                            projectedActions.push(...projectPlatoThresholdRecheck(tank, measurements, localDateKey(new Date()), specs));
-                        }
 
                         if (inGracePeriod) {
                             const observed = dailyMeasurementProgress(measurements, true);
@@ -899,7 +890,6 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 { ...EMPTY_DAILY_ACTION_PROGRESS }
             );
 
-            setConditionalForecast(projectedActions);
             setAnalysis({
                 alerts: eligibleResults
                     .flatMap((result) => result.alerts)
@@ -1132,48 +1122,6 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
             {expanded && (
                 <div className="health-dashboard-details">
-                    <section className="health-daily-actions" aria-label="תחזית סלרינג לשבעה ימים">
-                        <button type="button" className="health-restore-button" aria-expanded={forecastExpanded} onClick={() => setForecastExpanded((value) => !value)}>
-                            תחזית סלרינג · 7 ימים {forecastExpanded ? "▴" : "▾"}
-                        </button>
-                        {forecastExpanded && (
-                            <div className="health-daily-actions-list">
-                                {Array.from({ length: 7 }, (_, offset) => {
-                                    const date = new Date();
-                                    date.setDate(date.getDate() + offset);
-                                    const key = localDateKey(date);
-                                    const rows = scheduledRecommendations.filter((item) => (item.dueDate === key || (offset === 0 && item.dueDate < key)) &&
-                                        brews.some((tank) => String(tank.tankNumber) === item.tankNumber &&
-                                            String(tank.batchNumber) === item.batchNumber));
-                                    return <div className="health-daily-action" key={key}>
-                                        <strong>{key}</strong>
-                                        {rows.length ? rows.map((item) =>
-                                            <span key={item.id}>מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · {item.dueDate < key ? "באיחור מאז " + item.dueDate : "מתוזמן"}</span>
-                                        ) : <span>אין פעולות מתוזמנות ידועות ליום זה</span>}
-                                        {conditionalForecast.filter((item) => item.dueDate === key &&
-                                            !scheduledRecommendations.some((scheduled) =>
-                                                scheduled.tankNumber === item.tankNumber &&
-                                                scheduled.dueDate === key &&
-                                                (item.title.includes("גיזוז") ? scheduled.actionType === "carbTest" : scheduled.actionType === "yeastDrop")
-                                            )).map((item) =>
-                                            <span key={item.id}>מיכל {item.tankNumber} · {item.title} · מותנה: {item.basis}</span>
-                                        )}
-                                    </div>;
-                                })}
-                                <div className="health-daily-action">
-                                    <strong>פעולות מותנות · תאריך עדיין לא ידוע</strong>
-                                    {analysis.alerts.filter((alert) => alert.recommendationKey &&
-                                        !["measurementRound", "neglectedStatus"].includes(alert.recommendationKey) &&
-                                        !alert.recommendationKey.startsWith("scheduled-")
-                                    ).map((alert) => (
-                                        <span key={alert.id}>מיכל {alert.tankNumber} · {alert.title} · תלוי במדידות ובהתקדמות המיכל</span>
-                                    ))}
-                                    <small>אלה המלצות המנוע לפי המדידות האחרונות, לא תחזית שהפעולה תידרש ביום מסוים. הן עשויות להשתנות עם המדידות הבאות.</small>
-                                </div>
-                                <small>פעולות מתוזמנות מוצגות לפי מועד שנקבע; אבני דרך מותנות בקירור מחושבות מתאריכי פעולות שנמדדו בפועל. יתר הפעולות המותנות נשארות ללא תאריך.</small>
-                            </div>
-                        )}
-                    </section>
                     {analysis.completedActions.length > 0 && (
                         <section className="health-completed-actions" aria-label="פעולות שבוצעו היום">
                             <strong>בוצע היום</strong>
