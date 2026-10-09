@@ -438,15 +438,6 @@ function App() {
     }
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
-        if (sortByAge === "packagingSoon" || sortByAge === "packagingLater") {
-            const packagingDate = (tank: Fermentor) => String(tank.plannedPackagingDate ?? "");
-            return [...filteredBrews].sort((a, b) => {
-                const aDate = packagingDate(a), bDate = packagingDate(b);
-                if (!aDate) return bDate ? 1 : 0;
-                if (!bDate) return -1;
-                return sortByAge === "packagingSoon" ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
-            });
-        }
         if (sortByAge === "oldest" || sortByAge === "newest") {
             return [...filteredBrews].sort((a, b) => {
                 const aDate = getBrewDateValue(a.brewDate);
@@ -510,7 +501,7 @@ function App() {
             </header>
 
             <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
-                {selectedView === "דאשבורד" && <Dashboard healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
+                {selectedView === "דאשבורד" && <Dashboard sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
                 {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
                 {selectedView === "רישום" && <>
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
