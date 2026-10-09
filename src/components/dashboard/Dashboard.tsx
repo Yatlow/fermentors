@@ -12,6 +12,9 @@ import TankCard from "./TankCard";
 import DashboardBrewFormModal from "./DashboardBrewFormModal";
 
 export type DashboardProps = {
+    onlyWithCellarRecommendations?: boolean;
+    recommendedTankNumbers?: string[];
+    onRecommendedTanksChange?: (numbers: string[]) => void;
     sortMode?: "tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater";
     selectedStatuses: string[];
     filteredTankCount: number;
@@ -35,6 +38,9 @@ function shortDate(value: string): string {
 export default function Dashboard({
     selectedStatuses,
     sortMode = "tank",
+    onlyWithCellarRecommendations = false,
+    recommendedTankNumbers = [],
+    onRecommendedTanksChange,
     filteredTankCount,
     totalVolumes,
     selectedStyles,
@@ -98,15 +104,18 @@ export default function Dashboard({
     }, [filteredBrews]);
 
     const displayBrews = useMemo(() => {
-        if (sortMode !== "packagingSoon" && sortMode !== "packagingLater") return filteredBrews;
-        return [...filteredBrews].sort((a, b) => {
+        const visible = onlyWithCellarRecommendations
+            ? filteredBrews.filter((tank) => recommendedTankNumbers.includes(String(tank.tankNumber)))
+            : filteredBrews;
+        if (sortMode !== "packagingSoon" && sortMode !== "packagingLater") return visible;
+        return [...visible].sort((a, b) => {
             const aDate = packagingDates[a.id] || "";
             const bDate = packagingDates[b.id] || "";
             if (!aDate) return bDate ? 1 : 0;
             if (!bDate) return -1;
             return sortMode === "packagingSoon" ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
         });
-    }, [filteredBrews, packagingDates, sortMode]);
+    }, [filteredBrews, packagingDates, sortMode, onlyWithCellarRecommendations, recommendedTankNumbers]);
 
     const recipeStyles = useMemo(
         () => brewRecipes.map((recipe) => ({ id: recipe.id, style: recipe.style })),
@@ -150,7 +159,7 @@ export default function Dashboard({
 
     return (
         <div className="dashboard">
-            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} />
+            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} onRecommendedTanksChange={onRecommendedTanksChange} />
             <SheetSyncStatus />
 
             <div className="dashboard-filter-info">
