@@ -164,7 +164,6 @@ export default function PlanningGantt(props: Props) {
   }, [actuals]);
 
   const [simulations, setSimulations] = useState<Map<string, SimulatedWeek>>(() => new Map());
-  const [isSimulating, setIsSimulating] = useState(true);
   const [pendingSimulationWeeks, setPendingSimulationWeeks] = useState<Set<string>>(() => new Set());
   const simulationGeneration = useRef(0);
   const simulationsRef = useRef(simulations);
@@ -173,7 +172,6 @@ export default function PlanningGantt(props: Props) {
   useEffect(() => {
     let cancelled = false;
     const generation = ++simulationGeneration.current;
-    setIsSimulating(true);
     // Keep completed weeks visible while refreshing. A week only needs a spinner
     // if it has never been simulated in this view.
     setPendingSimulationWeeks(new Set(weekIds.filter((week) => !simulationsRef.current.has(week))));
@@ -313,7 +311,6 @@ export default function PlanningGantt(props: Props) {
 
       if (cancelled || generation !== simulationGeneration.current) return;
       setPendingSimulationWeeks(new Set());
-      setIsSimulating(false);
     };
 
     // Let the loader/previous UI paint before starting planning CPU work.
