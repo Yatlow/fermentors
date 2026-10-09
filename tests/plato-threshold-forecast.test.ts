@@ -1,13 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { projectPlatoThresholdRecheck } from "../src/SERVICES/cellering/platoThresholdForecast";
-import type { Fermentor } from "../src/App";
-import type { SpecChart } from "../src/SERVICES/getAndPost/getSpecsFromFb";
 
-const specs = { tolorances: { dryHopMinPlato: 8, shutTankMinPlato: 5 } } as unknown as SpecChart;
+const specs = { tolorances: { dryHopMinPlato: 8, shutTankMinPlato: 5 } };
 const fermentor = (beerStyle: string, stage = "בתסיסה") => ({
   id: "tank-10", tankNumber: "10", beerStyle, stage: { name: stage },
-}) as unknown as Fermentor;
+});
 
 test("IPA Plato trend projects a conditional recheck, not an automatic dry hop", () => {
   const result = projectPlatoThresholdRecheck(fermentor("IPA"), [
