@@ -116,7 +116,7 @@ export default function PlanningReview({
           for (const product of products) {
             const result = compareProduct(product, baseline, actuals, week);
             const planned = result.planned ?? 0;
-            if (planned <= 0) continue;
+            if (planned <= 0 && result.performed <= 0) continue;
             const label = `${product.style} · ${product.type === "crates" ? "ארגזים" : "חביות"}`;
             const timeline = compareSnapshots(product, snapshots, week);
             const firstChange = timeline.slice(1).find((point, index) => {
