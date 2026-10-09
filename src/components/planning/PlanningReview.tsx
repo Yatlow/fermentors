@@ -101,6 +101,22 @@ export default function PlanningReview({
           השבוע טרם הסתיים: הביצוע והפערים המוצגים הם זמניים.
         </p>
       )}
+      <section className="bp-card" aria-label="מדדי תוצאות תכנון">
+        <h3>מדדי תוצאות — אריזה</h3>
+        {baseline ? (() => {
+          const results = products.map((product) => compareProduct(product, baseline, actuals, week));
+          const planned = results.reduce((sum, item) => sum + (item.planned ?? 0), 0);
+          const performed = results.reduce((sum, item) => sum + item.performed, 0);
+          const matched = results.reduce((sum, item) => sum + item.matched, 0);
+          const delayed = results.reduce((sum, item) => sum + (item.delay ?? 0) * item.matched, 0);
+          return <>
+            <p>עמידה בכמויות אריזה: {planned > 0 ? `${Math.round(Math.min(100, performed / planned * 100))}%` : "אין כמות מתוכננת למדידה"}</p>
+            <p>אריזות שבוצעו: {fmt(performed)} · תוכננו: {fmt(planned)} · סטייה ממוצעת בתזמון: {matched > 0 ? `${fmt(delayed / matched)} ימים` : "אין התאמות מתוארכות"}</p>
+            <small>כמויות מסוגי אריזה שונים אינן יחידות מלאי בנות־השוואה; הסיכום הוא מדד עמידה בתוכנית בלבד, לא מדד מחסור או עודף מלאי. לשבוע שטרם הסתיים הנתונים זמניים.</small>
+          </>;
+        })() : <p>לא ניתן לחשב מדד ביצוע ללא תמונת תכנון היסטורית אמינה.</p>}
+        <p>איכות עסקית: מחסור, עודף מלאי וניצול קיבולת — טרם ניתנים לניקוד מהראיות הזמינות. לא מוצג ציון מלאכותי.</p>
+      </section>
       <section className="bp-card" aria-label="ראיות להחלטות המתכנן">
         <h3>תיעוד החלטות והמלצות</h3>
         {(() => {
@@ -111,11 +127,13 @@ export default function PlanningReview({
             {(["shipment", "packaging", "brewing"] as const).map((kind) => {
               const rows = evidence.filter((entry) => entry.kind === kind);
               const original = rows.filter((entry) => entry.provenance === "decision-time" && entry.recommended.length > 0);
+              const recomputed = rows.filter((entry) => entry.provenance === "recomputed-at-save");
               const baselineRows = rows.filter((entry) => entry.provenance === "existing-plan-baseline");
               return <p key={kind}>
                 {kind === "shipment" ? "משלוחים" : kind === "packaging" ? "אריזות" : "בישולים"}:
                 {" "}{original.length} השוואות המלצה–החלטה;
-                {" "}{baselineRows.length} צילומי החלטה קיימת ללא המלצת עבר
+                {" "}{baselineRows.length} צילומי החלטה קיימת ללא המלצת עבר;
+                {" "}{recomputed.length} המלצות שחושבו מחדש בעת השמירה (לא המלצה היסטורית)
               </p>;
             })}
             <small>תיעוד אינו ציון איכות. מדדי מחסור, עודף מלאי וניצול קיבולת מחייבים נתוני תוצאה אמינים, ואינם מוסקים מהסכמה עם המנוע.</small>
