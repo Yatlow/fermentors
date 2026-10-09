@@ -123,8 +123,23 @@ export default function PlanningReview({
               const previous = timeline[index];
               return point.quantity !== null && previous.quantity !== null && point.quantity !== previous.quantity;
             });
-            const junction = firstChange ? `כבר ב${checkpointLabel[firstChange.key]}` :
-              `בתוכנית ${checkpointLabel[checkpoint]}`;
+            const changeIndex = firstChange ? timeline.findIndex((point) => point.key === firstChange.key) : -1;
+            const priorQuantity = changeIndex > 0 ? timeline[changeIndex - 1].quantity : null;
+            const savedReason = firstChange ? snapshots.find((entry) =>
+              entry.targetWeek === week && entry.checkpoint === firstChange.key)?.plan?.changeReason : null;
+            const junction = firstChange ?
+              `${checkpointLabel[firstChange.key]}: שינוי ${fmt(priorQuantity)} ← ${fmt(firstChange.quantity)}${savedReason ? ` · סיבת השינוי שנרשמה: ${savedReason}` : " · לא נרשמה סיבה"}` :
+              `בתוכנית ${checkpointLabel[checkpoint]} (לא אותר שינוי כמותי מתועד בין נקודות הבקרה)`;
+            if (planned === 0 && result.performed > 0) {
+              findings.push({
+                key: product.id + ":unplanned",
+                subject: label,
+                junction,
+                evidence: `בוצעו ${fmt(result.performed)} יחידות ללא כמות אריזה בתוכנית שנבחרה להשוואה.`,
+                next: "לבדוק אם הוחלט על אריזה מאוחרת או שצילום המצב לא שיקף החלטה שהתקבלה אחריו.",
+                severity: 1,
+              });
+            }
             if (result.performed < planned * 0.9) {
               findings.push({
                 key: product.id + ":short",
@@ -155,6 +170,17 @@ export default function PlanningReview({
             }
           }
           for (const match of matchActualShipments(baseline.deliveries ?? [], shipments, products)) {
+            if (!match.actual && match.planned.dispatchDate <= addDays(week, 6)) {
+              findings.push({
+                key: "shipment-pending:" + match.planned.id,
+                subject: `משלוח ${shortDate(match.planned.dispatchDate)}`,
+                junction: "בעת קביעת מועד המשלוח",
+                evidence: "לא נמצא משלוח שבוצע והתאים לתוכנית השבועית.",
+                next: "לוודא שהמשלוח אכן לא יצא ושאין דיווח חסר; לאחר מכן לבדוק מלאי זמין ואישור שיבוץ המשאית.",
+                severity: 0.8,
+              });
+              continue;
+            }
             if (!match.actual || match.score === null || match.score >= 0.85) continue;
             findings.push({
               key: "shipment:" + match.planned.id,
