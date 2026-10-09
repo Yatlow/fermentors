@@ -113,7 +113,12 @@ export default function Dashboard({
             const bDate = packagingDates[b.id] || "";
             if (!aDate) return bDate ? 1 : 0;
             if (!bDate) return -1;
-            return sortMode === "packagingSoon" ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
+            // Planning dates are ISO YYYY-MM-DD. Compare calendar days explicitly
+            // so the first click (packagingSoon) always means earliest first.
+            const aDay = Date.parse(`${aDate}T00:00:00`);
+            const bDay = Date.parse(`${bDate}T00:00:00`);
+            const difference = aDay - bDay;
+            return sortMode === "packagingSoon" ? difference : -difference;
         });
     }, [filteredBrews, packagingDates, sortMode, onlyWithCellarRecommendations, recommendedTankNumbers]);
 
