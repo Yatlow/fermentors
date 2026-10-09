@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
-import { CalendarDays, SquarePen } from "lucide-react";
+import { CalendarDays, SquarePen, ClipboardList } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
@@ -85,6 +85,7 @@ type Props = {
     nextEvent: { id: string; title: string; startDate: string; endDate: string; type: "general"; note?: string },
   ) => Promise<void>;
   onOpenCoolerMap?: () => void;
+  onOpenInventoryInput?: () => void;
 };
 
 const fmt = (value: number) => Math.round(value).toLocaleString("he-IL");
@@ -755,8 +756,16 @@ export default function PlanningGantt(props: Props) {
                 const pendingCount = editableKind ? dailyPendingCount(editableKind, weekId) : 0;
                 return (
                   <div className={`bp-five-week-cell is-${row.id}`} key={`${row.id}:${weekId}`}>
-                    {canEditWeek && (
+                    {(canEditWeek || (canEdit && row.id === "stock" && weekId === currentWeek)) && (
                       <div className="bp-gantt-cell-actions">
+                        {canEdit && row.id === "stock" && weekId === currentWeek && (
+                          <button type="button" className="bp-gantt-cell-edit"
+                            aria-label="הזנת נתוני מלאי לשבוע הנוכחי" title="הזנת נתוני מלאי"
+                            onClick={props.onOpenInventoryInput}>
+                            <ClipboardList size={15} aria-hidden="true" />
+                          </button>
+                        )}
+                        {canEditWeek && <>
                         <button
                           type="button"
                           className="bp-gantt-cell-edit"
@@ -778,6 +787,7 @@ export default function PlanningGantt(props: Props) {
                             {pendingCount > 0 && <span className="bp-gantt-action-badge">{pendingCount}</span>}
                           </button>
                         )}
+                        </>}
                       </div>
                     )}
                     {items.map((item) => (
