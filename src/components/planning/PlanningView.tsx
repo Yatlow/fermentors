@@ -112,8 +112,13 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     if (JSON.stringify(original?.brews ?? []) !== JSON.stringify(canonical.brews ?? [])) changed.push("brewing");
     // Reuse the same already-loaded inputs as the planner; no extra Firestore reads.
     // Compute before writing the decision. Never backfill a past recommendation.
+    // Remove the edited week's commitments from the recommendation inputs,
+    // otherwise the engine can mistake the user's decision for its own proposal.
+    const recommendationPlans = identityAlignedPlans.map((plan) => plan.id === canonical.id
+      ? { ...plan, deliveries: [], packaging: [], brews: [] }
+      : plan);
     const recommendation = changed.length ? buildWeeklyPlanningModel({
-      settings, pallets, tanks, plans: identityAlignedPlans, actuals,
+      settings, pallets, tanks, plans: recommendationPlans, actuals,
       sources: productionTanks, today, week: canonical.id, holidays,
       shipments: data.actualShipments,
     }) : null;
