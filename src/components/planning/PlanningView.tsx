@@ -129,7 +129,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       kind,
       capturedAt,
       algorithmVersion: "weeklyPlanningModel-2026-10",
-      provenance: "decision-time",
+      provenance: "recomputed-at-save",
       recommended: (kind === "shipment" ? recommendation!.shipmentRecommendation
         : kind === "packaging" ? recommendation!.packagingRecommendation
         : recommendation!.brewRecommendations).map((item) => ({ ...item })),
