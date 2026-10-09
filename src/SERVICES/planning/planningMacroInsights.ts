@@ -34,10 +34,24 @@ export function planningMacroInsights(
         sum + actuals.filter((a) => matchesActual(p, a) && actualDate(a) &&
           actualDate(a)! >= snapshot.targetWeek && actualDate(a)! < addDays(snapshot.targetWeek, 7))
           .reduce((total, actual) => total + actualUnits(p, actual) * litersPerUnit(p), 0), 0);
-      return [{ week: snapshot.targetWeek, plannedLiters, completedLiters, demandLiters }];
+      const plannedBrewLiters = snapshot.plan!.brews.filter((brew) => sameStyle(brew.style, style))
+        .reduce((sum, brew) => sum + Math.max(0, brew.liters), 0);
+      return [{ week: snapshot.targetWeek, plannedLiters, completedLiters, plannedBrewLiters, demandLiters }];
     });
     if (weeks.length < 4) continue;
     const last = weeks.slice(-6);
+    if (last.length >= 6) {
+      const totalDemand = last.reduce((sum, row) => sum + row.demandLiters, 0);
+      const totalBrew = last.reduce((sum, row) => sum + row.plannedBrewLiters, 0);
+      if (totalDemand > 0 && totalBrew / totalDemand < 0.7) {
+        results.push({
+          id: "brews:" + style, scope: "style",
+          title: `${style}: מעט בישולים משובצים לעומת הביקוש שהוגדר`,
+          evidence: `ב־${last.length} שבועות של צילומי תוכנית שובצו ${Math.round(totalBrew).toLocaleString("he-IL")} ליטר בישול, לעומת ביקוש מחושב של ${Math.round(totalDemand).toLocaleString("he-IL")} ליטר (${Math.round(totalBrew / totalDemand * 100)}%).`,
+          recommendation: "לבדוק מלאי פתיחה ובירה קיימת במיכלים, בישולים שבוצעו מחוץ לתוכנית וזמן הבשלה. זו מגמה של שיבוץ בישולים, לא הוכחה שלא יוצר מספיק בפועל.",
+        });
+      }
+    }
     const underplanned = last.filter((w) => w.plannedLiters < w.demandLiters * 0.8);
     if (underplanned.length >= 4) {
       const ratio = last.reduce((sum, w) => sum + w.plannedLiters, 0) /
