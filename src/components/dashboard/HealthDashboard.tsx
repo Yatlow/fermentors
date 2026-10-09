@@ -263,7 +263,7 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs }: Props) {
+export default function HealthDashboard({ brews, specs, onRecommendedTanksChange }: Props & { onRecommendedTanksChange?: (numbers: string[]) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const [analyzing, setAnalyzing] = useState(true);
@@ -857,6 +857,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
             cancelled = true;
         };
     }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations]);
+
+    const recommendedTankKey = useMemo(() => [...new Set(analysis.alerts
+        .filter((alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound")
+        .map((alert) => String(alert.tankNumber)))].sort().join(","), [analysis.alerts]);
+    useEffect(() => {
+        if (!analyzing) onRecommendedTanksChange?.(recommendedTankKey ? recommendedTankKey.split(",") : []);
+    }, [analyzing, recommendedTankKey, onRecommendedTanksChange]);
 
     const pendingDailyScoreActionCount = useMemo(
         () => analysis.dailyActions.filter((action) => action.scoreEligible !== false).length,
