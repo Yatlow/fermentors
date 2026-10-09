@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
-import { CalendarDays, SquarePen } from "lucide-react";
+import { CalendarDays, SquarePen, ClipboardList } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
 import { beerStyleClass } from "../../SERVICES/cooler/Pallettypes ";
@@ -85,6 +85,7 @@ type Props = {
     nextEvent: { id: string; title: string; startDate: string; endDate: string; type: "general"; note?: string },
   ) => Promise<void>;
   onOpenCoolerMap?: () => void;
+  onOpenInventoryInput?: () => void;
 };
 
 const fmt = (value: number) => Math.round(value).toLocaleString("he-IL");
@@ -163,15 +164,17 @@ export default function PlanningGantt(props: Props) {
   }, [actuals]);
 
   const [simulations, setSimulations] = useState<Map<string, SimulatedWeek>>(() => new Map());
-  const [isSimulating, setIsSimulating] = useState(true);
   const [pendingSimulationWeeks, setPendingSimulationWeeks] = useState<Set<string>>(() => new Set());
   const simulationGeneration = useRef(0);
+  const simulationsRef = useRef(simulations);
+  simulationsRef.current = simulations;
 
   useEffect(() => {
     let cancelled = false;
     const generation = ++simulationGeneration.current;
-    setIsSimulating(true);
-    setPendingSimulationWeeks(new Set(weekIds));
+    // Keep completed weeks visible while refreshing. A week only needs a spinner
+    // if it has never been simulated in this view.
+    setPendingSimulationWeeks(new Set(weekIds.filter((week) => !simulationsRef.current.has(week))));
 
     const run = async () => {
     const result = new Map<string, SimulatedWeek>();
@@ -308,7 +311,6 @@ export default function PlanningGantt(props: Props) {
 
       if (cancelled || generation !== simulationGeneration.current) return;
       setPendingSimulationWeeks(new Set());
-      setIsSimulating(false);
     };
 
     // Let the loader/previous UI paint before starting planning CPU work.
@@ -672,7 +674,7 @@ export default function PlanningGantt(props: Props) {
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
-        {(isPaging || isSimulating) && <BeerLoader overlay message={isPaging ? "טוען שבוע…" : "טוען המלצות שבועיות…"} />}
+        {isPaging && <BeerLoader overlay message="טוען שבוע…" />}
         {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
@@ -742,7 +744,7 @@ export default function PlanningGantt(props: Props) {
             <Fragment key={row.id}>
               <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
-                const weekPending = pendingSimulationWeeks.has(weekId);
+                const weekPending = pendingSimulationWeeks.has(weekId) && !simulations.has(weekId);
                 const items = itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
                 const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
@@ -755,8 +757,16 @@ export default function PlanningGantt(props: Props) {
                 const pendingCount = editableKind ? dailyPendingCount(editableKind, weekId) : 0;
                 return (
                   <div className={`bp-five-week-cell is-${row.id}`} key={`${row.id}:${weekId}`}>
-                    {canEditWeek && (
+                    {(canEditWeek || (canEdit && row.id === "stock" && weekId === currentWeek)) && (
                       <div className="bp-gantt-cell-actions">
+                        {canEdit && row.id === "stock" && weekId === currentWeek && (
+                          <button type="button" className="bp-gantt-cell-edit"
+                            aria-label="הזנת נתוני מלאי לשבוע הנוכחי" title="הזנת נתוני מלאי"
+                            onClick={props.onOpenInventoryInput}>
+                            <ClipboardList size={15} aria-hidden="true" />
+                          </button>
+                        )}
+                        {canEditWeek && <>
                         <button
                           type="button"
                           className="bp-gantt-cell-edit"
@@ -778,6 +788,7 @@ export default function PlanningGantt(props: Props) {
                             {pendingCount > 0 && <span className="bp-gantt-action-badge">{pendingCount}</span>}
                           </button>
                         )}
+                        </>}
                       </div>
                     )}
                     {items.map((item) => (

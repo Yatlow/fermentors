@@ -223,7 +223,9 @@ function App() {
     const [resetKey, setResetKey] = useState(0);
     const [specs, setSpecs] = useState<SpecChart | null>(null);
     const [zoneCounts, setZoneCounts] = useState<ZoneCounts | null>(null);
-    const [sortByAge, setSortByAge] = useState<"tank" | "oldest">("tank");
+    const [onlyWithCellarRecommendations, setOnlyWithCellarRecommendations] = useState(false);
+    const [recommendedTankNumbers, setRecommendedTankNumbers] = useState<string[]>([]);
+    const [sortByAge, setSortByAge] = useState<"tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater">("tank");
 
     useEffect(() => {
         if (!user || !isApproved) {
@@ -432,14 +434,26 @@ function App() {
 
     function getBrewDateValue(brewDate?: string | null): number {
         if (!brewDate) return 0;
-        const [day, month, year] = brewDate.split("/").map(Number);
-        if (!day || !month || !year) return 0;
-        return new Date(year, month - 1, day).getTime();
+        const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(brewDate.trim());
+        if (!match) return 0;
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const rawYear = Number(match[3]);
+        const year = match[3].length === 2 ? 2000 + rawYear : rawYear;
+        const date = new Date(year, month - 1, day);
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return 0;
+        return date.getTime();
     }
 
     const sortedFilteredBrews = useMemo<Fermentor[]>(() => {
-        if (sortByAge === "oldest") {
-            return [...filteredBrews].sort((a, b) => getBrewDateValue(a.brewDate) - getBrewDateValue(b.brewDate));
+        if (sortByAge === "oldest" || sortByAge === "newest") {
+            return [...filteredBrews].sort((a, b) => {
+                const aDate = getBrewDateValue(a.brewDate);
+                const bDate = getBrewDateValue(b.brewDate);
+                if (!aDate) return bDate ? 1 : 0;
+                if (!bDate) return -1;
+                return sortByAge === "oldest" ? aDate - bDate : bDate - aDate;
+            });
         }
         return filteredBrews;
     }, [filteredBrews, sortByAge]);
@@ -466,7 +480,7 @@ function App() {
                             <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>
                         </div>
                     </div>
-                    {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} />}
+                    {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} onlyWithCellarRecommendations={onlyWithCellarRecommendations} setOnlyWithCellarRecommendations={setOnlyWithCellarRecommendations} />}
                     {selectedView === "רישום" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>סבב יומי- טמפ' ולחץ</span></button>
                         <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>בדיקות סוכר וpH למיכלים חמים</span></button>
@@ -495,7 +509,7 @@ function App() {
             </header>
 
             <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
-                {selectedView === "דאשבורד" && <Dashboard healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
+                {selectedView === "דאשבורד" && <Dashboard onlyWithCellarRecommendations={onlyWithCellarRecommendations} recommendedTankNumbers={recommendedTankNumbers} onRecommendedTanksChange={setRecommendedTankNumbers} sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
                 {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
                 {selectedView === "רישום" && <>
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />

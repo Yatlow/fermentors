@@ -263,9 +263,15 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs }: Props) {
+export default function HealthDashboard({ brews, specs, onRecommendedTanksChange }: Props & { onRecommendedTanksChange?: (numbers: string[]) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
+    const graceSnapshotTank = brews.find((tank) => Number(tank.tankNumber) === 1) as
+        | (Fermentor & { cellarHealthCompletedDay?: string; cellarGraceTankIds?: string[] })
+        | undefined;
+    const graceLockedIds = graceSnapshotTank?.cellarHealthCompletedDay === localDateKey(new Date())
+        ? (graceSnapshotTank.cellarGraceTankIds ?? [])
+        : [];
     const [analyzing, setAnalyzing] = useState(true);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
@@ -328,6 +334,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
                     const tankDailyProgress: DailyActionProgress = { ...EMPTY_DAILY_ACTION_PROGRESS };
                     const hotTank = isHotTank(tank);
                     const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
+                    const graceMeasurementExempt = graceLockedIds.includes(String(tank.id));
 
                     try {
                         const measurements: Measurement[] = tank.batchNumber
@@ -384,11 +391,11 @@ export default function HealthDashboard({ brews, specs }: Props) {
                                 "measurementRound"
                             )
                         );
-                        const scoreProgress = measurementRoundIgnored
+                        const scoreProgress = (measurementRoundIgnored || graceMeasurementExempt)
                             ? { ...progress, missingFields: [], requiredFieldCount: progress.completedFieldCount }
                             : progress;
 
-                        if (!completeMeasurements && !measurementRoundIgnored) {
+                        if (!completeMeasurements && !measurementRoundIgnored && !graceMeasurementExempt) {
                             tankAlerts.push({
                                 id: `measurements-${tank.id}`,
                                 severity: "warning",
@@ -442,6 +449,10 @@ export default function HealthDashboard({ brews, specs }: Props) {
                             bottomCarb
                                 ? [{ recommendationKey: "bottomCarbonationFollowUp", recommendation: bottomCarb }]
                                 : []
+                        ).filter((recommendation) =>
+                            // Neglect is a weekday-only reminder; other recommendations remain available.
+                            !(recommendation.recommendationKey === "neglectedStatus" &&
+                              [5, 6].includes(new Date().getDay()))
                         );
 
                         const now = new Date();
@@ -854,6 +865,13 @@ export default function HealthDashboard({ brews, specs }: Props) {
         };
     }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations]);
 
+    const recommendedTankKey = useMemo(() => [...new Set(analysis.alerts
+        .filter((alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound")
+        .map((alert) => String(alert.tankNumber)))].sort().join(","), [analysis.alerts]);
+    useEffect(() => {
+        if (!analyzing) onRecommendedTanksChange?.(recommendedTankKey ? recommendedTankKey.split(",") : []);
+    }, [analyzing, recommendedTankKey, onRecommendedTanksChange]);
+
     const pendingDailyScoreActionCount = useMemo(
         () => analysis.dailyActions.filter((action) => action.scoreEligible !== false).length,
         [analysis.dailyActions]
@@ -873,13 +891,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
             pendingDailyScoreActionCount,
         ]
     );
-    const overallClass = healthBand(healthScore);
+    const displayedHealthScore = healthScore;
+    const overallClass = healthBand(displayedHealthScore);
     const previousSettledScoreRef = useRef<number | null>(null);
     const persistedHealthWriteRef = useRef<boolean | null>(null);
     const [celebrationOpen, setCelebrationOpen] = useState(false);
     const cellarStateTank = useMemo(
         () => brews.find((tank) => Number(tank.tankNumber) === 1) as
-            | (Fermentor & { cellarHealthIs100?: boolean })
+            | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string })
             | undefined,
         [brews]
     );
@@ -889,6 +908,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
         if (analyzing || !cellarStateTank?.id) return;
 
         previousSettledScoreRef.current = healthScore;
+        const todayKey = localDateKey(new Date());
+        // A completed daily round stays completed through the end of its day.
+        // A new fermentation tank leaving its 12-hour grace must not reopen it.
         const desiredIs100 = healthScore === 100;
 
         // Tank 1 is already part of the app's fermentor listener, so this gives
@@ -909,6 +931,14 @@ export default function HealthDashboard({ brews, specs }: Props) {
             if (previousSettledScoreRef.current !== healthScore) return;
             void updateDoc(doc(db, "fermentors", String(cellarStateTank.id)), {
                 cellarHealthIs100: desiredIs100,
+                ...(desiredIs100 ? {
+                    cellarHealthCompletedDay: todayKey,
+                    cellarGraceTankIds: brews.filter((tank) =>
+                        Number(tank.tankNumber) !== 1 &&
+                        Number(tank.action) === 1 &&
+                        isInFermentationMeasurementGracePeriod(tank)
+                    ).map((tank) => String(tank.id)),
+                } : {}),
             }).then(() => {
                 if (shouldCelebrate) setCelebrationOpen(true);
             }).catch((error) => {
@@ -923,6 +953,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
         healthScore,
         cellarStateTank?.id,
         persistedHealthIs100,
+        brews,
     ]);
 
     const counts = useMemo(() => ({
@@ -952,7 +983,7 @@ export default function HealthDashboard({ brews, specs }: Props) {
     }, [analysis.dailyActions]);
 
     const scoreStyle = {
-        "--health-score": `${healthScore}%`,
+        "--health-score": `${displayedHealthScore}%`,
     } as CSSProperties;
 
     const attentionCount = counts.critical + counts.warning + counts.info;
@@ -998,9 +1029,9 @@ export default function HealthDashboard({ brews, specs }: Props) {
                 onClick={() => setExpanded((current) => !current)}
                 aria-expanded={expanded}
             >
-                <span className="health-score-ring" style={scoreStyle} aria-label={`מדד סלרינג ${healthScore} מתוך 100`}>
+                <span className="health-score-ring" style={scoreStyle} aria-label={`מדד סלרינג ${displayedHealthScore} מתוך 100`}>
                     <span>
-                        <strong>{analyzing ? "…" : healthScore}</strong>
+                        <strong>{analyzing ? "…" : displayedHealthScore}</strong>
                         <small>/100</small>
                     </span>
                 </span>
@@ -1099,12 +1130,25 @@ export default function HealthDashboard({ brews, specs }: Props) {
                         </section>
                     )}
 
+                    {analysis.alerts.some((alert) => alert.recommendationKey === "measurementRound") && (
+                        <section className="health-daily-actions health-required-measurements" aria-label="מדידות נדרשות">
+                            <strong>מדידות נדרשות</strong>
+                            <div className="health-daily-actions-list">
+                                {analysis.alerts.filter((alert) => alert.recommendationKey === "measurementRound").map((alert) => (
+                                    <div className="health-daily-action" key={alert.id}>
+                                        <span>מיכל {alert.tankNumber} · {alert.detail}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
                     {analysis.alerts.length === 0 && !analyzing ? (
                         <div className="health-empty-state">
                             אין כרגע פעולות סלרינג לביצוע וכל המדידות הנדרשות להיום קיימות.
                         </div>
                     ) : (
-                        analysis.alerts.map((alert) => (
+                        analysis.alerts.filter((alert) => alert.recommendationKey !== "measurementRound").map((alert) => (
                             <article
                                 key={alert.id}
                                 className={`health-alert health-alert-${alert.severity}${alert.userDecision ? " health-alert-user-decision" : ""}`}

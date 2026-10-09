@@ -1228,36 +1228,25 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     // NEGLECT MESSAGE
     // ============================================================
 
-    let neglectedMsg = "⚠️ המיכל מרגיש מוזנח!";
+    let neglectedMsg = "⚠️ המיכל דורש תשומת לב.";
 
     if (neglectedStatus.req) {
-
-        if (lastCarbDate) {
-
-            neglectedMsg +=
-                ` גיזוז אחרון היה ב-${lastCarbDate}.`;
-
-        } else {
-
-            neglectedMsg +=
-                " לא נמצא גיזוז קודם.";
-        }
-
-
-        if (lastYeastDate) {
-
-            neglectedMsg +=
-                ` הורדת שמרים אחרונה הייתה ב-${lastYeastDate}.`;
-
-        } else {
-
-            neglectedMsg +=
-                " לא נמצאה הורדת שמרים קודמת.";
-        }
-
-
-        neglectedMsg +=
-            " מומלץ לבצע בדיקת גיזוז ולהוריד שמרים!";
+        const relevantDates = [lastCarbDate, lastYeastDate].filter(
+            (value): value is string => Boolean(value)
+        );
+        const lastRelevantDate = relevantDates.length
+            ? relevantDates.reduce((latest, date) => {
+                const parse = (value: string) => {
+                    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+                    return match ? `${match[3]}-${match[2]}-${match[1]}` : value;
+                };
+                return parse(date) > parse(latest) ? date : latest;
+            })
+            : null;
+        neglectedMsg += lastRelevantDate
+            ? ` הפעולה המתועדת האחרונה הייתה ב-${lastRelevantDate}.`
+            : " לא נמצאה פעולה רלוונטית מתועדת.";
+        neglectedMsg += " מומלץ לבדוק צורך בבדיקת גיזוז ובהורדת שמרים.";
     }
     neglectedStatus.reason = neglectedMsg
     const readyToCoolDown = (

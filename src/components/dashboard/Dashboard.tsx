@@ -3,7 +3,7 @@ import { FileSpreadsheet, PencilSparkles } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { sameStyle } from "../../SERVICES/planning/planningEngine";
-import { getUndatedPlannedPackagingWeekForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
+import { getPlannedPackagingForTank, getUndatedPlannedPackagingWeekForTank } from "../../SERVICES/planning/plannedPackagingForTanks";
 import { loadRecipes } from "../../SERVICES/brewing/recipeEditorStore";
 import { loadSharedBrewingLibrary } from "../../SERVICES/brewing/sharedBrewingLibrary";
 import HealthDashboard from "./HealthDashboard";
@@ -12,6 +12,10 @@ import TankCard from "./TankCard";
 import DashboardBrewFormModal from "./DashboardBrewFormModal";
 
 export type DashboardProps = {
+    onlyWithCellarRecommendations?: boolean;
+    recommendedTankNumbers?: string[];
+    onRecommendedTanksChange?: (numbers: string[]) => void;
+    sortMode?: "tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater";
     selectedStatuses: string[];
     filteredTankCount: number;
     totalVolumes: Record<string, number>;
@@ -33,6 +37,10 @@ function shortDate(value: string): string {
 
 export default function Dashboard({
     selectedStatuses,
+    sortMode = "tank",
+    onlyWithCellarRecommendations = false,
+    recommendedTankNumbers = [],
+    onRecommendedTanksChange,
     filteredTankCount,
     totalVolumes,
     selectedStyles,
@@ -45,6 +53,7 @@ export default function Dashboard({
     const [brewFormTank, setBrewFormTank] = useState<Fermentor | null>(null);
     const [brewRecipes, setBrewRecipes] = useState(() => loadRecipes());
     const [undatedPackagingWeeks, setUndatedPackagingWeeks] = useState<Record<string, string>>({});
+    const [packagingDates, setPackagingDates] = useState<Record<string, string>>({});
 
     useEffect(() => {
         let cancelled = false;
@@ -79,8 +88,39 @@ export default function Dashboard({
             setUndatedPackagingWeeks(Object.fromEntries(entries.filter(([, week]) => Boolean(week))));
         });
 
+        Promise.all(activeTanks.map(async (tank) => {
+            try {
+                const result = await getPlannedPackagingForTank({
+                    tankId: tank.id, tankNumber: tank.tankNumber, batchNumber: tank.batchNumber,
+                });
+                return [tank.id, result?.date || ""] as const;
+            } catch {
+                return [tank.id, ""] as const;
+            }
+        })).then((entries) => {
+            if (!cancelled) setPackagingDates(Object.fromEntries(entries));
+        });
         return () => { cancelled = true; };
     }, [filteredBrews]);
+
+    const displayBrews = useMemo(() => {
+        const visible = onlyWithCellarRecommendations
+            ? filteredBrews.filter((tank) => recommendedTankNumbers.includes(String(tank.tankNumber)))
+            : filteredBrews;
+        if (sortMode !== "packagingSoon" && sortMode !== "packagingLater") return visible;
+        return [...visible].sort((a, b) => {
+            const aDate = packagingDates[a.id] || "";
+            const bDate = packagingDates[b.id] || "";
+            if (!aDate) return bDate ? 1 : 0;
+            if (!bDate) return -1;
+            // Planning dates are ISO YYYY-MM-DD. Compare calendar days explicitly
+            // so the first click (packagingSoon) always means earliest first.
+            const aDay = Date.parse(`${aDate}T00:00:00`);
+            const bDay = Date.parse(`${bDate}T00:00:00`);
+            const difference = aDay - bDay;
+            return sortMode === "packagingSoon" ? difference : -difference;
+        });
+    }, [filteredBrews, packagingDates, sortMode, onlyWithCellarRecommendations, recommendedTankNumbers]);
 
     const recipeStyles = useMemo(
         () => brewRecipes.map((recipe) => ({ id: recipe.id, style: recipe.style })),
@@ -124,7 +164,7 @@ export default function Dashboard({
 
     return (
         <div className="dashboard">
-            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} />
+            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} onRecommendedTanksChange={onRecommendedTanksChange} />
             <SheetSyncStatus />
 
             <div className="dashboard-filter-info">
@@ -164,7 +204,7 @@ export default function Dashboard({
             </div>
 
             <div className="tank-grid">
-                {specs && filteredBrews.map((fermentor) => {
+                {specs && displayBrews.map((fermentor) => {
                     const style = String(fermentor.beerStyle ?? "").trim();
                     const hasMatchingRecipe = !!style && recipeStyles.some((recipe) =>
                         sameStyle(recipe.style, style) || recipe.id.toLowerCase() === style.toLowerCase(),

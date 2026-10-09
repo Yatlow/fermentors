@@ -566,3 +566,10 @@
         height: 30px;
     }
 }
+
+/* Compact, read-only list of measurements due today. */
+.health-required-measurements {
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(217, 119, 6, 0.38);
+}
+.health-required-measurements > strong { color: #a16207; }
