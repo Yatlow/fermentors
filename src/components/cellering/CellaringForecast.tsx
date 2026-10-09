@@ -101,7 +101,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
             {days.filter((day) => day.total > 0).map((day) => <div className="health-daily-action" key={day.date}>
                 <strong>{day.date}</strong>
                 {day.scheduledRows.map((item) => <span key={item.id}>
-                    מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · {item.dueDate < day.date ? `באיחור מאז ${item.dueDate}` : "נקבע מראש"}
+                    מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · {(new Date(item.dueDate + "T12:00:00Z").getUTCDay() === 6 ? new Date(Date.parse(item.dueDate + "T12:00:00Z") + 86400000).toISOString().slice(0, 10) : item.dueDate) < day.date ? `באיחור מאז ${item.dueDate}` : "נקבע מראש"}
                 </span>)}
                 {day.conditionalRows.map((item) => <span key={item.id}>
                     מיכל {item.tankNumber} · {item.title}{item.title.includes("תנאים ל") ? " — צפוי להתקרב לסף לפי קצב הפלאטו האחרון" : ""}
