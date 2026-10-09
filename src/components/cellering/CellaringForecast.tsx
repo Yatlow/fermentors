@@ -80,7 +80,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
             תחזית סלרינג · 7 ימים {loading ? "· מחשב…" : total ? `· ${total} פריטים` : ""} {expanded ? "▴" : "▾"}
         </button>
         {expanded && <div className="health-daily-actions-list">
-            {days.map((day) => <div className="health-daily-action" key={day.date}>
+            {days.filter((day) => day.total > 0).map((day) => <div className="health-daily-action" key={day.date}>
                 <strong>{day.date}</strong>
                 {day.scheduledRows.map((item) => <span key={item.id}>
                     מיכל {item.tankNumber} · {scheduledActionLabel(item.actionType)} · {item.dueDate < day.date ? `באיחור מאז ${item.dueDate}` : "נקבע מראש"}
@@ -89,8 +89,8 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                     מיכל {item.tankNumber} · {item.title} · מותנה: {item.basis}
                 </span>)}
                 {day.routines.map((item) => <span key={item}>שגרה לבדיקה · {item}. יש לבדוק צורך ומוכנות למיכל ביום הביצוע.</span>)}
-                {!day.total && <small>—</small>}
             </div>)}
+            {!total && !loading && <p>לא נמצאו פעולות מתוזמנות, אבני דרך או שגרות צפויות במהלך שבעת הימים הקרובים.</p>}
             <small>פעולות שנקבעו מראש מובחנות מהערכות לפי מדידות ומשגרת השבוע. התחזית אינה פקודת ביצוע; לפני פעולה בודקים את המלצת המנוע העדכנית, סטטוס המיכל ואריזה מתוכננת.</small>
         </div>}
     </section>;
