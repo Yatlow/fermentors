@@ -33,7 +33,7 @@ export function recommendationAuditAvailability(
   const snapshot = value as Partial<RecommendationEvidence>;
   if (
     typeof snapshot.id !== "string" || !snapshot.id ||
-    typeof snapshot.weekId !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(snapshot.weekId) ||
+    typeof snapshot.weekId !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(snapshot.weekId) ||
     !["shipment", "packaging", "brewing"].includes(snapshot.kind ?? "") ||
     typeof snapshot.capturedAt !== "string" || !snapshot.capturedAt ||
     typeof snapshot.algorithmVersion !== "string" || !snapshot.algorithmVersion ||
