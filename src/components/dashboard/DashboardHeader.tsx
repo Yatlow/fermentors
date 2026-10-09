@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Funnel, ArrowDownWideNarrow } from "lucide-react";
 import type {
     Dispatch,
     SetStateAction
@@ -131,13 +131,14 @@ export default function DashboardHeader({
                 )}
 
             </div>
-            <div className="sort-filter">
+            <div className="sort-filter" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 }}>
                 <button type="button" className={`status-filter-button ${onlyWithCellarRecommendations ? "active" : ""}`}
                     aria-pressed={onlyWithCellarRecommendations}
                     onClick={() => setOnlyWithCellarRecommendations((value) => !value)}>
-                    רק מיכלים עם המלצות סלרינג
+                    <Funnel size={16} aria-hidden="true" /> מיכלים עם המלצות סלרינג
                 </button>
-                <div>מיין לפי:</div>
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}> <ArrowDownWideNarrow size={16} aria-hidden="true" /> מיין לפי:</span>
                 <button
                     type="button"
                     className={`status-filter-button ${sortByAge === "tank"
@@ -153,7 +154,7 @@ export default function DashboardHeader({
 
                 <button
                     type="button"
-                    className={`status-filter-button ${sortByAge !== "tank"
+                    className={`status-filter-button ${sortByAge === "oldest" || sortByAge === "newest"
                             ? "active"
                             : ""
                         }`}
@@ -169,7 +170,7 @@ export default function DashboardHeader({
                 >
                     תאריך אריזה {sortByAge === "packagingLater" ? <ArrowUp size={16} aria-hidden="true" /> : <ArrowDown size={16} aria-hidden="true" />}
                 </button>
-
+                </div>
             </div></>
     )
 }
