@@ -167,12 +167,16 @@ export default function PlanningGantt(props: Props) {
   const [isSimulating, setIsSimulating] = useState(true);
   const [pendingSimulationWeeks, setPendingSimulationWeeks] = useState<Set<string>>(() => new Set());
   const simulationGeneration = useRef(0);
+  const simulationsRef = useRef(simulations);
+  simulationsRef.current = simulations;
 
   useEffect(() => {
     let cancelled = false;
     const generation = ++simulationGeneration.current;
     setIsSimulating(true);
-    setPendingSimulationWeeks(new Set(weekIds));
+    // Keep completed weeks visible while refreshing. A week only needs a spinner
+    // if it has never been simulated in this view.
+    setPendingSimulationWeeks(new Set(weekIds.filter((week) => !simulationsRef.current.has(week))));
 
     const run = async () => {
     const result = new Map<string, SimulatedWeek>();
@@ -673,7 +677,7 @@ export default function PlanningGantt(props: Props) {
   if (mode === "calendar") {
     return <>
       <section className="bp-gantt-shell">
-        {(isPaging || isSimulating) && <BeerLoader overlay message={isPaging ? "טוען שבוע…" : "טוען המלצות שבועיות…"} />}
+        {isPaging && <BeerLoader overlay message="טוען שבוע…" />}
         {isOpeningEditor && <BeerLoader overlay message="פותח…" />}
         <div className="bp-section-heading bp-gantt-heading">
           <div><h2>לוח שנה</h2><p className="bp-muted">{canEdit ? "חלון של 5 שבועות מתוך אופק תכנון של 13 שבועות קדימה." : "מבט 5 שבועות."}</p></div>
@@ -743,7 +747,7 @@ export default function PlanningGantt(props: Props) {
             <Fragment key={row.id}>
               <div className={`bp-five-week-row-label is-${row.id}`}>{row.label}</div>
               {weekIds.map((weekId) => {
-                const weekPending = pendingSimulationWeeks.has(weekId);
+                const weekPending = pendingSimulationWeeks.has(weekId) && !simulations.has(weekId);
                 const items = itemsFor(row.id, weekId);
                 const editableKind = row.id === "stock" ? null : row.id;
                 const canEditWeek = canEdit && editableKind && !weekIsClosed(weekId, today);
