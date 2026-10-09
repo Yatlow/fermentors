@@ -12,6 +12,8 @@ export type RecommendationEvidence = {
   capturedAt: string;
   /** Stable algorithm revision, so changes in logic can be compared fairly. */
   algorithmVersion: string;
+  /** Existing decisions may predate the first recorded recommendation. */
+  provenance?: "decision-time" | "existing-plan-baseline";
   /** Canonical recommendation payload captured at decision time. */
   recommended: Record<string, unknown>[];
   /** Decision payload captured alongside the recommendation. */
@@ -40,6 +42,9 @@ export function recommendationAuditAvailability(
     !Array.isArray(snapshot.recommended) || !Array.isArray(snapshot.decided) ||
     !snapshot.recommended.every(isRecord) || !snapshot.decided.every(isRecord)
   ) return { status: "missing", reason: "invalid-snapshot" };
+  if (snapshot.provenance === "existing-plan-baseline") {
+    return { status: "missing", reason: "no-historical-snapshot" };
+  }
   return { status: "available", evidence: snapshot as RecommendationEvidence };
 }
 
