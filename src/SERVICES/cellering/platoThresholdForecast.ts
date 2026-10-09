@@ -1,6 +1,6 @@
 export type PlatoForecastTank = { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
 export type PlatoForecastReading = { id?: string | number | null; plato?: string | number | null; notes?: string | number | null };
-export type PlatoForecastSpecs = { tolorances: Record<string, number> };
+export type PlatoForecastSpecs = { tolorances?: Record<string, number> };
 
 /** A date to re-measure, not a prediction that an action is already justified. */
 export type PlatoThresholdHint = {
@@ -37,7 +37,7 @@ export function projectPlatoThresholdRecheck(
   if (interval < 1 || interval > 3 || day(today) - day(toDate) > 2) return [];
   const rate = (from - to) / interval;
   if (rate < 0.1 || rate > 4) return [];
-  const setting = hoppy ? specs.tolorances.dryHopMinPlato : specs.tolorances.shutTankMinPlato;
+  const setting = hoppy ? specs.tolorances?.dryHopMinPlato : specs.tolorances?.shutTankMinPlato;
   const threshold = Number(setting) > 0 ? Number(setting) : hoppy ? 8 : 5;
   if (to < threshold) return [];
   const days = Math.floor((to - threshold) / rate) + 1;
