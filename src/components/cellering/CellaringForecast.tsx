@@ -66,7 +66,9 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
         const dayOfWeek = (date: string) => new Date(date + "T12:00:00Z").getUTCDay();
         const nextWorkday = (date: string) => dayOfWeek(date) === 6 ? addDays(date, 1) : date;
         const coldTanks = active.filter((tank) => tank.stage?.name === "קר");
-        return Array.from({ length: 7 }, (_, offset) => {
+        // If the last calendar day is Saturday, include Sunday as the replacement workday.
+        const horizon = dayOfWeek(addDays(today, 6)) === 6 ? 8 : 7;
+        return Array.from({ length: horizon }, (_, offset) => {
             const date = addDays(today, offset);
             if (dayOfWeek(date) === 6) return { date, scheduledRows: [] as ScheduledCellarRecommendation[], conditionalRows: [] as ConditionalForecast[], routines: [] as string[], total: 0 };
             const scheduledRows = scheduled.filter((item) => {
