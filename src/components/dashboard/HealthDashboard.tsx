@@ -266,6 +266,12 @@ const severityOrder: Record<Severity, number> = {
 export default function HealthDashboard({ brews, specs, onRecommendedTanksChange }: Props & { onRecommendedTanksChange?: (numbers: string[]) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
+    const graceSnapshotTank = brews.find((tank) => Number(tank.tankNumber) === 1) as
+        | (Fermentor & { cellarHealthCompletedDay?: string; cellarGraceTankIds?: string[] })
+        | undefined;
+    const graceLockedIds = graceSnapshotTank?.cellarHealthCompletedDay === localDateKey(new Date())
+        ? (graceSnapshotTank.cellarGraceTankIds ?? [])
+        : [];
     const [analyzing, setAnalyzing] = useState(true);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
@@ -328,6 +334,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     const tankDailyProgress: DailyActionProgress = { ...EMPTY_DAILY_ACTION_PROGRESS };
                     const hotTank = isHotTank(tank);
                     const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
+                    const graceMeasurementExempt = graceLockedIds.includes(String(tank.id));
 
                     try {
                         const measurements: Measurement[] = tank.batchNumber
@@ -384,11 +391,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                 "measurementRound"
                             )
                         );
-                        const scoreProgress = measurementRoundIgnored
+                        const scoreProgress = (measurementRoundIgnored || graceMeasurementExempt)
                             ? { ...progress, missingFields: [], requiredFieldCount: progress.completedFieldCount }
                             : progress;
 
-                        if (!completeMeasurements && !measurementRoundIgnored) {
+                        if (!completeMeasurements && !measurementRoundIgnored && !graceMeasurementExempt) {
                             tankAlerts.push({
                                 id: `measurements-${tank.id}`,
                                 severity: "warning",
@@ -884,12 +891,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             pendingDailyScoreActionCount,
         ]
     );
-    const cellarStateForDisplay = brews.find((tank) => Number(tank.tankNumber) === 1) as
-        | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string })
-        | undefined;
-    const completedForToday = cellarStateForDisplay?.cellarHealthIs100 === true &&
-        cellarStateForDisplay.cellarHealthCompletedDay === localDateKey(new Date());
-    const displayedHealthScore = completedForToday ? 100 : healthScore;
+    const displayedHealthScore = healthScore;
     const overallClass = healthBand(displayedHealthScore);
     const previousSettledScoreRef = useRef<number | null>(null);
     const persistedHealthWriteRef = useRef<boolean | null>(null);
@@ -909,8 +911,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         const todayKey = localDateKey(new Date());
         // A completed daily round stays completed through the end of its day.
         // A new fermentation tank leaving its 12-hour grace must not reopen it.
-        const completedToday = cellarStateTank.cellarHealthCompletedDay === todayKey;
-        const desiredIs100 = healthScore === 100 || (completedToday && persistedHealthIs100);
+        const desiredIs100 = healthScore === 100;
 
         // Tank 1 is already part of the app's fermentor listener, so this gives
         // the celebration a tiny shared state without adding another listener/read.
@@ -930,7 +931,14 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             if (previousSettledScoreRef.current !== healthScore) return;
             void updateDoc(doc(db, "fermentors", String(cellarStateTank.id)), {
                 cellarHealthIs100: desiredIs100,
-                ...(desiredIs100 ? { cellarHealthCompletedDay: todayKey } : {}),
+                ...(desiredIs100 ? {
+                    cellarHealthCompletedDay: todayKey,
+                    cellarGraceTankIds: brews.filter((tank) =>
+                        Number(tank.tankNumber) !== 1 &&
+                        Number(tank.action) === 1 &&
+                        isInFermentationMeasurementGracePeriod(tank)
+                    ).map((tank) => String(tank.id)),
+                } : {}),
             }).then(() => {
                 if (shouldCelebrate) setCelebrationOpen(true);
             }).catch((error) => {
@@ -945,6 +953,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         healthScore,
         cellarStateTank?.id,
         persistedHealthIs100,
+        brews,
     ]);
 
     const counts = useMemo(() => ({
