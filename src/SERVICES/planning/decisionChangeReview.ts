@@ -1,4 +1,4 @@
-import { addDays, daysBetween, type Actual, type Product } from "./planningEngine";
+import { addDays, type Actual, type Product } from "./planningEngine";
 import { actualDate, actualUnits, matchesActual } from "./dailyPlanner";
 import { CHECKPOINTS, checkpointLabel, type PlanningSnapshot } from "./planningReports";
 
