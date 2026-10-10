@@ -117,6 +117,8 @@ export default function PlanningReview({
             <h4>{insight.title}</h4>
             <p>{insight.evidence}</p>
             <p><strong>מה לבדוק:</strong> {insight.recommendation}</p>
+            {insight.scenario && <p><strong>חלופת תכנון לחישוב:</strong> {insight.scenario}</p>}
+            <small>ראיות: {insight.affectedWeeks} מתוך {insight.sampleWeeks} תקופות שנבדקו. החלופה אינה מבטיחה תוצאה עסקית.</small>
           </article>)}
       </section>
       <section className="bp-card" aria-label="צומתי החלטה לשיפור">
