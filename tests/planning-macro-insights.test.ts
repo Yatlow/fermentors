@@ -49,3 +49,26 @@ test("no historical packaging plan does not falsely trigger execution failures",
   const insights = planningMacroInsights(settings, snapshots, [], "2026-10-09");
   assert.ok(!insights.some((row) => row.id === "execution:חיטה"));
 });
+
+test("repeated underexecution is reported only for weeks with actual packaging evidence", () => {
+  const { settings, snapshots } = fixtures(6);
+  const rows = snapshots.map((snapshot) => ({
+    ...snapshot,
+    plan: {
+      ...snapshot.plan!,
+      packaging: [{ productId: "wheat-c", quantity: 100, date: snapshot.targetWeek }],
+    },
+  }));
+  const noReports = planningMacroInsights(settings, rows, [], "2026-10-09");
+  assert.ok(!noReports.some((item) => item.id === "execution:חיטה"));
+
+  const partialReports = rows.map((row) => ({
+    id: "packed-" + row.targetWeek, date: row.targetWeek,
+    beerStyle: "חיטה", packagingType: "bottles", quantity: 20, unit: "ארגזים",
+  }));
+  const withReports = planningMacroInsights(settings, rows, partialReports, "2026-10-09");
+  const result = withReports.find((item) => item.id === "execution:חיטה");
+  assert.ok(result);
+  assert.equal(result.sampleWeeks, 6);
+  assert.equal(result.affectedWeeks, 6);
+});
