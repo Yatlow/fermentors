@@ -24,11 +24,12 @@ function fixtures(count: number, stock: number | null = null): { snapshots: Plan
   return { settings, snapshots };
 }
 
-test("repeated underplanning of wheat flags styles and brews but not lost sales", () => {
+test("repeated planned packaging below configured demand is flagged without claiming lost sales", () => {
   const { settings, snapshots } = fixtures(6);
   const messages = planningMacroInsights(settings, snapshots, [], "2026-10-09");
   assert.ok(messages.some((row) => row.id === "style:חיטה"));
-  assert.ok(messages.some((row) => row.id === "brews:חיטה"));
+  assert.ok(!messages.some((row) => row.id === "brews:חיטה"));
+  assert.ok(messages.every((row) => row.sampleWeeks >= 4 && row.affectedWeeks >= 3));
   assert.ok(messages.every((row) => !row.evidence.includes("מכירות אבודות")));
 });
 
@@ -41,4 +42,10 @@ test("repeated dated SKU stock observations flag coverage review", () => {
   const { settings, snapshots } = fixtures(4, 10);
   assert.ok(planningMacroInsights(settings, snapshots, [], "2026-10-09")
     .some((row) => row.id === "sku:wheat-c"));
+});
+
+test("no historical packaging plan does not falsely trigger execution failures", () => {
+  const { settings, snapshots } = fixtures(6);
+  const insights = planningMacroInsights(settings, snapshots, [], "2026-10-09");
+  assert.ok(!insights.some((row) => row.id === "execution:חיטה"));
 });
