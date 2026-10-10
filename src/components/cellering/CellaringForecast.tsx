@@ -4,7 +4,7 @@ import { db } from "../../firebase";
 import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
-import { projectColdCellarMilestones, type ConditionalForecast } from "../../SERVICES/cellering/coldCellarForecast";
+import { projectColdCellarMilestones, projectYeastAfterDryHop, type ConditionalForecast } from "../../SERVICES/cellering/coldCellarForecast";
 import { projectPlatoThresholdRecheck } from "../../SERVICES/cellering/platoThresholdForecast";
 import {
     subscribeScheduledCellarRecommendations, scheduledActionLabel,
@@ -45,6 +45,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                 const readings = tank.batchNumber ? await getMeasurementsByBatch(tank.batchNumber) : [];
                 return [
                     ...projectColdCellarMilestones(tank, readings, today),
+                    ...projectYeastAfterDryHop(tank, readings, today),
                     ...projectPlatoThresholdRecheck(tank, readings, today, specs),
                 ];
             } catch (error) {
