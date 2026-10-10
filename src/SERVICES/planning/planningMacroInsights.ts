@@ -1,4 +1,4 @@
-import { addDays, daysBetween, litersPerUnit, parseDate, sameStyle, tempoNow, weeklyDemand, type Actual, type Settings } from "./planningEngine";
+import { addDays, daysBetween, litersPerUnit, parseDate, sameStyle, weeklyDemand, type Actual, type Settings } from "./planningEngine";
 import { actualDate, actualUnits, matchesActual } from "./dailyPlanner";
 import type { PlanningSnapshot } from "./planningReports";
 import { planningTargetsForStyle } from "./planningTargets";
@@ -75,17 +75,20 @@ export function planningMacroInsights(
     }
   }
   for (const p of settings.products.filter((item) => item.monthly > 0)) {
+    const observedDates = new Set<string>();
     const observations = unique.flatMap((snapshot) => {
       const product = snapshot.settings!.products.find((item) => item.id === p.id);
       if (!product || product.tempo == null || !product.tempoDate) return [];
       const date = parseDate(product.tempoDate);
-      if (!date || date > snapshot.targetWeek || daysBetween(date, snapshot.targetWeek) > 7) return [];
-      const stock = tempoNow(product, snapshot.targetWeek);
+      if (!date || date > snapshot.targetWeek || daysBetween(date, snapshot.targetWeek) > 7 || observedDates.has(date)) return [];
+      observedDates.add(date);
+      // Evaluate the observed Tempo inventory, not a synthetic week-start projection.
+      const stock = Number(product.tempo);
       const demand = weeklyDemand(product);
       if (stock === null || demand <= 0) return [];
       const cover = stock / demand;
       const target = planningTargetsForStyle(snapshot.settings!, product.style).targetWeeks;
-      return [{ week: snapshot.targetWeek, cover, target }];
+      return [{ week: snapshot.targetWeek, observationDate: date, cover, target }];
     });
     const last = observations.slice(-6);
     const below = last.filter((observation) => observation.cover < observation.target * 0.6);
@@ -94,7 +97,7 @@ export function planningMacroInsights(
         sampleWeeks: last.length, affectedWeeks: below.length,
         id: "sku:" + p.id, scope: "sku",
         title: `${p.style} · ${p.type === "crates" ? "ארגזים" : "חביות"}: כיסוי מלאי נמוך שחוזר בדגימות`,
-        evidence: `${below.length} מתוך ${last.length} דגימות מלאי שבועיות היו מתחת ל־60% מיעד הכיסוי.`,
+        evidence: `${below.length} מתוך ${last.length} דגימות מלאי מתוארכות ונפרדות היו מתחת ל־60% מיעד הכיסוי.`,
         recommendation: "לבדוק תדירות משלוחים ואמינות הביקוש שהוגדר; לשקול בדיקה של יעד הכיסוי לסגנון. אין כרגע יעד כיסוי נפרד למק״ט ואין הצדקה לעדכן הגדרות אוטומטית.",
       });
     }
