@@ -52,3 +52,60 @@ export function projectPlatoThresholdRecheck(
     basis: `הערכת מועד לפי ירידת פלאטו ${rate.toFixed(2)}°P ליום; מותנה במדידת פלאטו, טמפרטורה ולחץ באותו יום`,
   }];
 }
+
+/** Lager diacetyl-rest is triggered by measured conditions, not Plato alone.
+ * A future row is deliberately a *check* because future tank temperature is
+ * unknown. A "ready" row requires a recent measured 9–13°C and Plato below
+ * the current engine's threshold.
+ */
+export function projectLagerDiacetylRest(
+  tank: PlatoForecastTank,
+  readings: (PlatoForecastReading & { temp?: string | number | null })[],
+  today: string,
+  specs: PlatoForecastSpecs,
+): PlatoThresholdHint[] {
+  if (tank.stage?.name !== "בתסיסה" || !String(tank.beerStyle ?? "").toLowerCase().includes("לאגר")) return [];
+  if (readings.some((row) => /דיאציטיל|מנוחה/.test(String(row.notes ?? "")))) return [];
+  const rows = readings.flatMap((row) => {
+    const date = String(row.id ?? "").match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+    if (!date || date > today || row.plato === null || row.plato === undefined || row.plato === "") return [];
+    const plato = Number(row.plato);
+    return Number.isFinite(plato) && plato >= 0 && plato <= 30 ? [{ date, plato, temp: row.temp }] : [];
+  }).sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) return [];
+  const last = rows[rows.length - 1];
+  const day = (date: string) => Date.parse(date + "T12:00:00Z") / 86400000;
+  if (day(today) - day(last.date) > 2) return [];
+  const raw = Number(specs.tolorances?.dycitalRestMinPlato);
+  const threshold = Number.isFinite(raw) && raw > 0 ? raw : 8;
+  const number = String(tank.tankNumber ?? tank.id);
+  if (last.plato < threshold) {
+    const temp = Number(last.temp);
+    if (last.temp == null || last.temp === "" || !Number.isFinite(temp) || temp <= 9 || temp >= 13) return [];
+    return [{
+      id: `${tank.id}:diacetyl-ready:${today}`,
+      tankNumber: number,
+      dueDate: today,
+      title: "מנוחת דיאציטיל — תנאי המדידה מתקיימים",
+      basis: `פלאטו ${last.plato}, טמפרטורה ${temp}°C במדידה מ־${last.date}; יש לאמת בזמן ביצוע`,
+    }];
+  }
+  const unique = [...new Map(rows.map((row) => [row.date, row.plato])).entries()].slice(-2);
+  if (unique.length < 2) return [];
+  const [[fromDate, from], [toDate, to]] = unique;
+  const interval = day(toDate) - day(fromDate);
+  if (interval < 1 || interval > 3) return [];
+  const rate = (from - to) / interval;
+  if (rate < 0.1 || rate > 4) return [];
+  const days = Math.floor((to - threshold) / rate) + 1;
+  const projectedDay = day(toDate) + days;
+  if (projectedDay < day(today) || projectedDay > day(today) + 6) return [];
+  const date = new Date(projectedDay * 86400000).toISOString().slice(0, 10);
+  return [{
+    id: `${tank.id}:diacetyl-plato-recheck:${date}`,
+    tankNumber: number,
+    dueDate: date,
+    title: "בדיקת תנאים למנוחת דיאציטיל",
+    basis: "הערכת סף פלאטו בלבד; יש למדוד טמפרטורה ולאמת טווח 9–13°C באותו יום",
+  }];
+}
