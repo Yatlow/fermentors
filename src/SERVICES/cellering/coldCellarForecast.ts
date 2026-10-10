@@ -49,3 +49,36 @@ export function projectColdCellarMilestones(tank: Fermentor, measurements: Measu
     return result;
 }
 
+
+/**
+ * Mirrors the warm-yeast timing of the live cellar engine: hoppy styles need a
+ * yeast drop five days after a recorded dry hop, unless yeast was dropped or
+ * the tank left fermentation. A past-due date appears today for follow-up.
+ */
+export function projectYeastAfterDryHop(
+    tank: Fermentor,
+    measurements: Measurement[],
+    today: string,
+): ConditionalForecast[] {
+    if (tank.stage?.name !== "בתסיסה") return [];
+    const style = String(tank.beerStyle ?? "").trim().toLowerCase();
+    if (!["ipa", "פייל", "הופי", "pale", "hoppy"].some((name) => style.includes(name))) return [];
+    const sorted = [...measurements].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+    const dryHop = sorted.find((row) => String(row.notes ?? "").includes("כשות"));
+    const dryHopDate = String(dryHop?.id ?? "").match(/^(\\d{4}-\\d{2}-\\d{2})/)?.[1];
+    if (!dryHopDate || dryHopDate > today) return [];
+    // The live engine considers an already-reported yeast drop a completed action.
+    if (sorted.some((row) => /הורדת שמרים|הוצאת שמרים/.test(String(row.notes ?? "")))) return [];
+    if (sorted.some((row) => String(row.notes ?? "").includes("קירור"))) return [];
+    const target = new Date(dryHopDate + "T12:00:00Z");
+    target.setUTCDate(target.getUTCDate() + 5);
+    const dueDate = target.toISOString().slice(0, 10);
+    const shownOn = dueDate < today ? today : dueDate;
+    return [{
+        id: `${tank.id}:warm-yeast-after-dry-hop:${dueDate}`,
+        tankNumber: String(tank.tankNumber ?? tank.id),
+        dueDate: shownOn,
+        title: dueDate < today ? "הורדת שמרים אחרי דרייהופ — באיחור" : "הורדת שמרים אחרי דרייהופ",
+        basis: "5 ימים אחרי דרייהופ שבוצע",
+    }];
+}
