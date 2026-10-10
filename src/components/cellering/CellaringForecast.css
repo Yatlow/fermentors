@@ -1,0 +1,61 @@
+.cellar-forecast {
+  margin: 12px 0 16px;
+  border: 1px solid #cbdff2;
+  border-radius: 16px;
+  background: #f7fbff;
+  overflow: hidden;
+  color: #18476a;
+}
+.cellar-forecast-toggle {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 18px;
+  border: 0;
+  background: #eaf4ff;
+  color: #145582;
+  cursor: pointer;
+  text-align: right;
+}
+.cellar-forecast-toggle-title { font-size: 1.03rem; font-weight: 750; }
+.cellar-forecast-toggle-title small {
+  display: inline;
+  margin-right: 7px;
+  color: #607d95;
+  font-size: .82rem;
+  font-weight: 500;
+}
+.cellar-forecast-toggle-info { display: flex; gap: 10px; align-items: center; color: #466d90; font-size: .8rem; white-space: nowrap; }
+.cellar-forecast-content { display: grid; gap: 10px; padding: 12px; }
+.cellar-forecast-day { background: white; border: 1px solid #dce8f4; border-radius: 12px; overflow: hidden; min-width: 0; }
+.cellar-forecast-date { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 13px; background: #f2f7fc; font-size: .91rem; }
+.cellar-forecast-date span { color: #64829b; font-size: .75rem; font-weight: 500; }
+.cellar-forecast-items { display: grid; }
+.cellar-forecast-item { display: flex; align-items: baseline; gap: 11px; padding: 11px 13px; line-height: 1.6; font-size: .9rem; font-weight: 450; overflow-wrap: anywhere; }
+.cellar-forecast-item + .cellar-forecast-item { border-top: 1px solid #edf2f7; }
+.cellar-forecast-item strong { font-weight: 750; }
+.cellar-forecast-item small { color: #9b593f; font-size: .8rem; }
+.cellar-forecast-type {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 7px;
+  background: #e5f2fe;
+  color: #19679c;
+  font-size: .7rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.cellar-forecast-conditional { background: #fff3de; color: #96610f; }
+.cellar-forecast-routine { background: #e9f5ee; color: #26754a; }
+.cellar-forecast-empty { margin: 3px; color: #64748b; text-align: center; font-size: .89rem; }
+@media (max-width: 480px) {
+  .cellar-forecast { margin-inline: 0; border-radius: 13px; }
+  .cellar-forecast-content { padding: 8px; gap: 8px; }
+  .cellar-forecast-item { gap: 8px; padding: 9px 10px; font-size: .86rem; }
+  .cellar-forecast-toggle { padding: 12px 13px; }
+}
