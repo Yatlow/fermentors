@@ -109,8 +109,9 @@ export default function PlanningReview({
           השבוע טרם הסתיים: הביצוע והפערים המוצגים הם זמניים.
         </p>
       )}
+      <p className="bp-muted">זהו כלי לאיתור חריגות וצומתי בדיקה, עדיין לא מערכת שמדרגת את איכות ההחלטות. פער בין תכנון לביצוע אינו מוכיח החלטה שגויה, והסכמה עם ההמלצה אינה מוכיחה שהמנוע צדק.</p>
       <section className="bp-card" aria-label="מגמות תכנון שחוזרות לאורך שבועות">
-        <h3>מגמות לאורך שבועות — במה כדאי לשנות את שיטת התכנון?</h3>
+        <h3>מגמות רב־שבועיות לבדיקה (לא אבחון סיבתי)</h3>
         {!macroInsights.length ? <p>עדיין אין מספיק ראיות חוזרות כדי להמליץ על שינוי שיטת התכנון. נדרשות לפחות ארבע תמונות פתיחת שבוע או דגימות מלאי מתוארכות.</p> :
           macroInsights.map((insight) => <article className="bp-card" key={insight.id}>
             <h4>{insight.title}</h4>
@@ -119,7 +120,7 @@ export default function PlanningReview({
           </article>)}
       </section>
       <section className="bp-card" aria-label="צומתי החלטה לשיפור">
-        <h3>איפה כדאי לשפר את ההחלטה הבאה?</h3>
+        <h3>אילו החלטות כדאי לתחקר?</h3>
         {!baseline ? <p>בחר שבוע ונקודת השוואה עם תמונת תכנון שמורה. בלי תמונת מצב אמינה אי אפשר לייחס פער להחלטה.</p> : (() => {
           const completedWeek = addDays(week, 7) <= today;
           if (!completedWeek) return <p>השבוע טרם הסתיים. ניתוח החלטות יתאפשר אחרי סיום הביצוע, כדי לא להסיק מסקנות מוקדם מדי.</p>;
@@ -334,7 +335,7 @@ export default function PlanningReview({
             })}
             {(() => {
               const eligible = evidence.filter((entry) => entry.provenance === "decision-time" && entry.recommended.length > 0);
-              if (!eligible.length) return <p>איכות המלצות המנוע: אין עדיין זוגות המלצה–החלטה מקוריים למדידה.</p>;
+              if (!eligible.length) return <p>השוואת המלצה להחלטה: אין עדיין זוגות מקוריים לתיעוד.</p>;
               const comparable = eligible.map((entry) => {
                 const totals = (items: Record<string, unknown>[]) => {
                   const map = new Map<string, number>();
@@ -352,7 +353,7 @@ export default function PlanningReview({
                 const scale = [...keys].reduce((sum, key) => sum + Math.max(recommended.get(key) ?? 0, decided.get(key) ?? 0), 0);
                 return scale > 0 ? Math.max(0, 100 * (1 - distance / scale)) : null;
               }).filter((value): value is number => value !== null);
-              return <p>התאמה כמותית בין המלצת המנוע להחלטה: {comparable.length ? `${fmt(comparable.reduce((sum, value) => sum + value, 0) / comparable.length)}%` : "אין זוגות כמותיים תקפים"} · מדד משני בלבד, לא איכות החלטה ולא איכות עסקית.</p>;
+              return <p>מידת הסכמה כמותית בין המלצה להחלטה (לא מדד איכות): {comparable.length ? `${fmt(comparable.reduce((sum, value) => sum + value, 0) / comparable.length)}%` : "אין זוגות כמותיים תקפים"} · מדד משני בלבד, לא איכות החלטה ולא איכות עסקית.</p>;
             })()}
             <small>תיעוד אינו ציון איכות. מדדי מחסור, עודף מלאי וניצול קיבולת מחייבים נתוני תוצאה אמינים, ואינם מוסקים מהסכמה עם המנוע.</small>
           </>;
