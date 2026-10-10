@@ -65,7 +65,7 @@ export function projectYeastAfterDryHop(
     if (!["ipa", "פייל", "הופי", "pale", "hoppy"].some((name) => style.includes(name))) return [];
     const sorted = [...measurements].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
     const dryHop = sorted.find((row) => String(row.notes ?? "").includes("כשות"));
-    const dryHopDate = String(dryHop?.id ?? "").match(/^(\\d{4}-\\d{2}-\\d{2})/)?.[1];
+    const dryHopDate = String(dryHop?.id ?? "").match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
     if (!dryHopDate || dryHopDate > today) return [];
     // The live engine considers an already-reported yeast drop a completed action.
     if (sorted.some((row) => /שמרים/.test(String(row.notes ?? "")))) return [];
