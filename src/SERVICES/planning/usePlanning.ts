@@ -478,6 +478,9 @@ export function usePlanning(
                 ...(typeof week.changeReason === "string"
                   ? { changeReason: week.changeReason }
                   : {}),
+                ...(Array.isArray(week.recommendationEvidence)
+                  ? { recommendationEvidence: week.recommendationEvidence }
+                  : {}),
                 ...(Array.isArray(week.calendarEvents)
                   ? { calendarEvents: week.calendarEvents }
                   : {}),
