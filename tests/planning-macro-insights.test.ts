@@ -72,3 +72,16 @@ test("repeated underexecution is reported only for weeks with actual packaging e
   assert.equal(result.sampleWeeks, 6);
   assert.equal(result.affectedWeeks, 6);
 });
+
+test("the same dated Tempo count repeated in snapshots is only one observation", () => {
+  const { settings, snapshots } = fixtures(5, 10);
+  const repeated = snapshots.map((row) => ({
+    ...row,
+    settings: {
+      ...row.settings!,
+      products: row.settings!.products.map((product) => ({ ...product, tempoDate: "2026-08-02" })),
+    },
+  }));
+  const findings = planningMacroInsights(settings, repeated, [], "2026-10-09");
+  assert.ok(!findings.some((item) => item.id === "sku:wheat-c"));
+});
