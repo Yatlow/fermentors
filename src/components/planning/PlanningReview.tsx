@@ -11,6 +11,7 @@ import {
 import { actualDate, matchesActual, shortDate } from "../../SERVICES/planning/dailyPlanner";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
 import { planningMacroInsights } from "../../SERVICES/planning/planningMacroInsights";
+import { reviewPackagingDecisionChanges } from "../../SERVICES/planning/decisionChangeReview";
 import type { ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import {
   CHECKPOINTS,
@@ -48,6 +49,7 @@ export default function PlanningReview({
   const baseline = snapshot?.state === "captured" ? snapshot.plan : null;
   const products = snapshot?.settings?.products ?? settings.products;
   const macroInsights = planningMacroInsights(settings, snapshots, actuals, today);
+  const decisionChanges = reviewPackagingDecisionChanges(products, snapshots, actuals, week, today);
   const suggestions = learningAdvice(
     settings.products,
     snapshots,
@@ -121,6 +123,16 @@ export default function PlanningReview({
             <small>ראיות: {insight.affectedWeeks} מתוך {insight.sampleWeeks} תקופות שנבדקו. החלופה אינה מבטיחה תוצאה עסקית.</small>
           </article>)}
       </section>
+      {decisionChanges.length > 0 && <section className="bp-card" aria-label="שינויים מתועדים בהחלטות האריזה">
+        <h3>היכן שונתה החלטת אריזה?</h3>
+        <p className="bp-muted">שינוי ראשון בין שתי נקודות בקרה רצופות שנשמרו בפועל; לא הסקה על סיבה או אחריות.</p>
+        {decisionChanges.slice(0, 5).map((finding) => <article className="bp-card" key={finding.id}>
+          <h4>{finding.title}</h4>
+          <p><strong>התיעוד:</strong> {finding.evidence}</p>
+          <p><strong>בדיקה להחלטה הבאה:</strong> {finding.experiment}</p>
+          <small>{finding.limitation}</small>
+        </article>)}
+      </section>}
       <section className="bp-card" aria-label="צומתי החלטה לשיפור">
         <h3>אילו החלטות כדאי לתחקר?</h3>
         {!baseline ? <p>בחר שבוע ונקודת השוואה עם תמונת תכנון שמורה. בלי תמונת מצב אמינה אי אפשר לייחס פער להחלטה.</p> : (() => {
