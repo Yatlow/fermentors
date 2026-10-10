@@ -1,5 +1,5 @@
-import type { Fermentor } from "../../App";
-import type { Measurement } from "./calculateCelleringRecomendations";
+export type ForecastTank = { id: string; tankNumber?: string | number; uid?: string | number; beerStyle?: string; stage?: { name?: string } | null };
+export type ForecastMeasurement = { id?: string | number | null; notes?: string | number | null; carbonation?: string | number | null };
 
 export type ConditionalForecast = {
     id: string;
@@ -13,7 +13,7 @@ export type ConditionalForecast = {
  * These are possible due dates assuming no new action is logged, not predictions
  * of future Plato, temperature, or carbonation.
  */
-export function projectColdCellarMilestones(tank: Fermentor, measurements: Measurement[], today: string): ConditionalForecast[] {
+export function projectColdCellarMilestones(tank: ForecastTank, measurements: ForecastMeasurement[], today: string): ConditionalForecast[] {
     if (tank.stage?.name !== "קר") return [];
     const sorted = [...measurements].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
     const cooling = [...sorted].reverse().find((item) => /קירור/.test(String(item.notes ?? "")));
@@ -56,8 +56,8 @@ export function projectColdCellarMilestones(tank: Fermentor, measurements: Measu
  * the tank left fermentation. A past-due date appears today for follow-up.
  */
 export function projectYeastAfterDryHop(
-    tank: Fermentor,
-    measurements: Measurement[],
+    tank: ForecastTank,
+    measurements: ForecastMeasurement[],
     today: string,
 ): ConditionalForecast[] {
     if (tank.stage?.name !== "בתסיסה") return [];
