@@ -1,4 +1,4 @@
-export type ForecastTank = { id: string; tankNumber?: string | number; uid?: string | number; beerStyle?: string; stage?: { name?: string } | null };
+export type ForecastTank = { id: string; tankNumber?: string | number | null; uid?: string | number | null; beerStyle?: string | null; stage?: { name?: string } | null };
 export type ForecastMeasurement = { id?: string | number | null; notes?: string | number | null; carbonation?: string | number | null };
 
 export type ConditionalForecast = {
