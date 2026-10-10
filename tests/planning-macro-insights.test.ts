@@ -85,3 +85,24 @@ test("the same dated Tempo count repeated in snapshots is only one observation",
   const findings = planningMacroInsights(settings, repeated, [], "2026-10-09");
   assert.ok(!findings.some((item) => item.id === "sku:wheat-c"));
 });
+
+test("bounded scenario uses only a planned upcoming delivery, not invented stock", () => {
+  const { settings, snapshots } = fixtures(4, 10);
+  const last = snapshots[3];
+  const withDelivery = snapshots.map((entry) => ({
+    ...entry,
+    plan: {
+      ...entry.plan!,
+      deliveries: entry.targetWeek === last.targetWeek ? [{
+        id: "shipment-1", productId: "wheat-c", quantity: 30,
+        dispatchDate: addDays(entry.targetWeek, 1),
+        arrivalDate: addDays(entry.targetWeek, 2),
+      }] : [],
+    },
+  }));
+  const observed = planningMacroInsights(settings, withDelivery, [], "2026-10-09")
+    .find((row) => row.id === "sku:wheat-c");
+  assert.ok(observed);
+  assert.match(observed.scenario ?? "", /30 ארגזים/);
+  assert.match(observed.scenario ?? "", /לא נבדקו זמינות/);
+});
