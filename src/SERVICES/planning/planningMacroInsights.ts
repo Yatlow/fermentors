@@ -13,6 +13,8 @@ export type PlanningMacroInsight = {
   sampleWeeks: number;
   /** Weeks meeting the explicit trigger. */
   affectedWeeks: number;
+  /** Bounded arithmetic scenario, not a causal outcome estimate. */
+  scenario?: string;
 };
 
 /** Only completed, explicitly captured opening plans count as historical evidence. */
@@ -88,13 +90,26 @@ export function planningMacroInsights(
       if (stock === null || demand <= 0) return [];
       const cover = stock / demand;
       const target = planningTargetsForStyle(snapshot.settings!, product.style).targetWeeks;
-      return [{ week: snapshot.targetWeek, observationDate: date, cover, target }];
+      return [{ week: snapshot.targetWeek, observationDate: date, cover, target, demand, observedUnits: stock, plan: snapshot.plan! }];
     });
     const last = observations.slice(-6);
     const below = last.filter((observation) => observation.cover < observation.target * 0.6);
     if (last.length >= 4 && below.length >= 3) {
+      const recent = last[last.length - 1];
+      const shortageToTarget = Math.max(0, Math.ceil(recent.target * recent.demand - recent.observedUnits));
+      const incoming = (recent.plan.deliveries ?? [])
+        .filter((delivery) => delivery.productId === p.id &&
+          delivery.arrivalDate > recent.observationDate &&
+          delivery.arrivalDate <= addDays(recent.observationDate, 7))
+        .reduce((sum, delivery) => sum + Math.max(0, delivery.quantity), 0);
+      const releasable = Math.min(shortageToTarget, incoming);
+      const unit = p.type === "crates" ? "ארגזים" : "חביות";
+      const scenario = releasable > 0
+        ? `בדיקת חלופה: אילו ${releasable.toLocaleString("he-IL")} ${unit} מהמשלוחים שכבר תוכננו לשבעת הימים שאחרי המדידה היו מגיעים מוקדם יותר, הכיסוי החשבוני היה גדל ב־${(releasable / recent.demand).toFixed(1)} שבועות. לא נבדקו זמינות, הובלה או השפעה על מכירות.`
+        : `לפי המדידה האחרונה חסרות ${shortageToTarget.toLocaleString("he-IL")} ${unit} כדי להגיע ליעד הכיסוי הקיים; לא זוהה משלוח מתוכנן בשבוע שלאחר המדידה שאפשר להציע להקדימו. זהו פער ביחס ליעד, לא מחסור מוכח.`;
       results.push({
         sampleWeeks: last.length, affectedWeeks: below.length,
+        scenario,
         id: "sku:" + p.id, scope: "sku",
         title: `${p.style} · ${p.type === "crates" ? "ארגזים" : "חביות"}: כיסוי מלאי נמוך שחוזר בדגימות`,
         evidence: `${below.length} מתוך ${last.length} דגימות מלאי מתוארכות ונפרדות היו מתחת ל־60% מיעד הכיסוי.`,
