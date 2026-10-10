@@ -2,11 +2,16 @@ import { useState } from "react";
 import {
   addDays,
   weekStart,
+  weeklyDemand,
+  tempoNow,
   type Actual,
   type Settings,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { actualDate, matchesActual, shortDate } from "../../SERVICES/planning/dailyPlanner";
+import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
+import { planningMacroInsights } from "../../SERVICES/planning/planningMacroInsights";
+import type { ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import {
   CHECKPOINTS,
   checkpointLabel,
@@ -22,6 +27,7 @@ export default function PlanningReview({
   settings,
   plans,
   actuals,
+  shipments,
   snapshots,
   error,
   today,
@@ -29,6 +35,7 @@ export default function PlanningReview({
   settings: Settings;
   plans: WeekPlan[];
   actuals: Actual[];
+  shipments: ShipmentEvent[];
   snapshots: PlanningSnapshot[];
   error: string;
   today: string;
@@ -40,6 +47,7 @@ export default function PlanningReview({
   );
   const baseline = snapshot?.state === "captured" ? snapshot.plan : null;
   const products = snapshot?.settings?.products ?? settings.products;
+  const macroInsights = planningMacroInsights(settings, snapshots, actuals, today);
   const suggestions = learningAdvice(
     settings.products,
     snapshots,
@@ -101,6 +109,256 @@ export default function PlanningReview({
           השבוע טרם הסתיים: הביצוע והפערים המוצגים הם זמניים.
         </p>
       )}
+      <p className="bp-muted">זהו כלי לאיתור חריגות וצומתי בדיקה, עדיין לא מערכת שמדרגת את איכות ההחלטות. פער בין תכנון לביצוע אינו מוכיח החלטה שגויה, והסכמה עם ההמלצה אינה מוכיחה שהמנוע צדק.</p>
+      <section className="bp-card" aria-label="מגמות תכנון שחוזרות לאורך שבועות">
+        <h3>מגמות רב־שבועיות לבדיקה (לא אבחון סיבתי)</h3>
+        {!macroInsights.length ? <p>עדיין אין מספיק ראיות חוזרות כדי להמליץ על שינוי שיטת התכנון. נדרשות לפחות ארבע תמונות פתיחת שבוע או דגימות מלאי מתוארכות.</p> :
+          macroInsights.map((insight) => <article className="bp-card" key={insight.id}>
+            <h4>{insight.title}</h4>
+            <p>{insight.evidence}</p>
+            <p><strong>מה לבדוק:</strong> {insight.recommendation}</p>
+          </article>)}
+      </section>
+      <section className="bp-card" aria-label="צומתי החלטה לשיפור">
+        <h3>אילו החלטות כדאי לתחקר?</h3>
+        {!baseline ? <p>בחר שבוע ונקודת השוואה עם תמונת תכנון שמורה. בלי תמונת מצב אמינה אי אפשר לייחס פער להחלטה.</p> : (() => {
+          const completedWeek = addDays(week, 7) <= today;
+          if (!completedWeek) return <p>השבוע טרם הסתיים. ניתוח החלטות יתאפשר אחרי סיום הביצוע, כדי לא להסיק מסקנות מוקדם מדי.</p>;
+          const findings: Array<{ key: string; subject: string; junction: string; evidence: string; next: string; severity: number }> = [];
+          for (const product of products) {
+            const result = compareProduct(product, baseline, actuals, week);
+            const planned = result.planned ?? 0;
+            if (planned <= 0 && result.performed <= 0) continue;
+            const label = `${product.style} · ${product.type === "crates" ? "ארגזים" : "חביות"}`;
+            const timeline = compareSnapshots(product, snapshots, week);
+            const firstChange = timeline.slice(1).find((point, index) => {
+              const previous = timeline[index];
+              return point.quantity !== null && previous.quantity !== null && point.quantity !== previous.quantity;
+            });
+            const changeIndex = firstChange ? timeline.findIndex((point) => point.key === firstChange.key) : -1;
+            const priorQuantity = changeIndex > 0 ? timeline[changeIndex - 1].quantity : null;
+            const savedReason = firstChange ? snapshots.find((entry) =>
+              entry.targetWeek === week && entry.checkpoint === firstChange.key)?.plan?.changeReason : null;
+            const junction = firstChange ?
+              `${checkpointLabel[firstChange.key]}: שינוי ${fmt(priorQuantity)} ← ${fmt(firstChange.quantity)}${savedReason ? ` · סיבת השינוי שנרשמה: ${savedReason}` : " · לא נרשמה סיבה"}` :
+              `בתוכנית ${checkpointLabel[checkpoint]} (לא אותר שינוי כמותי מתועד בין נקודות הבקרה)`;
+            if (planned === 0 && result.performed > 0) {
+              findings.push({
+                key: product.id + ":unplanned",
+                subject: label,
+                junction,
+                evidence: `בוצעו ${fmt(result.performed)} יחידות ללא כמות אריזה בתוכנית שנבחרה להשוואה.`,
+                next: "לבדוק אם הוחלט על אריזה מאוחרת או שצילום המצב לא שיקף החלטה שהתקבלה אחריו.",
+                severity: 1,
+              });
+            }
+            if (result.performed < planned * 0.9) {
+              findings.push({
+                key: product.id + ":short",
+                subject: label,
+                junction,
+                evidence: `תוכננו ${fmt(planned)}, בוצעו ${fmt(result.performed)} (${fmt(result.attainment)}%).`,
+                next: "לבדוק במועד קבלת ההחלטה מוכנות מיכל, חומרי אריזה ומכסת ימי עבודה; אין די מידע לקבוע מה גרם לפער.",
+                severity: (planned - result.performed) / planned,
+              });
+            } else if (result.delay !== null && result.delay > 1) {
+              findings.push({
+                key: product.id + ":late",
+                subject: label,
+                junction,
+                evidence: `כמות האריזה שבוצעה ואפשר להתאים לתוכנית איחרה בממוצע ${fmt(result.delay)} ימים.`,
+                next: "לבחון האם תאריך האריזה נקבע לפני מוכנות הבירה או ללא מרווח לקיבולת ולתקלות.",
+                severity: result.delay / 7,
+              });
+            } else if (result.performed > planned * 1.1) {
+              findings.push({
+                key: product.id + ":over",
+                subject: label,
+                junction,
+                evidence: `תוכננו ${fmt(planned)}, בוצעו ${fmt(result.performed)} (${fmt(result.attainment)}%).`,
+                next: "לבדוק האם היה צורך שהתגלה מאוחר בתכנון, או ביצוע שגלש מתוכנית אחרת.",
+                severity: (result.performed - planned) / planned,
+              });
+            }
+          }
+          for (const match of matchActualShipments(baseline.deliveries ?? [], shipments, products)) {
+            if (!match.actual && match.planned.dispatchDate <= addDays(week, 6)) {
+              findings.push({
+                key: "shipment-pending:" + match.planned.id,
+                subject: `משלוח ${shortDate(match.planned.dispatchDate)}`,
+                junction: "בעת קביעת מועד המשלוח",
+                evidence: "לא נמצא משלוח שבוצע והתאים לתוכנית השבועית.",
+                next: "לוודא שהמשלוח אכן לא יצא ושאין דיווח חסר; לאחר מכן לבדוק מלאי זמין ואישור שיבוץ המשאית.",
+                severity: 0.8,
+              });
+              continue;
+            }
+            if (!match.actual || match.score === null || match.score >= 0.85) continue;
+            findings.push({
+              key: "shipment:" + match.planned.id,
+              subject: `משלוח ${shortDate(match.planned.dispatchDate)}`,
+              junction: "בהחלטת הרכב המשלוח",
+              evidence: `התאמת הרכב מדווח מול תכנון: ${fmt(match.score * 100)}%.`,
+              next: "לבדוק אילו פריטים הוחלפו ולמה, מול זמינות משטחים ומלאי בזמן השיבוץ.",
+              severity: 1 - match.score,
+            });
+          }
+          const top = findings.sort((a, b) => b.severity - a.severity).slice(0, 5);
+          if (!top.length) return <p>לא אותרו פערי ביצוע בולטים בנתונים המהימנים של השבוע. אין משמעות הדבר שכל ההחלטות היו מיטביות.</p>;
+          return <>
+            <p>עד חמישה צמתים שבהם ניכר פער בין התוכנית לביצוע — נקודות לבדיקה, לא קביעה מי טעה או מה גרם לפער.</p>
+            {top.map((item) => <article key={item.key} className="bp-card">
+              <h4>{item.subject}</h4>
+              <p><strong>נקודת בדיקה:</strong> {item.junction}</p>
+              <p><strong>מה קרה:</strong> {item.evidence}</p>
+              <p><strong>מה לבחון לפני ההחלטה הבאה:</strong> {item.next}</p>
+            </article>)}
+          </>;
+        })()}
+      </section>
+      <details>
+        <summary>פתח נתוני עומק, מדדים וטבלאות השוואה</summary>
+      <section className="bp-card" aria-label="מדדי תוצאות תכנון">
+        <h3>מדדי תוצאות — אריזה ומשלוחים</h3>
+        {baseline ? (() => {
+          const matched = matchActualShipments(baseline.deliveries ?? [], shipments, products);
+          const completed = matched.filter((row) => row.actual);
+          const withQuantities = completed.filter((row) => row.score !== null);
+          const delay = completed.reduce((sum, row) => sum +
+            Math.round((Date.parse(row.actual!.date + "T12:00:00Z") -
+              Date.parse(row.planned.dispatchDate + "T12:00:00Z")) / 86400000), 0);
+          return <div>
+            <p>משלוחים שבוצעו: {completed.length} מתוך {matched.length} מתוכננים.
+              {" · "}התאמת הרכב וכמויות: {withQuantities.length ?
+                `${fmt(withQuantities.reduce((sum, row) => sum + row.score! * 100, 0) / withQuantities.length)}%` :
+                "חסר פירוט כמויות מאומת"}.
+              {" · "}סטייה ממוצעת בתאריך: {completed.length ? `${fmt(delay / completed.length)} ימים` : "אין משלוח מתאים"}.
+            </p>
+            <small>ההתאמה נעשית רק בין משלוח מתוכנן למשלוח מדווח באותו שבוע; משלוח שלא תועד נשאר חסר ולא מיוחס לו ביצוע.</small>
+          </div>;
+        })() : null}
+        {baseline && addDays(week, 7) <= today ? (() => {
+          const results = products.map((product) => compareProduct(product, baseline, actuals, week));
+          const withPlan = results.filter((item) => (item.planned ?? 0) > 0);
+          const matched = results.reduce((sum, item) => sum + item.matched, 0);
+          const delayed = results.reduce((sum, item) => sum + (item.delay ?? 0) * item.matched, 0);
+          return <>
+            <p>פריטי אריזה עם תוכנית מדידה: {withPlan.length} מתוך {products.length}</p>
+            <p>עמידה ממוצעת בכמויות לפי פריט: {withPlan.length ? `${fmt(withPlan.reduce((sum, item) => sum + Math.min(100, item.attainment ?? 0), 0) / withPlan.length)}%` : "אין כמות מתוכננת למדידה"}</p>
+            <p>סטייה ממוצעת בתזמון ליחידות שהותאמו: {matched > 0 ? `${fmt(delayed / matched)} ימים` : "אין התאמות מתוארכות"}</p>
+            <small>המדד הוא ממוצע לא־משוקלל בין פריטי אריזה שונים. אין חיבור מלאכותי בין חביות לארגזים. לשבוע שטרם הסתיים הנתונים זמניים.</small>
+          </>;
+        })() : <p>{!baseline ? "לא ניתן לחשב מדד ביצוע ללא תמונת תכנון היסטורית אמינה." : "השבוע טרם הסתיים — מדד הביצוע הסופי יוצג לאחר סיומו."}</p>}
+        {baseline && snapshot?.settings ? (() => {
+          const target = snapshot.settings.targetWeeks;
+          const rows = products.filter((product) => product.monthly > 0).map((product) => {
+            const stock = tempoNow(product, week);
+            const demand = weeklyDemand(product);
+            if (stock === null || demand <= 0) return null;
+            const deliveries = (baseline.deliveries ?? []).filter((run) => run.productId === product.id && run.arrivalDate <= addDays(week, 6))
+              .reduce((sum, run) => sum + run.quantity, 0);
+            // Tempo is downstream stock: dispatches add to it; packaged beer
+            // stays in the brewery until a recorded/planned transfer.
+            const endStock = stock + deliveries - demand;
+            const cover = endStock / demand;
+            return { product, cover, shortage: Math.max(0, -endStock), excess: Math.max(0, cover - target) };
+          }).filter((row): row is NonNullable<typeof row> => row !== null);
+          return <div>
+            <h4>סיכוני מלאי לפי תמונת התכנון שנשמרה</h4>
+            <p>פריטים עם נתוני מלאי וביקוש: {rows.length} · תחזית מלאי שלילי: {rows.filter((row) => row.shortage > 0).length} · מעל יעד כיסוי {fmt(target)} שבועות: {rows.filter((row) => row.excess > 0).length}</p>
+            <small>סימולציה בלבד על בסיס מלאי טמפו שהוקפא, ביקוש ממוצע ומשלוחים שתוכננו להגיע לטמפו. אינה כוללת מלאי היסטורי מאומת, ביצועי משלוחים בפועל או מלאי במבשלה; לכן אינה מודדת מחסור או עודף שהתממשו.</small>
+          </div>;
+        })() : <p>סיכוני מלאי: אין תמונת תכנון והגדרות היסטוריות אמינות.</p>}
+        {(() => {
+          // A saved checkpoint does not prove an inventory count: only a
+          // product with an explicitly dated Tempo observation may qualify.
+          const weekEnd = addDays(week, 6);
+          const observed = products.flatMap((product) => {
+            const candidates = snapshots
+              .filter((entry) => entry.state === "captured" && entry.settings && entry.scheduledFor)
+              .flatMap((entry) => {
+                const value = entry.settings!.products.find((item) => item.id === product.id);
+                if (value?.tempo == null || !value.tempoDate) return [];
+                const date = value.tempoDate.match(/^\\d{4}-\\d{2}-\\d{2}$/)
+                  ? value.tempoDate
+                  : value.tempoDate.split("/").reverse().join("-");
+                if (date < week || date > addDays(weekEnd, 7)) return [];
+                const captured = new Date(entry.capturedAt?.seconds ? entry.capturedAt.seconds * 1000 :
+                  entry.scheduledFor!.seconds * 1000).toISOString().slice(0, 10);
+                if (captured < date) return [];
+                return [{ value: value.tempo, date, product }];
+              })
+              .sort((a, b) => a.date.localeCompare(b.date));
+            return candidates.length ? [candidates[0]] : [];
+          });
+          if (!observed.length) return <p>מלאי בפועל: טרם קיימות דגימות טמפו מתוארכות לתקופה שנבחרה. סיכוני המחסור והעודף נשארים תחזית בלבד.</p>;
+          const empty = observed.filter((row) => row.value === 0);
+          const high = observed.filter((row) => weeklyDemand(row.product) > 0 &&
+            row.value / weeklyDemand(row.product) > (snapshot?.settings?.targetWeeks ?? settings.targetWeeks));
+          return <p>דגימות מלאי טמפו שדווחו סביב השבוע: {observed.length} פריטים;
+            {" "}{empty.length} דגימות מלאי אפס;
+            {" "}{high.length} דגימות מעל יעד כיסוי.
+            <small>דגימה של אפס מלאי אינה הוכחה למכירות שאבדו. הדגימות עשויות להגיע עד שבוע אחרי התקופה, ואינן מיוחסות אוטומטית להחלטת תכנון מסוימת.</small>
+          </p>;
+        })()}
+        {baseline ? (() => {
+          const plannedDates = new Set(baseline.packaging.map((run) => run.date).filter((date): date is string => Boolean(date)));
+          const actualDates = new Set(actuals.filter((row) => products.some((product) => matchesActual(product, row)))
+            .map(actualDate).filter((date): date is string => Boolean(date) && weekStart(date!) === week));
+          const capacity = baseline.maxRuns;
+          return <p>ניצול מכסת ימי אריזה: {actualDates.size} ימי ביצוע מתוך מכסה של {capacity}
+            {capacity > 0 ? ` (${fmt(actualDates.size / capacity * 100)}%)` : " (ללא מכסה)"}
+            {" · "}תוכננו {plannedDates.size} ימים מתוארכים.
+            <small>נמדד לפי ימי אריזה ייחודיים בדיווחי ביצוע. חריגה מעל 100% אפשרית. לא מודד שעות, תפוקה או יעילות משמרת.</small>
+          </p>;
+        })() : null}
+        <p>ציון איכות עסקית בפועל אינו מחושב ללא תוצאות מלאי ומשלוח היסטוריות מאומתות.</p>
+      </section>
+      <section className="bp-card" aria-label="ראיות להחלטות המתכנן">
+        <h3>תיעוד החלטות והמלצות</h3>
+        {(() => {
+          const evidence = plans.find((plan) => plan.id === week)?.recommendationEvidence ?? [];
+          if (!evidence.length) return <p>אין תיעוד החלטות שנשמר לשבוע זה. אין להסיק מכך שלא התקבלו החלטות.</p>;
+          return <>
+            <p>נשמרו {evidence.length} נקודות תיעוד. תאריך השמירה אינו תאריך ההחלטה המקורית של תוכנית קיימת.</p>
+            {(["shipment", "packaging", "brewing"] as const).map((kind) => {
+              const rows = evidence.filter((entry) => entry.kind === kind);
+              const original = rows.filter((entry) => entry.provenance === "decision-time" && entry.recommended.length > 0);
+              const recomputed = rows.filter((entry) => entry.provenance === "recomputed-at-save");
+              const baselineRows = rows.filter((entry) => entry.provenance === "existing-plan-baseline");
+              return <p key={kind}>
+                {kind === "shipment" ? "משלוחים" : kind === "packaging" ? "אריזות" : "בישולים"}:
+                {" "}{original.length} השוואות המלצה–החלטה;
+                {" "}{baselineRows.length} צילומי החלטה קיימת ללא המלצת עבר;
+                {" "}{recomputed.length} המלצות שחושבו מחדש בעת השמירה (לא המלצה היסטורית)
+              </p>;
+            })}
+            {(() => {
+              const eligible = evidence.filter((entry) => entry.provenance === "decision-time" && entry.recommended.length > 0);
+              if (!eligible.length) return <p>השוואת המלצה להחלטה: אין עדיין זוגות מקוריים לתיעוד.</p>;
+              const comparable = eligible.map((entry) => {
+                const totals = (items: Record<string, unknown>[]) => {
+                  const map = new Map<string, number>();
+                  for (const item of items) {
+                    const key = entry.kind === "brewing" ? String(item.style ?? "") : String(item.productId ?? "");
+                    const quantity = Number(entry.kind === "brewing" ? item.liters : item.quantity);
+                    if (!key || !Number.isFinite(quantity) || quantity < 0) continue;
+                    map.set(key, (map.get(key) ?? 0) + quantity);
+                  }
+                  return map;
+                };
+                const recommended = totals(entry.recommended), decided = totals(entry.decided);
+                const keys = new Set([...recommended.keys(), ...decided.keys()]);
+                const distance = [...keys].reduce((sum, key) => sum + Math.abs((recommended.get(key) ?? 0) - (decided.get(key) ?? 0)), 0);
+                const scale = [...keys].reduce((sum, key) => sum + Math.max(recommended.get(key) ?? 0, decided.get(key) ?? 0), 0);
+                return scale > 0 ? Math.max(0, 100 * (1 - distance / scale)) : null;
+              }).filter((value): value is number => value !== null);
+              return <p>מידת הסכמה כמותית בין המלצה להחלטה (לא מדד איכות): {comparable.length ? `${fmt(comparable.reduce((sum, value) => sum + value, 0) / comparable.length)}%` : "אין זוגות כמותיים תקפים"} · מדד משני בלבד, לא איכות החלטה ולא איכות עסקית.</p>;
+            })()}
+            <small>תיעוד אינו ציון איכות. מדדי מחסור, עודף מלאי וניצול קיבולת מחייבים נתוני תוצאה אמינים, ואינם מוסקים מהסכמה עם המנוע.</small>
+          </>;
+        })()}
+      </section>
       <div className="bp-table-wrap">
         <table>
           <thead>
@@ -236,6 +494,7 @@ export default function PlanningReview({
         עדיין נתוני מכירות, מלאי היסטורי בטמפו או היסטוריית מוכנות איכות מספקים
         למדידת מחסור בפועל או ללמידת זמני הבשלה ופחת.
       </p>
+      </details>
     </section>
   );
 }
