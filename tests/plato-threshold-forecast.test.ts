@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectPlatoThresholdRecheck } from "../src/SERVICES/cellering/platoThresholdForecast";
+import { projectPlatoThresholdRecheck, projectLagerDiacetylRest } from "../src/SERVICES/cellering/platoThresholdForecast";
 
 const specs = { tolorances: { dryHopMinPlato: 8, shutTankMinPlato: 5 } };
 const fermentor = (beerStyle: string, stage = "בתסיסה") => ({
@@ -48,4 +48,29 @@ test("stops projecting a completed action and avoids non-fermenting tanks", () =
     { id: "2026-10-08_0800", plato: 10 },
     { id: "2026-10-09_0800", plato: 9 },
   ], "2026-10-09", specs), []);
+});
+
+test("lager rest appears as a measured-rule action only with current Plato and 9–13°C", () => {
+  const lager = fermentor("לאגר");
+  const readings = [{ id: "2026-10-10_0800", plato: 7.5, temp: 11 }];
+  const result = projectLagerDiacetylRest(lager, readings, "2026-10-10", { tolorances: { dycitalRestMinPlato: 8 } });
+  assert.equal(result.length, 1);
+  assert.match(result[0].title, /מנוחת דיאציטיל/);
+  assert.match(result[0].id, /diacetyl-ready/);
+  assert.deepEqual(projectLagerDiacetylRest(lager, [{ ...readings[0], temp: 8 }], "2026-10-10", specs), []);
+  assert.deepEqual(projectLagerDiacetylRest(lager, [...readings, {id:"2026-10-10_0900",notes:"מנוחת דיאציטיל"}], "2026-10-10", specs), []);
+});
+test("lager future rest is only a conditional temperature-and-Plato recheck", () => {
+  const result = projectLagerDiacetylRest(fermentor("לאגר"), [
+    { id:"2026-10-09_0800", plato: 10, temp: 11 },
+    { id:"2026-10-10_0800", plato: 9, temp: 11 },
+  ], "2026-10-10", { tolorances: { dycitalRestMinPlato: 8 } });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].dueDate, "2026-10-12");
+  assert.match(result[0].title, /בדיקת תנאים/);
+  assert.match(result[0].basis, /טמפרטורה/);
+});
+test("no lagers, completed rest and stale Plato do not produce a rest forecast", () => {
+  assert.deepEqual(projectLagerDiacetylRest(fermentor("IPA"), [{id:"2026-10-10_0800",plato:7,temp:11}], "2026-10-10", specs), []);
+  assert.deepEqual(projectLagerDiacetylRest(fermentor("לאגר"), [{id:"2026-10-01_0800",plato:7,temp:11}], "2026-10-10", specs), []);
 });
