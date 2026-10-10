@@ -75,6 +75,8 @@ export type WeekPlan = {
   changeReason?: string;
   deliveryDates?: string[];
   dismissedRecommendations?: string[];
+  /** Historical recommendation snapshots captured when a planner saves a decision. */
+  recommendationEvidence?: import("./recommendationAudit").RecommendationEvidence[];
   allowExceptions?: boolean;
 };
 export type Actual = {
