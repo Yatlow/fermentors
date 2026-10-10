@@ -11,6 +11,7 @@ const tests = [
   "measurement-history-model",
   "carbonation-retest-policy",
   "plato-threshold-forecast",
+  "cold-cellar-forecast",
   "brew-progress-display",
 ];
 
