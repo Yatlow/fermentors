@@ -10,6 +10,7 @@ try {
     "shipment-picking-regression",
     "planning-weekly-regression",
     "planning-style-targets",
+    "planning-macro-insights",
     "shipment-actuals-regression",
     "tank-schedule",
     "tank-schedule-projection",
