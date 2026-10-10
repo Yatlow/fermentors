@@ -68,7 +68,7 @@ export function projectYeastAfterDryHop(
     const dryHopDate = String(dryHop?.id ?? "").match(/^(\\d{4}-\\d{2}-\\d{2})/)?.[1];
     if (!dryHopDate || dryHopDate > today) return [];
     // The live engine considers an already-reported yeast drop a completed action.
-    if (sorted.some((row) => /הורדת שמרים|הוצאת שמרים/.test(String(row.notes ?? "")))) return [];
+    if (sorted.some((row) => /שמרים/.test(String(row.notes ?? "")))) return [];
     if (sorted.some((row) => String(row.notes ?? "").includes("קירור"))) return [];
     const target = new Date(dryHopDate + "T12:00:00Z");
     target.setUTCDate(target.getUTCDate() + 5);
