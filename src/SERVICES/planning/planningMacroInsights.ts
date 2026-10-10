@@ -9,6 +9,10 @@ export type PlanningMacroInsight = {
   evidence: string;
   recommendation: string;
   scope: "style" | "sku";
+  /** Count of distinct completed weeks supporting the pattern. */
+  sampleWeeks: number;
+  /** Weeks meeting the explicit trigger. */
+  affectedWeeks: number;
 };
 
 /** Only completed, explicitly captured opening plans count as historical evidence. */
@@ -34,29 +38,31 @@ export function planningMacroInsights(
         sum + actuals.filter((a) => matchesActual(p, a) && actualDate(a) &&
           actualDate(a)! >= snapshot.targetWeek && actualDate(a)! < addDays(snapshot.targetWeek, 7))
           .reduce((total, actual) => total + actualUnits(p, actual) * litersPerUnit(p), 0), 0);
-      const plannedBrewLiters = snapshot.plan!.brews.filter((brew) => sameStyle(brew.style, style))
-        .reduce((sum, brew) => sum + Math.max(0, brew.liters), 0);
-      return [{ week: snapshot.targetWeek, plannedLiters, completedLiters, plannedBrewLiters, demandLiters }];
+      return [{ week: snapshot.targetWeek, plannedLiters, completedLiters, demandLiters }];
     });
     if (weeks.length < 4) continue;
     const last = weeks.slice(-6);
-    if (last.length >= 6) {
-      const totalDemand = last.reduce((sum, row) => sum + row.demandLiters, 0);
-      const totalBrew = last.reduce((sum, row) => sum + row.plannedBrewLiters, 0);
-      if (totalDemand > 0 && totalBrew / totalDemand < 0.7) {
-        results.push({
-          id: "brews:" + style, scope: "style",
-          title: `${style}: מעט בישולים משובצים לעומת הביקוש שהוגדר`,
-          evidence: `ב־${last.length} שבועות של צילומי תוכנית שובצו ${Math.round(totalBrew).toLocaleString("he-IL")} ליטר בישול, לעומת ביקוש מחושב של ${Math.round(totalDemand).toLocaleString("he-IL")} ליטר (${Math.round(totalBrew / totalDemand * 100)}%).`,
-          recommendation: "לבדוק מלאי פתיחה ובירה קיימת במיכלים, בישולים שבוצעו מחוץ לתוכנית וזמן הבשלה. זו מגמה של שיבוץ בישולים, לא הוכחה שלא יוצר מספיק בפועל.",
-        });
-      }
+    // Completed output must be analyzed independently from the sales target:
+    // a brewery can meet demand from previously packaged stock.
+    const plannedProductionWeeks = last.filter((row) => row.plannedLiters > 0);
+    const underexecuted = plannedProductionWeeks.filter((row) => row.completedLiters < row.plannedLiters * 0.85);
+    if (plannedProductionWeeks.length >= 4 && underexecuted.length >= 3) {
+      const plannedTotal = plannedProductionWeeks.reduce((sum, row) => sum + row.plannedLiters, 0);
+      const completedTotal = plannedProductionWeeks.reduce((sum, row) => sum + row.completedLiters, 0);
+      results.push({
+        id: "execution:" + style, scope: "style",
+        title: `${style}: פער חוזר בין אריזה שתוכננה לבין אריזה שדווחה`,
+        evidence: `${underexecuted.length} מתוך ${plannedProductionWeeks.length} שבועות עם אריזה מתוכננת הסתיימו בפחות מ־85% מהכמות; ביצוע מצטבר ${Math.round(completedTotal / plannedTotal * 100)}% מהתכנון.`,
+        recommendation: "לבדוק מול יומן האריזה אם חסרים דיווחים; אם הדיווח מלא, לבדוק מוכנות מיכלים, תזמון וקיבולת. אין להסיק שהביקוש לא סופק ללא נתוני מלאי.",
+        sampleWeeks: plannedProductionWeeks.length, affectedWeeks: underexecuted.length,
+      });
     }
     const underplanned = last.filter((w) => w.plannedLiters < w.demandLiters * 0.8);
     if (underplanned.length >= 4) {
       const ratio = last.reduce((sum, w) => sum + w.plannedLiters, 0) /
         last.reduce((sum, w) => sum + w.demandLiters, 0);
       results.push({
+        sampleWeeks: last.length, affectedWeeks: underplanned.length,
         id: "style:" + style, scope: "style",
         title: `${style}: תכנון אריזה נמוך מהביקוש שהוגדר באופן חוזר`,
         evidence: `${underplanned.length} מתוך ${last.length} שבועות מתועדים תוכננו בפחות מ־80% מהביקוש המשוער; יחס הכמות המתוכננת לביקוש המצטבר: ${Math.round(ratio * 100)}%.`,
@@ -81,6 +87,7 @@ export function planningMacroInsights(
     const below = last.filter((observation) => observation.cover < observation.target * 0.6);
     if (last.length >= 4 && below.length >= 3) {
       results.push({
+        sampleWeeks: last.length, affectedWeeks: below.length,
         id: "sku:" + p.id, scope: "sku",
         title: `${p.style} · ${p.type === "crates" ? "ארגזים" : "חביות"}: כיסוי מלאי נמוך שחוזר בדגימות`,
         evidence: `${below.length} מתוך ${last.length} דגימות מלאי שבועיות היו מתחת ל־60% מיעד הכיסוי.`,
@@ -88,5 +95,5 @@ export function planningMacroInsights(
       });
     }
   }
-  return results;
+  return results.sort((a, b) => (b.affectedWeeks / b.sampleWeeks) - (a.affectedWeeks / a.sampleWeeks));
 }
