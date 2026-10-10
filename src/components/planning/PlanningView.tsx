@@ -2,6 +2,8 @@ import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
+import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { useHolidays, usePlanning, usePlanningToday, type PlanningReadScope } from "../../SERVICES/planning/usePlanning";
@@ -104,7 +106,48 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
     const canonical = withStablePackagingIdentity(allWithEditedWeek).find((week) => week.id === merged.id) ?? merged;
-    await data.saveWeek(withoutDuplicateDeliveries(canonical), options);
+    const changed: RecommendationKind[] = [];
+    if (JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? [])) changed.push("shipment");
+    if (JSON.stringify(original?.packaging ?? []) !== JSON.stringify(canonical.packaging ?? [])) changed.push("packaging");
+    if (JSON.stringify(original?.brews ?? []) !== JSON.stringify(canonical.brews ?? [])) changed.push("brewing");
+    // Reuse the same already-loaded inputs as the planner; no extra Firestore reads.
+    // Compute before writing the decision. Never backfill a past recommendation.
+    // Remove the edited week's commitments from the recommendation inputs,
+    // otherwise the engine can mistake the user's decision for its own proposal.
+    const recommendationPlans = identityAlignedPlans.map((plan) => plan.id === canonical.id
+      ? { ...plan, deliveries: [], packaging: [], brews: [] }
+      : plan);
+    const recommendation = changed.length ? buildWeeklyPlanningModel({
+      settings, pallets, tanks, plans: recommendationPlans, actuals,
+      sources: productionTanks, today, week: canonical.id, holidays,
+      shipments: data.actualShipments,
+    }) : null;
+    const capturedAt = new Date().toISOString();
+    const suppliedOriginalKinds = new Set((canonical.recommendationEvidence ?? [])
+      .filter((row) => row.provenance === "decision-time" && row.weekId === canonical.id)
+      .map((row) => row.kind));
+    const evidence: RecommendationEvidence[] = changed.filter((kind) => !suppliedOriginalKinds.has(kind)).map((kind) => ({
+      id: `${canonical.id}:${kind}:${capturedAt}`,
+      weekId: canonical.id,
+      kind,
+      capturedAt,
+      algorithmVersion: "weeklyPlanningModel-2026-10",
+      provenance: "recomputed-at-save",
+      recommended: (kind === "shipment" ? recommendation!.shipmentRecommendation
+        : kind === "packaging" ? recommendation!.packagingRecommendation
+        : recommendation!.brewRecommendations).map((item) => ({ ...item })),
+      decided: (kind === "shipment" ? canonical.deliveries ?? []
+        : kind === "packaging" ? canonical.packaging : canonical.brews).map((item) => ({ ...item })),
+    }));
+    const previousEvidence = original?.recommendationEvidence ?? [];
+    const suppliedEvidence = canonical.recommendationEvidence ?? [];
+    const uniqueEvidence = [...previousEvidence, ...suppliedEvidence, ...evidence].filter(
+      (item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index,
+    );
+    await data.saveWeek(withoutDuplicateDeliveries({
+      ...canonical,
+      recommendationEvidence: uniqueEvidence,
+    }), options);
   }
 
   return (
@@ -120,7 +163,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
         {tab === "schedule" && <><>{holidayError && <details><summary>לוח החגים לא נטען</summary>{holidayError}</details>}</><PlanningBoard settings={settings} plans={identityAlignedPlans} tanks={tanks} brews={productionTanks} pallets={pallets} actuals={actuals} shipments={data.actualShipments} today={today} holidays={holidays} disabled={disabled} saveWeek={saveWeeklyPlan}/></>}
         {(tab === "data" || tab === "settings") && <PlanningData key={tab} mode={tab} settings={settings} today={today} disabled={disabled} save={saveSettings}/>} 
         {tab === "tanks" && <PlanningTanks tanks={tanks} sources={productionTanks} plans={identityAlignedPlans} settings={settings} actuals={actuals} today={today}/>} 
-        {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
+        {tab === "review" && <PlanningReview settings={settings} plans={identityAlignedPlans} actuals={actuals} shipments={data.actualShipments} snapshots={data.snapshots} error={data.snapshotError} today={today}/>} 
       </>}
       {inventoryInputOpen && tab === "fiveWeeks" && (
         <div className="bp-inventory-dialog-backdrop" onMouseDown={(event) => {
