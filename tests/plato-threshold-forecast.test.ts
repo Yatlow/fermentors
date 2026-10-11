@@ -1,4 +1,4 @@
-import { dryHopThreshold, dryHopThresholdKey, recipeDryHopThreshold } from "../src/SERVICES/cellering/dryHopThreshold";
+import { dryHopThreshold, dryHopThresholdKey, recipeDryHopThreshold, batchDryHopThreshold } from "../src/SERVICES/cellering/dryHopThreshold";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { projectPlatoThresholdRecheck, projectLagerDiacetylRest } from "../src/SERVICES/cellering/platoThresholdForecast";
@@ -103,4 +103,23 @@ test("recipe dry hop marker determines need; seasonal target is explicit", () =>
   assert.equal(recipeDryHopThreshold({...recipe,dryHopTargetPlato:undefined},{}),null);
   assert.equal(recipeDryHopThreshold({...recipe,style:"IPA"}, {dryHopMinPlatoIpa:7.5}),7.5);
   assert.equal(recipeDryHopThreshold({...recipe,dryHopTargetPlato:31},{}),null);
+});
+
+test("batch settings drive live thresholds without changing Specs for IPA Pale Hoppy", () => {
+  assert.equal(batchDryHopThreshold("IPA", { dryHopMinPlatoIpa: 8 }, {dryHopRequired:true,dryHopTargetPlato:6.5}),8);
+  assert.equal(batchDryHopThreshold("פייל", { dryHopMinPlatoPale: 7 }, {dryHopRequired:true}),7);
+  assert.equal(batchDryHopThreshold("הופי", { dryHopMinPlatoHoppy: 6 }, {dryHopRequired:true}),6);
+  assert.equal(batchDryHopThreshold("בירת חורף", {}, {dryHopRequired:true,dryHopTargetPlato:6.5}),6.5);
+  assert.equal(batchDryHopThreshold("בירת חורף", {}, {dryHopRequired:false,dryHopTargetPlato:6.5}),null);
+  assert.equal(batchDryHopThreshold("IPA", {}, {dryHopRequired:false}),null);
+  assert.equal(batchDryHopThreshold("IPA", {}, {}),8); // legacy records retain original inference
+});
+test("seasonal batch gets predicted dry-hop conditions from its recipe threshold", () => {
+  const tank = { ...fermentor("בירת חורף"), dryHopRequired:true, dryHopTargetPlato:6 };
+  const readings = [{id:"2026-10-08_0800",plato:9},{id:"2026-10-09_0800",plato:8}];
+  const projected = projectPlatoThresholdRecheck(tank, readings, "2026-10-09", specs);
+  assert.equal(projected[0]?.title, "בדיקת תנאים לדרייהופ");
+  assert.equal(projected[0]?.dueDate, "2026-10-12");
+  const notRequired = projectPlatoThresholdRecheck({...tank,dryHopRequired:false},readings,"2026-10-09",specs);
+  assert.equal(notRequired[0]?.title,"בדיקת תנאים לסגירת נשם");
 });
