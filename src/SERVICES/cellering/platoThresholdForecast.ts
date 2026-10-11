@@ -109,3 +109,44 @@ export function projectLagerDiacetylRest(
     basis: "הערכת סף פלאטו בלבד; יש למדוד טמפרטורה ולאמת טווח 9–13°C באותו יום",
   }];
 }
+
+/** Cooling cannot be scheduled solely from current Plato. Project a *review*
+ * once a known warm yeast-drop exists and a recent downward Plato trend nears
+ * the fermentation-finish band. Do not claim that fermentation is complete.
+ */
+export function projectCoolingReadinessCheck(
+  tank: PlatoForecastTank,
+  readings: PlatoForecastReading[],
+  today: string,
+): PlatoThresholdHint[] {
+  if (tank.stage?.name !== "בתסיסה") return [];
+  const rows = [...readings].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? ""));
+  if (rows.some((row) => /קירור/.test(String(row.notes ?? "")))) return [];
+  if (!rows.some((row) => /שמרים|שמרי/.test(String(row.notes ?? "")))) return [];
+  const dates = new Map<string, number>();
+  for (const row of rows) {
+    const date = String(row.id ?? "").match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+    if (!date || date > today || row.plato === "" || row.plato == null) continue;
+    const plato = Number(row.plato);
+    if (Number.isFinite(plato) && plato >= 0 && plato <= 30) dates.set(date, plato);
+  }
+  const latest = [...dates].sort(([a], [b]) => a.localeCompare(b)).slice(-2);
+  if (latest.length !== 2) return [];
+  const [[fromDate, from], [toDate, to]] = latest;
+  const day = (date: string) => Date.parse(date + "T12:00:00Z") / 86400000;
+  const gap = day(toDate) - day(fromDate);
+  if (gap < 1 || gap > 3 || day(today) - day(toDate) > 2) return [];
+  const rate = (from - to) / gap;
+  if (rate < 0.1 || rate > 4 || to <= 0) return [];
+  const threshold = 5;
+  const until = to <= threshold ? 0 : Math.ceil((to - threshold) / rate);
+  if (until > 6) return [];
+  const projectedDay = Math.max(day(today), day(toDate) + until);
+  const dueDate = new Date(projectedDay * 86400000).toISOString().slice(0, 10);
+  return [{
+    id: `${tank.id}:cooling-readiness:${dueDate}`,
+    tankNumber: String(tank.tankNumber ?? tank.id), dueDate,
+    title: "צפי לבדיקת מוכנות לקירור",
+    basis: "אומדן לפי ירידת פלאטו לאחר הורדת שמרים; יש לוודא סיום תסיסה ויציבות פלאטו לפני קירור",
+  }];
+}
