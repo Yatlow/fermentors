@@ -22,15 +22,9 @@ import {
 import { completedShipmentQueueTruckId } from "./shipmentActuals";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
+import { autoReservationWeek, isDispatchInReservationWeek } from "./shipmentReservationWeek";
 
 const PICKABLE_ZONES: PalletZone[] = ["cooler", "pending", "bottleRoom"];
-
-/** The Saturday 20:00 Israel maintenance cutover opens next Sunday's reservation week. */
-export function autoReservationWeek(today: string, hourInIsrael: number): string {
-  const current = weekStart(today);
-  return new Date(today + "T12:00:00Z").getUTCDay() === 6 && hourInIsrael >= 20
-    ? addDays(current, 7) : current;
-}
 
 function activeReservationWeek(today: string): string {
   const hour = Number(new Intl.DateTimeFormat("en-GB", {
@@ -196,7 +190,8 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
 
 /** A future-week decision must never reserve current-week inventory. */
 export function isDispatchEligibleForAutomaticReservation(dispatchDate: string, today: string): boolean {
-  return dispatchDate >= today && weekStart(dispatchDate) === activeReservationWeek(today);
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  return isDispatchInReservationWeek(dispatchDate, today, hour);
 }
 
 function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
