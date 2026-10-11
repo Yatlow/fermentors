@@ -14,6 +14,7 @@ const tests = [
   "cold-cellar-forecast",
   "cellaring-additional-forecast",
   "brew-progress-display",
+  "brew-validation-progress",
 ];
 
 try {
