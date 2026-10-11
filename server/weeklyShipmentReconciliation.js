@@ -179,19 +179,26 @@ function srSaturdayReconcile_() {
       return (!p.markedForShipment || staleIds[p.name]) &&
         ["cooler","pending","bottleRoom"].indexOf(p.zone) >= 0 &&
         srExpiry_(p.expiryDateStr) >= localDay;
-    }).sort(function(a,b) {
-      return srExpiry_(a.expiryDateStr).localeCompare(srExpiry_(b.expiryDateStr)) ||
-        Number((b.cell || {}).row || 0)-Number((a.cell || {}).row || 0) ||
-        Number(a.orderInCell || 0)-Number(b.orderInCell || 0);
+    }).map(function(p) {
+      return Object.assign({}, p, {
+        id: p.name,
+        // Reuse precisely the same picker contract as the React app.
+        expiryDateStr: p.expiryDateStr,
+        heightUnits: Number(p.heightUnits || 0),
+        quantity: Number(p.quantity || 0)
+      });
     });
-    while (missing > 0 && candidates.length && reservedSlots < 12) {
-      var next = candidates.shift();
-      // Never auto-mark a physically inaccessible lower pallet.
-      if (srBlockedInCell_(next, pallets, selected)) continue;
-      selected[next.name] = next;
-      reservedSlots++;
-      missing -= size;
-    }
+    if (missing <= 0 || !candidates.length) return;
+    var options = SharedShipmentPicking.shipmentDecisionPickOptions(candidates, missing, size);
+    var best = options.filter(function(o) {
+      return Number.isFinite(o.slots) && o.slots + reservedSlots <= 12;
+    }).sort(function(a,b) {
+      return a.missingNominal-b.missingNominal ||
+        a.fefoScore-b.fefoScore || a.slots-b.slots || a.overage-b.overage;
+    })[0];
+    if (!best) return;
+    (best.selected || []).forEach(function(p) { selected[p.name] = p; });
+    reservedSlots += best.slots;
   });
   // Only changed documents are patched; retries after partial failure are safe.
   tagged.forEach(function(p) {
