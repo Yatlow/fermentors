@@ -294,9 +294,9 @@ export async function reserveNewPalletsForNearestShipment(
             (pallet.autoReservationWeek !== currentWeek ||
              pallet.autoReservationTruckId !== activeTruckId)) {
           tx.update(refs[index], {
-            markedForShipment: false,
-            autoReservationWeek: null,
-            autoReservationTruckId: null,
+            markedForShipment: idsToMark.has(pallet.id),
+            autoReservationWeek: idsToMark.has(pallet.id) ? currentWeek : null,
+            autoReservationTruckId: idsToMark.has(pallet.id) ? activeTruckId : null,
             updatedAt: serverTimestamp(),
           });
           return;
