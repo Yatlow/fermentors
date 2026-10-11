@@ -34,6 +34,12 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Build shared shipment picker for Apps Script
+        working-directory: .
+        run: |
+          npm ci
+          npx --yes esbuild src/SERVICES/planning/shipmentDecisionPicking.ts --bundle --platform=neutral --format=iife --global-name=SharedShipmentPicking --target=es2020 --outfile=server/sharedShipmentPicking.generated.js
+
       - name: Install clasp
         run: npm install --global @google/clasp
 
