@@ -220,6 +220,13 @@ function runFermentorCycle() {
     const actionStats = fcTimed_("actions total", function () {
       return runActionFlow_(fermentors);
     });
+    // Low-cost time gate on every cycle; Firestore is touched only Saturday
+    // evening and only until that target week successfully reconciles.
+    try {
+      srSaturdayReconcile_();
+    } catch (shipmentError) {
+      Logger.log("SATURDAY SHIPMENT RECONCILIATION FAILED (will retry): " + shipmentError);
+    }
     const duration = (Date.now() - started) / 1000;
     Logger.log("CYCLE FINISHED in " + duration.toFixed(3) + "s");
     Logger.log("Sheet snapshots read: " + FC_CYCLE_CONTEXT_.sheetReads);
