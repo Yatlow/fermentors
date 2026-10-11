@@ -1404,7 +1404,11 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             : isPressureOutOfRangeVal.howBad
     }
 
-    const isAnActionDay = Number(lastMeasurement.temp) < 9 && (corrected === 1 || corrected === 4 || corrected === 5)
+    // Cooling today exempts this tank from Sunday's weekly cold-tank routine.
+    // The first post-cooling checks still follow their normal 1/2-day rules.
+    const isAnActionDay = Number(lastMeasurement.temp) < 9 &&
+        (corrected === 1 || corrected === 4 || corrected === 5) &&
+        !(corrected === 1 && CoolAge === 0)
     let dayTxt = ""
     // if (isAnActionDay && corrected !== 1) {
     //     dayTxt += TankCardUse ? `לפי היומן- מיכל ${tankNumber} מתוכנן לרדת שבוע הבא, ` : `לפי היומן- המיכלים הבאים מתוכננים לירידה שבוע הבא: ${nextWeekPack?.join(", ")}. `
