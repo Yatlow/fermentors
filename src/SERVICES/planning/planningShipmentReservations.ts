@@ -25,6 +25,20 @@ import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
 
 const PICKABLE_ZONES: PalletZone[] = ["cooler", "pending", "bottleRoom"];
 
+/** The Saturday 20:00 Israel maintenance cutover opens next Sunday's reservation week. */
+export function autoReservationWeek(today: string, hourInIsrael: number): string {
+  const current = weekStart(today);
+  return new Date(today + "T12:00:00Z").getUTCDay() === 6 && hourInIsrael >= 20
+    ? addDays(current, 7) : current;
+}
+
+function activeReservationWeek(today: string): string {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem", hour: "2-digit", hourCycle: "h23",
+  }).format(new Date()));
+  return autoReservationWeek(today, hour);
+}
+
 export function isPlanningShipmentPickZone(zone: PalletZone): boolean {
   return PICKABLE_ZONES.includes(zone);
 }
@@ -124,7 +138,7 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   // the full planningWeeks documents (same pattern as brewPlanningQueue).
   const [snapshot, actualShipments] = await Promise.all([
     getDocsFromServer(
-      query(collection(db, "shipmentPlanningQueue"), where("id", "==", weekStart(today)))
+      query(collection(db, "shipmentPlanningQueue"), where("id", "==", activeReservationWeek(today)))
     ),
     actualTempoShipmentsThisWeek(today),
   ]);
@@ -182,7 +196,7 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
 
 /** A future-week decision must never reserve current-week inventory. */
 export function isDispatchEligibleForAutomaticReservation(dispatchDate: string, today: string): boolean {
-  return dispatchDate >= today && weekStart(dispatchDate) === weekStart(today);
+  return dispatchDate >= today && weekStart(dispatchDate) === activeReservationWeek(today);
 }
 
 function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
@@ -221,7 +235,7 @@ export async function reserveNewPalletsForNearestShipment(
   const pallets = palletSnapshot.docs.map(
     (snapshot) => ({ id: snapshot.id, ...snapshot.data() }) as Pallet,
   );
-  const currentWeek = weekStart(today);
+  const currentWeek = activeReservationWeek(today);
   const activeTruckId = planned[0]?.truckId ?? null;
   // Only our own explicitly tagged automatic reservations may be released.
   const staleAutoIds = pallets.filter((pallet) =>
