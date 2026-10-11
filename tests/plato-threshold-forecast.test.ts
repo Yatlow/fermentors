@@ -1,3 +1,4 @@
+import { dryHopThreshold, dryHopThresholdKey } from "../src/SERVICES/cellering/dryHopThreshold";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { projectPlatoThresholdRecheck, projectLagerDiacetylRest } from "../src/SERVICES/cellering/platoThresholdForecast";
@@ -73,4 +74,24 @@ test("lager future rest is only a conditional temperature-and-Plato recheck", ()
 test("no lagers, completed rest and stale Plato do not produce a rest forecast", () => {
   assert.deepEqual(projectLagerDiacetylRest(fermentor("IPA"), [{id:"2026-10-10_0800",plato:7,temp:11}], "2026-10-10", specs), []);
   assert.deepEqual(projectLagerDiacetylRest(fermentor("לאגר"), [{id:"2026-10-01_0800",plato:7,temp:11}], "2026-10-10", specs), []);
+});
+
+test("dry hop thresholds depend on style and preserve explicit overrides", () => {
+  assert.equal(dryHopThreshold("IPA", {}), 8);
+  assert.equal(dryHopThreshold("פייל", {}), 7);
+  assert.equal(dryHopThreshold("Hoppy Lager", {}), 6);
+  assert.equal(dryHopThreshold("לאגר", {}), null);
+  assert.equal(dryHopThresholdKey("Stout"), null);
+  assert.equal(dryHopThreshold("פייל", {dryHopMinPlato: 12}), 7);
+  assert.equal(dryHopThreshold("פייל", {dryHopMinPlatoPale: 6.5}), 6.5);
+});
+test("forecast uses pale and hoppy thresholds instead of old global value", () => {
+  const rows = [{ id:"2026-10-08_0800",plato:9 },{ id:"2026-10-09_0800",plato:8 }];
+  const spec = {tolorances:{dryHopMinPlato: 12}};
+  const ipa = projectPlatoThresholdRecheck(fermentor("IPA"),rows,"2026-10-09",spec);
+  const pale = projectPlatoThresholdRecheck(fermentor("פייל"),rows,"2026-10-09",spec);
+  const hoppy = projectPlatoThresholdRecheck(fermentor("הופי"),rows,"2026-10-09",spec);
+  assert.equal(ipa[0].dueDate,"2026-10-10");
+  assert.equal(pale[0].dueDate,"2026-10-11");
+  assert.equal(hoppy[0].dueDate,"2026-10-12");
 });
