@@ -4,6 +4,7 @@ import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
+import { dryHopThreshold, dryHopThresholdKey } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
@@ -537,12 +538,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             .toLowerCase();
 
 
-    const isHoppy =
-        style.includes("ipa") ||
-        style.includes("פייל") ||
-        style.includes("הופי") ||
-        style.includes("pale") ||
-        style.includes("hoppy");
+    const isHoppy = dryHopThresholdKey(style) !== null;
     const normalizedStyle = String(style || "").trim().toLowerCase();
     const isLager = normalizedStyle.includes("לאגר");
 
@@ -620,7 +616,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             dryHopPlato !== null &&
             dryHopTemp !== null &&
             dryHopPressure !== null &&
-            dryHopPlato < (givenSpecs.tolorances.dryHopMinPlato || 8) &&
+            dryHopPlato < (dryHopThreshold(style, givenSpecs.tolorances) ?? 8) &&
             dryHopTemp > 9 &&
             dryHopPressure <= 0 &&
             !dryhopped &&
