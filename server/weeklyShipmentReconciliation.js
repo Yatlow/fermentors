@@ -106,15 +106,35 @@ function srPatch_(p, fields) {
     masks.join("&") + "&currentDocument.updateTime=" + encodeURIComponent(p.updateTime);
   srFetch_(url, "patch", {fields: encoded});
 }
+function srStackOrder_(p) {
+  if (p.orderInCell != null) return Number(p.orderInCell);
+  if (p.slotIndex != null) return Number(p.slotIndex);
+  if (p.cellOrder != null) return Number(p.cellOrder);
+  return null;
+}
+function srBlockedInCell_(candidate, physical, selected) {
+  if (!candidate.cell) return false;
+  var order = srStackOrder_(candidate);
+  if (order == null) return false;
+  return physical.some(function(other) {
+    if (other.name === candidate.name || !other.cell || other.zone !== candidate.zone) return false;
+    if (selected[other.name]) return false;
+    return other.cell.side === candidate.cell.side &&
+      other.cell.row === candidate.cell.row &&
+      other.cell.col === candidate.cell.col &&
+      srStackOrder_(other) != null && srStackOrder_(other) < order;
+  });
+}
 function srSaturdayReconcile_() {
   var timezone = "Asia/Jerusalem", now = new Date();
   var localDay = Utilities.formatDate(now, timezone, "yyyy-MM-dd");
   var weekday = Number(Utilities.formatDate(now, timezone, "u")); // 6=Saturday
   var hour = Number(Utilities.formatDate(now, timezone, "H"));
-  if (weekday !== 6 || hour < 20) return; // Never pre-mark future weeks on weekdays.
+  // Sunday-before-shift fallback recovers failures on Saturday night.
+  if (!((weekday === 6 && hour >= 20) || (weekday === 7 && hour < 5))) return;
   var date = new Date(localDay + "T12:00:00Z");
-  date.setUTCDate(date.getUTCDate() + 1);
-  var targetWeek = date.toISOString().slice(0,10); // Next Sunday
+  if (weekday === 6) date.setUTCDate(date.getUTCDate() + 1);
+  var targetWeek = date.toISOString().slice(0,10);
   var props = PropertiesService.getScriptProperties();
   var marker = SR_WEEK_KEY_PREFIX_ + targetWeek;
   if (props.getProperty(marker) === "complete") return;
@@ -145,6 +165,9 @@ function srSaturdayReconcile_() {
   var staleIds = {};
   tagged.forEach(function(p) { staleIds[p.name] = true; });
   var selected = {};
+  var reservedSlots = pallets.filter(function(p) {
+    return p.markedForShipment && !staleIds[p.name] && p.zone !== "shipped";
+  }).length;
   Object.keys(lines).forEach(function(sku) {
     var matches = pallets.filter(function(p) {
       return p.zone !== "shipped" && Number(p.quantity) > 0 && srSku_(p, catalog) === sku;
@@ -161,9 +184,12 @@ function srSaturdayReconcile_() {
         Number((b.cell || {}).row || 0)-Number((a.cell || {}).row || 0) ||
         Number(a.orderInCell || 0)-Number(b.orderInCell || 0);
     });
-    while (missing > 0 && candidates.length) {
+    while (missing > 0 && candidates.length && reservedSlots < 12) {
       var next = candidates.shift();
+      // Never auto-mark a physically inaccessible lower pallet.
+      if (srBlockedInCell_(next, pallets, selected)) continue;
       selected[next.name] = next;
+      reservedSlots++;
       missing -= size;
     }
   });
