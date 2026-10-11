@@ -4,6 +4,7 @@ import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
+import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
 
@@ -1126,7 +1127,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const neglected = () => {
         // Cellar-wide Sunday checks typically reset the neglect clock.
         // Surface neglect only Monday–Thursday, never Fri/Sat/Sun.
-        if (today === 0 || today >= 5) {
+        if (!shouldShowNeglectedTank(today)) {
             return { display: false, req: false, importance: 0, reason: "" };
         }
 
