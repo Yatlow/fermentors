@@ -154,7 +154,7 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   }
 
   const lines = openDeliveries
-    .filter((delivery) => delivery.dispatchDate >= today && weekStart(delivery.dispatchDate) === weekStart(today))
+    .filter((delivery) => isDispatchEligibleForAutomaticReservation(delivery.dispatchDate, today))
     .map((delivery) => ({
       productId: delivery.productId,
       quantity: delivery.quantity,
@@ -178,6 +178,11 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
     });
   }
   return [...totals.values()];
+}
+
+/** A future-week decision must never reserve current-week inventory. */
+export function isDispatchEligibleForAutomaticReservation(dispatchDate: string, today: string): boolean {
+  return dispatchDate >= today && weekStart(dispatchDate) === weekStart(today);
 }
 
 function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
