@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "server/**"
+      - "src/SERVICES/planning/shipmentDecisionPicking.ts"
+      - "src/SERVICES/planning/shipmentPicking.ts"
+      - "src/SERVICES/cooler/truckCapacity.ts"
+      - ".github/workflows/apps-script-deploy.yml"
       - "cellar-listener/**"
       - "scripts/test-sheet-sync-outbox.mjs"
       - ".github/scripts/validate-apps-script-runtime.mjs"
@@ -25,6 +29,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
+      - name: Bundle shared shipment picker for Apps Script
+        run: |
+          npm ci
+          npx --yes esbuild src/SERVICES/planning/shipmentDecisionPicking.ts --bundle --platform=neutral --format=iife --global-name=SharedShipmentPicking --target=es2020 --outfile=server/sharedShipmentPicking.generated.js
 
       - name: Validate Apps Script syntax and globals
         run: |
