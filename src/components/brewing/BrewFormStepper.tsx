@@ -11,10 +11,10 @@ import {
   setBrewingExecutionActiveBlock,
   setBrewingExecutionActiveStep,
   setBrewingExecutionField,
-  setBrewingExecutionReviewedSteps,
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
+import { laterValidationPosition, reviewedStepsForPosition } from "../../SERVICES/brewing/brewValidationProgress";
 import {
   readBrewSheetRange,
   resetBrewSheetBaseline,
@@ -997,7 +997,14 @@ export default function BrewFormStepper({
   const validationConfirmResolver = useRef<((approved: boolean) => void) | null>(
     null,
   );
-  const reviewedSteps = execution.reviewedSteps || {};
+  // A new form session ignores the old one-way persisted reviewedSteps.
+  // Start with the saved progress; future steps remain unreviewed.
+  const [validationFrontier, setValidationFrontier] = useState(() => ({
+    blockIndex: Math.max(1, loadBrewingExecution(run.batchNumber).activeBlockIndex || 1),
+    stepIndex: Math.max(0, loadBrewingExecution(run.batchNumber).activeStepIndex || 0),
+  }));
+  const [sessionReviewedSteps, setSessionReviewedSteps] = useState<Record<string, boolean>>({});
+  const reviewedSteps = reviewedStepsForPosition(validationFrontier, STEPS.map((step) => step.id), sessionReviewedSteps);
   const [heightCalcOpen, setHeightCalcOpen] = useState(false);
   const [heightCm, setHeightCm] = useState("");
   const [heightBaseLiters, setHeightBaseLiters] = useState("");
@@ -1059,6 +1066,12 @@ export default function BrewFormStepper({
         if (remote) {
           setExecution(remote);
           setActiveStepState(Math.max(0, remote.activeStepIndex || 0));
+          setValidationFrontier({
+            blockIndex: Math.max(1, remote.activeBlockIndex || 1),
+            stepIndex: Math.max(0, remote.activeStepIndex || 0),
+          });
+          setSessionReviewedSteps({});
+          setValidationNotice(null);
         }
       })
       .catch((error) => console.warn("Failed loading brewing execution", error))
@@ -1450,14 +1463,12 @@ export default function BrewFormStepper({
 
   function markStepsReviewed(blockIndex: number, stepIds: StepId[]) {
     if (!stepIds.length) return;
-    setExecution((current) => {
-      const next = { ...(current.reviewedSteps || {}) };
+    setSessionReviewedSteps((current) => {
+      const next = { ...current };
       stepIds.forEach((stepId) => {
-        if (stepId !== "summary") {
-          next[reviewedKey(blockIndex, stepId)] = true;
-        }
+        if (stepId !== "summary") next[reviewedKey(blockIndex, stepId)] = true;
       });
-      return setBrewingExecutionReviewedSteps(current, next);
+      return next;
     });
   }
 
@@ -1471,12 +1482,9 @@ export default function BrewFormStepper({
 
   function markForwardNavigation(targetStepIndex: number) {
     if (targetStepIndex <= activeStep) return;
-    markStepsReviewed(
-      currentBlock,
-      visibleSteps
-        .slice(activeStep, targetStepIndex)
-        .map((step) => step.id),
-    );
+    setValidationFrontier((previous) => laterValidationPosition(previous, {
+      blockIndex: currentBlock, stepIndex: targetStepIndex,
+    }));
   }
 
   function writeSheet(
@@ -3701,13 +3709,6 @@ export default function BrewFormStepper({
     }
 
     initialProductionPullKey.current = run.batchNumber;
-    if (execution.activeBlockIndex > 1) {
-      markStepsReviewed(
-        execution.activeBlockIndex - 1,
-        visibleSteps.map((step) => step.id),
-      );
-    }
-
     // Firestore is the operational source: render it first, then reconcile
     // the legacy Sheet silently in the background. Any pulled changes are
     // persisted back to Firestore by syncFromSheet itself.
@@ -4169,12 +4170,8 @@ export default function BrewFormStepper({
                       : `בישול ${(["A", "B", "C"] as const)[index - 1]} טרם נבדק`
                 }
                 onClick={() => {
-                  if (index > currentBlock) {
-                    markStepsReviewed(
-                      currentBlock,
-                      visibleSteps.map((step) => step.id),
-                    );
-                  }
+                  // Looking at another brew does not imply its earlier stages
+                  // were completed or reviewed.
                   void selectBlock(index);
                 }}
               >
@@ -5840,6 +5837,9 @@ export default function BrewFormStepper({
             markStepsReviewed(currentBlock, [currentStep.id]);
 
             if (!isLastVisibleStep) {
+              setValidationFrontier((previous) => laterValidationPosition(previous, {
+                blockIndex: currentBlock, stepIndex: activeStep + 1,
+              }));
               setActiveStep((value) =>
                 Math.min(visibleSteps.length - 1, value + 1),
               );
@@ -5847,6 +5847,9 @@ export default function BrewFormStepper({
             }
 
             if (currentBlock < totalBlocks) {
+              setValidationFrontier((previous) => laterValidationPosition(previous, {
+                blockIndex: currentBlock + 1, stepIndex: 0,
+              }));
               markStepsReviewed(
                 currentBlock,
                 visibleSteps.map((step) => step.id),
