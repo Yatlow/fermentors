@@ -47,6 +47,9 @@ function srListPallets_() {
 }
 function srStyle_(raw) {
   var s = String(raw || "").toLowerCase();
+  if (s.indexOf("אגסים") >= 0) return "pears";
+  if (s.indexOf("מהדורת חורף") >= 0 || s.indexOf("בירת חורף") >= 0) return "winter";
+  if (s.indexOf("סאוור") >= 0 || s.indexOf("סאואר") >= 0) return "sour";
   if (s.indexOf("הופי") >= 0 && s.indexOf("לאגר") >= 0) return "hoppy";
   if (s.indexOf("דאבל") >= 0 && s.indexOf("ipa") >= 0) return "doubleipa";
   if (s.indexOf("סשן") >= 0 && s.indexOf("ipa") >= 0) return "sessionipa";
@@ -63,10 +66,29 @@ var SR_SKUS_ = {
   "wheat__kegs":"7009941", "wheat__crates":"7009677",
   "lager__kegs":"7009942", "lager__crates":"7009678",
   "hoppy__kegs":"7013781", "hoppy__crates":"7013782",
-  "stout__crates":"7009679", "sessionipa__kegs":"7010951",
+  "stout__crates":"7009679", "winter__crates":"7009876",
+  "pears__crates":"7014515", "sour__crates":"7009682",
+  "sessionipa__kegs":"7010951",
   "sessionipa__crates":"7010892", "doubleipa__crates":"7009681"
 };
-function srSku_(p) { return SR_SKUS_[srStyle_(p.beerStyle) + "__" + p.itemType] || ""; }
+function srSku_(p, catalog) { return catalog[srStyle_(p.beerStyle) + "__" + p.itemType] || ""; }
+function srActiveCatalog_() {
+  var catalog = JSON.parse(JSON.stringify(SR_SKUS_));
+  var url = srRoot_() + "/productCatalog?pageSize=500";
+  do {
+    var page = srFetch_(url);
+    (page.documents || []).map(srDecode_).forEach(function(entry) {
+      var style = srStyle_(entry.styleKey || entry.beerStyle);
+      if (!style || ["crates", "kegs"].indexOf(entry.itemType) < 0) return;
+      var key = style + "__" + entry.itemType;
+      if (entry.enabled === false) delete catalog[key];
+      else if (entry.sku) catalog[key] = String(entry.sku);
+    });
+    url = page.nextPageToken ? srRoot_() + "/productCatalog?pageSize=500&pageToken=" +
+      encodeURIComponent(page.nextPageToken) : "";
+  } while (url);
+  return catalog;
+}
 function srExpiry_(value) {
   var s = String(value || "").trim(), m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   return m ? m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2) : s;
@@ -115,6 +137,7 @@ function srSaturdayReconcile_() {
   var lines = {};
   open.filter(function(d) { return String(d.truckId || "date:" + d.dispatchDate) === truck; })
     .forEach(function(d) { lines[d.productId] = (lines[d.productId] || 0) + Number(d.quantity); });
+  var catalog = srActiveCatalog_();
   var pallets = srListPallets_(), tagged = [];
   pallets.forEach(function(p) {
     if (p.markedForShipment === true && p.autoReservationWeek) tagged.push(p);
@@ -124,7 +147,7 @@ function srSaturdayReconcile_() {
   var selected = {};
   Object.keys(lines).forEach(function(sku) {
     var matches = pallets.filter(function(p) {
-      return p.zone !== "shipped" && Number(p.quantity) > 0 && srSku_(p) === sku;
+      return p.zone !== "shipped" && Number(p.quantity) > 0 && srSku_(p, catalog) === sku;
     });
     var size = matches.length && matches[0].itemType === "crates" ? 84 : 20;
     var already = matches.filter(function(p) { return p.markedForShipment && !staleIds[p.name]; }).length;
