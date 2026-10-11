@@ -120,7 +120,7 @@ export function projectCoolingReadinessCheck(
   today: string,
 ): PlatoThresholdHint[] {
   if (tank.stage?.name !== "בתסיסה") return [];
-  const rows = [...readings].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? ""));
+  const rows = [...readings].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
   if (rows.some((row) => /קירור/.test(String(row.notes ?? "")))) return [];
   if (!rows.some((row) => /שמרים|שמרי/.test(String(row.notes ?? "")))) return [];
   const dates = new Map<string, number>();
