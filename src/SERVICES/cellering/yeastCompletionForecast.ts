@@ -99,8 +99,9 @@ export function projectKnownYeastCompletions(
     const targetRaw = Number(specs.yeastDropMinimums?.[`${style}_${size}_cold`]);
     const target = Number.isFinite(targetRaw) && targetRaw >= 0 && specs.yeastDropMinimums?.[`${style}_${size}_cold`] != null ?
       targetRaw : defaults[style]?.[size]?.cold;
-    if (cold.length === 1 && target != null && cold[0].quantity < target) {
-      add("cold", cold[0].date, target - cold[0].quantity, 2);
+    if (cold.length && target != null) {
+      const total = cold.reduce((sum, row) => sum + row.quantity, 0);
+      if (total < target) add("cold", cold[cold.length - 1].date, target - total, 2);
     }
   }
   return results;
