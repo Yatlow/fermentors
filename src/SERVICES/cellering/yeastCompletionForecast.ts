@@ -78,7 +78,10 @@ export function projectKnownYeastCompletions(
     const targetRaw = Number(specs.yeastDropMinimums?.[`${style}_${size}_cold`]);
     const target = Number.isFinite(targetRaw) && targetRaw >= 0 && specs.yeastDropMinimums?.[`${style}_${size}_cold`] != null ?
       targetRaw : defaults[style]?.[size]?.cold;
-    // Repeated cold draws are ongoing maintenance, not a missing first drop.\n    // Do not manufacture a new future action after the operator has already\n    // performed several post-cooling drops (tank 10 scenario).\n    if (cold.length === 1 && target != null) {
+    // Repeated cold draws are ongoing maintenance, not a missing first drop.
+    // Do not manufacture a new future action after the operator has already
+    // performed several post-cooling drops (tank 10 scenario).
+    if (cold.length === 1 && target != null) {
       const total = cold.reduce((sum, row) => sum + row.quantity, 0);
       if (total < target) add("cold", cold[cold.length - 1].date, target - total, 2);
     }
