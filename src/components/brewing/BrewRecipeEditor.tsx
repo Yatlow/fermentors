@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { getSpecsFromFb } from "../../SERVICES/getAndPost/getSpecsFromFb";
+import { dryHopThreshold, dryHopThresholdKey } from "../../SERVICES/cellering/dryHopThreshold";
 import type {
   BrewHopPurpose,
   BrewRecipe,
@@ -73,6 +75,25 @@ export default function BrewRecipeEditor({
   const [recipe, setRecipe] = useState<BrewRecipe>(() =>
     JSON.parse(JSON.stringify(initialRecipe)) as BrewRecipe,
   );
+  const [dryHopSpecs, setDryHopSpecs] = useState<Record<string, number> | null>(null);
+  const [specsLoading, setSpecsLoading] = useState(true);
+  const [specsError, setSpecsError] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    getSpecsFromFb().then((data) => {
+      if (mounted) setDryHopSpecs(data.tolorances ?? {});
+    }).catch(() => {
+      if (mounted) setSpecsError(true);
+    }).finally(() => {
+      if (mounted) setSpecsLoading(false);
+    });
+    return () => { mounted = false; };
+  }, []);
+  const hasDryHopAddition = recipe.hops.some((hop) => hop.purpose === "dryHop");
+  const specKey = dryHopThresholdKey(recipe.style);
+  const inheritedDryHopThreshold = specKey ? dryHopThreshold(recipe.style, dryHopSpecs ?? undefined) : null;
+  const seasonalThresholdRequired = hasDryHopAddition && !specKey;
+  const seasonalTargetValid = Number.isFinite(recipe.dryHopTargetPlato) && Number(recipe.dryHopTargetPlato) > 0 && Number(recipe.dryHopTargetPlato) <= 30;
   const [ingredientCreateTarget, setIngredientCreateTarget] =
     useState<IngredientCreateTarget | null>(null);
 
@@ -727,6 +748,20 @@ export default function BrewRecipeEditor({
             + כשות
           </button>
         </div>
+        {hasDryHopAddition && <div className="brew-editor-row" style={{ marginBottom: 12 }}>
+          {seasonalThresholdRequired ? <label>
+            יעד פלאטו לדרייהופ (°P) — סגנון ללא סף ב־Specs
+            <TransientNumberInput
+              step="0.1"
+              value={recipe.dryHopTargetPlato ?? 0}
+              onNumberChange={(value) => setRecipe((current) => ({ ...current, dryHopTargetPlato: value }))}
+            />
+            {!seasonalTargetValid && <small>יש להגדיר יעד פלאטו גדול מ־0 ועד 30 לפני שמירת המתכון.</small>}
+          </label> : <small>
+            יעד הדרייהופ נקבע אוטומטית לפי Specs: {inheritedDryHopThreshold ?? "—"}°P
+          </small>}
+          {specsError && <small>לא ניתן לטעון את הגדרות ה־Specs כרגע. בדוק אותן לפני שמירה.</small>}
+        </div>}
         <div className="brew-editor-table">
           {recipe.hops.map((hop) => (
             <div className="brew-editor-row brew-editor-row-hop" key={hop.id}>
@@ -970,7 +1005,7 @@ export default function BrewRecipeEditor({
       </section>
 
       <div className="brew-editor-actions">
-        <button type="button" className="btn-primary" onClick={() => onSave(recipe)}>
+        <button type="button" className="btn-primary" disabled={specsLoading || specsError || (seasonalThresholdRequired && !seasonalTargetValid)} onClick={() => onSave(recipe)}>
           שמור מתכון
         </button>
         <button type="button" onClick={onBack}>ביטול</button>
