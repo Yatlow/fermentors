@@ -40,3 +40,28 @@ export function recipeDryHopThreshold(
   return typeof target === "number" && Number.isFinite(target) && target > 0 && target <= 30
     ? target : null;
 }
+
+/** New batches carry explicit recipe intent on the fermentor; old/manual
+ * batches have no marker and keep legacy style recognition.
+ * For known styles, Specs remains the source of the threshold.
+ */
+export type BatchDryHopSettings = {
+  dryHopRequired?: boolean | null;
+  dryHopTargetPlato?: number | null;
+};
+export function batchDryHopThreshold(
+  style: unknown,
+  tolerances?: Record<string, number>,
+  batch?: BatchDryHopSettings | null,
+): number | null {
+  if (typeof batch?.dryHopRequired === "boolean") {
+    if (!batch.dryHopRequired) return null;
+    const configured = dryHopThreshold(style, tolerances);
+    if (configured !== null) return configured;
+    const target = batch.dryHopTargetPlato;
+    return typeof target === "number" && Number.isFinite(target) && target > 0 && target <= 30
+      ? target : null;
+  }
+  // Only unmarked historical batches use the original style inference.
+  return dryHopThreshold(style, tolerances);
+}
