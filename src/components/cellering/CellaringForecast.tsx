@@ -5,11 +5,12 @@ import type { Fermentor } from "../../App";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { projectColdCellarMilestones, projectYeastAfterDryHop, type ConditionalForecast } from "../../SERVICES/cellering/coldCellarForecast";
-import { projectPlatoThresholdRecheck } from "../../SERVICES/cellering/platoThresholdForecast";
+import { projectPlatoThresholdRecheck, projectLagerDiacetylRest, projectCoolingReadinessCheck } from "../../SERVICES/cellering/platoThresholdForecast";
 import {
     subscribeScheduledCellarRecommendations, scheduledActionLabel,
     type ScheduledCellarRecommendation,
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
+import { projectKnownYeastCompletions } from "../../SERVICES/cellering/yeastCompletionForecast";
 import { localDateKey } from "../../SERVICES/dashboard/healthModel";
 import "./CellaringForecast.css";
 
@@ -47,6 +48,9 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                     ...projectColdCellarMilestones(tank, readings, today),
                     ...projectYeastAfterDryHop(tank, readings, today),
                     ...projectPlatoThresholdRecheck(tank, readings, today, specs),
+                    ...projectLagerDiacetylRest(tank, readings, today, specs),
+                    ...projectKnownYeastCompletions(tank, readings, today, specs),
+                    ...projectCoolingReadinessCheck(tank, readings, today),
                 ];
             } catch (error) {
                 console.error("Failed to calculate cellar forecast for tank", tank.tankNumber, error);
@@ -164,7 +168,7 @@ export default function CellaringForecast({ brews, specs }: { brews: Fermentor[]
                         {item.dueDate < day.date && new Date(item.dueDate + "T12:00:00Z").getUTCDay() !== 6 ? <small> · באיחור מאז {item.dueDate}</small> : null}</div>
                     </div>)}
                     {day.conditionalRows.map((item) => <div className="cellar-forecast-item" key={item.id}>
-                        <span className="cellar-forecast-type cellar-forecast-conditional">{item.id.includes(":plato-recheck:") ? "צפי" : "לפי כלל"}</span>
+                        <span className="cellar-forecast-type cellar-forecast-conditional">{item.id.includes(":plato-recheck:") || (item.id.includes(":diacetyl-plato-recheck:") || item.id.includes(":cooling-readiness:")) ? "צפי" : "לפי כלל"}</span>
                         <div><strong>מיכל {item.tankNumber}</strong> · {item.title.includes("תנאים ל") ?
                             item.title.replace("בדיקת תנאים ל", "צפוי להתקרב לסף ") :
                             item.title}</div>

@@ -1,4 +1,5 @@
-export type ForecastTank = { id: string; tankNumber?: string | number | null; uid?: string | number | null; beerStyle?: string | null; stage?: { name?: string } | null };
+import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
+export type ForecastTank = BatchDryHopSettings & { id: string; tankNumber?: string | number | null; uid?: string | number | null; beerStyle?: string | null; stage?: { name?: string } | null };
 export type ForecastMeasurement = { id?: string | number | null; notes?: string | number | null; carbonation?: string | number | null };
 
 export type ConditionalForecast = {
@@ -62,7 +63,7 @@ export function projectYeastAfterDryHop(
 ): ConditionalForecast[] {
     if (tank.stage?.name !== "בתסיסה") return [];
     const style = String(tank.beerStyle ?? "").trim().toLowerCase();
-    if (!["ipa", "פייל", "הופי", "pale", "hoppy"].some((name) => style.includes(name))) return [];
+    if (batchDryHopThreshold(style, undefined, tank) === null) return [];
     const sorted = [...measurements].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
     const dryHop = sorted.find((row) => String(row.notes ?? "").includes("כשות"));
     const dryHopDate = String(dryHop?.id ?? "").match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
