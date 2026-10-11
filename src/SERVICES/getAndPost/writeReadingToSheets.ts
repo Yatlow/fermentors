@@ -3,6 +3,8 @@ import type { ReadingToSend } from "../../App";
 import { db } from "../../firebase";
 import {
     callAppsScriptPost,
+    AppsScriptInvalidResponseError,
+    AppsScriptTimeoutError,
     createAppsScriptRequestId,
     type AppsScriptEnvelope,
 } from "./appsScriptClient";
@@ -286,7 +288,17 @@ export async function writeReadingsToSheets(
             .catch((error) => {
                 console.error("Background cellar Sheet sync failed:", error);
                 reportSheetSyncDiagnostic(requestId, "sheet-response-unconfirmed", error);
-                showBackgroundSheetWarning(readings);
+                // A timeout, malformed Google redirect response, or network loss
+                // cannot establish whether Sheets succeeded. The durable outbox
+                // already confirms the exact requestId in its regular maintenance
+                // cycle; the existing live status listener shows pending/failed.
+                // Never present a false write-failure modal for an unknown result.
+                const unconfirmedTransport = error instanceof AppsScriptTimeoutError ||
+                    error instanceof AppsScriptInvalidResponseError ||
+                    (error instanceof TypeError && /fetch|network|load/i.test(error.message));
+                if (!unconfirmedTransport) {
+                    showBackgroundSheetWarning(readings);
+                }
                 // Keep the outbox entry pending for server-side confirmation.
             });
 
