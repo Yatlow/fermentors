@@ -1,5 +1,5 @@
-import { dryHopThreshold, dryHopThresholdKey } from "./dryHopThreshold";
-export type PlatoForecastTank = { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
+import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
+export type PlatoForecastTank = BatchDryHopSettings & { id: string; tankNumber?: unknown; beerStyle?: unknown; stage?: { name?: string } | null };
 export type PlatoForecastReading = { id?: string | number | null; plato?: string | number | null; notes?: string | number | null };
 export type PlatoForecastSpecs = { tolorances?: Record<string, number> };
 
@@ -20,7 +20,8 @@ export function projectPlatoThresholdRecheck(
 ): PlatoThresholdHint[] {
   if (tank.stage?.name !== "בתסיסה") return [];
   const style = String(tank.beerStyle ?? "").toLowerCase();
-  const hoppy = dryHopThresholdKey(style) !== null;
+  const thresholdFromBatch = batchDryHopThreshold(style, specs.tolorances, tank);
+  const hoppy = thresholdFromBatch !== null;
   const notes = readings.map((item) => String(item.notes ?? "")).join(" ");
   if (hoppy ? notes.includes("כשות") : /סגיר(?:ת|ה).*(?:נשם|לחץ)/.test(notes)) return [];
   const dates = new Map<string, number>();
@@ -39,7 +40,7 @@ export function projectPlatoThresholdRecheck(
   const rate = (from - to) / interval;
   if (rate < 0.1 || rate > 4) return [];
   const setting = specs.tolorances?.shutTankMinPlato;
-  const threshold = hoppy ? (dryHopThreshold(style, specs.tolorances) ?? 8) : Number(setting) > 0 ? Number(setting) : 5;
+  const threshold = hoppy ? thresholdFromBatch! : Number(setting) > 0 ? Number(setting) : 5;
   if (to < threshold) return [];
   const days = Math.floor((to - threshold) / rate) + 1;
   const projected = day(toDate) + days;
