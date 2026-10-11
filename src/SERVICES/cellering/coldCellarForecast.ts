@@ -40,12 +40,7 @@ export function projectColdCellarMilestones(tank: ForecastTank, measurements: Fo
     if (!hasCarb) add(addDays(cooledOn, 1), "first-carb", "בדיקת גיזוז ראשונה", "יום אחרי קירור, אם טרם תתבצע מדידה");
     if (!yeastActions.length) {
         add(addDays(cooledOn, 2), "first-yeast", "הורדת שמרים אחרי קירור", "יומיים אחרי קירור, בכפוף למדידות");
-    } else if (yeastActions.length === 1) {
-        const firstDate = String(yeastActions[0].id ?? "").slice(0, 10);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(firstDate) &&
-            new Date(`${firstDate}T12:00:00Z`).getUTCDay() === 0) {
-            add(addDays(firstDate, 2), "second-yeast", "הורדת שמרים נוספת", "יומיים אחרי הורדת שמרים ביום ראשון");
-        }
+
     }
     return result;
 }
