@@ -26,6 +26,8 @@ export async function enqueueBrewSheetCreation(input: {
     hops?: Array<{ quantity: number; alpha: string | number; label: string }>;
   };
   mashRestCount?: number;
+  dryHopRequired?: boolean;
+  dryHopTargetPlato?: number | null;
 }) {
   const batchNumber = String(input.batchNumber || "").replace("#", "").trim();
   if (!/^\d+$/.test(batchNumber)) throw new Error("מספר אצווה לא תקין.");
@@ -39,6 +41,8 @@ export async function enqueueBrewSheetCreation(input: {
       initialWritesJson: JSON.stringify(input.initialWrites),
       recipeMaterialsJson: JSON.stringify(input.recipeMaterials || {}),
       mashRestCount: Number(input.mashRestCount || 2),
+      dryHopRequired: Boolean(input.dryHopRequired),
+      dryHopTargetPlato: input.dryHopTargetPlato ?? null,
       state: "queued",
       attempts: 0,
       createdAt: serverTimestamp(),
