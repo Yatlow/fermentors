@@ -104,6 +104,23 @@ function showBackgroundSheetWarning(
     document.body.appendChild(overlay);
 }
 
+// Diagnostics are best-effort and never affect the operation or its outbox.
+function reportSheetSyncDiagnostic(requestId: string, phase: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error ?? "unknown");
+    const kind = error instanceof Error ? error.name : "NonError";
+    console.warn("Sheet sync diagnostic", { requestId, phase, kind, message });
+    void callAppsScriptPost({
+        action: "ClientSheetSyncDiagnostic",
+        requestId: createAppsScriptRequestId("sheet-sync-diagnostic"),
+        originalRequestId: requestId,
+        phase,
+        errorType: kind.slice(0, 80),
+        errorMessage: message.slice(0, 300),
+    }, { retries: 0, timeoutMs: 10000 }).catch((diagnosticError) => {
+        console.warn("Sheet sync diagnostic upload unavailable", { requestId, phase, diagnosticError });
+    });
+}
+
 async function clearSheetSyncJob(requestId: string): Promise<void> {
     try {
         await deleteDoc(doc(db, "sheetSyncJobs", requestId));
@@ -241,10 +258,8 @@ export async function writeReadingsToSheets(
         void sheetPromise
             .then(async (parsed) => {
                 if (!parsed.success) {
-                    console.error(
-                        "Background cellar Sheet sync returned failure:",
-                        parsed.error || parsed.message
-                    );
+                    console.error("Background cellar Sheet sync returned failure:", parsed.error || parsed.message);
+                    reportSheetSyncDiagnostic(requestId, "server-rejected", parsed.error || parsed.message);
                     showBackgroundSheetWarning(readings);
                     return;
                 }
@@ -253,21 +268,26 @@ export async function writeReadingsToSheets(
                 const failed = results.filter((result) => !result.success);
                 if (failed.length > 0) {
                     console.error("Background cellar Sheet sync partially failed:", failed);
+                    reportSheetSyncDiagnostic(requestId, "partial-sheet-failure", failed.map(item => item.error || item.message).join("; "));
                     showBackgroundSheetWarning(readings, failed);
                     return;
                 }
 
-                // Replace the optimistic overlay with the exact merged Sheet row
-                // as soon as Apps Script confirms it, rather than waiting for the
-                // next five-minute Sheet -> Firestore polling cycle.
-                await reconcileConfirmedSheetResults(readings, results);
+                // A confirmed Sheet write must not be reported as failed if the
+                // secondary Firestore reconciliation encounters an error.
+                try {
+                    await reconcileConfirmedSheetResults(readings, results);
+                } catch (error) {
+                    reportSheetSyncDiagnostic(requestId, "post-confirmation-reconcile", error);
+                    console.error("Sheet write confirmed but Firestore reconciliation failed:", error);
+                }
                 await clearSheetSyncJob(requestId);
             })
             .catch((error) => {
                 console.error("Background cellar Sheet sync failed:", error);
+                reportSheetSyncDiagnostic(requestId, "sheet-response-unconfirmed", error);
                 showBackgroundSheetWarning(readings);
-                // Keep the outbox entry pending; Apps Script maintenance will
-                // retry/confirm it later with this exact same requestId.
+                // Keep the outbox entry pending for server-side confirmation.
             });
 
         return readings.map((reading) => ({
