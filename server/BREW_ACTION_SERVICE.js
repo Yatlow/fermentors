@@ -391,6 +391,13 @@ function processAction5(
       { skipFermentorUpdate: true }
     );
 
+  // Bind recipe intent to this exact batch at the atomic tank transition.
+  // Legacy/manual Sheets have no metadata and retain the old style fallback.
+  uploadedBrew.dryHopRequired = typeof nextBrew.dryHopRequired === "boolean"
+    ? nextBrew.dryHopRequired : null;
+  uploadedBrew.dryHopTargetPlato = Number.isFinite(Number(nextBrew.dryHopTargetPlato)) &&
+    Number(nextBrew.dryHopTargetPlato) > 0 ? Number(nextBrew.dryHopTargetPlato) : null;
+
   const transitioned = updateFermentorForNextBrew_(
     tankNumber,
     uploadedBrew,
@@ -517,7 +524,9 @@ function findNextPendingBrewForTank_(tankNumber, currentBatch, currentSheetUrl, 
         startingPlato: brew.startingPlato || null,
         sheetUrl: String(brew.sheetUrl || ""),
         fileId: String(brew.fileId || ""),
-        fileName: String(brew.fileName || "")
+        fileName: String(brew.fileName || ""),
+        dryHopRequired: typeof brew.dryHopRequired === "boolean" ? brew.dryHopRequired : null,
+        dryHopTargetPlato: brew.dryHopTargetPlato ?? null
       };
     })[0] || null;
 }
@@ -1494,7 +1503,9 @@ function updateFermentorForNextBrew_(
     brewDate: brew.brewDate || null,
     beerVolume: brew.beerVolume || null,
     startingPlato: brew.startingPlato || null,
-    sheetUrl: sheetUrl
+    sheetUrl: sheetUrl,
+    dryHopRequired: brew.dryHopRequired ?? null,
+    dryHopTargetPlato: brew.dryHopTargetPlato ?? null
   };
 
   // Re-read immediately before the destructive transition. The cycle may have
@@ -1551,6 +1562,8 @@ function updateFermentorForNextBrew_(
     "beerVolume",
     "startingPlato",
     "sheetUrl",
+    "dryHopRequired",
+    "dryHopTargetPlato",
     "cellarState",
     // currentData and brewProgress belong to the completed batch. Deleting
     // both in the same PATCH prevents the newly assigned waiting brew from

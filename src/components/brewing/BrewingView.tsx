@@ -710,6 +710,8 @@ export default function BrewingView({ brews, tab }: Props) {
                         }),
                     },
                     mashRestCount: recipe.mash.steps.some((step) => step.id === "rest3") ? 3 : 2,
+                    dryHopRequired: recipe.hops.some((hop) => hop.purpose === "dryHop"),
+                    dryHopTargetPlato: recipe.dryHopTargetPlato ?? null,
                 });
                 
                 setMessage(`✓ אצווה ${draft.batchNumber} נכנסה להכנה. אפשר להמשיך לעבוד — ה-Sheet ייווצר ברקע וישובץ אוטומטית כשהוא מוכן.`);

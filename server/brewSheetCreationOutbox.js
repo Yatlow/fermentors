@@ -134,6 +134,8 @@ function brewCreatePublishPending_(job, created) {
         fileId: { stringValue: String(created.id || "") },
         fileName: { stringValue: String(created.name || "") },
         sheetUrl: { stringValue: String(created.url || "") },
+        ...(typeof job.dryHopRequired === "boolean" ? { dryHopRequired: { booleanValue: job.dryHopRequired } } : {}),
+        ...(job.dryHopTargetPlato !== null && Number.isFinite(job.dryHopTargetPlato) ? { dryHopTargetPlato: { doubleValue: job.dryHopTargetPlato } } : {}),
         createdAt: { timestampValue: new Date().toISOString() }
       }
     })
@@ -157,6 +159,8 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
       name: String(brewCreateJobField_(document, "name") || ""),
       initialWritesJson: String(brewCreateJobField_(document, "initialWritesJson") || "[]"),
       recipeMaterialsJson: String(brewCreateJobField_(document, "recipeMaterialsJson") || "{}"),
+      dryHopRequired: (function (value) { return typeof value === "boolean" ? value : null; })(brewCreateJobField_(document, "dryHopRequired")),
+      dryHopTargetPlato: (function (value) { return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null; })(brewCreateJobField_(document, "dryHopTargetPlato")),
       mashRestCount: Number(brewCreateJobField_(document, "mashRestCount") || 2),
       attempts: Number(brewCreateJobField_(document, "attempts") || 0),
       fileId: String(brewCreateJobField_(document, "fileId") || ""),

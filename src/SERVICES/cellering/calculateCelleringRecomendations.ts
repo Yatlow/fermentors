@@ -4,6 +4,7 @@ import { getBrewAge } from "../../components/dashboard/TankCard";
 import { type SpecChart } from "../getAndPost/getSpecsFromFb";
 import type { TankStageInfo } from "../dashboard/tankstage";
 import { findOpenBottomCarbonation } from "./bottomCarbonation";
+import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshold";
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
@@ -392,7 +393,7 @@ export function extractYeastDrops(measurements: Measurement[]): YeastDrop[] {
 export async function calcCelleringRecomendations(measurements: Measurement[],
     beerStyle: string | number | undefined | null,
     brewDate: string, givenSpecs: SpecChart, stage: TankStageInfo, tankNumber: number | undefined,
-    TankCardUse: boolean, brews: Fermentor[]) {
+    TankCardUse: boolean, brews: Fermentor[], batchDryHop?: BatchDryHopSettings | null) {
 
     const sortedMeasurements = [...measurements].sort((a, b) => {
 
@@ -537,12 +538,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             .toLowerCase();
 
 
-    const isHoppy =
-        style.includes("ipa") ||
-        style.includes("פייל") ||
-        style.includes("הופי") ||
-        style.includes("pale") ||
-        style.includes("hoppy");
+    const requestedDryHopPlato = batchDryHopThreshold(style, givenSpecs.tolorances, batchDryHop);
+    const isHoppy = requestedDryHopPlato !== null;
     const normalizedStyle = String(style || "").trim().toLowerCase();
     const isLager = normalizedStyle.includes("לאגר");
 
@@ -620,7 +617,7 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
             dryHopPlato !== null &&
             dryHopTemp !== null &&
             dryHopPressure !== null &&
-            dryHopPlato < (givenSpecs.tolorances.dryHopMinPlato || 8) &&
+            dryHopPlato < (requestedDryHopPlato ?? 8) &&
             dryHopTemp > 9 &&
             dryHopPressure <= 0 &&
             !dryhopped &&

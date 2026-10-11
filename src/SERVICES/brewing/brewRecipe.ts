@@ -47,6 +47,8 @@ export type BrewRecipe = {
     startingPlato: number;
   };
   hops: BrewRecipeHop[];
+  /** Used only when style has no dedicated dry-hop threshold in Specs. */
+  dryHopTargetPlato?: number;
   yeast: {
     ingredientId: string;
     gramsPerBrew: number;
