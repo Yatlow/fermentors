@@ -782,7 +782,7 @@ export async function createShipment(palletIds: string[], customerName?: string 
         const shipmentRef = doc(db, SHIPMENTS_COLLECTION, String(nextNumber));
         tx.set(counterRef, { value: nextNumber }, { merge: true });
         tx.set(shipmentRef, { shipmentNumber: nextNumber, palletIds: uniquePalletIds, totals: Array.from(totalsMap.values()), customerName: customerName?.trim() || null, customerId: customerId?.trim() || null, createdAt: serverTimestamp() });
-        palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+        palletRefs.forEach((ref) => tx.update(ref, { zone: "shipped", markedForShipment: false, autoReservationWeek: null, autoReservationTruckId: null, shippedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
         return nextNumber;
     });
     return String(shipmentNumber);
@@ -817,7 +817,7 @@ export async function movePalletsToZone(palletIds: string[], zone: PalletZone): 
     await batch.commit();
 }
 
-export async function setMarkedForShipment(palletId: string, marked: boolean): Promise<void> { await updateDoc(doc(db, PALLETS_COLLECTION, palletId), { markedForShipment: marked, updatedAt: serverTimestamp() }); }
+export async function setMarkedForShipment(palletId: string, marked: boolean): Promise<void> { await updateDoc(doc(db, PALLETS_COLLECTION, palletId), { markedForShipment: marked, autoReservationWeek: null, autoReservationTruckId: null, updatedAt: serverTimestamp() }); }
 
 export async function reorderPalletsInZone(orderedPalletIds: string[]): Promise<void> {
     const batch = writeBatch(db);
