@@ -1,4 +1,4 @@
-import { dryHopThreshold, dryHopThresholdKey } from "../src/SERVICES/cellering/dryHopThreshold";
+import { dryHopThreshold, dryHopThresholdKey, recipeDryHopThreshold } from "../src/SERVICES/cellering/dryHopThreshold";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { projectPlatoThresholdRecheck, projectLagerDiacetylRest } from "../src/SERVICES/cellering/platoThresholdForecast";
@@ -94,4 +94,13 @@ test("forecast uses pale and hoppy thresholds instead of old global value", () =
   assert.equal(ipa[0].dueDate,"2026-10-10");
   assert.equal(pale[0].dueDate,"2026-10-11");
   assert.equal(hoppy[0].dueDate,"2026-10-12");
+});
+
+test("recipe dry hop marker determines need; seasonal target is explicit", () => {
+  const recipe = {style:"בירת חורף",hops:[{purpose:"whirlpool"},{purpose:"dryHop"}],dryHopTargetPlato:6.5};
+  assert.equal(recipeDryHopThreshold(recipe,{}),6.5);
+  assert.equal(recipeDryHopThreshold({...recipe,hops:[{purpose:"whirlpool"}]},{}),null);
+  assert.equal(recipeDryHopThreshold({...recipe,dryHopTargetPlato:undefined},{}),null);
+  assert.equal(recipeDryHopThreshold({...recipe,style:"IPA"}, {dryHopMinPlatoIpa:7.5}),7.5);
+  assert.equal(recipeDryHopThreshold({...recipe,dryHopTargetPlato:31},{}),null);
 });
