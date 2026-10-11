@@ -25,3 +25,18 @@ export function dryHopThreshold(style: unknown, tolerances?: Record<string, numb
   if (value !== undefined && value !== null && Number.isFinite(Number(value)) && Number(value) > 0) return Number(value);
   return DRY_HOP_DEFAULTS[key];
 }
+
+/** The recipe (not beer-style naming alone) decides whether dry-hop is required.
+ * Known styles inherit Specs, other styles must provide a recipe target.
+ */
+export function recipeDryHopThreshold(
+  recipe: { style: string; dryHopTargetPlato?: number; hops: Array<{ purpose: string }> },
+  tolerances?: Record<string, number>,
+): number | null {
+  if (!recipe.hops.some((hop) => hop.purpose === "dryHop")) return null;
+  const fromSpecs = dryHopThreshold(recipe.style, tolerances);
+  if (fromSpecs !== null) return fromSpecs;
+  const target = recipe.dryHopTargetPlato;
+  return typeof target === "number" && Number.isFinite(target) && target > 0 && target <= 30
+    ? target : null;
+}
