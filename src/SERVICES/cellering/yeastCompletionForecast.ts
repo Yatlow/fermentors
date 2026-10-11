@@ -36,27 +36,6 @@ function styleKey(input: unknown): string | null {
   return null;
 }
 
-/** Known cold yeast quantity since cooling; null means there is no documented reliable quantity. */
-export function coldYeastProgress(tank: ForecastTank, readings: YeastCompletionReading[], specs: { yeastDropMinimums?: Record<string, number> }): { total: number; target: number } | null {
-  const style = styleKey(tank.beerStyle), number = Number(tank.tankNumber);
-  const size: Size | null = number >= 2 && number <= 4 ? "single" : number >= 5 && number <= 8 ? "double" : number >= 9 && number <= 19 ? "triple" : null;
-  if (!style || !size) return null;
-  const sorted = [...readings].sort((a,b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
-  const cooling = [...sorted].reverse().find(row => /קירור/.test(String(row.notes ?? "")));
-  const coolingId = String(cooling?.id ?? "");
-  if (!dateOf(coolingId)) return null;
-  const key = `${style}_${size}_cold`;
-  const configured = specs.yeastDropMinimums?.[key];
-  const target = configured != null && Number.isFinite(Number(configured)) && Number(configured) >= 0 ? Number(configured) : defaults[style]?.[size]?.cold;
-  if (target == null) return null;
-  const drops = sorted.filter(row => String(row.id ?? "") > coolingId && /שמרים|שמרי/.test(String(row.notes ?? "")));
-  if (!drops.length) return null;
-  const quantities = drops.map(row => parseAmount(String(row.notes ?? "")));
-  // Never claim the threshold is met if a reported drop has an unknown amount.
-  if (quantities.some(amount => amount === null)) return null;
-  return { total: quantities.reduce((sum, amount) => sum + (amount ?? 0), 0), target };
-}
-
 export function projectKnownYeastCompletions(
   tank: ForecastTank, readings: YeastCompletionReading[], today: string,
   specs: { yeastDropMinimums?: Record<string, number> },
