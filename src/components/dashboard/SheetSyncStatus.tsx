@@ -232,7 +232,7 @@ export default function SheetSyncStatus() {
 
         let severity: Severity = "ok";
         if (hasFailedJob) severity = "failed";
-        else if (oldestPendingMinutes >= 30) severity = "failed";
+        else if (oldestPendingMinutes >= 30) severity = "warning";
         else if (oldestPendingMinutes >= 10) severity = "warning";
         else if (allPending.length > 0) severity = "pending";
 
