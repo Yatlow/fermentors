@@ -26,6 +26,9 @@ export type Pallet = {
     slotIndex?: number | null;
     heightUnits: number;
     markedForShipment?: boolean;
+    /** Provenance of an automatic shipment reservation (manual/legacy marks have no tag). */
+    autoReservationWeek?: string | null;
+    autoReservationTruckId?: string | null;
     batchNumber?: string | null;
     palletNumber?: string | null;
     sourceTankNumber?: string | number | null;

@@ -22,8 +22,16 @@ import {
 import { completedShipmentQueueTruckId } from "./shipmentActuals";
 import { expiryIso, palletQuantity } from "./shipmentPicking";
 import { shipmentDecisionPickOptions } from "./shipmentDecisionPicking";
+import { autoReservationWeek, isDispatchInReservationWeek } from "./shipmentReservationWeek";
 
 const PICKABLE_ZONES: PalletZone[] = ["cooler", "pending", "bottleRoom"];
+
+function activeReservationWeek(today: string): string {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem", hour: "2-digit", hourCycle: "h23",
+  }).format(new Date()));
+  return autoReservationWeek(today, hour);
+}
 
 export function isPlanningShipmentPickZone(zone: PalletZone): boolean {
   return PICKABLE_ZONES.includes(zone);
@@ -124,7 +132,7 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   // the full planningWeeks documents (same pattern as brewPlanningQueue).
   const [snapshot, actualShipments] = await Promise.all([
     getDocsFromServer(
-      query(collection(db, "shipmentPlanningQueue"), where("id", ">=", weekStart(today)))
+      query(collection(db, "shipmentPlanningQueue"), where("id", "==", activeReservationWeek(today)))
     ),
     actualTempoShipmentsThisWeek(today),
   ]);
@@ -154,7 +162,7 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
   }
 
   const lines = openDeliveries
-    .filter((delivery) => delivery.dispatchDate >= today)
+    .filter((delivery) => isDispatchEligibleForAutomaticReservation(delivery.dispatchDate, today))
     .map((delivery) => ({
       productId: delivery.productId,
       quantity: delivery.quantity,
@@ -178,6 +186,12 @@ async function nearestPlannedDelivery(today: string): Promise<PlannedLine[]> {
     });
   }
   return [...totals.values()];
+}
+
+/** A future-week decision must never reserve current-week inventory. */
+export function isDispatchEligibleForAutomaticReservation(dispatchDate: string, today: string): boolean {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  return isDispatchInReservationWeek(dispatchDate, today, hour);
 }
 
 function pickForMissing(candidates: Pallet[], missing: number): Pallet[] {
@@ -212,17 +226,27 @@ export async function reserveNewPalletsForNearestShipment(
   const planned = await nearestPlannedDelivery(today);
   const dispatchDate = planned[0]?.dispatchDate ?? null;
   const diagnostics: ShipmentReservationSyncResult["diagnostics"] = [];
-  if (!planned.length) return { dispatchDate, markedIds: [], diagnostics };
-
   const palletSnapshot = await getDocsFromServer(collection(db, "pallets"));
   const pallets = palletSnapshot.docs.map(
     (snapshot) => ({ id: snapshot.id, ...snapshot.data() }) as Pallet,
   );
+  const currentWeek = activeReservationWeek(today);
+  const activeTruckId = planned[0]?.truckId ?? null;
+  // Only our own explicitly tagged automatic reservations may be released.
+  const staleAutoIds = pallets.filter((pallet) =>
+    pallet.markedForShipment &&
+    pallet.autoReservationWeek &&
+    (pallet.autoReservationWeek !== currentWeek ||
+      pallet.autoReservationTruckId !== activeTruckId)
+  ).map((pallet) => pallet.id);
+  const staleSet = new Set(staleAutoIds);
+  const effectivePallets = pallets.map((pallet) => staleSet.has(pallet.id)
+    ? { ...pallet, markedForShipment: false } : pallet);
   const newIds = new Set(newPalletIds);
   const idsToMark = new Set<string>();
 
   for (const line of planned) {
-    const matching = pallets.filter((pallet) =>
+    const matching = effectivePallets.filter((pallet) =>
       pallet.zone !== "shipped" &&
       palletQuantity(pallet) > 0 &&
       skuForPallet(pallet) === line.productId,
@@ -270,15 +294,29 @@ export async function reserveNewPalletsForNearestShipment(
     });
   }
 
-  if (idsToMark.size > 0) {
+  if (idsToMark.size > 0 || staleAutoIds.length > 0) {
     await runTransaction(db, async (tx) => {
-      const refs = [...idsToMark].map((id) => doc(db, "pallets", id));
+      const allIds = [...new Set([...staleAutoIds, ...idsToMark])];
+      const refs = allIds.map((id) => doc(db, "pallets", id));
       const snapshots = await Promise.all(refs.map((ref) => tx.get(ref)));
 
       snapshots.forEach((snapshot, index) => {
         if (!snapshot.exists()) return;
         const pallet = { id: snapshot.id, ...snapshot.data() } as Pallet;
+        if (staleSet.has(pallet.id) && pallet.markedForShipment &&
+            pallet.autoReservationWeek &&
+            (pallet.autoReservationWeek !== currentWeek ||
+             pallet.autoReservationTruckId !== activeTruckId)) {
+          tx.update(refs[index], {
+            markedForShipment: idsToMark.has(pallet.id),
+            autoReservationWeek: idsToMark.has(pallet.id) ? currentWeek : null,
+            autoReservationTruckId: idsToMark.has(pallet.id) ? activeTruckId : null,
+            updatedAt: serverTimestamp(),
+          });
+          return;
+        }
         if (
+          !idsToMark.has(pallet.id) ||
           pallet.markedForShipment ||
           !isPlanningShipmentPickZone(pallet.zone) ||
           !expiryIso(pallet.expiryDateStr) ||
@@ -287,6 +325,8 @@ export async function reserveNewPalletsForNearestShipment(
 
         tx.update(refs[index], {
           markedForShipment: true,
+          autoReservationWeek: currentWeek,
+          autoReservationTruckId: activeTruckId,
           updatedAt: serverTimestamp(),
         });
       });

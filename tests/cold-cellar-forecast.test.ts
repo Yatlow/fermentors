@@ -71,3 +71,19 @@ test("two documented cold yeast drops sum to the target", () => {
   ];
   assert.deepEqual(projectKnownYeastCompletions(coldTank, readings, "2026-10-11", {}), []);
 });
+
+
+test("tank 10: five documented cold yeast drops are not a new completion action", () => {
+  const tank10 = { id: "10", tankNumber: "10", beerStyle: "IPA", stage: { name: "קר" } };
+  const rows = [
+    { id: "2026-09-21_0800", notes: "קירור", temp: 4 },
+    { id: "2026-09-22_0800", notes: "הורדת 10 דליי שמרים", temp: 18 },
+    { id: "2026-09-24_0800", notes: "הורדת 11 דליי שמרים", temp: 18 },
+    { id: "2026-09-27_0800", notes: "הורדת 4 דליי שמרים", temp: 4 },
+    { id: "2026-09-29_0800", notes: "הורדת 0.5 דליי שמרים", temp: 4 },
+    { id: "2026-10-04_0800", notes: "הורדת 0.75 דליי שמרים", temp: 4 },
+    { id: "2026-10-08_0800", notes: "הורדת 0.5 דליי שמרים", temp: 4 },
+    { id: "2026-10-11_0800", notes: "הורדת 0.5 דליי שמרים", temp: 4 },
+  ];
+  assert.deepEqual(projectKnownYeastCompletions(tank10, rows, "2026-10-11", {}), []);
+});

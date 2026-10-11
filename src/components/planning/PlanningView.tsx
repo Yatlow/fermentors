@@ -106,6 +106,19 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     const allWithEditedWeek = identityAlignedPlans.map((week) => week.id === merged.id ? merged : week);
     if (!allWithEditedWeek.some((week) => week.id === merged.id)) allWithEditedWeek.push(merged);
     const canonical = withStablePackagingIdentity(allWithEditedWeek).find((week) => week.id === merged.id) ?? merged;
+    // Warn only when this save introduces/changes a shipment decision.
+    // A deliberate no-shipment week remains permitted.
+    const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
+    const priorWeekId = addDays(canonical.id, -7);
+    const priorWeek = identityAlignedPlans.find((week) => week.id === priorWeekId);
+    const hasNewShipment = (canonical.deliveries ?? []).some((delivery) => delivery.quantity > 0);
+    const previousWeekHasShipment = (priorWeek?.deliveries ?? []).some((delivery) => delivery.quantity > 0);
+    if (shipmentDecisionChanged && hasNewShipment && canonical.id > weekStart(today) && !previousWeekHasShipment) {
+      const accepted = window.confirm(
+        `שים לב: מתוכנן משלוח בשבוע ${canonical.id}, אך בשבוע הקודם (${priorWeekId}) אין משלוח מתוכנן.\\nייתכן שהוחמץ שבוע בתכנון.\\n\\nהאם לשמור בכל זאת?`
+      );
+      if (!accepted) return;
+    }
     const changed: RecommendationKind[] = [];
     if (JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? [])) changed.push("shipment");
     if (JSON.stringify(original?.packaging ?? []) !== JSON.stringify(canonical.packaging ?? [])) changed.push("packaging");
