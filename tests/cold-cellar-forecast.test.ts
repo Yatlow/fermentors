@@ -29,3 +29,10 @@ test("non-hoppy tank and absence of dated dry hop do not get forecast", () => {
     { id: "invalid", notes: "הוספת כשות" },
   ], "2026-10-10"), []);
 });
+
+test("seasonal batch with dry-hop recipe receives warm-yeast follow-up", () => {
+  const seasonal = {...tank, beerStyle:"בירת חורף", dryHopRequired:true, dryHopTargetPlato:6.5};
+  const readings = [{id:"2026-10-09_0800", notes:"הוספת כשות"}];
+  assert.equal(projectYeastAfterDryHop(seasonal, readings, "2026-10-10")[0]?.dueDate, "2026-10-14");
+  assert.deepEqual(projectYeastAfterDryHop({...seasonal,dryHopRequired:false}, readings, "2026-10-10"), []);
+});
