@@ -117,8 +117,7 @@ function srSaturdayReconcile_() {
     .forEach(function(d) { lines[d.productId] = (lines[d.productId] || 0) + Number(d.quantity); });
   var pallets = srListPallets_(), tagged = [];
   pallets.forEach(function(p) {
-    if (p.markedForShipment === true && p.autoReservationWeek &&
-      (p.autoReservationWeek !== targetWeek || p.autoReservationTruckId !== truck)) tagged.push(p);
+    if (p.markedForShipment === true && p.autoReservationWeek) tagged.push(p);
   });
   var staleIds = {};
   tagged.forEach(function(p) { staleIds[p.name] = true; });
