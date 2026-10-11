@@ -14,14 +14,17 @@ test("warm completion appears only when a recorded quantity is below configured 
   assert.deepEqual(projectKnownYeastCompletions(tank,[{...rows[0],notes:"הורדת שמרים"}],"2026-10-11",{}),[]);
   assert.deepEqual(projectKnownYeastCompletions(tank,[{...rows[0],notes:"הורדת שמרים 12 דליים"}],"2026-10-11",{}),[]);
 });
-test("cold completion requires exactly one quantified post-cooling cold drop",()=>{
+test("cold completion sums all quantified post-cooling drops",()=>{
  const cold={...tank,stage:{name:"קר"}};
  const records=[{id:"2026-10-08_0800",notes:"קירור",temp:4},{id:"2026-10-09_0800",notes:"הורדת שמרים 4 דליים",temp:4}];
  const forecast=projectKnownYeastCompletions(cold,records,"2026-10-10",{});
  assert.equal(forecast.length,1);
  assert.equal(forecast[0].dueDate,"2026-10-11");
  assert.match(forecast[0].title,/8 דליים/);
- assert.deepEqual(projectKnownYeastCompletions(cold,[...records,{id:"2026-10-10_0800",notes:"הורדת שמרים 2 דליים",temp:4}],"2026-10-10",{}),[]);
+ const second=projectKnownYeastCompletions(cold,[...records,{id:"2026-10-10_0800",notes:"הורדת שמרים 2 דליים",temp:4}],"2026-10-10",{});
+ assert.equal(second.length,1);
+ assert.equal(second[0].dueDate,"2026-10-12");
+ assert.match(second[0].title,/6 דליים/);
 });
 test("cooling forecast is conditional and requires both yeast drop and falling fresh Plato",()=>{
  const rows=[{id:"2026-10-09_0800",plato:7,notes:"הורדת שמרים"},{id:"2026-10-10_0800",plato:6}];
