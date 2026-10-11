@@ -409,6 +409,16 @@ function executePostAction_(data) {
     return { success: true, action: "CheckStatusTransition", result: checkStatusTransition(tankID, toAction) };
   }
 
+  if (data.action === "ClientSheetSyncDiagnostic") {
+    logToSheet(
+      "CLIENT SHEET SYNC DIAGNOSTIC requestId=" + String(data.originalRequestId || "").slice(0, 140) +
+      " phase=" + String(data.phase || "").slice(0, 60) +
+      " type=" + String(data.errorType || "").slice(0, 80) +
+      " message=" + String(data.errorMessage || "").split("\n").join(" ").slice(0, 300)
+    );
+    return { success: true };
+  }
+
   if (data.action === "logPackagingToMasterSheet") {
     const result = logPackagingToMasterSheet(data);
     return { success: true, result: result };
