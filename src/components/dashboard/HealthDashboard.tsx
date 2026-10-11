@@ -438,7 +438,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             tank.stage,
                             Number(tank.tankNumber),
                             true,
-                            brews
+                            brews,
+                            { dryHopRequired: typeof tank.dryHopRequired === "boolean" ? tank.dryHopRequired : null,
+                              dryHopTargetPlato: typeof tank.dryHopTargetPlato === "number" ? tank.dryHopTargetPlato : null }
                         );
                         const bottomCarb = tank.stage.name === "קר"
                             ? bottomCarbonationRecommendation(measurements)
