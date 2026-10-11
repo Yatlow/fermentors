@@ -1124,6 +1124,12 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     const lastYeastDate =
         formatMeasurementDate(lastYeast?.id);
     const neglected = () => {
+        // Cellar-wide Sunday checks typically reset the neglect clock.
+        // Surface neglect only Monday–Thursday, never Fri/Sat/Sun.
+        if (today === 0 || today >= 5) {
+            return { display: false, req: false, importance: 0, reason: "" };
+        }
+
 
         // ============================================================
         // HOT TANK
