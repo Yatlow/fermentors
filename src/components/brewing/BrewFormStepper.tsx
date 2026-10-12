@@ -364,12 +364,12 @@ function formatTimeWhileTyping(value: string): string {
   const digits = raw.replace(/\D/g, "").slice(0, 4);
   // Keep one- and two-digit drafts editable (including Backspace), then
   // format as soon as the minute digits arrive. Three-digit shorthand such
-  // as 845 means 08:45, whereas 123 means 01:23.
+  // as 845 means 08:45, while 184 remains 18:4 until another digit arrives.
   if (digits.length <= 2) return digits;
   if (digits.length === 3) {
     const compactHour = Number(digits.slice(0, 1));
     const compactMinute = Number(digits.slice(1));
-    if (compactHour <= 9 && compactMinute <= 59) {
+    if (Number(digits.slice(0, 2)) > 23 && compactHour <= 9 && compactMinute <= 59) {
       return `${String(compactHour).padStart(2, "0")}:${digits.slice(1)}`;
     }
     return `${digits.slice(0, 2)}:${digits.slice(2)}`;
