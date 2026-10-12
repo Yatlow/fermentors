@@ -372,7 +372,10 @@ function formatTimeWhileTyping(value: string): string {
     if (Number(digits.slice(0, 2)) > 23 && compactHour <= 9 && compactMinute <= 59) {
       return `${String(compactHour).padStart(2, "0")}:${digits.slice(1)}`;
     }
-    return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+    // Ambiguous prefixes such as 184 may become 18:45 when a fourth
+    // digit arrives, or 01:84 (invalid) if completed now. Keep them raw
+    // until blur or the next keystroke instead of guessing.
+    return digits;
   }
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 }
