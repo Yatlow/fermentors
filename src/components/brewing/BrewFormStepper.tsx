@@ -362,9 +362,21 @@ function formatTimeWhileTyping(value: string): string {
   }
 
   const digits = raw.replace(/\D/g, "").slice(0, 4);
-  // Keep 3-digit compact times intact while typing so 845 can normalize to
-  // 08:45 on blur. Four digits are unambiguous and can be formatted eagerly.
-  if (digits.length <= 3) return digits;
+  // Keep one- and two-digit drafts editable (including Backspace), then
+  // format as soon as the minute digits arrive. Three-digit shorthand such
+  // as 845 means 08:45, while 184 remains 18:4 until another digit arrives.
+  if (digits.length <= 2) return digits;
+  if (digits.length === 3) {
+    const compactHour = Number(digits.slice(0, 1));
+    const compactMinute = Number(digits.slice(1));
+    if (Number(digits.slice(0, 2)) > 23 && compactHour <= 9 && compactMinute <= 59) {
+      return `${String(compactHour).padStart(2, "0")}:${digits.slice(1)}`;
+    }
+    // Ambiguous prefixes such as 184 may become 18:45 when a fourth
+    // digit arrives, or 01:84 (invalid) if completed now. Keep them raw
+    // until blur or the next keystroke instead of guessing.
+    return digits;
+  }
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 }
 
