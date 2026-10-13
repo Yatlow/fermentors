@@ -237,7 +237,10 @@ export function subscribeToBrewingExecution(
     const base = data.brewingExecution;
     if (base && (base.batchNumber !== clean || !base.blocks)) return;
     if (!base && !data.brewSheetRowMapJson) return;
-    const remote = withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson);
+    const mapped = withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson);
+    const remote = isOlderThanLocal(clean, mapped)
+      ? withCreatedRowMap(clean, loadBrewingExecution(clean), data.brewSheetRowMapJson)
+      : mapped;
     emitRemote(remote);
   });
 
@@ -253,7 +256,10 @@ export function subscribeToBrewingExecution(
           const base = data.brewingExecution;
           if (base && (base.batchNumber !== clean || !base.blocks)) return;
           if (!base && !data.brewSheetRowMapJson) return;
-          emitRemote(withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson));
+          const mapped = withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson);
+          emitRemote(isOlderThanLocal(clean, mapped)
+            ? withCreatedRowMap(clean, loadBrewingExecution(clean), data.brewSheetRowMapJson)
+            : mapped);
         })
         .catch((error) =>
           console.warn("Failed refreshing brewing execution after edit", error),
@@ -286,7 +292,11 @@ export async function loadBrewingExecutionFromFirestore(
   if (remote && (remote.batchNumber !== clean || !remote.blocks)) return null;
   if (!remote && !data.brewSheetRowMapJson) return null;
   const mapped = withCreatedRowMap(clean, remote || loadBrewingExecution(clean), data.brewSheetRowMapJson);
-  if (isOlderThanLocal(clean, mapped)) return loadBrewingExecution(clean);
+  if (isOlderThanLocal(clean, mapped)) {
+    return persistRemoteExecutionLocal(withCreatedRowMap(
+      clean, loadBrewingExecution(clean), data.brewSheetRowMapJson,
+    ));
+  }
   lastRemoteExecutionFingerprint.set(clean, executionFingerprint(mapped));
   return persistRemoteExecutionLocal(mapped);
 }
