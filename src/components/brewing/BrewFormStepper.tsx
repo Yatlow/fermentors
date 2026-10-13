@@ -497,19 +497,8 @@ function fieldsFromSheetRows(
   if (brewDate) pulled.brewDate = brewDate;
   pulled["__sheetRow.header"] = String(sheetStartRow);
 
-  TIMELINE_STAGES.forEach((stage) => {
-    const start = normalizedTime(cell(stage.rowOffset, "E"));
-    const end = normalizedTime(cell(stage.rowOffset, "F"));
-    const temp = numericText(cell(stage.rowOffset, "G"));
-    if (start) pulled[`${stage.key}.start`] = start;
-    if (end) pulled[`${stage.key}.end`] = end;
-    if (stage.showTemp && temp) pulled[`${stage.key}.temp`] = temp;
-
-    if (stage.showNote && stage.key !== "mashIn") {
-      const note = cell(stage.rowOffset, "H");
-      if (note) pulled[`${stage.key}.note`] = note;
-    }
-  });
+  // Do not read process stages from fixed offsets. Extra mash rests shift
+  // every subsequent stage; semantic labels below are authoritative.
 
   const hltAmount = numericText(cell(8, "B"));
   const hltTemp = numericText(cell(8, "C"));
@@ -536,21 +525,11 @@ function fieldsFromSheetRows(
     mashMeta.match(/הערה:\s*(.+)$/i)?.[1]?.trim() || "";
   if (mashInNote) pulled["mashIn.note"] = mashInNote;
 
-  const mashAcid = numericText(cell(28, "A"));
-  if (mashAcid) pulled.mashAcid85 = mashAcid;
-
-  const boilAcid = numericText(cell(29, "A"));
-  if (boilAcid) pulled.boilAcid85 = boilAcid;
-
+  // Acid rows are resolved from their H3PO4 labels below.
   // The out-to-boil row moves in recipes with extra mash rests.
   // Never infer its pH from an absolute offset; resolve it semantically below.
 
-  const boilCell = cell(28, "F");
-  if (!normalizedTime(boilCell)) {
-    const boilPh = numericText(boilCell);
-    if (boilPh) pulled.boilPh = boilPh;
-  }
-
+  // Boil pH is resolved from its named process row below.
   // Fermentor transfer position also varies by recipe; use the labeled row.
 
   for (let rowOffset = 42; rowOffset <= 47; rowOffset += 1) {
@@ -570,30 +549,8 @@ function fieldsFromSheetRows(
   // Wheat with a third rest). Never infer rinse data from fixed row offsets;
   // the semantic "שטיפה N" rows below are the only Sheet source for rinses.
 
-  const sugarFields: Array<
-    [string, number, "B" | "C"]
-  > = [
-    ["frPlato", 36, "B"],
-    ["lrPlato", 37, "B"],
-    ["kettlePlato", 38, "B"],
-    ["kettleVolume", 38, "C"],
-    ["endBoilPlato", 39, "B"],
-    ["endBoilVolume", 39, "C"],
-    ["fermentorSamplePlato", 40, "B"],
-    ["cumulativeTankVolume", 40, "C"],
-  ];
-
-  sugarFields.forEach(([key, rowOffset, column]) => {
-    const value = numericText(cell(rowOffset, column));
-    if (value) pulled[key] = value;
-  });
-
-  for (let index = 1; index <= 4; index += 1) {
-    const amount = numericText(cell(14 + index, "A"));
-    const alpha = numericText(cell(14 + index, "B"));
-    if (amount) pulled[`hop${index}.amountGrams`] = amount;
-    if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
-  }
+  // Sugar, volume, and hops are read from labeled rows rather than recipe-
+  // dependent positions. Unmatched fields are left untouched, never guessed.
 
   // Different beer-style templates do not share the IPA row offsets.
   // Re-read important values by the visible row labels and override the
@@ -724,7 +681,7 @@ function fieldsFromSheetRows(
   const boilRow = findDynamicRow("D", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i);
   if (boilRow >= 0) {
     const ph = numericText(dynamicValue(boilRow, "F"));
-    if (ph) pulled.boilPh = ph;
+    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.boilPh = ph;
   }
 
   for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
