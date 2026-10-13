@@ -532,18 +532,16 @@ function fieldsFromSheetRows(
   // Boil pH is resolved from its named process row below.
   // Fermentor transfer position also varies by recipe; use the labeled row.
 
-  for (let rowOffset = 42; rowOffset <= 47; rowOffset += 1) {
-    const correction = cell(rowOffset, "E");
-    if (!correction) continue;
-
-    correction.split(/\r?\n/).forEach((line) => {
+  // Correction notes are located by their explicit semantic prefixes rather
+  // than by their original (pre-extra-rest) row numbers.
+  rows.forEach((row) => {
+    String(row[4] || "").split(/\r?\n/).forEach((line) => {
       const mashMatch = /^הערת מאש:\s*(.*)$/i.exec(line.trim());
       if (mashMatch) pulled["mashIn.note"] = mashMatch[1].trim();
-
       const generalMatch = /^הערה כללית:\s*(.*)$/i.exec(line.trim());
       if (generalMatch) pulled.generalNote = generalMatch[1].trim();
     });
-  }
+  });
 
   // Rinse rows move when a recipe has a different mash layout (for example
   // Wheat with a third rest). Never infer rinse data from fixed row offsets;
@@ -1701,7 +1699,7 @@ export default function BrewFormStepper({
         `materialLot.${ingredient.id}`,
         lot.id,
       );
-      const row = baseRow + index;
+      const row = sheetRowFromMeta("__sheetRow.stage.mashIn", baseRow) + index;
       const typeAndLot = [
         ingredient.name,
         lot.lotNumber ? `#${lot.lotNumber}` : "",
@@ -2123,11 +2121,13 @@ export default function BrewFormStepper({
     value: string,
   ) {
     const clean = value.trim();
-    const correctionsLabelRow = baseRow + 41;
+    const correctionsLabelRow =
+      sheetRowFromMeta("__sheetRow.stage.outToFermentor", baseRow + 40) + 1;
     const nextBoundaryRow =
       currentBlock < totalBlocks
-        ? blockHeaderRow(run.tankType, currentBlock + 1)
-        : fermentationStartingRow(run.tankType) - 2;
+        ? Number(execution.blocks[String(currentBlock + 1)]?.fields?.["__sheetRow.header"]) ||
+          blockHeaderRow(run.tankType, currentBlock + 1)
+        : mappedFermentationRow() - 2;
     const startRow = correctionsLabelRow + 1;
     const endRow = Math.max(startRow, nextBoundaryRow - 1);
     const rows = run.sheetId
