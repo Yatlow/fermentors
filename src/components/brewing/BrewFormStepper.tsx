@@ -3752,21 +3752,14 @@ export default function BrewFormStepper({
     }
 
     initialProductionPullKey.current = run.batchNumber;
-    // A new brew already has a canonical execution; discover its semantic
-    // row map only when it has not yet been persisted. Reopening a mapped
-    // form must not re-import the entire Sheet and overwrite fresh inputs.
-    const blocksNeedMapping = Array.from({ length: totalBlocks }, (_, index) =>
-      execution.blocks[String(index + 1)]?.fields || {},
-    ).some((blockFields) =>
-      !Object.keys(blockFields).some((key) => key.startsWith("__sheetRow.stage.")),
-    );
-    if (blocksNeedMapping) {
-      void syncFromSheet(true, { silent: true }).then((ok) => {
-        if (!ok) console.warn("Initial brew Sheet reconciliation did not complete", run.batchNumber);
-      });
-    } else {
-      setInitialSheetReconciled(true);
-    }
+    // Reconcile on every fresh form mount, even when semantic row metadata
+    // already exists. A previously mapped execution can still contain stale
+    // values imported from legacy fixed offsets. Sheet-backed values are
+    // authoritative; syncFromSheet preserves local-only confirmations and
+    // aborts if an in-session edit occurs during the read.
+    void syncFromSheet(true, { silent: true }).then((ok) => {
+      if (!ok) console.warn("Initial brew Sheet reconciliation did not complete", run.batchNumber);
+    });
     // Live onEdit revision events are the synchronization trigger. A periodic
     // full pull races with local autosave and may replace freshly entered
     // values without any corresponding Sheet edit.
