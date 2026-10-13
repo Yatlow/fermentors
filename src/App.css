@@ -6841,3 +6841,32 @@ b {
   .catalog-editor-row { grid-template-columns: 1fr 1fr; }
   .catalog-editor-row .catalog-description { grid-column: 1 / -1; }
 }
+
+
+/* Responsive navigation hierarchy: primary icons, secondary tabs, tertiary filters */
+.views-box .views-item{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.mobile-nav-more{display:none}
+@media (min-width:601px) and (max-width:899px){
+  .views-box{display:flex;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin;max-width:100%;-webkit-overflow-scrolling:touch}
+  .views-box .views-item{flex:0 0 auto;white-space:nowrap}
+}
+@media (max-width:899px){
+  .status-filter{display:flex;overflow-x:auto;flex-wrap:nowrap;gap:7px;padding:9px 4px;margin-block:8px 12px;border-bottom:1px solid #cbd5e1;scrollbar-width:thin}
+  .status-filter-button{flex:0 0 auto;white-space:nowrap}
+  .status-filter-button.active{font-weight:700}
+  .status-filter + .status-filter{border-top:1px solid #e2e8f0}
+}
+@media (max-width:600px){
+  body{padding-bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+  .views-box{position:fixed;z-index:1000;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:5px 4px calc(5px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid #cbd5e1;box-shadow:0 -3px 14px #0f172a20}
+  .views-box .views-item,.views-box .mobile-nav-more{min-width:0;min-height:54px;padding:5px 1px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;line-height:1.2;text-align:center;border-radius:8px;cursor:pointer}
+  .views-box .views-item:nth-child(n+5){display:none}
+  .views-box.mobile-more-open .views-item:nth-child(n+5){display:flex}
+  .views-box.mobile-more-open .views-item:nth-child(n+5){position:absolute;bottom:calc(100% + 5px);background:#fff;border:1px solid #e2e8f0;box-shadow:0 2px 10px #0f172a22;width:32%}
+  .views-box.mobile-more-open .views-item:nth-child(5){right:1%}
+  .views-box.mobile-more-open .views-item:nth-child(6){right:34%}
+  .views-box.mobile-more-open .views-item:nth-child(7){right:67%}
+  .views-box .mobile-nav-more{grid-column:5;background:transparent;border:0;color:#334155}
+  .views-box .views-item .nav-badge{position:absolute;margin:0;transform:translate(23px,-13px)}
+}
+@media print{.views-box{display:none!important}body{padding-bottom:0!important}}
