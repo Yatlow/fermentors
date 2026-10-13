@@ -431,7 +431,7 @@ function dedupeStyleMeasurements_(measurements, brewId) {
 
   function score(row) {
     const id = String(row.__measurementDocId || "");
-    const match = id.match(/_(\\d{3,4})$/);
+    const match = id.match(/_(\d{3,4})$/);
     if (!match) return { time: -1, padded: false, id: id };
     return {
       time: Number(match[1]),
