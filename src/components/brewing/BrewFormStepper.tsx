@@ -3463,6 +3463,12 @@ export default function BrewFormStepper({
         fullSheetRows,
         totalBlocks,
       );
+      console.info("[brew-sheet-reconcile] block discovery", {
+        batch: run.batchNumber,
+        expectedBlocks: totalBlocks,
+        detectedBlocks: discoveredBlocks,
+        sheetRows: fullSheetRows.length,
+      });
 
       for (let index = 1; index <= totalBlocks; index += 1) {
         const discovered = discoveredBlocks[index - 1];
@@ -3490,6 +3496,16 @@ export default function BrewFormStepper({
           if (yeastTime) pulled.yeastPitchTime = yeastTime;
         }
 
+        console.info("[brew-sheet-reconcile] semantic lautering fields", {
+          batch: run.batchNumber,
+          block: index,
+          mappedRows: Object.fromEntries(Object.entries(pulled).filter(([key]) =>
+            key.startsWith("__sheetRow.stage.") || key.startsWith("__sheetRow.rinse.")
+          )),
+          values: Object.fromEntries(Object.entries(pulled).filter(([key]) =>
+            /^(circulation\.|outToBoil\.|outToBoilPh$|rinse[1-7]\.)/.test(key)
+          )),
+        });
         const existing =
           nextExecution.blocks[String(index)]?.fields || {};
         const localOnlyFields = Object.fromEntries(
@@ -3573,6 +3589,8 @@ export default function BrewFormStepper({
         setMessage(detail);
       } else {
         console.warn("Background Sheet reconciliation failed", error);
+        setSyncError(`קריאת הנתונים מה־Sheets נכשלה: ${detail}`);
+        setMessage(`קריאת הנתונים מה־Sheets נכשלה: ${detail}`);
       }
       return false;
     } finally {
