@@ -1849,48 +1849,15 @@ export default function BrewFormStepper({
     );
   }
 
-  async function sugarSheetRow(
-    key: string,
-    fallbackOffset: number,
-  ): Promise<number> {
-    const metaRow = Number(fields[`__sheetRow.sugar.${key}`]);
-    if (Number.isFinite(metaRow) && metaRow > 0) return metaRow;
-
-    const semanticPatterns: Record<string, RegExp> = {
-      frPlato: /^F\.R\.?\s*$/i,
-      lrPlato: /^L\.R\.?\s*$/i,
-      kettlePlato: /^סיר בישול/i,
-      kettleVolume: /^סיר בישול/i,
-      endBoilPlato: /^סוף רתיחה$/i,
-      endBoilVolume: /^סוף רתיחה$/i,
-      fermentorSamplePlato: /^תחילת תסיסה$/i,
-      cumulativeTankVolume: /^תחילת תסיסה$/i,
-    };
-    const pattern = semanticPatterns[key];
-
-    if (run.sheetId && pattern) {
-      try {
-        // Do not depend on the background full-Sheet reconciliation having
-        // finished before the brewer clicks the calculator. A narrow read is
-        // safe while the form is active and lets us resolve the visible label
-        // to its real Sheet row on variable templates.
-        const rows = await readBrewSheetRange(
-          run.sheetId,
-          "'גיליון1'!A1:C220",
-        );
-        const rowIndex = rows.findIndex((row) =>
-          pattern.test(String(row[0] ?? "").trim()),
-        );
-        if (rowIndex >= 0) return rowIndex + 1;
-      } catch (error) {
-        console.warn("Failed resolving semantic sugar row", { key, error });
-      }
-    }
-
-    if (run.sheetId) {
-      throw new Error(`לא נמצאה שורה סמנטית לשדה ${key}; כתיבה למיקום משוער נחסמה.`);
-    }
-    return baseRow + fallbackOffset;
+  async function sugarSheetRow(key: string, fallbackOffset: number): Promise<number> {
+    // This function remains asynchronous for compatibility with its callers.
+    // Its address comes only from the selected A/B/C block's persisted map.
+    // A global first-match search would incorrectly write into brew A when
+    // the current block is B or C (especially after an extra wheat rest).
+    return sheetRowFromMeta(
+      `__sheetRow.sugar.${key}`,
+      baseRow + fallbackOffset,
+    );
   }
 
   function acidSheetRow(
