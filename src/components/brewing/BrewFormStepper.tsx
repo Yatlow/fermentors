@@ -3534,6 +3534,18 @@ export default function BrewFormStepper({
           ),
         );
 
+        // Initial discovery is metadata-only for existing form data. The app
+        // already owns these values; reading a newly discovered map must not
+        // turn a stale Sheet snapshot into a full-field overwrite.
+        const mappingDiscoveryOnly = positionAfterPull && silent;
+        if (mappingDiscoveryOnly && Object.keys(existing).some((key) =>
+          !key.startsWith("__sheetRow.") && String(existing[key] ?? "").trim() !== ""
+        )) {
+          Object.keys(pulled).forEach((key) => {
+            if (!key.startsWith("__sheetRow.")) delete pulled[key];
+          });
+        }
+
         // A Sheet pull must not erase an explicit material confirmation merely
         // because the legacy Sheet cannot reconstruct every lot identifier.
         // B/C also intentionally have no separate yeast confirmation.
