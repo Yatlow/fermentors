@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { LightbulbOff, Undo2, UserShield } from "lucide-react";
+import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, Snowflake, Gauge, Hop, ThermometerSun, CircleCheck, Wind } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -1194,7 +1194,19 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     const warmOnly = ["סגירת מיכל", "דרייהופ", "דיאציטיל", "קירור"];
                                     const coldOnly = ["גיזוז", "גיזוז מלמטה התחלה", "גיזוז מלמטה סגירה"];
                                     const available = tank && Number(tank.tankNumber) !== 1 && (!warmOnly.includes(noteType) || isWarm) && (!coldOnly.includes(noteType) || !isWarm);
-                                    return noteType && available ? <button type="button" className="health-quick-report-button" onClick={() => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType } }))}>דווח</button> : null;
+                                    const actionUI: Record<string, { label: string; Icon: typeof Gauge }> = {
+                                        "שמרים": { label: "דווח הורדת שמרים", Icon: FlaskConical },
+                                        "גיזוז": { label: "דווח בדיקת גיזוז", Icon: Bubbles },
+                                        "גיזוז מלמטה התחלה": { label: "דווח התחלת גיזוז", Icon: Bubbles },
+                                        "גיזוז מלמטה סגירה": { label: "דווח סגירת גיזוז", Icon: CircleCheck },
+                                        "דרייהופ": { label: "דווח דרייהופ", Icon: Hop },
+                                        "קירור": { label: "דווח קירור", Icon: Snowflake },
+                                        "לחץ": { label: "דווח שינוי לחץ", Icon: Gauge },
+                                        "סגירת מיכל": { label: "דווח סגירת מיכל", Icon: Wind },
+                                        "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
+                                    };
+                                    const ui = actionUI[noteType];
+                                    return noteType && available && ui ? <button type="button" className="health-quick-report-button" onClick={() => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
                                 })()}
                                 {alert.dismissible && (
                                     <button
