@@ -65,9 +65,16 @@ export default function Dashboard({
         return () => { cancelled = true; };
     }, []);
 
+    // Packaging planning depends on tank assignment, not live measurements.
+    // Keep this signature stable when temperature, pressure or notes change.
+    const packagingTankSignature = (healthBrews ?? filteredBrews)
+        .filter(tank => Number(tank.tankNumber) > 1 && Number(tank.action) === 1)
+        .map(tank => [tank.id, tank.tankNumber, tank.batchNumber].join(":"))
+        .sort().join("|");
+
     useEffect(() => {
         let cancelled = false;
-        const activeTanks = filteredBrews.filter(
+        const activeTanks = (healthBrews ?? filteredBrews).filter(
             (tank) => Number(tank.tankNumber) > 1 && Number(tank.action) === 1,
         );
 
@@ -101,7 +108,7 @@ export default function Dashboard({
             if (!cancelled) setPackagingDates(Object.fromEntries(entries));
         });
         return () => { cancelled = true; };
-    }, [filteredBrews]);
+    }, [packagingTankSignature]);
 
     const displayBrews = useMemo(() => {
         const visible = onlyWithCellarRecommendations
@@ -225,6 +232,7 @@ export default function Dashboard({
                     return (
                         <div
                             className={`dashboard-tank-slot${showBrewFormButton ? " dashboard-tank-slot-brew" : ""}`}
+                            data-tank-number={fermentor.tankNumber}
                             key={fermentor.id}
                         >
                             <TankCard

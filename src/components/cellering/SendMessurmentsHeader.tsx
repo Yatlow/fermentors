@@ -620,6 +620,20 @@ export default function SendMessurmentsHeader({
             }
 
             const allSucceeded = res.every((r) => r.success);
+            // The durable Firestore write has been acknowledged by writeReadingsToSheets.
+            // Sheet synchronization continues asynchronously and is tracked separately.
+            if (allSucceeded && succeededReadings.length > 0) {
+                const tankNumbers = [...new Set(succeededReadings.map(reading => String(reading.tankNumber ?? reading.tankId)))];
+                window.dispatchEvent(new CustomEvent("cellar-report-saved", {
+                    detail: {
+                        tankNumber: tankNumbers[0],
+                        tankNumbers,
+                        label: tankNumbers.length === 1 ? `מיכל ${tankNumbers[0]}` : `${tankNumbers.length} מיכלים`,
+                        action: reportName === "לחץ" ? "טמפרטורה ולחץ" : reportName === "חם" ? "פלאטו ו־pH" : reportName === "פעולות" ? "פעולות סלרינג" : "אריזה",
+                    },
+                }));
+            }
+
 
             try {
                 await resolveScheduledActionsForSuccessfulReadings(readingsToSend, res);

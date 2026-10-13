@@ -344,6 +344,7 @@ function TankCard({
   } | null>(null);
   const infoButtonRef = useRef<HTMLButtonElement | null>(null);
   const [showQuickReport, setShowQuickReport] = useState(false);
+  const [quickReportInitialType, setQuickReportInitialType] = useState("");
   const [quickReportPosition, setQuickReportPosition] = useState<{ top: number; left: number } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [specificTankNote, setSpecificTankNote] = useState({ note: "", edit: false })
@@ -608,7 +609,20 @@ function TankCard({
     }
   };
 
+  useEffect(() => {
+    const openFromRecommendation = (event: Event) => {
+      const detail = (event as CustomEvent<{ tankNumber: string; noteType: string; anchorRect?: { top: number; left: number; right: number; bottom: number } }>).detail;
+      if (String(tank.tankNumber) !== detail?.tankNumber) return;
+      setQuickReportInitialType(detail.noteType);
+      setQuickReportPosition(detail.anchorRect ? computePopupPosition(detail.anchorRect as DOMRect) : null);
+      setShowQuickReport(true);
+    };
+    window.addEventListener("cellar-open-quick-report", openFromRecommendation);
+    return () => window.removeEventListener("cellar-open-quick-report", openFromRecommendation);
+  }, [tank.tankNumber]);
+
   const handleOpenQuickReport = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setQuickReportInitialType("");
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     setQuickReportPosition(computePopupPosition(rect));
@@ -1019,6 +1033,7 @@ function TankCard({
           tank={tank}
           specs={specs}
           position={quickReportPosition}
+          initialNoteType={quickReportInitialType}
           onClose={() => { setShowQuickReport(false); setQuickReportPosition(null); }}
         />
       )}

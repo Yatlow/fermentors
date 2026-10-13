@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { LightbulbOff, Undo2, UserShield } from "lucide-react";
+import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -43,6 +43,7 @@ import {
     type IgnoredCellarRecommendation,
 } from "../../SERVICES/cellering/ignoredCellarRecommendations";
 import BeerCelebration from "../../COMPONENTS/BeerCelebration";
+import { RobotVacuum } from "./QuickTankReportBox";
 import "./HealthDashboard.css";
 
 type Severity = "critical" | "warning" | "info";
@@ -55,6 +56,7 @@ type HealthAlert = {
     tankNumber?: string;
     batchNumber?: string;
     recommendationKey?: string;
+    scheduledActionType?: "carbTest" | "yeastDrop" | "pressureChange";
     importance?: number;
     dismissible?: boolean;
     userDecision?: boolean;
@@ -273,7 +275,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         ? (graceSnapshotTank.cellarGraceTankIds ?? [])
         : [];
     const [analyzing, setAnalyzing] = useState(true);
+    const hasCompletedInitialAnalysis = useRef(false);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
+    const measurementRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
@@ -301,13 +305,25 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     }, []);
 
     useEffect(() => {
-        const refresh = () => setMeasurementRefresh((current) => current + 1);
+        // A single report may update the cache more than once (optimistic write,
+        // reconciliation). Coalesce these notifications into one analysis pass.
+        const refresh = () => {
+            if (measurementRefreshTimer.current !== null) clearTimeout(measurementRefreshTimer.current);
+            measurementRefreshTimer.current = setTimeout(() => {
+                measurementRefreshTimer.current = null;
+                setMeasurementRefresh((current) => current + 1);
+            }, 180);
+        };
         window.addEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
-        return () => window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
+        return () => {
+            window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
+            if (measurementRefreshTimer.current !== null) clearTimeout(measurementRefreshTimer.current);
+        };
     }, []);
 
     useEffect(() => {
         let cancelled = false;
+        const analysisTimer = setTimeout(() => { void analyzeCellar(); }, 120);
 
         async function analyzeCellar() {
             if (!specs) {
@@ -322,7 +338,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
 
-            setAnalyzing(true);
+            // Keep the last completed recommendations visible during routine updates.
+            // Re-enter loading state only for the initial analysis.
+            if (!hasCompletedInitialAnalysis.current) setAnalyzing(true);
 
             const results = await Promise.all(
                 fullTanks.map(async (tank) => {
@@ -677,6 +695,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                 tankNumber: number,
                                 batchNumber: String(tank.batchNumber),
                                 recommendationKey: recommendation.recommendationKey,
+                                scheduledActionType: manualDue.find(row => `scheduled-${row.id}` === recommendation.recommendationKey)?.actionType,
                                 importance,
                                 dismissible: true,
                                 userDecision: recommendation.userDecision,
@@ -846,6 +865,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 { ...EMPTY_DAILY_ACTION_PROGRESS }
             );
 
+            if (cancelled) return;
             setAnalysis({
                 alerts: eligibleResults
                     .flatMap((result) => result.alerts)
@@ -860,12 +880,13 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     .filter((result) => result.completeMeasurements)
                     .map((result) => result.tankNumber),
             });
+            hasCompletedInitialAnalysis.current = true;
             setAnalyzing(false);
         }
 
-        void analyzeCellar();
         return () => {
             cancelled = true;
+            clearTimeout(analysisTimer);
         };
     }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations]);
 
@@ -1177,6 +1198,38 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     <strong>{alert.title}</strong>
                                     <span>{alert.detail}</span>
                                 </span>
+                                {alert.tankNumber && alert.recommendationKey && (() => {
+                                    const mapping: Record<string, string> = {
+                                        dryHop: "דרייהופ", pressureClose: "סגירת מיכל",
+                                        warmYeastDrop: "שמרים", warmYeastDropCompletion: "שמרים",
+                                        yeastDropAfterCooling: "שמרים", coldYeastDropCompletion: "שמרים",
+                                        wedYeastDropOnThu: "שמרים", carbTest: "גיזוז",
+                                        bottomCarbonation: "גיזוז מלמטה התחלה",
+                                        bottomCarbonationFollowUp: "גיזוז מלמטה סגירה",
+                                        diacetylRest: "דיאציטיל", coolDown: "קירור",
+                                        pressureAdjustment: "לחץ",
+                                    };
+                                    const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", pressureChange: "לחץ" };
+                                    const noteType = alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : mapping[alert.recommendationKey];
+                                    const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
+                                    const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
+                                    const warmOnly = ["סגירת מיכל", "דרייהופ", "דיאציטיל", "קירור"];
+                                    const coldOnly = ["גיזוז", "גיזוז מלמטה התחלה", "גיזוז מלמטה סגירה"];
+                                    const available = tank && Number(tank.tankNumber) !== 1 && (!warmOnly.includes(noteType) || isWarm) && (!coldOnly.includes(noteType) || !isWarm);
+                                    const actionUI: Record<string, { label: string; Icon: typeof Gauge }> = {
+                                        "שמרים": { label: "דווח הורדת שמרים", Icon: FlaskConical },
+                                        "גיזוז": { label: "דווח בדיקת גיזוז", Icon: Bubbles },
+                                        "גיזוז מלמטה התחלה": { label: "דווח התחלת גיזוז", Icon: Stethoscope },
+                                        "גיזוז מלמטה סגירה": { label: "דווח סגירת גיזוז", Icon: Stethoscope },
+                                        "דרייהופ": { label: "דווח דרייהופ", Icon: Hop },
+                                        "קירור": { label: "דווח קירור", Icon: ThermometerSnowflake },
+                                        "לחץ": { label: "דווח שינוי לחץ", Icon: ClockPlus },
+                                        "סגירת מיכל": { label: "דווח סגירת מיכל", Icon: RobotVacuum },
+                                        "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
+                                    };
+                                    const ui = actionUI[noteType];
+                                    return noteType && available && ui ? <button type="button" className="health-quick-report-button" onClick={(event) => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType, anchorRect: event.currentTarget.getBoundingClientRect().toJSON() } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
+                                })()}
                                 {alert.dismissible && (
                                     <button
                                         type="button"

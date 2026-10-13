@@ -18,6 +18,12 @@ type SheetSyncJob = {
     attempts?: number;
     createdAt?: Timestamp | Date | string | null;
     lastError?: string;
+    tankNumber?: number | string | null;
+    tankNumbers?: string[];
+    batchNumber?: number | string;
+    action?: string;
+    operationType?: string;
+    type?: string;
 };
 
 type SheetPullStatus = {
@@ -333,6 +339,7 @@ export default function SheetSyncStatus() {
                 </div>
             </div>
 
+            {writeStatus.pending.length > 0 && <div className="sheet-sync-pending-details" aria-live="polite"><strong>פעולות ממתינות:</strong>{writeStatus.pending.slice(0, 8).map(job => <div key={job.id} className="sheet-sync-pending-row">{job.tankNumber != null ? `מיכל ${job.tankNumber}` : job.tankNumbers?.length ? `מיכלים ${job.tankNumbers.join(", ")}` : job.batchNumber != null ? `אצווה ${job.batchNumber}` : "פעולת סנכרון"} · {job.operationType || job.type || job.action || (pendingPackaging.some(p => p.id === job.id) ? "השלמת משטחים" : "ממתינה לשרת")}</div>)}{writeStatus.pending.length > 8 && <span>ועוד {writeStatus.pending.length - 8} פעולות</span>}</div>}
             {pendingPackaging.length > 0 && (
                 <div className="sheet-sync-packaging-recovery">
                     <span>יש {pendingPackaging.length} פעולות אריזה שממתינות להשלמת משטחים.</span>

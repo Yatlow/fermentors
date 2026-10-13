@@ -12,8 +12,10 @@ export type DashboardProps = {
     Dispatch<SetStateAction<string[]>>;
     selectedStatuses: string[];
     totalTanks: number;
+    filteredTankCount: number;
     statuses: string[];
 
+    recommendationCount: number;
     onlyWithCellarRecommendations: boolean;
     setOnlyWithCellarRecommendations: Dispatch<SetStateAction<boolean>>;
     sortByAge: "tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater";
@@ -26,9 +28,11 @@ export default function DashboardHeader({
     setSelectedStatuses,
     selectedStatuses,
     totalTanks,
+    filteredTankCount,
     statuses,
     sortByAge,
     onlyWithCellarRecommendations,
+    recommendationCount,
     setOnlyWithCellarRecommendations,
     setSortByAge
 }: DashboardProps) {
@@ -66,7 +70,9 @@ export default function DashboardHeader({
 
     return (
         <>
-            <div className="status-filter">
+            <div className="dashboard-filter-row" dir="rtl">
+            <span className="dashboard-filter-caption"><Funnel size={16} aria-hidden="true" /> סנן:</span>
+            <div className="status-filter dashboard-status-filter">
 
                 <button
                     type="button"
@@ -131,13 +137,17 @@ export default function DashboardHeader({
                 )}
 
             </div>
-            <div className="sort-filter" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 }}>
+            <div className="dashboard-cellar-filter">
                 <button type="button" className={`status-filter-button ${onlyWithCellarRecommendations ? "active" : ""}`}
                     aria-pressed={onlyWithCellarRecommendations}
                     onClick={() => setOnlyWithCellarRecommendations((value) => !value)}>
-                    <Funnel size={16} aria-hidden="true" /> מיכלים עם המלצות סלרינג
+                    מיכלים עם המלצות סלרינג <span className="status-filter-count">{recommendationCount}</span>
                 </button>
-                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            </div>
+            <span className="dashboard-filter-results" aria-live="polite">מוצגים {filteredTankCount} מתוך {totalTanks} מיכלים</span>
+            {(onlyWithCellarRecommendations || !selectedStatuses.includes("הכל")) && <button type="button" className="dashboard-clear-filters" onClick={() => { setSelectedStatuses(["הכל"]); setOnlyWithCellarRecommendations(false); }}>× איפוס</button>}
+            </div>
+            <div className="sort-filter" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}> <ArrowDownWideNarrow size={16} aria-hidden="true" /> מיין לפי:</span>
                 <button
                     type="button"
@@ -170,7 +180,6 @@ export default function DashboardHeader({
                 >
                     תאריך אריזה {sortByAge === "packagingLater" ? <ArrowDown size={16} aria-hidden="true" /> : <ArrowUp size={16} aria-hidden="true" />}
                 </button>
-                </div>
             </div></>
     )
 }

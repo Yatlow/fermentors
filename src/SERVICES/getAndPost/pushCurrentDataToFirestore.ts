@@ -274,9 +274,23 @@ export async function pushCurrentDataToFirestore(
         const requestId = options.sheetSyncRequestId.trim();
         if (!requestId) throw new Error("Missing Sheet sync requestId");
 
+        const uniqueTanks = [...new Set(readings.map(reading => String(reading.tankNumber ?? reading.tankId)).filter(Boolean))];
+        const uniqueBatches = [...new Set(readings.map(reading => String(reading.batchNumber ?? "")).filter(Boolean))];
+        const operationTypes = [...new Set(readings.map(reading => {
+            if (hasValue(reading.kegs) || hasValue(reading.crates) || reading.isEmpty !== undefined) return "אריזה";
+            if (hasValue(reading.carbonation)) return "בדיקת גיזוז";
+            if (hasValue(reading.plato) || hasValue(reading.pH)) return "פלאטו / pH";
+            if (hasValue(reading.temp) || hasValue(reading.pressure)) return "טמפרטורה / לחץ";
+            if (hasValue(reading.notes)) return "פעולת סלרינג";
+            return "מדידה";
+        }))];
         firestoreBatch.set(doc(db, "sheetSyncJobs", requestId), {
             requestId,
             action: "addFermentationMeasurements",
+            tankNumber: uniqueTanks.length === 1 ? uniqueTanks[0] : null,
+            batchNumber: uniqueBatches.length === 1 ? uniqueBatches[0] : null,
+            tankNumbers: uniqueTanks,
+            operationType: operationTypes.join(" + "),
             ownerUid: user.uid,
             ownerEmail: user.email,
             state: "pending",

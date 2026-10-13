@@ -6841,3 +6841,150 @@ b {
   .catalog-editor-row { grid-template-columns: 1fr 1fr; }
   .catalog-editor-row .catalog-description { grid-column: 1 / -1; }
 }
+
+
+/* Responsive navigation hierarchy: primary icons, secondary tabs, tertiary filters */
+.views-box .views-item{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.mobile-nav-more{display:none}
+@media (min-width:601px) and (max-width:899px){
+  .views-box{display:flex;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin;max-width:100%;-webkit-overflow-scrolling:touch}
+  .views-box .views-item{flex:0 0 auto;white-space:nowrap}
+}
+@media (max-width:899px){
+  .status-filter{display:flex;overflow-x:auto;flex-wrap:nowrap;gap:7px;padding:9px 4px;margin-block:8px 12px;border-bottom:1px solid #cbd5e1;scrollbar-width:thin}
+  .status-filter-button{flex:0 0 auto;white-space:nowrap}
+  .status-filter-button.active{font-weight:700}
+  .status-filter + .status-filter{border-top:1px solid #e2e8f0}
+}
+@media (max-width:600px){
+  body{padding-bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+  .views-box{position:fixed;z-index:1000;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:5px 4px calc(5px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid #cbd5e1;box-shadow:0 -3px 14px #0f172a20}
+  .views-box .views-item,.views-box .mobile-nav-more{min-width:0;min-height:54px;padding:5px 1px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;line-height:1.2;text-align:center;border-radius:8px;cursor:pointer}
+  .views-box .views-item:nth-child(n+5){display:none}
+  .views-box.mobile-more-open .views-item:nth-child(n+5){display:flex}
+  .views-box.mobile-more-open .views-item:nth-child(n+5){position:absolute;bottom:calc(100% + 5px);background:#fff;border:1px solid #e2e8f0;box-shadow:0 2px 10px #0f172a22;width:32%}
+  .views-box.mobile-more-open .views-item:nth-child(5){right:1%}
+  .views-box.mobile-more-open .views-item:nth-child(6){right:34%}
+  .views-box.mobile-more-open .views-item:nth-child(7){right:67%}
+  .views-box .mobile-nav-more{grid-column:5;background:transparent;border:0;color:#334155}
+  .views-box .views-item .nav-badge{position:absolute;margin:0;transform:translate(23px,-13px)}
+}
+@media print{.views-box{display:none!important}body{padding-bottom:0!important}}
+
+/* Mobile primary navigation stays above content, not over forms */
+@media (max-width:600px){
+  body{padding-bottom:0}
+  .views-box{position:relative;z-index:10;bottom:auto;left:auto;right:auto;width:100%;box-sizing:border-box;border-top:0;border-bottom:1px solid #cbd5e1;box-shadow:none;margin-bottom:12px}
+  .views-box.mobile-more-open .views-item:nth-child(n+5){bottom:auto;top:calc(100% + 5px)}
+}
+
+/* Mobile area switcher: explicit current section and calm two-column dropdown */
+.mobile-area-trigger{display:none}
+@media(max-width:600px){
+ .mobile-area-trigger{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin:8px 0 0;border:1px solid #dbe4ef;border-radius:13px;background:#fff;color:#172b42;font:inherit;cursor:pointer;box-sizing:border-box;text-align:right;direction:rtl}
+ .mobile-area-current{display:inline-flex;align-items:center;gap:10px;font-weight:750;font-size:16px}
+ .mobile-area-hint{font-size:12px;color:#64748b;white-space:nowrap}
+ .views-box{display:none!important;position:relative!important;inset:auto!important;width:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px 0 12px;background:transparent;border:0;box-shadow:none;margin:0}
+ .views-box.mobile-more-open{display:grid!important}
+ .views-box .views-item,.views-box .views-item:nth-child(n+5),.views-box.mobile-more-open .views-item:nth-child(n+5){display:flex!important;position:relative!important;inset:auto!important;width:auto!important;min-height:76px;flex-direction:column;gap:7px;padding:12px 5px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:none;font-size:13px;color:#334155}
+ .views-box .views-item.active{background:#edf4ff;border-color:#93b4e5;color:#174a80;font-weight:700}
+ .views-box .views-item .nav-badge{position:absolute;top:5px;left:7px;right:auto;transform:none}
+ .mobile-nav-more{display:none!important}
+}
+@media print{.mobile-area-trigger{display:none!important}}
+
+/* Dashboard: status and cellaring filters share a row at all screen sizes */
+.dashboard-filter-row{display:flex;align-items:center;gap:10px;max-width:100%;min-width:0;margin-block:8px 12px}
+.dashboard-filter-row .dashboard-status-filter{display:flex;align-items:center;flex:0 1 auto;min-width:0;overflow-x:auto;flex-wrap:nowrap;gap:7px;margin:0;padding:4px 0;scrollbar-width:thin;border:0}
+.dashboard-filter-row .dashboard-status-filter .status-filter-button{flex:0 0 auto;white-space:nowrap}
+.dashboard-cellar-filter{flex:0 0 auto}
+.dashboard-cellar-filter .status-filter-button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+@media(max-width:650px){.dashboard-filter-row{overflow-x:auto;scrollbar-width:thin}.dashboard-filter-row .dashboard-status-filter{overflow:visible;flex:0 0 auto}}
+
+/* Secondary navigation wraps naturally instead of sideways scrolling */
+@media(max-width:899px){
+ .status-filter:not(.dashboard-status-filter){flex-wrap:wrap;overflow-x:visible;white-space:normal;scrollbar-width:auto}
+ .status-filter:not(.dashboard-status-filter) .status-filter-button{white-space:normal}
+}
+/* Dashboard filter heading is separate from the actual filter buttons */
+.dashboard-filter-caption{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:14px;font-weight:700;color:#475569;flex:0 0 auto}
+
+/* Dashboard filters: wrap to two lines, never horizontal-scroll */
+.dashboard-filter-row{flex-wrap:wrap;overflow:visible!important;align-items:center}
+.dashboard-filter-row .dashboard-status-filter{flex:0 1 auto;flex-wrap:wrap;overflow:visible!important;min-width:0}
+.dashboard-filter-row .dashboard-status-filter .status-filter-button{white-space:nowrap}
+@media(max-width:650px){.dashboard-filter-row{overflow-x:visible!important}.dashboard-filter-row .dashboard-status-filter{flex:1 1 100%;order:1}.dashboard-cellar-filter{order:2}}
+/* Hamburger affordance while retaining the current tab name */
+.mobile-area-current>svg:first-child{flex-shrink:0}
+
+/* Navigation polish: one flowing filter group, compact mobile hamburger */
+.dashboard-filter-row{display:flex!important;flex-wrap:wrap!important;gap:7px!important;align-items:center!important;overflow:visible!important}
+.dashboard-filter-row .dashboard-status-filter{display:contents!important}
+.dashboard-filter-row .dashboard-cellar-filter{display:contents!important}
+.dashboard-filter-row .dashboard-filter-caption{margin-inline-end:4px}
+.dashboard-filter-row .status-filter-button{flex:0 0 auto!important;white-space:nowrap!important;order:0!important}
+@media(max-width:600px){
+ .mobile-area-trigger{min-height:44px!important;padding:8px 11px!important;margin:4px 0 0!important;border-radius:10px!important}
+ .mobile-area-current{font-size:15px!important;gap:8px!important}
+ .mobile-area-current>svg:nth-child(2){display:none}
+ .mobile-area-hint{font-size:11px!important}
+ .views-box.mobile-more-open{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px!important;padding:8px 0!important}
+ .views-box .views-item,.views-box .views-item:nth-child(n+5),.views-box.mobile-more-open .views-item:nth-child(n+5){min-height:51px!important;padding:8px 4px!important;flex-direction:row!important;gap:7px!important;font-size:12px!important}
+ .views-box .views-item svg{width:18px;height:18px;flex-shrink:0}
+}
+
+/* Floating mobile navigation panel, anchored to its compact trigger */
+.mobile-nav-shell,.mobile-nav-backdrop{display:none}
+@media(max-width:600px){
+ .header-brand{position:relative}
+ .mobile-nav-shell{display:block;position:relative;width:100%;z-index:1102;direction:rtl}
+ .mobile-nav-shell.is-open{z-index:1102}
+ .mobile-nav-backdrop{display:block;position:fixed;inset:0;background:rgba(15,23,42,.12);border:0;z-index:1100;cursor:default}
+ .mobile-area-trigger{position:relative;z-index:2;margin:4px 0 0!important;width:100%;border-radius:12px!important}
+ .mobile-area-current{width:100%;justify-content:flex-start}
+ .mobile-area-hint{display:none!important}
+ .mobile-nav-shell.is-open .mobile-area-trigger{border-radius:12px 12px 0 0!important;border-bottom:0!important}
+ .mobile-nav-shell .views-box.mobile-more-open{position:absolute!important;top:calc(100% - 1px)!important;right:0!important;left:0!important;bottom:auto!important;width:100%!important;box-sizing:border-box;padding:9px!important;margin:0!important;background:#fff!important;border:1px solid #dbe4ef!important;border-top:0!important;border-radius:0 0 12px 12px!important;box-shadow:0 12px 24px rgba(15,23,42,.16)!important;z-index:2!important}
+}
+@media print{.mobile-nav-shell,.mobile-nav-backdrop{display:none!important}}
+
+.mobile-nav-chevron{display:none}
+@media(max-width:600px){.mobile-nav-chevron{display:block;flex-shrink:0;color:#64748b;transition:transform .18s ease}.mobile-nav-chevron.expanded{transform:rotate(180deg)}}
+
+/* UX pass: keep desktop navigation visible despite the mobile shell wrapper. */
+@media(min-width:601px){.mobile-nav-shell{display:contents!important}}
+/* Distinguish sorting controls from the status filter chips. */
+.sort-filter{margin-top:10px;padding-top:10px;border-top:1px solid #e2e8f0}
+.sort-filter .status-filter-button{border-radius:9px;background:#f8fafc}
+.sort-filter .status-filter-button.active{background:#e0ecff;color:#1d4f91;border-color:#93b4e6;box-shadow:none}
+.dashboard-clear-filters{border:0;background:transparent;color:#2563eb;text-decoration:underline;cursor:pointer;font-size:12px;padding:5px 7px}
+
+/* Compact mobile masthead and on-demand tank search */
+.tank-search-shell{position:relative;z-index:1103}
+.tank-search-toggle{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border:1px solid #dbe4ef;border-radius:10px;background:white;color:#334155;cursor:pointer}
+.tank-search-panel{position:absolute;top:calc(100% + 5px);right:0;width:min(330px,calc(100vw - 30px));padding:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;border:1px solid #dbe4ef;border-radius:12px;background:#fff;box-shadow:0 12px 28px #0f172a26;z-index:1200}
+.tank-search-panel input{min-width:0;flex:1;padding:9px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}
+.tank-search-panel>button{border:0;background:transparent;font-size:22px;cursor:pointer}
+.tank-search-results{width:100%;max-height:240px;overflow:auto;display:grid;gap:4px}
+.tank-search-results button{padding:10px;text-align:right;border:0;border-radius:7px;background:#f1f5f9;cursor:pointer}
+@media(max-width:600px){.header-brand{display:flex!important;align-items:center!important;gap:7px!important;flex-wrap:nowrap!important}.header-logo{width:42px!important;height:42px!important;max-width:42px!important;object-fit:contain!important;margin:0!important}.mobile-nav-shell{flex:1!important;min-width:0!important;width:auto!important}.mobile-area-trigger{margin:0!important}.tank-search-shell{order:3}}
+
+.report-success-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:1300;padding:12px 18px;border:1px solid #86cba5;border-radius:12px;background:#ecfdf5;color:#166534;font-size:14px;font-weight:600;box-shadow:0 5px 22px #0f172a24;max-width:calc(100vw - 28px);text-align:center}
+.dashboard-tank-slot.tank-just-updated{outline:3px solid #4ade80;outline-offset:3px;border-radius:12px;transition:outline-color .4s ease}
+.health-quick-report-button{border:1px solid #93c5fd;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-weight:600;padding:7px 11px;cursor:pointer;flex-shrink:0}
+
+/* Align mobile navigation on one line; search belongs to filters, not the masthead. */
+@media(max-width:600px){.headerBox .header-brand{width:100%!important;display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px!important}.headerBox .header-brand .mobile-nav-shell{flex:1 1 0!important;min-width:0!important}.headerBox .header-brand .header-logo{flex:0 0 42px!important;width:42px!important;height:42px!important}}
+.dashboard-filter-toolbar{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;direction:rtl}
+.dashboard-filter-toolbar>.tank-search-shell{flex:0 0 auto;order:0}
+.dashboard-filter-toolbar>.dashboard-filter-row{flex:1 1 400px;order:1}
+.dashboard-filter-toolbar>.sort-filter{flex:1 1 100%;order:2}
+.dashboard-clear-filters{display:inline-flex;align-items:center;justify-content:center;gap:4px!important;padding:6px 10px!important;border:1px solid #cbd5e1!important;border-radius:999px!important;background:#f1f5f9!important;color:#334155!important;text-decoration:none!important;font-weight:600!important;white-space:nowrap;line-height:1.2}
+.dashboard-clear-filters:hover{background:#e2e8f0!important}
+.dashboard-filter-results{display:inline-flex;align-items:center;color:#475569;font-size:12px;white-space:normal}
+
+/* Mobile masthead: navigation at right, logo at far left. */
+@media(max-width:600px){.headerBox .header-brand{display:flex!important;direction:rtl!important;justify-content:space-between!important;width:100%!important}.headerBox .header-brand .mobile-nav-shell{order:0!important;flex:1 1 auto!important}.headerBox .header-brand .header-logo{order:1!important;flex:0 0 42px!important;margin-inline-start:12px!important}.dashboard-filter-toolbar{position:relative;display:block!important}.dashboard-filter-toolbar>.tank-search-shell{position:absolute!important;top:0;left:0;right:auto;z-index:2}.dashboard-filter-toolbar>.dashboard-filter-row{padding-left:52px!important;min-height:42px}.dashboard-filter-toolbar .tank-search-toggle{width:40px;height:40px}.dashboard-filter-toolbar .tank-search-panel{right:auto;left:0}.dashboard-filter-toolbar>.sort-filter{margin-top:8px}}
+.health-quick-report-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+
+.dashboard-tank-slot.tank-search-highlight{outline:3px solid #60a5fa;outline-offset:3px;border-radius:12px;transition:outline-color .35s ease}

@@ -1,3 +1,4 @@
+import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search } from "lucide-react";
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -201,6 +202,25 @@ function App() {
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
+    const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+    const [reportSuccess, setReportSuccess] = useState<{ tankNumber: string; tankNumbers?: string[]; label?: string; action: string } | null>(null);
+    const [tankSearchOpen, setTankSearchOpen] = useState(false);
+    const [tankSearchQuery, setTankSearchQuery] = useState("");
+    useEffect(() => {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const onSaved = (event: Event) => {
+            const detail = (event as CustomEvent<{ tankNumber: string; tankNumbers?: string[]; label?: string; action: string }>).detail;
+            if (!detail?.tankNumber) return;
+            setReportSuccess(detail);
+            if (timeout) window.clearTimeout(timeout);
+            const tankNumbers = detail.tankNumbers ?? [detail.tankNumber];
+            const slots = Array.from(document.querySelectorAll<HTMLElement>(".dashboard-tank-slot")).filter(el => tankNumbers.includes(el.dataset.tankNumber ?? ""));
+            slots.forEach(slot => slot.classList.add("tank-just-updated"));
+            timeout = window.setTimeout(() => { setReportSuccess(null); slots.forEach(slot => slot.classList.remove("tank-just-updated")); }, 3000);
+        };
+        window.addEventListener("cellar-report-saved", onSaved);
+        return () => { window.removeEventListener("cellar-report-saved", onSaved); if (timeout) window.clearTimeout(timeout); };
+    }, []);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
@@ -309,7 +329,7 @@ function App() {
     useEffect(() => {
         if (!user || tanksNeedingStage.length === 0) return;
         if (user.email === "itzik@shapirobeer.co.il" && plannerUser) {
-            setSelectedView("תכנון")
+            setMobileMoreOpen(false); setSelectedView("תכנון")
         }
         let cancelled = false;
         (async () => {
@@ -431,7 +451,7 @@ function App() {
     }), [brews, selectedStatuses, selectedStyles]);
 
     const totalTanks = brews.filter((tank) => Number(tank.tankNumber) !== 1).length;
-    const filteredTankCount = filteredBrews.filter((tank) => Number(tank.tankNumber) !== 1).length;
+    const filteredTankCount = filteredBrews.filter((tank) => Number(tank.tankNumber) !== 1 && (!onlyWithCellarRecommendations || recommendedTankNumbers.includes(String(tank.tankNumber)))).length;
 
     function getBrewDateValue(brewDate?: string | null): number {
         if (!brewDate) return 0;
@@ -467,21 +487,28 @@ function App() {
 
     return (
         <div>
+            {reportSuccess && <div className="report-success-toast" role="status">✓ {reportSuccess.label ?? `מיכל ${reportSuccess.tankNumber}`} · {reportSuccess.action || "דיווח"} נשמר במערכת</div>}
             <header className="dashboard-header">
                 <div className="headerBox">
                     <div className="header-brand">
+                        {mobileMoreOpen && <button type="button" className="mobile-nav-backdrop" aria-label="סגירת תפריט ניווט" onClick={() => setMobileMoreOpen(false)} />}
                         <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
-                        <div className="views-box">
-                            <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דאשבורד</div>
-                            <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}>פעולות סלרינג</div>
-                            <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דוחות</div>
-                            <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
-                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
-                            <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>בישולים</div>
-                            <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>
+
+                        <div className={`mobile-nav-shell ${mobileMoreOpen ? "is-open" : ""}`}>
+                        <button type="button" className="mobile-area-trigger" aria-expanded={mobileMoreOpen} aria-controls="primary-area-navigation" onClick={() => setMobileMoreOpen((open) => !open)}><span className="mobile-area-current"><Menu size={22} aria-hidden="true" />{selectedView === "דאשבורד" ? <LayoutDashboard size={21}/> : selectedView === "רישום" ? <TestTubes size={21}/> : selectedView === "דוחות" ? <FileChartLine size={21}/> : selectedView === "ניהול" ? <PocketKnife size={21}/> : selectedView === "מקרר" ? <MapIcon size={21}/> : selectedView === "בישולים" ? <Beer size={21}/> : <CalendarCog size={21}/>}<span>{selectedView === "רישום" ? "פעולות סלרינג" : selectedView === "ניהול" ? "כלים" : selectedView === "מקרר" ? "מפת מקרר" : selectedView}</span></span><ChevronDown className={`mobile-nav-chevron ${mobileMoreOpen ? "expanded" : ""}`} size={19} aria-hidden="true" /></button>
+                        <nav className={`views-box ${mobileMoreOpen ? "mobile-more-open" : ""}`} id="primary-area-navigation" aria-label="ניווט ראשי">
+                            <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><LayoutDashboard size={20} aria-hidden="true"/><span className="views-label">דאשבורד</span></div>
+                            <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}><TestTubes size={20} aria-hidden="true"/><span className="views-label">פעולות סלרינג</span></div>
+                            <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><FileChartLine size={20} aria-hidden="true"/><span className="views-label">דוחות</span></div>
+                            <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><PocketKnife size={20} aria-hidden="true"/><span className="views-label">כלים</span></div>
+                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><MapIcon size={20} aria-hidden="true"/><span className="views-label">מפת מקרר</span>{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
+                            <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><Beer size={20} aria-hidden="true"/><span className="views-label">בישולים</span></div>
+                            <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><CalendarCog size={20} aria-hidden="true"/><span className="views-label">תכנון</span></div>
+                            
+                        </nav>
                         </div>
                     </div>
-                    {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} onlyWithCellarRecommendations={onlyWithCellarRecommendations} setOnlyWithCellarRecommendations={setOnlyWithCellarRecommendations} />}
+                    {selectedView === "דאשבורד" && <div className="dashboard-filter-toolbar"><div className="tank-search-shell"><button type="button" className="tank-search-toggle" aria-label="חיפוש מיכל או אצווה" aria-expanded={tankSearchOpen} onClick={() => { setTankSearchOpen(v => !v); setMobileMoreOpen(false); }}><Search size={20} aria-hidden="true"/></button>{tankSearchOpen && <div className="tank-search-panel"><input autoFocus type="search" value={tankSearchQuery} onChange={e => setTankSearchQuery(e.target.value)} placeholder="מספר מיכל או אצווה" aria-label="חיפוש מיכל או אצווה"/><button type="button" onClick={() => { setTankSearchOpen(false); setTankSearchQuery(""); }} aria-label="סגור חיפוש">×</button>{tankSearchQuery.trim() && <div className="tank-search-results">{brews.filter(t => String(t.tankNumber).includes(tankSearchQuery.trim()) || String(t.batchNumber ?? "").includes(tankSearchQuery.trim())).slice(0,12).map(t => <button type="button" key={t.id} onClick={() => { setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setOnlyWithCellarRecommendations(false); setTankSearchOpen(false); setTankSearchQuery(""); window.setTimeout(() => { const slot = document.querySelector<HTMLElement>(`[data-tank-number="${t.tankNumber}"]`); slot?.scrollIntoView({behavior:"smooth",block:"center"}); slot?.classList.add("tank-search-highlight"); if (slot) window.setTimeout(() => slot.classList.remove("tank-search-highlight"), 3000); }, 120); }}>מיכל {t.tankNumber} · אצווה {t.batchNumber || "—"}</button>)}</div>}</div>}</div><DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} onlyWithCellarRecommendations={onlyWithCellarRecommendations} setOnlyWithCellarRecommendations={setOnlyWithCellarRecommendations} recommendationCount={new Set(recommendedTankNumbers).size} filteredTankCount={filteredTankCount} /></div>}
                     {selectedView === "רישום" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>סבב יומי- טמפ' ולחץ</span></button>
                         <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>בדיקות סוכר וpH למיכלים חמים</span></button>
@@ -511,7 +538,7 @@ function App() {
 
             <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
                 {selectedView === "דאשבורד" && <Dashboard onlyWithCellarRecommendations={onlyWithCellarRecommendations} recommendedTankNumbers={recommendedTankNumbers} onRecommendedTanksChange={setRecommendedTankNumbers} sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
-                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
+                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => { setMobileMoreOpen(false); setSelectedView("מקרר"); }} />}
                 {selectedView === "רישום" && <>
                     <CellaringForecast brews={brews} specs={specs} />
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
