@@ -74,21 +74,6 @@ function withCreatedRowMap(
   }
 }
 
-function isOlderThanLocal(batchNumber: string, incoming: BrewExecution): boolean {
-  // A missing cache must never beat a canonical Firestore execution merely
-  // because emptyExecution() would have a freshly generated timestamp.
-  try {
-    if (!window.localStorage.getItem(key(batchNumber))) return false;
-  } catch {
-    return false;
-  }
-  const local = loadBrewingExecution(batchNumber);
-  const localTime = Date.parse(local.updatedAt || "");
-  const remoteTime = Date.parse(incoming.updatedAt || "");
-  return Number.isFinite(localTime) && Number.isFinite(remoteTime) &&
-    remoteTime < localTime;
-}
-
 function emptyExecution(batchNumber: string): BrewExecution {
   return {
     batchNumber,
@@ -223,7 +208,8 @@ export function subscribeToBrewingExecution(
 
     // Ignore stale echoes even after the brewer moves focus away.
     // Focus-based guards alone cannot protect a just-committed input.
-    if (isOlderThanLocal(clean, remote)) return;
+    // Firestore snapshots are canonical. A newer browser cache must not
+    // resurrect a deleted block or suppress a server-side correction.
 
     // A Firestore snapshot caused by our own autosave must not be fed back into
     // React state. Doing so creates a new object, re-triggers the autosave
@@ -265,9 +251,7 @@ export function subscribeToBrewingExecution(
     if (base && (base.batchNumber !== clean || !base.blocks)) return;
     if (!base && !data.brewSheetRowMapJson) return;
     const mapped = withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson);
-    const remote = isOlderThanLocal(clean, mapped)
-      ? withCreatedRowMap(clean, loadBrewingExecution(clean), data.brewSheetRowMapJson)
-      : mapped;
+    const remote = mapped;
     emitRemote(remote);
   });
 
@@ -284,9 +268,7 @@ export function subscribeToBrewingExecution(
           if (base && (base.batchNumber !== clean || !base.blocks)) return;
           if (!base && !data.brewSheetRowMapJson) return;
           const mapped = withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson);
-          emitRemote(isOlderThanLocal(clean, mapped)
-            ? withCreatedRowMap(clean, loadBrewingExecution(clean), data.brewSheetRowMapJson)
-            : mapped);
+          emitRemote(mapped);
         })
         .catch((error) =>
           console.warn("Failed refreshing brewing execution after edit", error),
@@ -319,11 +301,7 @@ export async function loadBrewingExecutionFromFirestore(
   if (remote && (remote.batchNumber !== clean || !remote.blocks)) return null;
   if (!remote && !data.brewSheetRowMapJson) return null;
   const mapped = withCreatedRowMap(clean, remote || loadBrewingExecution(clean), data.brewSheetRowMapJson);
-  if (isOlderThanLocal(clean, mapped)) {
-    return persistRemoteExecutionLocal(withCreatedRowMap(
-      clean, loadBrewingExecution(clean), data.brewSheetRowMapJson,
-    ));
-  }
+
   lastRemoteExecutionFingerprint.set(clean, executionFingerprint(mapped));
   lastKnownExecution.set(clean, mapped);
   return persistRemoteExecutionLocal(mapped);
@@ -413,7 +391,8 @@ export async function saveBrewingExecutionToFirestore(
   // brewer working in the other A/B/C block.
   const previousWrite = brewExecutionWriteQueues.get(clean) || Promise.resolve();
   const queued = previousWrite.catch(() => undefined).then(async () => {
-    if (isOlderThanLocal(clean, execution)) return;
+    // Do not compare a candidate write against a browser cache timestamp:
+    // startup reconciliation may carry an older timestamp than stale cache.
     const remoteExecution = cleanForRemoteExecution(execution);
     const fingerprint = executionFingerprint(remoteExecution);
     if (lastRemoteExecutionFingerprint.get(clean) === fingerprint) return;
