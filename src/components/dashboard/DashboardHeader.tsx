@@ -144,7 +144,7 @@ export default function DashboardHeader({
                     מיכלים עם המלצות סלרינג <span className="status-filter-count">{recommendationCount}</span>
                 </button>
             </div>
-            <span className="dashboard-filter-results" aria-live="polite">מוצגים {onlyWithCellarRecommendations ? "עד " : ""}{filteredTankCount}{onlyWithCellarRecommendations ? ` מתוך ${totalTanks} מיכלים (לפני סינון המלצות)` : ` מתוך ${totalTanks} מיכלים`}</span>
+            <span className="dashboard-filter-results" aria-live="polite">מוצגים {filteredTankCount} מתוך {totalTanks} מיכלים</span>
             {(onlyWithCellarRecommendations || !selectedStatuses.includes("הכל")) && <button type="button" className="dashboard-clear-filters" onClick={() => { setSelectedStatuses(["הכל"]); setOnlyWithCellarRecommendations(false); }}>× איפוס</button>}
             </div>
             <div className="sort-filter" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
