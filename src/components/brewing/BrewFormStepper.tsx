@@ -1632,9 +1632,9 @@ export default function BrewFormStepper({
       execution.blocks[String(currentBlock)]?.fields || {};
     const discoveredHeaderRow = Number(currentBlockFields["__sheetRow.header"]);
     const headerRow =
-      Number.isFinite(discoveredHeaderRow) && discoveredHeaderRow > 0
+      Number.isInteger(discoveredHeaderRow) && discoveredHeaderRow > 0
         ? discoveredHeaderRow
-        : blockHeaderRow(run.tankType, currentBlock);
+        : sheetRowFromMeta("__sheetRow.header", blockHeaderRow(run.tankType, currentBlock));
     const display = sheetDateFromIso(value);
     const writes: Array<{
       range: string;
@@ -1650,7 +1650,7 @@ export default function BrewFormStepper({
       writes.push(
         { range: "'גיליון1'!H1", value: display },
         {
-          range: `'גיליון1'!B${fermentationStartingRow(run.tankType)}`,
+          range: `'גיליון1'!B${mappedFermentationRow()}`,
           value: display,
         },
       );
@@ -2662,10 +2662,10 @@ export default function BrewFormStepper({
     value: string,
   ) {
     const mapping = {
-      hltWaterAmount: { rowOffset: 8, column: "B" },
-      hltWaterTemp: { rowOffset: 8, column: "C" },
-      lauterWaterAmount: { rowOffset: 9, column: "B" },
-      lauterWaterTemp: { rowOffset: 9, column: "C" },
+      hltWaterAmount: { source: "hlt", column: "B" },
+      hltWaterTemp: { source: "hlt", column: "C" },
+      lauterWaterAmount: { source: "mashIn", column: "B" },
+      lauterWaterTemp: { source: "mashIn", column: "C" },
     } as const;
     const target = mapping[field];
 
@@ -2688,7 +2688,7 @@ export default function BrewFormStepper({
       value: string | number | boolean | null;
     }> = [
       {
-        range: `'גיליון1'!${target.column}${baseRow + target.rowOffset}`,
+        range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
         value:
           field.endsWith("Temp") && value
             ? num(value) ?? value
@@ -2696,19 +2696,8 @@ export default function BrewFormStepper({
       },
     ];
 
-    // Preview versions before this fix wrote the second water row into
-    // "שטיפות". Clear that stale value when the corrected MASH IN field is saved.
-    if (field === "lauterWaterAmount") {
-      writes.push({
-        range: `'גיליון1'!B${baseRow + 11}`,
-        value: "",
-      });
-    } else if (field === "lauterWaterTemp") {
-      writes.push({
-        range: `'גיליון1'!C${baseRow + 11}`,
-        value: "",
-      });
-    }
+    // Never clear an unrelated historical offset as a cleanup side effect.
+    // On an expanded wheat template that offset can now hold real brew data.
 
     await commit(field, value, writes);
   }
@@ -3016,7 +3005,7 @@ export default function BrewFormStepper({
       );
       if (projectedStartingPlato.value !== null) {
         writes.push({
-          range: `'גיליון1'!D${fermentationStartingRow(run.tankType)}`,
+          range: `'גיליון1'!D${mappedFermentationRow()}`,
           value: Number(projectedStartingPlato.value.toFixed(2)),
         });
       }
@@ -3338,7 +3327,7 @@ export default function BrewFormStepper({
 
     await commit("yeastPitchTime", value, [
       {
-        range: `'גיליון1'!G${fermentationStartingRow(run.tankType)}`,
+        range: `'גיליון1'!G${mappedFermentationRow()}`,
         value,
       },
     ]);
@@ -3470,9 +3459,19 @@ export default function BrewFormStepper({
       // expectedValue snapshot first so the full read below becomes the new
       // conflict baseline, including cells edited directly in Google Sheets.
       resetBrewSheetBaseline(run.sheetId);
+      const readStartedAt = Date.now();
       const fullSheetRows = await readBrewSheetRange(
         run.sheetId,
         "'גיליון1'!A1:H220",
+      );
+      // A remote read begun before a brewer's new keystroke must never win
+      // the race and replace a more recently edited local execution.
+      if (Date.parse(loadBrewingExecution(run.batchNumber).updatedAt || "") > readStartedAt) {
+        return false;
+      }
+      const fermentationIndex = fullSheetRows.findIndex((row) =>
+        /^יום בישול/i.test(String(row[0] ?? "").trim()) &&
+        /שעת הוספת שמרים/i.test(String(row[4] ?? "").trim()),
       );
       const discoveredBlocks = discoverSheetBlocks(
         fullSheetRows,
@@ -3496,6 +3495,9 @@ export default function BrewFormStepper({
           headerRow,
         );
 
+        if (fermentationIndex >= 0) {
+          pulled["__sheetRow.fermentation"] = String(fermentationIndex + 1);
+        }
         if (index === 1) {
           const yeastTime = fermentationYeastTimeFromFullSheet(fullSheetRows);
           if (yeastTime) pulled.yeastPitchTime = yeastTime;
