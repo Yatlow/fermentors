@@ -318,7 +318,14 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
         });
       }
 
-      brewCreatePublishRowMap_(job, created.id);
+      // Row-map persistence is best-effort during job creation. An unusual
+      // legacy template must not prevent a successfully created Sheet from
+      // being published; the form can discover the map once on first open.
+      try {
+        brewCreatePublishRowMap_(job, created.id);
+      } catch (mapError) {
+        console.warn("Failed precomputing brew Sheet row map for " + job.batchNumber + ": " + mapError);
+      }
       brewCreatePublishPending_(job, created);
       brewCreatePatchJob_(jobId, {
         state: "ready",
