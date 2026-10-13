@@ -1178,8 +1178,17 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     <span>{alert.detail}</span>
                                 </span>
                                 {alert.tankNumber && alert.recommendationKey && (() => {
-                                    const key = alert.recommendationKey.toLowerCase();
-                                    const noteType = key.includes("carb") && !key.includes("bottom") ? "גיזוז" : key.includes("yeast") ? "שמרים" : key.includes("dryhop") || key.includes("dryHop") ? "דרייהופ" : key.includes("diacetyl") ? "דיאציטיל" : key.includes("cool") ? "קירור" : null;
+                                    const mapping: Record<string, string> = {
+                                        dryHop: "דרייהופ", pressureClose: "סגירת מיכל",
+                                        warmYeastDrop: "שמרים", warmYeastDropCompletion: "שמרים",
+                                        yeastDropAfterCooling: "שמרים", coldYeastDropCompletion: "שמרים",
+                                        wedYeastDropOnThu: "שמרים", carbTest: "גיזוז",
+                                        bottomCarbonation: "גיזוז מלמטה התחלה",
+                                        bottomCarbonationFollowUp: "גיזוז מלמטה סגירה",
+                                        diacetylRest: "דיאציטיל", coolDown: "קירור",
+                                        pressureAdjustment: "לחץ",
+                                    };
+                                    const noteType = mapping[alert.recommendationKey];
                                     return noteType ? <button type="button" className="health-quick-report-button" onClick={() => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType } }))}>דווח</button> : null;
                                 })()}
                                 {alert.dismissible && (
