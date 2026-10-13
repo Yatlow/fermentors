@@ -3444,10 +3444,10 @@ export default function BrewFormStepper({
         run.sheetId,
         "'גיליון1'!A1:H220",
       );
-      // A remote read begun before a brewer's new keystroke must never win
-      // the race and replace a more recently edited local execution.
-      if (latestLocalEditAt.current > readStartedAt ||
-          Date.parse(loadBrewingExecution(run.batchNumber).updatedAt || "") > readStartedAt) {
+      // Only actual in-session edits invalidate this read. A stale local
+      // cache can have a newer timestamp from merely navigating the form;
+      // treating that as a keystroke prevented legacy recovery entirely.
+      if (latestLocalEditAt.current > readStartedAt) {
         return false;
       }
       const fermentationIndex = fullSheetRows.findIndex((row) =>
@@ -3492,16 +3492,21 @@ export default function BrewFormStepper({
           ),
         );
 
-        // Initial discovery is metadata-only for existing form data. The app
-        // already owns these values; reading a newly discovered map must not
-        // turn a stale Sheet snapshot into a full-field overwrite.
+        // Initial discovery must also recover missing Sheet-backed values.
+        // Existing non-empty values remain authoritative, but an empty or
+        // partially lost Firestore execution (e.g. batch 1605) must be
+        // rehydrated from the intact Sheet. Never replace a populated field
+        // during a silent startup reconciliation.
         const mappingDiscoveryOnly = positionAfterPull && silent;
-        if (mappingDiscoveryOnly && Object.keys(existing).some((key) =>
-          !key.startsWith("__sheetRow.") && String(existing[key] ?? "").trim() !== ""
-        )) {
-          Object.keys(pulled).forEach((key) => {
-            if (!key.startsWith("__sheetRow.")) delete pulled[key];
-          });
+        if (mappingDiscoveryOnly) {
+          for (const [key, value] of Object.entries(pulled)) {
+            if (key.startsWith("__sheetRow.")) continue;
+            if (String(existing[key] ?? "").trim() !== "") {
+              pulled[key] = existing[key];
+            } else if (String(value ?? "").trim() === "") {
+              delete pulled[key];
+            }
+          }
         }
 
         // A Sheet pull must not erase an explicit material confirmation merely
