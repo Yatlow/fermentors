@@ -6908,3 +6908,11 @@ b {
 }
 /* Dashboard filter heading is separate from the actual filter buttons */
 .dashboard-filter-caption{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:14px;font-weight:700;color:#475569;flex:0 0 auto}
+
+/* Dashboard filters: wrap to two lines, never horizontal-scroll */
+.dashboard-filter-row{flex-wrap:wrap;overflow:visible!important;align-items:center}
+.dashboard-filter-row .dashboard-status-filter{flex:0 1 auto;flex-wrap:wrap;overflow:visible!important;min-width:0}
+.dashboard-filter-row .dashboard-status-filter .status-filter-button{white-space:nowrap}
+@media(max-width:650px){.dashboard-filter-row{overflow-x:visible!important}.dashboard-filter-row .dashboard-status-filter{flex:1 1 100%;order:1}.dashboard-cellar-filter{order:2}}
+/* Hamburger affordance while retaining the current tab name */
+.mobile-area-current>svg:first-child{flex-shrink:0}
