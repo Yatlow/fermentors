@@ -983,7 +983,7 @@ export default function BrewFormStepper({
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestLocalEditAt = useRef(0);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
-  const [, setInitialSheetReconciled] = useState(false);
+  const [initialSheetReconciled, setInitialSheetReconciled] = useState(false);
   const ingredientLibrary = ingredients;
   const [previousBatchDate, setPreviousBatchDate] = useState("");
 
@@ -1066,7 +1066,7 @@ export default function BrewFormStepper({
 
 
   useEffect(() => {
-    if (!firestoreHydrated) return;
+    if (!firestoreHydrated || !initialSheetReconciled) return;
     if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     firestoreSaveTimer.current = setTimeout(() => {
       void Promise.all([
@@ -1079,7 +1079,7 @@ export default function BrewFormStepper({
     return () => {
       if (firestoreSaveTimer.current) clearTimeout(firestoreSaveTimer.current);
     };
-  }, [execution, firestoreHydrated, run.style]);
+  }, [execution, firestoreHydrated, initialSheetReconciled, run.style]);
 
   const isIpaStyle = String(run.style || "").toUpperCase().includes("IPA");
 
@@ -3424,7 +3424,7 @@ export default function BrewFormStepper({
     positionAfterPull = false,
     options: { silent?: boolean } = {},
   ) {
-    if (!run.sheetId) return;
+    if (!run.sheetId) return false;
 
     const silent = Boolean(options.silent);
     if (!silent) {
@@ -3754,7 +3754,11 @@ export default function BrewFormStepper({
       !Object.keys(blockFields).some((key) => key.startsWith("__sheetRow.stage.")),
     );
     if (blocksNeedMapping) {
-      void syncFromSheet(true, { silent: true });
+      void syncFromSheet(true, { silent: true }).then((ok) => {
+        if (!ok) console.warn("Initial brew Sheet reconciliation did not complete", run.batchNumber);
+      });
+    } else {
+      setInitialSheetReconciled(true);
     }
     // Live onEdit revision events are the synchronization trigger. A periodic
     // full pull races with local autosave and may replace freshly entered
