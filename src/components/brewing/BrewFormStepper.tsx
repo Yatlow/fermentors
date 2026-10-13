@@ -3453,6 +3453,7 @@ export default function BrewFormStepper({
       // cache can have a newer timestamp from merely navigating the form;
       // treating that as a keystroke prevented legacy recovery entirely.
       if (latestLocalEditAt.current > readStartedAt) {
+        setSyncError("השחזור מה-Sheet הופסק כי בוצעה עריכה בטופס בזמן הקריאה. הנתונים לא שוחזרו; פתחו את הטופס מחדש ללא עריכה.");
         return false;
       }
       const fermentationIndex = fullSheetRows.findIndex((row) =>
@@ -3572,6 +3573,7 @@ export default function BrewFormStepper({
         setSyncError(detail);
         setMessage(detail);
       } else {
+        setSyncError(`שחזור אוטומטי מה-Sheet נכשל: ${detail}`);
         console.warn("Background Sheet reconciliation failed", error);
       }
       return false;
@@ -4166,7 +4168,7 @@ export default function BrewFormStepper({
 
       {syncError && (
         <div className="brewing-message brewing-message-error">
-          סנכרון ל-Sheet נכשל: {syncError}
+          שגיאת סנכרון בישול: {syncError}
         </div>
       )}
       {message && <div className="brewing-message">{message}</div>}
