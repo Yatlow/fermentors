@@ -450,7 +450,7 @@ function App() {
     }), [brews, selectedStatuses, selectedStyles]);
 
     const totalTanks = brews.filter((tank) => Number(tank.tankNumber) !== 1).length;
-    const filteredTankCount = filteredBrews.filter((tank) => Number(tank.tankNumber) !== 1).length;
+    const filteredTankCount = filteredBrews.filter((tank) => Number(tank.tankNumber) !== 1 && (!onlyWithCellarRecommendations || recommendedTankNumbers.includes(String(tank.tankNumber)))).length;
 
     function getBrewDateValue(brewDate?: string | null): number {
         if (!brewDate) return 0;
