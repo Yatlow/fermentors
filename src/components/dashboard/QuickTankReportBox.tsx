@@ -119,7 +119,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     const submitInFlightRef = useRef(false);
 
     const isSending = status === "sending";
-    const sourceIdentity = `${tank.id}:${Number(tank.action ?? -1)}:${String(tank.batchNumber ?? "").replace("#", "").trim()}`;
+    const sourceIdentity = `${tank.id}:${String(tank.batchNumber ?? "").replace("#", "").trim()}`;
     const sourceIdentityRef = useRef(sourceIdentity);
 
     useEffect(() => {
