@@ -56,6 +56,13 @@ function withCreatedRowMap(
 }
 
 function isOlderThanLocal(batchNumber: string, incoming: BrewExecution): boolean {
+  // A missing cache must never beat a canonical Firestore execution merely
+  // because emptyExecution() would have a freshly generated timestamp.
+  try {
+    if (!window.localStorage.getItem(key(batchNumber))) return false;
+  } catch {
+    return false;
+  }
   const local = loadBrewingExecution(batchNumber);
   const localTime = Date.parse(local.updatedAt || "");
   const remoteTime = Date.parse(incoming.updatedAt || "");
