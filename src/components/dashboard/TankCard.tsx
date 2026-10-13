@@ -611,10 +611,10 @@ function TankCard({
 
   useEffect(() => {
     const openFromRecommendation = (event: Event) => {
-      const detail = (event as CustomEvent<{ tankNumber: string; noteType: string }>).detail;
+      const detail = (event as CustomEvent<{ tankNumber: string; noteType: string; anchorRect?: { top: number; left: number; right: number; bottom: number } }>).detail;
       if (String(tank.tankNumber) !== detail?.tankNumber) return;
       setQuickReportInitialType(detail.noteType);
-      setQuickReportPosition(null);
+      setQuickReportPosition(detail.anchorRect ? computePopupPosition(detail.anchorRect as DOMRect) : null);
       setShowQuickReport(true);
     };
     window.addEventListener("cellar-open-quick-report", openFromRecommendation);
