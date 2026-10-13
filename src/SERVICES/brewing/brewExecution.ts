@@ -433,7 +433,9 @@ export async function saveBrewingExecutionToFirestore(
       activeStepIndex: remoteExecution.activeStepIndex ?? null,
       reviewedSteps: remoteExecution.reviewedSteps || {},
       updatedAt: remoteExecution.updatedAt,
-      blocks,
+      // Firestore merge semantics replace a map with {} when explicitly
+      // supplied. Omitting blocks preserves all existing block data.
+      ...(Object.keys(blocks).length ? { blocks } : {}),
     };
 
     pendingLocalWriteFingerprint.set(clean, fingerprint);
