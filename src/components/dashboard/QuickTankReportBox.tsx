@@ -51,7 +51,7 @@ type QuickTankReportBoxProps = {
     initialNoteType?: string;
 };
 
-const RobotVacuum = createLucideIcon("RobotVacuum", [
+export const RobotVacuum = createLucideIcon("RobotVacuum", [
     ["circle", { cx: "12", cy: "12", r: "8.5", key: "body" }],
     ["path", { d: "M7.5 15.5h9", key: "bumper" }],
     ["circle", { cx: "12", cy: "10", r: "1.4", key: "sensor" }],
