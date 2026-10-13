@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
+import { buildSchedule, defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../src/SERVICES/planning/weeklyPlanningModel";
 import { resolvePackagingBrewId } from "../src/SERVICES/planning/planIdentity";
 import { tankCanHostCycle } from "../src/SERVICES/planning/tankSchedule";
@@ -183,4 +183,21 @@ test("canonical cycle windows allow a genuine gap between completed planned cycl
 
   assert.equal(tankCanHostCycle(cycles, "2026-10-01", "2026-10-22"), true);
   assert.equal(tankCanHostCycle(cycles, "2026-10-25", "2026-11-15"), false);
+});
+
+test("completed 70-keg packaging does not leave a phantom keg on an emptied tank", () => {
+  const keg = { ...product, id: "ipa-kegs", sku: "ipa-kegs", type: "kegs" as const };
+  const week = { ...emptyWeek("2026-10-11"), packaging: [{
+    id: "pack-70", productId: keg.id, quantity: 71,
+    tankId: "tank-10", tankNumber: "10", batchNumber: "1605",
+  }] };
+  const actuals = [{ id: "packed", date: "2026-10-12", beerStyle: "IPA",
+    packagingType: "kegs", quantity: 70 }];
+  const tank = { id: "tank-10", number: "10", style: "IPA",
+    batch: "1605", brewed: "2026-09-01", ready: "2026-10-01",
+    liters: 0, cold: true };
+  const result = buildSchedule({ ...settings, products: [keg] }, [], [tank], [week], actuals, "2026-10-13");
+  assert.equal(result[0].commitments.length, 0);
+  const stillFull = buildSchedule({ ...settings, products: [keg] }, [], [{ ...tank, liters: 20 }], [week], actuals, "2026-10-13");
+  assert.equal(stillFull[0].commitments[0]?.quantity, 1);
 });
