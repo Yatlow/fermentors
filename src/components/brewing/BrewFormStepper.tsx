@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadBrewingExecution,
-  saveBrewingExecutionLocal,
   loadBrewingExecutionFromFirestore,
   subscribeToBrewingExecution,
   saveBrewingExecutionToFirestore,
@@ -989,6 +988,7 @@ export default function BrewFormStepper({
   const initialProductionPullKey = useRef("");
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestLocalEditAt = useRef(0);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
   const [, setInitialSheetReconciled] = useState(false);
   const ingredientLibrary = ingredients;
@@ -3484,7 +3484,8 @@ export default function BrewFormStepper({
       );
       // A remote read begun before a brewer's new keystroke must never win
       // the race and replace a more recently edited local execution.
-      if (Date.parse(loadBrewingExecution(run.batchNumber).updatedAt || "") > readStartedAt) {
+      if (latestLocalEditAt.current > readStartedAt ||
+          Date.parse(loadBrewingExecution(run.batchNumber).updatedAt || "") > readStartedAt) {
         return false;
       }
       const fermentationIndex = fullSheetRows.findIndex((row) =>
@@ -3802,8 +3803,12 @@ export default function BrewFormStepper({
     }
 
     const blockKey = String(currentBlock);
-    setExecution((previous) => saveBrewingExecutionLocal({
+    latestLocalEditAt.current = Date.now();
+    // Editing text must not overwrite the last committed localStorage value:
+    // validation can still restore that value on blur.
+    setExecution((previous) => ({
       ...previous,
+      updatedAt: new Date().toISOString(),
       blocks: {
         ...previous.blocks,
         [blockKey]: {
