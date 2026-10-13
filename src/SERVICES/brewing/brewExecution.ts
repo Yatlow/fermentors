@@ -18,6 +18,25 @@ const lastRemoteExecutionFingerprint = new Map<string, string>();
 const pendingLocalWriteFingerprint = new Map<string, string>();
 const lastAcidHistoryFingerprint = new Map<string, string>();
 const brewExecutionWriteQueues = new Map<string, Promise<void>>();
+const lastKnownExecution = new Map<string, BrewExecution>();
+
+function changedExecutionBlocks(
+  next: BrewExecution,
+  previous?: BrewExecution,
+): BrewExecution["blocks"] {
+  const changed: BrewExecution["blocks"] = {};
+  for (const [block, data] of Object.entries(next.blocks || {})) {
+    const oldFields = previous?.blocks?.[block]?.fields || {};
+    const fields = Object.fromEntries(
+      Object.entries(data.fields || {}).filter(([field, value]) =>
+        oldFields[field] !== value,
+      ),
+    );
+    if (Object.keys(fields).length) changed[block] = { fields };
+  }
+  return changed;
+}
+
 
 /** Row addresses are an independent, creation-time metadata field. Do not
  * overwrite existing field values while hydrating this map. */
@@ -226,6 +245,7 @@ export function subscribeToBrewingExecution(
     }
 
     lastRemoteExecutionFingerprint.set(clean, fingerprint);
+    lastKnownExecution.set(clean, remote);
 
     // Firestore can deliver the same document more than once (metadata changes,
     // reconnects, or outer-field updates). Only propagate real execution changes.
@@ -305,6 +325,7 @@ export async function loadBrewingExecutionFromFirestore(
     ));
   }
   lastRemoteExecutionFingerprint.set(clean, executionFingerprint(mapped));
+  lastKnownExecution.set(clean, mapped);
   return persistRemoteExecutionLocal(mapped);
 }
 
@@ -374,27 +395,47 @@ export async function saveBrewingExecutionToFirestore(
   const clean = cleanBatchNumber(execution.batchNumber);
   if (!clean) return;
 
-  // Only one write may be in flight per batch. A slow network response must
-  // not let an older autosave commit after a newer user edit.
-  const previous = brewExecutionWriteQueues.get(clean) || Promise.resolve();
-  const queued = previous.catch(() => undefined).then(async () => {
+  // Serialize writes from this browser, and write only changed field leaves.
+  // Saving the entire blocks map clobbered concurrent updates from another
+  // brewer working in the other A/B/C block.
+  const previousWrite = brewExecutionWriteQueues.get(clean) || Promise.resolve();
+  const queued = previousWrite.catch(() => undefined).then(async () => {
     if (isOlderThanLocal(clean, execution)) return;
     const remoteExecution = cleanForRemoteExecution(execution);
     const fingerprint = executionFingerprint(remoteExecution);
     if (lastRemoteExecutionFingerprint.get(clean) === fingerprint) return;
+
+    const baseline = lastKnownExecution.get(clean);
+    const blocks = changedExecutionBlocks(remoteExecution, baseline);
+    const metadataChanged =
+      !baseline ||
+      baseline.activeBlockIndex !== remoteExecution.activeBlockIndex ||
+      baseline.activeStepIndex !== remoteExecution.activeStepIndex ||
+      JSON.stringify(baseline.reviewedSteps || {}) !== JSON.stringify(remoteExecution.reviewedSteps || {});
+    if (!Object.keys(blocks).length && !metadataChanged) return;
+
+    const patch = {
+      batchNumber: clean,
+      activeBlockIndex: remoteExecution.activeBlockIndex,
+      activeStepIndex: remoteExecution.activeStepIndex ?? null,
+      reviewedSteps: remoteExecution.reviewedSteps || {},
+      updatedAt: remoteExecution.updatedAt,
+      blocks,
+    };
 
     pendingLocalWriteFingerprint.set(clean, fingerprint);
     try {
       await setDoc(
         doc(db, "brews", clean),
         {
-          brewingExecution: remoteExecution,
+          brewingExecution: patch,
           brewingExecutionUpdatedAt: serverTimestamp(),
           brewingExecutionUpdatedBy: auth.currentUser?.uid || "",
         },
         { merge: true },
       );
       lastRemoteExecutionFingerprint.set(clean, fingerprint);
+      lastKnownExecution.set(clean, remoteExecution);
     } catch (error) {
       if (pendingLocalWriteFingerprint.get(clean) === fingerprint) {
         pendingLocalWriteFingerprint.delete(clean);
