@@ -6950,3 +6950,11 @@ b {
 
 .mobile-nav-chevron{display:none}
 @media(max-width:600px){.mobile-nav-chevron{display:block;flex-shrink:0;color:#64748b;transition:transform .18s ease}.mobile-nav-chevron.expanded{transform:rotate(180deg)}}
+
+/* UX pass: keep desktop navigation visible despite the mobile shell wrapper. */
+@media(min-width:601px){.mobile-nav-shell{display:contents!important}}
+/* Distinguish sorting controls from the status filter chips. */
+.sort-filter{margin-top:10px;padding-top:10px;border-top:1px solid #e2e8f0}
+.sort-filter .status-filter-button{border-radius:9px;background:#f8fafc}
+.sort-filter .status-filter-button.active{background:#e0ecff;color:#1d4f91;border-color:#93b4e6;box-shadow:none}
+.dashboard-clear-filters{border:0;background:transparent;color:#2563eb;text-decoration:underline;cursor:pointer;font-size:12px;padding:5px 7px}
