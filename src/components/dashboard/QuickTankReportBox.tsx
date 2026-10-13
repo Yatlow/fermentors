@@ -97,7 +97,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
     const stage: "warm" | "cold" = isWarm ? "warm" : "cold";
     const isColdTank = tank.stage?.name === "קר";
 
-    const [noteType, setNoteType] = useState(initialNoteType);
+    const [noteType, setNoteType] = useState("");
     const [carbonationCalcOpen, setCarbonationCalcOpen] = useState(false);
     const [reportTypeOpen, setReportTypeOpen] = useState(false);
     const [value, setValue] = useState("");
@@ -158,6 +158,12 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
         setPressureAfter(""); setPressureAutoFilled(true);
         setStatus("idle"); setErrorMsg("");
     }
+
+    useEffect(() => {
+        if (initialNoteType) selectNoteType(initialNoteType);
+        // Prefill the same defaults as choosing the report type manually.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialNoteType]);
 
     function selectNoteType(newType: string) {
         setNoteType(newType);
