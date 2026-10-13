@@ -456,4 +456,55 @@ const cycle = loadAppsScript("server/fermentor-cycle-optimization.js", {
 
 
 
+
+{
+  // Reproduction: wheat has a third rest, so block B's out-to-boil pH and
+  // the rinse+grant cells have shifted relative to the legacy template.
+  const rows = Array.from({ length: 136 }, () => Array(8).fill(""));
+  const put = (row, column, value) => { rows[row - 1]["ABCDEFGH".indexOf(column)] = value; };
+  for (const header of [4, 58]) {
+    put(header, "B", "סוג:");
+    put(header, "D", "אצווה:");
+  }
+  for (const [row, label] of [
+    [9, "הכנסת לתת"], [21, "השריה 3"], [23, "חימום 3"],
+    [28, "הוצאה לבישול"], [33, "שטיפה 5"],
+    [63, "הכנסת לתת"], [75, "השריה 3"], [77, "חימום 3"],
+    [90, "הוצאה לבישול"], [101, "שטיפה 5"],
+  ]) put(row, "D", label);
+  put(28, "H", "pH 5.45");
+  put(90, "H", "pH 5.45");
+  put(33, "H", "1250+50");
+  put(101, "H", "1250+50");
+  put(7, "A", "HLT"); put(8, "A", "MASH IN");
+  put(61, "A", "HLT"); put(62, "A", "MASH IN");
+  put(115, "A", "יום בישול"); put(115, "E", "שעת הוספת שמרים");
+  let publishUrl = "";
+  let publishPayload = null;
+  const brewCreate = loadAppsScript("server/brewSheetCreationOutbox.js", {
+    SpreadsheetApp: { openById: () => ({ getSheets: () => [{
+      getDataRange: () => ({ getDisplayValues: () => rows }),
+    }] }) },
+    sheetSyncDocumentsUrl_: (path) => "https://firestore.test" + path,
+    sheetSyncFetch_: (url, options) => {
+      publishUrl = url;
+      publishPayload = JSON.parse(options.payload);
+      return { getResponseCode: () => 200 };
+    },
+  });
+  const rowMap = brewCreate.brewCreateSheetRowMap_("mock-sheet", "double");
+  assert.equal(rowMap["1"]["__sheetRow.stage.outToBoil"], "28");
+  assert.equal(rowMap["2"]["__sheetRow.stage.outToBoil"], "90");
+  assert.equal(rowMap["2"]["__sheetRow.rinse.5"], "101");
+  assert.equal(rowMap["2"]["__sheetRow.stage.rest3"], "75");
+  assert.equal(rowMap["2"]["__sheetRow.water.mashIn"], "62");
+  assert.equal(rowMap["2"]["__sheetRow.fermentation"], "115");
+  brewCreate.brewCreatePublishRowMap_({ batchNumber: "1605", tankType: "double" }, "mock-sheet");
+  assert.match(publishUrl, /updateMask.fieldPaths=brewSheetRowMapJson/);
+  assert.deepEqual(Object.keys(publishPayload.fields), ["brewSheetRowMapJson"],
+    "creation must publish row metadata only, not overwrite brew input data");
+  const saved = JSON.parse(publishPayload.fields.brewSheetRowMapJson.stringValue);
+  assert.equal(saved.blocks["2"]["__sheetRow.stage.outToBoil"], "90");
+}
+
 console.log("Critical server regression tests passed");

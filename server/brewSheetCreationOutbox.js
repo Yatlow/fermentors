@@ -119,6 +119,106 @@ function brewCreatePatchJob_(jobId, fields, expectedUpdateTime) {
   return true;
 }
 
+
+/**
+ * Snapshot the semantic row positions after the actual template has been
+ * created and all extra-rest rows inserted. This map contains addresses only,
+ * never user measurements. Reopening the form must not need a full Sheet read.
+ */
+function brewCreateSheetRowMap_(fileId, tankType) {
+  const sheet = SpreadsheetApp.openById(fileId).getSheets()[0];
+  const rows = sheet.getDataRange().getDisplayValues();
+  const expected = String(tankType) === "single" ? 1 : String(tankType) === "double" ? 2 : 3;
+  const headers = [];
+  for (let index = 0; index < rows.length; index++) {
+    if (String(rows[index][1] || "").trim() === "סוג:" &&
+        String(rows[index][3] || "").trim() === "אצווה:") headers.push(index);
+  }
+  if (headers.length < expected) throw new Error("Cannot discover all brew block headers");
+  const result = {};
+  const fermentationIndex = rows.findIndex(function (row) {
+    return /^יום בישול/i.test(String(row[0] || "").trim()) &&
+      /שעת הוספת שמרים/i.test(String(row[4] || "").trim());
+  });
+  const stages = [
+    ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\s*1$/i],
+    ["heat1", /^חימום\s*1$/i], ["rest2", /^השריה\s*2$/i],
+    ["heat2", /^חימום\s*2$/i], ["rest3", /^השריה\s*3$/i],
+    ["heat3", /^חימום\s*3$/i], ["transferLt", /^העברה\s+ל.*L\.?T\.?/i],
+    ["restLt", /^מנוחה\s*L\.?T\.?/i], ["circulation", /^סחרור/i],
+    ["outToBoil", /^הוצאה לבישול$/i], ["endTransfer", /^סוף העברה$/i],
+    ["boil", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i],
+    ["hop1", /^הוספת כ(?:שות|שת)\s*1$/i],
+    ["hop2", /^הוספת כ(?:שות|שת)\s*2$/i],
+    ["hop3", /^הוספת כ(?:שות|שת)\s*3$/i],
+    ["hop4", /^הוספת כ(?:שות|שת)\s*4$/i],
+    ["wp", /סוף רתיחה.*תחילת\s*WP/i], ["outToFermentor", /^הוצאה לתסיסה$/i]
+  ];
+  const sugars = [
+    ["frPlato", /^F\.R\.?\s*$/i], ["lrPlato", /^L\.R\.?\s*$/i],
+    ["kettlePlato", /^סיר בישול/i], ["endBoilPlato", /^סוף רתיחה$/i],
+    ["fermentorSamplePlato", /^תחילת תסיסה$/i]
+  ];
+  for (let block = 0; block < expected; block++) {
+    const first = headers[block];
+    const last = headers[block + 1] || rows.length;
+    const fields = { "__sheetRow.header": String(first + 1) };
+    if (fermentationIndex >= 0) fields["__sheetRow.fermentation"] = String(fermentationIndex + 1);
+    const acid = [];
+    let rawHopHeader = -1;
+    for (let i = first; i < last; i++) {
+      const row = rows[i] || [];
+      const label = String(row[3] || "").trim();
+      const sugarLabel = String(row[0] || "").trim();
+      if (/^HLT$/i.test(sugarLabel)) fields["__sheetRow.water.hlt"] = String(i + 1);
+      if (/^MASH\s*IN$/i.test(sugarLabel)) fields["__sheetRow.water.mashIn"] = String(i + 1);
+      for (let j = 0; j < stages.length; j++) {
+        if (stages[j][1].test(label)) fields["__sheetRow.stage." + stages[j][0]] = String(i + 1);
+      }
+      const rinse = /^שטיפה\s*([1-7])$/i.exec(label);
+      if (rinse) fields["__sheetRow.rinse." + rinse[1]] = String(i + 1);
+      for (let j = 0; j < sugars.length; j++) {
+        if (sugars[j][1].test(sugarLabel)) fields["__sheetRow.sugar." + sugars[j][0]] = String(i + 1);
+      }
+      if (/H3PO4/i.test(String(row[2] || ""))) acid.push(i + 1);
+      if (/^כמות$/i.test(sugarLabel) && /אחוז.*אלפ/i.test(String(row[1] || "")) &&
+          /סוג/i.test(String(row[2] || ""))) rawHopHeader = i;
+      if (/^שמרים$/i.test(String(row[2] || "").trim())) fields["__sheetRow.material.yeast"] = String(i + 1);
+    }
+    if (acid[0]) fields["__sheetRow.acid.mash"] = String(acid[0]);
+    if (acid[1]) fields["__sheetRow.acid.boil"] = String(acid[1]);
+    if (rawHopHeader >= 0) {
+      for (let j = 1; j <= 5; j++) fields["__sheetRow.rawHop." + j] = String(rawHopHeader + j + 1);
+    }
+    if (fields["__sheetRow.sugar.kettlePlato"]) fields["__sheetRow.sugar.kettleVolume"] = fields["__sheetRow.sugar.kettlePlato"];
+    if (fields["__sheetRow.sugar.endBoilPlato"]) fields["__sheetRow.sugar.endBoilVolume"] = fields["__sheetRow.sugar.endBoilPlato"];
+    if (fields["__sheetRow.sugar.fermentorSamplePlato"]) fields["__sheetRow.sugar.cumulativeTankVolume"] = fields["__sheetRow.sugar.fermentorSamplePlato"];
+    if (!fields["__sheetRow.stage.mashIn"] || !fields["__sheetRow.stage.outToBoil"]) {
+      throw new Error("Incomplete semantic row map for brew block " + (block + 1));
+    }
+    result[String(block + 1)] = fields;
+  }
+  return result;
+}
+
+function brewCreatePublishRowMap_(job, fileId) {
+  const map = brewCreateSheetRowMap_(fileId, job.tankType);
+  const batch = String(job.batchNumber);
+  const response = sheetSyncFetch_(
+    sheetSyncDocumentsUrl_("/brews/" + encodeURIComponent(batch) + "?updateMask.fieldPaths=brewSheetRowMapJson"),
+    {
+      method: "patch",
+      contentType: "application/json",
+      payload: JSON.stringify({ fields: {
+        brewSheetRowMapJson: { stringValue: JSON.stringify({ version: 1, spreadsheetId: fileId, blocks: map }) }
+      } })
+    }
+  );
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error("Failed publishing brew row map: HTTP " + response.getResponseCode());
+  }
+}
+
 function brewCreatePublishPending_(job, created) {
   const batch = String(job.batchNumber);
   const url = sheetSyncDocumentsUrl_("/pendingBrews/" + encodeURIComponent(batch));
@@ -218,6 +318,14 @@ function processPendingBrewSheetCreationJobs_(requestedJobId) {
         });
       }
 
+      // Row-map persistence is best-effort during job creation. An unusual
+      // legacy template must not prevent a successfully created Sheet from
+      // being published; the form can discover the map once on first open.
+      try {
+        brewCreatePublishRowMap_(job, created.id);
+      } catch (mapError) {
+        console.warn("Failed precomputing brew Sheet row map for " + job.batchNumber + ": " + mapError);
+      }
       brewCreatePublishPending_(job, created);
       brewCreatePatchJob_(jobId, {
         state: "ready",

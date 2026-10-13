@@ -17,6 +17,77 @@ export type BrewExecution = {
 const lastRemoteExecutionFingerprint = new Map<string, string>();
 const pendingLocalWriteFingerprint = new Map<string, string>();
 const lastAcidHistoryFingerprint = new Map<string, string>();
+const brewExecutionWriteQueues = new Map<string, Promise<void>>();
+const lastKnownExecution = new Map<string, BrewExecution>();
+
+function changedExecutionBlocks(
+  next: BrewExecution,
+  previous?: BrewExecution,
+): BrewExecution["blocks"] {
+  const changed: BrewExecution["blocks"] = {};
+  for (const [block, data] of Object.entries(next.blocks || {})) {
+    const oldFields = previous?.blocks?.[block]?.fields || {};
+    const fields = Object.fromEntries(
+      Object.entries(data.fields || {}).filter(([field, value]) =>
+        oldFields[field] !== value,
+      ),
+    );
+    if (Object.keys(fields).length) changed[block] = { fields };
+  }
+  return changed;
+}
+
+
+/** Row addresses are an independent, creation-time metadata field. Do not
+ * overwrite existing field values while hydrating this map. */
+function withCreatedRowMap(
+  batchNumber: string,
+  execution: BrewExecution,
+  rawMap: unknown,
+): BrewExecution {
+  if (typeof rawMap !== "string") return execution;
+  try {
+    const parsed = JSON.parse(rawMap) as {
+      version?: number;
+      blocks?: Record<string, Record<string, string>>;
+    };
+    if (parsed.version !== 1 || !parsed.blocks) return execution;
+    const blocks = { ...execution.blocks };
+    for (const [blockKey, metadata] of Object.entries(parsed.blocks)) {
+      if (!/^[1-3]$/.test(blockKey) || !metadata || typeof metadata !== "object") continue;
+      const current = blocks[blockKey]?.fields || {};
+      const safeMetadata = Object.fromEntries(
+        Object.entries(metadata).filter(([key, value]) =>
+          key.startsWith("__sheetRow.") &&
+          typeof value === "string" &&
+          Number.isInteger(Number(value)) &&
+          Number(value) > 0,
+        ),
+      );
+      blocks[blockKey] = {
+        fields: { ...current, ...safeMetadata },
+      };
+    }
+    return { ...execution, batchNumber, blocks };
+  } catch {
+    return execution;
+  }
+}
+
+function isOlderThanLocal(batchNumber: string, incoming: BrewExecution): boolean {
+  // A missing cache must never beat a canonical Firestore execution merely
+  // because emptyExecution() would have a freshly generated timestamp.
+  try {
+    if (!window.localStorage.getItem(key(batchNumber))) return false;
+  } catch {
+    return false;
+  }
+  const local = loadBrewingExecution(batchNumber);
+  const localTime = Date.parse(local.updatedAt || "");
+  const remoteTime = Date.parse(incoming.updatedAt || "");
+  return Number.isFinite(localTime) && Number.isFinite(remoteTime) &&
+    remoteTime < localTime;
+}
 
 function emptyExecution(batchNumber: string): BrewExecution {
   return {
@@ -150,6 +221,10 @@ export function subscribeToBrewingExecution(
   const emitRemote = (remote: BrewExecution) => {
     const fingerprint = executionFingerprint(remote);
 
+    // Ignore stale echoes even after the brewer moves focus away.
+    // Focus-based guards alone cannot protect a just-committed input.
+    if (isOlderThanLocal(clean, remote)) return;
+
     // A Firestore snapshot caused by our own autosave must not be fed back into
     // React state. Doing so creates a new object, re-triggers the autosave
     // effect, writes another server timestamp, and can loop indefinitely.
@@ -170,6 +245,7 @@ export function subscribeToBrewingExecution(
     }
 
     lastRemoteExecutionFingerprint.set(clean, fingerprint);
+    lastKnownExecution.set(clean, remote);
 
     // Firestore can deliver the same document more than once (metadata changes,
     // reconnects, or outer-field updates). Only propagate real execution changes.
@@ -184,9 +260,14 @@ export function subscribeToBrewingExecution(
 
   const unsubscribe = onSnapshot(doc(db, "brews", clean), (snapshot) => {
     if (!snapshot.exists()) return;
-    const data = snapshot.data() as { brewingExecution?: BrewExecution };
-    const remote = data.brewingExecution;
-    if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
+    const data = snapshot.data() as { brewingExecution?: BrewExecution; brewSheetRowMapJson?: string };
+    const base = data.brewingExecution;
+    if (base && (base.batchNumber !== clean || !base.blocks)) return;
+    if (!base && !data.brewSheetRowMapJson) return;
+    const mapped = withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson);
+    const remote = isOlderThanLocal(clean, mapped)
+      ? withCreatedRowMap(clean, loadBrewingExecution(clean), data.brewSheetRowMapJson)
+      : mapped;
     emitRemote(remote);
   });
 
@@ -198,10 +279,14 @@ export function subscribeToBrewingExecution(
       void getDoc(doc(db, "brews", clean))
         .then((snapshot) => {
           if (disposed || !snapshot.exists()) return;
-          const data = snapshot.data() as { brewingExecution?: BrewExecution };
-          const remote = data.brewingExecution;
-          if (!remote || remote.batchNumber !== clean || !remote.blocks) return;
-          emitRemote(remote);
+          const data = snapshot.data() as { brewingExecution?: BrewExecution; brewSheetRowMapJson?: string };
+          const base = data.brewingExecution;
+          if (base && (base.batchNumber !== clean || !base.blocks)) return;
+          if (!base && !data.brewSheetRowMapJson) return;
+          const mapped = withCreatedRowMap(clean, base || loadBrewingExecution(clean), data.brewSheetRowMapJson);
+          emitRemote(isOlderThanLocal(clean, mapped)
+            ? withCreatedRowMap(clean, loadBrewingExecution(clean), data.brewSheetRowMapJson)
+            : mapped);
         })
         .catch((error) =>
           console.warn("Failed refreshing brewing execution after edit", error),
@@ -229,12 +314,19 @@ export async function loadBrewingExecutionFromFirestore(
   if (!clean) return null;
   const snapshot = await getDoc(doc(db, "brews", clean));
   if (!snapshot.exists()) return null;
-  const data = snapshot.data() as { brewingExecution?: BrewExecution };
+  const data = snapshot.data() as { brewingExecution?: BrewExecution; brewSheetRowMapJson?: string };
   const remote = data.brewingExecution;
-  if (!remote || remote.batchNumber !== clean || !remote.blocks) return null;
-
-  lastRemoteExecutionFingerprint.set(clean, executionFingerprint(remote));
-  return persistRemoteExecutionLocal(remote);
+  if (remote && (remote.batchNumber !== clean || !remote.blocks)) return null;
+  if (!remote && !data.brewSheetRowMapJson) return null;
+  const mapped = withCreatedRowMap(clean, remote || loadBrewingExecution(clean), data.brewSheetRowMapJson);
+  if (isOlderThanLocal(clean, mapped)) {
+    return persistRemoteExecutionLocal(withCreatedRowMap(
+      clean, loadBrewingExecution(clean), data.brewSheetRowMapJson,
+    ));
+  }
+  lastRemoteExecutionFingerprint.set(clean, executionFingerprint(mapped));
+  lastKnownExecution.set(clean, mapped);
+  return persistRemoteExecutionLocal(mapped);
 }
 
 function acidHistoryFields(fields: Record<string, string>) {
@@ -303,31 +395,61 @@ export async function saveBrewingExecutionToFirestore(
   const clean = cleanBatchNumber(execution.batchNumber);
   if (!clean) return;
 
-  const remoteExecution = cleanForRemoteExecution(execution);
-  const fingerprint = executionFingerprint(remoteExecution);
+  // Serialize writes from this browser, and write only changed field leaves.
+  // Saving the entire blocks map clobbered concurrent updates from another
+  // brewer working in the other A/B/C block.
+  const previousWrite = brewExecutionWriteQueues.get(clean) || Promise.resolve();
+  const queued = previousWrite.catch(() => undefined).then(async () => {
+    if (isOlderThanLocal(clean, execution)) return;
+    const remoteExecution = cleanForRemoteExecution(execution);
+    const fingerprint = executionFingerprint(remoteExecution);
+    if (lastRemoteExecutionFingerprint.get(clean) === fingerprint) return;
 
-  // Hydration/listener echoes are not user edits. If Firestore already contains
-  // this exact execution, do not write a fresh serverTimestamp just because the
-  // component mounted or received a snapshot.
-  if (lastRemoteExecutionFingerprint.get(clean) === fingerprint) return;
+    const baseline = lastKnownExecution.get(clean);
+    const blocks = changedExecutionBlocks(remoteExecution, baseline);
+    const metadataChanged =
+      !baseline ||
+      baseline.activeBlockIndex !== remoteExecution.activeBlockIndex ||
+      baseline.activeStepIndex !== remoteExecution.activeStepIndex ||
+      JSON.stringify(baseline.reviewedSteps || {}) !== JSON.stringify(remoteExecution.reviewedSteps || {});
+    if (!Object.keys(blocks).length && !metadataChanged) return;
 
-  pendingLocalWriteFingerprint.set(clean, fingerprint);
-  try {
-    await setDoc(
-      doc(db, "brews", clean),
-      {
-        brewingExecution: remoteExecution,
-        brewingExecutionUpdatedAt: serverTimestamp(),
-        brewingExecutionUpdatedBy: auth.currentUser?.uid || "",
-      },
-      { merge: true },
-    );
-    lastRemoteExecutionFingerprint.set(clean, fingerprint);
-  } catch (error) {
-    if (pendingLocalWriteFingerprint.get(clean) === fingerprint) {
-      pendingLocalWriteFingerprint.delete(clean);
+    const patch = {
+      batchNumber: clean,
+      activeBlockIndex: remoteExecution.activeBlockIndex,
+      activeStepIndex: remoteExecution.activeStepIndex ?? null,
+      reviewedSteps: remoteExecution.reviewedSteps || {},
+      updatedAt: remoteExecution.updatedAt,
+      blocks,
+    };
+
+    pendingLocalWriteFingerprint.set(clean, fingerprint);
+    try {
+      await setDoc(
+        doc(db, "brews", clean),
+        {
+          brewingExecution: patch,
+          brewingExecutionUpdatedAt: serverTimestamp(),
+          brewingExecutionUpdatedBy: auth.currentUser?.uid || "",
+        },
+        { merge: true },
+      );
+      lastRemoteExecutionFingerprint.set(clean, fingerprint);
+      lastKnownExecution.set(clean, remoteExecution);
+    } catch (error) {
+      if (pendingLocalWriteFingerprint.get(clean) === fingerprint) {
+        pendingLocalWriteFingerprint.delete(clean);
+      }
+      throw error;
     }
-    throw error;
+  });
+  brewExecutionWriteQueues.set(clean, queued);
+  try {
+    await queued;
+  } finally {
+    if (brewExecutionWriteQueues.get(clean) === queued) {
+      brewExecutionWriteQueues.delete(clean);
+    }
   }
 }
 

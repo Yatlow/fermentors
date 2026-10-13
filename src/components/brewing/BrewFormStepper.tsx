@@ -497,28 +497,11 @@ function fieldsFromSheetRows(
   if (brewDate) pulled.brewDate = brewDate;
   pulled["__sheetRow.header"] = String(sheetStartRow);
 
-  TIMELINE_STAGES.forEach((stage) => {
-    const start = normalizedTime(cell(stage.rowOffset, "E"));
-    const end = normalizedTime(cell(stage.rowOffset, "F"));
-    const temp = numericText(cell(stage.rowOffset, "G"));
-    if (start) pulled[`${stage.key}.start`] = start;
-    if (end) pulled[`${stage.key}.end`] = end;
-    if (stage.showTemp && temp) pulled[`${stage.key}.temp`] = temp;
+  // Do not read process stages from fixed offsets. Extra mash rests shift
+  // every subsequent stage; semantic labels below are authoritative.
 
-    if (stage.showNote && stage.key !== "mashIn") {
-      const note = cell(stage.rowOffset, "H");
-      if (note) pulled[`${stage.key}.note`] = note;
-    }
-  });
-
-  const hltAmount = numericText(cell(8, "B"));
-  const hltTemp = numericText(cell(8, "C"));
-  const mashInWaterAmount = numericText(cell(9, "B"));
-  const mashInWaterTemp = numericText(cell(9, "C"));
-  if (hltAmount) pulled.hltWaterAmount = hltAmount;
-  if (hltTemp) pulled.hltWaterTemp = hltTemp;
-  if (mashInWaterAmount) pulled.lauterWaterAmount = mashInWaterAmount;
-  if (mashInWaterTemp) pulled.lauterWaterTemp = mashInWaterTemp;
+  // Water values are read only after locating the labeled HLT and MASH IN
+  // rows. An empty semantic cell must not inherit data from a guessed offset.
 
   if (!pulled["transferLt.start"]) {
     const mashOutEnd = pulled["heat3.end"] || pulled["heat2.end"];
@@ -536,65 +519,30 @@ function fieldsFromSheetRows(
     mashMeta.match(/הערה:\s*(.+)$/i)?.[1]?.trim() || "";
   if (mashInNote) pulled["mashIn.note"] = mashInNote;
 
-  const mashAcid = numericText(cell(28, "A"));
-  if (mashAcid) pulled.mashAcid85 = mashAcid;
+  // Acid rows are resolved from their H3PO4 labels below.
+  // The out-to-boil row moves in recipes with extra mash rests.
+  // Never infer its pH from an absolute offset; resolve it semantically below.
 
-  const boilAcid = numericText(cell(29, "A"));
-  if (boilAcid) pulled.boilAcid85 = boilAcid;
+  // Boil pH is resolved from its named process row below.
+  // Fermentor transfer position also varies by recipe; use the labeled row.
 
-  const outToBoilPh = numericText(cell(15, "H"));
-  if (outToBoilPh) pulled.outToBoilPh = outToBoilPh;
-
-  const boilCell = cell(28, "F");
-  if (!normalizedTime(boilCell)) {
-    const boilPh = numericText(boilCell);
-    if (boilPh) pulled.boilPh = boilPh;
-  }
-
-  const outToFermentorPh = numericText(cell(40, "H"));
-  if (outToFermentorPh) pulled.outToFermentorPh = outToFermentorPh;
-
-  for (let rowOffset = 42; rowOffset <= 47; rowOffset += 1) {
-    const correction = cell(rowOffset, "E");
-    if (!correction) continue;
-
-    correction.split(/\r?\n/).forEach((line) => {
+  // Correction notes are located by their explicit semantic prefixes rather
+  // than by their original (pre-extra-rest) row numbers.
+  rows.forEach((row) => {
+    String(row[4] || "").split(/\r?\n/).forEach((line) => {
       const mashMatch = /^הערת מאש:\s*(.*)$/i.exec(line.trim());
       if (mashMatch) pulled["mashIn.note"] = mashMatch[1].trim();
-
       const generalMatch = /^הערה כללית:\s*(.*)$/i.exec(line.trim());
       if (generalMatch) pulled.generalNote = generalMatch[1].trim();
     });
-  }
+  });
 
   // Rinse rows move when a recipe has a different mash layout (for example
   // Wheat with a third rest). Never infer rinse data from fixed row offsets;
   // the semantic "שטיפה N" rows below are the only Sheet source for rinses.
 
-  const sugarFields: Array<
-    [string, number, "B" | "C"]
-  > = [
-    ["frPlato", 36, "B"],
-    ["lrPlato", 37, "B"],
-    ["kettlePlato", 38, "B"],
-    ["kettleVolume", 38, "C"],
-    ["endBoilPlato", 39, "B"],
-    ["endBoilVolume", 39, "C"],
-    ["fermentorSamplePlato", 40, "B"],
-    ["cumulativeTankVolume", 40, "C"],
-  ];
-
-  sugarFields.forEach(([key, rowOffset, column]) => {
-    const value = numericText(cell(rowOffset, column));
-    if (value) pulled[key] = value;
-  });
-
-  for (let index = 1; index <= 4; index += 1) {
-    const amount = numericText(cell(14 + index, "A"));
-    const alpha = numericText(cell(14 + index, "B"));
-    if (amount) pulled[`hop${index}.amountGrams`] = amount;
-    if (alpha) pulled[`hop${index}.alphaOverride`] = alpha;
-  }
+  // Sugar, volume, and hops are read from labeled rows rather than recipe-
+  // dependent positions. Unmatched fields are left untouched, never guessed.
 
   // Different beer-style templates do not share the IPA row offsets.
   // Re-read important values by the visible row labels and override the
@@ -629,6 +577,7 @@ function fieldsFromSheetRows(
     { key: "hop1", pattern: /^הוספת כ(?:שות|שת)\s*1$/i },
     { key: "hop2", pattern: /^הוספת כ(?:שות|שת)\s*2$/i },
     { key: "hop3", pattern: /^הוספת כ(?:שות|שת)\s*3$/i },
+    { key: "hop4", pattern: /^הוספת כ(?:שות|שת)\s*4$/i },
     { key: "wp", pattern: /סוף רתיחה.*תחילת\s*WP/i },
     { key: "outToFermentor", pattern: /^הוצאה לתסיסה$/i },
   ];
@@ -685,6 +634,7 @@ function fieldsFromSheetRows(
 
   const hltRow = findDynamicRow("A", /^HLT$/i);
   if (hltRow >= 0) {
+    pulled["__sheetRow.water.hlt"] = String(sheetStartRow + hltRow);
     const amount = numericText(dynamicValue(hltRow, "B"));
     const temp = numericText(dynamicValue(hltRow, "C"));
     if (amount) pulled.hltWaterAmount = amount;
@@ -693,6 +643,7 @@ function fieldsFromSheetRows(
 
   const mashWaterRow = findDynamicRow("A", /^MASH\s*IN$/i);
   if (mashWaterRow >= 0) {
+    pulled["__sheetRow.water.mashIn"] = String(sheetStartRow + mashWaterRow);
     const candidates = ["B", "C", "D"]
       .flatMap((column) => dynamicValue(mashWaterRow, column as "B" | "C" | "D").match(/-?\d+(?:[.,]\d+)?/g) || [])
       .map((value) => Number(value.replace(",", ".")))
@@ -719,13 +670,13 @@ function fieldsFromSheetRows(
   const outToBoilRow = findDynamicRow("D", /^הוצאה לבישול$/i);
   if (outToBoilRow >= 0) {
     const ph = numericText(dynamicValue(outToBoilRow, "H"));
-    if (ph) pulled.outToBoilPh = ph;
+    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToBoilPh = ph;
   }
 
   const boilRow = findDynamicRow("D", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i);
   if (boilRow >= 0) {
     const ph = numericText(dynamicValue(boilRow, "F"));
-    if (ph) pulled.boilPh = ph;
+    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.boilPh = ph;
   }
 
   for (let rinseIndex = 1; rinseIndex <= 7; rinseIndex += 1) {
@@ -805,7 +756,7 @@ function fieldsFromSheetRows(
     if (start) { pulled["outToFermentor.start"] = start; if (!pulled["wp.end"]) pulled["wp.end"] = start; }
     if (end) pulled["outToFermentor.end"] = end;
     const ph = numericText(dynamicValue(outRow, "H"));
-    if (ph) pulled.outToFermentorPh = ph;
+    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToFermentorPh = ph;
   }
 
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
@@ -1030,6 +981,7 @@ export default function BrewFormStepper({
   const initialProductionPullKey = useRef("");
   const lastHandledSheetEditRevision = useRef<number | null>(null);
   const firestoreSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestLocalEditAt = useRef(0);
   const [firestoreHydrated, setFirestoreHydrated] = useState(false);
   const [, setInitialSheetReconciled] = useState(false);
   const ingredientLibrary = ingredients;
@@ -1061,7 +1013,17 @@ export default function BrewFormStepper({
     // Sheet edits are persisted into the canonical brews/{batch}.brewingExecution
     // document, so an open production form updates live.
     return subscribeToBrewingExecution(run.batchNumber, (remote) => {
-      setExecution(remote);
+      setExecution((previous) => {
+        const previousDate = Date.parse(previous.updatedAt || "");
+        const remoteDate = Date.parse(remote.updatedAt || "");
+        if (Number.isFinite(previousDate) && Number.isFinite(remoteDate) &&
+            previousDate > remoteDate &&
+            Object.values(previous.blocks).some((block) =>
+              Object.keys(block.fields || {}).some((key) => !key.startsWith("__sheetRow.")))) {
+          return previous;
+        }
+        return remote;
+      });
       if (remote.activeStepIndex != null) {
         setActiveStepState(Math.max(0, remote.activeStepIndex));
       }
@@ -1076,7 +1038,14 @@ export default function BrewFormStepper({
       .then((remote) => {
         if (cancelled) return;
         if (remote) {
-          setExecution(remote);
+          setExecution((previous) => {
+            const previousDate = Date.parse(previous.updatedAt || "");
+            const remoteDate = Date.parse(remote.updatedAt || "");
+            const hasUserData = Object.values(previous.blocks).some((block) =>
+              Object.keys(block.fields || {}).some((key) => !key.startsWith("__sheetRow.")));
+            return hasUserData && Number.isFinite(previousDate) && Number.isFinite(remoteDate) &&
+              previousDate > remoteDate ? previous : remote;
+          });
           setActiveStepState(Math.max(0, remote.activeStepIndex || 0));
           setValidationFrontier({
             blockIndex: Math.max(1, remote.activeBlockIndex || 1),
@@ -1674,9 +1643,9 @@ export default function BrewFormStepper({
       execution.blocks[String(currentBlock)]?.fields || {};
     const discoveredHeaderRow = Number(currentBlockFields["__sheetRow.header"]);
     const headerRow =
-      Number.isFinite(discoveredHeaderRow) && discoveredHeaderRow > 0
+      Number.isInteger(discoveredHeaderRow) && discoveredHeaderRow > 0
         ? discoveredHeaderRow
-        : blockHeaderRow(run.tankType, currentBlock);
+        : sheetRowFromMeta("__sheetRow.header", blockHeaderRow(run.tankType, currentBlock));
     const display = sheetDateFromIso(value);
     const writes: Array<{
       range: string;
@@ -1692,7 +1661,7 @@ export default function BrewFormStepper({
       writes.push(
         { range: "'גיליון1'!H1", value: display },
         {
-          range: `'גיליון1'!B${fermentationStartingRow(run.tankType)}`,
+          range: `'גיליון1'!B${mappedFermentationRow()}`,
           value: display,
         },
       );
@@ -1725,7 +1694,7 @@ export default function BrewFormStepper({
         `materialLot.${ingredient.id}`,
         lot.id,
       );
-      const row = baseRow + index;
+      const row = sheetRowFromMeta("__sheetRow.stage.mashIn", baseRow) + index;
       const typeAndLot = [
         ingredient.name,
         lot.lotNumber ? `#${lot.lotNumber}` : "",
@@ -1850,7 +1819,20 @@ export default function BrewFormStepper({
 
   function sheetRowFromMeta(key: string, fallbackRow: number): number {
     const value = Number(fields[key]);
-    return Number.isFinite(value) && value > 0 ? value : fallbackRow;
+    if (Number.isInteger(value) && value > 0) return value;
+    // Never write to a guessed position in a Sheet with variable mash rows.
+    if (run.sheetId) {
+      throw new Error(`חסר מיפוי סמנטי עבור ${key}. השמירה ל-Sheet נחסמה כדי להגן על נתוני הבישול.`);
+    }
+    return fallbackRow;
+  }
+
+  function mappedWaterRow(key: "hlt" | "mashIn") {
+    return sheetRowFromMeta(`__sheetRow.water.${key}`, baseRow + (key === "hlt" ? 8 : 9));
+  }
+
+  function mappedFermentationRow() {
+    return sheetRowFromMeta("__sheetRow.fermentation", fermentationStartingRow(run.tankType));
   }
 
   function rawHopSheetRow(index: number): number {
@@ -1860,45 +1842,15 @@ export default function BrewFormStepper({
     );
   }
 
-  async function sugarSheetRow(
-    key: string,
-    fallbackOffset: number,
-  ): Promise<number> {
-    const metaRow = Number(fields[`__sheetRow.sugar.${key}`]);
-    if (Number.isFinite(metaRow) && metaRow > 0) return metaRow;
-
-    const semanticPatterns: Record<string, RegExp> = {
-      frPlato: /^F\.R\.?\s*$/i,
-      lrPlato: /^L\.R\.?\s*$/i,
-      kettlePlato: /^סיר בישול/i,
-      kettleVolume: /^סיר בישול/i,
-      endBoilPlato: /^סוף רתיחה$/i,
-      endBoilVolume: /^סוף רתיחה$/i,
-      fermentorSamplePlato: /^תחילת תסיסה$/i,
-      cumulativeTankVolume: /^תחילת תסיסה$/i,
-    };
-    const pattern = semanticPatterns[key];
-
-    if (run.sheetId && pattern) {
-      try {
-        // Do not depend on the background full-Sheet reconciliation having
-        // finished before the brewer clicks the calculator. A narrow read is
-        // safe while the form is active and lets us resolve the visible label
-        // to its real Sheet row on variable templates.
-        const rows = await readBrewSheetRange(
-          run.sheetId,
-          "'גיליון1'!A1:C220",
-        );
-        const rowIndex = rows.findIndex((row) =>
-          pattern.test(String(row[0] ?? "").trim()),
-        );
-        if (rowIndex >= 0) return rowIndex + 1;
-      } catch (error) {
-        console.warn("Failed resolving semantic sugar row", { key, error });
-      }
-    }
-
-    return baseRow + fallbackOffset;
+  async function sugarSheetRow(key: string, fallbackOffset: number): Promise<number> {
+    // This function remains asynchronous for compatibility with its callers.
+    // Its address comes only from the selected A/B/C block's persisted map.
+    // A global first-match search would incorrectly write into brew A when
+    // the current block is B or C (especially after an extra wheat rest).
+    return sheetRowFromMeta(
+      `__sheetRow.sugar.${key}`,
+      baseRow + fallbackOffset,
+    );
   }
 
   function acidSheetRow(
@@ -1928,7 +1880,7 @@ export default function BrewFormStepper({
     // Never let a fallback offset spill from the final brew block into the
     // fermentation table. Triple templates have a shorter C block than A/B;
     // only discovered row metadata is allowed near that boundary.
-    const fermentationRow = fermentationStartingRow(run.tankType);
+    const fermentationRow = Number(fields["__sheetRow.fermentation"]) || fermentationStartingRow(run.tankType);
     if (row >= fermentationRow) {
       throw new Error(`כתיבת בישול נחסמה: ${column}${row} נמצא בתוך דף התסיסה.`);
     }
@@ -2164,11 +2116,13 @@ export default function BrewFormStepper({
     value: string,
   ) {
     const clean = value.trim();
-    const correctionsLabelRow = baseRow + 41;
+    const correctionsLabelRow =
+      sheetRowFromMeta("__sheetRow.stage.outToFermentor", baseRow + 40) + 1;
     const nextBoundaryRow =
       currentBlock < totalBlocks
-        ? blockHeaderRow(run.tankType, currentBlock + 1)
-        : fermentationStartingRow(run.tankType) - 2;
+        ? Number(execution.blocks[String(currentBlock + 1)]?.fields?.["__sheetRow.header"]) ||
+          blockHeaderRow(run.tankType, currentBlock + 1)
+        : mappedFermentationRow() - 2;
     const startRow = correctionsLabelRow + 1;
     const endRow = Math.max(startRow, nextBoundaryRow - 1);
     const rows = run.sheetId
@@ -2688,10 +2642,10 @@ export default function BrewFormStepper({
     value: string,
   ) {
     const mapping = {
-      hltWaterAmount: { rowOffset: 8, column: "B" },
-      hltWaterTemp: { rowOffset: 8, column: "C" },
-      lauterWaterAmount: { rowOffset: 9, column: "B" },
-      lauterWaterTemp: { rowOffset: 9, column: "C" },
+      hltWaterAmount: { source: "hlt", column: "B" },
+      hltWaterTemp: { source: "hlt", column: "C" },
+      lauterWaterAmount: { source: "mashIn", column: "B" },
+      lauterWaterTemp: { source: "mashIn", column: "C" },
     } as const;
     const target = mapping[field];
 
@@ -2714,7 +2668,7 @@ export default function BrewFormStepper({
       value: string | number | boolean | null;
     }> = [
       {
-        range: `'גיליון1'!${target.column}${baseRow + target.rowOffset}`,
+        range: `'גיליון1'!${target.column}${mappedWaterRow(target.source)}`,
         value:
           field.endsWith("Temp") && value
             ? num(value) ?? value
@@ -2722,19 +2676,8 @@ export default function BrewFormStepper({
       },
     ];
 
-    // Preview versions before this fix wrote the second water row into
-    // "שטיפות". Clear that stale value when the corrected MASH IN field is saved.
-    if (field === "lauterWaterAmount") {
-      writes.push({
-        range: `'גיליון1'!B${baseRow + 11}`,
-        value: "",
-      });
-    } else if (field === "lauterWaterTemp") {
-      writes.push({
-        range: `'גיליון1'!C${baseRow + 11}`,
-        value: "",
-      });
-    }
+    // Never clear an unrelated historical offset as a cleanup side effect.
+    // On an expanded wheat template that offset can now hold real brew data.
 
     await commit(field, value, writes);
   }
@@ -3042,7 +2985,7 @@ export default function BrewFormStepper({
       );
       if (projectedStartingPlato.value !== null) {
         writes.push({
-          range: `'גיליון1'!D${fermentationStartingRow(run.tankType)}`,
+          range: `'גיליון1'!D${mappedFermentationRow()}`,
           value: Number(projectedStartingPlato.value.toFixed(2)),
         });
       }
@@ -3364,7 +3307,7 @@ export default function BrewFormStepper({
 
     await commit("yeastPitchTime", value, [
       {
-        range: `'גיליון1'!G${fermentationStartingRow(run.tankType)}`,
+        range: `'גיליון1'!G${mappedFermentationRow()}`,
         value,
       },
     ]);
@@ -3496,9 +3439,20 @@ export default function BrewFormStepper({
       // expectedValue snapshot first so the full read below becomes the new
       // conflict baseline, including cells edited directly in Google Sheets.
       resetBrewSheetBaseline(run.sheetId);
+      const readStartedAt = Date.now();
       const fullSheetRows = await readBrewSheetRange(
         run.sheetId,
         "'גיליון1'!A1:H220",
+      );
+      // A remote read begun before a brewer's new keystroke must never win
+      // the race and replace a more recently edited local execution.
+      if (latestLocalEditAt.current > readStartedAt ||
+          Date.parse(loadBrewingExecution(run.batchNumber).updatedAt || "") > readStartedAt) {
+        return false;
+      }
+      const fermentationIndex = fullSheetRows.findIndex((row) =>
+        /^יום בישול/i.test(String(row[0] ?? "").trim()) &&
+        /שעת הוספת שמרים/i.test(String(row[4] ?? "").trim()),
       );
       const discoveredBlocks = discoverSheetBlocks(
         fullSheetRows,
@@ -3522,6 +3476,9 @@ export default function BrewFormStepper({
           headerRow,
         );
 
+        if (fermentationIndex >= 0) {
+          pulled["__sheetRow.fermentation"] = String(fermentationIndex + 1);
+        }
         if (index === 1) {
           const yeastTime = fermentationYeastTimeFromFullSheet(fullSheetRows);
           if (yeastTime) pulled.yeastPitchTime = yeastTime;
@@ -3534,6 +3491,18 @@ export default function BrewFormStepper({
             ([key]) => !isSheetBackedExecutionKey(key),
           ),
         );
+
+        // Initial discovery is metadata-only for existing form data. The app
+        // already owns these values; reading a newly discovered map must not
+        // turn a stale Sheet snapshot into a full-field overwrite.
+        const mappingDiscoveryOnly = positionAfterPull && silent;
+        if (mappingDiscoveryOnly && Object.keys(existing).some((key) =>
+          !key.startsWith("__sheetRow.") && String(existing[key] ?? "").trim() !== ""
+        )) {
+          Object.keys(pulled).forEach((key) => {
+            if (!key.startsWith("__sheetRow.")) delete pulled[key];
+          });
+        }
 
         // A Sheet pull must not erase an explicit material confirmation merely
         // because the legacy Sheet cannot reconstruct every lot identifier.
@@ -3551,6 +3520,9 @@ export default function BrewFormStepper({
           nextExecution,
           index,
           {
+            // A partially populated Sheet response must not erase fields
+            // already committed locally (including rinse grants).
+            ...existing,
             ...localOnlyFields,
             ...preservedMaterialFields,
             ...pulled,
@@ -3624,6 +3596,15 @@ export default function BrewFormStepper({
         if (column === "E") set(`${stage.key}.start`, normalizedTime(rawValue) || "");
         else if (column === "F") set(`${stage.key}.end`, normalizedTime(rawValue) || "");
         else if (column === "G" && stage.showTemp) set(`${stage.key}.temp`, numericText(rawValue));
+        else if (column === "H" &&
+          (stage.key === "outToBoil" || stage.key === "outToFermentor")) {
+          const ph = numericText(rawValue);
+          if (ph && Number(ph) > 0 && Number(ph) <= 14) {
+            set(stage.key === "outToBoil" ? "outToBoilPh" : "outToFermentorPh", ph);
+          } else if (!rawValue.trim()) {
+            set(stage.key === "outToBoil" ? "outToBoilPh" : "outToFermentorPh", "");
+          } else return null;
+        }
         else if (column === "H" && stage.showNote) set(`${stage.key}.note`, rawValue.trim());
         else return null;
         return next;
@@ -3657,7 +3638,18 @@ export default function BrewFormStepper({
         return next;
       }
 
-      for (const key of ["kettlePlato", "endBoilPlato", "fermentorSamplePlato"]) {
+      for (const water of [
+        ["hlt", "hltWaterAmount", "hltWaterTemp"],
+        ["mashIn", "lauterWaterAmount", "lauterWaterTemp"],
+      ]) {
+        if (Number(fields[`__sheetRow.water.${water[0]}`] || 0) !== row) continue;
+        if (column === "B") set(water[1], numericText(rawValue));
+        else if (column === "C") set(water[2], numericText(rawValue));
+        else return null;
+        return next;
+      }
+
+      for (const key of ["frPlato", "lrPlato", "kettlePlato", "endBoilPlato", "fermentorSamplePlato"]) {
         if (Number(fields[`__sheetRow.sugar.${key}`] || 0) !== row) continue;
         if (column === "B") set(key, numericText(rawValue));
         else if (column === "C" && key === "kettlePlato") set("kettleVolume", numericText(rawValue));
@@ -3704,10 +3696,37 @@ export default function BrewFormStepper({
     if (lastHandledSheetEditRevision.current === revision) return;
 
     lastHandledSheetEditRevision.current = revision;
-    // A manual Sheet edit is uncommon and correctness matters more than saving
-    // one read. Re-run the canonical semantic parser for every revision instead
-    // of relying on an incomplete single-cell delta map.
-    void syncFromSheet(false, { silent: true });
+    // Apply only the changed cell. Re-importing all blocks for a one-cell edit
+    // was the source of unexpected jumps in previously entered lautering data.
+    const baseline = loadBrewingExecution(run.batchNumber);
+    const delta = applySheetEditDelta(baseline);
+    if (delta) {
+      // Reconcile only cells modified by this onEdit revision. Preserve any
+      // unrelated (possibly still focused) input in the current React state.
+      setExecution((previous) => {
+        const blocks = { ...previous.blocks };
+        for (const [blockId, block] of Object.entries(delta.blocks || {})) {
+          const oldFields = baseline.blocks[blockId]?.fields || {};
+          const currentFields = previous.blocks[blockId]?.fields || {};
+          const fields = { ...currentFields };
+          for (const [key, value] of Object.entries(block.fields || {})) {
+            if (value !== oldFields[key] &&
+                currentFields[key] === oldFields[key]) fields[key] = value;
+          }
+          blocks[blockId] = { fields };
+        }
+        return { ...previous, blocks, updatedAt: new Date().toISOString() };
+      });
+      resetBrewSheetBaseline(run.sheetId);
+      void saveBrewingExecutionToFirestore(delta);
+    } else {
+      // Preserve the currently entered values if this template contains an
+      // unknown/ambiguous cell. Never silently replace a whole block.
+      console.warn("Brew Sheet edit could not be mapped safely", {
+        batch: run.batchNumber,
+        range: run.brewSheetEditRange,
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreHydrated, run.sheetId, run.source, run.brewSheetEditRevision]);
 
@@ -3721,15 +3740,21 @@ export default function BrewFormStepper({
     }
 
     initialProductionPullKey.current = run.batchNumber;
-    // Firestore is the operational source: render it first, then reconcile
-    // the legacy Sheet silently in the background. Any pulled changes are
-    // persisted back to Firestore by syncFromSheet itself.
-    void syncFromSheet(true, { silent: true });
-    const interval = window.setInterval(
-      () => void syncFromSheet(false, { silent: true }),
-      60 * 60 * 1000,
+    // A new brew already has a canonical execution; discover its semantic
+    // row map only when it has not yet been persisted. Reopening a mapped
+    // form must not re-import the entire Sheet and overwrite fresh inputs.
+    const blocksNeedMapping = Array.from({ length: totalBlocks }, (_, index) =>
+      execution.blocks[String(index + 1)]?.fields || {},
+    ).some((blockFields) =>
+      !Object.keys(blockFields).some((key) => key.startsWith("__sheetRow.stage.")),
     );
-    return () => window.clearInterval(interval);
+    if (blocksNeedMapping) {
+      void syncFromSheet(true, { silent: true });
+    }
+    // Live onEdit revision events are the synchronization trigger. A periodic
+    // full pull races with local autosave and may replace freshly entered
+    // values without any corresponding Sheet edit.
+    // The maintenance service remains responsible for missed-edit recovery.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreHydrated, run.batchNumber, run.sheetId]);
 
@@ -3756,8 +3781,12 @@ export default function BrewFormStepper({
     }
 
     const blockKey = String(currentBlock);
+    latestLocalEditAt.current = Date.now();
+    // Editing text must not overwrite the last committed localStorage value:
+    // validation can still restore that value on blur.
     setExecution((previous) => ({
       ...previous,
+      updatedAt: new Date().toISOString(),
       blocks: {
         ...previous.blocks,
         [blockKey]: {
@@ -5816,9 +5845,9 @@ export default function BrewFormStepper({
               fermentorSamplePlato: [40, "B"],
             } as const;
             const [row, column] = config[target];
-            // Update and close immediately; persistence can finish in the
-            // background instead of making the calculator feel blocked.
-            setLocal(target, value);
+            // The calculator commits through one path only. setLocal followed
+            // by commitSugar used two execution snapshots and could make the
+            // first press appear to be lost after a Firestore echo.
             setHydrometerTarget(null);
             void commitSugar(target, value, row, column);
           }}
