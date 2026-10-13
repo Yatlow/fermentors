@@ -951,7 +951,14 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             });
         }, 1200);
 
-        return () => window.clearTimeout(timer);
+        return () => {
+            window.clearTimeout(timer);
+            // A dependency refresh can cancel the pending write before it starts.
+            // Release the in-flight guard so the next settled render retries.
+            if (persistedHealthWriteRef.current === desiredIs100) {
+                persistedHealthWriteRef.current = null;
+            }
+        };
     }, [
         analyzing,
         healthScore,
