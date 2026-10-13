@@ -48,6 +48,7 @@ type QuickTankReportBoxProps = {
     specs: SpecChart | null;
     onClose: () => void;
     position: { top: number; left: number } | null;
+    initialNoteType?: string;
 };
 
 const RobotVacuum = createLucideIcon("RobotVacuum", [
@@ -91,12 +92,12 @@ function buildMeasurementId(date: Date = new Date()) {
     return `${y}-${m}-${d}_${hh}${mm}`;
 }
 
-export default function QuickTankReportBox({ tank, specs, onClose, position }: QuickTankReportBoxProps) {
+export default function QuickTankReportBox({ tank, specs, onClose, position, initialNoteType = "" }: QuickTankReportBoxProps) {
     const isWarm = Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
     const stage: "warm" | "cold" = isWarm ? "warm" : "cold";
     const isColdTank = tank.stage?.name === "קר";
 
-    const [noteType, setNoteType] = useState("");
+    const [noteType, setNoteType] = useState(initialNoteType);
     const [carbonationCalcOpen, setCarbonationCalcOpen] = useState(false);
     const [reportTypeOpen, setReportTypeOpen] = useState(false);
     const [value, setValue] = useState("");
@@ -301,6 +302,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
             }]);
             upsertMeasurementInCache(tank.batchNumber ?? "", reading);
             setStatus("sent");
+            window.dispatchEvent(new CustomEvent("cellar-report-saved", { detail: { tankNumber: String(tank.tankNumber), action: noteType } }));
             onClose();
 
         } catch (err: any) {
@@ -413,6 +415,7 @@ export default function QuickTankReportBox({ tank, specs, onClose, position }: Q
 
             if (!handedOffToPalletsModal) {
                 setStatus("sent");
+                window.dispatchEvent(new CustomEvent("cellar-report-saved", { detail: { tankNumber: String(tank.tankNumber), action: "אריזה" } }));
                 onClose();
             }
         } catch (err: any) {
