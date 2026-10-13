@@ -10,7 +10,8 @@ test("Friday and Sunday matching Plato qualify after 48 hours", () => {
   assert.equal(hasStablePlatoForCooling([friday, sunday], now), true);
 });
 test("temperature/pressure-only measurements are ignored", () => {
-  assert.equal(hasStablePlatoForCooling([friday, { id: "2026-10-10_1000", temp: 18 }, sunday], now), true);
+  const temperatureOnly = { id: "2026-10-10_1000", temp: 18 };
+  assert.equal(hasStablePlatoForCooling([friday, temperatureOnly, sunday], now), true);
 });
 test("contradicting intermediate Plato blocks cooling", () => {
   assert.equal(hasStablePlatoForCooling([friday, { id: "2026-10-10_1000", plato: 3.9 }, sunday], now), false);
