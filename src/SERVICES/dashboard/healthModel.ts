@@ -132,7 +132,13 @@ export function dailyMeasurementProgress(
         : ["temp", "pressure"];
 
     const todayKey = localDateKey(today);
-    const todayRows = measurements.filter((measurement) => measurementDateKey(measurement) === todayKey);
+    // Imported rows may carry a previous-day id with a current-day date.
+    // Never award today's score for a conflicting timestamp.
+    const todayRows = measurements.filter((measurement) => {
+        const idDate = String(measurement.id ?? "").match(/^(\\d{4}-\\d{2}-\\d{2})(?:_|$)/)?.[1];
+        const normalized = measurementDateKey(measurement);
+        return normalized === todayKey && (!idDate || idDate === todayKey);
+    });
 
     const completed = required.filter((field) =>
         todayRows.some((measurement) => hasMeasurementValue(measurement[field]))
