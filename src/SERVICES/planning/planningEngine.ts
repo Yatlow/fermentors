@@ -453,6 +453,27 @@ export function allocate(
   }
   return result;
 }
+/** A completed packaging run must not create a phantom one-unit commitment
+ * when its source tank is physically empty and actual packaging was logged. */
+function remainingForSchedule(p: Product, plan: WeekPlan, actuals: Actual[], tanks: Tank[]) {
+  const outstanding = remaining(p, plan, actuals);
+  if (outstanding <= 0 || actualQuantity(p, plan.id, actuals) <= 0) return outstanding;
+  const runs = plan.packaging.filter((run) => run.productId === p.id);
+  if (!runs.length) return outstanding;
+  const allSourcesEmpty = runs.every((run) => {
+    const tank = tanks.find((candidate) =>
+      (run.tankId != null && String(candidate.id) === String(run.tankId)) ||
+      (run.tankNumber != null && String(candidate.number) === String(run.tankNumber))
+    );
+    // A reused tank may already contain the next batch: never suppress
+    // an outstanding commitment based on another batch's volume.
+    return tank !== undefined &&
+      (!run.batchNumber || String(tank.batch) === String(run.batchNumber)) &&
+      tank.liters <= 0;
+  });
+  return allSourcesEmpty ? 0 : outstanding;
+}
+
 /** Plans reserve tank volume first; suggestions share the remaining pool across all SKUs/weeks. */
 export function buildSchedule(
   settings: Settings,
@@ -476,9 +497,9 @@ export function buildSchedule(
     booked.set(
       id,
       products
-        .filter((p) => remaining(p, plan, actuals) > 0)
+        .filter((p) => remainingForSchedule(p, plan, actuals, tanks) > 0)
         .map((p) => {
-          const quantity = remaining(p, plan, actuals),
+          const quantity = remainingForSchedule(p, plan, actuals, tanks),
             allocations = allocate(
               tanks,
               available,
@@ -538,10 +559,10 @@ export function buildSchedule(
           ) || (actualQuantity(p, id, actuals) > 0 ? 1 : 0),
           p.type === "crates"
             ? Math.ceil(
-                (remaining(p, plan, actuals) + actualQuantity(p, id, actuals)) /
+                (remainingForSchedule(p, plan, actuals, tanks) + actualQuantity(p, id, actuals)) /
                   252,
               )
-            : remaining(p, plan, actuals) + actualQuantity(p, id, actuals) > 0
+            : remainingForSchedule(p, plan, actuals, tanks) + actualQuantity(p, id, actuals) > 0
               ? 1
               : 0,
         ),
