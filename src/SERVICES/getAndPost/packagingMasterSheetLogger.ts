@@ -362,7 +362,8 @@ function isFirestorePermissionDenied(error: unknown): boolean {
 
 async function persistPackagingSheetSyncJob(
     operationId: string,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    tankNumber: string | number | null
 ): Promise<void> {
     const user = auth.currentUser;
     if (!user?.email) throw new Error("אין משתמש מחובר. יש להתחבר מחדש.");
@@ -370,6 +371,9 @@ async function persistPackagingSheetSyncJob(
     await setDoc(doc(db, "sheetSyncJobs", operationId), {
         requestId: operationId,
         action: "logPackagingToMasterSheet",
+        operationType: "רישום אריזה בגיליון",
+        tankNumber: tankNumber ?? null,
+        batchNumber: payload.batchNumber ?? null,
         ownerUid: user.uid,
         ownerEmail: user.email,
         state: "pending",
@@ -534,7 +538,7 @@ export async function submitPackagingRecord(
     // external Apps Script request starts. From this point the modal can close
     // after pallet confirmation without waiting for Google.
     let outboxPersisted = true;
-    const outboxPromise = persistPackagingSheetSyncJob(operationId, payload)
+    const outboxPromise = persistPackagingSheetSyncJob(operationId, payload, tankNumber)
         .catch((error) => {
             // Hosting preview channels use the production Firestore rules until
             // merge. Let the preview exercise the rest of the packaging flow
