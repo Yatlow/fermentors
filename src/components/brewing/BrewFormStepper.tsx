@@ -641,6 +641,7 @@ function fieldsFromSheetRows(
 
   const hltRow = findDynamicRow("A", /^HLT$/i);
   if (hltRow >= 0) {
+    pulled["__sheetRow.water.hlt"] = String(sheetStartRow + hltRow);
     const amount = numericText(dynamicValue(hltRow, "B"));
     const temp = numericText(dynamicValue(hltRow, "C"));
     if (amount) pulled.hltWaterAmount = amount;
@@ -649,6 +650,7 @@ function fieldsFromSheetRows(
 
   const mashWaterRow = findDynamicRow("A", /^MASH\s*IN$/i);
   if (mashWaterRow >= 0) {
+    pulled["__sheetRow.water.mashIn"] = String(sheetStartRow + mashWaterRow);
     const candidates = ["B", "C", "D"]
       .flatMap((column) => dynamicValue(mashWaterRow, column as "B" | "C" | "D").match(/-?\d+(?:[.,]\d+)?/g) || [])
       .map((value) => Number(value.replace(",", ".")))
@@ -1806,7 +1808,20 @@ export default function BrewFormStepper({
 
   function sheetRowFromMeta(key: string, fallbackRow: number): number {
     const value = Number(fields[key]);
-    return Number.isFinite(value) && value > 0 ? value : fallbackRow;
+    if (Number.isInteger(value) && value > 0) return value;
+    // Never write to a guessed position in a Sheet with variable mash rows.
+    if (run.sheetId) {
+      throw new Error(`חסר מיפוי סמנטי עבור ${key}. השמירה ל-Sheet נחסמה כדי להגן על נתוני הבישול.`);
+    }
+    return fallbackRow;
+  }
+
+  function mappedWaterRow(key: "hlt" | "mashIn") {
+    return sheetRowFromMeta(`__sheetRow.water.${key}`, baseRow + (key === "hlt" ? 8 : 9));
+  }
+
+  function mappedFermentationRow() {
+    return sheetRowFromMeta("__sheetRow.fermentation", fermentationStartingRow(run.tankType));
   }
 
   function rawHopSheetRow(index: number): number {
@@ -1854,6 +1869,9 @@ export default function BrewFormStepper({
       }
     }
 
+    if (run.sheetId) {
+      throw new Error(`לא נמצאה שורה סמנטית לשדה ${key}; כתיבה למיקום משוער נחסמה.`);
+    }
     return baseRow + fallbackOffset;
   }
 
@@ -1884,7 +1902,7 @@ export default function BrewFormStepper({
     // Never let a fallback offset spill from the final brew block into the
     // fermentation table. Triple templates have a shorter C block than A/B;
     // only discovered row metadata is allowed near that boundary.
-    const fermentationRow = fermentationStartingRow(run.tankType);
+    const fermentationRow = Number(fields["__sheetRow.fermentation"]) || fermentationStartingRow(run.tankType);
     if (row >= fermentationRow) {
       throw new Error(`כתיבת בישול נחסמה: ${column}${row} נמצא בתוך דף התסיסה.`);
     }
