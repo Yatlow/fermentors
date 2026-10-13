@@ -462,10 +462,14 @@ function remainingForSchedule(p: Product, plan: WeekPlan, actuals: Actual[], tan
   if (!runs.length) return outstanding;
   const allSourcesEmpty = runs.every((run) => {
     const tank = tanks.find((candidate) =>
-      String(candidate.id) === String(run.tankId ?? "") ||
-      String(candidate.id) === String(run.tankNumber ?? "")
+      (run.tankId != null && String(candidate.id) === String(run.tankId)) ||
+      (run.tankNumber != null && String(candidate.number) === String(run.tankNumber))
     );
-    return tank !== undefined && tank.liters <= 0;
+    // A reused tank may already contain the next batch: never suppress
+    // an outstanding commitment based on another batch's volume.
+    return tank !== undefined &&
+      (!run.batchNumber || String(tank.batch) === String(run.batchNumber)) &&
+      tank.liters <= 0;
   });
   return allSourcesEmpty ? 0 : outstanding;
 }
