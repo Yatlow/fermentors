@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrewRecipe } from "../../SERVICES/brewing/brewRecipe";
 import {
   loadBrewingExecution,
+  saveBrewingExecutionLocal,
   loadBrewingExecutionFromFirestore,
   subscribeToBrewingExecution,
   saveBrewingExecutionToFirestore,
@@ -1019,7 +1020,17 @@ export default function BrewFormStepper({
     // Sheet edits are persisted into the canonical brews/{batch}.brewingExecution
     // document, so an open production form updates live.
     return subscribeToBrewingExecution(run.batchNumber, (remote) => {
-      setExecution(remote);
+      setExecution((previous) => {
+        const previousDate = Date.parse(previous.updatedAt || "");
+        const remoteDate = Date.parse(remote.updatedAt || "");
+        if (Number.isFinite(previousDate) && Number.isFinite(remoteDate) &&
+            previousDate > remoteDate &&
+            Object.values(previous.blocks).some((block) =>
+              Object.keys(block.fields || {}).some((key) => !key.startsWith("__sheetRow.")))) {
+          return previous;
+        }
+        return remote;
+      });
       if (remote.activeStepIndex != null) {
         setActiveStepState(Math.max(0, remote.activeStepIndex));
       }
@@ -1034,7 +1045,14 @@ export default function BrewFormStepper({
       .then((remote) => {
         if (cancelled) return;
         if (remote) {
-          setExecution(remote);
+          setExecution((previous) => {
+            const previousDate = Date.parse(previous.updatedAt || "");
+            const remoteDate = Date.parse(remote.updatedAt || "");
+            const hasUserData = Object.values(previous.blocks).some((block) =>
+              Object.keys(block.fields || {}).some((key) => !key.startsWith("__sheetRow.")));
+            return hasUserData && Number.isFinite(previousDate) && Number.isFinite(remoteDate) &&
+              previousDate > remoteDate ? previous : remote;
+          });
           setActiveStepState(Math.max(0, remote.activeStepIndex || 0));
           setValidationFrontier({
             blockIndex: Math.max(1, remote.activeBlockIndex || 1),
@@ -3753,7 +3771,7 @@ export default function BrewFormStepper({
     }
 
     const blockKey = String(currentBlock);
-    setExecution((previous) => ({
+    setExecution((previous) => saveBrewingExecutionLocal({
       ...previous,
       blocks: {
         ...previous.blocks,
@@ -5813,9 +5831,9 @@ export default function BrewFormStepper({
               fermentorSamplePlato: [40, "B"],
             } as const;
             const [row, column] = config[target];
-            // Update and close immediately; persistence can finish in the
-            // background instead of making the calculator feel blocked.
-            setLocal(target, value);
+            // The calculator commits through one path only. setLocal followed
+            // by commitSugar used two execution snapshots and could make the
+            // first press appear to be lost after a Firestore echo.
             setHydrometerTarget(null);
             void commitSugar(target, value, row, column);
           }}
