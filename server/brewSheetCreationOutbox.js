@@ -136,6 +136,10 @@ function brewCreateSheetRowMap_(fileId, tankType) {
   }
   if (headers.length < expected) throw new Error("Cannot discover all brew block headers");
   const result = {};
+  const fermentationIndex = rows.findIndex(function (row) {
+    return /^יום בישול/i.test(String(row[0] || "").trim()) &&
+      /שעת הוספת שמרים/i.test(String(row[4] || "").trim());
+  });
   const stages = [
     ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\s*1$/i],
     ["heat1", /^חימום\s*1$/i], ["rest2", /^השריה\s*2$/i],
@@ -159,12 +163,15 @@ function brewCreateSheetRowMap_(fileId, tankType) {
     const first = headers[block];
     const last = headers[block + 1] || rows.length;
     const fields = { "__sheetRow.header": String(first + 1) };
+    if (fermentationIndex >= 0) fields["__sheetRow.fermentation"] = String(fermentationIndex + 1);
     const acid = [];
     let rawHopHeader = -1;
     for (let i = first; i < last; i++) {
       const row = rows[i] || [];
       const label = String(row[3] || "").trim();
       const sugarLabel = String(row[0] || "").trim();
+      if (/^HLT$/i.test(sugarLabel)) fields["__sheetRow.water.hlt"] = String(i + 1);
+      if (/^MASH\s*IN$/i.test(sugarLabel)) fields["__sheetRow.water.mashIn"] = String(i + 1);
       for (let j = 0; j < stages.length; j++) {
         if (stages[j][1].test(label)) fields["__sheetRow.stage." + stages[j][0]] = String(i + 1);
       }
