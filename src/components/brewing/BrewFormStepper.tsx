@@ -481,7 +481,7 @@ function sheetCell(
 
 function fieldsFromSheetRows(
   rows: string[][],
-  usesGrant: boolean,
+  _usesGrant: boolean,
   recipe?: BrewRecipe,
   ingredientLibrary: IngredientDefinition[] = [],
   baseOffset = 0,
