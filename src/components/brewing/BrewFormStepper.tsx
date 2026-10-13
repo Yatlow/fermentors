@@ -3734,11 +3734,10 @@ export default function BrewFormStepper({
     if (blocksNeedMapping) {
       void syncFromSheet(true, { silent: true });
     }
-    const interval = window.setInterval(
-      () => void syncFromSheet(false, { silent: true }),
-      60 * 60 * 1000,
-    );
-    return () => window.clearInterval(interval);
+    // Live onEdit revision events are the synchronization trigger. A periodic
+    // full pull races with local autosave and may replace freshly entered
+    // values without any corresponding Sheet edit.
+    // The maintenance service remains responsible for missed-edit recovery.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreHydrated, run.batchNumber, run.sheetId]);
 
