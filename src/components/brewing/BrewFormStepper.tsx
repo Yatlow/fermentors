@@ -542,8 +542,8 @@ function fieldsFromSheetRows(
   const boilAcid = numericText(cell(29, "A"));
   if (boilAcid) pulled.boilAcid85 = boilAcid;
 
-  const outToBoilPh = numericText(cell(15, "H"));
-  if (outToBoilPh) pulled.outToBoilPh = outToBoilPh;
+  // The out-to-boil row moves in recipes with extra mash rests.
+  // Never infer its pH from an absolute offset; resolve it semantically below.
 
   const boilCell = cell(28, "F");
   if (!normalizedTime(boilCell)) {
@@ -551,8 +551,7 @@ function fieldsFromSheetRows(
     if (boilPh) pulled.boilPh = boilPh;
   }
 
-  const outToFermentorPh = numericText(cell(40, "H"));
-  if (outToFermentorPh) pulled.outToFermentorPh = outToFermentorPh;
+  // Fermentor transfer position also varies by recipe; use the labeled row.
 
   for (let rowOffset = 42; rowOffset <= 47; rowOffset += 1) {
     const correction = cell(rowOffset, "E");
@@ -719,7 +718,13 @@ function fieldsFromSheetRows(
   const outToBoilRow = findDynamicRow("D", /^הוצאה לבישול$/i);
   if (outToBoilRow >= 0) {
     const ph = numericText(dynamicValue(outToBoilRow, "H"));
-    if (ph) pulled.outToBoilPh = ph;
+    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToBoilPh = ph;
+  }
+
+  const transferToFermentorRow = findDynamicRow("D", /^הוצאה לתסיסה$/i);
+  if (transferToFermentorRow >= 0) {
+    const ph = numericText(dynamicValue(transferToFermentorRow, "H"));
+    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToFermentorPh = ph;
   }
 
   const boilRow = findDynamicRow("D", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i);
@@ -3551,6 +3556,9 @@ export default function BrewFormStepper({
           nextExecution,
           index,
           {
+            // A partially populated Sheet response must not erase fields
+            // already committed locally (including rinse grants).
+            ...existing,
             ...localOnlyFields,
             ...preservedMaterialFields,
             ...pulled,
