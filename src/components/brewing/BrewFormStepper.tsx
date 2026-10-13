@@ -500,14 +500,8 @@ function fieldsFromSheetRows(
   // Do not read process stages from fixed offsets. Extra mash rests shift
   // every subsequent stage; semantic labels below are authoritative.
 
-  const hltAmount = numericText(cell(8, "B"));
-  const hltTemp = numericText(cell(8, "C"));
-  const mashInWaterAmount = numericText(cell(9, "B"));
-  const mashInWaterTemp = numericText(cell(9, "C"));
-  if (hltAmount) pulled.hltWaterAmount = hltAmount;
-  if (hltTemp) pulled.hltWaterTemp = hltTemp;
-  if (mashInWaterAmount) pulled.lauterWaterAmount = mashInWaterAmount;
-  if (mashInWaterTemp) pulled.lauterWaterTemp = mashInWaterTemp;
+  // Water values are read only after locating the labeled HLT and MASH IN
+  // rows. An empty semantic cell must not inherit data from a guessed offset.
 
   if (!pulled["transferLt.start"]) {
     const mashOutEnd = pulled["heat3.end"] || pulled["heat2.end"];
