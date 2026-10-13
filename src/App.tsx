@@ -1,4 +1,4 @@
-import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown } from "lucide-react";
+import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search } from "lucide-react";
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -203,6 +203,8 @@ function App() {
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
     const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+    const [tankSearchOpen, setTankSearchOpen] = useState(false);
+    const [tankSearchQuery, setTankSearchQuery] = useState("");
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
@@ -474,6 +476,7 @@ function App() {
                     <div className="header-brand">
                         {mobileMoreOpen && <button type="button" className="mobile-nav-backdrop" aria-label="סגירת תפריט ניווט" onClick={() => setMobileMoreOpen(false)} />}
                         <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
+                        {selectedView === "דאשבורד" && <div className="tank-search-shell"><button type="button" className="tank-search-toggle" aria-label="חיפוש מיכל או אצווה" aria-expanded={tankSearchOpen} onClick={() => { setTankSearchOpen(v => !v); setMobileMoreOpen(false); }}><Search size={20} aria-hidden="true"/></button>{tankSearchOpen && <div className="tank-search-panel"><input autoFocus type="search" value={tankSearchQuery} onChange={e => setTankSearchQuery(e.target.value)} placeholder="מספר מיכל או אצווה" aria-label="חיפוש מיכל או אצווה"/><button type="button" onClick={() => { setTankSearchOpen(false); setTankSearchQuery(""); }} aria-label="סגור חיפוש">×</button>{tankSearchQuery.trim() && <div className="tank-search-results">{brews.filter(t => String(t.tankNumber).includes(tankSearchQuery.trim()) || String(t.batchNumber ?? "").includes(tankSearchQuery.trim())).slice(0,12).map(t => <button type="button" key={t.id} onClick={() => { setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setOnlyWithCellarRecommendations(false); setTankSearchOpen(false); setTankSearchQuery(""); window.setTimeout(() => document.querySelector(`[data-tank-number="${t.tankNumber}"]`)?.scrollIntoView({behavior:"smooth",block:"center"}), 120); }}>מיכל {t.tankNumber} · אצווה {t.batchNumber || "—"}</button>)}</div>}</div>}</div>}
                         <div className={`mobile-nav-shell ${mobileMoreOpen ? "is-open" : ""}`}>
                         <button type="button" className="mobile-area-trigger" aria-expanded={mobileMoreOpen} aria-controls="primary-area-navigation" onClick={() => setMobileMoreOpen((open) => !open)}><span className="mobile-area-current"><Menu size={22} aria-hidden="true" />{selectedView === "דאשבורד" ? <LayoutDashboard size={21}/> : selectedView === "רישום" ? <TestTubes size={21}/> : selectedView === "דוחות" ? <FileChartLine size={21}/> : selectedView === "ניהול" ? <PocketKnife size={21}/> : selectedView === "מקרר" ? <MapIcon size={21}/> : selectedView === "בישולים" ? <Beer size={21}/> : <CalendarCog size={21}/>}<span>{selectedView === "רישום" ? "פעולות סלרינג" : selectedView === "ניהול" ? "כלים" : selectedView === "מקרר" ? "מפת מקרר" : selectedView}</span></span><ChevronDown className={`mobile-nav-chevron ${mobileMoreOpen ? "expanded" : ""}`} size={19} aria-hidden="true" /></button>
                         <nav className={`views-box ${mobileMoreOpen ? "mobile-more-open" : ""}`} id="primary-area-navigation" aria-label="ניווט ראשי">
