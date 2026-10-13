@@ -6982,3 +6982,7 @@ b {
 .dashboard-clear-filters{display:inline-flex;align-items:center;justify-content:center;gap:4px!important;padding:6px 10px!important;border:1px solid #cbd5e1!important;border-radius:999px!important;background:#f1f5f9!important;color:#334155!important;text-decoration:none!important;font-weight:600!important;white-space:nowrap;line-height:1.2}
 .dashboard-clear-filters:hover{background:#e2e8f0!important}
 .dashboard-filter-results{display:inline-flex;align-items:center;color:#475569;font-size:12px;white-space:normal}
+
+/* Mobile masthead: navigation at right, logo at far left. */
+@media(max-width:600px){.headerBox .header-brand{display:flex!important;direction:rtl!important;justify-content:space-between!important;width:100%!important}.headerBox .header-brand .mobile-nav-shell{order:0!important;flex:1 1 auto!important}.headerBox .header-brand .header-logo{order:1!important;flex:0 0 42px!important;margin-inline-start:12px!important}.dashboard-filter-toolbar{position:relative;display:block!important}.dashboard-filter-toolbar>.tank-search-shell{position:absolute!important;top:0;left:0;right:auto;z-index:2}.dashboard-filter-toolbar>.dashboard-filter-row{padding-left:52px!important;min-height:42px}.dashboard-filter-toolbar .tank-search-toggle{width:40px;height:40px}.dashboard-filter-toolbar .tank-search-panel{right:auto;left:0}.dashboard-filter-toolbar>.sort-filter{margin-top:8px}}
+.health-quick-report-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
