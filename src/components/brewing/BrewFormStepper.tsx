@@ -3736,11 +3736,11 @@ export default function BrewFormStepper({
   }, [firestoreHydrated, run.sheetId, run.source, run.brewSheetEditRevision]);
 
   useEffect(() => {
-    if (
-      !firestoreHydrated ||
-      !run.sheetId ||
-      initialProductionPullKey.current === run.batchNumber
-    ) {
+    if (!firestoreHydrated || initialProductionPullKey.current === run.batchNumber) {
+      return;
+    }
+    if (!run.sheetId) {
+      setInitialSheetReconciled(true);
       return;
     }
 
