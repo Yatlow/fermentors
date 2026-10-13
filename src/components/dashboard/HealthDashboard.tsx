@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, RobotVacuum, ClockPlus } from "lucide-react";
+import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -43,6 +43,7 @@ import {
     type IgnoredCellarRecommendation,
 } from "../../SERVICES/cellering/ignoredCellarRecommendations";
 import BeerCelebration from "../../COMPONENTS/BeerCelebration";
+import { RobotVacuum } from "./QuickTankReportBox";
 import "./HealthDashboard.css";
 
 type Severity = "critical" | "warning" | "info";
