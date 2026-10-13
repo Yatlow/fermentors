@@ -67,6 +67,7 @@ export default function DashboardHeader({
     return (
         <>
             <div className="dashboard-filter-row" dir="rtl">
+            <span className="dashboard-filter-caption"><Funnel size={16} aria-hidden="true" /> סנן:</span>
             <div className="status-filter dashboard-status-filter">
 
                 <button
@@ -136,7 +137,7 @@ export default function DashboardHeader({
                 <button type="button" className={`status-filter-button ${onlyWithCellarRecommendations ? "active" : ""}`}
                     aria-pressed={onlyWithCellarRecommendations}
                     onClick={() => setOnlyWithCellarRecommendations((value) => !value)}>
-                    <Funnel size={16} aria-hidden="true" /> מיכלים עם המלצות סלרינג
+                    מיכלים עם המלצות סלרינג
                 </button>
             </div>
             </div>
