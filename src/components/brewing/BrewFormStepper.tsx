@@ -577,6 +577,7 @@ function fieldsFromSheetRows(
     { key: "hop1", pattern: /^הוספת כ(?:שות|שת)\s*1$/i },
     { key: "hop2", pattern: /^הוספת כ(?:שות|שת)\s*2$/i },
     { key: "hop3", pattern: /^הוספת כ(?:שות|שת)\s*3$/i },
+    { key: "hop4", pattern: /^הוספת כ(?:שות|שת)\s*4$/i },
     { key: "wp", pattern: /סוף רתיחה.*תחילת\s*WP/i },
     { key: "outToFermentor", pattern: /^הוצאה לתסיסה$/i },
   ];
