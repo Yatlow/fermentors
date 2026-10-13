@@ -66,7 +66,8 @@ export default function DashboardHeader({
 
     return (
         <>
-            <div className="status-filter">
+            <div className="dashboard-filter-row" dir="rtl">
+            <div className="status-filter dashboard-status-filter">
 
                 <button
                     type="button"
@@ -131,13 +132,15 @@ export default function DashboardHeader({
                 )}
 
             </div>
-            <div className="sort-filter" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 }}>
+            <div className="dashboard-cellar-filter">
                 <button type="button" className={`status-filter-button ${onlyWithCellarRecommendations ? "active" : ""}`}
                     aria-pressed={onlyWithCellarRecommendations}
                     onClick={() => setOnlyWithCellarRecommendations((value) => !value)}>
                     <Funnel size={16} aria-hidden="true" /> מיכלים עם המלצות סלרינג
                 </button>
-                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            </div>
+            </div>
+            <div className="sort-filter" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}> <ArrowDownWideNarrow size={16} aria-hidden="true" /> מיין לפי:</span>
                 <button
                     type="button"
@@ -170,7 +173,6 @@ export default function DashboardHeader({
                 >
                     תאריך אריזה {sortByAge === "packagingLater" ? <ArrowDown size={16} aria-hidden="true" /> : <ArrowUp size={16} aria-hidden="true" />}
                 </button>
-                </div>
             </div></>
     )
 }
