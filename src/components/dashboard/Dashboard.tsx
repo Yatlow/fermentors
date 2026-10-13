@@ -225,6 +225,7 @@ export default function Dashboard({
                     return (
                         <div
                             className={`dashboard-tank-slot${showBrewFormButton ? " dashboard-tank-slot-brew" : ""}`}
+                            data-tank-number={fermentor.tankNumber}
                             key={fermentor.id}
                         >
                             <TankCard
