@@ -6947,3 +6947,6 @@ b {
  .mobile-nav-shell .views-box.mobile-more-open{position:absolute!important;top:calc(100% - 1px)!important;right:0!important;left:0!important;bottom:auto!important;width:100%!important;box-sizing:border-box;padding:9px!important;margin:0!important;background:#fff!important;border:1px solid #dbe4ef!important;border-top:0!important;border-radius:0 0 12px 12px!important;box-shadow:0 12px 24px rgba(15,23,42,.16)!important;z-index:2!important}
 }
 @media print{.mobile-nav-shell,.mobile-nav-backdrop{display:none!important}}
+
+.mobile-nav-chevron{display:none}
+@media(max-width:600px){.mobile-nav-chevron{display:block;flex-shrink:0;color:#64748b;transition:transform .18s ease}.mobile-nav-chevron.expanded{transform:rotate(180deg)}}
