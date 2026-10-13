@@ -6932,3 +6932,18 @@ b {
  .views-box .views-item,.views-box .views-item:nth-child(n+5),.views-box.mobile-more-open .views-item:nth-child(n+5){min-height:51px!important;padding:8px 4px!important;flex-direction:row!important;gap:7px!important;font-size:12px!important}
  .views-box .views-item svg{width:18px;height:18px;flex-shrink:0}
 }
+
+/* Floating mobile navigation panel, anchored to its compact trigger */
+.mobile-nav-shell,.mobile-nav-backdrop{display:none}
+@media(max-width:600px){
+ .header-brand{position:relative}
+ .mobile-nav-shell{display:block;position:relative;width:100%;z-index:1102;direction:rtl}
+ .mobile-nav-shell.is-open{z-index:1102}
+ .mobile-nav-backdrop{display:block;position:fixed;inset:0;background:rgba(15,23,42,.12);border:0;z-index:1100;cursor:default}
+ .mobile-area-trigger{position:relative;z-index:2;margin:4px 0 0!important;width:100%;border-radius:12px!important}
+ .mobile-area-current{width:100%;justify-content:flex-start}
+ .mobile-area-hint{display:none!important}
+ .mobile-nav-shell.is-open .mobile-area-trigger{border-radius:12px 12px 0 0!important;border-bottom:0!important}
+ .mobile-nav-shell .views-box.mobile-more-open{position:absolute!important;top:calc(100% - 1px)!important;right:0!important;left:0!important;bottom:auto!important;width:100%!important;box-sizing:border-box;padding:9px!important;margin:0!important;background:#fff!important;border:1px solid #dbe4ef!important;border-top:0!important;border-radius:0 0 12px 12px!important;box-shadow:0 12px 24px rgba(15,23,42,.16)!important;z-index:2!important}
+}
+@media print{.mobile-nav-shell,.mobile-nav-backdrop{display:none!important}}
