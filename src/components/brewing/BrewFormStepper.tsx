@@ -893,14 +893,19 @@ function discoverSheetBlocks(
   rows: string[][],
   totalBlocks: number,
 ): SheetBlockBounds[] {
+  // Find brew headers by their meaning, not by a specific template's
+  // column positions. The workbook title may also contain "סוג" and
+  // "אצווה"; require a brew-specific identifier (1605A/B/C).
   const headerIndexes = rows
-    .map((row, index) => ({
-      index,
-      b: String(row[1] ?? "").trim(),
-      d: String(row[3] ?? "").trim(),
-    }))
-    .filter((row) => row.b === "סוג:" && row.d === "אצווה:")
-    .map((row) => row.index);
+    .map((row, index) => ({ index, cells: row.map((cell) => String(cell ?? "").trim()) }))
+    .filter(({ cells }) => {
+      const line = cells.join(" ");
+      const hasStyle = cells.some((cell) => /^(?:סוג(?:\s+בירה)?|סגנון)\s*:?$/i.test(cell));
+      const hasBatch = cells.some((cell) => /^אצווה\s*:?$/i.test(cell));
+      const hasBrewSuffix = cells.some((cell) => /\b\d{3,6}\s*[ABC]\b/i.test(cell));
+      return hasStyle && hasBatch && hasBrewSuffix && !/מספר\s*מיכל/.test(line);
+    })
+    .map(({ index }) => index);
 
   return headerIndexes.slice(0, totalBlocks).map((headerIndex, blockIndex) => {
     const nextHeader = headerIndexes[blockIndex + 1] ?? rows.length;
@@ -3461,11 +3466,12 @@ export default function BrewFormStepper({
 
       for (let index = 1; index <= totalBlocks; index += 1) {
         const discovered = discoveredBlocks[index - 1];
-        const fallbackBase = blockBaseRow(run.tankType, index);
-        const fallbackHeader = blockHeaderRow(run.tankType, index);
-        const headerRow = discovered?.headerRow ?? fallbackHeader;
-        const baseRowForSheet = discovered?.baseRow ?? fallbackBase;
-        const endRow = discovered?.endRow ?? baseRowForSheet + 48;
+        if (!discovered) {
+          throw new Error(`לא זוהתה כותרת סמנטית לבישול ${index}. השחזור נעצר כדי למנוע שיוך נתונים שגוי.`);
+        }
+        const headerRow = discovered.headerRow;
+        const baseRowForSheet = discovered.baseRow;
+        const endRow = discovered.endRow;
         const rows = fullSheetRows.slice(headerRow - 1, endRow);
         const pulled = fieldsFromSheetRows(
           rows,
