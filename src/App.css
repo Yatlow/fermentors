@@ -6968,3 +6968,7 @@ b {
 .tank-search-results{width:100%;max-height:240px;overflow:auto;display:grid;gap:4px}
 .tank-search-results button{padding:10px;text-align:right;border:0;border-radius:7px;background:#f1f5f9;cursor:pointer}
 @media(max-width:600px){.header-brand{display:flex!important;align-items:center!important;gap:7px!important;flex-wrap:nowrap!important}.header-logo{width:42px!important;height:42px!important;max-width:42px!important;object-fit:contain!important;margin:0!important}.mobile-nav-shell{flex:1!important;min-width:0!important;width:auto!important}.mobile-area-trigger{margin:0!important}.tank-search-shell{order:3}}
+
+.report-success-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:1300;padding:12px 18px;border:1px solid #86cba5;border-radius:12px;background:#ecfdf5;color:#166534;font-size:14px;font-weight:600;box-shadow:0 5px 22px #0f172a24;max-width:calc(100vw - 28px);text-align:center}
+.dashboard-tank-slot.tank-just-updated{outline:3px solid #4ade80;outline-offset:3px;border-radius:12px;transition:outline-color .4s ease}
+.health-quick-report-button{border:1px solid #93c5fd;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-weight:600;padding:7px 11px;cursor:pointer;flex-shrink:0}
