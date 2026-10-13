@@ -3697,9 +3697,25 @@ export default function BrewFormStepper({
     lastHandledSheetEditRevision.current = revision;
     // Apply only the changed cell. Re-importing all blocks for a one-cell edit
     // was the source of unexpected jumps in previously entered lautering data.
-    const delta = applySheetEditDelta(loadBrewingExecution(run.batchNumber));
+    const baseline = loadBrewingExecution(run.batchNumber);
+    const delta = applySheetEditDelta(baseline);
     if (delta) {
-      setExecution(delta);
+      // Reconcile only cells modified by this onEdit revision. Preserve any
+      // unrelated (possibly still focused) input in the current React state.
+      setExecution((previous) => {
+        const blocks = { ...previous.blocks };
+        for (const [blockId, block] of Object.entries(delta.blocks || {})) {
+          const oldFields = baseline.blocks[blockId]?.fields || {};
+          const currentFields = previous.blocks[blockId]?.fields || {};
+          const fields = { ...currentFields };
+          for (const [key, value] of Object.entries(block.fields || {})) {
+            if (value !== oldFields[key] &&
+                currentFields[key] === oldFields[key]) fields[key] = value;
+          }
+          blocks[blockId] = { fields };
+        }
+        return { ...previous, blocks, updatedAt: new Date().toISOString() };
+      });
       resetBrewSheetBaseline(run.sheetId);
       void saveBrewingExecutionToFirestore(delta);
     } else {
