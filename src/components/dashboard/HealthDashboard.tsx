@@ -753,7 +753,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                         });
                         if (todayNotes.includes("כשות")) addCompleted(`dryhop-${tank.id}`, "דרייהופ");
                         if (todayNotes.includes("קירור")) addCompleted(`cooling-${tank.id}`, "התחלת קירור");
-                        if (todayNotes.includes("גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
+                        // Award the daily action only when bottom carbonation STARTED today.
+                        // Closing yesterday's session today is not a new start.
+                        if (todayNotes.includes("תחילת גיזוז מלמטה")) addCompleted(`bottom-carb-${tank.id}`, "גיזוז מלמטה");
                         if (recommendations?.pressureAdjustmentHandledToday?.completed && !completedScheduledPressure) {
                             const importance = Math.max(
                                 1,
