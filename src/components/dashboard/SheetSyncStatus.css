@@ -171,3 +171,7 @@
 
 .sheet-sync-recovery-button:disabled { opacity: 0.55; cursor: wait; }
 .sheet-sync-recovery-error { width: 100%; color: #991b1b; }
+
+.sheet-sync-pending-details{margin-top:10px;padding:10px;border:1px solid #cbd5e1;border-radius:9px;background:#f8fafc;font-size:12px;display:grid;gap:5px}
+.sheet-sync-pending-row{padding:4px 0;border-bottom:1px solid #e2e8f0}
+.sheet-sync-pending-row:last-child{border-bottom:0}
