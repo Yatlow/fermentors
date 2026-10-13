@@ -486,7 +486,7 @@ function App() {
 
     return (
         <div>
-            {reportSuccess && <div className="report-success-toast" role="status">✓ מיכל {reportSuccess.tankNumber} · {reportSuccess.action || "דיווח"} נשמר בהצלחה</div>}
+            {reportSuccess && <div className="report-success-toast" role="status">✓ מיכל {reportSuccess.tankNumber} · {reportSuccess.action || "דיווח"} נשמר במערכת</div>}
             <header className="dashboard-header">
                 <div className="headerBox">
                     <div className="header-brand">
