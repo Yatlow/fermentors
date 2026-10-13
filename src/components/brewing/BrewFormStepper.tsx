@@ -571,7 +571,7 @@ function fieldsFromSheetRows(
     { key: "transferLt", pattern: /^העברה\s+ל.*L\.?T\.?/i, temp: true },
     { key: "restLt", pattern: /^מנוחה\s*L\.?T\.?/i },
     { key: "circulation", pattern: /^סחרור/i },
-    { key: "outToBoil", pattern: /^הוצאה לבישול$/i },
+    { key: "outToBoil", pattern: /^(?:הוצאה|יציאה)\s+לבישול$/i },
     { key: "endTransfer", pattern: /^סוף העברה$/i },
     { key: "boil", pattern: /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i },
     { key: "hop1", pattern: /^הוספת כ(?:שות|שת)\s*1$/i },
@@ -667,7 +667,7 @@ function fieldsFromSheetRows(
     if (ph) pulled.mashPh = ph.replace(",", ".");
   }
 
-  const outToBoilRow = findDynamicRow("D", /^הוצאה לבישול$/i);
+  const outToBoilRow = findDynamicRow("D", /^(?:הוצאה|יציאה)\s+לבישול$/i);
   if (outToBoilRow >= 0) {
     const ph = numericText(dynamicValue(outToBoilRow, "H"));
     if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToBoilPh = ph;
@@ -694,7 +694,7 @@ function fieldsFromSheetRows(
     if (temp) pulled["rinse" + rinseIndex + ".temp"] = temp;
     const parts = volumeText.split("+").map((part) => numericText(part)).filter(Boolean);
     if (parts[0]) pulled["rinse" + rinseIndex + ".kettle"] = parts[0];
-    if (usesGrant && parts[1]) pulled["rinse" + rinseIndex + ".grant"] = parts[1];
+    if (parts[1]) pulled["rinse" + rinseIndex + ".grant"] = parts[1];
   }
 
   const sugarLabels: Array<[string, RegExp]> = [
@@ -3501,10 +3501,17 @@ export default function BrewFormStepper({
         if (mappingDiscoveryOnly) {
           for (const [key, value] of Object.entries(pulled)) {
             if (key.startsWith("__sheetRow.")) continue;
-            if (String(existing[key] ?? "").trim() !== "") {
-              pulled[key] = existing[key];
-            } else if (String(value ?? "").trim() === "") {
+            if (String(value ?? "").trim() === "") {
               delete pulled[key];
+              continue;
+            }
+            // The Sheet is authoritative for measured process data. An old
+            // execution may contain values read from the wrong template row;
+            // retaining them silently perpetuates that corruption.
+            // Keep explicit material confirmations and locally-only fields.
+            if (!isSheetBackedExecutionKey(key) &&
+                String(existing[key] ?? "").trim() !== "") {
+              pulled[key] = existing[key];
             }
           }
         }
