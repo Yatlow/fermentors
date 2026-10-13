@@ -25,6 +25,25 @@ function loadAppsScript(path, extra = {}) {
   return context;
 }
 
+const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
+{
+  const duplicates = styleAverages.dedupeStyleMeasurements_([
+    { __measurementDocId: "2026-10-06_627", date: "06/10/2026", plato: 8, pressure: 1.1 },
+    { __measurementDocId: "2026-10-06_0627", date: "06/10/2026", plato: 7.5, temp: 12 },
+    { __measurementDocId: "2026-10-07_0715", date: "07/10/2026", plato: 6 },
+  ], "1600");
+  assert.equal(duplicates.length, 2, "three- and four-digit time IDs must count as one brew/day");
+  assert.equal(duplicates[0].plato, 7.5, "canonical padded ID takes precedence for conflicting values");
+  assert.equal(duplicates[0].pressure, 1.1, "missing values should be retained from the duplicate");
+  assert.equal(duplicates[0].temp, 12);
+  const differentTimes = styleAverages.dedupeStyleMeasurements_([
+    { __measurementDocId: "2026-10-06_0800", date: "06/10/2026", plato: 8 },
+    { __measurementDocId: "2026-10-06_0930", date: "06/10/2026", plato: 7 },
+  ], "1600");
+  assert.equal(differentTimes.length, 1);
+  assert.equal(differentTimes[0].plato, 7, "later same-day measurement takes precedence");
+}
+
 const fermentationNotes = loadAppsScript("server/addFermentationMeasurement.js");
 {
   assert.equal(
