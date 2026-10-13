@@ -1210,7 +1210,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
                                     };
                                     const ui = actionUI[noteType];
-                                    return noteType && available && ui ? <button type="button" className="health-quick-report-button" onClick={() => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
+                                    return noteType && available && ui ? <button type="button" className="health-quick-report-button" onClick={(event) => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType, anchorRect: event.currentTarget.getBoundingClientRect().toJSON() } }))}><ui.Icon size={16} aria-hidden="true" />{ui.label}</button> : null;
                                 })()}
                                 {alert.dismissible && (
                                     <button
