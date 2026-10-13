@@ -6870,3 +6870,10 @@ b {
   .views-box .views-item .nav-badge{position:absolute;margin:0;transform:translate(23px,-13px)}
 }
 @media print{.views-box{display:none!important}body{padding-bottom:0!important}}
+
+/* Mobile primary navigation stays above content, not over forms */
+@media (max-width:600px){
+  body{padding-bottom:0}
+  .views-box{position:relative;z-index:10;bottom:auto;left:auto;right:auto;width:100%;box-sizing:border-box;border-top:0;border-bottom:1px solid #cbd5e1;box-shadow:none;margin-bottom:12px}
+  .views-box.mobile-more-open .views-item:nth-child(n+5){bottom:auto;top:calc(100% + 5px)}
+}
