@@ -137,21 +137,21 @@ function brewCreateSheetRowMap_(fileId, tankType) {
   if (headers.length < expected) throw new Error("Cannot discover all brew block headers");
   const result = {};
   const stages = [
-    ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\\s*1$/i],
-    ["heat1", /^חימום\\s*1$/i], ["rest2", /^השריה\\s*2$/i],
-    ["heat2", /^חימום\\s*2$/i], ["rest3", /^השריה\\s*3$/i],
-    ["heat3", /^חימום\\s*3$/i], ["transferLt", /^העברה\\s+ל.*L\\.?T\\.?/i],
-    ["restLt", /^מנוחה\\s*L\\.?T\\.?/i], ["circulation", /^סחרור/i],
+    ["mashIn", /^הכנסת לתת$/i], ["rest1", /^השריה\s*1$/i],
+    ["heat1", /^חימום\s*1$/i], ["rest2", /^השריה\s*2$/i],
+    ["heat2", /^חימום\s*2$/i], ["rest3", /^השריה\s*3$/i],
+    ["heat3", /^חימום\s*3$/i], ["transferLt", /^העברה\s+ל.*L\.?T\.?/i],
+    ["restLt", /^מנוחה\s*L\.?T\.?/i], ["circulation", /^סחרור/i],
     ["outToBoil", /^הוצאה לבישול$/i], ["endTransfer", /^סוף העברה$/i],
-    ["boil", /^(?:תחילת\\s+)?רתיחה(?:\\s+100°?C)?$/i],
-    ["hop1", /^הוספת כ(?:שות|שת)\\s*1$/i],
-    ["hop2", /^הוספת כ(?:שות|שת)\\s*2$/i],
-    ["hop3", /^הוספת כ(?:שות|שת)\\s*3$/i],
-    ["hop4", /^הוספת כ(?:שות|שת)\\s*4$/i],
-    ["wp", /סוף רתיחה.*תחילת\\s*WP/i], ["outToFermentor", /^הוצאה לתסיסה$/i]
+    ["boil", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i],
+    ["hop1", /^הוספת כ(?:שות|שת)\s*1$/i],
+    ["hop2", /^הוספת כ(?:שות|שת)\s*2$/i],
+    ["hop3", /^הוספת כ(?:שות|שת)\s*3$/i],
+    ["hop4", /^הוספת כ(?:שות|שת)\s*4$/i],
+    ["wp", /סוף רתיחה.*תחילת\s*WP/i], ["outToFermentor", /^הוצאה לתסיסה$/i]
   ];
   const sugars = [
-    ["frPlato", /^F\\.R\\.?\\s*$/i], ["lrPlato", /^L\\.R\\.?\\s*$/i],
+    ["frPlato", /^F\.R\.?\s*$/i], ["lrPlato", /^L\.R\.?\s*$/i],
     ["kettlePlato", /^סיר בישול/i], ["endBoilPlato", /^סוף רתיחה$/i],
     ["fermentorSamplePlato", /^תחילת תסיסה$/i]
   ];
@@ -168,7 +168,7 @@ function brewCreateSheetRowMap_(fileId, tankType) {
       for (let j = 0; j < stages.length; j++) {
         if (stages[j][1].test(label)) fields["__sheetRow.stage." + stages[j][0]] = String(i + 1);
       }
-      const rinse = /^שטיפה\\s*([1-7])$/i.exec(label);
+      const rinse = /^שטיפה\s*([1-7])$/i.exec(label);
       if (rinse) fields["__sheetRow.rinse." + rinse[1]] = String(i + 1);
       for (let j = 0; j < sugars.length; j++) {
         if (sugars[j][1].test(sugarLabel)) fields["__sheetRow.sugar." + sugars[j][0]] = String(i + 1);
