@@ -275,6 +275,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         ? (graceSnapshotTank.cellarGraceTankIds ?? [])
         : [];
     const [analyzing, setAnalyzing] = useState(true);
+    const hasCompletedInitialAnalysis = useRef(false);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
@@ -324,7 +325,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 (tank) => Number(tank.tankNumber) !== 1 && Number(tank.action) === 1
             );
 
-            setAnalyzing(true);
+            // Keep the last completed recommendations visible during routine updates.
+            // Re-enter loading state only for the initial analysis.
+            if (!hasCompletedInitialAnalysis.current) setAnalyzing(true);
 
             const results = await Promise.all(
                 fullTanks.map(async (tank) => {
@@ -863,6 +866,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     .filter((result) => result.completeMeasurements)
                     .map((result) => result.tankNumber),
             });
+            hasCompletedInitialAnalysis.current = true;
             setAnalyzing(false);
         }
 
