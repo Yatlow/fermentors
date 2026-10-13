@@ -1189,7 +1189,12 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         pressureAdjustment: "לחץ",
                                     };
                                     const noteType = mapping[alert.recommendationKey];
-                                    return noteType ? <button type="button" className="health-quick-report-button" onClick={() => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType } }))}>דווח</button> : null;
+                                    const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
+                                    const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
+                                    const warmOnly = ["סגירת מיכל", "דרייהופ", "דיאציטיל", "קירור"];
+                                    const coldOnly = ["גיזוז", "גיזוז מלמטה התחלה", "גיזוז מלמטה סגירה"];
+                                    const available = tank && Number(tank.tankNumber) !== 1 && (!warmOnly.includes(noteType) || isWarm) && (!coldOnly.includes(noteType) || !isWarm);
+                                    return noteType && available ? <button type="button" className="health-quick-report-button" onClick={() => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType } }))}>דווח</button> : null;
                                 })()}
                                 {alert.dismissible && (
                                     <button
