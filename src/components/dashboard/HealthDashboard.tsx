@@ -277,6 +277,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const [analyzing, setAnalyzing] = useState(true);
     const hasCompletedInitialAnalysis = useRef(false);
     const [measurementRefresh, setMeasurementRefresh] = useState(0);
+    const measurementRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [scheduledRecommendations, setScheduledRecommendations] = useState<ScheduledCellarRecommendation[]>([]);
     const [completedScheduledToday, setCompletedScheduledToday] = useState<ScheduledCellarRecommendation[]>([]);
     const [ignoredRecommendations, setIgnoredRecommendations] = useState<IgnoredCellarRecommendation[]>([]);
@@ -304,13 +305,25 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     }, []);
 
     useEffect(() => {
-        const refresh = () => setMeasurementRefresh((current) => current + 1);
+        // A single report may update the cache more than once (optimistic write,
+        // reconciliation). Coalesce these notifications into one analysis pass.
+        const refresh = () => {
+            if (measurementRefreshTimer.current !== null) clearTimeout(measurementRefreshTimer.current);
+            measurementRefreshTimer.current = setTimeout(() => {
+                measurementRefreshTimer.current = null;
+                setMeasurementRefresh((current) => current + 1);
+            }, 180);
+        };
         window.addEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
-        return () => window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
+        return () => {
+            window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, refresh);
+            if (measurementRefreshTimer.current !== null) clearTimeout(measurementRefreshTimer.current);
+        };
     }, []);
 
     useEffect(() => {
         let cancelled = false;
+        const analysisTimer = setTimeout(() => { void analyzeCellar(); }, 120);
 
         async function analyzeCellar() {
             if (!specs) {
@@ -852,6 +865,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 { ...EMPTY_DAILY_ACTION_PROGRESS }
             );
 
+            if (cancelled) return;
             setAnalysis({
                 alerts: eligibleResults
                     .flatMap((result) => result.alerts)
@@ -870,9 +884,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             setAnalyzing(false);
         }
 
-        void analyzeCellar();
         return () => {
             cancelled = true;
+            clearTimeout(analysisTimer);
         };
     }, [brews, specs, measurementRefresh, scheduledRecommendations, completedScheduledToday, ignoredRecommendations]);
 
