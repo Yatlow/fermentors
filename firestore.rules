@@ -69,7 +69,7 @@ service cloud.firestore {
 
     match /specs/{document} {
       allow read: if isApprovedUser();
-      allow create, update: if isCellarManager() || (document == 'brewingIngredients' && isApprovedUser());
+      allow create, update: if isCellarManager() || ((document == 'brewingIngredients' || document == 'brewingRecipes') && isApprovedUser());
       allow delete: if isCellarManager();
     }
 
