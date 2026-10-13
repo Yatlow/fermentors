@@ -3633,6 +3633,15 @@ export default function BrewFormStepper({
         if (column === "E") set(`${stage.key}.start`, normalizedTime(rawValue) || "");
         else if (column === "F") set(`${stage.key}.end`, normalizedTime(rawValue) || "");
         else if (column === "G" && stage.showTemp) set(`${stage.key}.temp`, numericText(rawValue));
+        else if (column === "H" &&
+          (stage.key === "outToBoil" || stage.key === "outToFermentor")) {
+          const ph = numericText(rawValue);
+          if (ph && Number(ph) > 0 && Number(ph) <= 14) {
+            set(stage.key === "outToBoil" ? "outToBoilPh" : "outToFermentorPh", ph);
+          } else if (!rawValue.trim()) {
+            set(stage.key === "outToBoil" ? "outToBoilPh" : "outToFermentorPh", "");
+          } else return null;
+        }
         else if (column === "H" && stage.showNote) set(`${stage.key}.note`, rawValue.trim());
         else return null;
         return next;
@@ -3666,7 +3675,18 @@ export default function BrewFormStepper({
         return next;
       }
 
-      for (const key of ["kettlePlato", "endBoilPlato", "fermentorSamplePlato"]) {
+      for (const water of [
+        ["hlt", "hltWaterAmount", "hltWaterTemp"],
+        ["mashIn", "lauterWaterAmount", "lauterWaterTemp"],
+      ]) {
+        if (Number(fields[`__sheetRow.water.${water[0]}`] || 0) !== row) continue;
+        if (column === "B") set(water[1], numericText(rawValue));
+        else if (column === "C") set(water[2], numericText(rawValue));
+        else return null;
+        return next;
+      }
+
+      for (const key of ["frPlato", "lrPlato", "kettlePlato", "endBoilPlato", "fermentorSamplePlato"]) {
         if (Number(fields[`__sheetRow.sugar.${key}`] || 0) !== row) continue;
         if (column === "B") set(key, numericText(rawValue));
         else if (column === "C" && key === "kettlePlato") set("kettleVolume", numericText(rawValue));
@@ -3713,10 +3733,21 @@ export default function BrewFormStepper({
     if (lastHandledSheetEditRevision.current === revision) return;
 
     lastHandledSheetEditRevision.current = revision;
-    // A manual Sheet edit is uncommon and correctness matters more than saving
-    // one read. Re-run the canonical semantic parser for every revision instead
-    // of relying on an incomplete single-cell delta map.
-    void syncFromSheet(false, { silent: true });
+    // Apply only the changed cell. Re-importing all blocks for a one-cell edit
+    // was the source of unexpected jumps in previously entered lautering data.
+    const delta = applySheetEditDelta(loadBrewingExecution(run.batchNumber));
+    if (delta) {
+      setExecution(delta);
+      resetBrewSheetBaseline(run.sheetId);
+      void saveBrewingExecutionToFirestore(delta);
+    } else {
+      // Preserve the currently entered values if this template contains an
+      // unknown/ambiguous cell. Never silently replace a whole block.
+      console.warn("Brew Sheet edit could not be mapped safely", {
+        batch: run.batchNumber,
+        range: run.brewSheetEditRange,
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreHydrated, run.sheetId, run.source, run.brewSheetEditRevision]);
 
