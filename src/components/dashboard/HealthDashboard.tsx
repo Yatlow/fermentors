@@ -1177,6 +1177,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                     <strong>{alert.title}</strong>
                                     <span>{alert.detail}</span>
                                 </span>
+                                {alert.tankNumber && alert.recommendationKey && (() => {
+                                    const key = alert.recommendationKey.toLowerCase();
+                                    const noteType = key.includes("carb") && !key.includes("bottom") ? "גיזוז" : key.includes("yeast") ? "שמרים" : key.includes("dryhop") || key.includes("dryHop") ? "דרייהופ" : key.includes("diacetyl") ? "דיאציטיל" : key.includes("cool") ? "קירור" : null;
+                                    return noteType ? <button type="button" className="health-quick-report-button" onClick={() => window.dispatchEvent(new CustomEvent("cellar-open-quick-report", { detail: { tankNumber: String(alert.tankNumber), noteType } }))}>דווח</button> : null;
+                                })()}
                                 {alert.dismissible && (
                                     <button
                                         type="button"
