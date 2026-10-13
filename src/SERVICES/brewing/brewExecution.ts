@@ -395,6 +395,19 @@ export async function saveBrewingExecutionToFirestore(
   const clean = cleanBatchNumber(execution.batchNumber);
   if (!clean) return;
 
+  // Never publish an empty or metadata-only execution. In particular, merely
+  // opening a form or changing its active step must not replace a previously
+  // populated execution with blocks: {}.
+  const hasBrewValues = Object.values(execution.blocks || {}).some((block) =>
+    Object.entries(block.fields || {}).some(([field, value]) =>
+      !field.startsWith("__sheetRow.") && String(value ?? "").trim() !== "",
+    ),
+  );
+  if (!hasBrewValues) {
+    console.warn("Skipped empty brewing execution save", clean);
+    return;
+  }
+
   // Serialize writes from this browser, and write only changed field leaves.
   // Saving the entire blocks map clobbered concurrent updates from another
   // brewer working in the other A/B/C block.
