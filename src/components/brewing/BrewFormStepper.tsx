@@ -916,13 +916,13 @@ function discoverSheetBlocks(
         break;
       }
     }
-    if (baseIndex < 0) baseIndex = headerIndex + 5;
+    if (baseIndex < 0) return null;
     return {
       headerRow: headerIndex + 1,
       baseRow: baseIndex + 1,
       endRow: nextHeader,
     };
-  });
+  }).filter((block): block is SheetBlockBounds => block !== null);
 }
 
 function fermentationYeastTimeFromFullSheet(rows: string[][]): string {
