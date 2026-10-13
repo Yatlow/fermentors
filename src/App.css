@@ -6892,3 +6892,11 @@ b {
  .mobile-nav-more{display:none!important}
 }
 @media print{.mobile-area-trigger{display:none!important}}
+
+/* Dashboard: status and cellaring filters share a row at all screen sizes */
+.dashboard-filter-row{display:flex;align-items:center;gap:10px;max-width:100%;min-width:0;margin-block:8px 12px}
+.dashboard-filter-row .dashboard-status-filter{display:flex;align-items:center;flex:0 1 auto;min-width:0;overflow-x:auto;flex-wrap:nowrap;gap:7px;margin:0;padding:4px 0;scrollbar-width:thin;border:0}
+.dashboard-filter-row .dashboard-status-filter .status-filter-button{flex:0 0 auto;white-space:nowrap}
+.dashboard-cellar-filter{flex:0 0 auto}
+.dashboard-cellar-filter .status-filter-button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+@media(max-width:650px){.dashboard-filter-row{overflow-x:auto;scrollbar-width:thin}.dashboard-filter-row .dashboard-status-filter{overflow:visible;flex:0 0 auto}}
