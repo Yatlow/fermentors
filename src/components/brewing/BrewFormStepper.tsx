@@ -721,12 +721,6 @@ function fieldsFromSheetRows(
     if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToBoilPh = ph;
   }
 
-  const transferToFermentorRow = findDynamicRow("D", /^הוצאה לתסיסה$/i);
-  if (transferToFermentorRow >= 0) {
-    const ph = numericText(dynamicValue(transferToFermentorRow, "H"));
-    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToFermentorPh = ph;
-  }
-
   const boilRow = findDynamicRow("D", /^(?:תחילת\s+)?רתיחה(?:\s+100°?C)?$/i);
   if (boilRow >= 0) {
     const ph = numericText(dynamicValue(boilRow, "F"));
@@ -810,7 +804,7 @@ function fieldsFromSheetRows(
     if (start) { pulled["outToFermentor.start"] = start; if (!pulled["wp.end"]) pulled["wp.end"] = start; }
     if (end) pulled["outToFermentor.end"] = end;
     const ph = numericText(dynamicValue(outRow, "H"));
-    if (ph) pulled.outToFermentorPh = ph;
+    if (ph && Number(ph) >= 0 && Number(ph) <= 14) pulled.outToFermentorPh = ph;
   }
 
   if (pulled["wp.start"]) pulled.endBoilTime = pulled["wp.start"];
