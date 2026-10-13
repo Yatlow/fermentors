@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
-import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, Snowflake, Gauge, Hop, ThermometerSun, Stethoscope, Wind } from "lucide-react";
+import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, RobotVacuum, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
     calcCelleringRecomendations,
@@ -1200,9 +1200,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         "גיזוז מלמטה התחלה": { label: "דווח התחלת גיזוז", Icon: Stethoscope },
                                         "גיזוז מלמטה סגירה": { label: "דווח סגירת גיזוז", Icon: Stethoscope },
                                         "דרייהופ": { label: "דווח דרייהופ", Icon: Hop },
-                                        "קירור": { label: "דווח קירור", Icon: Snowflake },
-                                        "לחץ": { label: "דווח שינוי לחץ", Icon: Gauge },
-                                        "סגירת מיכל": { label: "דווח סגירת מיכל", Icon: Wind },
+                                        "קירור": { label: "דווח קירור", Icon: ThermometerSnowflake },
+                                        "לחץ": { label: "דווח שינוי לחץ", Icon: ClockPlus },
+                                        "סגירת מיכל": { label: "דווח סגירת מיכל", Icon: RobotVacuum },
                                         "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
                                     };
                                     const ui = actionUI[noteType];
