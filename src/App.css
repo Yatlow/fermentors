@@ -6900,3 +6900,11 @@ b {
 .dashboard-cellar-filter{flex:0 0 auto}
 .dashboard-cellar-filter .status-filter-button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 @media(max-width:650px){.dashboard-filter-row{overflow-x:auto;scrollbar-width:thin}.dashboard-filter-row .dashboard-status-filter{overflow:visible;flex:0 0 auto}}
+
+/* Secondary navigation wraps naturally instead of sideways scrolling */
+@media(max-width:899px){
+ .status-filter:not(.dashboard-status-filter){flex-wrap:wrap;overflow-x:visible;white-space:normal;scrollbar-width:auto}
+ .status-filter:not(.dashboard-status-filter) .status-filter-button{white-space:normal}
+}
+/* Dashboard filter heading is separate from the actual filter buttons */
+.dashboard-filter-caption{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:14px;font-weight:700;color:#475569;flex:0 0 auto}
