@@ -8,6 +8,7 @@ import { batchDryHopThreshold, type BatchDryHopSettings } from "./dryHopThreshol
 import { shouldShowNeglectedTank } from "./neglectWeekday";
 import { hasCellarActionOnDate } from "./cellarActionState";
 import { carbonationRetestDueReason, carbonationRetestPolicy } from "./carbonationRetestPolicy";
+import { hasStablePlatoForCooling } from "./coolingPlatoStability";
 
 
 
@@ -1254,10 +1255,8 @@ export async function calcCelleringRecomendations(measurements: Measurement[],
     }
     neglectedStatus.reason = neglectedMsg
     const readyToCoolDown = (
-        lastMeasurement?.plato === toDaysAgoMeasurement?.plato &&
-        Number(yesterdayMeasurement?.plato) >= Number(lastMeasurement?.plato) && stage.name === "בתסיסה" &&
-        lastMeasurement?.plato !== null && yeastDroppedOnce
-
+        hasStablePlatoForCooling(sortedMeasurements) &&
+        stage.name === "בתסיסה" && yeastDroppedOnce
     )
     let readyToCoolDownText = "";
     let coolDownDisplay = readyToCoolDown;
