@@ -203,8 +203,23 @@ function App() {
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
     const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+    const [reportSuccess, setReportSuccess] = useState<{ tankNumber: string; action: string } | null>(null);
     const [tankSearchOpen, setTankSearchOpen] = useState(false);
     const [tankSearchQuery, setTankSearchQuery] = useState("");
+    useEffect(() => {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const onSaved = (event: Event) => {
+            const detail = (event as CustomEvent<{ tankNumber: string; action: string }>).detail;
+            if (!detail?.tankNumber) return;
+            setReportSuccess(detail);
+            if (timeout) window.clearTimeout(timeout);
+            const slot = Array.from(document.querySelectorAll<HTMLElement>(".dashboard-tank-slot")).find(el => el.dataset.tankNumber === detail.tankNumber);
+            slot?.classList.add("tank-just-updated");
+            timeout = window.setTimeout(() => { setReportSuccess(null); slot?.classList.remove("tank-just-updated"); }, 3000);
+        };
+        window.addEventListener("cellar-report-saved", onSaved);
+        return () => { window.removeEventListener("cellar-report-saved", onSaved); if (timeout) window.clearTimeout(timeout); };
+    }, []);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
@@ -471,6 +486,7 @@ function App() {
 
     return (
         <div>
+            {reportSuccess && <div className="report-success-toast" role="status">✓ מיכל {reportSuccess.tankNumber} · {reportSuccess.action || "דיווח"} נשמר בהצלחה</div>}
             <header className="dashboard-header">
                 <div className="headerBox">
                     <div className="header-brand">
