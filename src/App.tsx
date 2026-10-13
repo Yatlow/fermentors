@@ -1,3 +1,4 @@
+import { LayoutDashboard, Activity, FileChartLine, PocketKnife, Map, Beer, CalendarCog, Ellipsis } from "lucide-react";
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -201,6 +202,7 @@ function App() {
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
+    const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
     const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["הכל"]);
     const [selectedStyles, setSelectedStyles] = useState<string[]>(["הכל"]);
     const [selectedWrites, setSelectedWrites] = useState<"לחץ" | "חם" | "פעולות" | "אריזה">("לחץ");
@@ -309,7 +311,7 @@ function App() {
     useEffect(() => {
         if (!user || tanksNeedingStage.length === 0) return;
         if (user.email === "itzik@shapirobeer.co.il" && plannerUser) {
-            setSelectedView("תכנון")
+            setMobileMoreOpen(false); setSelectedView("תכנון")
         }
         let cancelled = false;
         (async () => {
@@ -471,15 +473,16 @@ function App() {
                 <div className="headerBox">
                     <div className="header-brand">
                         <img src={shpiro} alt="Shpiro" className="header-logo" onClick={() => window.location.reload()} />
-                        <div className="views-box">
-                            <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דאשבורד</div>
-                            <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}>פעולות סלרינג</div>
-                            <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>דוחות</div>
-                            <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>כלים</div>
-                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>מפת מקרר{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
-                            <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>בישולים</div>
-                            <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}>תכנון</div>
-                        </div>
+                        <nav className={`views-box ${mobileMoreOpen ? "mobile-more-open" : ""}`} aria-label="ניווט ראשי">
+                            <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><LayoutDashboard size={20} aria-hidden="true"/><span className="views-label">דאשבורד</span></div>
+                            <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}><Activity size={20} aria-hidden="true"/><span className="views-label">פעולות סלרינג</span></div>
+                            <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><FileChartLine size={20} aria-hidden="true"/><span className="views-label">דוחות</span></div>
+                            <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><PocketKnife size={20} aria-hidden="true"/><span className="views-label">כלים</span></div>
+                            <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><Map size={20} aria-hidden="true"/><span className="views-label">מפת מקרר</span>{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
+                            <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><Beer size={20} aria-hidden="true"/><span className="views-label">בישולים</span></div>
+                            <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><CalendarCog size={20} aria-hidden="true"/><span className="views-label">תכנון</span></div>
+                            <button type="button" className="mobile-nav-more" aria-expanded={mobileMoreOpen} onClick={() => setMobileMoreOpen(!mobileMoreOpen)}><Ellipsis size={20}/><span>עוד</span></button>
+                        </nav>
                     </div>
                     {selectedView === "דאשבורד" && <DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} onlyWithCellarRecommendations={onlyWithCellarRecommendations} setOnlyWithCellarRecommendations={setOnlyWithCellarRecommendations} />}
                     {selectedView === "רישום" && <div className="status-filter">
@@ -511,7 +514,7 @@ function App() {
 
             <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
                 {selectedView === "דאשבורד" && <Dashboard onlyWithCellarRecommendations={onlyWithCellarRecommendations} recommendedTankNumbers={recommendedTankNumbers} onRecommendedTanksChange={setRecommendedTankNumbers} sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
-                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => setSelectedView("מקרר")} />}
+                {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => setMobileMoreOpen(false); setSelectedView("מקרר")} />}
                 {selectedView === "רישום" && <>
                     <CellaringForecast brews={brews} specs={specs} />
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
