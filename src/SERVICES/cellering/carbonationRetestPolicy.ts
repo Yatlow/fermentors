@@ -68,6 +68,12 @@ export function carbonationRetestPolicy(
   let lastCarbIndex = -1;
   let lastCarbonation: number | null = null;
 
+  // API/Firestore measurements are not guaranteed to arrive chronologically.
+  // A stale reading appended last must not restart the retest clock.
+  const ordered = [...measurements].sort((a, b) =>
+    String(a.id ?? "").localeCompare(String(b.id ?? ""))
+  );
+  measurements = ordered;
   for (let index = measurements.length - 1; index >= 0; index--) {
     const value = numericCarbonation(measurements[index]?.carbonation);
     if (value !== null) {
