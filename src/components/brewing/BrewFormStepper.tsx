@@ -3723,10 +3723,17 @@ export default function BrewFormStepper({
     }
 
     initialProductionPullKey.current = run.batchNumber;
-    // Firestore is the operational source: render it first, then reconcile
-    // the legacy Sheet silently in the background. Any pulled changes are
-    // persisted back to Firestore by syncFromSheet itself.
-    void syncFromSheet(true, { silent: true });
+    // A new brew already has a canonical execution; discover its semantic
+    // row map only when it has not yet been persisted. Reopening a mapped
+    // form must not re-import the entire Sheet and overwrite fresh inputs.
+    const blocksNeedMapping = Array.from({ length: totalBlocks }, (_, index) =>
+      execution.blocks[String(index + 1)]?.fields || {},
+    ).some((blockFields) =>
+      !Object.keys(blockFields).some((key) => key.startsWith("__sheetRow.stage.")),
+    );
+    if (blocksNeedMapping) {
+      void syncFromSheet(true, { silent: true });
+    }
     const interval = window.setInterval(
       () => void syncFromSheet(false, { silent: true }),
       60 * 60 * 1000,
