@@ -89,7 +89,7 @@ function calculateWeeklyStyleAverages(force) {
         brew.id
       );
 
-    measurements.forEach(function (measurement) {
+    dedupeStyleMeasurements_(measurements, brew.id).forEach(function (measurement) {
 
       const measurementDate =
         parseDateOnly(
@@ -420,6 +420,72 @@ function getAllBrewsFromFirestore(
 
 
 
+// Calculate weekly averages from at most one logical row per brew/day.
+// This is read-only protection: legacy three-digit IDs and current four-digit
+// IDs may coexist in Firestore. Never delete or rewrite those documents here.
+// When two rows disagree, prefer the later timestamp, then the padded ID.
+// Preserve non-conflicting fields from the other row and log disagreements.
+function dedupeStyleMeasurements_(measurements, brewId) {
+  const byDay = {};
+  const undated = [];
+
+  function score(row) {
+    const id = String(row.__measurementDocId || "");
+    const match = id.match(/_(\\d{3,4})$/);
+    if (!match) return { time: -1, padded: false, id: id };
+    return {
+      time: Number(match[1]),
+      padded: match[1].length === 4,
+      id: id
+    };
+  }
+
+  function later(left, right) {
+    const a = score(left);
+    const b = score(right);
+    if (a.time !== b.time) return a.time > b.time;
+    if (a.padded !== b.padded) return a.padded;
+    return a.id >= b.id;
+  }
+
+  measurements.forEach(function (row) {
+    const date = parseDateOnly(row.date);
+    if (!date || isNaN(date.getTime())) {
+      undated.push(row);
+      return;
+    }
+    const key = date.getFullYear() + "-" +
+      String(date.getMonth() + 1).padStart(2, "0") + "-" +
+      String(date.getDate()).padStart(2, "0");
+    const previous = byDay[key];
+    if (!previous) {
+      byDay[key] = row;
+      return;
+    }
+
+    const winner = later(previous, row) ? previous : row;
+    const loser = winner === previous ? row : previous;
+    const combined = Object.assign({}, winner);
+    ["temp", "plato", "pH", "pressure", "carbonation", "notes"].forEach(function (field) {
+      const winningValue = winner[field];
+      const losingValue = loser[field];
+      const hasWinner = winningValue !== undefined && winningValue !== null && winningValue !== "";
+      const hasLoser = losingValue !== undefined && losingValue !== null && losingValue !== "";
+      if (!hasWinner && hasLoser) {
+        combined[field] = losingValue;
+      } else if (hasWinner && hasLoser && String(winningValue) !== String(losingValue)) {
+        Logger.log("STYLE AVERAGE DUPLICATE CONFLICT batch=" + brewId +
+          " day=" + key + " field=" + field +
+          " kept=" + String(winner.__measurementDocId || "") +
+          " other=" + String(loser.__measurementDocId || ""));
+      }
+    });
+    byDay[key] = combined;
+  });
+
+  return Object.keys(byDay).sort().map(function (key) { return byDay[key]; }).concat(undated);
+}
+
 // ============================================================
 // GET MEASUREMENTS FOR BREW
 // ============================================================
@@ -493,11 +559,10 @@ function getMeasurementsForBrew(
 
   return allDocuments.map(
     function (document) {
-
-      return firestoreFieldsToObject_(
-        document.fields || {}
-      );
-
+      const row = firestoreFieldsToObject_(document.fields || {});
+      // Document name is metadata, not a measurement field.
+      row.__measurementDocId = String(document.name || "").split("/").pop();
+      return row;
     }
   );
 }
