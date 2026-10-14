@@ -192,7 +192,7 @@ export async function writeReadingsToSheets(
             action: "addFermentationMeasurements",
             requestId,
             readings,
-        });
+        }, { retries: 3, retryDelayMs: 750 });
 
         // Packaging-cell metadata is independent from the fermentation row and
         // should never keep the reporting UI open. It is idempotent and can run
