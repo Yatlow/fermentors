@@ -1,4 +1,4 @@
-type PackagingSource = {
+export type PackagingSource = {
   id?: unknown;
   tankNumber?: unknown;
   batchNumber?: unknown;
