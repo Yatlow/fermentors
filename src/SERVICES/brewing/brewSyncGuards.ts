@@ -1,4 +1,14 @@
-import type { BrewExecution } from "./brewExecution";
+// Keep this pure helper independent of Firebase/React so the isolated
+// regression runner can compile it without importing the browser runtime.
+export type BrewSyncExecution = {
+  batchNumber: string;
+  activeBlockIndex: number;
+  activeStepIndex?: number;
+  reviewedSteps?: Record<string, boolean>;
+  updatedAt: string;
+  blocks: Record<string, { fields: Record<string, string> }>;
+};
+type BrewExecution = BrewSyncExecution;
 
 /**
  * A browser cache can carry a new timestamp from navigation alone. Compare
