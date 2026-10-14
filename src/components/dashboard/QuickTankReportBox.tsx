@@ -298,14 +298,11 @@ export default function QuickTankReportBox({ tank, specs, onClose, position, ini
                 }
             }
 
-            const successfulResult = res.find(
-                (result) => result.success === true && String(result.tankId) === String(tank.id)
-            );
-
-            await pushCurrentDataToFirestore([{
-                ...reading,
-                sheetResult: successfulResult?.result,
-            }]);
+            // writeReadingsToSheets has already durably committed the reading and
+            // its recovery job to Firestore. A second, uncoordinated write here
+            // can fail after the first succeeded, misleading the operator into
+            // retrying the same yeast drop and duplicating the action.
+            // The shared writer owns Sheet confirmation and reconciliation.
             upsertMeasurementInCache(tank.batchNumber ?? "", reading);
             setStatus("sent");
             window.dispatchEvent(new CustomEvent("cellar-report-saved", { detail: { tankNumber: String(tank.tankNumber), action: noteType } }));
