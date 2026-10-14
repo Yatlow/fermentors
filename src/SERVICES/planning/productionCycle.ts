@@ -325,9 +325,10 @@ export function validateProduction(
     // physical batch. Never validate that packaging against the next cycle.
     const resolvedBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);
     const resolvedBrew = resolvedBrewId ? brewById(plans, resolvedBrewId) : null;
-    const contradictoryLink = !!physicalTank && !!resolvedBrew &&
-      (normalizedBatch(resolvedBrew.batchNumber) !== batch ||
-        resolvedBrew.date > r.date!);
+    const contradictoryLink = !!resolvedBrew &&
+      (resolvedBrew.date > r.date! ||
+        (!!batch && !!normalizedBatch(resolvedBrew.batchNumber) &&
+          normalizedBatch(resolvedBrew.batchNumber) !== batch));
     const explicitBrewId = contradictoryLink ? null : resolvedBrewId;
     const inferredBrew = !explicitBrewId && !physicalTank && r.tankId && r.date && runStyle
       ? plans.flatMap((week) => week.brews ?? [])
