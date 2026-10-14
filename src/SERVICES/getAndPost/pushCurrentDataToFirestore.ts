@@ -159,7 +159,6 @@ export async function pushCurrentDataToFirestore(
 
     const firestoreBatch = writeBatch(db);
     let writeCount = 0;
-    let hasAuthoritativeSheetResult = false;
     const cacheUpdates: Array<{
         batchId: string;
         measurement: Measurement;
@@ -171,7 +170,6 @@ export async function pushCurrentDataToFirestore(
 
     readings.forEach((reading) => {
         const sheetResult = asSheetResult(reading.sheetResult);
-        if (sheetResult) hasAuthoritativeSheetResult = true;
 
         const currentData: Record<string, unknown> = {};
         const revision = sheetResult && hasValue(reading.batchNumber) && buildMeasurementId(sheetResult.date, sheetResult.time)
