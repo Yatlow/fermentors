@@ -346,3 +346,41 @@ test("a projected next cycle cannot supply volume to an unrelated old batch", ()
   assert.match(error ?? "", /חסר מיכל מקור לאריזה/);
   assert.doesNotMatch(error ?? "", /לא ניתן לסמן סיום|לפני מועד ההבשלה/);
 });
+
+test("verified completed final packaging releases physical tank despite zero open balance", () => {
+  const plan = week();
+  plan.packaging = [{ id: "completed-final", productId: "pils-kegs",
+    quantity: 100, tankId: "tank16", tankNumber: "16", batchNumber: "1607",
+    date: "2026-10-13", emptyTank: true }];
+  const actuals = [{ id: "a", date: "2026-10-13", tankNumber: "16",
+    batchNumber: "1607", beerStyle: "Pils", packagingType: "kegs",
+    quantity: 100 }] as Actual[];
+  const tank = { id: "tank16", number: "16", style: "Pils",
+    batch: "1607", brewed: "2026-09-01", ready: "2026-09-22",
+    liters: 0, cold: true };
+  const source = { id: "tank16", tankNumber: "16", batchNumber: "1607",
+    beerStyle: "Pils", action: 1 };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5,
+    lossPercent: 10, revision: 0 };
+  assert.equal(openRuns([plan], products, actuals)[0].remaining, 0);
+  const release = tankReleases([source], [tank], [plan], settings, actuals, "2026-10-14")[0];
+  assert.equal(release.emptyDate, "2026-10-13");
+  assert.equal(release.date, "2026-10-19");
+});
+
+test("a completed-looking row without matching actual cannot release a tank", () => {
+  const plan = week();
+  plan.packaging = [{ id: "unverified", productId: "pils-kegs",
+    quantity: 100, tankId: "tank16", tankNumber: "16", batchNumber: "1607",
+    date: "2026-10-13", emptyTank: true }];
+  const tank = { id: "tank16", number: "16", style: "Pils",
+    batch: "1607", brewed: "2026-09-01", ready: "2026-09-22",
+    liters: 2000, cold: true };
+  const source = { id: "tank16", tankNumber: "16", batchNumber: "1607",
+    beerStyle: "Pils", action: 1 };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5,
+    lossPercent: 10, revision: 0 };
+  // A still-open plan may release on its planned date; no completed
+  // execution is invented in the absence of an actual.
+  assert.equal(tankReleases([source], [tank], [plan], settings, [], "2026-10-14")[0].emptyDate, null);
+});
