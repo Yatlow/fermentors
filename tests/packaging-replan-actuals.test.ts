@@ -186,3 +186,26 @@ test("open tank retains current batch packaging and does not mark it completed",
   const result = plansAfterActualPackagingCompletion([plan], products, [], [{ id: "tank15", tankNumber: "15", batchNumber: "1600", action: 1 }])[0];
   assert.equal(result.packaging[0].quantity, 252);
 });
+
+test("current batch can plan emptying after partial actuals despite unpackageable residual", () => {
+  const plan = week();
+  plan.packaging = [
+    { id: "done", productId: "pils-kegs", quantity: 70, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-12" },
+    { id: "finish", productId: "pils-crates", quantity: 252, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-14", emptyTank: true },
+  ];
+  const actuals = [{ id: "a1", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2200, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([plan], settings, [tank], actuals, "2026-10-14"), null);
+  const sources = [{ id: "tank15", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", action: 1 }];
+  assert.equal(tankReleases(sources, [tank], [plan], settings, actuals, "2026-10-14")[0].date, "2026-10-19");
+});
+
+test("future canonical emptying still rejects unexplained leftover volume", () => {
+  const plan = week();
+  plan.brews = [{ id: "future-cycle", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000, batchNumber: "1700" }];
+  plan.packaging = [{ id: "future-end", productId: "pils-kegs", quantity: 100, tankId: "tank15", tankNumber: "15", batchNumber: "1700", brewId: "future-cycle", date: "2026-11-11", emptyTank: true }];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 100, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.match(validateProduction([plan], settings, [tank], [], "2026-10-14") ?? "", /לא ניתן לסמן סיום/);
+});
