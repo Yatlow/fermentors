@@ -16,12 +16,12 @@ on:
         required: false
         type: string
       offset:
-        description: "For all-brews: position of first batch (0, 100, 200...)"
+        description: "For all-brews: position from newest batch (0, 10, 20...)"
         required: false
         default: "0"
         type: string
       limit:
-        description: "Maximum batches to scan in one run (1-100)"
+        description: "Maximum batches to scan, newest first (1-100)"
         required: false
         default: "100"
         type: string
@@ -44,7 +44,7 @@ jobs:
       - name: Check out read-only audit implementation
         uses: actions/checkout@v4
         with:
-          ref: 9677d96e4f4d83c3ba1d4b58eae8d51cabb7ad3b
+          ref: ed28ada029c297880e832668117ee4b87a56e171
           persist-credentials: false
 
       - name: Install dependencies
