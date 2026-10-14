@@ -1,4 +1,4 @@
-import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, Menu, ChevronDown, Search } from "lucide-react";
+import { LayoutDashboard, TestTubes, FileChartLine, PocketKnife, Map as MapIcon, Beer, CalendarCog, History, Menu, ChevronDown, Search } from "lucide-react";
 import { observeMeasurementRevisions, stopMeasurementRevisionTracking } from "./SERVICES/getAndPost/gettAllDataByBatch";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
@@ -51,6 +51,7 @@ const CoolerInventoryReportView = lazy(() => import("./components/reports/Cooler
 const PlanningView = lazy(() => import("./components/planning/PlanningView"));
 const BrewingView = lazy(() => import("./components/brewing/BrewingView"));
 const UserConnectionReport = lazy(() => import("./components/reports/UserConnectionReport"));
+const ActivityJournal = lazy(() => import("./components/activity/ActivityJournal"));
 const PackagingSheetGenerator = lazy(() => import("./COMPONENTS/PackagingSheetGenerator"));
 const EditProductCatalog = lazy(() => import("./components/tools/EditProductCatalog"));
 
@@ -199,6 +200,7 @@ function App() {
     const [pendingPlanningWork, setPendingPlanningWork] = useState(0);
     const [brewingTab, setBrewingTab] = useState<BrewingTab>("form");
     const { user, loading: authLoading, isApproved, admin, plannerUser, cellarManager } = useAuth();
+    const canViewJournal = isApproved === true && user?.email?.toLowerCase() === "yisrael@atlow.co.il";
     const [brews, setBrews] = useState<Fermentor[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
@@ -505,6 +507,7 @@ function App() {
                             <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><MapIcon size={20} aria-hidden="true"/><span className="views-label">מפת מקרר</span>{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
                             <div className={`views-item ${selectedView === "בישולים" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("בישולים"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><Beer size={20} aria-hidden="true"/><span className="views-label">בישולים</span></div>
                             <div className={`views-item ${selectedView === "תכנון" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("תכנון"); setPlanningTab("fiveWeeks"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><CalendarCog size={20} aria-hidden="true"/><span className="views-label">תכנון</span></div>
+                            {canViewJournal && <div className={`views-item ${selectedView === "יומן" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("יומן"); }}><History size={20} aria-hidden="true"/><span className="views-label">יומן פעילות</span></div>}
                             
                         </nav>
                         </div>
@@ -567,6 +570,7 @@ function App() {
                     <CoolerShipmentLocationAlert />
                 </>}
                 {selectedView === "בישולים" && <BrewingView brews={brews} tab={brewingTab} />}
+                {selectedView === "יומן" && canViewJournal && <ActivityJournal />}
             </Suspense>
         </div>
     );
