@@ -265,7 +265,7 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs, onRecommendedTanksChange }: Props & { onRecommendedTanksChange?: (numbers: string[]) => void }) {
+export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange }: Props & { onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const graceSnapshotTank = brews.find((tank) => Number(tank.tankNumber) === 1) as
@@ -896,6 +896,14 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     useEffect(() => {
         if (!analyzing) onRecommendedTanksChange?.(recommendedTankKey ? recommendedTankKey.split(",") : []);
     }, [analyzing, recommendedTankKey, onRecommendedTanksChange]);
+
+    // Count individual open, actionable recommendations, not distinct tanks or missing routine measurements.
+    const openRecommendationCount = useMemo(() => analysis.alerts.filter(
+        (alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound"
+    ).length, [analysis.alerts]);
+    useEffect(() => {
+        if (!analyzing) onOpenRecommendationCountChange?.(openRecommendationCount);
+    }, [analyzing, openRecommendationCount, onOpenRecommendationCountChange]);
 
     const pendingDailyScoreActionCount = useMemo(
         () => analysis.dailyActions.filter((action) => action.scoreEligible !== false).length,
