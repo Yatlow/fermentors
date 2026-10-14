@@ -96,11 +96,6 @@ function normalizedBatch(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
 }
 
-function canonicalRunTank(run: PackagingPlan, plans: WeekPlan[]): string | undefined {
-  const brewId = resolvePackagingBrewId(run, plans);
-  return (brewId ? brewById(plans, brewId)?.tankId : undefined) ?? run.tankId;
-}
-
 export function tankReleases(
   sources: TankSource[],
   tanks: Tank[],
