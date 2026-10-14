@@ -25,6 +25,29 @@ function loadAppsScript(path, extra = {}) {
   return context;
 }
 
+// A maintenance cycle may briefly own the global ScriptLock. Reporting must
+// wait for it instead of treating a 1.5s busy lock as a Sheet sync failure.
+{
+  const properties = new Map();
+  const locked = [];
+  const post = loadAppsScript("server/post.js", {
+    LockService: {
+      getScriptLock: () => ({
+        waitLock(milliseconds) { locked.push(milliseconds); },
+        releaseLock() { locked.push("released"); },
+      }),
+    },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: (name) => properties.get(name) ?? null,
+      setProperty: (name, value) => properties.set(name, value),
+      deleteProperty: (name) => properties.delete(name),
+    }) },
+  });
+  const claim = post.postClaimIdempotencyRequest_("addFermentationMeasurements", "lock-test");
+  assert.equal(claim.state, "claimed");
+  assert.deepEqual(locked, [20000, "released"], "outbox reports must tolerate maintenance lock contention");
+}
+
 const measurementIdentity = loadAppsScript("server/batchDataExtractionService.js");
 {
   const date = new Date(2026, 9, 6);
