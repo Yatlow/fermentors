@@ -89,19 +89,14 @@ export function openRuns(
         .map((r) => {
           let remaining = r.quantity;
           for (const entry of completed) {
+            if (r.date && actualDate(entry.actual) && r.date > actualDate(entry.actual)!) continue;
             if (
               (r.tankNumber &&
-                String(entry.actual.tankNumber) !== String(r.tankNumber)) ||
+                String(entry.actual.tankNumber) !== r.tankNumber) ||
               (r.batchNumber &&
-                String(entry.actual.batchNumber).replace(/^#/, "") !== String(r.batchNumber).replace(/^#/, ""))
+                String(entry.actual.batchNumber) !== r.batchNumber)
             )
               continue;
-            // Execution may move to an earlier day than the planned row.
-            // Reconcile only the exact physical tank + batch; a tank-only
-            // legacy row must not consume an earlier actual belonging to a
-            // different cycle, and future planned cycles stay untouched.
-            if (r.date && actualDate(entry.actual) && r.date > actualDate(entry.actual)! &&
-              (!r.tankNumber || !r.batchNumber || !entry.actual.tankNumber || !entry.actual.batchNumber)) continue;
             const amount = Math.min(entry.left, remaining);
             entry.left -= amount;
             remaining -= amount;
