@@ -37,3 +37,15 @@ test("splits partially executed row without duplicating the executed quantity", 
   assert.equal(merged.packaging[1].date, "2026-10-15");
   assert.notEqual(merged.packaging[0].id, merged.packaging[1].id);
 });
+
+
+test("re-saving a split plan keeps executed and pending quantities unchanged", () => {
+  const original = week();
+  original.packaging = [{ id: "old", productId: "pils-kegs", quantity: 100, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-12" }];
+  const edited = week();
+  edited.packaging = [{ ...original.packaging[0], quantity: 90, date: "2026-10-15" }];
+  const actuals = [{ id: "a1", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const once = mergeCompletedPackagingBack(original, edited, products, actuals, []);
+  const twice = mergeCompletedPackagingBack(once, once, products, actuals, []);
+  assert.deepEqual(twice.packaging, once.packaging);
+});
