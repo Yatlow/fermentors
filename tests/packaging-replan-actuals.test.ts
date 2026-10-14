@@ -175,7 +175,8 @@ test("closed current batch removes unproduced pending packaging without fabricat
   const source = [{ id: "tank15", tankNumber: "15", batchNumber: "1600", tankStatus: true }];
   const result = plansAfterActualPackagingCompletion([plan], products, actuals, source)[0];
   assert.equal(result.packaging[0].quantity, 70);
-  assert.equal(result.packaging[1].quantity, 0);
+  // A closed tank cannot rewrite the persisted historical packaging plan.
+  assert.equal(result.packaging[1].quantity, 252);
   assert.equal(result.packaging[2].quantity, 100);
   assert.equal(plan.packaging[1].quantity, 252);
 });
@@ -208,4 +209,17 @@ test("future canonical emptying still rejects unexplained leftover volume", () =
   const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 100, cold: true };
   const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
   assert.match(validateProduction([plan], settings, [tank], [], "2026-10-14") ?? "", /לא ניתן לסמן סיום/);
+});
+
+test("canonical-linked current physical batch can plan emptying with process loss", () => {
+  const plan = week();
+  plan.brews = [{ id: "current-brew", tankId: "tank15", style: "Pils", date: "2026-09-01", liters: 3700, batchNumber: "1600" }];
+  plan.packaging = [
+    { id: "done", productId: "pils-kegs", quantity: 70, tankId: "tank15", tankNumber: "15", batchNumber: "1600", brewId: "current-brew", date: "2026-10-12" },
+    { id: "finish", productId: "pils-crates", quantity: 250, tankId: "tank15", tankNumber: "15", batchNumber: "1600", brewId: "current-brew", date: "2026-10-14", emptyTank: true },
+  ];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2200, cold: true };
+  const actuals = [{ id: "a1", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([plan], settings, [tank], actuals, "2026-10-14"), null);
 });
