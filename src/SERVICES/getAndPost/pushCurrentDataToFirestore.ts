@@ -79,22 +79,16 @@ function normalizeBatchId(batchNumber: string | number): string {
     return String(batchNumber).replace("#", "").trim();
 }
 
+// A deterministic document per brew/day. Time stays a DATA field, not identity.
 function buildMeasurementId(dateValue: unknown, timeValue: unknown): string | null {
     const dateMatch = String(dateValue ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     const timeMatch = String(timeValue ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
-
-    if (!dateMatch || !timeMatch) return null;
-
+    if (!dateMatch || !timeMatch || +timeMatch[1] > 23 || +timeMatch[2] > 59) return null;
     const [, day, month, year] = dateMatch;
-    const [, hour, minute] = timeMatch;
-
-    return [
-        year,
-        String(Number(month)).padStart(2, "0"),
-        String(Number(day)).padStart(2, "0"),
-    ].join("-") + "_" +
-        String(Number(hour)).padStart(2, "0") +
-        String(Number(minute)).padStart(2, "0");
+    const stamp = new Date(Date.UTC(+year, +month - 1, +day));
+    if (stamp.getUTCFullYear() !== +year || stamp.getUTCMonth() !== +month - 1 ||
+        stamp.getUTCDate() !== +day) return null;
+    return [year, String(+month).padStart(2, "0"), String(+day).padStart(2, "0")].join("-");
 }
 
 function asSheetResult(value: unknown): SheetResult | null {
