@@ -4,28 +4,29 @@
  *
  * Example (credentials via GOOGLE_APPLICATION_CREDENTIALS):
  *   FIREBASE_PROJECT_ID=your-project node scripts/audit-measurement-duplicates.mjs --batches 1600,1601
- *   FIREBASE_PROJECT_ID=your-project node scripts/audit-measurement-duplicates.mjs --active
+ *   FIREBASE_PROJECT_ID=your-project node scripts/audit-measurement-duplicates.mjs --all-brews
  *
  * This script NEVER writes, deletes, or schedules anything. It reads ONLY the
- * measurement subcollections for explicitly named batches (maximum 10)
- * or for up to 25 distinct currently active batches (requires --active).
+ * measurement subcollections for explicitly named batches (maximum 10),
+ * or every documented brew in the brews collection, subject to a hard safety cap.
+ * It does not use fermentor occupancy to determine scope.
  */
 import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
 const args = process.argv.slice(2);
-const active = args.includes("--active");
+const allBrews = args.includes("--all-brews");
 const index = args.indexOf("--batches");
 const raw = index >= 0 ? args[index + 1] : "";
 let batches = raw.split(",").map(v => v.trim().replace(/^#/, "")).filter(Boolean);
-const invalid = (active && index >= 0) || (!active && index < 0) ||
-  args.some(arg => arg !== "--active" && arg !== "--batches" &&
+const invalid = (allBrews && index >= 0) || (!allBrews && index < 0) ||
+  args.some(arg => arg !== "--all-brews" && arg !== "--batches" &&
     (index < 0 || arg !== raw)) ||
-  (!active && (batches.length < 1 || batches.length > 10 ||
+  (!allBrews && (batches.length < 1 || batches.length > 10 ||
     new Set(batches).size !== batches.length ||
     batches.some(v => !/^\d{1,12}$/.test(v))));
 if (invalid) {
-  console.error("Usage: FIREBASE_PROJECT_ID=... node scripts/audit-measurement-duplicates.mjs (--active | --batches 1600,1601)");
+  console.error("Usage: FIREBASE_PROJECT_ID=... node scripts/audit-measurement-duplicates.mjs (--all-brews | --batches 1600,1601)");
   process.exitCode = 2;
 } else if (!process.env.FIREBASE_PROJECT_ID) {
   console.error("Set FIREBASE_PROJECT_ID explicitly; no default project allowed.");
@@ -33,17 +34,17 @@ if (invalid) {
 } else {
   initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
   const db = getFirestore();
-  if (active) {
-    // One small top-level collection read. Abort rather than fan out to
-    // measurement histories if the site exceeds the explicit safety cap.
-    const snapshot = await db.collection("fermentors").get();
-    const distinct = [...new Set(snapshot.docs.map(doc => String(doc.data().batchNumber ?? "").trim().replace(/^#/, ""))
-      .filter(batch => /^\d{1,12}$/.test(batch)))];
-    if (distinct.length > 25) {
-      console.error("Refusing to scan " + distinct.length + " active batches (maximum 25). Use --batches instead.");
+  if (allBrews) {
+    // Discover from brews, not fermentors: completed/emptied tanks still matter.
+    // Read only ID metadata, fail closed before scanning history if unexpectedly
+    // large. A paginated audit would be appropriate above this limit.
+    const MAX_BREWS = 500;
+    const refs = await db.collection("brews").listDocuments();
+    if (refs.length > MAX_BREWS) {
+      console.error("Refusing to audit " + refs.length + " brews (limit " + MAX_BREWS + "). Run bounded --batches groups.");
       process.exit(2);
     }
-    batches = distinct.sort((a, b) => Number(a) - Number(b));
+    batches = refs.map(ref => ref.id).sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
   }
   const metrics = ["temp", "plato", "pH", "pressure", "carbonation", "notes", "date", "time"];
   const summary = [];
