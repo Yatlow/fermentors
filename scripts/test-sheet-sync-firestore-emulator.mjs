@@ -14,7 +14,7 @@ const response = (status, body) => ({
 });
 const request = async (suffix, method = "GET", body) => {
   const r = await fetch(root + suffix, {
-    method, headers: { "content-type": "application/json" },
+    method, headers: { "content-type": "application/json", authorization: "Bearer owner" },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -41,7 +41,7 @@ test("recovery writes real Firestore emulator history before removing job, and i
   const historyPath = "/brews/1593/measurements/2026-10-14_1042";
   await request(jobPath, "PATCH", { fields });
   let job = await request(jobPath);
-  assert.equal(job.status, 200);
+  assert.equal(job.status, 200, JSON.stringify(job.body));
   // Exercise actual Apps Script Firestore REST payload, not a mocked commit.
   let writes;
   ctx.sheetSyncFetch_ = (url, options) => {
@@ -71,7 +71,9 @@ test("invalid confirmation does not produce a commit or delete the pending job",
   const path = "/sheetSyncJobs/recovery-test-2";
   const invalidJob = { ...fields, requestId: { stringValue: "recovery-test-2" } };
   await request(path, "PATCH", { fields: invalidJob });
-  const doc = (await request(path)).body;
+  const fetched = await request(path);
+  assert.equal(fetched.status, 200, JSON.stringify(fetched.body));
+  const doc = fetched.body;
   let called = false;
   ctx.sheetSyncFetch_ = () => { called = true; throw Error("unexpected write"); };
   assert.throws(() => ctx.sheetSyncReconcileMeasurements_(doc, {
