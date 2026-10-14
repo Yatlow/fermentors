@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
 import { mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
 
@@ -48,4 +49,17 @@ test("re-saving a split plan keeps executed and pending quantities unchanged", (
   const once = mergeCompletedPackagingBack(original, edited, products, actuals, []);
   const twice = mergeCompletedPackagingBack(once, once, products, actuals, []);
   assert.deepEqual(twice.packaging, once.packaging);
+});
+
+
+test("past actual cannot complete a rescheduled future row", () => {
+  const plan = week();
+  plan.packaging = [
+    { id: "done", productId: "pils-kegs", quantity: 70, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-12" },
+    { id: "later", productId: "pils-kegs", quantity: 20, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-15" },
+  ];
+  const actuals = [{ id: "a1", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const runs = openRuns([plan], products, actuals);
+  assert.equal(runs.find((r) => r.id === "done")?.remaining, 0);
+  assert.equal(runs.find((r) => r.id === "later")?.remaining, 20);
 });
