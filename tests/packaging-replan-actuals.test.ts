@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { tankReleases, validateProduction, validateBrewReleases } from "../src/SERVICES/planning/productionCycle";
 import { openRuns, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
+import { resolvePackagingBrewId, withStablePackagingIdentity } from "../src/SERVICES/planning/planIdentity";
 import { plansAfterActualPackagingCompletion, mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
 
@@ -304,4 +305,29 @@ test("stale future brewId cannot assign next cycle maturity to physical batch", 
     brewed: "2026-08-25", ready: "2026-09-15", liters: 2000, cold: true };
   const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
   assert.equal(validateProduction([old, next], settings, futureTanks([tank], [old, next], settings), [], "2026-10-14"), null);
+});
+
+test("a stale future brewId never rewrites the physical packaging batch or date", () => {
+  const current = week();
+  current.packaging = [{ id: "pils-15-old", productId: "pils-kegs", quantity: 71,
+    tankId: "tank15", tankNumber: "15", batchNumber: "1586",
+    brewId: "next-15", date: "2026-10-15" }];
+  const future = { ...week(), id: "2026-10-18",
+    brews: [{ id: "next-15", tankId: "tank15", style: "Pils", date: "2026-10-19",
+      liters: 3200, batchNumber: "1700" }], packaging: [] };
+  assert.equal(resolvePackagingBrewId(current.packaging[0], [current, future]), null);
+  const normalized = withStablePackagingIdentity([current, future]);
+  assert.equal(normalized[0].packaging[0].batchNumber, "1586");
+  assert.equal(normalized[0].packaging[0].date, "2026-10-15");
+});
+
+test("future packaging stays linked to its matching future brew", () => {
+  const current = week();
+  const future = { ...week(), id: "2026-10-18",
+    brews: [{ id: "next-15", tankId: "tank15", style: "Pils", date: "2026-10-19",
+      liters: 3200, batchNumber: "1700" }],
+    packaging: [{ id: "pils-15-next", productId: "pils-kegs", quantity: 100,
+      tankId: "tank15", tankNumber: "15", batchNumber: "1700", brewId: "next-15",
+      date: "2026-11-11" }] };
+  assert.equal(resolvePackagingBrewId(future.packaging[0], [current, future]), "next-15");
 });
