@@ -99,10 +99,10 @@ export function openRuns(
             if (r.date && actualDate(entry.actual) &&
                 r.date > actualDate(entry.actual)! && !samePhysicalBatch) continue;
             if (
-              (r.tankNumber &&
-                String(entry.actual.tankNumber) !== r.tankNumber) ||
-              (r.batchNumber &&
-                String(entry.actual.batchNumber) !== r.batchNumber)
+              (r.tankNumber != null &&
+                String(entry.actual.tankNumber ?? "").trim() !== String(r.tankNumber).trim()) ||
+              (r.batchNumber != null &&
+                String(entry.actual.batchNumber ?? "").replace("#", "").trim() !== String(r.batchNumber).replace("#", "").trim())
             )
               continue;
             const amount = Math.min(entry.left, remaining);
