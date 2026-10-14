@@ -183,6 +183,17 @@ else if(args.length===1&&args[0]==='--snapshot'){
 }else if(args.length===3&&args[0]==='--apply'&&args[1]==='--file'){
  if(process.env.CONFIRM_DAILY_MEASUREMENT_MIGRATION!=='1600-1580-ONE-DOC-PER-DAY')throw Error('Missing explicit migration guard');
  const db=await connect(),backup=JSON.parse(fs.readFileSync(args[2],'utf8'));
- const r=await migrate(db,backup);process.stdout.write(JSON.stringify(r,null,2)+'\n');
+ const r=await migrate(db,backup);
+ if(r.verifiedBatches===BATCHES.length) {
+  // The five-minute maintenance worker forces the averages rebuild ONCE.
+  await db.collection('maintenanceRequests').doc('daily-measurements-2026-10-14').set({
+   status:'completed',batchCount:BATCHES.length,completedAt:new Date().toISOString(),
+   removedDocuments:r.deleted,request:'rebuildStyleAveragesOnce'
+  });
+  r.styleAverageRebuildRequested=true;
+ } else {
+  r.styleAverageRebuildRequested=false;
+ }
+ process.stdout.write(JSON.stringify(r,null,2)+'\n');
  if(r.verifiedBatches!==BATCHES.length)process.exitCode=1;
 }else throw Error('Use --self-test, --snapshot or --apply --file PATH');
