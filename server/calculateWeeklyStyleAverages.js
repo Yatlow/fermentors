@@ -428,7 +428,7 @@ function getAllBrewsFromFirestore(
 function dedupeStyleMeasurements_(measurements, brewId) {
   // Exactly one logical reading per brew/day for weekly style averages.
   // Firestore createTime determines seniority, never the document ID or array order.
-  // Keep all nonempty unique notes, and fill blanks without replacing older values.
+  // Keep all nonempty unique notes, and prefer the latest created nonempty values.
   const byDay = {};
   const unknown = [];
 
@@ -468,15 +468,15 @@ function dedupeStyleMeasurements_(measurements, brewId) {
 
   return Object.keys(byDay).sort().map(function (day) {
     const rows = byDay[day].sort(earliestFirst);
-    const combined = Object.assign({}, rows[0]);
-    rows.slice(1).forEach(function (row) {
+    const combined = Object.assign({}, rows[rows.length - 1]);
+    rows.slice(0, -1).reverse().forEach(function (row) {
       ["temp", "plato", "pH", "pressure", "carbonation"].forEach(function (field) {
         if (!hasValue(combined[field]) && hasValue(row[field])) combined[field] = row[field];
         else if (hasValue(combined[field]) && hasValue(row[field]) &&
           String(combined[field]) !== String(row[field])) {
           Logger.log("STYLE AVERAGE SAME-DAY CONFLICT batch=" + brewId +
             " day=" + day + " field=" + field +
-            " earliest-value-kept");
+            " latest-value-kept");
         }
       });
     });
