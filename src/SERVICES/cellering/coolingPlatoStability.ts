@@ -15,10 +15,12 @@ export function hasStablePlatoForCooling(
         if (raw === null || raw === undefined || String(raw).trim() === "") return [];
         const value = Number(raw);
         if (!Number.isFinite(value)) return [];
-        const match = /^(\d{4})-(\d{2})-(\d{2})(?:_(\d{2})(\d{2}))?/.exec(String(measurement.id ?? ""));
+        const match = /^(\d{4})-(\d{2})-(\d{2})(?:_(\d{2})(\d{2}))?$/.exec(String(measurement.id ?? ""));
         if (!match) return [];
         const [, year, month, day] = match;
         const clock = String(measurement.time ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
+        // Canonical date-only IDs MUST use the actual Sheet time field.
+        // Otherwise we cannot safely assert the sample is newer than 24h.
         if (!match[4] && !clock) return [];
         const hour = clock?.[1] ?? match[4] ?? "00";
         const minute = clock?.[2] ?? match[5] ?? "00";
