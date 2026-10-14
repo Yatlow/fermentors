@@ -163,3 +163,18 @@ test("tank-only legacy packaging is never projected onto a future cycle", () => 
   assert.equal(cycle.packaging.length, 0);
   assert.equal(cycle.emptyDate, undefined);
 });
+
+
+test("emptying date does not move earlier when split packaging rows are reordered", () => {
+  const brewWeek = week("2026-10-04");
+  brewWeek.brews = [{ id: "pils-15", style: "IPA", tankId: "tank15", date: "2026-10-05", liters: 3000, batchNumber: "1600" }];
+  const packWeek = week("2026-10-11");
+  packWeek.packaging = [
+    { id: "late", productId: "ipa-crates", tankId: "tank15", batchNumber: "1600", quantity: 252, date: "2026-10-14", emptyTank: true },
+    { id: "early", productId: "ipa-kegs", tankId: "tank15", batchNumber: "1600", quantity: 70, date: "2026-10-12", emptyTank: true },
+  ];
+  const cycle = projectTankSchedules([brewWeek, packWeek], settings).get("tank15")![0];
+  assert.equal(cycle.emptyDate, "2026-10-14");
+  packWeek.packaging.reverse();
+  assert.equal(projectTankSchedules([brewWeek, packWeek], settings).get("tank15")![0].emptyDate, "2026-10-14");
+});
