@@ -58,8 +58,10 @@ function combine(batch,key,documents){
  }
  for(let i=1;i<rows.length;i++)assert.notEqual(rows[i].createTime,rows[i-1].createTime,
   'Equal creation timestamps; cannot decide oldest '+batch+'/'+key);
- const merged={...rows[0].data},conflicts=[];
- for(const row of rows.slice(1)){
+ // Latest Firestore createTime wins each conflicting field. Missing values
+ // fall back to the nearest earlier non-empty reading.
+ const merged={...rows[rows.length-1].data},conflicts=[];
+ for(const row of rows.slice(0,-1).reverse()){
   for(const [field,v] of Object.entries(row.data)){
    if(['date','time','notes','originalMeasurementCreatedAt'].includes(field))continue;
    if(!value(merged[field])&&value(v))merged[field]=v;
@@ -169,7 +171,7 @@ function selfTest(){
   make('2026-10-07','2026-10-07T09:00:00Z',{date:'07/10/2026',temp:6})]);
  assert.equal(r.changes.length,1);
  assert.equal(r.days,2);
- assert.equal(r.changes[0].data.temp,11,'oldest wins');
+ assert.equal(r.changes[0].data.temp,15,'newest wins');
  assert.equal(r.changes[0].data.plato,5,'missing fields filled');
  assert.equal(r.changes[0].data.notes,'A | B | C','notes preserved');
  assert.equal(r.changes[0].removeIds.length,3);
