@@ -239,8 +239,9 @@ function sheetSyncReconcileMeasurements_(jobDocument, response) {
     if (!date || !time || !batch || !/^\d+$/.test(batch)) {
       throw new Error("Cannot reconcile Sheet results: invalid date, time or batch");
     }
+    // Exact same day key as the browser and Sheets reconciliation writer.
     const id = date[3] + "-" + date[2].padStart(2, "0") + "-" +
-      date[1].padStart(2, "0") + "_" + time[1].padStart(2, "0") + time[2];
+      date[1].padStart(2, "0");
     const numberValue = function (value) {
       if (value === null || value === undefined || String(value).trim() === "") return { nullValue: null };
       const normalized = String(value).replace(",", ".").replace(/[^0-9.+-]/g, "");
