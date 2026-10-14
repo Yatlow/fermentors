@@ -256,12 +256,23 @@ export default function PlanningBoard({
 
     let provisionalAll = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     let validationTanks = futureTanks(tanks, provisionalAll, settings);
+    // Never let a projected next brew shadow the physical batch when
+    // validating a packaging decision from the current cycle.
+    const physicalPackagingTank = (run: PackagingPlan): Tank | undefined =>
+      tanks.find((tank) =>
+        !!run.batchNumber &&
+        String(tank.batch ?? "").replace("#", "").trim() === String(run.batchNumber).replace("#", "").trim() &&
+        (tank.id === run.tankId || String(tank.number) === String(run.tankNumber ?? run.tankId))
+      );
+    const packagingReadyDate = (run: PackagingPlan): string | undefined =>
+      physicalPackagingTank(run)?.ready ??
+      validationTanks.find((tank) => tank.id === run.tankId)?.ready;
     effectiveNext = {
       ...effectiveNext,
       packaging: effectiveNext.packaging.map((run) => {
         if (!run.date || !run.tankId || run.earlyPackagingOverride) return run;
-        const tank = validationTanks.find((item) => item.id === run.tankId);
-        if (!tank || run.date >= tank.ready) return run;
+        const ready = packagingReadyDate(run);
+        if (!ready || run.date >= ready) return run;
         const alreadySaved = current.packaging.some((saved) =>
           saved.id === run.id && saved.tankId === run.tankId && saved.date === run.date
         );
@@ -319,8 +330,8 @@ export default function PlanningBoard({
           ...effectiveNext,
           packaging: effectiveNext.packaging.map((run) => {
             if (!run.date || !run.tankId) return run;
-            const tank = validationTanks.find((item) => item.id === run.tankId);
-            return tank && run.date < tank.ready
+            const ready = packagingReadyDate(run);
+            return ready && run.date < ready
               ? { ...run, earlyPackagingOverride: true }
               : run;
           }),
