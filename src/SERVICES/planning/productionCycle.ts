@@ -113,6 +113,28 @@ export function tankReleases(
     .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })))
     .filter((run) => !resolvePackagingBrewId(run as PackagingPlan, plans));
   const legacyRuns = [...legacyInventoryRuns, ...legacySpecialRuns];
+  // A reported, completed final packaging row is excluded from openRuns'
+  // remaining balance. It can nevertheless prove the physical cycle emptied.
+  // Require both the explicit empty marker and actual packaging for the same
+  // tank, batch, type and day; a plan alone never proves past execution.
+  const completedEmptyRuns = plans.flatMap((week) => (week.packaging ?? [])
+    .filter((run) => !!run.emptyTank && !!run.date && run.date <= today &&
+      !resolvePackagingBrewId(run, plans))
+    .filter((run) => {
+      const product = settings.products.find((p) => p.id === run.productId);
+      const style = run.nonInventoryStyle ?? product?.style;
+      const type = run.nonInventoryType ?? product?.type;
+      return !!run.batchNumber && !!run.tankNumber && !!style && !!type &&
+        actuals.some((actual) =>
+          String(actual.tankNumber) === String(run.tankNumber) &&
+          normalizedBatch(actual.batchNumber) === normalizedBatch(run.batchNumber) &&
+          sameStyle(actual.beerStyle ?? "", style) &&
+          actual.packagingType === (type === "crates" ? "bottles" : "kegs") &&
+          actualDate(actual) === run.date &&
+          num(actual.quantity) > 0);
+    })
+    .map((run) => ({ ...run, remaining: 0, week: week.id,
+      key: run.id ?? `${week.id}:completed-empty` })));
   // Legacy decisions sometimes store a physical tank number instead of its
   // Firestore document id. Only accept an unambiguous number match.
   const physicalRunTank = (run: PackagingPlan): string | undefined => {
@@ -200,7 +222,7 @@ export function tankReleases(
       let legacyCurrentEmptyDate: string | null = null;
       if (!canonicalCurrent.emptyDate && sourceBatch) {
         let legacyRemaining = tank.liters;
-        for (const r of legacyRuns
+        for (const r of [...legacyRuns, ...completedEmptyRuns]
           .filter((run) =>
             belongsToCurrentBatch(run as PackagingPlan, source))
           .sort((a, b) => a.date!.localeCompare(b.date!))) {
@@ -234,7 +256,7 @@ export function tankReleases(
 
     let remaining = tank.liters;
     let emptyDate: string | null = null;
-    for (const r of legacyRuns
+    for (const r of [...legacyRuns, ...completedEmptyRuns]
       .filter((r) => physicalRunTank(r as PackagingPlan) === source.id &&
         (!sourceBatch || belongsToCurrentBatch(r as PackagingPlan, source)))
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
