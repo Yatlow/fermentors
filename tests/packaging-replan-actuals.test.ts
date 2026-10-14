@@ -150,3 +150,16 @@ test("early actual does not consume a different batch or an unidentified tank", 
   assert.equal(runs.find((r) => r.id === "other-batch")?.remaining, 20);
   assert.equal(runs.find((r) => r.id === "unidentified")?.remaining, 20);
 });
+
+test("future canonical cycle keeps its own planned volume, not current physical tank remainder", () => {
+  const plan = week();
+  plan.brews = [{ id: "future-cycle-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000, batchNumber: "1700" }];
+  plan.packaging = [{
+    id: "future-packaging", productId: "pils-kegs", quantity: 100,
+    tankId: "tank15", tankNumber: "15", batchNumber: "1700",
+    brewId: "future-cycle-15", date: "2026-11-11",
+  }];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 150, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([plan], settings, [tank], [], "2026-10-14"), null);
+});
