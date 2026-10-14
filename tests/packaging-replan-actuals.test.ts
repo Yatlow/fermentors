@@ -81,3 +81,16 @@ test("tank 15 releases for next brewing week after kegs Monday and crates Wednes
   assert.equal(release.emptyDate, "2026-10-14");
   assert.equal(release.date, "2026-10-19");
 });
+
+
+test("new actual on remaining row survives replanning", () => {
+ const original = week();
+ original.packaging = [{ id: "old", productId: "pils-kegs", quantity: 100, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-12" }];
+ const first = [{ id: "a1", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+ const edited = { ...week(), packaging: [{ ...original.packaging[0], quantity: 90, date: "2026-10-15" }] };
+ const once = mergeCompletedPackagingBack(original, edited, products, first, []);
+ const actuals = [...first, { id: "a2", date: "2026-10-15", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 10 }] as Actual[];
+ const twice = mergeCompletedPackagingBack(once, once, products, actuals, []);
+ assert.equal(twice.packaging.reduce((n, r) => n + r.quantity, 0), 90);
+ assert.equal(openRuns([twice], products, actuals).reduce((n, r) => n + r.remaining, 0), 10);
+});
