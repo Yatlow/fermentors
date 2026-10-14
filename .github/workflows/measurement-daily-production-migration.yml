@@ -1,0 +1,108 @@
+name: Consolidate Historical Daily Measurements (Guarded)
+on:
+  pull_request:
+    paths:
+      - "scripts/reconcile-daily-measurements.mjs"
+      - "scripts/crypto-daily-measurement-backup.mjs"
+      - ".github/workflows/measurement-daily-production-migration.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/measurement-daily-production-migration.yml"
+permissions:
+  contents: read
+concurrency:
+  group: guarded-daily-measurement-migration
+  cancel-in-progress: false
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node scripts/reconcile-daily-measurements.mjs --self-test
+      - run: node scripts/crypto-daily-measurement-backup.mjs --self-test
+
+  encrypted-full-backup:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+      - name: Read and validate COMPLETE original measurement documents
+        env:
+          FIREBASE_PROJECT_ID: fermenter-dashboard-bada3
+        run: |
+          set -euo pipefail
+          node scripts/reconcile-daily-measurements.mjs --snapshot > measurement-backup.json
+      - name: Encrypt backup and remove plaintext before upload
+        run: |
+          set -euo pipefail
+          node scripts/crypto-daily-measurement-backup.mjs --encrypt measurement-backup.json measurement-backup.enc
+          rm -f measurement-backup.json
+          test -s measurement-backup.enc
+      - name: Save ENCRYPTED backup artifact before any Firestore write
+        uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-daily-measurements-${{ github.run_number }}
+          path: measurement-backup.enc
+          retention-days: 90
+          if-no-files-found: error
+
+  apply-and-verify:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: encrypted-full-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+      - name: Download the confirmed encrypted backup
+        uses: actions/download-artifact@v4
+        with:
+          name: encrypted-daily-measurements-${{ github.run_number }}
+      - name: Decrypt, transactionally reconcile and verify
+        env:
+          FIREBASE_PROJECT_ID: fermenter-dashboard-bada3
+          CONFIRM_DAILY_MEASUREMENT_MIGRATION: 1600-1580-ONE-DOC-PER-DAY
+        run: |
+          set -euo pipefail
+          trap 'rm -f measurement-backup.json' EXIT
+          node scripts/crypto-daily-measurement-backup.mjs --decrypt measurement-backup.enc measurement-backup.json
+          node scripts/reconcile-daily-measurements.mjs --apply --file measurement-backup.json > measurement-migration-report.json
+      - name: Upload non-sensitive migration report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-measurement-migration-report-${{ github.run_number }}
+          path: measurement-migration-report.json
+          retention-days: 90
+          if-no-files-found: ignore
+      - name: Display counts only
+        if: success()
+        run: |
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          const report=JSON.parse(fs.readFileSync("measurement-migration-report.json","utf8"));
+          const body="## Daily measurement consolidation verified\n\n" +
+            "- Batches verified: "+report.verifiedBatches+"/20\n" +
+            "- Legacy documents removed: "+report.deleted+"\n" +
+            "- Firestore backup: encrypted and uploaded before writes\n";
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,body);
+          JS
