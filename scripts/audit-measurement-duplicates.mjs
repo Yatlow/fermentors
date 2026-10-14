@@ -95,6 +95,7 @@ function selfTest() {
   assert.equal(r.metadataMismatches.length,0);
   assert.equal(normalizeId("2026-10-06_2460"),null);
   assert.equal(normalizeDate("31/02/2026"),null);
+  assert.deepEqual(["1000", "1605", "1599"].sort((a,b)=>b.localeCompare(a,undefined,{numeric:true})),["1605","1599","1000"]);
   console.log("Audit self-test passed.");
 }
 
@@ -149,7 +150,7 @@ if (selfTesting) {
       process.exit(2);
     }
     const allIds = refs.map(ref => ref.id)
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
     totalBrews = allIds.length;
     batches = allIds.slice(offset, offset + limit);
   }
