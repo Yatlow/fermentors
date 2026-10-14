@@ -114,6 +114,9 @@ export function mergeCompletedPackagingBack(
   original.packaging.forEach((run, index) => {
     const actualQuantity = actualCompletedForRun(original, run, index, open);
     if (actualQuantity <= 0) return;
+    // A prior save may already have split this decision. Never split the
+    // preserved executed part a second time or invent another remaining row.
+    if (run.id && run.id.endsWith(":remaining")) return;
     const source = sourceForRun(run, sources);
     const key = persistedPlanKey(run, index);
     const editedIndex = pending.findIndex((candidate, candidateIndex) =>
@@ -132,6 +135,15 @@ export function mergeCompletedPackagingBack(
       emptyTank: sourceShowsTankClosed(run, source),
     });
     if (replacement) {
+      // The editor may already contain the distinct pending balance from a
+      // previous save. Do not subtract completed units from it again.
+      const alreadySplit = !!run.id && edited.packaging.some((candidate) =>
+        candidate.id === `${run.id}:remaining`
+      );
+      if (alreadySplit) {
+        pending[editedIndex] = { ...replacement, quantity: 0 };
+        return;
+      }
       const outstanding = Math.max(0, replacement.quantity - actualQuantity);
       if (outstanding > 0) {
         pending[editedIndex] = {
