@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { tankReleases, validateProduction } from "../src/SERVICES/planning/productionCycle";
 import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
 import { mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
@@ -62,4 +63,21 @@ test("past actual cannot complete a rescheduled future row", () => {
   const runs = openRuns([plan], products, actuals);
   assert.equal(runs.find((r) => r.id === "done")?.remaining, 0);
   assert.equal(runs.find((r) => r.id === "later")?.remaining, 20);
+});
+
+
+test("tank 15 releases for next brewing week after kegs Monday and crates Wednesday", () => {
+  const plan = week();
+  plan.packaging = [
+    { id: "done", productId: "pils-kegs", quantity: 70, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-12" },
+    { id: "finish", productId: "pils-crates", quantity: 252, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-14", emptyTank: true },
+  ];
+  const actuals = [{ id: "a1", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2000, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  const sources = [{ id: "tank15", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", action: 1 }];
+  assert.equal(validateProduction([plan], settings, [tank], actuals, "2026-10-14"), null);
+  const release = tankReleases(sources, [tank], [plan], settings, actuals, "2026-10-14")[0];
+  assert.equal(release.emptyDate, "2026-10-14");
+  assert.equal(release.date, "2026-10-19");
 });
