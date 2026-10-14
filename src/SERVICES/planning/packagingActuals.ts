@@ -107,22 +107,49 @@ export function mergeCompletedPackagingBack(
   sources: PackagingSource[],
 ): WeekPlan {
   const open = completionMap(original, products, actuals);
-  const completed = new Map<string, Plan>();
+  const preserved: Plan[] = [];
+  const pending = edited.packaging.map((run) => ({ ...run }));
+  const consumed = new Set<number>();
 
   original.packaging.forEach((run, index) => {
-    const source = sourceForRun(run, sources);
     const actualQuantity = actualCompletedForRun(original, run, index, open);
-    if (sourceShowsTankClosed(run, source) && actualQuantity > 0) {
-      completed.set(persistedPlanKey(run, index), run);
+    if (actualQuantity <= 0) return;
+    const source = sourceForRun(run, sources);
+    const key = persistedPlanKey(run, index);
+    const editedIndex = pending.findIndex((candidate, candidateIndex) =>
+      !consumed.has(candidateIndex) &&
+      persistedPlanKey(candidate, candidateIndex) === key,
+    );
+    const replacement = editedIndex >= 0 ? pending[editedIndex] : undefined;
+    if (editedIndex >= 0) consumed.add(editedIndex);
+
+    // An executed quantity must remain attached to its original tank, batch,
+    // product and date, regardless of subsequent changes to the pending plan.
+    // Split the unexecuted balance into a fresh decision with a distinct id.
+    preserved.push({
+      ...run,
+      quantity: actualQuantity,
+      emptyTank: sourceShowsTankClosed(run, source),
+    });
+    if (replacement) {
+      const outstanding = Math.max(0, replacement.quantity - actualQuantity);
+      if (outstanding > 0) {
+        pending[editedIndex] = {
+          ...replacement,
+          id: replacement.id ? `${replacement.id}:remaining` : undefined,
+          quantity: outstanding,
+        };
+      } else {
+        pending[editedIndex] = { ...replacement, quantity: 0 };
+      }
     }
   });
 
-  const pendingEdited = edited.packaging.filter((run, index) =>
-    !completed.has(persistedPlanKey(run, index)),
-  );
-
   return {
     ...edited,
-    packaging: [...completed.values(), ...pendingEdited],
+    packaging: [
+      ...preserved,
+      ...pending.filter((run) => run.quantity > 0),
+    ],
   };
 }
