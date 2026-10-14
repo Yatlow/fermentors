@@ -6990,3 +6990,175 @@ b {
 .health-quick-report-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
 
 .dashboard-tank-slot.tank-search-highlight{outline:3px solid #60a5fa;outline-offset:3px;border-radius:12px;transition:outline-color .35s ease}
+
+/* Always-visible, compact two-row primary navigation on phones. */
+@media (max-width: 600px) {
+  .mobile-area-trigger { display: none !important; }
+  .mobile-nav-backdrop { display: none !important; }
+  .mobile-nav-shell { width: 100%; }
+  .views-box, .views-box.mobile-more-open {
+    display: grid !important;
+    position: relative !important;
+    inset: auto !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    width: 100%;
+    max-width: 100%;
+    padding: 5px 0 8px;
+    overflow: visible;
+    box-shadow: none;
+    border-top: 0;
+    border-bottom: 1px solid #cbd5e1;
+    margin-bottom: 8px;
+    direction: rtl;
+  }
+  .views-box .views-item, .views-box.mobile-more-open .views-item {
+    display: flex !important;
+    position: relative !important;
+    inset: auto !important;
+    width: auto !important;
+    min-width: 0;
+    min-height: 53px;
+    padding: 5px 2px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    box-shadow: none !important;
+    background: #f8fafc;
+    font-size: 10px;
+    text-align: center;
+  }
+  .views-box .views-item.active { background: #e8f1ff; border-color: #93c5fd; }
+  .views-box .views-item .views-label { white-space: nowrap; font-size: 10px; }
+  .views-box .views-item .nav-badge {
+    position: absolute;
+    top: 1px;
+    left: 3px;
+    right: auto;
+    margin: 0;
+    transform: none;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 3px;
+    font-size: 10px;
+  }
+}
+
+/* PR207 refinement: separate the existing brewery logo from the navigation grid. */
+@media (max-width: 600px) {
+  .dashboard-header .headerBox .header-brand {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    gap: 4px !important;
+    width: 100% !important;
+  }
+  .dashboard-header .headerBox .header-brand .header-logo {
+    order: 0 !important;
+    display: block !important;
+    flex: 0 0 auto !important;
+    align-self: center !important;
+    width: 43px !important;
+    height: 43px !important;
+    max-width: 43px !important;
+    margin: 0 auto 2px !important;
+  }
+  .dashboard-header .headerBox .header-brand .mobile-nav-shell {
+    order: 1 !important;
+    display: block !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .dashboard-header .views-box {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    padding: 3px 0 7px !important;
+  }
+  .dashboard-header .views-box .views-item {
+    min-height: 46px !important;
+    padding: 4px 2px !important;
+    gap: 2px !important;
+  }
+  .dashboard-header .views-box .views-item:nth-child(5) { grid-column: 2; }
+  .dashboard-header .views-box .views-item:nth-child(6) { grid-column: 3; }
+  .dashboard-header .views-box .views-item:nth-child(7) { grid-column: 4; }
+  .dashboard-header .views-box .views-item .views-label {
+    font-size: 10px !important;
+    line-height: 1.15;
+  }
+}
+
+/* PR207 mobile navigation alignment and badge polish */
+@media (max-width: 600px) {
+  .dashboard-header .views-box,
+  .dashboard-header .views-box.mobile-more-open {
+    direction: rtl !important;
+    border: 0 !important;
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 2px !important;
+  }
+  .dashboard-header .views-box .views-item:nth-child(5) { grid-column: 1 !important; }
+  .dashboard-header .views-box .views-item:nth-child(6) { grid-column: 2 !important; }
+  .dashboard-header .views-box .views-item:nth-child(7) { grid-column: 3 !important; }
+  .dashboard-header .views-box .views-item {
+    overflow: visible !important;
+    padding: 6px 18px 6px 4px !important;
+    box-sizing: border-box !important;
+  }
+  .dashboard-header .views-box .views-item .nav-badge {
+    position: absolute !important;
+    top: -5px !important;
+    left: -5px !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    margin: 0 !important;
+    min-width: 19px !important;
+    height: 19px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 2px solid white !important;
+    border-radius: 999px !important;
+    padding: 0 4px !important;
+    line-height: 1 !important;
+    font-size: 10px !important;
+    z-index: 1;
+  }
+}
+
+/* Restore the original phone logo size (pre-collapsed navigation). */
+@media (max-width: 600px) {
+  .dashboard-header .headerBox .header-brand .header-logo {
+    width: 100px !important;
+    height: 100px !important;
+    max-width: 100px !important;
+    flex: 0 0 100px !important;
+    object-fit: contain !important;
+    margin: 0 auto 2px !important;
+  }
+}
+
+/* Logo visual size: avoid small intrinsic artwork and inherited max-size constraints. */
+@media (max-width: 600px) {
+  .dashboard-header .headerBox .header-brand > img.header-logo {
+    width: 140px !important;
+    height: 140px !important;
+    min-width: 140px !important;
+    min-height: 140px !important;
+    max-width: none !important;
+    max-height: none !important;
+    flex: none !important;
+    align-self: center !important;
+    object-fit: cover !important;
+    object-position: center !important;
+    margin: -12px auto -12px !important;
+  }
+}
