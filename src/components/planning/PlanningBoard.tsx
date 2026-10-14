@@ -223,6 +223,14 @@ export default function PlanningBoard({
         const saved = current.packaging.find((item) => item.id === run.id);
         const wasEdited = JSON.stringify(saved ?? null) !== JSON.stringify(run);
         if (!wasEdited || resolvePackagingBrewId(run as PackagingPlan, allForMatch)) return run;
+        // Existing physical packaging must never be reidentified as the next
+        // brew on the same tank, even if the style matches.
+        const physical = tanks.find((tank) =>
+          !!run.batchNumber &&
+          String(tank.batch ?? "").replace("#", "").trim() === String(run.batchNumber).replace("#", "").trim() &&
+          (tank.id === run.tankId || String(tank.number) === String(run.tankNumber ?? run.tankId))
+        );
+        if (physical) return run;
         if (!run.tankId || !run.date) return run;
         const runDate = run.date;
         const product = settings.products.find((item) => item.id === run.productId);
