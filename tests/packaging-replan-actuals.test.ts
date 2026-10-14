@@ -128,3 +128,25 @@ test("next-week brew stays blocked if current batch has no planned emptying", ()
   assert.equal(tankReleases([source], [tank], [plan], settings, [], "2026-10-14")[0].date, null);
   assert.match(validateBrewReleases([source], [tank], [plan], settings, [], "2026-10-14") ?? "", /תוכנית הריקון/);
 });
+
+test("early actual completes the same physical batch despite later planned date", () => {
+  const plan = week();
+  plan.packaging = [{ id: "late-10", productId: "pils-kegs", quantity: 156, tankId: "tank10", tankNumber: "10", batchNumber: "1601", date: "2026-10-15" }];
+  const actuals = [{ id: "early-10", date: "2026-10-13", tankNumber: "10", batchNumber: "1601", beerStyle: "Pils", packagingType: "kegs", quantity: 159 }] as Actual[];
+  assert.equal(openRuns([plan], products, actuals)[0].remaining, 0);
+  const tank = { id: "tank10", number: "10", style: "Pils", batch: "1601", brewed: "2026-09-01", ready: "2026-10-01", liters: 100, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([plan], settings, [tank], actuals, "2026-10-14"), null);
+});
+
+test("early actual does not consume a different batch or an unidentified tank", () => {
+  const plan = week();
+  plan.packaging = [
+    { id: "other-batch", productId: "pils-kegs", quantity: 20, tankId: "tank10", tankNumber: "10", batchNumber: "1602", date: "2026-10-15" },
+    { id: "unidentified", productId: "pils-kegs", quantity: 20, date: "2026-10-15" },
+  ];
+  const actuals = [{ id: "early", date: "2026-10-13", tankNumber: "10", batchNumber: "1601", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const runs = openRuns([plan], products, actuals);
+  assert.equal(runs.find((r) => r.id === "other-batch")?.remaining, 20);
+  assert.equal(runs.find((r) => r.id === "unidentified")?.remaining, 20);
+});
