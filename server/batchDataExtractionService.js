@@ -962,7 +962,7 @@ function createMeasurementId(
   // Google Sheets may display a morning time as 6:27 rather than 06:27.
   // Both representations must produce the same Firestore document ID as
   // the app writer (YYYY-MM-DD_HHMM). Retain unusual legacy values verbatim.
-  if (/^\\d{3,4}$/.test(cleanTime)) {
+  if (/^\d{3,4}$/.test(cleanTime)) {
     const padded = cleanTime.padStart(4, "0");
     const hour = Number(padded.slice(0, 2));
     const minute = Number(padded.slice(2));
