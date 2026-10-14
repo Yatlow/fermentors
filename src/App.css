@@ -7133,3 +7133,15 @@ b {
     z-index: 1;
   }
 }
+
+/* Restore the original phone logo size (pre-collapsed navigation). */
+@media (max-width: 600px) {
+  .dashboard-header .headerBox .header-brand .header-logo {
+    width: 100px !important;
+    height: 100px !important;
+    max-width: 100px !important;
+    flex: 0 0 100px !important;
+    object-fit: contain !important;
+    margin: 0 auto 2px !important;
+  }
+}
