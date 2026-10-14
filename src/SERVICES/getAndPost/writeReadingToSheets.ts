@@ -3,8 +3,6 @@ import type { ReadingToSend } from "../../App";
 import { db } from "../../firebase";
 import {
     callAppsScriptPost,
-    AppsScriptInvalidResponseError,
-    AppsScriptTimeoutError,
     createAppsScriptRequestId,
     type AppsScriptEnvelope,
 } from "./appsScriptClient";
@@ -46,64 +44,6 @@ function isFirestorePermissionDenied(error: unknown): boolean {
         error !== null &&
         "code" in error &&
         String((error as { code?: unknown }).code) === "permission-denied";
-}
-
-function showBackgroundSheetWarning(
-    readings: ReadingToSend[],
-    failedResults?: writeReadingResult[]
-): void {
-    if (typeof document === "undefined") return;
-
-    const failedIds = new Set(
-        (failedResults ?? [])
-            .map((result) => String(result.tankId ?? ""))
-            .filter(Boolean)
-    );
-
-    const affected = readings.filter((reading) => {
-        if (failedIds.size === 0) return true;
-        return failedIds.has(String(reading.tankId ?? ""));
-    });
-
-    const tanks = affected
-        .map((reading) => {
-            const candidate = reading as ReadingToSend & { tankNumber?: string | number };
-            return candidate.tankNumber ?? reading.tankId;
-        })
-        .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
-        .map(String);
-
-    const uniqueTanks = [...new Set(tanks)];
-    const existing = document.getElementById("sheet-sync-warning-modal");
-    existing?.remove();
-
-    const overlay = document.createElement("div");
-    overlay.id = "sheet-sync-warning-modal";
-    overlay.className = "modal-overlay";
-    overlay.setAttribute("dir", "rtl");
-
-    const box = document.createElement("div");
-    box.className = "modal-box";
-
-    const title = document.createElement("h3");
-    title.textContent = "אזהרה לגבי הכתיבה לגיליון";
-
-    const text = document.createElement("p");
-    const tankText = uniqueTanks.length > 0
-        ? ` עבור מיכל${uniqueTanks.length > 1 ? "ים" : ""} ${uniqueTanks.join(", ")}`
-        : "";
-    text.textContent =
-        `הפעולה נשמרה במערכת, אבל לא התקבל אישור שהכתיבה לגיליון הושלמה${tankText}. מומלץ לבדוק את הגיליון.`;
-
-    const button = document.createElement("button");
-    button.className = "btn-primary";
-    button.type = "button";
-    button.textContent = "הבנתי";
-    button.addEventListener("click", () => overlay.remove());
-
-    box.append(title, text, button);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
 }
 
 // Diagnostics are best-effort and never affect the operation or its outbox.
@@ -264,7 +204,6 @@ export async function writeReadingsToSheets(
                 if (!parsed.success) {
                     console.error("Background cellar Sheet sync returned failure:", parsed.error || parsed.message);
                     reportSheetSyncDiagnostic(requestId, "server-rejected", parsed.error || parsed.message);
-                    showBackgroundSheetWarning(readings);
                     return;
                 }
 
@@ -273,7 +212,6 @@ export async function writeReadingsToSheets(
                 if (failed.length > 0) {
                     console.error("Background cellar Sheet sync partially failed:", failed);
                     reportSheetSyncDiagnostic(requestId, "partial-sheet-failure", failed.map(item => item.error || item.message).join("; "));
-                    showBackgroundSheetWarning(readings, failed);
                     return;
                 }
 
@@ -284,7 +222,6 @@ export async function writeReadingsToSheets(
                 } catch (error) {
                     reportSheetSyncDiagnostic(requestId, "post-confirmation-reconcile", error);
                     console.error("Sheet write confirmed but Firestore reconciliation failed:", error);
-                    showBackgroundSheetWarning(readings);
                     return;
                 }
                 await clearSheetSyncJob(requestId);
@@ -296,13 +233,7 @@ export async function writeReadingsToSheets(
                 // cannot establish whether Sheets succeeded. The durable outbox
                 // already confirms the exact requestId in its regular maintenance
                 // cycle; the existing live status listener shows pending/failed.
-                // Never present a false write-failure modal for an unknown result.
-                const unconfirmedTransport = error instanceof AppsScriptTimeoutError ||
-                    error instanceof AppsScriptInvalidResponseError ||
-                    (error instanceof TypeError && /fetch|network|load/i.test(error.message));
-                if (!unconfirmedTransport) {
-                    showBackgroundSheetWarning(readings);
-                }
+                // A pending job is not a confirmed write failure; the status panel reports recovery.
                 // Keep the outbox entry pending for server-side confirmation.
             });
 
