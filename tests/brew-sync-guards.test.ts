@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mergeBrewSheetEditDelta, shouldAcceptRemoteBrewingExecution } from "../src/SERVICES/brewing/brewSyncGuards";
-import type { BrewExecution } from "../src/SERVICES/brewing/brewExecution";
+import type { BrewSyncExecution as BrewExecution } from "../src/SERVICES/brewing/brewSyncGuards";
 
 const base = (fields: Record<string,string>, updatedAt = "2026-10-14T09:00:00Z"): BrewExecution => ({
   batchNumber: "1605", activeBlockIndex: 1, activeStepIndex: 2,
