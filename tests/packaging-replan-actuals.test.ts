@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { tankReleases, validateProduction, validateBrewReleases } from "../src/SERVICES/planning/productionCycle";
 import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
-import { mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
+import { plansAfterActualPackagingCompletion, mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
 
 const products: Settings["products"] = [
@@ -162,4 +162,27 @@ test("future canonical cycle keeps its own planned volume, not current physical 
   const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 150, cold: true };
   const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
   assert.equal(validateProduction([plan], settings, [tank], [], "2026-10-14"), null);
+});
+
+test("closed current batch removes unproduced pending packaging without fabricating actuals", () => {
+  const plan = week();
+  plan.packaging = [
+    { id: "kegs-done", productId: "pils-kegs", quantity: 70, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-12" },
+    { id: "crates-stale", productId: "pils-crates", quantity: 252, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-14", emptyTank: true },
+    { id: "next-cycle", productId: "pils-kegs", quantity: 100, tankId: "tank15", tankNumber: "15", batchNumber: "1700", brewId: "brew-next", date: "2026-11-11" },
+  ];
+  const actuals = [{ id: "a1", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const source = [{ id: "tank15", tankNumber: "15", batchNumber: "1600", tankStatus: true }];
+  const result = plansAfterActualPackagingCompletion([plan], products, actuals, source)[0];
+  assert.equal(result.packaging[0].quantity, 70);
+  assert.equal(result.packaging[1].quantity, 0);
+  assert.equal(result.packaging[2].quantity, 100);
+  assert.equal(plan.packaging[1].quantity, 252);
+});
+
+test("open tank retains current batch packaging and does not mark it completed", () => {
+  const plan = week();
+  plan.packaging = [{ id: "crates", productId: "pils-crates", quantity: 252, tankId: "tank15", tankNumber: "15", batchNumber: "1600", date: "2026-10-14", emptyTank: true }];
+  const result = plansAfterActualPackagingCompletion([plan], products, [], [{ id: "tank15", tankNumber: "15", batchNumber: "1600", action: 1 }])[0];
+  assert.equal(result.packaging[0].quantity, 252);
 });
