@@ -23,7 +23,7 @@ const invalid = (active && index >= 0) || (!active && index < 0) ||
     (index < 0 || arg !== raw)) ||
   (!active && (batches.length < 1 || batches.length > 10 ||
     new Set(batches).size !== batches.length ||
-    batches.some(v => !/^\\d{1,12}$/.test(v))));
+    batches.some(v => !/^\d{1,12}$/.test(v))));
 if (invalid) {
   console.error("Usage: FIREBASE_PROJECT_ID=... node scripts/audit-measurement-duplicates.mjs (--active | --batches 1600,1601)");
   process.exitCode = 2;
@@ -38,7 +38,7 @@ if (invalid) {
     // measurement histories if the site exceeds the explicit safety cap.
     const snapshot = await db.collection("fermentors").get();
     const distinct = [...new Set(snapshot.docs.map(doc => String(doc.data().batchNumber ?? "").trim().replace(/^#/, ""))
-      .filter(batch => /^\\d{1,12}$/.test(batch)))];
+      .filter(batch => /^\d{1,12}$/.test(batch)))];
     if (distinct.length > 25) {
       console.error("Refusing to scan " + distinct.length + " active batches (maximum 25). Use --batches instead.");
       process.exit(2);
