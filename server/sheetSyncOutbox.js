@@ -233,10 +233,10 @@ function sheetSyncReconcileMeasurements_(jobDocument, response) {
     if (!original || !entry.success || !result) {
       throw new Error("Cannot reconcile Sheet results: missing confirmed tank row");
     }
-    const date = String(result.date || "").match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})$/);
-    const time = String(result.time || "").match(/^(\\d{1,2}):(\\d{2})$/);
+    const date = String(result.date || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const time = String(result.time || "").match(/^(\d{1,2}):(\d{2})$/);
     const batch = sheetSyncNormalizeBatch_(original.batchNumber);
-    if (!date || !time || !batch || !/^\\d+$/.test(batch)) {
+    if (!date || !time || !batch || !/^\d+$/.test(batch)) {
       throw new Error("Cannot reconcile Sheet results: invalid date, time or batch");
     }
     const id = date[3] + "-" + date[2].padStart(2, "0") + "-" +
