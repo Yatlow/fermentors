@@ -89,7 +89,15 @@ export function openRuns(
         .map((r) => {
           let remaining = r.quantity;
           for (const entry of completed) {
-            if (r.date && actualDate(entry.actual) && r.date > actualDate(entry.actual)!) continue;
+            // A completed packaging report may precede its planned date. Match
+            // it to that decision only with an explicit tank AND batch identity;
+            // otherwise keep the date guard to avoid consuming a different cycle.
+            const samePhysicalBatch =
+              !!r.tankNumber && !!r.batchNumber &&
+              String(entry.actual.tankNumber) === String(r.tankNumber) &&
+              String(entry.actual.batchNumber) === String(r.batchNumber);
+            if (r.date && actualDate(entry.actual) &&
+                r.date > actualDate(entry.actual)! && !samePhysicalBatch) continue;
             if (
               (r.tankNumber &&
                 String(entry.actual.tankNumber) !== r.tankNumber) ||
