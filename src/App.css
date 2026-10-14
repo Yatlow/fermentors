@@ -6990,3 +6990,58 @@ b {
 .health-quick-report-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
 
 .dashboard-tank-slot.tank-search-highlight{outline:3px solid #60a5fa;outline-offset:3px;border-radius:12px;transition:outline-color .35s ease}
+
+/* Always-visible, compact two-row primary navigation on phones. */
+@media (max-width: 600px) {
+  .mobile-area-trigger { display: none !important; }
+  .mobile-nav-backdrop { display: none !important; }
+  .mobile-nav-shell { width: 100%; }
+  .views-box, .views-box.mobile-more-open {
+    display: grid !important;
+    position: relative !important;
+    inset: auto !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+    width: 100%;
+    max-width: 100%;
+    padding: 5px 0 8px;
+    overflow: visible;
+    box-shadow: none;
+    border-top: 0;
+    border-bottom: 1px solid #cbd5e1;
+    margin-bottom: 8px;
+    direction: rtl;
+  }
+  .views-box .views-item, .views-box.mobile-more-open .views-item {
+    display: flex !important;
+    position: relative !important;
+    inset: auto !important;
+    width: auto !important;
+    min-width: 0;
+    min-height: 53px;
+    padding: 5px 2px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    box-shadow: none !important;
+    background: #f8fafc;
+    font-size: 10px;
+    text-align: center;
+  }
+  .views-box .views-item.active { background: #e8f1ff; border-color: #93c5fd; }
+  .views-box .views-item .views-label { white-space: nowrap; font-size: 10px; }
+  .views-box .views-item .nav-badge {
+    position: absolute;
+    top: 1px;
+    left: 3px;
+    right: auto;
+    margin: 0;
+    transform: none;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 3px;
+    font-size: 10px;
+  }
+}
