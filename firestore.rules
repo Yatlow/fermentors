@@ -83,6 +83,29 @@ service cloud.firestore {
       allow write: if isApprovedUser();
     }
 
+    // Private journal: authenticated brewery users may append their own report events;
+    // only the named owner can query or read the journal. Entries are immutable.
+    match /activityEvents/{eventId} {
+      allow read: if isApprovedUser() && isSuperAdmin();
+      allow create: if isApprovedUser()
+        && request.resource.data.keys().hasOnly([
+          'eventId', 'operationId', 'kind', 'tankNumber', 'batchNumber',
+          'details', 'actorUid', 'actorEmail', 'occurredAt', 'source'
+        ])
+        && request.resource.data.eventId == eventId
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorEmail == request.auth.token.email
+        && request.resource.data.occurredAt == request.time
+        && request.resource.data.source == 'cellar-report'
+        && request.resource.data.kind in ['לחץ', 'חם', 'פעולות', 'אריזה']
+        && request.resource.data.operationId is string
+        && request.resource.data.tankNumber is string
+        && request.resource.data.batchNumber is string
+        && request.resource.data.details is string
+        && request.resource.data.details.size() <= 600;
+      allow update, delete: if false;
+    }
+
     match /packagingLog/{document} {
       allow read: if isApprovedUser();
       allow write: if isApprovedUser();
