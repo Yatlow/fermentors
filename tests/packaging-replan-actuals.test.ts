@@ -3,7 +3,7 @@ import test from "node:test";
 import { tankReleases, validateProduction, validateBrewReleases } from "../src/SERVICES/planning/productionCycle";
 import { openRuns, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
 import { resolvePackagingBrewId, withStablePackagingIdentity } from "../src/SERVICES/planning/planIdentity";
-import { plansAfterActualPackagingCompletion, mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
+import { plansAfterActualPackagingCompletion, mergeCompletedPackagingBack, pendingPackagingDecisions } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
 
 const products: Settings["products"] = [
@@ -383,4 +383,60 @@ test("a completed-looking row without matching actual cannot release a tank", ()
   // A still-open plan may release on its planned date; no completed
   // execution is invented in the absence of an actual.
   assert.equal(tankReleases([source], [tank], [plan], settings, [], "2026-10-14")[0].emptyDate, null);
+});
+
+test("physical 15: already packed 250 crates and 70 kegs cannot be scheduled again tomorrow", () => {
+  const original = week();
+  original.packaging = [
+    { id: "pils-crates-15", productId: "pils-crates", quantity: 252,
+      tankId: "tank15", tankNumber: "15", batchNumber: "1586", date: "2026-10-12" },
+    { id: "pils-kegs-15", productId: "pils-kegs", quantity: 71,
+      tankId: "tank15", tankNumber: "15", batchNumber: "1586", date: "2026-10-15" },
+  ];
+  const actuals = [
+    { id: "real-crates", date: "2026-10-12", tankNumber: 15, batchNumber: 1586,
+      beerStyle: "Pils", packagingType: "bottles", quantity: 250, unit: "ארגזים" },
+    { id: "real-kegs", date: "2026-10-13", tankNumber: 15, batchNumber: 1586,
+      beerStyle: "Pils", packagingType: "kegs", quantity: 70 },
+  ] as Actual[];
+  const sources = [{ id: "tank15", tankNumber: 15, batchNumber: 1586, action: 3 }];
+  const completed = openRuns([original], products, actuals);
+  assert.deepEqual(completed.map((run) => run.remaining).sort(), [1, 2]);
+  // A physical empty tank means those 1+2 unproduced estimates are cancelled,
+  // never carried into another day's planning or counted as new production.
+  assert.deepEqual(pendingPackagingDecisions(original, products, actuals, sources), []);
+  const merged = mergeCompletedPackagingBack(original, original, products, actuals, sources);
+  assert.deepEqual(merged.packaging.map((run) => [run.id, run.quantity, run.date]).sort(), [
+    ["pils-crates-15", 250, "2026-10-12"],
+    ["pils-kegs-15", 70, "2026-10-13"],
+  ]);
+  assert.deepEqual(pendingPackagingDecisions(merged, products, actuals, sources), []);
+  assert.deepEqual(mergeCompletedPackagingBack(merged, merged, products, actuals, sources).packaging, merged.packaging);
+});
+
+test("an active tank retains its real unexecuted remainder when a report precedes the planned date", () => {
+  const original = week();
+  original.packaging = [{ id: "kegs-active", productId: "pils-kegs",
+    quantity: 71, tankId: "tank15", tankNumber: "15", batchNumber: "1586", date: "2026-10-15" }];
+  const actuals = [{ id: "kegs-early", date: "2026-10-13", tankNumber: 15,
+    batchNumber: 1586, beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const sources = [{ id: "tank15", tankNumber: "15", batchNumber: "1586", action: 1 }];
+  assert.deepEqual(pendingPackagingDecisions(original, products, actuals, sources).map((run) => [run.date, run.quantity]),
+    [["2026-10-15", 1]]);
+  const merged = mergeCompletedPackagingBack(original, original, products, actuals, sources);
+  assert.deepEqual(merged.packaging.map((run) => [run.date, run.quantity]), [
+    ["2026-10-13", 70], ["2026-10-15", 1],
+  ]);
+  assert.deepEqual(pendingPackagingDecisions(merged, products, actuals, sources).map((run) => run.quantity), [1]);
+});
+
+test("a report from another physical batch never cancels the planned balance", () => {
+  const original = week();
+  original.packaging = [{ id: "new-pils", productId: "pils-kegs", quantity: 71,
+    tankId: "tank15", tankNumber: "15", batchNumber: "1700", date: "2026-10-15" }];
+  const actuals = [{ id: "old-pils", date: "2026-10-13", tankNumber: "15",
+    batchNumber: "1586", beerStyle: "Pils", packagingType: "kegs", quantity: 70 }] as Actual[];
+  const sources = [{ id: "tank15", tankNumber: "15", batchNumber: "1586", action: 3 }];
+  assert.deepEqual(pendingPackagingDecisions(original, products, actuals, sources).map((run) => run.quantity), [71]);
+  assert.deepEqual(mergeCompletedPackagingBack(original, original, products, actuals, sources).packaging, original.packaging);
 });
