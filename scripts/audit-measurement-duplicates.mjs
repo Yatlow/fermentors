@@ -4,7 +4,7 @@
  *
  * Example (credentials via GOOGLE_APPLICATION_CREDENTIALS):
  *   FIREBASE_PROJECT_ID=your-project node scripts/audit-measurement-duplicates.mjs --batches 1600,1601
- *   FIREBASE_PROJECT_ID=your-project node scripts/audit-measurement-duplicates.mjs --all-brews
+ *   FIREBASE_PROJECT_ID=your-project node scripts/audit-measurement-duplicates.mjs --all-brews --offset 0 --limit 100
  *
  * This script NEVER writes, deletes, or schedules anything. It reads ONLY the
  * measurement subcollections for explicitly named batches (maximum 10),
@@ -16,17 +16,34 @@ import { getFirestore } from "firebase-admin/firestore";
 
 const args = process.argv.slice(2);
 const allBrews = args.includes("--all-brews");
-const index = args.indexOf("--batches");
-const raw = index >= 0 ? args[index + 1] : "";
-let batches = raw.split(",").map(v => v.trim().replace(/^#/, "")).filter(Boolean);
-const invalid = (allBrews && index >= 0) || (!allBrews && index < 0) ||
-  args.some(arg => arg !== "--all-brews" && arg !== "--batches" &&
-    (index < 0 || arg !== raw)) ||
+const argValue = flag => {
+  const i = args.indexOf(flag);
+  return i >= 0 ? args[i + 1] : null;
+};
+const raw = argValue("--batches");
+let batches = raw ? raw.split(",").map(v => v.trim().replace(/^#/, "")).filter(Boolean) : [];
+const offset = Number(argValue("--offset") ?? "0");
+const limit = Number(argValue("--limit") ?? "100");
+const allowed = new Set(["--all-brews", "--batches", "--offset", "--limit"]);
+const used = new Set();
+let malformed = false;
+for (let i = 0; i < args.length; i++) {
+  const token = args[i];
+  if (!allowed.has(token) || used.has(token)) { malformed = true; break; }
+  used.add(token);
+  if (token !== "--all-brews") {
+    if (++i >= args.length || args[i].startsWith("--")) { malformed = true; break; }
+  }
+}
+const invalid = malformed || (allBrews === (raw !== null)) ||
   (!allBrews && (batches.length < 1 || batches.length > 10 ||
     new Set(batches).size !== batches.length ||
-    batches.some(v => !/^\d{1,12}$/.test(v))));
+    batches.some(v => !/^\d{1,12}$/.test(v)))) ||
+  (!Number.isSafeInteger(offset) || offset < 0) ||
+  (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) ||
+  (!allBrews && (offset !== 0 || limit !== 100));
 if (invalid) {
-  console.error("Usage: FIREBASE_PROJECT_ID=... node scripts/audit-measurement-duplicates.mjs (--all-brews | --batches 1600,1601)");
+  console.error("Usage: node scripts/audit-measurement-duplicates.mjs (--all-brews [--offset 0] [--limit 100] | --batches 1600,1601)");
   process.exitCode = 2;
 } else if (!process.env.FIREBASE_PROJECT_ID) {
   console.error("Set FIREBASE_PROJECT_ID explicitly; no default project allowed.");
@@ -34,17 +51,20 @@ if (invalid) {
 } else {
   initializeApp({ credential: applicationDefault(), projectId: process.env.FIREBASE_PROJECT_ID });
   const db = getFirestore();
+  let totalBrews = null;
   if (allBrews) {
-    // Discover from brews, not fermentors: completed/emptied tanks still matter.
-    // Read only ID metadata, fail closed before scanning history if unexpectedly
-    // large. A paginated audit would be appropriate above this limit.
-    const MAX_BREWS = 500;
+    // Include all brews, regardless of fermentor occupancy. Cap both the
+    // work per run and the total number of listed IDs before scanning histories.
+    const MAX_BREWS = 1000;
     const refs = await db.collection("brews").listDocuments();
     if (refs.length > MAX_BREWS) {
-      console.error("Refusing to audit " + refs.length + " brews (limit " + MAX_BREWS + "). Run bounded --batches groups.");
+      console.error("Refusing to audit " + refs.length + " brews (maximum " + MAX_BREWS + ").");
       process.exit(2);
     }
-    batches = refs.map(ref => ref.id).sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+    const allIds = refs.map(ref => ref.id)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    totalBrews = allIds.length;
+    batches = allIds.slice(offset, offset + limit);
   }
   const metrics = ["temp", "plato", "pH", "pressure", "carbonation", "notes", "date", "time"];
   const summary = [];
@@ -86,5 +106,5 @@ if (invalid) {
       duplicates
     });
   }
-  console.log(JSON.stringify({ readonly: true, projectId: process.env.FIREBASE_PROJECT_ID, results: summary }, null, 2));
+  console.log(JSON.stringify({ readonly: true, projectId: process.env.FIREBASE_PROJECT_ID, scope: allBrews ? "brews" : "named-batches", offset: allBrews ? offset : null, limit: allBrews ? limit : null, totalBrews, scannedBrews: batches.length, nextOffset: allBrews && offset + batches.length < totalBrews ? offset + batches.length : null, results: summary }, null, 2));
 }
