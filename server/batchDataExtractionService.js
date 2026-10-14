@@ -1208,9 +1208,12 @@ function uploadHistoricalMeasurements(
     };
 
 
+    // Preserve migration provenance/extra fields on every subsequent Sheet sync.
+    const patchMask = ["date", "time", "temp", "plato", "pressure", "pH", "carbonation", "notes"]
+      .map(function (field) { return "updateMask.fieldPaths=" + encodeURIComponent(field); }).join("&");
     const response =
       UrlFetchApp.fetch(
-        url,
+        url + "?" + patchMask,
         {
 
           method: "patch",
