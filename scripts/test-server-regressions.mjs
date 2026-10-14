@@ -54,8 +54,8 @@ const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
     { __measurementDocId: "2026-10-06_0800", date: "06/10/2026", plato: 8 },
     { __measurementDocId: "2026-10-06_0930", date: "06/10/2026", plato: 7 },
   ], "1600");
-  assert.equal(differentTimes.length, 1);
-  assert.equal(differentTimes[0].plato, 7, "later same-day measurement takes precedence");
+  assert.equal(differentTimes.length, 2, "different times within one day must remain separate");
+  assert.deepEqual(differentTimes.map(row => row.plato), [8, 7]);
 }
 
 const fermentationNotes = loadAppsScript("server/addFermentationMeasurement.js");
