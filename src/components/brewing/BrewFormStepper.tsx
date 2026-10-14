@@ -14,6 +14,7 @@ import {
   type BrewExecution,
 } from "../../SERVICES/brewing/brewExecution";
 import type { BrewRun } from "../../SERVICES/brewing/brewRun";
+import { mergeBrewSheetEditDelta, shouldAcceptRemoteBrewingExecution } from "../../SERVICES/brewing/brewSyncGuards";
 import { laterValidationPosition, reviewedStepsForPosition } from "../../SERVICES/brewing/brewValidationProgress";
 import {
   readBrewSheetRange,
@@ -1018,17 +1019,9 @@ export default function BrewFormStepper({
     // Sheet edits are persisted into the canonical brews/{batch}.brewingExecution
     // document, so an open production form updates live.
     return subscribeToBrewingExecution(run.batchNumber, (remote) => {
-      setExecution((previous) => {
-        const previousDate = Date.parse(previous.updatedAt || "");
-        const remoteDate = Date.parse(remote.updatedAt || "");
-        if (Number.isFinite(previousDate) && Number.isFinite(remoteDate) &&
-            previousDate > remoteDate &&
-            Object.values(previous.blocks).some((block) =>
-              Object.keys(block.fields || {}).some((key) => !key.startsWith("__sheetRow.")))) {
-          return previous;
-        }
-        return remote;
-      });
+      // Compare only actual in-session edits, not stale cache timestamps.
+      if (!shouldAcceptRemoteBrewingExecution(remote, latestLocalEditAt.current)) return;
+      setExecution(remote);
       if (remote.activeStepIndex != null) {
         setActiveStepState(Math.max(0, remote.activeStepIndex));
       }
@@ -1039,18 +1032,12 @@ export default function BrewFormStepper({
     let cancelled = false;
     setFirestoreHydrated(false);
     setInitialSheetReconciled(false);
+    const hydrationStartedAt = Date.now();
     loadBrewingExecutionFromFirestore(run.batchNumber)
       .then((remote) => {
         if (cancelled) return;
-        if (remote) {
-          setExecution((previous) => {
-            const previousDate = Date.parse(previous.updatedAt || "");
-            const remoteDate = Date.parse(remote.updatedAt || "");
-            const hasUserData = Object.values(previous.blocks).some((block) =>
-              Object.keys(block.fields || {}).some((key) => !key.startsWith("__sheetRow.")));
-            return hasUserData && Number.isFinite(previousDate) && Number.isFinite(remoteDate) &&
-              previousDate > remoteDate ? previous : remote;
-          });
+        if (remote && latestLocalEditAt.current <= hydrationStartedAt) {
+          setExecution(remote);
           setActiveStepState(Math.max(0, remote.activeStepIndex || 0));
           setValidationFrontier({
             blockIndex: Math.max(1, remote.activeBlockIndex || 1),
@@ -3706,7 +3693,7 @@ export default function BrewFormStepper({
         if (firstDelta) {
           setExecution(firstDelta);
           resetBrewSheetBaseline(run.sheetId);
-          void saveBrewingExecutionToFirestore(firstDelta);
+          // Initial semantic Sheet pull persists the complete hydrated execution.
         }
       }
       return;
@@ -3721,22 +3708,10 @@ export default function BrewFormStepper({
     if (delta) {
       // Reconcile only cells modified by this onEdit revision. Preserve any
       // unrelated (possibly still focused) input in the current React state.
-      setExecution((previous) => {
-        const blocks = { ...previous.blocks };
-        for (const [blockId, block] of Object.entries(delta.blocks || {})) {
-          const oldFields = baseline.blocks[blockId]?.fields || {};
-          const currentFields = previous.blocks[blockId]?.fields || {};
-          const fields = { ...currentFields };
-          for (const [key, value] of Object.entries(block.fields || {})) {
-            if (value !== oldFields[key] &&
-                currentFields[key] === oldFields[key]) fields[key] = value;
-          }
-          blocks[blockId] = { fields };
-        }
-        return { ...previous, blocks, updatedAt: new Date().toISOString() };
-      });
+      setExecution((previous) => mergeBrewSheetEditDelta(previous, baseline, delta));
       resetBrewSheetBaseline(run.sheetId);
-      void saveBrewingExecutionToFirestore(delta);
+      // The autosave effect persists only the guarded merged state, never a
+      // delta based on potentially stale browser storage.
     } else {
       // Preserve the currently entered values if this template contains an
       // unknown/ambiguous cell. Never silently replace a whole block.
