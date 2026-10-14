@@ -14,6 +14,7 @@ import {
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
+import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasurementWarnings";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
 import { assignDryHopToHopsTable } from "../../SERVICES/cellering/assignDryHop";
 import { getBrewAge } from "../dashboard/TankCard";
@@ -758,70 +759,17 @@ export default function SendMessurmentsHeader({
 
                 const yesterdayMeasurement: Measurement =
                     sortedMeasurements[sortedMeasurements.length - 1];
-                const currentTemp = Number(readingSet.current?.temp);
-                const newTemp = Number(readingSet.new.temp);
-                const currentPressure = Number(readingSet.current?.pressure);
-                const newPressure = Number(readingSet.new.pressure);
-                const currentPh = Number(readingSet.current?.pH);
-                const newPh = Number(readingSet.new.pH);
-                const currentPlato = Number(readingSet.current?.plato);
-                const newPlato = Number(readingSet.new.plato);
-
-
-
-                if (currentTemp - newTemp > 5 || newTemp - currentTemp > 5) {
-                    if (currentTemp - newTemp > 5) {
-                        const cooled = yesterdayMeasurement?.notes?.toString().includes("קירור") ||
-                            yesterdayMeasurement?.notes?.toString().includes("קירור");
-                            console.log("cooled", cooled, yesterdayMeasurement?.notes?.toString())
-                        if (!cooled) invalidText.push(`במיכל ${readingSet.tankNumber} נמצא הפרש של ${newTemp - currentTemp} מעלות ממדידה קודמת. האם הזנת נתון תקין?`)
-
-                    }
-                }
-                const pDelata = currentPressure - newPressure;
-                if (pDelata)
-                    if (pDelata < -0.5) {
-                        if (!(yesterdayMeasurement?.notes?.toString().includes("סגירת")
-                            || yesterdayMeasurement?.notes?.toString().includes("סגירה")
-                            || yesterdayMeasurement?.notes?.toString().includes("העלאת")
-                            || yesterdayMeasurement?.notes?.toString().includes("להעלות לחץ")
-                        )) {
-                            invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה עלייה בלחץ של יותר מ0.5bar למרות שלא נסגר המיכל ולא נמצאה העלאת לחץ. האם הזנת נתון תקין?`)
-                        }
-                    }
-                if (pDelata > 0.5) {
-                    if (!(yesterdayMeasurement?.notes?.toString().includes("הורדת")
-                        || yesterdayMeasurement?.notes?.toString().includes("להוריד לחץ")
-                    )) {
-                        invalidText.push(`במיכל ${readingSet.tankNumber} נמצאה ירידה בלחץ של יותר מ0.5bar למרות שלא נמצאה הורדת לחץ או הורדת שמרים. האם הזנת נתון תקין?`)
-                    }
-                }
-                if (newPressure && !newTemp) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח לחץ אך לא דווח טמפ'. לתשומת ליבך`)
-                }
-                if (newTemp && !newPressure) {
-                    if (newPressure !== 0) {
-                        invalidText.push(`במיכל ${readingSet.tankNumber} דווח טמפ אך לא דווח . לתשומת ליבך`)
-                    }
-                }
-                if (newPh > 6) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מעל 6. האם הזנת נתון תקין?`)
-                }
-                if (newPh < 3.5) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} נמצא pH מתחת 3.5. האם הזנת נתון תקין?`)
-                }
-                if (newPh - currentPh > 0.5 || currentPh - newPh > 0.5 && (getBrewAge(readingSet.brewDate) ?? 0) > 2) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH בהפרש של יותר מ0.5 ממדידה קודמת. האם הזנת נתון תקין?`)
-                }
-                if (currentPlato !== null && newPlato - currentPlato > 0.3) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח היום Plato גבוה יותר ממדידה קודמת ב0.3. לתשומת ליבך`)
-                }
-                if (newPlato && !newPh) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח Plato אך לא דווח pH. לתשומת ליבך`)
-                }
-                if (newPh && !newPlato) {
-                    invalidText.push(`במיכל ${readingSet.tankNumber} דווח pH אך לא דווח Plato. לתשומת ליבך`)
-                }
+                invalidText.push(...cellarMeasurementWarnings(
+                    readingSet.tankNumber,
+                    readingSet.new,
+                    readingSet.current ?? {},
+                    {
+                        previousNotes: String(yesterdayMeasurement?.notes ?? ""),
+                        checkCoolingAction: true,
+                        checkPressureActions: true,
+                        brewAge: getBrewAge(readingSet.brewDate) ?? 0,
+                    },
+                ));
 
             })
             if (invalidText.length > 0) {
