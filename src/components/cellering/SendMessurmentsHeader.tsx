@@ -729,22 +729,37 @@ export default function SendMessurmentsHeader({
     async function getUnvalidMessurments() {
         setSendingReading("checking")
         const invalidText: string[] = []
-        let fullTanks = brews.filter((fv) => Number(fv.tankNumber) !== 1 && Number(fv.action) === 1);
+        // Validate only tanks with entered values for this report. Do not fetch
+        // measurement histories for unrelated active tanks.
+        const fields = reportName === "לחץ" ? ["temp", "pressure"] : ["plato", "pH"];
+        const hasReportedValue = (tank: Fermentor) => {
+            const reading = newReadings[tank.id] ?? {};
+            return fields.some((field) => {
+                const value = reading[field as keyof typeof reading];
+                return value !== undefined && value !== null && value !== "";
+            });
+        };
+        let fullTanks = brews.filter((fv) =>
+            Number(fv.tankNumber) !== 1 &&
+            Number(fv.action) === 1 &&
+            Boolean(fv.batchNumber) &&
+            hasReportedValue(fv)
+        );
         if (reportName === "חם") fullTanks = fullTanks.filter((fv) => fv.stage?.name === "חם" || Number(fv.currentData?.temp) > 9);
         try {
             const byTank = await fetchAllTankMeasurements(fullTanks);
-            const readingsToCheck = brews
-                .filter((fv) => (Number(fv.tankNumber) !== 1) && Number(fv.action) === 1)
+            const readingsToCheck = fullTanks
                 .map((fv) => {
-                    if (!fv.tankNumber) { return null }
-                    const reading = newReadings[fv.id] ?? {};
-                    const current = fv.currentData;
-                    const previus = byTank[fv.tankNumber]
-                    
-                    return { tankNumber: fv.tankNumber, new: reading, current, previus,brewDate: fv.brewDate}
-                }).filter(
-                    (r): r is NonNullable<typeof r> => r !== null
-                );
+                    if (!fv.tankNumber) return null;
+                    return {
+                        tankNumber: fv.tankNumber,
+                        new: newReadings[fv.id] ?? {},
+                        current: fv.currentData,
+                        previus: byTank[String(fv.tankNumber)],
+                        brewDate: fv.brewDate,
+                    };
+                })
+                .filter((r): r is NonNullable<typeof r> => r !== null);
             readingsToCheck.map((readingSet) => {
                 const previusMeasurements = readingSet.previus ?? [];
                 const sortedMeasurements = [...previusMeasurements].sort((a, b) => {
