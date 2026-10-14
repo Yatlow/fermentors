@@ -75,7 +75,7 @@ export function projectTankSchedules(plans: WeekPlan[], settings?: Settings): Ma
         ...(run.emptyTank === true ? { emptiesTank: true } : {}),
       };
       target.packaging.push(packaging);
-      if (run.emptyTank && run.date && (!target.emptyDate || run.date < target.emptyDate)) target.emptyDate = run.date;
+      if (run.emptyTank && run.date && (!target.emptyDate || run.date > target.emptyDate)) target.emptyDate = run.date;
     }
   }
 
