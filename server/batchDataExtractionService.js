@@ -981,6 +981,13 @@ function createMeasurementId(
 }
 
 
+// One Firestore document per brew/day, regardless of the time displayed by Sheets.
+function createDailyMeasurementId(date) {
+  return date.getFullYear() + "-" +
+    String(date.getMonth() + 1).padStart(2, "0") + "-" +
+    String(date.getDate()).padStart(2, "0");
+}
+
 // ============================================================
 // UPLOAD HISTORICAL MEASUREMENTS
 // ============================================================
@@ -1109,11 +1116,7 @@ function uploadHistoricalMeasurements(
     };
 
 
-    const measurementId =
-      createMeasurementId(
-        date,
-        time
-      );
+    const measurementId = createDailyMeasurementId(date);
 
 
     const url =
