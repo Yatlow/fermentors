@@ -49,10 +49,12 @@ function installProcessMocks(context, options = {}) {
   const marked = [];
   const runCalls = [];
   const reconciled = [];
+  const savedResults = [];
 
   context.sheetSyncPendingJobs_ = () => options.jobs ?? [job()];
   context.postIdempotencyKey_ = (_action, requestId) => `key:${requestId}`;
   context.postReadIdempotencyRecord_ = () => options.existing ?? null;
+  context.postSaveIdempotencyResult_ = (...args) => savedResults.push(args);
   context.sheetSyncSanitizedReadings_ = () => {
     if (options.sanitizeError) throw options.sanitizeError;
     return options.readings ?? [{ tankId: "10", notes: "קירור" }];
@@ -83,7 +85,7 @@ function installProcessMocks(context, options = {}) {
     marked.push({ id, state, attempts, error: String(error) });
   };
 
-  return { deleted, marked, runCalls, reconciled };
+  return { deleted, marked, runCalls, reconciled, savedResults };
 }
 
 test("normalizes batch identifiers before comparing jobs to live tanks", () => {
@@ -231,6 +233,14 @@ test("confirmed Sheet rows reconcile to Firestore before cleanup", () => {
     return { getResponseCode: () => 200, getContentText: () => "{}" };
   };
   context.sheetSyncProjectId_ = () => "test";
+  context.sheetSyncGetFermentor_ = () => ({
+    name: "projects/test/databases/(default)/documents/fermentors/10",
+    updateTime: "2026-10-14T10:42:00Z",
+    fields: {
+      batchNumber: { stringValue: "1593" },
+      latestSheetSyncRequestId: { stringValue: "req-1" },
+    },
+  });
   const result = { success: true, results: [{
     success: true, tankId: "10", result: {
       date: "14/10/2026", time: "10:42", notes: "הורדת שמרים",
@@ -238,10 +248,11 @@ test("confirmed Sheet rows reconcile to Firestore before cleanup", () => {
     },
   }] };
   context.sheetSyncReconcileMeasurements_(raw, result);
-  assert.equal(commit.writes.length, 1);
-  assert.match(commit.writes[0].update.name, /brews\/1593\/measurements\/2026-10-14$/);
-  assert.equal(commit.writes[0].update.fields.notes.stringValue, "הורדת שמרים");
-  assert.equal(commit.writes[0].update.fields.temp.doubleValue, 4.1);
+  assert.equal(commit.writes.length, 2);
+  assert.equal(commit.writes[0].currentDocument.updateTime, "2026-10-14T10:42:00Z");
+  assert.match(commit.writes[1].update.name, /brews\/1593\/measurements\/2026-10-14$/);
+  assert.equal(commit.writes[1].update.fields.notes.stringValue, "הורדת שמרים");
+  assert.equal(commit.writes[1].update.fields.temp.doubleValue, 4.1);
 });
 
 test("incomplete Sheet confirmation cannot erase a pending recovery job", () => {
@@ -251,4 +262,58 @@ test("incomplete Sheet confirmation cannot erase a pending recovery job", () => 
   assert.throws(() => context.sheetSyncReconcileMeasurements_(raw, {
     success: true, results: [{ success: true, tankId: "10" }],
   }), /missing confirmed tank row/);
+});
+
+test("delayed outbox response never overwrites a newer tank report", () => {
+  const context = createRuntime();
+  const oldJob = job({ requestId: "old-request" });
+  oldJob.fields.readingsJson = { stringValue: JSON.stringify([{ tankId: "10", batchNumber: "1593" }]) };
+  context.sheetSyncGetFermentor_ = () => ({
+    name: "projects/test/databases/(default)/documents/fermentors/10",
+    updateTime: "2026-10-14T10:42:00Z",
+    fields: {
+      batchNumber: { stringValue: "1593" },
+      latestSheetSyncRequestId: { stringValue: "new-request" },
+    },
+  });
+  let committed = false;
+  context.sheetSyncFetch_ = () => { committed = true; throw Error("must not commit"); };
+  context.sheetSyncReconcileMeasurements_(oldJob, {
+    results: [{ tankId: "10", success: true,
+      result: { date: "14/10/2026", time: "08:00", notes: "old note" } }],
+  });
+  assert.equal(committed, false);
+});
+
+test("partial Sheet response retries only the failed tank, never the successful action", () => {
+  const context = createRuntime();
+  const successful = { tankId: "10", success: true, result: { date: "14/10/2026", time: "08:00" } };
+  const failed = { tankId: "11", success: false, error: "temporary" };
+  const recovered = { tankId: "11", success: true, result: { date: "14/10/2026", time: "08:01" } };
+  const mocks = installProcessMocks(context, {
+    existing: { state: "done", response: { success: true, results: [successful, failed] } },
+    readings: [{ tankId: "10", notes: "הורדת שמרים" }, { tankId: "11", notes: "הורדת שמרים" }],
+    runResult: { success: true, results: [recovered] },
+  });
+  const stats = context.processPendingSheetSyncJobs_();
+  assert.deepEqual(plain(stats), { found: 1, completed: 1, failed: 0, deferred: 0 });
+  assert.equal(mocks.runCalls.length, 1);
+  assert.equal(mocks.runCalls[0].readings.length, 1);
+  assert.equal(mocks.runCalls[0].readings[0].tankId, "11");
+  assert.equal(mocks.runCalls[0].requestId, "req-1-recover-11");
+  assert.equal(mocks.savedResults.length, 1);
+  assert.deepEqual(plain(mocks.savedResults[0][3].results), [successful, recovered]);
+  assert.equal(mocks.reconciled.length, 1);
+  assert.deepEqual(mocks.deleted, ["job-1"]);
+});
+
+test("initial partial write remains pending for safe per-tank recovery", () => {
+  const context = createRuntime();
+  const mocks = installProcessMocks(context, {
+    runResult: { success: true, results: [{ tankId: "10", success: false, error: "temporary" }] },
+  });
+  const stats = context.processPendingSheetSyncJobs_();
+  assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 0, deferred: 1 });
+  assert.equal(mocks.marked[0].state, "pending");
+  assert.equal(mocks.deleted.length, 0);
 });

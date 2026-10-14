@@ -105,7 +105,8 @@ async function persistFirestoreState(
 
 async function reconcileConfirmedSheetResults(
     readings: ReadingToSend[],
-    results: writeReadingResult[]
+    results: writeReadingResult[],
+    requestId: string
 ): Promise<void> {
     const confirmed = results
         .filter((result) => result.success && result.result)
@@ -122,7 +123,7 @@ async function reconcileConfirmedSheetResults(
     if (confirmed.length !== readings.length) {
         throw new Error("Sheet confirmed without a complete authoritative measurement result");
     }
-    await pushCurrentDataToFirestore(confirmed);
+    await pushCurrentDataToFirestore(confirmed, { confirmedSheetRequestId: requestId });
 }
 
 async function syncPackagingInfoInParallel(readings: ReadingToSend[]): Promise<void> {
@@ -218,7 +219,7 @@ export async function writeReadingsToSheets(
                 // Never acknowledge the recovery job until authoritative
                 // Firestore history has actually been committed.
                 try {
-                    await reconcileConfirmedSheetResults(readings, results);
+                    await reconcileConfirmedSheetResults(readings, results, requestId);
                 } catch (error) {
                     reportSheetSyncDiagnostic(requestId, "post-confirmation-reconcile", error);
                     console.error("Sheet write confirmed but Firestore reconciliation failed:", error);

@@ -85,3 +85,14 @@ test("legacy three-digit measurement times are recognized and sorted chronologic
   assert.equal(rows.length, 1);
   assert.equal(rows[0].id, "2026-08-28_1010");
 });
+
+test("canonical daily measurement merges later actions without duplicate rows", () => {
+  const rows = mergeOptimisticMeasurementIntoHistory([
+    { id: "2026-10-15", time: "08:30", temp: 2.1, pressure: 1.2, notes: "בדיקת גיזוז" },
+  ], { id: "2026-10-15_1230", pressure: 1.3, notes: "העלאת לחץ" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "2026-10-15");
+  assert.equal(rows[0].temp, 2.1);
+  assert.equal(rows[0].pressure, 1.3);
+  assert.equal(rows[0].notes, "בדיקת גיזוז | העלאת לחץ");
+});

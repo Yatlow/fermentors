@@ -25,6 +25,29 @@ function loadAppsScript(path, extra = {}) {
   return context;
 }
 
+// A maintenance cycle may briefly own the global ScriptLock. Reporting must
+// wait for it instead of treating a 1.5s busy lock as a Sheet sync failure.
+{
+  const properties = new Map();
+  const locked = [];
+  const post = loadAppsScript("server/post.js", {
+    LockService: {
+      getScriptLock: () => ({
+        waitLock(milliseconds) { locked.push(milliseconds); },
+        releaseLock() { locked.push("released"); },
+      }),
+    },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: (name) => properties.get(name) ?? null,
+      setProperty: (name, value) => properties.set(name, value),
+      deleteProperty: (name) => properties.delete(name),
+    }) },
+  });
+  const claim = post.postClaimIdempotencyRequest_("addFermentationMeasurements", "lock-test");
+  assert.equal(claim.state, "claimed");
+  assert.deepEqual(locked, [20000, "released"], "outbox reports must tolerate maintenance lock contention");
+}
+
 const measurementIdentity = loadAppsScript("server/batchDataExtractionService.js");
 {
   const date = new Date(2026, 9, 6);
@@ -80,6 +103,11 @@ const outboxReconcile = loadAppsScript("server/sheetSyncOutbox.js", {
   outboxReconcile.sheetSyncField_ = (job, name) => job.fields[name];
   outboxReconcile.sheetSyncDocumentsUrl_ = () => "mock://firestore";
   outboxReconcile.sheetSyncProjectId_ = () => "test-project";
+  outboxReconcile.sheetSyncGetFermentor_ = () => ({
+    name: "projects/test-project/databases/(default)/documents/fermentors/4",
+    updateTime: "2026-10-06T07:30:00Z",
+    fields: { batchNumber: "1600" },
+  });
   outboxReconcile.sheetSyncFetch_ = (_url, options) => {
     submitted = JSON.parse(options.payload);
     return { getResponseCode: () => 200 };
@@ -93,8 +121,9 @@ const outboxReconcile = loadAppsScript("server/sheetSyncOutbox.js", {
     tankId: "4", success: true,
     result: { date: "06/10/2026", time: "07:33", temperature: "12.3", notes: "test" },
   }] });
-  assert.equal(submitted.writes.length, 1);
-  assert.ok(submitted.writes[0].update.name.endsWith("/brews/1600/measurements/2026-10-06"),
+  assert.equal(submitted.writes.length, 2);
+  assert.equal(submitted.writes[0].currentDocument.updateTime, "2026-10-06T07:30:00Z");
+  assert.ok(submitted.writes[1].update.name.endsWith("/brews/1600/measurements/2026-10-06"),
     "outbox must upsert the same daily document, not a timestamped document");
 }
 

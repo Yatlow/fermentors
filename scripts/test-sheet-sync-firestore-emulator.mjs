@@ -42,6 +42,17 @@ test("recovery writes real Firestore emulator history before removing job, and i
   await request(jobPath, "PATCH", { fields });
   let job = await request(jobPath);
   assert.equal(job.status, 200, JSON.stringify(job.body));
+  // The outbox now reads and verifies the owning tank version before
+  // reconciling a Sheet row. Seed the real emulator tank and return its REST
+  // document to the otherwise synchronous Apps Script mock.
+  const tankPath = "/fermentors/10";
+  await request(tankPath, "PATCH", { fields: {
+    batchNumber: { stringValue: "1593" },
+    latestSheetSyncRequestId: { stringValue: "recovery-test-1" },
+  } });
+  const tankSnapshot = await request(tankPath);
+  assert.equal(tankSnapshot.status, 200);
+  ctx.sheetSyncGetFermentor_ = () => tankSnapshot.body;
   // Exercise actual Apps Script Firestore REST payload, not a mocked commit.
   let writes;
   ctx.sheetSyncFetch_ = (url, options) => {
@@ -49,7 +60,8 @@ test("recovery writes real Firestore emulator history before removing job, and i
     return response(200, {});
   };
   ctx.sheetSyncReconcileMeasurements_(job.body, confirmed);
-  assert.equal(writes.writes.length, 1);
+  assert.equal(writes.writes.length, 2);
+  assert.equal(writes.writes[0].currentDocument.updateTime, tankSnapshot.body.updateTime);
   const first = await request(":commit", "POST", writes);
   assert.equal(first.status, 200, JSON.stringify(first.body));
   const stored = await request(historyPath);
@@ -61,6 +73,13 @@ test("recovery writes real Firestore emulator history before removing job, and i
   assert.equal(replay.status, 200);
   const storedAgain = await request(historyPath);
   assert.equal(storedAgain.body.fields.notes.stringValue, "הורדת שמרים");
+  // A newer report must invalidate any old commit we prepared earlier.
+  await request(tankPath, "PATCH", { fields: {
+    batchNumber: { stringValue: "1593" },
+    latestSheetSyncRequestId: { stringValue: "newer-request" },
+  } });
+  const stale = await request(":commit", "POST", writes);
+  assert.notEqual(stale.status, 200, "atomic tank version verification must reject stale Sheet results");
   // Only delete the job after the successful real emulator commits.
   const deletion = await request(jobPath, "DELETE");
   assert.equal(deletion.status, 200);
