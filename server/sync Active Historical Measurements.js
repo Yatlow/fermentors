@@ -14,7 +14,7 @@
 const HISTORICAL_SYNC_REVISION_PREFIX = "historical_measurements_hash_v2:";
 
 function historicalMeasurementDayFromId_(id) {
-  const match = String(id || "").match(/^(\\d{4}-\\d{2}-\\d{2})(?:_\\d{3,4})?$/);
+  const match = String(id || "").match(/^(\d{4}-\d{2}-\d{2})(?:_\d{3,4})?$/);
   return match ? match[1] : null;
 }
 
