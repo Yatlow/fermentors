@@ -179,7 +179,9 @@ async function reconcileConfirmedSheetResults(
         })
         .filter((reading): reading is ReadingToSend & { sheetResult: unknown } => Boolean(reading));
 
-    if (confirmed.length === 0) return;
+    if (confirmed.length !== readings.length) {
+        throw new Error("Sheet confirmed without a complete authoritative measurement result");
+    }
     await pushCurrentDataToFirestore(confirmed);
 }
 
