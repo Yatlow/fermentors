@@ -188,6 +188,18 @@ export async function callAppsScriptPost<T>(
                 throw new Error("Unauthorized");
             }
 
+            // A busy global ScriptLock means the mutation was not claimed yet.
+            // Treat this response as transient, retrying the SAME requestId.
+            if (envelope.success === false &&
+                /POST idempotency lock busy/i.test(String(envelope.error || envelope.message || "")) &&
+                attempt < retries) {
+                console.warn("Apps Script idempotency lock contention; retrying", {
+                    action, requestId, attempt: attempt + 1,
+                });
+                await sleep(Math.max(retryDelayMs, 750));
+                continue;
+            }
+
             if (attempt > 0) {
                 console.info("Apps Script request confirmed by idempotent retry", {
                     action,
