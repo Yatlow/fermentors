@@ -414,10 +414,30 @@ export function validateProduction(
     // Still reject plans that exceed available liters, and retain the strict
     // residual-volume rule for every future canonical cycle.
     const physicalBatchIdentity = normalizedBatch(r.batchNumber || linkedBrew?.batchNumber);
-    const currentPhysicalBatch = !!t &&
-      physicalBatchIdentity !== "" &&
+    const sameDeclaredPhysicalBatch = !!t && physicalBatchIdentity !== "" &&
       normalizedBatch(t.batch) === physicalBatchIdentity &&
-      (!linkedBrew || normalizedBatch(linkedBrew.batchNumber) === physicalBatchIdentity);
+      (!linkedBrew || !normalizedBatch(linkedBrew.batchNumber) ||
+        normalizedBatch(linkedBrew.batchNumber) === physicalBatchIdentity);
+    // Historical current-cycle decisions sometimes lack a batch snapshot.
+    // The physical brew date is a safe fallback only if no declared batch
+    // conflicts, and never for a packaging row dated after a later brew.
+    const noConflictingBatch = !!t &&
+      (!normalizedBatch(r.batchNumber) || normalizedBatch(r.batchNumber) === normalizedBatch(t.batch)) &&
+      (!linkedBrew || !normalizedBatch(linkedBrew.batchNumber) ||
+        normalizedBatch(linkedBrew.batchNumber) === normalizedBatch(t.batch));
+    const matchingPhysicalDate = !!linkedBrew && !!t &&
+      linkedBrew.date === t.brewed &&
+      sameStyle(linkedBrew.style, t.style);
+    const nextBrewAlreadyStarted = plans.some((week) => (week.brews ?? []).some((brew) =>
+      brew.tankId === tankId && brew.date > (t?.brewed ?? "") &&
+      brew.date <= r.date! &&
+      (!linkedBrew || brew.id !== linkedBrew.id)));
+    const inferredPhysicalLegacy = !linkedBrew && !!t && !String(t.id).startsWith("planned:") &&
+      !!t.brewed && r.date! >= t.brewed &&
+      !!runStyle && sameStyle(runStyle, t.style);
+    const currentPhysicalBatch = noConflictingBatch &&
+      (sameDeclaredPhysicalBatch || matchingPhysicalDate || inferredPhysicalLegacy) &&
+      !nextBrewAlreadyStarted;
     if (r.emptyTank && !currentPhysicalBatch && cycleLiters - used.get(cycleKey)! >= 20)
       return `מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
   }
