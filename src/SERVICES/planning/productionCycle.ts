@@ -359,7 +359,9 @@ export function validateProduction(
       ? Math.max(21, ...settings.products.filter((product) => sameStyle(product.style, linkedBrew.style)).map((product) => product.leadDays))
       : 0;
     const readyDate = projectedCycle?.readyDate
-      ?? (linkedBrew ? addDays(linkedBrew.date, fallbackLeadDays) : t?.ready ?? "");
+      ?? (linkedBrew ? addDays(linkedBrew.date, fallbackLeadDays) : (
+        belongsToPhysicalBatch && physicalTank ? physicalTank.ready : t?.ready ?? ""
+      ));
     const tankLabel = t?.number ?? linkedBrew?.tankId ?? tankId;
     if (readyDate && r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
       return `מיכל ${tankLabel}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;
