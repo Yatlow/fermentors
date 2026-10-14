@@ -1,4 +1,6 @@
-import { addDays, type Settings, type Tank, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { addDays, weekStart, type Actual, type Settings, type Tank, type WeekPlan } from "../../SERVICES/planning/planningEngine";
+import { actualDate, actualUnits, matchesActual } from "../../SERVICES/planning/dailyPlanner";
+import { pendingPackagingDecisions, type PackagingSource } from "../../SERVICES/planning/packagingActuals";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
 
@@ -9,6 +11,7 @@ type GanttItem = {
   style: string;
   type: string;
   quantity: number;
+  actual?: boolean;
 };
 
 const names = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳"];
@@ -17,6 +20,8 @@ export default function PlanningWeekGantt({
   settings,
   plans,
   tanks,
+  actuals,
+  sources,
   week,
   onAssignPackagingToDate,
   onReturnPackagingToWaiting,
@@ -26,6 +31,8 @@ export default function PlanningWeekGantt({
   settings: Settings;
   plans: WeekPlan[];
   tanks: Tank[];
+  actuals: Actual[];
+  sources: PackagingSource[];
   week: string;
   onAssignPackagingToDate?: (date: string) => void;
   onReturnPackagingToWaiting?: () => void;
@@ -57,9 +64,28 @@ export default function PlanningWeekGantt({
     };
   };
 
-  const undated = (current?.packaging ?? []).filter((x) => !x.date && x.quantity > 0).map(itemFor);
+  const pending = current ? pendingPackagingDecisions(current, settings.products, actuals, sources) : [];
+  const undated = pending.filter((x) => !x.date).map(itemFor);
+  const executed = actuals.flatMap((actual) => {
+    const date = actualDate(actual);
+    if (!date || weekStart(date) !== week || Number(actual.quantity) <= 0) return [];
+    const product = settings.products.find((item) => matchesActual(item, actual));
+    const type = product?.type ?? (actual.packagingType === "bottles" ? "crates" : "kegs");
+    return [{
+      date,
+      item: {
+        text: "בוצע בפועל",
+        tank: String(actual.tankNumber ?? "?"),
+        style: displayStyle(product?.style ?? actual.beerStyle ?? ""),
+        type: type === "crates" ? "ארגזים" : "חביות",
+        quantity: Math.round(product ? actualUnits(product, actual) : Number(actual.quantity)),
+        actual: true,
+      } as GanttItem,
+    }];
+  });
   const cells = dates.map((date) => ({
-    saved: (current?.packaging ?? []).filter((x) => x.date === date).map(itemFor),
+    saved: pending.filter((x) => x.date === date).map(itemFor),
+    actual: executed.filter((entry) => entry.date === date).map((entry) => entry.item),
   }));
 
   function clickDay(date: string) {
@@ -67,7 +93,12 @@ export default function PlanningWeekGantt({
     onAssignPackagingToDate(date);
   }
 
-  const card = (item: GanttItem, compact = false) => item.id ? (
+  const card = (item: GanttItem, compact = false) => item.actual ? (
+    <span className={`bp-packaging-card is-actual ${compact ? "is-compact" : ""}`} aria-label={`בוצע בפועל: ${item.style}, מיכל ${item.tank}, ${item.quantity} ${item.type}`}>
+      <b>מיכל {item.tank}</b><span>{item.style}</span>
+      <small>{item.type} · {item.quantity} · בוצע בפועל</small>
+    </span>
+  ) : item.id ? (
     <span
       role="button"
       tabIndex={0}
@@ -96,7 +127,7 @@ export default function PlanningWeekGantt({
     <section className="bp-gantt-section">
       <div className="bp-section-heading"><div>
         <h3>שיבוץ אריזות לימים</h3>
-        <p className="bp-muted">בחר אריזה מאזור ההמתנה ואז לחץ על יום. אפשר לשבץ כמה אריזות לאותו יום, ולבחור שתי אריזות שכבר שובצו כדי להחליף ביניהן ימים.</p>
+        <p className="bp-muted">ביצועים שכבר דווחו מוצגים ביום הביצוע ואינם ניתנים להזזה. בחר אריזה שנותרה לביצוע כדי לשבץ או להחליף יום.</p>
       </div></div>
 
       <div
@@ -133,9 +164,10 @@ export default function PlanningWeekGantt({
         {cells.map((cell, i) => (
           <button type="button" className={`bp-gantt-cell bp-gantt-cell-button ${selectedPackagingId ? "is-drop-target" : ""}`} key={dates[i]} onClick={() => clickDay(dates[i])}>
             <div className="bp-gantt-packaging-cards">
+              {cell.actual.map((item, j) => <span key={`actual:${dates[i]}:${j}`}>{card(item, true)}</span>)}
               {cell.saved.map((item, j) => <span key={item.id ?? `${dates[i]}:${j}`}>{card(item, true)}</span>)}
             </div>
-            {!cell.saved.length && <span className="bp-gantt-empty">+</span>}
+            {!cell.saved.length && !cell.actual.length && <span className="bp-gantt-empty">+</span>}
           </button>
         ))}
       </div>
