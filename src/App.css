@@ -7149,16 +7149,16 @@ b {
 /* Logo visual size: avoid small intrinsic artwork and inherited max-size constraints. */
 @media (max-width: 600px) {
   .dashboard-header .headerBox .header-brand > img.header-logo {
-    width: 140px !important;
-    height: 140px !important;
-    min-width: 140px !important;
-    min-height: 140px !important;
-    max-width: none !important;
-    max-height: none !important;
-    flex: none !important;
+    width: 100px !important;
+    height: 100px !important;
+    min-width: 100px !important;
+    min-height: 100px !important;
+    max-width: 100px !important;
+    max-height: 100px !important;
+    flex: 0 0 100px !important;
     align-self: center !important;
-    object-fit: cover !important;
+    object-fit: contain !important;
     object-position: center !important;
-    margin: -12px auto -12px !important;
+    margin: 10px auto 16px !important;
   }
 }
