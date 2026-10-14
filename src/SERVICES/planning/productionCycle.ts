@@ -289,7 +289,16 @@ export function validateProduction(
     const explicitBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);
     const product = settings.products.find((candidate) => candidate.id === r.productId);
     const runStyle = r.nonInventoryStyle ?? product?.style;
-    const inferredBrew = !explicitBrewId && r.tankId && r.date && runStyle
+    // A packaging decision for the batch physically in the tank must not
+    // inherit a future planned brew merely because it shares tank and style.
+    const physicalTank = tanks.find((tank) =>
+      tank.id === r.tankId ||
+      (!!r.tankNumber && String(tank.number) === String(r.tankNumber))
+    );
+    const belongsToPhysicalBatch = !!physicalTank &&
+      !!r.batchNumber &&
+      normalizedBatch(r.batchNumber) === normalizedBatch(physicalTank.batch);
+    const inferredBrew = !explicitBrewId && !belongsToPhysicalBatch && r.tankId && r.date && runStyle
       ? plans
           .flatMap((week) => week.brews ?? [])
           .filter((brew) =>
