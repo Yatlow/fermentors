@@ -238,7 +238,16 @@ export default function PlanningBoard({
         if (!style) return run;
         const candidates = allForMatch
           .flatMap((week) => week.brews ?? [])
-          .filter((brew) => brew.tankId === run.tankId && brew.date <= runDate && sameStyle(brew.style, style))
+          .filter((brew) =>
+            brew.tankId === run.tankId &&
+            brew.date <= runDate &&
+            sameStyle(brew.style, style) &&
+            // An existing batch snapshot must never be overwritten by a
+            // different cycle merely because tank/style/date happen to match.
+            (!run.batchNumber ||
+              (brew.batchNumber &&
+                String(brew.batchNumber).replace("#", "").trim() ===
+                  String(run.batchNumber).replace("#", "").trim())))
           .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
         const brew = candidates.at(-1);
         if (!brew) return run;
