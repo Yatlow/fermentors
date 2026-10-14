@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { tankReleases, validateProduction } from "../src/SERVICES/planning/productionCycle";
+import { tankReleases, validateProduction, validateBrewReleases } from "../src/SERVICES/planning/productionCycle";
 import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
 import { mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
@@ -102,4 +102,29 @@ test("legacy packaging tank number resolves to physical document id", () => {
  const tank = { id: "fermentor-15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2000, cold: true };
  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
  assert.equal(validateProduction([plan], settings, [tank], [], "2026-10-14"), null);
+});
+
+test("next-week brew is allowed when current batch empties via numeric legacy tank id", () => {
+  const plan = week();
+  plan.packaging = [
+    { id: "finish-15", productId: "pils-crates", quantity: 252, tankId: "15", tankNumber: "15", batchNumber: "1600", date: "2026-10-14", emptyTank: true },
+  ];
+  plan.brews = [{ id: "future-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000 }];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2000, cold: true };
+  const source = { id: "tank15", tankNumber: "15", batchNumber: "1600", brewDate: "01/09/2026", beerStyle: "Pils", action: 1 };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  const release = tankReleases([source], [tank], [plan], settings, [], "2026-10-14")[0];
+  assert.equal(release.emptyDate, "2026-10-14");
+  assert.equal(release.date, "2026-10-19");
+  assert.equal(validateBrewReleases([source], [tank], [plan], settings, [], "2026-10-14"), null);
+});
+
+test("next-week brew stays blocked if current batch has no planned emptying", () => {
+  const plan = week();
+  plan.brews = [{ id: "future-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000 }];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2000, cold: true };
+  const source = { id: "tank15", tankNumber: "15", batchNumber: "1600", brewDate: "01/09/2026", beerStyle: "Pils", action: 1 };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(tankReleases([source], [tank], [plan], settings, [], "2026-10-14")[0].date, null);
+  assert.match(validateBrewReleases([source], [tank], [plan], settings, [], "2026-10-14") ?? "", /תוכנית הריקון/);
 });
