@@ -296,6 +296,61 @@ function sheetSyncReconcileMeasurements_(jobDocument, response) {
   }
 }
 
+/**
+ * A batch may have written some tanks successfully before another failed.
+ * Repeating the original batch would duplicate successful cellar notes.
+ * Recover ONLY the unsuccessful tanks, with a stable per-tank idempotency key.
+ * Persist the combined response under the original requestId before trying
+ * Firestore reconciliation, so losing that later response remains safe.
+ */
+function sheetSyncRecoverPartial_(jobDocument, response, action, requestId) {
+  if (action !== "addFermentationMeasurements" ||
+      !response || !Array.isArray(response.results)) {
+    const unsafe = new Error("Cannot safely retry an ambiguous partial Sheet write");
+    unsafe.sheetSyncTerminal = true;
+    throw unsafe;
+  }
+  const original = sheetSyncSanitizedReadings_(jobDocument);
+  const results = response.results;
+  if (results.length !== original.length) {
+    const ambiguous = new Error("Partial Sheet write has mismatched tank count");
+    ambiguous.sheetSyncTerminal = true;
+    throw ambiguous;
+  }
+  const merged = results.slice();
+  original.forEach(function (reading, index) {
+    const old = merged[index];
+    if (!old || String(old.tankId) !== String(reading.tankId)) {
+      const mismatch = new Error("Cannot safely match partial Sheet results to tanks");
+      mismatch.sheetSyncTerminal = true;
+      throw mismatch;
+    }
+    if (old.success === true && old.result) return;
+    if (old.success === true && !old.result) {
+      const unconfirmed = new Error("Sheet success without row payload: manual reconciliation required");
+      unconfirmed.sheetSyncTerminal = true;
+      throw unconfirmed;
+    }
+    const recoveryId = requestId + "-recover-" + String(reading.tankId);
+    const recovered = runPostActionIdempotently_({
+      action: action,
+      requestId: recoveryId,
+      readings: [reading]
+    });
+    const single = recovered && recovered.results && recovered.results[0];
+    if (!sheetSyncResponseSucceeded_(recovered) || !single ||
+        String(single.tankId) !== String(reading.tankId) || !single.result) {
+      const unresolved = new Error("Recovery Sheet write was not confirmed for tank " + reading.tankId);
+      unresolved.sheetSyncTerminal = true;
+      throw unresolved;
+    }
+    merged[index] = single;
+  });
+  const combined = { success: true, action: action, requestId: requestId, results: merged };
+  postSaveIdempotencyResult_(postIdempotencyKey_(action, requestId), action, requestId, combined);
+  return combined;
+}
+
 function sheetSyncDeleteJob_(jobId) {
   const response = sheetSyncFetch_(
     sheetSyncDocumentsUrl_("/sheetSyncJobs/" + encodeURIComponent(jobId)),
@@ -361,14 +416,12 @@ function processPendingSheetSyncJobs_() {
       const existing = postReadIdempotencyRecord_(key);
 
       if (existing && existing.state === "done" && existing.response) {
-        if (sheetSyncResponseSucceeded_(existing.response)) {
-          sheetSyncReconcileMeasurements_(jobDocument, existing.response);
-          sheetSyncDeleteJob_(jobId);
-          stats.completed++;
-        } else {
-          sheetSyncMarkJob_(jobId, "failed", attempts + 1, "Previous Sheet attempt returned a partial failure");
-          stats.failed++;
-        }
+        const confirmed = sheetSyncResponseSucceeded_(existing.response)
+          ? existing.response
+          : sheetSyncRecoverPartial_(jobDocument, existing.response, action, requestId);
+        sheetSyncReconcileMeasurements_(jobDocument, confirmed);
+        sheetSyncDeleteJob_(jobId);
+        stats.completed++;
         return;
       }
 
@@ -392,8 +445,13 @@ function processPendingSheetSyncJobs_() {
       const result = runPostActionIdempotently_(payload);
 
       if (!sheetSyncResponseSucceeded_(result)) {
-        sheetSyncMarkJob_(jobId, "failed", attempts + 1, "Sheet write returned a partial failure");
-        stats.failed++;
+        // The original requestId now contains the authoritative partial
+        // result. The next worker cycle retries ONLY its failed tank(s).
+        const nextAttempts = attempts + 1;
+        const state = nextAttempts >= SHEET_SYNC_MAX_ATTEMPTS ? "failed" : "pending";
+        sheetSyncMarkJob_(jobId, state, nextAttempts, "Sheet write returned a partial failure");
+        if (state === "failed") stats.failed++;
+        else stats.deferred++;
         return;
       }
 
