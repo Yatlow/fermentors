@@ -303,6 +303,43 @@ function maybeRebuildStyleAveragesAfterDailyMigration_() {
   return result;
 }
 
+// Force a second, one-time model rebuild after historical newest-wins correction.
+function maybeRebuildAveragesAfterNewestWinsCorrection_() {
+  const prefix = "daily_measurement_newest_correction_20261014_";
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(prefix + "done") === "1") {
+    return maybeRebuildStyleAveragesAfterDailyMigration_();
+  }
+  const now = Date.now();
+  const lastCheck = Number(props.getProperty(prefix + "lastCheck") || 0);
+  if (lastCheck && now - lastCheck < 10 * 60 * 1000) {
+    return maybeRebuildStyleAveragesAfterDailyMigration_();
+  }
+  props.setProperty(prefix + "lastCheck", String(now));
+  const markerUrl = "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID + "/databases/(default)/documents/maintenanceRequests/newest-wins-correction-2026-10-14";
+  const marker = getFirestoreDocument(markerUrl);
+  if (!marker || !marker.fields || !marker.fields.status ||
+      marker.fields.status.stringValue !== "ready_for_averages") {
+    return maybeRebuildStyleAveragesAfterDailyMigration_();
+  }
+  const lastAttempt = Number(props.getProperty(prefix + "attempt") || 0);
+  if (lastAttempt && now - lastAttempt < 24 * 60 * 60 * 1000) {
+    return maybeRebuildStyleAveragesAfterDailyMigration_();
+  }
+  props.setProperty(prefix + "attempt", String(now));
+  const result = calculateWeeklyStyleAverages(true);
+  if (!result || result.skipped) throw new Error("Newest-wins style average rebuild failed");
+  setFirestoreDocument(FIREBASE_PROJECT_ID,
+    "maintenanceRequests/newest-wins-correction-2026-10-14", {
+      status: "completed",
+      stylesUpdated: result.stylesUpdated,
+      completedAt: new Date().toISOString()
+    });
+  props.setProperty(prefix + "done", "1");
+  return result;
+}
+
 function runAsyncMaintenance_() {
   // Self-migrate after deploy. The existing v3 trigger will execute this new
   // code once, remove the old standalone runFermentorCycle trigger, and leave
@@ -398,7 +435,7 @@ function runAsyncMaintenance_() {
   }
 
   try {
-    styleModels = maybeRebuildStyleAveragesAfterDailyMigration_();
+    styleModels = maybeRebuildAveragesAfterNewestWinsCorrection_();
   } catch (error) {
     console.log("Weekly style averages maintenance failed: " + error.message);
   }
