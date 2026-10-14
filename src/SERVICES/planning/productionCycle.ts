@@ -118,6 +118,24 @@ export function tankReleases(
     .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })))
     .filter((run) => !resolvePackagingBrewId(run as PackagingPlan, plans));
   const legacyRuns = [...legacyInventoryRuns, ...legacySpecialRuns];
+  // Legacy decisions sometimes store a physical tank number instead of its
+  // Firestore document id. Only accept an unambiguous number match.
+  const physicalRunTank = (run: PackagingPlan): string | undefined => {
+    const linkedId = resolvePackagingBrewId(run, plans);
+    if (linkedId) return brewById(plans, linkedId)?.tankId;
+    const recorded = run.tankId;
+    if (recorded && sources.some((source) => source.id === recorded)) return recorded;
+    const number = run.tankNumber ?? recorded;
+    if (number == null) return undefined;
+    const matches = sources.filter((source) =>
+      source.tankNumber != null && String(source.tankNumber) === String(number));
+    return matches.length === 1 ? matches[0].id : undefined;
+  };
+  const belongsToCurrentBatch = (run: PackagingPlan, source: TankSource) =>
+    physicalRunTank(run) === source.id &&
+    normalizedBatch(source.batchNumber) !== "" &&
+    normalizedBatch(run.batchNumber) === normalizedBatch(source.batchNumber);
+
 
   return sources.map((source) => {
     // Release capacity describes what the physical tank can host on its NEXT
@@ -183,8 +201,7 @@ export function tankReleases(
         let legacyRemaining = tank.liters;
         for (const r of legacyRuns
           .filter((run) =>
-            canonicalRunTank(run as PackagingPlan, plans) === source.id &&
-            normalizedBatch((run as PackagingPlan).batchNumber) === sourceBatch)
+            belongsToCurrentBatch(run as PackagingPlan, source))
           .sort((a, b) => a.date!.localeCompare(b.date!))) {
           const p = settings.products.find((product) => product.id === r.productId);
           const runStyle = r.nonInventoryStyle ?? p?.style;
@@ -217,7 +234,8 @@ export function tankReleases(
     let remaining = tank.liters;
     let emptyDate: string | null = null;
     for (const r of legacyRuns
-      .filter((r) => canonicalRunTank(r as PackagingPlan, plans) === source.id)
+      .filter((r) => physicalRunTank(r as PackagingPlan) === source.id &&
+        (!sourceBatch || belongsToCurrentBatch(r as PackagingPlan, source)))
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
       const p = settings.products.find((p) => p.id === r.productId);
       const runStyle = r.nonInventoryStyle ?? p?.style;
