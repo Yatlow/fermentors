@@ -289,6 +289,15 @@ function maybeRebuildStyleAveragesAfterDailyMigration_() {
   if (!result || result.skipped) {
     throw new Error("Forced style-average rebuild was not confirmed");
   }
+  // Durable proof for independent GitHub verification, after ALL styles were updated.
+  setFirestoreDocument(FIREBASE_PROJECT_ID,
+    "maintenanceRequests/daily-measurements-2026-10-14", {
+      status: "averages_rebuilt",
+      batchCount: 20,
+      migrationCompletedAt: marker.fields.completedAt && marker.fields.completedAt.stringValue || "",
+      rebuildCompletedAt: new Date().toISOString(),
+      stylesUpdated: result.stylesUpdated
+    });
   properties.setProperty(prefix + "averagesDone", "1");
   Logger.log("DAILY MEASUREMENT MIGRATION style averages rebuilt: " + result.stylesUpdated);
   return result;
