@@ -26,6 +26,7 @@ import {
 } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
 import { resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/planning/planIdentity";
+import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
 import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
@@ -197,7 +198,7 @@ export default function PlanningBoard({
     }
     return productLabel(run.productId);
   };
-  const packagingSummary = current.packaging.map((run) =>
+  const packagingSummary = pendingPackagingDecisions(current, settings.products, actuals, brews).map((run) =>
     `${packagingLabel(run)} · ${Math.round(run.quantity)} · מיכל ${tanks.find((tank) => tank.id === run.tankId)?.number ?? run.tankNumber ?? "?"}${run.date ? ` · ${shortDate(run.date)}` : " · טרם שובץ ליום"}`,
   );
 
@@ -223,6 +224,14 @@ export default function PlanningBoard({
         const saved = current.packaging.find((item) => item.id === run.id);
         const wasEdited = JSON.stringify(saved ?? null) !== JSON.stringify(run);
         if (!wasEdited || resolvePackagingBrewId(run as PackagingPlan, allForMatch)) return run;
+        // Existing physical packaging must never be reidentified as the next
+        // brew on the same tank, even if the style matches.
+        const physical = tanks.find((tank) =>
+          !!run.batchNumber &&
+          String(tank.batch ?? "").replace("#", "").trim() === String(run.batchNumber).replace("#", "").trim() &&
+          (tank.id === run.tankId || String(tank.number) === String(run.tankNumber ?? run.tankId))
+        );
+        if (physical) return run;
         if (!run.tankId || !run.date) return run;
         const runDate = run.date;
         const product = settings.products.find((item) => item.id === run.productId);
@@ -230,7 +239,16 @@ export default function PlanningBoard({
         if (!style) return run;
         const candidates = allForMatch
           .flatMap((week) => week.brews ?? [])
-          .filter((brew) => brew.tankId === run.tankId && brew.date <= runDate && sameStyle(brew.style, style))
+          .filter((brew) =>
+            brew.tankId === run.tankId &&
+            brew.date <= runDate &&
+            sameStyle(brew.style, style) &&
+            // An existing batch snapshot must never be overwritten by a
+            // different cycle merely because tank/style/date happen to match.
+            (!run.batchNumber ||
+              (brew.batchNumber &&
+                String(brew.batchNumber).replace("#", "").trim() ===
+                  String(run.batchNumber).replace("#", "").trim())))
           .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
         const brew = candidates.at(-1);
         if (!brew) return run;
@@ -256,12 +274,23 @@ export default function PlanningBoard({
 
     let provisionalAll = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
     let validationTanks = futureTanks(tanks, provisionalAll, settings);
+    // Never let a projected next brew shadow the physical batch when
+    // validating a packaging decision from the current cycle.
+    const physicalPackagingTank = (run: PackagingPlan): Tank | undefined =>
+      tanks.find((tank) =>
+        !!run.batchNumber &&
+        String(tank.batch ?? "").replace("#", "").trim() === String(run.batchNumber).replace("#", "").trim() &&
+        (tank.id === run.tankId || String(tank.number) === String(run.tankNumber ?? run.tankId))
+      );
+    const packagingReadyDate = (run: PackagingPlan): string | undefined =>
+      physicalPackagingTank(run)?.ready ??
+      validationTanks.find((tank) => tank.id === run.tankId)?.ready;
     effectiveNext = {
       ...effectiveNext,
       packaging: effectiveNext.packaging.map((run) => {
         if (!run.date || !run.tankId || run.earlyPackagingOverride) return run;
-        const tank = validationTanks.find((item) => item.id === run.tankId);
-        if (!tank || run.date >= tank.ready) return run;
+        const ready = packagingReadyDate(run);
+        if (!ready || run.date >= ready) return run;
         const alreadySaved = current.packaging.some((saved) =>
           saved.id === run.id && saved.tankId === run.tankId && saved.date === run.date
         );
@@ -289,11 +318,48 @@ export default function PlanningBoard({
 
     let datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
     validationTanks = futureTanks(tanks, all, settings);
-    let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
+    // Confirming next week's brew assignments does not edit prior weeks'
+    // packaging. Historical rows can reference a now-empty physical tank and
+    // must not be revalidated against a projected future tank with the same
+    // number. Keep validating this week and every future week's packaging;
+    // validateBrewReleases below still checks current-cycle release.
+    const productionScope = (weeks: WeekPlan[]) => {
+      if (confirmBrews && !packagingWasEdited)
+        return weeks.filter((week) => week.id >= effectiveNext.id);
+      if (!packagingWasEdited) return weeks;
+      // Replanning one physical batch must not revalidate an unrelated,
+      // unchanged legacy packaging row against today's (possibly empty) tank.
+      // Preserve all rows for persistence and release projection; only narrow
+      // production validation to edited tanks and canonical future cycles.
+      const before = new Map(current.packaging.map((run) => [run.id, run]));
+      const after = new Map(effectiveNext.packaging.map((run) => [run.id, run]));
+      const changed = [
+        ...current.packaging.filter((run) =>
+          JSON.stringify(run) !== JSON.stringify(after.get(run.id))),
+        ...effectiveNext.packaging.filter((run) =>
+          JSON.stringify(run) !== JSON.stringify(before.get(run.id))),
+      ];
+      const touched = new Set(changed.flatMap((run) =>
+        [run.tankId, run.tankNumber != null ? String(run.tankNumber) : undefined]
+          .filter((value): value is string => !!value)));
+      return weeks.map((week) => ({
+        ...week,
+        packaging: week.packaging.filter((run) => {
+          const linked = resolvePackagingBrewId(run as PackagingPlan, weeks);
+          if (linked) return true;
+          const sameTank = !!run.tankId && touched.has(run.tankId) ||
+            run.tankNumber != null && touched.has(String(run.tankNumber));
+          if (sameTank) return true;
+          // Unrelated rows from other weeks are not being edited either.
+          return false;
+        }),
+      }));
+    };
+    let production = validateProduction(productionScope(datedOnly), settings, validationTanks, actuals, today);
     if (production?.includes("לפני מועד ההבשלה")) {
       if (confirmBrews && !packagingWasEdited) {
         production = validateProduction(
-          datedOnly,
+          productionScope(datedOnly),
           settings,
           validationTanks,
           actuals,
@@ -310,8 +376,8 @@ export default function PlanningBoard({
           ...effectiveNext,
           packaging: effectiveNext.packaging.map((run) => {
             if (!run.date || !run.tankId) return run;
-            const tank = validationTanks.find((item) => item.id === run.tankId);
-            return tank && run.date < tank.ready
+            const ready = packagingReadyDate(run);
+            return ready && run.date < ready
               ? { ...run, earlyPackagingOverride: true }
               : run;
           }),
@@ -319,7 +385,7 @@ export default function PlanningBoard({
         all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
         datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
         validationTanks = futureTanks(tanks, all, settings);
-        production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
+        production = validateProduction(productionScope(datedOnly), settings, validationTanks, actuals, today);
       }
     }
     if (production) throw new Error(production);
@@ -565,7 +631,7 @@ export default function PlanningBoard({
 
       <article className="bp-daily-set is-packaging">
         <h3>אריזות · יומי</h3>
-        <div><b>החלטות השבוע</b>{packagingSummary.length ? packagingSummary.map((item, index) => <span key={index}>{item}</span>) : <small>לא נקבעו אריזות</small>}</div>
+        <div><b>יתרות לשיבוץ וביצוע</b>{packagingSummary.length ? packagingSummary.map((item, index) => <span key={index}>{item}</span>) : <small>אין אריזות פתוחות השבוע</small>}</div>
       </article>
     </div>
 
@@ -573,6 +639,8 @@ export default function PlanningBoard({
       settings={settings}
       plans={plans}
       tanks={tanks}
+      actuals={actuals}
+      sources={brews}
       week={week}
       onAssignPackagingToDate={assignSelectedPackagingToDate}
       onReturnPackagingToWaiting={returnSelectedPackagingToWaiting}

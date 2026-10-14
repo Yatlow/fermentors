@@ -85,7 +85,7 @@ export function brewLitersForSize(style: string, size: BrewSizeLabel): number {
 }
 
 function isReadyForBrew(source: TankSource) {
-  return Number(source.action) === 0 ||
+  return [0, 3, 4, 5].includes(Number(source.action)) ||
     source.stage?.name === "מחכה לבישול" ||
     source.stage?.className === "stage-waiting" ||
     source.tankStatus === true ||
@@ -94,11 +94,6 @@ function isReadyForBrew(source: TankSource) {
 
 function normalizedBatch(value: unknown): string {
   return String(value ?? "").replace("#", "").trim();
-}
-
-function canonicalRunTank(run: PackagingPlan, plans: WeekPlan[]): string | undefined {
-  const brewId = resolvePackagingBrewId(run, plans);
-  return (brewId ? brewById(plans, brewId)?.tankId : undefined) ?? run.tankId;
 }
 
 export function tankReleases(
@@ -118,6 +113,46 @@ export function tankReleases(
     .map((run, index) => ({ ...run, remaining: run.quantity, week: week.id, key: run.id ?? `${week.id}:special:${index}` })))
     .filter((run) => !resolvePackagingBrewId(run as PackagingPlan, plans));
   const legacyRuns = [...legacyInventoryRuns, ...legacySpecialRuns];
+  // A reported, completed final packaging row is excluded from openRuns'
+  // remaining balance. It can nevertheless prove the physical cycle emptied.
+  // Require both the explicit empty marker and actual packaging for the same
+  // tank, batch, type and day; a plan alone never proves past execution.
+  const completedEmptyRuns = plans.flatMap((week) => (week.packaging ?? [])
+    .filter((run) => !!run.emptyTank && !!run.date && run.date <= today &&
+      !resolvePackagingBrewId(run, plans))
+    .filter((run) => {
+      const product = settings.products.find((p) => p.id === run.productId);
+      const style = run.nonInventoryStyle ?? product?.style;
+      const type = run.nonInventoryType ?? product?.type;
+      return !!run.batchNumber && !!run.tankNumber && !!style && !!type &&
+        actuals.some((actual) =>
+          String(actual.tankNumber) === String(run.tankNumber) &&
+          normalizedBatch(actual.batchNumber) === normalizedBatch(run.batchNumber) &&
+          sameStyle(actual.beerStyle ?? "", style) &&
+          actual.packagingType === (type === "crates" ? "bottles" : "kegs") &&
+          actualDate(actual) === run.date &&
+          num(actual.quantity) > 0);
+    })
+    .map((run) => ({ ...run, remaining: 0, week: week.id,
+      key: run.id ?? `${week.id}:completed-empty` })));
+  // Legacy decisions sometimes store a physical tank number instead of its
+  // Firestore document id. Only accept an unambiguous number match.
+  const physicalRunTank = (run: PackagingPlan): string | undefined => {
+    const linkedId = resolvePackagingBrewId(run, plans);
+    if (linkedId) return brewById(plans, linkedId)?.tankId;
+    const recorded = run.tankId;
+    if (recorded && sources.some((source) => source.id === recorded)) return recorded;
+    const number = run.tankNumber ?? recorded;
+    if (number == null) return undefined;
+    const matches = sources.filter((source) =>
+      source.tankNumber != null && String(source.tankNumber) === String(number));
+    return matches.length === 1 ? matches[0].id : undefined;
+  };
+  const belongsToCurrentBatch = (run: PackagingPlan, source: TankSource) =>
+    physicalRunTank(run) === source.id &&
+    normalizedBatch(source.batchNumber) !== "" &&
+    normalizedBatch(run.batchNumber) === normalizedBatch(source.batchNumber);
+
 
   return sources.map((source) => {
     // Release capacity describes what the physical tank can host on its NEXT
@@ -163,10 +198,22 @@ export function tankReleases(
     const cycles = orderedTankSchedule(schedules.get(source.id) ?? []);
     const sourceBatch = normalizedBatch(source.batchNumber);
     const sourceBrewDate = parseDate(source.brewDate) ?? String(source.brewDate ?? "");
-    const canonicalCurrent = [...cycles].reverse().find((cycle) =>
-      (sourceBatch && normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) === sourceBatch) ||
-      (!!sourceBrewDate && cycle.brewDate === sourceBrewDate),
-    );
+    // A matching batch is stronger evidence than a matching brew date.
+    // Do not allow a future cycle with the same date to shadow the physical
+    // batch, or an unrelated future cycle to become the current one.
+    const matchingBatch = sourceBatch
+      ? [...cycles].reverse().find((cycle) =>
+          normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) === sourceBatch)
+      : undefined;
+    // Historical canonical brews may predate assignment of a batch number.
+    // Match their exact brew date only when the cycle has no conflicting batch.
+    const matchingDate = sourceBrewDate
+      ? [...cycles].reverse().find((cycle) =>
+          cycle.brewDate === sourceBrewDate &&
+          (!normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) ||
+            normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) === sourceBatch))
+      : undefined;
+    const canonicalCurrent = matchingBatch ?? matchingDate;
     if (canonicalCurrent) {
       // Current physical cycles can predate canonical brew identity. In that
       // transition case their packaging rows are intentionally legacy rows.
@@ -175,10 +222,9 @@ export function tankReleases(
       let legacyCurrentEmptyDate: string | null = null;
       if (!canonicalCurrent.emptyDate && sourceBatch) {
         let legacyRemaining = tank.liters;
-        for (const r of legacyRuns
+        for (const r of [...legacyRuns, ...completedEmptyRuns]
           .filter((run) =>
-            canonicalRunTank(run as PackagingPlan, plans) === source.id &&
-            normalizedBatch((run as PackagingPlan).batchNumber) === sourceBatch)
+            belongsToCurrentBatch(run as PackagingPlan, source))
           .sort((a, b) => a.date!.localeCompare(b.date!))) {
           const p = settings.products.find((product) => product.id === r.productId);
           const runStyle = r.nonInventoryStyle ?? p?.style;
@@ -210,8 +256,9 @@ export function tankReleases(
 
     let remaining = tank.liters;
     let emptyDate: string | null = null;
-    for (const r of legacyRuns
-      .filter((r) => canonicalRunTank(r as PackagingPlan, plans) === source.id)
+    for (const r of [...legacyRuns, ...completedEmptyRuns]
+      .filter((r) => physicalRunTank(r as PackagingPlan) === source.id &&
+        (!sourceBatch || belongsToCurrentBatch(r as PackagingPlan, source)))
       .sort((a, b) => a.date!.localeCompare(b.date!))) {
       const p = settings.products.find((p) => p.id === r.productId);
       const runStyle = r.nonInventoryStyle ?? p?.style;
@@ -286,28 +333,61 @@ export function validateProduction(
     // without brewId even though the source is an unambiguous planned brew.
     // Resolve that narrow case from tank + style + chronology before treating
     // it as legacy physical-tank packaging.
-    const explicitBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);
     const product = settings.products.find((candidate) => candidate.id === r.productId);
     const runStyle = r.nonInventoryStyle ?? product?.style;
-    const inferredBrew = !explicitBrewId && r.tankId && r.date && runStyle
-      ? plans
-          .flatMap((week) => week.brews ?? [])
+    const batch = normalizedBatch(r.batchNumber);
+    const physicalTank = batch
+      ? tanks.find((tank) =>
+          !tank.id.startsWith("planned:") &&
+          normalizedBatch(tank.batch) === batch &&
+          (tank.id === r.tankId ||
+            String(tank.number) === String(r.tankNumber ?? r.tankId)))
+      : undefined;
+    // An explicit or inferred future brew is not the source of an older
+    // physical batch. Never validate that packaging against the next cycle.
+    const resolvedBrewId = resolvePackagingBrewId(r as PackagingPlan, plans);
+    const resolvedBrew = resolvedBrewId ? brewById(plans, resolvedBrewId) : null;
+    const contradictoryLink = !!resolvedBrew &&
+      (resolvedBrew.date > r.date! ||
+        (!!batch && !!normalizedBatch(resolvedBrew.batchNumber) &&
+          normalizedBatch(resolvedBrew.batchNumber) !== batch));
+    const explicitBrewId = contradictoryLink ? null : resolvedBrewId;
+    const inferredBrew = !explicitBrewId && !physicalTank && r.tankId && r.date && runStyle
+      ? plans.flatMap((week) => week.brews ?? [])
           .filter((brew) =>
             brew.tankId === r.tankId &&
             brew.date <= r.date! &&
-            sameStyle(brew.style, runStyle)
-          )
+            sameStyle(brew.style, runStyle) &&
+            (!batch || normalizedBatch(brew.batchNumber) === batch))
           .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
           .at(-1) ?? null
       : null;
     const linkedBrewId = explicitBrewId ?? inferredBrew?.id ?? null;
     const linkedBrew = linkedBrewId ? brewById(plans, linkedBrewId) : null;
-    const tankId = linkedBrew?.tankId ?? r.tankId;
+    const recordedTankId = linkedBrew?.tankId ?? r.tankId;
+    const matchedTank = tanks.find((tank) => tank.id === recordedTankId);
+    const recordedNumber = r.tankNumber ?? recordedTankId;
+    const numberMatches = !linkedBrew && recordedNumber != null
+      ? tanks.filter((tank) => !tank.id.startsWith("planned:") &&
+          String(tank.number) === String(recordedNumber))
+      : [];
+    // A planned next cycle can share a tank id/number with an older physical
+    // batch. Never use its liters or maturity as the legacy batch's source.
+    const safeMatchedTank = matchedTank &&
+      (!matchedTank.id.startsWith("planned:") || !!linkedBrew) &&
+      (!batch || !normalizedBatch(matchedTank.batch) ||
+        normalizedBatch(matchedTank.batch) === batch)
+      ? matchedTank : undefined;
+    const t = physicalTank ?? safeMatchedTank ??
+      (numberMatches.length === 1 &&
+       (!batch || !normalizedBatch(numberMatches[0].batch) ||
+        normalizedBatch(numberMatches[0].batch) === batch)
+        ? numberMatches[0] : undefined);
+    const tankId = linkedBrew?.tankId ?? t?.id ?? recordedTankId;
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
-    const t = tanks.find((t) => t.id === tankId);
     const p = settings.products.find((p) => p.id === r.productId);
     const runType = r.nonInventoryType ?? p?.type;
-    if (!linkedBrew && !t) return "חסר מיכל מקור לאריזה";
+    if (!linkedBrew && !t) return `חסר מיכל מקור לאריזה: שבוע ${r.week ?? "לא ידוע"}, תאריך ${r.date}, מיכל ${String(r.tankNumber ?? r.tankId ?? "לא משויך")}, אצווה ${String(r.batchNumber ?? "לא ידועה")}, אריזה ${String(r.id ?? "ללא מזהה")}`;
 
     const projectedCycle = linkedBrewId
       ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
@@ -315,9 +395,13 @@ export function validateProduction(
     const fallbackLeadDays = linkedBrew
       ? Math.max(21, ...settings.products.filter((product) => sameStyle(product.style, linkedBrew.style)).map((product) => product.leadDays))
       : 0;
+    // Legacy rows may have no physical tank snapshot after the tank is
+    // emptied. A future projection is never a maturity source for those rows.
+    const physicalReady = physicalTank?.ready ??
+      (t && !t.id.startsWith("planned:") ? t.ready : "");
     const readyDate = projectedCycle?.readyDate
-      ?? (linkedBrew ? addDays(linkedBrew.date, fallbackLeadDays) : t?.ready ?? "");
-    const tankLabel = t?.number ?? linkedBrew?.tankId ?? tankId;
+      ?? (linkedBrew ? addDays(linkedBrew.date, fallbackLeadDays) : physicalReady);
+    const tankLabel = physicalTank?.number ?? t?.number ?? linkedBrew?.tankId ?? tankId;
     if (readyDate && r.date < readyDate && !r.earlyPackagingOverride && !options?.allowEarlyPackaging)
       return `מיכל ${tankLabel}: האריזה שובצה ל-${r.date} לפני מועד ההבשלה ${readyDate}`;
 
@@ -340,11 +424,62 @@ export function validateProduction(
 
     const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
     used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * unitLiters);
-    const cycleLiters = linkedBrew?.liters ?? t?.liters ?? 0;
+    // A future canonical brew's declared volume is its original volume.
+    // Subtract already packaged units before validating pending decisions.
+    // A physical current tank's liters are already net of its past packaging.
+    const isCurrentPhysicalCycle = !!linkedBrew && !!t &&
+      normalizedBatch(linkedBrew.batchNumber) !== "" &&
+      normalizedBatch(t.batch) === normalizedBatch(linkedBrew.batchNumber);
+    const packedLiters = linkedBrew && !isCurrentPhysicalCycle
+      ? actuals.filter((actual) => {
+          const packedDate = actualDate(actual);
+          return packedDate && packedDate >= linkedBrew.date && packedDate <= today &&
+            String(actual.tankNumber ?? "") === String(t?.number ?? "") &&
+            normalizedBatch(actual.batchNumber) === normalizedBatch(linkedBrew.batchNumber) &&
+            sameStyle(actual.beerStyle ?? "", linkedBrew.style);
+        }).reduce((sum, actual) => {
+          const isCrates = actual.packagingType === "bottles";
+          const units = num(actual.quantity) / (isCrates && actual.unit === "בקבוקים" ? 24 : 1);
+          return sum + units * (isCrates ? 24 * 0.33 : 20);
+        }, 0)
+      : 0;
+    const cycleLiters = isCurrentPhysicalCycle
+      ? t!.liters
+      : linkedBrew ? Math.max(0, linkedBrew.liters - packedLiters) : t?.liters ?? 0;
     if (!cycleLiters) return `מיכל ${tankLabel}: חסר נפח מחזור לחישוב האריזה`;
     if (used.get(cycleKey)! > cycleLiters + 0.01)
       return `מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
-    if (r.emptyTank && cycleLiters - used.get(cycleKey)! >= 20)
+    // For the current physical batch, an explicit planned emptying is an
+    // operational decision, not a claim that estimated liters exactly match
+    // packed units. Beer may be lost to shrinkage or discarded at emptying.
+    // Still reject plans that exceed available liters, and retain the strict
+    // residual-volume rule for every future canonical cycle.
+    const physicalBatchIdentity = normalizedBatch(r.batchNumber || linkedBrew?.batchNumber);
+    const sameDeclaredPhysicalBatch = !!t && physicalBatchIdentity !== "" &&
+      normalizedBatch(t.batch) === physicalBatchIdentity &&
+      (!linkedBrew || !normalizedBatch(linkedBrew.batchNumber) ||
+        normalizedBatch(linkedBrew.batchNumber) === physicalBatchIdentity);
+    // Historical current-cycle decisions sometimes lack a batch snapshot.
+    // The physical brew date is a safe fallback only if no declared batch
+    // conflicts, and never for a packaging row dated after a later brew.
+    const noConflictingBatch = !!t &&
+      (!normalizedBatch(r.batchNumber) || normalizedBatch(r.batchNumber) === normalizedBatch(t.batch)) &&
+      (!linkedBrew || !normalizedBatch(linkedBrew.batchNumber) ||
+        normalizedBatch(linkedBrew.batchNumber) === normalizedBatch(t.batch));
+    const matchingPhysicalDate = !!linkedBrew && !!t &&
+      linkedBrew.date === t.brewed &&
+      sameStyle(linkedBrew.style, t.style);
+    const nextBrewAlreadyStarted = plans.some((week) => (week.brews ?? []).some((brew) =>
+      brew.tankId === tankId && brew.date > (t?.brewed ?? "") &&
+      brew.date <= r.date! &&
+      (!linkedBrew || brew.id !== linkedBrew.id)));
+    const inferredPhysicalLegacy = !linkedBrew && !!t && !String(t.id).startsWith("planned:") &&
+      !!t.brewed && r.date! >= t.brewed &&
+      !!runStyle && sameStyle(runStyle, t.style);
+    const currentPhysicalBatch = noConflictingBatch &&
+      (sameDeclaredPhysicalBatch || matchingPhysicalDate || inferredPhysicalLegacy) &&
+      !nextBrewAlreadyStarted;
+    if (r.emptyTank && !currentPhysicalBatch && cycleLiters - used.get(cycleKey)! >= 20)
       return `מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
   }
   return null;
@@ -390,7 +525,7 @@ export function validateBrewReleases(
       ? addDays(release.emptyDate, 1)
       : release?.date;
     if (!requiredReleaseDate || b.date < requiredReleaseDate)
-      return `בישול ${b.style}: תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה`;
+      return `בישול ${b.style} במיכל ${String(source?.tankNumber ?? tank?.number ?? b.tankId)} (${b.date}): תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה. שחרור מחושב: ${String(release?.date ?? "אין")}; ריקון: ${String(release?.emptyDate ?? "אין")}; מצב: ${String(source?.action ?? "לא ידוע")}; סיבה: ${release?.reason ?? "לא נמצאו נתוני שחרור"}`;
   }
   return null;
 }

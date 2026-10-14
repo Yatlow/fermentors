@@ -1,4 +1,4 @@
-type PackagingSource = {
+export type PackagingSource = {
   id?: unknown;
   tankNumber?: unknown;
   batchNumber?: unknown;
@@ -6,8 +6,8 @@ type PackagingSource = {
   action?: unknown;
   stage?: unknown;
 };
-import type { Actual, Plan, Product, WeekPlan } from "./planningEngine";
-import { openRuns } from "./dailyPlanner";
+import { sameStyle, weekStart, type Actual, type Plan, type Product, type WeekPlan } from "./planningEngine";
+import { actualDate, matchesActual, openRuns } from "./dailyPlanner";
 
 function persistedPlanKey(run: Plan, index: number) {
   return run.id ?? `${run.productId}:${run.tankId ?? ""}:${run.tankNumber ?? ""}:${run.batchNumber ?? ""}:${index}`;
@@ -41,6 +41,58 @@ function sourceShowsTankClosed(run: Plan, source: PackagingSource | undefined) {
       ? String((source.stage as { className?: unknown }).className ?? "")
       : "",
   );
+}
+
+/**
+ * A report is authoritative for its physical batch and actual day, not for
+ * the day on which the planner originally expected to package it.
+ * Never guess a historical date from a style-only match.
+ */
+function reportsForPhysicalRun(
+  week: WeekPlan,
+  run: Plan,
+  products: Product[],
+  actuals: Actual[],
+  sources: PackagingSource[],
+): Array<{ actual: Actual; date: string }> {
+  const source = sourceForRun(run, sources);
+  const tankNumber = run.tankNumber ?? source?.tankNumber;
+  const batchNumber = run.batchNumber ?? source?.batchNumber;
+  const product = products.find((p) => p.id === run.productId);
+  const style = run.nonInventoryStyle ?? product?.style;
+  const packagingType = run.nonInventoryType ?? product?.type;
+  if (tankNumber == null || batchNumber == null || !style || !packagingType) return [];
+  return actuals.flatMap((actual) => {
+    const date = actualDate(actual);
+    return date && weekStart(date) === week.id &&
+      String(actual.tankNumber ?? "").trim() === String(tankNumber).trim() &&
+      String(actual.batchNumber ?? "").replace("#", "").trim() === String(batchNumber).replace("#", "").trim() &&
+      (product ? matchesActual(product, actual) : sameStyle(style, actual.beerStyle ?? "") &&
+        actual.packagingType === (packagingType === "crates" ? "bottles" : "kegs")) &&
+      Number(actual.quantity) > 0 ? [{ actual, date }] : [];
+  });
+}
+
+/**
+ * The calendar editor contains only remaining decisions. Actual quantities
+ * are rendered separately from packagingLog on their real execution date.
+ * Once a tank/batch is physically closed, its unproduced estimate is not an
+ * additional packaging task, provided a matching report exists.
+ */
+export function pendingPackagingDecisions(
+  week: WeekPlan,
+  products: Product[],
+  actuals: Actual[],
+  sources: PackagingSource[],
+): Plan[] {
+  const remaining = new Map(openRuns([week], products, actuals).map((run) => [run.key, run.remaining]));
+  return week.packaging.flatMap((run, index) => {
+    const qty = remaining.get(openRunKey(week, run, index)) ?? run.quantity;
+    if (qty <= 0) return [];
+    if (sourceShowsTankClosed(run, sourceForRun(run, sources)) &&
+      reportsForPhysicalRun(week, run, products, actuals, sources).length > 0) return [];
+    return [{ ...run, quantity: qty }];
+  });
 }
 
 function completionMap(
@@ -107,22 +159,69 @@ export function mergeCompletedPackagingBack(
   sources: PackagingSource[],
 ): WeekPlan {
   const open = completionMap(original, products, actuals);
-  const completed = new Map<string, Plan>();
+  const preserved: Plan[] = [];
+  const pending = edited.packaging.map((run) => ({ ...run }));
+  const consumed = new Set<number>();
 
   original.packaging.forEach((run, index) => {
-    const source = sourceForRun(run, sources);
     const actualQuantity = actualCompletedForRun(original, run, index, open);
-    if (sourceShowsTankClosed(run, source) && actualQuantity > 0) {
-      completed.set(persistedPlanKey(run, index), run);
+    if (actualQuantity <= 0) return;
+    // A prior save may already have split this decision. Never split the
+    // preserved executed part a second time or invent another remaining row.
+    // Remaining rows can become executed on a later day. They must be
+    // reconciled just like their parent, rather than silently discarded.
+    const source = sourceForRun(run, sources);
+    const key = persistedPlanKey(run, index);
+    const editedIndex = pending.findIndex((candidate, candidateIndex) =>
+      !consumed.has(candidateIndex) &&
+      persistedPlanKey(candidate, candidateIndex) === key,
+    );
+    const replacement = editedIndex >= 0 ? pending[editedIndex] : undefined;
+    if (editedIndex >= 0) consumed.add(editedIndex);
+
+    // An executed quantity must remain attached to its original tank, batch,
+    // product and date, regardless of subsequent changes to the pending plan.
+    // Split the unexecuted balance into a fresh decision with a distinct id.
+    const actualDays = reportsForPhysicalRun(original, run, products, actuals, sources)
+      .map((report) => report.date).sort();
+    preserved.push({
+      ...run,
+      quantity: actualQuantity,
+      // A past report must never be retained as a future execution decision.
+      date: actualDays.at(-1) ?? run.date,
+      emptyTank: sourceShowsTankClosed(run, source),
+    });
+    if (replacement) {
+      // The editor may already contain the distinct pending balance from a
+      // previous save. Do not subtract completed units from it again.
+      const alreadySplit = !!run.id && edited.packaging.some((candidate) =>
+        candidate.id === `${run.id}:remaining`
+      );
+      if (alreadySplit) {
+        pending[editedIndex] = { ...replacement, quantity: 0 };
+        return;
+      }
+      const outstanding = Math.max(0, replacement.quantity - actualQuantity);
+      if (outstanding > 0) {
+        pending[editedIndex] = {
+          ...replacement,
+          id: replacement.id ? `${replacement.id}:remaining` : undefined,
+          quantity: outstanding,
+        };
+      } else {
+        pending[editedIndex] = { ...replacement, quantity: 0 };
+      }
     }
   });
 
-  const pendingEdited = edited.packaging.filter((run, index) =>
-    !completed.has(persistedPlanKey(run, index)),
-  );
-
   return {
     ...edited,
-    packaging: [...completed.values(), ...pendingEdited],
+    packaging: [
+      ...preserved,
+      ...pending.filter((run) => run.quantity > 0 && !(
+        sourceShowsTankClosed(run, sourceForRun(run, sources)) &&
+        reportsForPhysicalRun(original, run, products, actuals, sources).length > 0
+      )),
+    ],
   };
 }

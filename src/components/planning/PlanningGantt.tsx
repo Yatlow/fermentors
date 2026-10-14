@@ -20,10 +20,10 @@ import {
   type Tank,
   type WeekPlan,
 } from "../../SERVICES/planning/planningEngine";
-import { actualDate, actualUnits, matchesActual, openRuns, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
+import { actualDate, actualUnits, matchesActual, shortDate, type ShipmentEvent } from "../../SERVICES/planning/dailyPlanner";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { matchActualShipments } from "../../SERVICES/planning/shipmentActuals";
-import { plansAfterActualPackagingCompletion } from "../../SERVICES/planning/packagingActuals";
+import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { buildWeeklyPlanningModel, type WeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
 import PlanningFiveWeekOverview from "./PlanningFiveWeekOverview";
 import PlanningGanttWeekEditorModal from "./PlanningGanttWeekEditorModal";
@@ -431,10 +431,7 @@ export default function PlanningGantt(props: Props) {
 
   function packagingItems(weekId: string): SummaryItem[] {
     const rawDecisionPlan = decisionPlanFor(weekId) ?? emptyWeek(weekId);
-    const completionAwarePlan = plansAfterActualPackagingCompletion(
-      [rawDecisionPlan], settings.products, actuals, sources,
-    )[0];
-    const decisions = (completionAwarePlan?.packaging ?? []).filter((item) => item.quantity > 0);
+    const decisions = pendingPackagingDecisions(rawDecisionPlan, settings.products, actuals, sources);
     const actualItems: SummaryItem[] = (actualsByWeek.get(weekId) ?? [])
       .filter((actual) => Number(actual.quantity) > 0)
       .map((actual) => {
@@ -452,16 +449,10 @@ export default function PlanningGantt(props: Props) {
         };
       });
 
-    // A completed operational report replaces the matching planning card in
-    // the summary. Keep unmatched/partially open planning rows visible, but do
-    // not render the same tank/package cycle twice as "actual" + "planned".
-    const openByKey = new Map(
-      openRuns([completionAwarePlan ?? rawDecisionPlan], settings.products, actuals)
-        .map((run) => [run.id ?? run.key, run.remaining] as const),
-    );
+    // Real packaging reports and genuinely pending decisions are disjoint.
+    // A split/executed row must not contribute to the planned summary.
     const plannedItems: SummaryItem[] = decisions.flatMap((item, index) => {
-      const remaining = openByKey.get(item.id ?? `${weekId}:${item.productId}:${index}`) ?? item.quantity;
-      if (remaining <= 0) return [];
+      const remaining = item.quantity;
       const product = productFor(item.productId);
       const tank = tanks.find((candidate) => candidate.id === item.tankId);
       // Canonical tankId (aligned from brewId/cycle) wins over the historical
@@ -479,7 +470,7 @@ export default function PlanningGantt(props: Props) {
       }];
     });
 
-    const recommendationItems: SummaryItem[] = decisions.length || weekId < currentWeek
+    const recommendationItems: SummaryItem[] = rawDecisionPlan.packaging.length || actualItems.length || weekId < currentWeek
       ? []
       : (simulations.get(weekId)?.packagingRecommendation ?? []).map((item) => {
           const product = productFor(item.productId);
@@ -581,7 +572,7 @@ export default function PlanningGantt(props: Props) {
 
   function weeklyTotals(weekId: string) {
     const plan = simulations.get(weekId)?.effectivePlan ?? decisionPlanFor(weekId);
-    const plannedPackaging = (plan?.packaging ?? []).reduce((sum, run) => {
+    const plannedPackaging = (plan ? pendingPackagingDecisions(plan, settings.products, actuals, sources) : []).reduce((sum, run) => {
       const product = productFor(run.productId);
       const type = product?.type ?? run.nonInventoryType;
       return sum + (type && run.quantity > 0 ? packageLiters(run.quantity, type) : 0);

@@ -16,16 +16,27 @@ function brewIdFromRecommendationId(value: unknown): string {
 /** Resolve packaging to a stable brew identity, with legacy snapshot fallback. */
 export function resolvePackagingBrewId(run: PackagingPlan, plans: WeekPlan[]): string | null {
   if (run.brewId) {
-    return plans.some((week) => week.brews?.some((brew) => brew.id === run.brewId))
-      ? run.brewId
-      : null;
+    const brew = plans.flatMap((week) => week.brews ?? []).find((candidate) => candidate.id === run.brewId);
+    if (!brew) return null;
+    // A packaging decision cannot belong to a brew scheduled after its date.
+    // Old planner rows can retain stale brewId after a tank is reused.
+    if (run.date && brew.date > run.date) return null;
+    const batch = normalizedBatch(run.batchNumber);
+    const brewBatch = normalizedBatch(brew.batchNumber);
+    if (batch && brewBatch && batch !== brewBatch) return null;
+    return brew.id;
   }
 
   // Weekly recommendations encode their canonical cycle key in the stable row id.
   // This keeps identity intact even through older UI save paths that preserve
   // unknown fields poorly and have not yet copied brewId explicitly.
   const encoded = brewIdFromRecommendationId(run.id);
-  if (encoded && plans.some((week) => week.brews?.some((brew) => brew.id === encoded))) return encoded;
+  if (encoded) {
+    const brew = plans.flatMap((week) => week.brews ?? []).find((candidate) => candidate.id === encoded);
+    if (brew && (!run.date || brew.date <= run.date) &&
+        (!normalizedBatch(run.batchNumber) || !normalizedBatch(brew.batchNumber) ||
+         normalizedBatch(run.batchNumber) === normalizedBatch(brew.batchNumber))) return encoded;
+  }
 
   // Legacy snapshot inference is only safe when a batch number is present.
   // Tank-only matching can silently attach today's physical packaging to a
