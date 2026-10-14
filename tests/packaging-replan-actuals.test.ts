@@ -331,3 +331,18 @@ test("future packaging stays linked to its matching future brew", () => {
       date: "2026-11-11" }] };
   assert.equal(resolvePackagingBrewId(future.packaging[0], [current, future]), "next-15");
 });
+
+test("a projected next cycle cannot supply volume to an unrelated old batch", () => {
+  const old = week();
+  old.packaging = [{ id: "old-15", productId: "pils-kegs", quantity: 71,
+    tankId: "tank15", tankNumber: "15", batchNumber: "1586",
+    date: "2026-10-15", emptyTank: true }];
+  const next = { ...week(), id: "2026-10-18",
+    brews: [{ id: "future-15", tankId: "tank15", style: "Pils",
+      date: "2026-10-19", liters: 3000, batchNumber: "1700" }], packaging: [] };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  const projected = futureTanks([], [old, next], settings);
+  const error = validateProduction([old, next], settings, projected, [], "2026-10-14");
+  assert.match(error ?? "", /חסר מיכל מקור לאריזה/);
+  assert.doesNotMatch(error ?? "", /לא ניתן לסמן סיום|לפני מועד ההבשלה/);
+});
