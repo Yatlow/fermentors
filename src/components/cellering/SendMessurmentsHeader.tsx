@@ -1,4 +1,5 @@
 import BeerLoader from "./../general/Loading";
+import { recordCellarReportActivity } from "../../SERVICES/activity/recordCellarReportActivity";
 import { useEffect, useRef, useState } from "react";
 import { writeReadingsToSheets, type writeReadingResult } from "../../SERVICES/getAndPost/writeReadingToSheets";
 import type { Fermentor, NewReading, ReadingToSend } from "../../App";
@@ -623,6 +624,10 @@ export default function SendMessurmentsHeader({
             // The durable Firestore write has been acknowledged by writeReadingsToSheets.
             // Sheet synchronization continues asynchronously and is tracked separately.
             if (allSucceeded && succeededReadings.length > 0) {
+                // Supplementary audit trail; a logging failure must never retry or invalidate the original report.
+                void recordCellarReportActivity(reportName, succeededReadings).catch(error =>
+                    console.error("Could not append cellar activity journal event", error)
+                );
                 const tankNumbers = [...new Set(succeededReadings.map(reading => String(reading.tankNumber ?? reading.tankId)))];
                 window.dispatchEvent(new CustomEvent("cellar-report-saved", {
                     detail: {
