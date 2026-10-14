@@ -112,10 +112,8 @@ export function mergeCompletedPackagingBack(
   original.packaging.forEach((run, index) => {
     const source = sourceForRun(run, sources);
     const actualQuantity = actualCompletedForRun(original, run, index, open);
-    // A partially executed decision is historical too. Preserve the original
-    // row so subsequent edits cannot orphan its actuals or change their match.
-    if (actualQuantity > 0 || sourceShowsTankClosed(run, source)) {
-      if (actualQuantity > 0) completed.set(persistedPlanKey(run, index), run);
+    if (sourceShowsTankClosed(run, source) && actualQuantity > 0) {
+      completed.set(persistedPlanKey(run, index), run);
     }
   });
 
