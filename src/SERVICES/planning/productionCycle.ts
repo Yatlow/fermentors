@@ -302,9 +302,18 @@ export function validateProduction(
       : null;
     const linkedBrewId = explicitBrewId ?? inferredBrew?.id ?? null;
     const linkedBrew = linkedBrewId ? brewById(plans, linkedBrewId) : null;
-    const tankId = linkedBrew?.tankId ?? r.tankId;
+    // Older packaging decisions can carry a tank number (or a numeric
+    // tankId) rather than the Firestore document id. Resolve only an
+    // unambiguous physical match; never redirect an explicit brew cycle.
+    const recordedTankId = linkedBrew?.tankId ?? r.tankId;
+    const matchedTank = tanks.find((tank) => tank.id === recordedTankId);
+    const recordedNumber = r.tankNumber ?? recordedTankId;
+    const numberMatches = !linkedBrew && recordedNumber != null
+      ? tanks.filter((tank) => String(tank.number) === String(recordedNumber))
+      : [];
+    const t = matchedTank ?? (numberMatches.length === 1 ? numberMatches[0] : undefined);
+    const tankId = linkedBrew?.tankId ?? t?.id ?? recordedTankId;
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
-    const t = tanks.find((t) => t.id === tankId);
     const p = settings.products.find((p) => p.id === r.productId);
     const runType = r.nonInventoryType ?? p?.type;
     if (!linkedBrew && !t) return "חסר מיכל מקור לאריזה";
