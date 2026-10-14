@@ -191,8 +191,14 @@ function postClaimIdempotencyRequest_(action, requestId) {
   const key = postIdempotencyKey_(action, requestId);
   const lock = LockService.getScriptLock();
   const lockStartedAt = Date.now();
-  if (!lock.tryLock(1500)) {
-    throw new Error("POST idempotency lock busy; retry shortly.");
+  // The maintenance cycle can hold the same global ScriptLock for seconds.
+  // The report is already durable in Firestore; tolerate contention instead
+  // of reporting a false Sheet failure after 1.5 seconds.
+  try {
+    lock.waitLock(20000);
+  } catch (error) {
+    throw new Error("POST idempotency lock busy; retry shortly: " +
+      String(error && error.message || error));
   }
   const lockWaitMs = Date.now() - lockStartedAt;
   if (lockWaitMs > 100) console.log("POST idempotency lock wait " + lockWaitMs + "ms action=" + action);
