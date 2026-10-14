@@ -114,7 +114,7 @@ export default function DailyPressureAndTemp({
 
                 </div>
                 {touched[`${fv.id}:temp`] || touched[`${fv.id}:pressure`] ? (() => {
-                  const warnings = cellarMeasurementWarnings(fv.tankNumber ?? fv.id, reading, fv.currentData ?? {}, { brewAge: 3 });
+                  const warnings = cellarMeasurementWarnings(fv.tankNumber ?? fv.id, reading, fv.currentData ?? {}, { brewAge: 0 });
                   const relevant = warnings.filter((warning) => {
                     if (/ללא (לחץ|טמפרטורה|pH|פלאטו)/.test(warning)) return false;
                     if (/ירידת לחץ|עליית לחץ/.test(warning)) return false; // Action history is checked at submit.
