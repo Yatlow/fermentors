@@ -94,3 +94,12 @@ test("new actual on remaining row survives replanning", () => {
  assert.equal(twice.packaging.reduce((n, r) => n + r.quantity, 0), 90);
  assert.equal(openRuns([twice], products, actuals).reduce((n, r) => n + r.remaining, 0), 10);
 });
+
+
+test("legacy packaging tank number resolves to physical document id", () => {
+ const plan = week();
+ plan.packaging = [{ id: "legacy", productId: "pils-crates", quantity: 10, tankId: "15", tankNumber: "15", date: "2026-10-15" }];
+ const tank = { id: "fermentor-15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2000, cold: true };
+ const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+ assert.equal(validateProduction([plan], settings, [tank], [], "2026-10-14"), null);
+});
