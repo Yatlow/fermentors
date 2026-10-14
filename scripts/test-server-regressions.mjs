@@ -25,6 +25,20 @@ function loadAppsScript(path, extra = {}) {
   return context;
 }
 
+const measurementIdentity = loadAppsScript("server/batchDataExtractionService.js");
+{
+  const date = new Date(2026, 9, 6);
+  const id = (time) => measurementIdentity.createMeasurementId(date, time);
+  assert.equal(id("6:27"), "2026-10-06_0627");
+  assert.equal(id("06:27"), "2026-10-06_0627");
+  assert.equal(id("627"), "2026-10-06_0627");
+  assert.equal(id("0627"), "2026-10-06_0627");
+  assert.equal(id("9:05"), "2026-10-06_0905");
+  assert.equal(id("10:05"), "2026-10-06_1005");
+  assert.equal(id("23:59"), "2026-10-06_2359");
+  assert.equal(id(""), "2026-10-06_0000");
+}
+
 const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
 {
   const duplicates = styleAverages.dedupeStyleMeasurements_([
