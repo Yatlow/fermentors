@@ -226,7 +226,7 @@ export default function SendMessurmentsHeader({
         const newDateKey = String(newId).split("_")[0];
 
         const sameDayMeasurements = measurements.filter((m) =>
-            String(m.id).startsWith(`${newDateKey}_`)
+            String(m.id ?? "").split("_")[0] === newDateKey
         );
 
         const previousToday = sameDayMeasurements
@@ -254,7 +254,7 @@ export default function SendMessurmentsHeader({
         }
 
         const withoutToday = measurements.filter(
-            (m) => !String(m.id).startsWith(`${newDateKey}_`)
+            (m) => String(m.id ?? "").split("_")[0] !== newDateKey
         );
 
         return [...withoutToday, mergedReading].sort((a, b) =>
