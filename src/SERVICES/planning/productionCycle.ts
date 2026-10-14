@@ -340,7 +340,28 @@ export function validateProduction(
 
     const unitLiters = p ? litersPerUnit(p) : runType === "crates" ? 24 * 0.33 : 20;
     used.set(cycleKey, (used.get(cycleKey) ?? 0) + r.remaining * unitLiters);
-    const cycleLiters = linkedBrew?.liters ?? t?.liters ?? 0;
+    // A future canonical brew's declared volume is its original volume.
+    // Subtract already packaged units before validating pending decisions.
+    // A physical current tank's liters are already net of its past packaging.
+    const isCurrentPhysicalCycle = !!linkedBrew && !!t &&
+      normalizedBatch(linkedBrew.batchNumber) !== "" &&
+      normalizedBatch(t.batch) === normalizedBatch(linkedBrew.batchNumber);
+    const packedLiters = linkedBrew && !isCurrentPhysicalCycle
+      ? actuals.filter((actual) => {
+          const packedDate = actualDate(actual);
+          return packedDate && packedDate >= linkedBrew.date && packedDate <= today &&
+            String(actual.tankNumber ?? "") === String(t?.number ?? "") &&
+            normalizedBatch(actual.batchNumber) === normalizedBatch(linkedBrew.batchNumber) &&
+            sameStyle(actual.beerStyle ?? "", linkedBrew.style);
+        }).reduce((sum, actual) => {
+          const isCrates = actual.packagingType === "bottles";
+          const units = num(actual.quantity) / (isCrates && actual.unit === "בקבוקים" ? 24 : 1);
+          return sum + units * (isCrates ? 24 * 0.33 : 20);
+        }, 0)
+      : 0;
+    const cycleLiters = isCurrentPhysicalCycle
+      ? t!.liters
+      : linkedBrew ? Math.max(0, linkedBrew.liters - packedLiters) : t?.liters ?? 0;
     if (!cycleLiters) return `מיכל ${tankLabel}: חסר נפח מחזור לחישוב האריזה`;
     if (used.get(cycleKey)! > cycleLiters + 0.01)
       return `מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
