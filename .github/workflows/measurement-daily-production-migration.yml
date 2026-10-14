@@ -4,6 +4,7 @@ on:
     paths:
       - "scripts/reconcile-daily-measurements.mjs"
       - "scripts/crypto-daily-measurement-backup.mjs"
+      - "scripts/verify-daily-measurement-averages.mjs"
       - ".github/workflows/measurement-daily-production-migration.yml"
   push:
     branches: [main]
@@ -24,6 +25,7 @@ jobs:
           node-version: "22"
       - run: node scripts/reconcile-daily-measurements.mjs --self-test
       - run: node scripts/crypto-daily-measurement-backup.mjs --self-test
+      - run: node scripts/verify-daily-measurement-averages.mjs --self-test
 
   encrypted-full-backup:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -106,3 +108,22 @@ jobs:
             "- Firestore backup: encrypted and uploaded before writes\n";
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,body);
           JS
+
+  verify-style-average-rebuild:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: apply-and-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+      - name: Verify Apps Script rebuilt style averages after migration
+        env:
+          FIREBASE_PROJECT_ID: fermenter-dashboard-bada3
+        run: node scripts/verify-daily-measurement-averages.mjs
