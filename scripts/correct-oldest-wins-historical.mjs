@@ -99,6 +99,12 @@ async function run(backup,mode){
    }catch(e){totals.errors.push(batch+'/'+day+': '+String(e.message||e).slice(0,180));}
   }
  }
+ if(mode==='apply'&&totals.errors.length===0){
+  await db.collection('maintenanceRequests').doc('newest-wins-correction-2026-10-14').set({
+   status:'ready_for_averages',correctedGroups:totals.groupsFixed,
+   correctedFields:totals.fieldsFixed,correctedAt:new Date().toISOString()
+  });
+ }
  return {project:PROJECT,mode,completedAt:new Date().toISOString(),...totals};
 }
 const args=process.argv.slice(2);
