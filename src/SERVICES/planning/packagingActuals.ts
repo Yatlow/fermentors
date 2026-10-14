@@ -116,7 +116,8 @@ export function mergeCompletedPackagingBack(
     if (actualQuantity <= 0) return;
     // A prior save may already have split this decision. Never split the
     // preserved executed part a second time or invent another remaining row.
-    if (run.id && run.id.endsWith(":remaining")) return;
+    // Remaining rows can become executed on a later day. They must be
+    // reconciled just like their parent, rather than silently discarded.
     const source = sourceForRun(run, sources);
     const key = persistedPlanKey(run, index);
     const editedIndex = pending.findIndex((candidate, candidateIndex) =>
