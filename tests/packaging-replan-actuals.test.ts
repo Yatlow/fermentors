@@ -289,7 +289,7 @@ test("empty tank legacy packaging is not checked against next brew maturity", ()
     brews: [{ id: "next-pils-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000, batchNumber: "1700" }],
     packaging: [] };
   const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
-  assert.equal(validateProduction([old, next], settings, futureTanks([], [old, next], settings), [], "2026-10-14"), null);
+  assert.match(validateProduction([old, next], settings, futureTanks([], [old, next], settings), [], "2026-10-14") ?? "", /חסר מיכל מקור לאריזה/);
 });
 
 test("stale future brewId cannot assign next cycle maturity to physical batch", () => {
@@ -301,7 +301,7 @@ test("stale future brewId cannot assign next cycle maturity to physical batch", 
     brews: [{ id: "next-pils-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000, batchNumber: "1700" }],
     packaging: [] };
   const tank = { id: "tank15", number: "15", style: "Pils", batch: "1586",
-    brewed: "2026-08-25", ready: "2026-09-15", liters: 1000, cold: true };
+    brewed: "2026-08-25", ready: "2026-09-15", liters: 2000, cold: true };
   const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
   assert.equal(validateProduction([old, next], settings, futureTanks([tank], [old, next], settings), [], "2026-10-14"), null);
 });
