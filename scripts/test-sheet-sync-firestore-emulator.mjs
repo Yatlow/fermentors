@@ -38,7 +38,7 @@ const confirmed = { success: true, results: [{ success: true, tankId: "10", resu
 test("recovery writes real Firestore emulator history before removing job, and is idempotent", async () => {
   const ctx = runtime();
   const jobPath = "/sheetSyncJobs/recovery-test-1";
-  const historyPath = "/brews/1593/measurements/2026-10-14_1042";
+  const historyPath = "/brews/1593/measurements/2026-10-14";
   await request(jobPath, "PATCH", { fields });
   let job = await request(jobPath);
   assert.equal(job.status, 200, JSON.stringify(job.body));
