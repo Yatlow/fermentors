@@ -48,6 +48,7 @@ function installProcessMocks(context, options = {}) {
   const deleted = [];
   const marked = [];
   const runCalls = [];
+  const reconciled = [];
 
   context.sheetSyncPendingJobs_ = () => options.jobs ?? [job()];
   context.postIdempotencyKey_ = (_action, requestId) => `key:${requestId}`;
@@ -73,12 +74,16 @@ function installProcessMocks(context, options = {}) {
     if (options.runError) throw options.runError;
     return options.runResult ?? { success: true, results: [{ success: true }] };
   };
+  context.sheetSyncReconcileMeasurements_ = (document, response) => {
+    reconciled.push({ document, response });
+    if (options.reconcileError) throw options.reconcileError;
+  };
   context.sheetSyncDeleteJob_ = (id) => deleted.push(id);
   context.sheetSyncMarkJob_ = (id, state, attempts, error) => {
     marked.push({ id, state, attempts, error: String(error) });
   };
 
-  return { deleted, marked, runCalls };
+  return { deleted, marked, runCalls, reconciled };
 }
 
 test("normalizes batch identifiers before comparing jobs to live tanks", () => {
@@ -200,4 +205,50 @@ test("packaging outbox retries the same operation/request id without changing pa
   assert.equal(mocks.runCalls[0].requestId, "packaging-1");
   assert.equal(mocks.runCalls[0].quantity, 20);
   assert.deepEqual(mocks.deleted, ["packaging-1"]);
+});
+
+test("confirmed Sheet write remains pending if Firestore history reconciliation fails", () => {
+  const context = createRuntime();
+  const mocks = installProcessMocks(context, {
+    existing: { state: "done", response: { success: true, results: [{ success: true }] } },
+    reconcileError: new Error("Firestore temporarily unavailable"),
+  });
+  const stats = context.processPendingSheetSyncJobs_();
+  assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 0, deferred: 1 });
+  assert.equal(mocks.deleted.length, 0);
+  assert.equal(mocks.runCalls.length, 0);
+  assert.equal(mocks.marked[0].state, "pending");
+  assert.equal(mocks.reconciled.length, 1);
+});
+
+test("confirmed Sheet rows reconcile to Firestore before cleanup", () => {
+  const context = createRuntime();
+  const raw = job();
+  raw.fields.readingsJson = { stringValue: JSON.stringify([{ tankId: "10", batchNumber: "1593", notes: "הורדת שמרים" }]) };
+  let commit;
+  context.sheetSyncFetch_ = (_url, request) => {
+    commit = JSON.parse(request.payload);
+    return { getResponseCode: () => 200, getContentText: () => "{}" };
+  };
+  context.sheetSyncProjectId_ = () => "test";
+  const result = { success: true, results: [{
+    success: true, tankId: "10", result: {
+      date: "14/10/2026", time: "10:42", notes: "הורדת שמרים",
+      temperature: 4.1, pressure: 1.2,
+    },
+  }] };
+  context.sheetSyncReconcileMeasurements_(raw, result);
+  assert.equal(commit.writes.length, 1);
+  assert.match(commit.writes[0].update.name, /brews\/1593\/measurements\/2026-10-14_1042$/);
+  assert.equal(commit.writes[0].update.fields.notes.stringValue, "הורדת שמרים");
+  assert.equal(commit.writes[0].update.fields.temp.doubleValue, 4.1);
+});
+
+test("incomplete Sheet confirmation cannot erase a pending recovery job", () => {
+  const context = createRuntime();
+  const raw = job();
+  raw.fields.readingsJson = { stringValue: JSON.stringify([{ tankId: "10", batchNumber: "1593", notes: "הורדת שמרים" }]) };
+  assert.throws(() => context.sheetSyncReconcileMeasurements_(raw, {
+    success: true, results: [{ success: true, tankId: "10" }],
+  }), /missing confirmed tank row/);
 });
