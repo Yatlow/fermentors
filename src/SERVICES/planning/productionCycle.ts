@@ -408,7 +408,16 @@ export function validateProduction(
     if (!cycleLiters) return `מיכל ${tankLabel}: חסר נפח מחזור לחישוב האריזה`;
     if (used.get(cycleKey)! > cycleLiters + 0.01)
       return `מיכל ${tankLabel}: הכמות המתוכננת גדולה מהנפח הזמין במחזור`;
-    if (r.emptyTank && cycleLiters - used.get(cycleKey)! >= 20)
+    // For the current physical batch, an explicit planned emptying is an
+    // operational decision, not a claim that estimated liters exactly match
+    // packed units. Beer may be lost to shrinkage or discarded at emptying.
+    // Still reject plans that exceed available liters, and retain the strict
+    // residual-volume rule for every future canonical cycle.
+    const currentPhysicalBatch = !!t && !!r.batchNumber &&
+      normalizedBatch(t.batch) !== "" &&
+      normalizedBatch(r.batchNumber) === normalizedBatch(t.batch) &&
+      !linkedBrewId;
+    if (r.emptyTank && !currentPhysicalBatch && cycleLiters - used.get(cycleKey)! >= 20)
       return `מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
   }
   return null;
