@@ -413,10 +413,11 @@ export function validateProduction(
     // packed units. Beer may be lost to shrinkage or discarded at emptying.
     // Still reject plans that exceed available liters, and retain the strict
     // residual-volume rule for every future canonical cycle.
-    const currentPhysicalBatch = !!t && !!r.batchNumber &&
-      normalizedBatch(t.batch) !== "" &&
-      normalizedBatch(r.batchNumber) === normalizedBatch(t.batch) &&
-      !linkedBrewId;
+    const physicalBatchIdentity = normalizedBatch(r.batchNumber || linkedBrew?.batchNumber);
+    const currentPhysicalBatch = !!t &&
+      physicalBatchIdentity !== "" &&
+      normalizedBatch(t.batch) === physicalBatchIdentity &&
+      (!linkedBrew || normalizedBatch(linkedBrew.batchNumber) === physicalBatchIdentity);
     if (r.emptyTank && !currentPhysicalBatch && cycleLiters - used.get(cycleKey)! >= 20)
       return `מיכל ${tankLabel}: לא ניתן לסמן סיום — נשארת כמות שניתנת לאריזה מהמחזור`;
   }
