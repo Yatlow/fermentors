@@ -223,3 +223,38 @@ test("canonical-linked current physical batch can plan emptying with process los
   const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
   assert.equal(validateProduction([plan], settings, [tank], actuals, "2026-10-14"), null);
 });
+
+test("legacy current physical emptying without batch snapshot does not block next-week brew assignment", () => {
+  const old = week();
+  old.packaging = [
+    { id: "completed", productId: "pils-kegs", quantity: 70, tankId: "tank15", tankNumber: "15", date: "2026-10-12" },
+    { id: "finished", productId: "pils-crates", quantity: 250, tankId: "tank15", tankNumber: "15", date: "2026-10-14", emptyTank: true },
+  ];
+  const future = { ...week(), id: "2026-10-18", brews: [{ id: "new-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3200 }], packaging: [] };
+  const actuals = [
+    { id: "kegs", date: "2026-10-12", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "kegs", quantity: 70 },
+    { id: "crates", date: "2026-10-14", tankNumber: "15", batchNumber: "1600", beerStyle: "Pils", packagingType: "bottles", quantity: 250 },
+  ] as Actual[];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2100, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([old, future], settings, [tank], actuals, "2026-10-14"), null);
+});
+
+test("historical canonical current brew without batch number can end with process loss", () => {
+  const old = week();
+  old.brews = [{ id: "old-current", tankId: "tank15", style: "Pils", date: "2026-09-01", liters: 3700 }];
+  old.packaging = [{ id: "finish", productId: "pils-crates", quantity: 250, tankId: "tank15", tankNumber: "15", brewId: "old-current", date: "2026-10-14", emptyTank: true }];
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2100, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([old], settings, [tank], [], "2026-10-14"), null);
+});
+
+test("future canonical cycle without batch number still rejects leftover volume", () => {
+  const current = week();
+  const future = { ...week(), id: "2026-10-18", brews: [{ id: "future", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000 }], packaging: [
+    { id: "future-finish", productId: "pils-kegs", quantity: 100, tankId: "tank15", tankNumber: "15", brewId: "future", date: "2026-11-11", emptyTank: true },
+  ] };
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1600", brewed: "2026-09-01", ready: "2026-10-01", liters: 2100, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.match(validateProduction([current, future], settings, [tank], [], "2026-10-14") ?? "", /לא ניתן לסמן סיום/);
+});
