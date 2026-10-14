@@ -258,3 +258,25 @@ test("future canonical cycle without batch number still rejects leftover volume"
   const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
   assert.match(validateProduction([current, future], settings, [tank], [], "2026-10-14") ?? "", /לא ניתן לסמן סיום/);
 });
+
+test("empty dirty tanks 15 and 16 release next week while tank 10 uses planned emptying", () => {
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  const plan = week();
+  plan.packaging = [{
+    id: "finish-10", productId: "pils-crates", quantity: 250,
+    tankId: "tank10", tankNumber: "10", batchNumber: "1608",
+    date: "2026-10-15", emptyTank: true,
+  }];
+  const tanks = [
+    { id: "tank10", number: "10", style: "Pils", batch: "1608", brewed: "2026-09-01", ready: "2026-10-01", liters: 1900, cold: true },
+  ];
+  const sources = [
+    { id: "tank10", tankNumber: "10", batchNumber: "1608", beerStyle: "Pils", action: 1 },
+    { id: "tank15", tankNumber: "15", batchNumber: "1609", beerStyle: "Pils", action: 3 },
+    { id: "tank16", tankNumber: "16", batchNumber: "1607", beerStyle: "IPA", action: 3 },
+  ];
+  const releases = tankReleases(sources, tanks, [plan], settings, [], "2026-10-14");
+  assert.equal(releases.find((release) => release.tankId === "tank10")?.date, "2026-10-19");
+  assert.equal(releases.find((release) => release.tankId === "tank15")?.date, "2026-10-14");
+  assert.equal(releases.find((release) => release.tankId === "tank16")?.date, "2026-10-14");
+});
