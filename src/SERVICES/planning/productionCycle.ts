@@ -85,7 +85,7 @@ export function brewLitersForSize(style: string, size: BrewSizeLabel): number {
 }
 
 function isReadyForBrew(source: TankSource) {
-  return Number(source.action) === 0 ||
+  return [0, 3, 4, 5].includes(Number(source.action)) ||
     source.stage?.name === "מחכה לבישול" ||
     source.stage?.className === "stage-waiting" ||
     source.tankStatus === true ||
