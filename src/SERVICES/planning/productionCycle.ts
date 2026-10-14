@@ -484,7 +484,7 @@ export function validateBrewReleases(
       ? addDays(release.emptyDate, 1)
       : release?.date;
     if (!requiredReleaseDate || b.date < requiredReleaseDate)
-      return `בישול ${b.style}: תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה`;
+      return `בישול ${b.style} במיכל ${String(source?.tankNumber ?? tank?.number ?? b.tankId)} (${b.date}): תוכנית הריקון עדיין לא משחררת את המיכל בשבוע הזה. שחרור מחושב: ${String(release?.date ?? "אין")}; ריקון: ${String(release?.emptyDate ?? "אין")}; מצב: ${String(source?.action ?? "לא ידוע")}; סיבה: ${release?.reason ?? "לא נמצאו נתוני שחרור"}`;
   }
   return null;
 }
