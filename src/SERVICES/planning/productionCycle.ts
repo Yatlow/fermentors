@@ -317,8 +317,11 @@ export function validateProduction(
     // A packaging decision for the batch physically in the tank must not
     // inherit a future planned brew merely because it shares tank and style.
     const physicalTank = tanks.find((tank) =>
-      tank.id === r.tankId ||
-      (!!r.tankNumber && String(tank.number) === String(r.tankNumber))
+      !tank.id.startsWith("planned:") &&
+      (tank.id === r.tankId ||
+        (!!r.tankNumber && String(tank.number) === String(r.tankNumber))) &&
+      !!normalizedBatch(r.batchNumber) &&
+      normalizedBatch(tank.batch) === normalizedBatch(r.batchNumber)
     );
     const belongsToPhysicalBatch = !!physicalTank &&
       !!r.batchNumber &&
