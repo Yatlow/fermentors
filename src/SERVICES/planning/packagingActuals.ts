@@ -83,14 +83,7 @@ export function plansAfterActualPackagingCompletion(
       packaging: week.packaging.map((run, index) => {
         const source = sourceForRun(run, sources);
         const actualQuantity = actualCompletedForRun(week, run, index, completed);
-        // Physical closure applies only to the matching current batch.
-        // Never allow today's tank status to complete a future canonical brew.
-        if (run.brewId || !run.batchNumber || !source?.batchNumber ||
-            String(run.batchNumber).replace("#", "").trim() !==
-              String(source.batchNumber).replace("#", "").trim() ||
-            !sourceShowsTankClosed(run, source)) return run;
-        // A closed batch has no pending packaging. Preserve only real
-        // executed units in this derived view, never invent production.
+        if (!sourceShowsTankClosed(run, source) || actualQuantity <= 0) return run;
         return {
           ...run,
           quantity: actualQuantity,
