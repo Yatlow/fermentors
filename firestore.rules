@@ -136,7 +136,8 @@ service cloud.firestore {
       allow create: if isApprovedUser()
         && request.resource.data.keys().hasOnly([
           'requestId', 'action', 'ownerUid', 'ownerEmail', 'state',
-          'attempts', 'readingsJson', 'payloadJson', 'createdAt'
+          'attempts', 'readingsJson', 'payloadJson', 'createdAt',
+          'tankNumber', 'batchNumber', 'tankNumbers', 'operationType'
         ])
         && request.resource.data.requestId == requestId
         && request.resource.data.ownerUid == request.auth.uid
@@ -144,6 +145,12 @@ service cloud.firestore {
         && request.resource.data.state == 'pending'
         && request.resource.data.attempts == 0
         && request.resource.data.createdAt == request.time
+        && (request.resource.data.get('tankNumber', null) == null || request.resource.data.get('tankNumber', null) is string || request.resource.data.get('tankNumber', null) is number)
+        && (request.resource.data.get('batchNumber', null) == null || request.resource.data.get('batchNumber', null) is string || request.resource.data.get('batchNumber', null) is number)
+        && request.resource.data.get('operationType', '') is string
+        && request.resource.data.get('operationType', '').size() <= 120
+        && request.resource.data.get('tankNumbers', []) is list
+        && request.resource.data.get('tankNumbers', []).size() <= 25
         && (
           (
             request.resource.data.action == 'addFermentationMeasurements'
