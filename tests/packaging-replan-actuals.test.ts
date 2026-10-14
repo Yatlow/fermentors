@@ -228,7 +228,7 @@ test("legacy current physical emptying without batch snapshot does not block nex
   const old = week();
   old.packaging = [
     { id: "completed", productId: "pils-kegs", quantity: 70, tankId: "tank15", tankNumber: "15", date: "2026-10-12" },
-    { id: "finished", productId: "pils-crates", quantity: 250, tankId: "tank15", tankNumber: "15", date: "2026-10-14", emptyTank: true },
+    { id: "finished", productId: "pils-crates", quantity: 252, tankId: "tank15", tankNumber: "15", date: "2026-10-14", emptyTank: true },
   ];
   const future = { ...week(), id: "2026-10-18", brews: [{ id: "new-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3200 }], packaging: [] };
   const actuals = [
