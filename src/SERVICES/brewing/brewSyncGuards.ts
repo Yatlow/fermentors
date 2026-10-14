@@ -29,13 +29,15 @@ export function mergeBrewSheetEditDelta(
     const oldFields = baseline.blocks[blockId]?.fields || {};
     const currentFields = previous.blocks[blockId]?.fields || {};
     const fields = { ...currentFields };
+    let blockChanged = false;
     for (const [key, value] of Object.entries(block.fields || {})) {
       if (value !== oldFields[key] && currentFields[key] === oldFields[key]) {
         fields[key] = value;
         changed = true;
+        blockChanged = true;
       }
     }
-    if (changed) blocks[blockId] = { fields };
+    if (blockChanged) blocks[blockId] = { fields };
   }
   return changed ? { ...previous, blocks, updatedAt } : previous;
 }
