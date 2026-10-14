@@ -14,6 +14,7 @@ import { hasStablePlatoForCooling } from "./coolingPlatoStability";
 
 export type Measurement = {
     id?: string | number | null;
+    time?: string | number | null;
     temp?: string | number | null;
     plato?: string | number | null;
     pH?: string | number | null;
