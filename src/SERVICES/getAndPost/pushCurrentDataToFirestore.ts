@@ -1,4 +1,4 @@
-import { doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { doc, runTransaction, serverTimestamp, writeBatch } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import {
     applyOptimisticMeasurementUpdate,
@@ -46,6 +46,7 @@ type ReadingLike = {
 
 export type PushCurrentDataOptions = {
     sheetSyncRequestId?: string;
+    confirmedSheetRequestId?: string;
 };
 
 function hasValue(value: unknown): boolean {
@@ -145,11 +146,75 @@ function optimisticMeasurementFromReading(reading: ReadingLike): Measurement | n
     return hasMeasurementValue ? measurement : null;
 }
 
+/**
+ * Only the latest submitted Sheet request for a tank may reconcile a complete
+ * Sheet row. Firestore retries this transaction when a newer report commits
+ * while a delayed response is being processed.
+ */
+async function reconcileConfirmedReadings(
+    readings: ReadingLike[],
+    confirmedRequestId: string,
+): Promise<void> {
+    const rows = readings.map(reading => {
+        const result = asSheetResult(reading.sheetResult);
+        const batchId = hasValue(reading.batchNumber)
+            ? normalizeBatchId(reading.batchNumber as string | number) : "";
+        const measurementId = result && buildMeasurementId(result.date, result.time);
+        if (!result || !batchId || !measurementId) {
+            throw new Error("Cannot reconcile Sheet result: invalid batch, date or time");
+        }
+        return { reading, result, batchId, measurementId,
+            tankRef: doc(db, "fermentors", reading.tankId) };
+    });
+    let applied: Array<{ batchId: string; measurement: Measurement }> = [];
+    await runTransaction(db, async transaction => {
+        const tanks = await Promise.all(rows.map(row => transaction.get(row.tankRef)));
+        const nextApplied: typeof applied = [];
+        rows.forEach((row, index) => {
+            const latestId = String(tanks[index].data()?.latestSheetSyncRequestId ?? "");
+            if (latestId && latestId !== confirmedRequestId) return;
+            const measurement = {
+                date: String(row.result.date ?? ""),
+                time: String(row.result.time ?? ""),
+                temp: toNumberOrNull(row.result.temperature),
+                plato: toNumberOrNull(row.result.sugar),
+                pressure: toNumberOrNull(row.result.pressure),
+                pH: toNumberOrNull(row.result.pH),
+                carbonation: toNumberOrNull(row.result.carbonation),
+                notes: String(row.result.notes ?? "").trim(),
+            };
+            const currentData = Object.fromEntries(
+                Object.entries(measurement)
+                    .filter(([key, value]) => key !== "date" && key !== "time" && value !== null && value !== ""),
+            );
+            transaction.set(doc(db, "brews", row.batchId, "measurements", row.measurementId),
+                measurement, { merge: true });
+            if (Object.keys(currentData).length) {
+                transaction.set(row.tankRef, {
+                    currentData,
+                    lastChangeSource: "APP",
+                    measurementsRevision: crypto.randomUUID(),
+                }, { merge: true });
+            }
+            nextApplied.push({
+                batchId: row.batchId,
+                measurement: { id: row.measurementId, ...measurement },
+            });
+        });
+        applied = nextApplied;
+    });
+    applied.forEach(({ batchId, measurement }) => upsertMeasurementInCache(batchId, measurement));
+}
+
 export async function pushCurrentDataToFirestore(
     readings: ReadingLike[],
     options: PushCurrentDataOptions = {}
 ) {
     if (readings.length === 0) return;
+    if (options.confirmedSheetRequestId) {
+        await reconcileConfirmedReadings(readings, options.confirmedSheetRequestId);
+        return;
+    }
 
     const firestoreBatch = writeBatch(db);
     let writeCount = 0;
@@ -197,6 +262,9 @@ export async function pushCurrentDataToFirestore(
                 currentData,
                 lastChangeSource: "APP",
                 ...(revision ? { measurementsRevision: revision } : {}),
+                ...(options.sheetSyncRequestId
+                    ? { latestSheetSyncRequestId: options.sheetSyncRequestId }
+                    : {}),
             }, { merge: true });
             writeCount += 1;
         }
