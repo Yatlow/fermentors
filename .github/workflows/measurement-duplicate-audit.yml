@@ -44,7 +44,7 @@ jobs:
       - name: Check out read-only audit implementation
         uses: actions/checkout@v4
         with:
-          ref: 5289034405118210f3c1eedc8924e8a0186c92b7
+          ref: 9677d96e4f4d83c3ba1d4b58eae8d51cabb7ad3b
           persist-credentials: false
 
       - name: Install dependencies
@@ -54,6 +54,9 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+
+      - name: Verify measurement audit normalization
+        run: node scripts/audit-measurement-duplicates.mjs --self-test
 
       - name: Run bounded read-only measurement audit
         env:
@@ -81,9 +84,10 @@ jobs:
           node --input-type=module <<'JS'
           import fs from "node:fs";
           const report = JSON.parse(fs.readFileSync("measurement-audit.json", "utf8"));
-          const hit = report.results.filter(row => row.duplicateDays > 0);
+          const hit = report.results.filter(row => row.duplicateInstants > 0);
           const surplus = hit.reduce((sum, row) => sum + row.duplicateDocuments, 0);
           const conflict = hit.reduce((sum, row) => sum + row.duplicates.filter(d => d.differingFields.length > 0).length, 0);
+          const scanned = report.results.map(row => row.batch + " (" + row.documentsRead + " docs)").join(", ");
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
             "## Read-only measurement audit\n\n" +
             "- Scanned brews: **" + report.scannedBrews + "** / " + (report.totalBrews ?? "selected") + "\n" +
@@ -93,7 +97,8 @@ jobs:
             "- Next offset: **" + (report.nextOffset ?? "none; complete") + "**\n\n" +
             "Download the JSON artifact below to review exact batch IDs and field conflicts. **No Firestore writes or deletions.**\n");
           console.log("Affected brews: " + hit.map(x => x.batch).join(", "));
-          console.log("Extra documents:", surplus, "Conflict days:", conflict);
+          console.log("Batches and documents:", scanned);
+          console.log("Extra documents:", surplus, "Conflicting instants:", conflict);
           JS
 
       - name: Upload detailed JSON report
