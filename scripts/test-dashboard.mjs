@@ -16,6 +16,8 @@ const tests = [
   "cellaring-additional-forecast",
   "brew-progress-display",
   "brew-validation-progress",
+  "brew-sync-guards",
+  "cellaring-action-state-regression",
 ];
 
 try {
