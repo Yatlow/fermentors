@@ -13,6 +13,7 @@ import {
 } from "../../SERVICES/cellering/scheduledCellarRecommendations";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import { getMeasurementsByBatch } from "../../SERVICES/getAndPost/gettAllDataByBatch";
+import { mergeOptimisticMeasurementIntoHistory } from "../../SERVICES/getAndPost/measurementHistoryModel";
 import { updatePackagingInfo } from "../../SERVICES/cellering/updatePackagingInfo";
 import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasurementWarnings";
 import { resolveFinalPackagingTotal } from "../../SERVICES/cellering/resolveFinalPackagingTotal";
@@ -221,46 +222,14 @@ export default function SendMessurmentsHeader({
         measurements: Measurement[],
         newReading: Measurement
     ): Measurement[] {
-        const newId = newReading.id ?? buildMeasurementId();
-
-        const newDateKey = String(newId).split("_")[0];
-
-        const sameDayMeasurements = measurements.filter((m) =>
-            String(m.id ?? "").split("_")[0] === newDateKey
-        );
-
-        const previousToday = sameDayMeasurements
-            .slice()
-            .sort((a, b) =>
-                String(a.id).localeCompare(String(b.id))
-            )
-            .at(-1);
-
-        const mergedReading: Measurement = {
-            ...(previousToday ?? {}),
+        // Sheet rows and Firestore documents now have one canonical record per
+        // day. Reuse the same history model as the listener/optimistic cache so
+        // appending notes never drops earlier same-day measurements or actions.
+        return mergeOptimisticMeasurementIntoHistory(measurements, {
             ...newReading,
-            id: newId,
-        };
-
-        // undefined = לא נשלח → שומרים את הערך הקודם
-        if (previousToday) {
-            (Object.keys(previousToday) as (keyof Measurement)[]).forEach(
-                (key) => {
-                    if (mergedReading[key] === undefined) {
-                        mergedReading[key] = previousToday[key];
-                    }
-                }
-            );
-        }
-
-        const withoutToday = measurements.filter(
-            (m) => String(m.id ?? "").split("_")[0] !== newDateKey
-        );
-
-        return [...withoutToday, mergedReading].sort((a, b) =>
-            String(a.id).localeCompare(String(b.id))
-        );
-    };
+            id: newReading.id ?? buildMeasurementId(),
+        });
+    }
 
     async function resolveScheduledActionsForSuccessfulReadings(
         readings: ReadingToSend[],
