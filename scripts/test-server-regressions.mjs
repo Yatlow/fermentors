@@ -106,7 +106,7 @@ const outboxReconcile = loadAppsScript("server/sheetSyncOutbox.js", {
   outboxReconcile.sheetSyncGetFermentor_ = () => ({
     name: "projects/test-project/databases/(default)/documents/fermentors/4",
     updateTime: "2026-10-06T07:30:00Z",
-    fields: { batchNumber: { stringValue: "1600" } },
+    fields: { batchNumber: "1600" },
   });
   outboxReconcile.sheetSyncFetch_ = (_url, options) => {
     submitted = JSON.parse(options.payload);
