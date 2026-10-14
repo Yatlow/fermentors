@@ -183,9 +183,15 @@ export function tankReleases(
       ? [...cycles].reverse().find((cycle) =>
           normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) === sourceBatch)
       : undefined;
-    const canonicalCurrent = matchingBatch ?? (!sourceBatch && sourceBrewDate
-      ? [...cycles].reverse().find((cycle) => cycle.brewDate === sourceBrewDate)
-      : undefined);
+    // Historical canonical brews may predate assignment of a batch number.
+    // Match their exact brew date only when the cycle has no conflicting batch.
+    const matchingDate = sourceBrewDate
+      ? [...cycles].reverse().find((cycle) =>
+          cycle.brewDate === sourceBrewDate &&
+          (!normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) ||
+            normalizedBatch(cycle.batchNumber ?? cycle.plannedBatchNumber) === sourceBatch))
+      : undefined;
+    const canonicalCurrent = matchingBatch ?? matchingDate;
     if (canonicalCurrent) {
       // Current physical cycles can predate canonical brew identity. In that
       // transition case their packaging rows are intentionally legacy rows.
