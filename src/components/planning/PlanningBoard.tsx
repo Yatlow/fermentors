@@ -322,10 +322,38 @@ export default function PlanningBoard({
     // must not be revalidated against a projected future tank with the same
     // number. Keep validating this week and every future week's packaging;
     // validateBrewReleases below still checks current-cycle release.
-    const productionScope = (weeks: WeekPlan[]) =>
-      confirmBrews && !packagingWasEdited
-        ? weeks.filter((week) => week.id >= effectiveNext.id)
-        : weeks;
+    const productionScope = (weeks: WeekPlan[]) => {
+      if (confirmBrews && !packagingWasEdited)
+        return weeks.filter((week) => week.id >= effectiveNext.id);
+      if (!packagingWasEdited) return weeks;
+      // Replanning one physical batch must not revalidate an unrelated,
+      // unchanged legacy packaging row against today's (possibly empty) tank.
+      // Preserve all rows for persistence and release projection; only narrow
+      // production validation to edited tanks and canonical future cycles.
+      const before = new Map(current.packaging.map((run) => [run.id, run]));
+      const after = new Map(effectiveNext.packaging.map((run) => [run.id, run]));
+      const changed = [
+        ...current.packaging.filter((run) =>
+          JSON.stringify(run) !== JSON.stringify(after.get(run.id))),
+        ...effectiveNext.packaging.filter((run) =>
+          JSON.stringify(run) !== JSON.stringify(before.get(run.id))),
+      ];
+      const touched = new Set(changed.flatMap((run) =>
+        [run.tankId, run.tankNumber != null ? String(run.tankNumber) : undefined]
+          .filter((value): value is string => !!value)));
+      return weeks.map((week) => ({
+        ...week,
+        packaging: week.packaging.filter((run) => {
+          const linked = resolvePackagingBrewId(run as PackagingPlan, weeks);
+          if (linked) return true;
+          const sameTank = !!run.tankId && touched.has(run.tankId) ||
+            run.tankNumber != null && touched.has(String(run.tankNumber));
+          if (sameTank) return true;
+          // Unrelated rows from other weeks are not being edited either.
+          return false;
+        }),
+      }));
+    };
     let production = validateProduction(productionScope(datedOnly), settings, validationTanks, actuals, today);
     if (production?.includes("לפני מועד ההבשלה")) {
       if (confirmBrews && !packagingWasEdited) {
