@@ -26,6 +26,7 @@ import {
 } from "../../SERVICES/planning/productionCycle";
 import { validatePlanningWeek } from "../../SERVICES/planning/planningValidation";
 import { resolvePackagingBrewId, type PackagingPlan } from "../../SERVICES/planning/planIdentity";
+import { pendingPackagingDecisions } from "../../SERVICES/planning/packagingActuals";
 import { displayStyle, weekIsClosed } from "../../SERVICES/planning/planningPresentation";
 import { projectTankSchedules } from "../../SERVICES/planning/tankScheduleProjection";
 import { tankCanHostCycle } from "../../SERVICES/planning/tankSchedule";
@@ -197,7 +198,7 @@ export default function PlanningBoard({
     }
     return productLabel(run.productId);
   };
-  const packagingSummary = current.packaging.map((run) =>
+  const packagingSummary = pendingPackagingDecisions(current, settings.products, actuals, brews).map((run) =>
     `${packagingLabel(run)} · ${Math.round(run.quantity)} · מיכל ${tanks.find((tank) => tank.id === run.tankId)?.number ?? run.tankNumber ?? "?"}${run.date ? ` · ${shortDate(run.date)}` : " · טרם שובץ ליום"}`,
   );
 
@@ -630,7 +631,7 @@ export default function PlanningBoard({
 
       <article className="bp-daily-set is-packaging">
         <h3>אריזות · יומי</h3>
-        <div><b>החלטות השבוע</b>{packagingSummary.length ? packagingSummary.map((item, index) => <span key={index}>{item}</span>) : <small>לא נקבעו אריזות</small>}</div>
+        <div><b>יתרות לשיבוץ וביצוע</b>{packagingSummary.length ? packagingSummary.map((item, index) => <span key={index}>{item}</span>) : <small>אין אריזות פתוחות השבוע</small>}</div>
       </article>
     </div>
 
@@ -638,6 +639,8 @@ export default function PlanningBoard({
       settings={settings}
       plans={plans}
       tanks={tanks}
+      actuals={actuals}
+      sources={brews}
       week={week}
       onAssignPackagingToDate={assignSelectedPackagingToDate}
       onReturnPackagingToWaiting={returnSelectedPackagingToWaiting}
