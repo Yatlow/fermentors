@@ -247,6 +247,53 @@ function runManualNightFermentorSync_() {
 }
 
 
+// One-time post-migration rebuild. Poll at most once per 30 minutes for one week,
+// then stop. Once successful, ScriptProperties prevents any further polling/reads.
+function maybeRebuildStyleAveragesAfterDailyMigration_() {
+  const prefix = "daily_measurement_migration_20261014_";
+  const properties = PropertiesService.getScriptProperties();
+  if (properties.getProperty(prefix + "averagesDone") === "1") {
+    return calculateWeeklyStyleAverages(false);
+  }
+
+  const now = Date.now();
+  let first = Number(properties.getProperty(prefix + "firstCheck") || 0);
+  if (!first) {
+    first = now;
+    properties.setProperty(prefix + "firstCheck", String(first));
+  }
+  if (now - first > 7 * 24 * 60 * 60 * 1000) {
+    return calculateWeeklyStyleAverages(false);
+  }
+  const lastCheck = Number(properties.getProperty(prefix + "lastCheck") || 0);
+  if (lastCheck && now - lastCheck < 30 * 60 * 1000) {
+    return calculateWeeklyStyleAverages(false);
+  }
+  properties.setProperty(prefix + "lastCheck", String(now));
+
+  const markerUrl = "https://firestore.googleapis.com/v1/projects/" +
+    FIREBASE_PROJECT_ID + "/databases/(default)/documents/maintenanceRequests/daily-measurements-2026-10-14";
+  const marker = getFirestoreDocument(markerUrl);
+  if (!marker || !marker.fields || !marker.fields.status ||
+      marker.fields.status.stringValue !== "completed") {
+    return calculateWeeklyStyleAverages(false);
+  }
+
+  // Expensive rebuild has durable once-per-day failure backoff.
+  const previousAttempt = Number(properties.getProperty(prefix + "averagesAttempt") || 0);
+  if (previousAttempt && now - previousAttempt < 24 * 60 * 60 * 1000) {
+    return calculateWeeklyStyleAverages(false);
+  }
+  properties.setProperty(prefix + "averagesAttempt", String(now));
+  const result = calculateWeeklyStyleAverages(true);
+  if (!result || result.skipped) {
+    throw new Error("Forced style-average rebuild was not confirmed");
+  }
+  properties.setProperty(prefix + "averagesDone", "1");
+  Logger.log("DAILY MEASUREMENT MIGRATION style averages rebuilt: " + result.stylesUpdated);
+  return result;
+}
+
 function runAsyncMaintenance_() {
   // Self-migrate after deploy. The existing v3 trigger will execute this new
   // code once, remove the old standalone runFermentorCycle trigger, and leave
@@ -342,7 +389,7 @@ function runAsyncMaintenance_() {
   }
 
   try {
-    styleModels = calculateWeeklyStyleAverages(false);
+    styleModels = maybeRebuildStyleAveragesAfterDailyMigration_();
   } catch (error) {
     console.log("Weekly style averages maintenance failed: " + error.message);
   }
