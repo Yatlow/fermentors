@@ -159,7 +159,6 @@ export async function pushCurrentDataToFirestore(
 
     const firestoreBatch = writeBatch(db);
     let writeCount = 0;
-    let hasAuthoritativeSheetResult = false;
     const cacheUpdates: Array<{
         batchId: string;
         measurement: Measurement;
@@ -171,7 +170,6 @@ export async function pushCurrentDataToFirestore(
 
     readings.forEach((reading) => {
         const sheetResult = asSheetResult(reading.sheetResult);
-        if (sheetResult) hasAuthoritativeSheetResult = true;
 
         const currentData: Record<string, unknown> = {};
         const revision = sheetResult && hasValue(reading.batchNumber) && buildMeasurementId(sheetResult.date, sheetResult.time)
@@ -315,20 +313,7 @@ export async function pushCurrentDataToFirestore(
         });
     };
 
-    // Before the Sheet request, callers use this function for the optimistic
-    // realtime dashboard update. That write should still be awaited so the
-    // dashboard is consistent before the authoritative response can arrive.
-    //
-    // After Apps Script has already confirmed the Sheet write, sheetResult is
-    // present. At that point this second Firestore write is reconciliation only:
-    // do it in the background so the UI can close immediately after Sheet
-    // confirmation instead of waiting for another network round trip.
-    if (hasAuthoritativeSheetResult) {
-        void commitAndRefreshCache().catch((error) => {
-            console.error("Background authoritative Firestore reconciliation failed:", error);
-        });
-        return;
-    }
-
+    // Do not swallow an authoritative reconciliation failure. Callers must
+    // only clear their durable recovery job after this commit succeeds.
     await commitAndRefreshCache();
 }

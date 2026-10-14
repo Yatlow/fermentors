@@ -179,7 +179,9 @@ async function reconcileConfirmedSheetResults(
         })
         .filter((reading): reading is ReadingToSend & { sheetResult: unknown } => Boolean(reading));
 
-    if (confirmed.length === 0) return;
+    if (confirmed.length !== readings.length) {
+        throw new Error("Sheet confirmed without a complete authoritative measurement result");
+    }
     await pushCurrentDataToFirestore(confirmed);
 }
 
@@ -275,13 +277,15 @@ export async function writeReadingsToSheets(
                     return;
                 }
 
-                // A confirmed Sheet write must not be reported as failed if the
-                // secondary Firestore reconciliation encounters an error.
+                // Never acknowledge the recovery job until authoritative
+                // Firestore history has actually been committed.
                 try {
                     await reconcileConfirmedSheetResults(readings, results);
                 } catch (error) {
                     reportSheetSyncDiagnostic(requestId, "post-confirmation-reconcile", error);
                     console.error("Sheet write confirmed but Firestore reconciliation failed:", error);
+                    showBackgroundSheetWarning(readings);
+                    return;
                 }
                 await clearSheetSyncJob(requestId);
             })

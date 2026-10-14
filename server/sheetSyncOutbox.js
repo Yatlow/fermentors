@@ -214,6 +214,68 @@ function sheetSyncResponseSucceeded_(response) {
   });
 }
 
+// Reconcile the exact confirmed Sheet rows into Firestore before deleting the
+// durable job. This also covers a lost browser response and a closed Safari tab.
+function sheetSyncReconcileMeasurements_(jobDocument, response) {
+  const action = String(sheetSyncField_(jobDocument, "action") || "");
+  if (action !== "addFermentationMeasurements") return;
+  const readings = JSON.parse(String(sheetSyncField_(jobDocument, "readingsJson") || "[]"));
+  const results = response && response.results;
+  if (!Array.isArray(results) || results.length !== readings.length) {
+    throw new Error("Cannot reconcile Sheet results: incomplete response");
+  }
+  const writes = [];
+  results.forEach(function (entry) {
+    const original = readings.find(function (reading) {
+      return String(reading.tankId) === String(entry && entry.tankId);
+    });
+    const result = entry && entry.result;
+    if (!original || !entry.success || !result) {
+      throw new Error("Cannot reconcile Sheet results: missing confirmed tank row");
+    }
+    const date = String(result.date || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const time = String(result.time || "").match(/^(\d{1,2}):(\d{2})$/);
+    const batch = sheetSyncNormalizeBatch_(original.batchNumber);
+    if (!date || !time || !batch || !/^\d+$/.test(batch)) {
+      throw new Error("Cannot reconcile Sheet results: invalid date, time or batch");
+    }
+    const id = date[3] + "-" + date[2].padStart(2, "0") + "-" +
+      date[1].padStart(2, "0") + "_" + time[1].padStart(2, "0") + time[2];
+    const numberValue = function (value) {
+      if (value === null || value === undefined || String(value).trim() === "") return { nullValue: null };
+      const normalized = String(value).replace(",", ".").replace(/[^0-9.+-]/g, "");
+      const n = Number(normalized);
+      return Number.isFinite(n) ? { doubleValue: n } : { nullValue: null };
+    };
+    const fields = {
+      date: { stringValue: String(result.date) },
+      time: { stringValue: String(result.time) },
+      temp: numberValue(result.temperature),
+      plato: numberValue(result.sugar),
+      pressure: numberValue(result.pressure),
+      pH: numberValue(result.pH),
+      carbonation: numberValue(result.carbonation),
+      notes: { stringValue: String(result.notes || "").trim() }
+    };
+    const name = "projects/" + sheetSyncProjectId_() +
+      "/databases/(default)/documents/brews/" + batch + "/measurements/" + id;
+    writes.push({ update: { name: name, fields: fields }, updateMask: {
+      fieldPaths: Object.keys(fields)
+    } });
+  });
+  // Firestore commits all rows atomically. A failed response keeps the job
+  // pending, so maintenance can retry without duplicating Sheet writes.
+  const responseCommit = sheetSyncFetch_(sheetSyncDocumentsUrl_(":commit"), {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ writes: writes })
+  });
+  if (responseCommit.getResponseCode() < 200 || responseCommit.getResponseCode() >= 300) {
+    throw new Error("Firestore history reconciliation failed: HTTP " + responseCommit.getResponseCode() +
+      " " + responseCommit.getContentText().slice(0, 400));
+  }
+}
+
 function sheetSyncDeleteJob_(jobId) {
   const response = sheetSyncFetch_(
     sheetSyncDocumentsUrl_("/sheetSyncJobs/" + encodeURIComponent(jobId)),
@@ -280,6 +342,7 @@ function processPendingSheetSyncJobs_() {
 
       if (existing && existing.state === "done" && existing.response) {
         if (sheetSyncResponseSucceeded_(existing.response)) {
+          sheetSyncReconcileMeasurements_(jobDocument, existing.response);
           sheetSyncDeleteJob_(jobId);
           stats.completed++;
         } else {
@@ -314,6 +377,7 @@ function processPendingSheetSyncJobs_() {
         return;
       }
 
+      sheetSyncReconcileMeasurements_(jobDocument, result);
       sheetSyncDeleteJob_(jobId);
       stats.completed++;
     } catch (error) {
