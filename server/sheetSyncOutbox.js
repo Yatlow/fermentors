@@ -221,6 +221,7 @@ function sheetSyncReconcileMeasurements_(jobDocument, response) {
   if (action !== "addFermentationMeasurements") return;
   const readings = JSON.parse(String(sheetSyncField_(jobDocument, "readingsJson") || "[]"));
   const results = response && response.results;
+  const requestId = String(sheetSyncField_(jobDocument, "requestId") || sheetSyncDocumentId_(jobDocument));
   if (!Array.isArray(results) || results.length !== readings.length) {
     throw new Error("Cannot reconcile Sheet results: incomplete response");
   }
@@ -233,6 +234,23 @@ function sheetSyncReconcileMeasurements_(jobDocument, response) {
     if (!original || !entry.success || !result) {
       throw new Error("Cannot reconcile Sheet results: missing confirmed tank row");
     }
+    // Avoid overwriting newer optimistic reports with an older complete row.
+    // Verify the fermentor's Firestore updateTime in the same atomic commit;
+    // any racing submission makes the commit retry on the next outbox cycle.
+    const tank = sheetSyncGetFermentor_(original.tankId);
+    if (!tank) throw new Error("Cannot reconcile Sheet result: missing tank " + original.tankId);
+    const liveBatch = sheetSyncNormalizeBatch_(sheetSyncField_(tank, "batchNumber"));
+    if (liveBatch && liveBatch !== sheetSyncNormalizeBatch_(original.batchNumber)) {
+      const changed = new Error("Tank batch changed before Sheet history reconciliation");
+      changed.sheetSyncTerminal = true;
+      throw changed;
+    }
+    const latestId = String(sheetSyncField_(tank, "latestSheetSyncRequestId") || "");
+    if (latestId && latestId !== requestId) return;
+    if (!tank.name || !tank.updateTime) {
+      throw new Error("Cannot verify tank version for Sheet history reconciliation");
+    }
+    writes.push({ verify: tank.name, currentDocument: { updateTime: tank.updateTime } });
     const date = String(result.date || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     const time = String(result.time || "").match(/^(\d{1,2}):(\d{2})$/);
     const batch = sheetSyncNormalizeBatch_(original.batchNumber);
@@ -264,6 +282,7 @@ function sheetSyncReconcileMeasurements_(jobDocument, response) {
       fieldPaths: Object.keys(fields)
     } });
   });
+  if (!writes.length) return; // Superseded requests are already represented by a newer report.
   // Firestore commits all rows atomically. A failed response keeps the job
   // pending, so maintenance can retry without duplicating Sheet writes.
   const responseCommit = sheetSyncFetch_(sheetSyncDocumentsUrl_(":commit"), {
