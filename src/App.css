@@ -7162,3 +7162,8 @@ b {
     margin: -12px auto -12px !important;
   }
 }
+
+/* Private eighth tab: occupy the last empty slot only when present. */
+@media(max-width:600px){
+  .dashboard-header .views-box .views-item:nth-child(8){grid-column:4!important}
+}
