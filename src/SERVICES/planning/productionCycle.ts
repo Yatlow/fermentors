@@ -350,7 +350,7 @@ export function validateProduction(
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
     const p = settings.products.find((p) => p.id === r.productId);
     const runType = r.nonInventoryType ?? p?.type;
-    if (!linkedBrew && !t) return "חסר מיכל מקור לאריזה";
+    if (!linkedBrew && !t) return `חסר מיכל מקור לאריזה: שבוע ${r.week ?? "לא ידוע"}, תאריך ${r.date}, מיכל ${String(r.tankNumber ?? r.tankId ?? "לא משויך")}, אצווה ${String(r.batchNumber ?? "לא ידועה")}, אריזה ${String(r.id ?? "ללא מזהה")}`;
 
     const projectedCycle = linkedBrewId
       ? projectTankSchedules(plans, settings).get(tankId)?.find((cycle) => cycle.cycleId === linkedBrewId)
