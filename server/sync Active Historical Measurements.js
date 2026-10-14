@@ -14,7 +14,7 @@
 const HISTORICAL_SYNC_REVISION_PREFIX = "historical_measurements_hash_v2:";
 
 function historicalMeasurementDayFromId_(id) {
-  const match = String(id || "").match(/^(\d{4}-\d{2}-\d{2})(?:_\d{4})?$/);
+  const match = String(id || "").match(/^(\d{4}-\d{2}-\d{2})(?:_\d{3,4})?$/);
   return match ? match[1] : null;
 }
 
@@ -55,7 +55,7 @@ function historicalCanonicalIdsFromRows_(rows) {
     const date = parseIsraeliDate(row[0]);
     if (!date) return;
 
-    const measurementId = createMeasurementId(date, row[1]);
+    const measurementId = createDailyMeasurementId(date);
     const day = historicalMeasurementDayFromId_(measurementId);
     if (day) canonicalByDay[day] = measurementId;
   });
@@ -119,23 +119,12 @@ function deleteHistoricalMeasurement_(projectId, batchNumber, measurementId) {
   }
 }
 
+// Legacy deletion used the last Sheet timestamp as the winner. That can erase
+// older readings and distinct cellar notes. Disable it entirely: the full-backup
+// transactional migration owns historic consolidation. New writes use day IDs.
 function dedupeHistoricalMeasurementsForBatch_(projectId, batchNumber, measurementRows) {
-  const canonicalByDay = historicalCanonicalIdsFromRows_(measurementRows);
-  const ids = listHistoricalMeasurementIds_(projectId, batchNumber);
-  let deleted = 0;
-
-  ids.forEach(function (measurementId) {
-    const day = historicalMeasurementDayFromId_(measurementId);
-    if (!day) return;
-    const canonicalId = canonicalByDay[day];
-    if (!canonicalId || canonicalId === measurementId) return;
-
-    deleteHistoricalMeasurement_(projectId, batchNumber, measurementId);
-    deleted++;
-    Logger.log("DELETED duplicate same-day measurement: " + measurementId + " -> keep " + canonicalId);
-  });
-
-  return deleted;
+  Logger.log("SAFE SKIP legacy timestamp-based historical deletion for batch " + batchNumber);
+  return 0;
 }
 
 function touchHistoricalMeasurementRevision_(projectId, fermentorId) {

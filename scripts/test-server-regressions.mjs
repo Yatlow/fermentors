@@ -36,6 +36,9 @@ const measurementIdentity = loadAppsScript("server/batchDataExtractionService.js
   assert.equal(id("9:05"), "2026-10-06_0905");
   assert.equal(id("10:05"), "2026-10-06_1005");
   assert.equal(id("23:59"), "2026-10-06_2359");
+  assert.equal(measurementIdentity.createDailyMeasurementId(date), "2026-10-06", "canonical measurement ID is date only");
+  assert.equal(measurementIdentity.createDailyMeasurementId(new Date(2026, 0, 2)), "2026-01-02");
+
   assert.equal(id(""), "2026-10-06_0000");
 }
 
@@ -59,6 +62,40 @@ const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
   assert.equal(differentTimes.length, 1, "different times on one day must merge");
   assert.equal(differentTimes[0].plato, 8, "oldest measurement wins irrespective of input order");
 
+}
+
+const historyReconcile = loadAppsScript("server/sync Active Historical Measurements.js");
+{
+  assert.equal(historyReconcile.dedupeHistoricalMeasurementsForBatch_("test", "1600", []), 0,
+    "legacy timestamp-based automatic deletes must remain disabled");
+  assert.equal(historyReconcile.historicalMeasurementDayFromId_("2026-10-06"), "2026-10-06");
+  assert.equal(historyReconcile.historicalMeasurementDayFromId_("2026-10-06_627"), "2026-10-06");
+}
+
+const outboxReconcile = loadAppsScript("server/sheetSyncOutbox.js", {
+  FIREBASE_PROJECT_ID: "test-project",
+});
+{
+  let submitted = null;
+  outboxReconcile.sheetSyncField_ = (job, name) => job.fields[name];
+  outboxReconcile.sheetSyncDocumentsUrl_ = () => "mock://firestore";
+  outboxReconcile.sheetSyncProjectId_ = () => "test-project";
+  outboxReconcile.sheetSyncFetch_ = (_url, options) => {
+    submitted = JSON.parse(options.payload);
+    return { getResponseCode: () => 200 };
+  };
+  outboxReconcile.sheetSyncReconcileMeasurements_({
+    fields: {
+      action: "addFermentationMeasurements",
+      readingsJson: JSON.stringify([{ tankId: "4", batchNumber: "1600" }]),
+    },
+  }, { results: [{
+    tankId: "4", success: true,
+    result: { date: "06/10/2026", time: "07:33", temperature: "12.3", notes: "test" },
+  }] });
+  assert.equal(submitted.writes.length, 1);
+  assert.ok(submitted.writes[0].update.name.endsWith("/brews/1600/measurements/2026-10-06"),
+    "outbox must upsert the same daily document, not a timestamped document");
 }
 
 const fermentationNotes = loadAppsScript("server/addFermentationMeasurement.js");

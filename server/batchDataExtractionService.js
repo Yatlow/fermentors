@@ -981,6 +981,13 @@ function createMeasurementId(
 }
 
 
+// One Firestore document per brew/day, regardless of the time displayed by Sheets.
+function createDailyMeasurementId(date) {
+  return date.getFullYear() + "-" +
+    String(date.getMonth() + 1).padStart(2, "0") + "-" +
+    String(date.getDate()).padStart(2, "0");
+}
+
 // ============================================================
 // UPLOAD HISTORICAL MEASUREMENTS
 // ============================================================
@@ -1109,11 +1116,7 @@ function uploadHistoricalMeasurements(
     };
 
 
-    const measurementId =
-      createMeasurementId(
-        date,
-        time
-      );
+    const measurementId = createDailyMeasurementId(date);
 
 
     const url =
@@ -1205,9 +1208,12 @@ function uploadHistoricalMeasurements(
     };
 
 
+    // Preserve migration provenance/extra fields on every subsequent Sheet sync.
+    const patchMask = ["date", "time", "temp", "plato", "pressure", "pH", "carbonation", "notes"]
+      .map(function (field) { return "updateMask.fieldPaths=" + encodeURIComponent(field); }).join("&");
     const response =
       UrlFetchApp.fetch(
-        url,
+        url + "?" + patchMask,
         {
 
           method: "patch",

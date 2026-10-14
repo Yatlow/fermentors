@@ -239,7 +239,7 @@ test("confirmed Sheet rows reconcile to Firestore before cleanup", () => {
   }] };
   context.sheetSyncReconcileMeasurements_(raw, result);
   assert.equal(commit.writes.length, 1);
-  assert.match(commit.writes[0].update.name, /brews\/1593\/measurements\/2026-10-14_1042$/);
+  assert.match(commit.writes[0].update.name, /brews\/1593\/measurements\/2026-10-14$/);
   assert.equal(commit.writes[0].update.fields.notes.stringValue, "הורדת שמרים");
   assert.equal(commit.writes[0].update.fields.temp.doubleValue, 4.1);
 });
