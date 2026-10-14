@@ -346,9 +346,21 @@ export function validateProduction(
     const matchedTank = tanks.find((tank) => tank.id === recordedTankId);
     const recordedNumber = r.tankNumber ?? recordedTankId;
     const numberMatches = !linkedBrew && recordedNumber != null
-      ? tanks.filter((tank) => String(tank.number) === String(recordedNumber))
+      ? tanks.filter((tank) => !tank.id.startsWith("planned:") &&
+          String(tank.number) === String(recordedNumber))
       : [];
-    const t = physicalTank ?? matchedTank ?? (numberMatches.length === 1 ? numberMatches[0] : undefined);
+    // A planned next cycle can share a tank id/number with an older physical
+    // batch. Never use its liters or maturity as the legacy batch's source.
+    const safeMatchedTank = matchedTank &&
+      (!matchedTank.id.startsWith("planned:") || !!linkedBrew) &&
+      (!batch || !normalizedBatch(matchedTank.batch) ||
+        normalizedBatch(matchedTank.batch) === batch)
+      ? matchedTank : undefined;
+    const t = physicalTank ?? safeMatchedTank ??
+      (numberMatches.length === 1 &&
+       (!batch || !normalizedBatch(numberMatches[0].batch) ||
+        normalizedBatch(numberMatches[0].batch) === batch)
+        ? numberMatches[0] : undefined);
     const tankId = linkedBrew?.tankId ?? t?.id ?? recordedTankId;
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
     const p = settings.products.find((p) => p.id === r.productId);
