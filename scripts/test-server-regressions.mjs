@@ -25,6 +25,42 @@ function loadAppsScript(path, extra = {}) {
   return context;
 }
 
+const measurementIdentity = loadAppsScript("server/batchDataExtractionService.js");
+{
+  const date = new Date(2026, 9, 6);
+  const id = (time) => measurementIdentity.createMeasurementId(date, time);
+  assert.equal(id("6:27"), "2026-10-06_0627");
+  assert.equal(id("06:27"), "2026-10-06_0627");
+  assert.equal(id("627"), "2026-10-06_0627");
+  assert.equal(id("0627"), "2026-10-06_0627");
+  assert.equal(id("9:05"), "2026-10-06_0905");
+  assert.equal(id("10:05"), "2026-10-06_1005");
+  assert.equal(id("23:59"), "2026-10-06_2359");
+  assert.equal(id(""), "2026-10-06_0000");
+}
+
+const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
+{
+  const duplicates = styleAverages.dedupeStyleMeasurements_([
+    { __measurementDocId: "2026-10-06_627", __measurementCreatedAt: "2026-10-06T06:27:00Z", date: "06/10/2026", plato: 8, pressure: 1.1, notes: "הורדת שמרים" },
+    { __measurementDocId: "2026-10-06_0627", __measurementCreatedAt: "2026-10-06T06:28:00Z", date: "06/10/2026", plato: 7.5, temp: 12, notes: "שינוי לחץ" },
+    { __measurementDocId: "2026-10-07_0715", __measurementCreatedAt: "2026-10-07T07:15:00Z", date: "07/10/2026", plato: 6 },
+  ], "1600");
+  assert.equal(duplicates.length, 2, "one logical measurement per brew/day");
+  assert.equal(duplicates[0].plato, 8, "oldest creation timestamp wins conflicting values");
+  assert.equal(duplicates[0].pressure, 1.1);
+  assert.equal(duplicates[0].temp, 12, "missing values are filled from newer records");
+  assert.equal(duplicates[0].notes, "הורדת שמרים | שינוי לחץ", "keep both distinct notes");
+
+  const differentTimes = styleAverages.dedupeStyleMeasurements_([
+    { __measurementDocId: "2026-10-06_0930", __measurementCreatedAt: "2026-10-06T09:30:00Z", date: "06/10/2026", plato: 7 },
+    { __measurementDocId: "2026-10-06_0800", __measurementCreatedAt: "2026-10-06T08:00:00Z", date: "06/10/2026", plato: 8 },
+  ], "1600");
+  assert.equal(differentTimes.length, 1, "different times on one day must merge");
+  assert.equal(differentTimes[0].plato, 8, "oldest measurement wins irrespective of input order");
+
+}
+
 const fermentationNotes = loadAppsScript("server/addFermentationMeasurement.js");
 {
   assert.equal(

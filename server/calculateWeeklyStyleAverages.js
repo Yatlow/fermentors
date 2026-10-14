@@ -89,7 +89,7 @@ function calculateWeeklyStyleAverages(force) {
         brew.id
       );
 
-    measurements.forEach(function (measurement) {
+    dedupeStyleMeasurements_(measurements, brew.id).forEach(function (measurement) {
 
       const measurementDate =
         parseDateOnly(
@@ -420,6 +420,71 @@ function getAllBrewsFromFirestore(
 
 
 
+// Calculate weekly averages from at most one logical row per brew/day.
+// This is read-only protection: legacy three-digit IDs and current four-digit
+// IDs may coexist in Firestore. Never delete or rewrite those documents here.
+// When two rows disagree, prefer the later timestamp, then the padded ID.
+// Preserve non-conflicting fields from the other row and log disagreements.
+function dedupeStyleMeasurements_(measurements, brewId) {
+  // Exactly one logical reading per brew/day for weekly style averages.
+  // Firestore createTime determines seniority, never the document ID or array order.
+  // Keep all nonempty unique notes, and fill blanks without replacing older values.
+  const byDay = {};
+  const unknown = [];
+
+  function validTimestamp(row) {
+    const stamp = Date.parse(String(row.__measurementCreatedAt || ""));
+    return Number.isFinite(stamp) ? stamp : null;
+  }
+  function hasValue(value) {
+    return value !== null && value !== undefined && value !== "";
+  }
+  function earliestFirst(a, b) {
+    const at = validTimestamp(a), bt = validTimestamp(b);
+    if (at !== null && bt !== null && at !== bt) return at - bt;
+    // If creation metadata is unavailable, do not pretend document IDs prove seniority.
+    // Deterministic fallback is for averages only; historical deletion must be blocked.
+    if (at !== null && bt === null) return -1;
+    if (at === null && bt !== null) return 1;
+    return String(a.__measurementDocId || "").localeCompare(String(b.__measurementDocId || ""));
+  }
+  function normalizeNotes(rows) {
+    const seen = {};
+    const notes = [];
+    rows.forEach(function (row) {
+      const content = String(row.notes || "").trim();
+      if (content && !seen[content]) { seen[content] = true; notes.push(content); }
+    });
+    return notes.join(" | ");
+  }
+  measurements.forEach(function (row) {
+    const date = parseDateOnly(row.date);
+    if (!date || isNaN(date.getTime())) { unknown.push(row); return; }
+    const key = date.getFullYear() + "-" +
+      String(date.getMonth() + 1).padStart(2, "0") + "-" +
+      String(date.getDate()).padStart(2, "0");
+    (byDay[key] = byDay[key] || []).push(row);
+  });
+
+  return Object.keys(byDay).sort().map(function (day) {
+    const rows = byDay[day].sort(earliestFirst);
+    const combined = Object.assign({}, rows[0]);
+    rows.slice(1).forEach(function (row) {
+      ["temp", "plato", "pH", "pressure", "carbonation"].forEach(function (field) {
+        if (!hasValue(combined[field]) && hasValue(row[field])) combined[field] = row[field];
+        else if (hasValue(combined[field]) && hasValue(row[field]) &&
+          String(combined[field]) !== String(row[field])) {
+          Logger.log("STYLE AVERAGE SAME-DAY CONFLICT batch=" + brewId +
+            " day=" + day + " field=" + field +
+            " earliest-value-kept");
+        }
+      });
+    });
+    combined.notes = normalizeNotes(rows);
+    return combined;
+  }).concat(unknown);
+}
+
 // ============================================================
 // GET MEASUREMENTS FOR BREW
 // ============================================================
@@ -493,11 +558,11 @@ function getMeasurementsForBrew(
 
   return allDocuments.map(
     function (document) {
-
-      return firestoreFieldsToObject_(
-        document.fields || {}
-      );
-
+      const row = firestoreFieldsToObject_(document.fields || {});
+      // Document name is metadata, not a measurement field.
+      row.__measurementDocId = String(document.name || "").split("/").pop();
+      row.__measurementCreatedAt = document.createTime || null;
+      return row;
     }
   );
 }
