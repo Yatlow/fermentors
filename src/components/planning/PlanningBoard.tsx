@@ -289,11 +289,20 @@ export default function PlanningBoard({
 
     let datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
     validationTanks = futureTanks(tanks, all, settings);
-    let production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
+    // Confirming next week's brew assignments does not edit prior weeks'
+    // packaging. Historical rows can reference a now-empty physical tank and
+    // must not be revalidated against a projected future tank with the same
+    // number. Keep validating this week and every future week's packaging;
+    // validateBrewReleases below still checks current-cycle release.
+    const productionScope = (weeks: WeekPlan[]) =>
+      confirmBrews && !packagingWasEdited
+        ? weeks.filter((week) => week.id >= effectiveNext.id)
+        : weeks;
+    let production = validateProduction(productionScope(datedOnly), settings, validationTanks, actuals, today);
     if (production?.includes("לפני מועד ההבשלה")) {
       if (confirmBrews && !packagingWasEdited) {
         production = validateProduction(
-          datedOnly,
+          productionScope(datedOnly),
           settings,
           validationTanks,
           actuals,
@@ -319,7 +328,7 @@ export default function PlanningBoard({
         all = [...plans.filter((w) => w.id !== effectiveNext.id), effectiveNext];
         datedOnly = all.map((w) => ({ ...w, packaging: w.packaging.filter((run) => !!run.date) }));
         validationTanks = futureTanks(tanks, all, settings);
-        production = validateProduction(datedOnly, settings, validationTanks, actuals, today);
+        production = validateProduction(productionScope(datedOnly), settings, validationTanks, actuals, today);
       }
     }
     if (production) throw new Error(production);
