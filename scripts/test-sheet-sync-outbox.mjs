@@ -49,10 +49,12 @@ function installProcessMocks(context, options = {}) {
   const marked = [];
   const runCalls = [];
   const reconciled = [];
+  const savedResults = [];
 
   context.sheetSyncPendingJobs_ = () => options.jobs ?? [job()];
   context.postIdempotencyKey_ = (_action, requestId) => `key:${requestId}`;
   context.postReadIdempotencyRecord_ = () => options.existing ?? null;
+  context.postSaveIdempotencyResult_ = (...args) => savedResults.push(args);
   context.sheetSyncSanitizedReadings_ = () => {
     if (options.sanitizeError) throw options.sanitizeError;
     return options.readings ?? [{ tankId: "10", notes: "קירור" }];
@@ -83,7 +85,7 @@ function installProcessMocks(context, options = {}) {
     marked.push({ id, state, attempts, error: String(error) });
   };
 
-  return { deleted, marked, runCalls, reconciled };
+  return { deleted, marked, runCalls, reconciled, savedResults };
 }
 
 test("normalizes batch identifiers before comparing jobs to live tanks", () => {
@@ -281,4 +283,37 @@ test("delayed outbox response never overwrites a newer tank report", () => {
       result: { date: "14/10/2026", time: "08:00", notes: "old note" } }],
   });
   assert.equal(committed, false);
+});
+
+test("partial Sheet response retries only the failed tank, never the successful action", () => {
+  const context = createRuntime();
+  const successful = { tankId: "10", success: true, result: { date: "14/10/2026", time: "08:00" } };
+  const failed = { tankId: "11", success: false, error: "temporary" };
+  const recovered = { tankId: "11", success: true, result: { date: "14/10/2026", time: "08:01" } };
+  const mocks = installProcessMocks(context, {
+    existing: { state: "done", response: { success: true, results: [successful, failed] } },
+    readings: [{ tankId: "10", notes: "הורדת שמרים" }, { tankId: "11", notes: "הורדת שמרים" }],
+    runResult: { success: true, results: [recovered] },
+  });
+  const stats = context.processPendingSheetSyncJobs_();
+  assert.deepEqual(plain(stats), { found: 1, completed: 1, failed: 0, deferred: 0 });
+  assert.equal(mocks.runCalls.length, 1);
+  assert.equal(mocks.runCalls[0].readings.length, 1);
+  assert.equal(mocks.runCalls[0].readings[0].tankId, "11");
+  assert.equal(mocks.runCalls[0].requestId, "req-1-recover-11");
+  assert.equal(mocks.savedResults.length, 1);
+  assert.deepEqual(plain(mocks.savedResults[0][3].results), [successful, recovered]);
+  assert.equal(mocks.reconciled.length, 1);
+  assert.deepEqual(mocks.deleted, ["job-1"]);
+});
+
+test("initial partial write remains pending for safe per-tank recovery", () => {
+  const context = createRuntime();
+  const mocks = installProcessMocks(context, {
+    runResult: { success: true, results: [{ tankId: "10", success: false, error: "temporary" }] },
+  });
+  const stats = context.processPendingSheetSyncJobs_();
+  assert.deepEqual(plain(stats), { found: 1, completed: 0, failed: 0, deferred: 1 });
+  assert.equal(mocks.marked[0].state, "pending");
+  assert.equal(mocks.deleted.length, 0);
 });
