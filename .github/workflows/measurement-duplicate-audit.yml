@@ -91,9 +91,11 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
             "## Read-only measurement audit\n\n" +
             "- Scanned brews: **" + report.scannedBrews + "** / " + (report.totalBrews ?? "selected") + "\n" +
+            "- Measurement documents fetched: **" + report.measurementDocumentsRead + "**\n" +
+            "- Batches and reads: " + (scanned || "none") + "\n" +
             "- Affected brews: **" + hit.length + "**\n" +
             "- Extra documents: **" + surplus + "**\n" +
-            "- Duplicate days with differing fields: **" + conflict + "**\n" +
+            "- Duplicate instants with differing fields: **" + conflict + "**\n" +
             "- Next offset: **" + (report.nextOffset ?? "none; complete") + "**\n\n" +
             "Download the JSON artifact below to review exact batch IDs and field conflicts. **No Firestore writes or deletions.**\n");
           console.log("Affected brews: " + hit.map(x => x.batch).join(", "));
