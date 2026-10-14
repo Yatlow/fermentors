@@ -1,0 +1,105 @@
+name: Audit Fermentation Measurement Duplicates
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Scan all historical brews (paged) or selected batches"
+        required: true
+        type: choice
+        options:
+          - all-brews
+          - batches
+        default: all-brews
+      batches:
+        description: "Only for batches scope: comma-separated batch numbers, maximum 10"
+        required: false
+        type: string
+      offset:
+        description: "For all-brews: position of first batch (0, 100, 200...)"
+        required: false
+        default: "0"
+        type: string
+      limit:
+        description: "Maximum batches to scan in one run (1-100)"
+        required: false
+        default: "100"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: measurement-duplicate-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # The audit runner is pinned to the reviewed PR commit. This workflow
+      # itself lives on main so the manual Run workflow button appears on mobile.
+      # Do not replace this with a mutable branch when using service credentials.
+      - name: Check out read-only audit implementation
+        uses: actions/checkout@v4
+        with:
+          ref: 5289034405118210f3c1eedc8924e8a0186c92b7
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Authenticate to Firestore
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FERMENTER_DASHBOARD_BADA3 }}
+
+      - name: Run bounded read-only measurement audit
+        env:
+          FIREBASE_PROJECT_ID: fermenter-dashboard-bada3
+          AUDIT_SCOPE: ${{ inputs.scope }}
+          AUDIT_BATCHES: ${{ inputs.batches }}
+          AUDIT_OFFSET: ${{ inputs.offset }}
+          AUDIT_LIMIT: ${{ inputs.limit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$AUDIT_SCOPE" == "all-brews" ]]; then
+            node scripts/audit-measurement-duplicates.mjs --all-brews --offset "$AUDIT_OFFSET" --limit "$AUDIT_LIMIT" > measurement-audit.json
+          elif [[ "$AUDIT_SCOPE" == "batches" ]]; then
+            node scripts/audit-measurement-duplicates.mjs --batches "$AUDIT_BATCHES" > measurement-audit.json
+          else
+            echo "Unsupported scope" >&2
+            exit 2
+          fi
+
+      - name: Summarize findings
+        if: success()
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          const report = JSON.parse(fs.readFileSync("measurement-audit.json", "utf8"));
+          const hit = report.results.filter(row => row.duplicateDays > 0);
+          const surplus = hit.reduce((sum, row) => sum + row.duplicateDocuments, 0);
+          const conflict = hit.reduce((sum, row) => sum + row.duplicates.filter(d => d.differingFields.length > 0).length, 0);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            "## Read-only measurement audit\n\n" +
+            "- Scanned brews: **" + report.scannedBrews + "** / " + (report.totalBrews ?? "selected") + "\n" +
+            "- Affected brews: **" + hit.length + "**\n" +
+            "- Extra documents: **" + surplus + "**\n" +
+            "- Duplicate days with differing fields: **" + conflict + "**\n" +
+            "- Next offset: **" + (report.nextOffset ?? "none; complete") + "**\n\n" +
+            "Download the JSON artifact below to review exact batch IDs and field conflicts. **No Firestore writes or deletions.**\n");
+          console.log("Affected brews: " + hit.map(x => x.batch).join(", "));
+          console.log("Extra documents:", surplus, "Conflict days:", conflict);
+          JS
+
+      - name: Upload detailed JSON report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measurement-duplicate-audit-${{ github.run_number }}
+          path: measurement-audit.json
+          retention-days: 7
