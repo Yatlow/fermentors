@@ -1,4 +1,4 @@
-export type PlatoCoolingMeasurement = { id?: string | number | null; plato?: string | number | null };
+export type PlatoCoolingMeasurement = { id?: string | number | null; time?: string | number | null; plato?: string | number | null };
 
 /**
  * Cooling readiness is based on dated Plato samples, never unrelated pressure
@@ -17,7 +17,11 @@ export function hasStablePlatoForCooling(
         if (!Number.isFinite(value)) return [];
         const match = /^(\d{4})-(\d{2})-(\d{2})(?:_(\d{2})(\d{2}))?/.exec(String(measurement.id ?? ""));
         if (!match) return [];
-        const [, year, month, day, hour = "00", minute = "00"] = match;
+        const [, year, month, day] = match;
+        const clock = String(measurement.time ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
+        if (!match[4] && !clock) return [];
+        const hour = clock?.[1] ?? match[4] ?? "00";
+        const minute = clock?.[2] ?? match[5] ?? "00";
         const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
         if (date.getFullYear() !== Number(year) || date.getMonth() !== Number(month) - 1 ||
             date.getDate() !== Number(day) || date.getHours() !== Number(hour) ||
