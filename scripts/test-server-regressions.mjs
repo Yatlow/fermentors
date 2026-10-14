@@ -42,20 +42,23 @@ const measurementIdentity = loadAppsScript("server/batchDataExtractionService.js
 const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
 {
   const duplicates = styleAverages.dedupeStyleMeasurements_([
-    { __measurementDocId: "2026-10-06_627", date: "06/10/2026", plato: 8, pressure: 1.1 },
-    { __measurementDocId: "2026-10-06_0627", date: "06/10/2026", plato: 7.5, temp: 12 },
-    { __measurementDocId: "2026-10-07_0715", date: "07/10/2026", plato: 6 },
+    { __measurementDocId: "2026-10-06_627", __measurementCreatedAt: "2026-10-06T06:27:00Z", date: "06/10/2026", plato: 8, pressure: 1.1, notes: "הורדת שמרים" },
+    { __measurementDocId: "2026-10-06_0627", __measurementCreatedAt: "2026-10-06T06:28:00Z", date: "06/10/2026", plato: 7.5, temp: 12, notes: "שינוי לחץ" },
+    { __measurementDocId: "2026-10-07_0715", __measurementCreatedAt: "2026-10-07T07:15:00Z", date: "07/10/2026", plato: 6 },
   ], "1600");
-  assert.equal(duplicates.length, 2, "three- and four-digit time IDs must count as one brew/day");
-  assert.equal(duplicates[0].plato, 7.5, "canonical padded ID takes precedence for conflicting values");
-  assert.equal(duplicates[0].pressure, 1.1, "missing values should be retained from the duplicate");
-  assert.equal(duplicates[0].temp, 12);
+  assert.equal(duplicates.length, 2, "one logical measurement per brew/day");
+  assert.equal(duplicates[0].plato, 8, "oldest creation timestamp wins conflicting values");
+  assert.equal(duplicates[0].pressure, 1.1);
+  assert.equal(duplicates[0].temp, 12, "missing values are filled from newer records");
+  assert.equal(duplicates[0].notes, "הורדת שמרים | שינוי לחץ", "keep both distinct notes");
+
   const differentTimes = styleAverages.dedupeStyleMeasurements_([
-    { __measurementDocId: "2026-10-06_0800", date: "06/10/2026", plato: 8 },
-    { __measurementDocId: "2026-10-06_0930", date: "06/10/2026", plato: 7 },
+    { __measurementDocId: "2026-10-06_0930", __measurementCreatedAt: "2026-10-06T09:30:00Z", date: "06/10/2026", plato: 7 },
+    { __measurementDocId: "2026-10-06_0800", __measurementCreatedAt: "2026-10-06T08:00:00Z", date: "06/10/2026", plato: 8 },
   ], "1600");
-  assert.equal(differentTimes.length, 2, "different times within one day must remain separate");
-  assert.deepEqual(differentTimes.map(row => row.plato), [8, 7]);
+  assert.equal(differentTimes.length, 1, "different times on one day must merge");
+  assert.equal(differentTimes[0].plato, 8, "oldest measurement wins irrespective of input order");
+
 }
 
 const fermentationNotes = loadAppsScript("server/addFermentationMeasurement.js");
