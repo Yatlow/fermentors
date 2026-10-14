@@ -426,64 +426,42 @@ function getAllBrewsFromFirestore(
 // When two rows disagree, prefer the later timestamp, then the padded ID.
 // Preserve non-conflicting fields from the other row and log disagreements.
 function dedupeStyleMeasurements_(measurements, brewId) {
-  const byDay = {};
-  const undated = [];
-
-  function score(row) {
-    const id = String(row.__measurementDocId || "");
-    const match = id.match(/_(\d{3,4})$/);
-    if (!match) return { time: -1, padded: false, id: id };
-    return {
-      time: Number(match[1]),
-      padded: match[1].length === 4,
-      id: id
-    };
-  }
-
-  function later(left, right) {
-    const a = score(left);
-    const b = score(right);
-    if (a.time !== b.time) return a.time > b.time;
-    if (a.padded !== b.padded) return a.padded;
-    return a.id >= b.id;
-  }
+  // Only identical date+clock instants represent the known legacy-ID collision.
+  // Different measurement times on one day are legitimate and MUST be retained.
+  const byInstant = {};
+  const passthrough = [];
 
   measurements.forEach(function (row) {
-    const date = parseDateOnly(row.date);
-    if (!date || isNaN(date.getTime())) {
-      undated.push(row);
-      return;
+    const docId = String(row.__measurementDocId || "");
+    const match = docId.match(/^(\d{4}-\d{2}-\d{2})_(\d{3,4})$/);
+    if (!match) { passthrough.push(row); return; }
+    const clock = match[2].padStart(4, "0");
+    if (Number(clock.slice(0, 2)) > 23 || Number(clock.slice(2)) > 59) {
+      passthrough.push(row); return;
     }
-    const key = date.getFullYear() + "-" +
-      String(date.getMonth() + 1).padStart(2, "0") + "-" +
-      String(date.getDate()).padStart(2, "0");
-    const previous = byDay[key];
-    if (!previous) {
-      byDay[key] = row;
-      return;
-    }
+    const key = match[1] + "_" + clock;
+    const previous = byInstant[key];
+    if (!previous) { byInstant[key] = row; return; }
 
-    const winner = later(previous, row) ? previous : row;
+    const paddedId = key;
+    const winner = row.__measurementDocId === paddedId ? row :
+      previous.__measurementDocId === paddedId ? previous :
+      String(row.__measurementDocId) > String(previous.__measurementDocId) ? row : previous;
     const loser = winner === previous ? row : previous;
     const combined = Object.assign({}, winner);
     ["temp", "plato", "pH", "pressure", "carbonation", "notes"].forEach(function (field) {
-      const winningValue = winner[field];
-      const losingValue = loser[field];
-      const hasWinner = winningValue !== undefined && winningValue !== null && winningValue !== "";
-      const hasLoser = losingValue !== undefined && losingValue !== null && losingValue !== "";
-      if (!hasWinner && hasLoser) {
-        combined[field] = losingValue;
-      } else if (hasWinner && hasLoser && String(winningValue) !== String(losingValue)) {
+      const good = combined[field] !== undefined && combined[field] !== null && combined[field] !== "";
+      const available = loser[field] !== undefined && loser[field] !== null && loser[field] !== "";
+      if (!good && available) combined[field] = loser[field];
+      else if (good && available && String(combined[field]) !== String(loser[field])) {
         Logger.log("STYLE AVERAGE DUPLICATE CONFLICT batch=" + brewId +
-          " day=" + key + " field=" + field +
-          " kept=" + String(winner.__measurementDocId || "") +
-          " other=" + String(loser.__measurementDocId || ""));
+          " instant=" + key + " field=" + field);
       }
     });
-    byDay[key] = combined;
+    byInstant[key] = combined;
   });
 
-  return Object.keys(byDay).sort().map(function (key) { return byDay[key]; }).concat(undated);
+  return Object.keys(byInstant).sort().map(function (key) { return byInstant[key]; }).concat(passthrough);
 }
 
 // ============================================================
