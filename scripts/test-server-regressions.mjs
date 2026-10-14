@@ -50,9 +50,9 @@ const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
     { __measurementDocId: "2026-10-07_0715", __measurementCreatedAt: "2026-10-07T07:15:00Z", date: "07/10/2026", plato: 6 },
   ], "1600");
   assert.equal(duplicates.length, 2, "one logical measurement per brew/day");
-  assert.equal(duplicates[0].plato, 8, "oldest creation timestamp wins conflicting values");
+  assert.equal(duplicates[0].plato, 7.5, "newest creation timestamp wins conflicting values");
   assert.equal(duplicates[0].pressure, 1.1);
-  assert.equal(duplicates[0].temp, 12, "missing values are filled from newer records");
+  assert.equal(duplicates[0].temp, 12, "latest nonempty value is retained");
   assert.equal(duplicates[0].notes, "הורדת שמרים | שינוי לחץ", "keep both distinct notes");
 
   const differentTimes = styleAverages.dedupeStyleMeasurements_([
@@ -60,7 +60,7 @@ const styleAverages = loadAppsScript("server/calculateWeeklyStyleAverages.js");
     { __measurementDocId: "2026-10-06_0800", __measurementCreatedAt: "2026-10-06T08:00:00Z", date: "06/10/2026", plato: 8 },
   ], "1600");
   assert.equal(differentTimes.length, 1, "different times on one day must merge");
-  assert.equal(differentTimes[0].plato, 8, "oldest measurement wins irrespective of input order");
+  assert.equal(differentTimes[0].plato, 7, "newest measurement wins irrespective of input order");
 
 }
 
