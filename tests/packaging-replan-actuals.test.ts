@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { tankReleases, validateProduction, validateBrewReleases } from "../src/SERVICES/planning/productionCycle";
-import { openRuns } from "../src/SERVICES/planning/dailyPlanner";
+import { openRuns, futureTanks } from "../src/SERVICES/planning/dailyPlanner";
 import { plansAfterActualPackagingCompletion, mergeCompletedPackagingBack } from "../src/SERVICES/planning/packagingActuals";
 import type { Settings, WeekPlan, Actual } from "../src/SERVICES/planning/planningEngine";
 
@@ -279,4 +279,29 @@ test("empty dirty tanks 15 and 16 release next week while tank 10 uses planned e
   assert.equal(releases.find((release) => release.tankId === "tank10")?.date, "2026-10-19");
   assert.equal(releases.find((release) => release.tankId === "tank15")?.date, "2026-10-14");
   assert.equal(releases.find((release) => release.tankId === "tank16")?.date, "2026-10-14");
+});
+
+test("empty tank legacy packaging is not checked against next brew maturity", () => {
+  const old = week();
+  old.packaging = [{ id: "old-pils-15", productId: "pils-kegs", quantity: 71,
+    tankId: "tank15", tankNumber: "15", batchNumber: "1586", date: "2026-10-15" }];
+  const next = { ...week(), id: "2026-10-18",
+    brews: [{ id: "next-pils-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000, batchNumber: "1700" }],
+    packaging: [] };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([old, next], settings, futureTanks([], [old, next], settings), [], "2026-10-14"), null);
+});
+
+test("stale future brewId cannot assign next cycle maturity to physical batch", () => {
+  const old = week();
+  old.packaging = [{ id: "old-pils-15", productId: "pils-kegs", quantity: 71,
+    tankId: "tank15", tankNumber: "15", batchNumber: "1586",
+    brewId: "next-pils-15", date: "2026-10-15" }];
+  const next = { ...week(), id: "2026-10-18",
+    brews: [{ id: "next-pils-15", tankId: "tank15", style: "Pils", date: "2026-10-19", liters: 3000, batchNumber: "1700" }],
+    packaging: [] };
+  const tank = { id: "tank15", number: "15", style: "Pils", batch: "1586",
+    brewed: "2026-08-25", ready: "2026-09-15", liters: 1000, cold: true };
+  const settings = { products, targetWeeks: 2, preferredRuns: 5, lossPercent: 10, revision: 0 };
+  assert.equal(validateProduction([old, next], settings, futureTanks([tank], [old, next], settings), [], "2026-10-14"), null);
 });
