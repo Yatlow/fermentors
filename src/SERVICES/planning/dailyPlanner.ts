@@ -89,6 +89,7 @@ export function openRuns(
         .map((r) => {
           let remaining = r.quantity;
           for (const entry of completed) {
+            if (r.date && actualDate(entry.actual) && r.date > actualDate(entry.actual)!) continue;
             if (
               (r.tankNumber &&
                 String(entry.actual.tankNumber) !== r.tankNumber) ||
