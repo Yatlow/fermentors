@@ -345,7 +345,16 @@ export function validateProduction(
     const numberMatches = !linkedBrew && recordedNumber != null
       ? tanks.filter((tank) => String(tank.number) === String(recordedNumber))
       : [];
-    const t = matchedTank ?? (numberMatches.length === 1 ? numberMatches[0] : undefined);
+    // A legacy packaging row may carry a projected tank id after a replan.
+    // Prefer the physical cycle when its exact batch and tank number match.
+    const currentBatchTank = !linkedBrew && normalizedBatch(r.batchNumber)
+      ? tanks.find((candidate) =>
+          !candidate.id.startsWith("planned:") &&
+          normalizedBatch(candidate.batch) === normalizedBatch(r.batchNumber) &&
+          (String(candidate.number) === String(r.tankNumber ?? recordedTankId) ||
+            candidate.id === recordedTankId))
+      : undefined;
+    const t = currentBatchTank ?? matchedTank ?? (numberMatches.length === 1 ? numberMatches[0] : undefined);
     const tankId = linkedBrew?.tankId ?? t?.id ?? recordedTankId;
     if (!tankId || !r.date) return "יש לשייך מיכל מקור ויום לכל אריזה עתידית";
     const p = settings.products.find((p) => p.id === r.productId);
