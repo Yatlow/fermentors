@@ -1164,13 +1164,14 @@ function uploadHistoricalMeasurements(
       }
 
 
-      if (
-        objectsEqual(
-          measurement,
-          existingMeasurement
-        )
-      ) {
-
+      // Compare only measurement fields. Keep migration provenance and other
+      // supplemental Firestore fields without causing endless rewrites.
+      const comparableExisting = {};
+      Object.keys(measurement).forEach(function (field) {
+        comparableExisting[field] = existingMeasurement[field] === undefined
+          ? null : existingMeasurement[field];
+      });
+      if (objectsEqual(measurement, comparableExisting)) {
         shouldWrite = false;
       }
     }
