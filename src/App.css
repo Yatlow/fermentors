@@ -7045,3 +7045,49 @@ b {
     font-size: 10px;
   }
 }
+
+/* PR207 refinement: separate the existing brewery logo from the navigation grid. */
+@media (max-width: 600px) {
+  .dashboard-header .headerBox .header-brand {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    gap: 4px !important;
+    width: 100% !important;
+  }
+  .dashboard-header .headerBox .header-brand .header-logo {
+    order: 0 !important;
+    display: block !important;
+    flex: 0 0 auto !important;
+    align-self: center !important;
+    width: 43px !important;
+    height: 43px !important;
+    max-width: 43px !important;
+    margin: 0 auto 2px !important;
+  }
+  .dashboard-header .headerBox .header-brand .mobile-nav-shell {
+    order: 1 !important;
+    display: block !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .dashboard-header .views-box {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    padding: 3px 0 7px !important;
+  }
+  .dashboard-header .views-box .views-item {
+    min-height: 46px !important;
+    padding: 4px 2px !important;
+    gap: 2px !important;
+  }
+  .dashboard-header .views-box .views-item:nth-child(5) { grid-column: 2; }
+  .dashboard-header .views-box .views-item:nth-child(6) { grid-column: 3; }
+  .dashboard-header .views-box .views-item:nth-child(7) { grid-column: 4; }
+  .dashboard-header .views-box .views-item .views-label {
+    font-size: 10px !important;
+    line-height: 1.15;
+  }
+}
