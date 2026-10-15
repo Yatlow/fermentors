@@ -55,10 +55,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const productionTanks = useMemo(() => brews.filter((t) => Number(t.tankNumber) !== 1), [brews]);
   const stickyReadScope = useRef<PlanningReadScope>({ plans: true });
   const [inventoryInputOpen, setInventoryInputOpen] = useState(false);
-  // The availability audit is shared by every planning tab, so these snapshots
-  // must be loaded once even when entering via settings or review.
-  const needsPallets = true;
-  const needsActuals = true;
+  const needsPallets = tab === "stock" || tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
+  const needsActuals = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule" || tab === "tanks" || tab === "review";
   const needsShipments = tab === "calendar" || tab === "fiveWeeks" || tab === "schedule";
   if (needsPallets) stickyReadScope.current.pallets = true;
   if (needsActuals) stickyReadScope.current.actuals = true;
