@@ -30,7 +30,7 @@ export function auditShipmentAvailability(
   const horizon = addDays(weekStart(today), 91);
   for (const p of settings.products) {
     const physical = productPallets(p, pallets)
-      .filter((x) => !x.markedForShipment && !!parseDate(x.expiryDateStr) && parseDate(x.expiryDateStr)! >= today);
+      .filter((x) => !!parseDate(x.expiryDateStr) && parseDate(x.expiryDateStr)! >= today);
     let available = physical.reduce((sum, x) => sum + nominalPlanningUnits(p, Math.max(0, Number(x.quantity) || 0)), 0);
     const events: Array<{ date: string; kind: "pack" | "ship"; qty: number; week: string }> = [];
     for (const run of open) {
