@@ -23,6 +23,9 @@ import shpiro from "./assets/shpiro.jpeg";
 import DashboardHeader from "./components/dashboard/DashboardHeader";
 import Dashboard from "./components/dashboard/Dashboard";
 import DailyPressureAndTemp from "./components/cellering/DailyPressureAndTemp";
+import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "./SERVICES/getAndPost/gettAllDataByBatch";
+import { dailyMeasurementProgress } from "./SERVICES/dashboard/healthModel";
+import { isInMeasurementGrace } from "./SERVICES/dashboard/cellarGrace";
 import CellaringForecast from "./components/cellering/CellaringForecast";
 import SendMessurmentsHeader from "./components/cellering/SendMessurmentsHeader";
 import DailyPlatoPH from "./components/cellering/DailyPlatoPH";
@@ -228,6 +231,36 @@ function App() {
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר" | "חיבורי_משתמשים">("אריזה");
     const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet" | "catalog">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
+    const [cellarDailyProgress, setCellarDailyProgress] = useState<Record<string, { temp: boolean; pressure: boolean; plato: boolean; pH: boolean }>>({});
+    const cellarBatchKey = brews.filter(t => Number(t.action) === 1).map(t => String(t.id) + ":" + String(t.batchNumber ?? "")).sort().join("|");
+    useEffect(() => {
+        if (selectedView !== "רישום") return;
+        let cancelled = false;
+        const refresh = async () => {
+            const tanks = brews.filter(t => Number(t.action) === 1 && Number(t.tankNumber) !== 1 && t.batchNumber);
+            const entries = await Promise.all(tanks.map(async tank => {
+                try {
+                    const rows = await getMeasurementsByBatch(String(tank.batchNumber));
+                    const p = dailyMeasurementProgress(rows, true);
+                    return [tank.id, { temp: !p.missingFields.includes("temp"), pressure: !p.missingFields.includes("pressure"), plato: !p.missingFields.includes("plato"), pH: !p.missingFields.includes("pH") }] as const;
+                } catch { return null; }
+            }));
+            if (!cancelled) setCellarDailyProgress(Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
+        };
+        void refresh();
+        const update = () => { void refresh(); };
+        window.addEventListener(MEASUREMENTS_UPDATED_EVENT, update);
+        window.addEventListener("cellar-report-saved", update);
+        return () => { cancelled = true; window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, update); window.removeEventListener("cellar-report-saved", update); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedView, cellarBatchKey]);
+    const cellarTankOne = brews.find(t => Number(t.tankNumber) === 1);
+    const cellarPending = (mode: "לחץ" | "חם") => brews.filter(t => {
+        if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || isInMeasurementGrace(t, cellarTankOne)) return false;
+        if (mode === "חם" && !(Number(t.currentData?.temp) > 9 && t.stage?.name === "בתסיסה")) return false;
+        const p = cellarDailyProgress[t.id];
+        return mode === "לחץ" ? !(p?.temp && p?.pressure) : !(p?.plato && p?.pH);
+    }).length;
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
 
@@ -511,8 +544,8 @@ function App() {
                     </div>
                     {selectedView === "דאשבורד" && <div className="dashboard-filter-toolbar"><div className="tank-search-shell"><button type="button" className="tank-search-toggle" aria-label="חיפוש מיכל או אצווה" aria-expanded={tankSearchOpen} onClick={() => { setTankSearchOpen(v => !v); setMobileMoreOpen(false); }}><Search size={20} aria-hidden="true"/></button>{tankSearchOpen && <div className="tank-search-panel"><input autoFocus type="search" value={tankSearchQuery} onChange={e => setTankSearchQuery(e.target.value)} placeholder="מספר מיכל או אצווה" aria-label="חיפוש מיכל או אצווה"/><button type="button" onClick={() => { setTankSearchOpen(false); setTankSearchQuery(""); }} aria-label="סגור חיפוש">×</button>{tankSearchQuery.trim() && <div className="tank-search-results">{brews.filter(t => String(t.tankNumber).includes(tankSearchQuery.trim()) || String(t.batchNumber ?? "").includes(tankSearchQuery.trim())).slice(0,12).map(t => <button type="button" key={t.id} onClick={() => { setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setOnlyWithCellarRecommendations(false); setTankSearchOpen(false); setTankSearchQuery(""); window.setTimeout(() => { const slot = document.querySelector<HTMLElement>(`[data-tank-number="${t.tankNumber}"]`); slot?.scrollIntoView({behavior:"smooth",block:"center"}); slot?.classList.add("tank-search-highlight"); if (slot) window.setTimeout(() => slot.classList.remove("tank-search-highlight"), 3000); }, 120); }}>מיכל {t.tankNumber} · אצווה {t.batchNumber || "—"}</button>)}</div>}</div>}</div><DashboardHeader statusCounts={statusCounts} setSelectedStatuses={setSelectedStatuses} selectedStatuses={selectedStatuses} totalTanks={totalTanks} statuses={statuses} sortByAge={sortByAge} setSortByAge={setSortByAge} onlyWithCellarRecommendations={onlyWithCellarRecommendations} setOnlyWithCellarRecommendations={setOnlyWithCellarRecommendations} recommendationCount={new Set(recommendedTankNumbers).size} filteredTankCount={filteredTankCount} /></div>}
                     {selectedView === "רישום" && <div className="status-filter">
-                        <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>סבב יומי- טמפ' ולחץ</span></button>
-                        <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>בדיקות סוכר וpH למיכלים חמים</span></button>
+                        <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>סבב יומי- טמפ' ולחץ</span>{cellarPending("לחץ") > 0 && <span className="nav-badge">{cellarPending("לחץ")}</span>}</button>
+                        <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>בדיקות סוכר וpH למיכלים חמים</span>{cellarPending("חם") > 0 && <span className="nav-badge">{cellarPending("חם")}</span>}</button>
                         <button type="button" className={`status-filter-button ${selectedWrites === "פעולות" ? "active" : ""}`} onClick={() => { setSelectedWrites("פעולות"); setNewReadings({}); }}><span>דיווח פעולות סלרינג</span></button>
                         <button type="button" className={`status-filter-button ${selectedWrites === "אריזה" ? "active" : ""}`} onClick={() => { setSelectedWrites("אריזה"); setNewReadings({}); }}><span>דיווח אריזה</span></button>
                     </div>}
@@ -543,8 +576,8 @@ function App() {
                 {selectedView === "רישום" && <>
                     <CellaringForecast brews={brews} specs={specs} />
                     <SendMessurmentsHeader brews={brews} newReadings={newReadings} setNewReadings={setNewReadings} reportName={selectedWrites} hasIncompleteNotes={hasIncompleteNotes} onResetAll={() => setResetKey((k) => k + 1)} specs={specs} />
-                    {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} />}
-                    {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} />}
+                    {selectedWrites === "לחץ" && <DailyPressureAndTemp brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} />}
+                    {selectedWrites === "חם" && <DailyPlatoPH brews={brews} newReadings={newReadings} updateReading={updateReading} dailyProgress={cellarDailyProgress} />}
                     {selectedWrites === "פעולות" && <NoteToFermentor brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} specs={specs} />}
                     {selectedWrites === "אריזה" && <PackagingForm brews={brews} updateReading={updateReading} onValidityChange={setHasIncompleteNotes} key={resetKey} />}
                 </>}
