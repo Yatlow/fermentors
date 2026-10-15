@@ -1,4 +1,4 @@
-import type { Fermentor } from "../../App";
+type GraceTank = { id: string; tankNumber?: string | number | null; action?: string | number | null; fermentationStartedAt?: unknown; cellarGraceExtensions?: Record<string, string>; cellarHealthCompletedDay?: string; cellarGraceTankIds?: string[] };
 import { localDateKey } from "./healthModel";
 
 export const FERMENTATION_GRACE_MS = 12 * 60 * 60 * 1000;
@@ -19,7 +19,7 @@ export function timestampMillis(value: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-export function fermentationGraceEnd(tank: Fermentor): number | null {
+export function fermentationGraceEnd(tank: GraceTank): number | null {
   const start = timestampMillis(tank.fermentationStartedAt);
   return start === null ? null : start + FERMENTATION_GRACE_MS;
 }
@@ -29,7 +29,7 @@ export function graceExtensionEnd(completedAt: Date): number {
   return new Date(completedAt.getFullYear(), completedAt.getMonth(), completedAt.getDate() + 2).getTime();
 }
 
-export function graceExtensionsAtHundred(tanks: Fermentor[], at: Date): Record<string, string> {
+export function graceExtensionsAtHundred(tanks: GraceTank[], at: Date): Record<string, string> {
   const atMs = at.getTime();
   const endIso = new Date(graceExtensionEnd(at)).toISOString();
   return Object.fromEntries(tanks.filter(tank => {
@@ -39,12 +39,12 @@ export function graceExtensionsAtHundred(tanks: Fermentor[], at: Date): Record<s
   }).map(tank => [String(tank.id), endIso]));
 }
 
-export function isInMeasurementGrace(tank: Fermentor, tankOne?: Fermentor, now = new Date()): boolean {
+export function isInMeasurementGrace(tank: GraceTank, tankOne?: GraceTank, now = new Date()): boolean {
   const start = timestampMillis(tank.fermentationStartedAt);
   const normalEnd = fermentationGraceEnd(tank);
   const nowMs = now.getTime();
   if (start !== null && normalEnd !== null && nowMs >= start && nowMs < normalEnd) return true;
-  const state = tankOne as (Fermentor & {
+  const state = tankOne as (GraceTank & {
     cellarGraceExtensions?: Record<string, string>;
     cellarHealthCompletedDay?: string;
     cellarGraceTankIds?: string[];
