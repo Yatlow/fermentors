@@ -216,7 +216,7 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange }: Props & { onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
+export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const graceSnapshotTank = brews.find((tank) => Number(tank.tankNumber) === 1) as
@@ -855,6 +855,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     useEffect(() => {
         if (!analyzing) onOpenRecommendationCountChange?.(openRecommendationCount);
     }, [analyzing, openRecommendationCount, onOpenRecommendationCountChange]);
+
+    const pendingMeasurementTankKey = useMemo(() => [...new Set(analysis.alerts.filter((alert) => alert.recommendationKey === "measurementRound").map((alert) => String(alert.tankNumber)))].sort().join(","), [analysis.alerts]);
+    useEffect(() => {
+        if (!analyzing) onPendingMeasurementTanksChange?.(pendingMeasurementTankKey ? pendingMeasurementTankKey.split(",") : []);
+    }, [analyzing, pendingMeasurementTankKey, onPendingMeasurementTanksChange]);
 
     const pendingDailyScoreActionCount = useMemo(
         () => analysis.dailyActions.filter((action) => action.scoreEligible !== false).length,
