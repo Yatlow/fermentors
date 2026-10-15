@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
-import { auditShipmentAvailability } from "../../SERVICES/planning/shipmentAvailabilityAudit";
+import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../../SERVICES/planning/shipmentAvailabilityAudit";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -115,8 +115,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
       const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today);
-      const existing = new Map(before.map((issue) => [issue.week + ":" + issue.date + ":" + issue.productId, issue.missing]));
-      const newShortage = after.find((issue) => issue.missing > (existing.get(issue.week + ":" + issue.date + ":" + issue.productId) ?? 0));
+      const newShortage = newlyWorsenedShipmentShortage(before, after);
       if (newShortage) throw new Error("לא ניתן לשמור משלוח ללא מלאי זמין: " + newShortage.message);
     }
     const priorWeekId = addDays(canonical.id, -7);
