@@ -111,7 +111,8 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     // Warn only when this save introduces/changes a shipment decision.
     // A deliberate no-shipment week remains permitted.
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
-    if (shipmentDecisionChanged && !data.loading && readScope.pallets && readScope.actuals) {
+    const packagingDecisionChanged = JSON.stringify(original?.packaging ?? []) !== JSON.stringify(canonical.packaging ?? []);
+    if ((shipmentDecisionChanged || packagingDecisionChanged) && !data.loading && readScope.pallets && readScope.actuals) {
       const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
       const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today);
