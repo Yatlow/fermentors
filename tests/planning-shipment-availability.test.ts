@@ -34,3 +34,20 @@ test("two future shipments cannot reuse the same physical pallet", () => {
   const second = { ...emptyWeek("2026-10-25"), deliveries: [{ id: "second", productId: p.id, quantity: 84, dispatchDate: "2026-10-26", arrivalDate: "2026-10-26" }] };
   assert.equal(auditShipmentAvailability(settings, [pallet("one")], [week(84), second], [], today)[0].week, "2026-10-25");
 });
+
+
+test("completed same-day shipment is not deducted again from already reduced physical stock", () => {
+  const first = week(84, "2026-10-15");
+  const later = { ...emptyWeek("2026-10-18"), deliveries: [{ id: "later", productId: p.id, quantity: 84, dispatchDate: "2026-10-19", arrivalDate: "2026-10-19" }] };
+  const actual = { id: "actual-shipment", date: "2026-10-15", totals: [{ itemType: "crates" as const, beerStyle: "IPA", totalQuantity: 84 }] };
+  const issues = auditShipmentAvailability(settings, [pallet("remaining")], [first, later], [], today, [actual]);
+  assert.equal(issues.length, 0);
+});
+
+test("without actual shipment confirmation, same-day commitment still consumes stock", () => {
+  const first = week(84, "2026-10-15");
+  const later = { ...emptyWeek("2026-10-18"), deliveries: [{ id: "later", productId: p.id, quantity: 84, dispatchDate: "2026-10-19", arrivalDate: "2026-10-19" }] };
+  const issues = auditShipmentAvailability(settings, [pallet("remaining")], [first, later], [], today);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].date, "2026-10-19");
+});
