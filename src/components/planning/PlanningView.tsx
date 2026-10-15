@@ -76,7 +76,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
   const identityAlignedPlans = useMemo(() => withStablePackagingIdentity(plans), [plans]);
   const [message, setMessage] = useState("");
-  const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today]);
+  const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments]);
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
   const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);
   const weeklyPlans = useMemo(() => (tab === "calendar" ? pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products) : identityAlignedPlans), [tab, executionPlans, identityAlignedPlans, data.actualShipments, settings.products]);
@@ -113,7 +113,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
     if (shipmentDecisionChanged && !data.loading && readScope.pallets && readScope.actuals) {
       const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
-      const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today);
+      const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
       const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today);
       const existing = new Map(before.map((issue) => [issue.week + ":" + issue.date + ":" + issue.productId, issue.missing]));
       const newShortage = after.find((issue) => issue.missing > (existing.get(issue.week + ":" + issue.date + ":" + issue.productId) ?? 0));
