@@ -8,12 +8,14 @@ export type DailyPressureAndTempProps = {
   brews: Fermentor[],
   newReadings: Record<string, NewReading>,
   updateReading: Function,
+  dailyProgress: Record<string, { temp: boolean; pressure: boolean; plato: boolean; pH: boolean }>,
 }
 
 export default function DailyPressureAndTemp({
   brews,
   newReadings,
   updateReading,
+  dailyProgress,
 }: DailyPressureAndTempProps) {
 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -43,6 +45,9 @@ export default function DailyPressureAndTemp({
                 </div>
 
 
+                {Number(fv.action) === 1 && <div role="status" style={{ fontSize: "0.78rem", padding: "3px 9px", color: dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "#18743b" : "#866119" }}>
+                  {dailyProgress[fv.id]?.temp && dailyProgress[fv.id]?.pressure ? "✓ הושלם היום" : dailyProgress[fv.id]?.temp || dailyProgress[fv.id]?.pressure ? "◐ בוצע חלקית היום" : "○ טרם בוצע היום"}
+                </div>}
                 <div className="measurement-batch" style={Number(fv.action) === 1 ? { borderInlineStart: `4px solid ${beerStyleVisual(fv.beerStyle).border}`, paddingInlineStart: 8 } : undefined}>
                   {Number(fv.action) === 1 ? `אצווה #${fv.batchNumber ?? "-"}` : `מיכל ${fv.stage?.name}`}
                 </div>
