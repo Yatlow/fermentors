@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
 import { addDays, tanksFrom, weekStart, type Settings, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { buildWeeklyPlanningModel } from "../../SERVICES/planning/weeklyPlanningModel";
+import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../../SERVICES/planning/shipmentAvailabilityAudit";
 import type { RecommendationEvidence, RecommendationKind } from "../../SERVICES/planning/recommendationAudit";
 import { withStablePackagingIdentity } from "../../SERVICES/planning/planIdentity";
 import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
@@ -75,6 +76,7 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
   const tanks = useMemo(() => tanksFrom(productionTanks, settings, actuals), [productionTanks, settings, actuals]);
   const identityAlignedPlans = useMemo(() => withStablePackagingIdentity(plans), [plans]);
   const [message, setMessage] = useState("");
+  const availabilityIssues = useMemo(() => data.loading || !readScope.pallets || !readScope.actuals ? [] : auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments), [data.loading, readScope.pallets, readScope.actuals, settings, pallets, identityAlignedPlans, actuals, today, data.actualShipments]);
   const disabled = !canEdit || data.loading || data.offline || !!data.error;
   const executionPlans = useMemo(() => (tab === "calendar" ? plansAfterActualPackagingCompletion(identityAlignedPlans, settings.products, actuals, productionTanks) : identityAlignedPlans), [tab, identityAlignedPlans, settings.products, actuals, productionTanks]);
   const weeklyPlans = useMemo(() => (tab === "calendar" ? pendingPlansAfterActualShipments(executionPlans, data.actualShipments, settings.products) : identityAlignedPlans), [tab, executionPlans, identityAlignedPlans, data.actualShipments, settings.products]);
@@ -109,6 +111,14 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
     // Warn only when this save introduces/changes a shipment decision.
     // A deliberate no-shipment week remains permitted.
     const shipmentDecisionChanged = JSON.stringify(original?.deliveries ?? []) !== JSON.stringify(canonical.deliveries ?? []);
+    const packagingDecisionChanged = JSON.stringify(original?.packaging ?? []) !== JSON.stringify(canonical.packaging ?? []);
+    if ((shipmentDecisionChanged || packagingDecisionChanged) && !data.loading && readScope.pallets && readScope.actuals) {
+      const nextPlans = identityAlignedPlans.filter((w) => w.id !== canonical.id).concat(canonical);
+      const after = auditShipmentAvailability(settings, pallets, nextPlans, actuals, today, data.actualShipments);
+      const before = auditShipmentAvailability(settings, pallets, identityAlignedPlans, actuals, today);
+      const newShortage = newlyWorsenedShipmentShortage(before, after);
+      if (newShortage) throw new Error("לא ניתן לשמור משלוח ללא מלאי זמין: " + newShortage.message);
+    }
     const priorWeekId = addDays(canonical.id, -7);
     const priorWeek = identityAlignedPlans.find((week) => week.id === priorWeekId);
     const hasNewShipment = (canonical.deliveries ?? []).some((delivery) => delivery.quantity > 0);
@@ -165,6 +175,10 @@ export default function PlanningView({ brews, canEdit, tab, onOpenCoolerMap, onP
 
   return (
     <section className="brew-planning" dir="rtl">
+      {availabilityIssues.length > 0 && <div role="alert" className="bp-alert" style={{ padding: 12, marginBottom: 12 }}>
+        <strong>⚠️ נמצאו {availabilityIssues.length} חוסרים בזמינות משלוחים בתכנון</strong>
+        <ul>{availabilityIssues.map((issue) => <li key={`${issue.week}:${issue.date}:${issue.productId}`}>שבוע {issue.week} · {issue.message}</li>)}</ul>
+      </div>}
       {data.loading && !data.error && <div role="status"><BeerLoader message="טוען את לוח העבודה…" /></div>}
       {data.error && <p role="alert" className="bp-alert">טעינת הנתונים נכשלה: {data.error}</p>}
       {data.offline && !data.loading && <p role="status">ממתין לחיבור לשרת.</p>}
