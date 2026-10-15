@@ -70,3 +70,18 @@ export function auditShipmentAvailability(
   }
   return issues.sort((a, b) => a.date.localeCompare(b.date) || a.productId.localeCompare(b.productId));
 }
+
+/** Find a newly introduced or worsened shortage anywhere in the planning horizon.
+ * A valid earlier shipment must not silently invalidate later committed shipments.
+ */
+export function newlyWorsenedShipmentShortage(
+  before: PlanningAvailabilityIssue[],
+  after: PlanningAvailabilityIssue[],
+): PlanningAvailabilityIssue | undefined {
+  const existing = new Map(before.map((issue) => [
+    `${issue.week}:${issue.date}:${issue.productId}`, issue.missing,
+  ]));
+  return after.find((issue) =>
+    issue.missing > (existing.get(`${issue.week}:${issue.date}:${issue.productId}`) ?? 0),
+  );
+}
