@@ -917,7 +917,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 cellarHealthIs100: desiredIs100,
                 ...(desiredIs100 ? {
                     cellarHealthCompletedDay: todayKey,
-                    cellarGraceExtensions: { ...(cellarStateTank.cellarGraceExtensions ?? {}), ...graceExtensionsAtHundred(brews, new Date()) },
+                    cellarGraceExtensions: { ...(cellarStateTank.cellarGraceExtensions ?? {}), ...Object.fromEntries(Object.entries(graceExtensionsAtHundred(brews, new Date())).filter(([id]) => !cellarStateTank.cellarGraceExtensions?.[id])) },
                     cellarGraceTankIds: brews.filter((tank) =>
                         Number(tank.tankNumber) !== 1 &&
                         Number(tank.action) === 1 &&
