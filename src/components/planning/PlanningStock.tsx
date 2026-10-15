@@ -85,6 +85,7 @@
             tempo,
             daily,
             age,
+            breweryCover: cover(brewery, daily),
             tempoCover: cover(tempo, daily),
             totalCover: cover(tempo === null ? null : tempo + brewery, daily),
             };
@@ -109,7 +110,7 @@
                     <div className="bp-stock-metric" key={f.type}>
                     <small>{f.type === "crates" ? "ארגזים" : "חביות"}</small>
                     <div className="bp-stock-pair"><span><b>מבשלה</b> {fmt(f.brewery)}</span><span><b>טמפו</b> {f.tempo === null ? "—" : fmt(f.tempo)}</span></div>
-                    <em>כיסוי כולל {f.totalCover.label}</em>
+                    <div className="bp-stock-coverage"><span>כיסוי כולל <strong>{f.totalCover.label}</strong></span><span>כיסוי מבשלה <strong>{f.breweryCover.label}</strong></span><span>כיסוי טמפו <strong>{f.tempoCover.label}</strong></span></div>
                     <i className={`bp-stock-freshness ${freshnessClass(f.age)}`}>{f.product?.tempoDate ? `עודכן ${shortDate(f.product.tempoDate)}` : "לא עודכן"}</i>
                     </div>
                 ))}
@@ -121,6 +122,7 @@
                         <span>מלאי במבשלה: {fmt(f.brewery)}</span>
                         <span>מלאי בטמפו: {f.tempo === null ? "לא עודכן" : fmt(f.tempo)}</span>
                         <span className={`bp-stock-freshness ${freshnessClass(f.age)}`}>{f.product?.tempoDate ? `עודכן לאחרונה: ${shortDate(f.product.tempoDate)}` : "לא קיימת מדידת טמפו"}</span>
+                        <span>כיסוי במבשלה: {f.breweryCover.label}</span>
                         <span>כיסוי בטמפו: {f.tempoCover.label}</span>
                         <span>כיסוי כולל: {f.totalCover.label}</span>
                         {f.tempo !== null && f.daily > 0 && <small>בקצב הנוכחי הכיסוי הכולל יספיק עד {shortDate(addDays(today, f.totalCover.days))}</small>}
