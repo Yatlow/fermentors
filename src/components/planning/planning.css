@@ -1820,3 +1820,22 @@
 }
 
 
+
+/* Coverage breakdown in the planning stock snapshot */
+.brew-planning .bp-stock-coverage {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.35rem 0.75rem;
+    margin-top: 0.35rem;
+    font-size: 0.8rem;
+    font-style: normal;
+}
+.brew-planning .bp-stock-coverage span {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+.brew-planning .bp-stock-coverage strong { font-weight: 650; }
