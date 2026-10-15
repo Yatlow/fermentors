@@ -134,8 +134,6 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     completeMeasurementTankNumbers: [],
 };
 
-const FERMENTATION_MEASUREMENT_GRACE_MS = 12 * 60 * 60 * 1000;
-
 function recommendationShortLabel(key: string, fallback = "המלצת סלרינג"): string {
     if (key === "measurementRound") return "סבב מדידות";
     if (key === "dryHop") return "דרייהופ";
@@ -158,54 +156,6 @@ function tankLabel(tank: Fermentor): string {
 
 function isHotTank(tank: Fermentor): boolean {
     return tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
-}
-
-function timestampToMillis(value: unknown): number | null {
-    if (value === null || value === undefined || value === "") return null;
-
-    if (value instanceof Date) {
-        const ms = value.getTime();
-        return Number.isFinite(ms) ? ms : null;
-    }
-
-    if (typeof value === "object") {
-        const timestamp = value as {
-            toDate?: () => Date;
-            seconds?: unknown;
-            _seconds?: unknown;
-        };
-
-        if (typeof timestamp.toDate === "function") {
-            try {
-                const ms = timestamp.toDate().getTime();
-                if (Number.isFinite(ms)) return ms;
-            } catch {
-                // Fall through to raw seconds/string parsing.
-            }
-        }
-
-        const seconds = Number(timestamp.seconds ?? timestamp._seconds);
-        if (Number.isFinite(seconds)) return seconds * 1000;
-    }
-
-    const ms = new Date(String(value)).getTime();
-    return Number.isFinite(ms) ? ms : null;
-}
-
-function isInFermentationMeasurementGracePeriod(
-    tank: Fermentor,
-    nowMs: number = Date.now()
-): boolean {
-    // Grace starts when the tank actually enters ACTION 1. Brew-progress
-    // stageStartTime can describe an earlier brewing step and must not age the
-    // fermentation measurement grace before beer reaches the tank.
-    const startedAtMs = timestampToMillis(
-        (tank as Fermentor & { fermentationStartedAt?: unknown }).fermentationStartedAt
-    );
-    if (startedAtMs === null) return false;
-
-    const elapsedMs = nowMs - startedAtMs;
-    return elapsedMs >= 0 && elapsedMs < FERMENTATION_MEASUREMENT_GRACE_MS;
 }
 
 function activeRecommendations(
