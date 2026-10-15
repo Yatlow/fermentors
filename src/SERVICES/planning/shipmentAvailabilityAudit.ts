@@ -2,6 +2,8 @@ import type { Pallet } from "../cooler/Pallettypes ";
 import { addDays, productPallets, parseDate, weekStart, type Actual, type Product, type Settings, type WeekPlan } from "./planningEngine";
 import { openRuns } from "./dailyPlanner";
 import { nominalPlanningUnits } from "./shipmentRecommendation";
+import { pendingPlansAfterActualShipments } from "./shipmentActuals";
+import type { ShipmentEvent } from "./dailyPlanner";
 
 export type PlanningAvailabilityIssue = {
   week: string;
@@ -24,8 +26,12 @@ export function auditShipmentAvailability(
   plans: WeekPlan[],
   actuals: Actual[],
   today: string,
+  actualShipments: ShipmentEvent[] = [],
 ): PlanningAvailabilityIssue[] {
   const open = openRuns(plans, settings.products, actuals);
+  // Physical stock already excludes pallets dispatched by completed shipments.
+  // Do not consume that stock again for a saved trip completed today.
+  const pendingPlans = pendingPlansAfterActualShipments(plans, actualShipments, settings.products);
   const issues: PlanningAvailabilityIssue[] = [];
   const horizon = addDays(weekStart(today), 91);
   for (const p of settings.products) {
@@ -37,7 +43,7 @@ export function auditShipmentAvailability(
       if (run.productId !== p.id || run.remaining <= 0 || !run.date || run.date < today || run.date > horizon) continue;
       events.push({ date: run.date, kind: "pack", qty: nominalPlanningUnits(p, run.remaining), week: run.week });
     }
-    for (const week of plans) {
+    for (const week of pendingPlans) {
       for (const delivery of week.deliveries ?? []) {
         if (delivery.productId !== p.id || delivery.quantity <= 0 || delivery.dispatchDate < today || delivery.dispatchDate > horizon) continue;
         events.push({ date: delivery.dispatchDate, kind: "ship", qty: nominalPlanningUnits(p, delivery.quantity), week: week.id });
