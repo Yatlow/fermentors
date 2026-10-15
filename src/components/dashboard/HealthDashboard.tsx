@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
+import { isInMeasurementGrace, graceExtensionsAtHundred } from "../../SERVICES/dashboard/cellarGrace";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -133,8 +134,6 @@ const EMPTY_ANALYSIS: CellarAnalysis = {
     completeMeasurementTankNumbers: [],
 };
 
-const FERMENTATION_MEASUREMENT_GRACE_MS = 12 * 60 * 60 * 1000;
-
 function recommendationShortLabel(key: string, fallback = "המלצת סלרינג"): string {
     if (key === "measurementRound") return "סבב מדידות";
     if (key === "dryHop") return "דרייהופ";
@@ -157,54 +156,6 @@ function tankLabel(tank: Fermentor): string {
 
 function isHotTank(tank: Fermentor): boolean {
     return tank.stage?.name === "בתסיסה" && Number(tank.currentData?.temp) > 9;
-}
-
-function timestampToMillis(value: unknown): number | null {
-    if (value === null || value === undefined || value === "") return null;
-
-    if (value instanceof Date) {
-        const ms = value.getTime();
-        return Number.isFinite(ms) ? ms : null;
-    }
-
-    if (typeof value === "object") {
-        const timestamp = value as {
-            toDate?: () => Date;
-            seconds?: unknown;
-            _seconds?: unknown;
-        };
-
-        if (typeof timestamp.toDate === "function") {
-            try {
-                const ms = timestamp.toDate().getTime();
-                if (Number.isFinite(ms)) return ms;
-            } catch {
-                // Fall through to raw seconds/string parsing.
-            }
-        }
-
-        const seconds = Number(timestamp.seconds ?? timestamp._seconds);
-        if (Number.isFinite(seconds)) return seconds * 1000;
-    }
-
-    const ms = new Date(String(value)).getTime();
-    return Number.isFinite(ms) ? ms : null;
-}
-
-function isInFermentationMeasurementGracePeriod(
-    tank: Fermentor,
-    nowMs: number = Date.now()
-): boolean {
-    // Grace starts when the tank actually enters ACTION 1. Brew-progress
-    // stageStartTime can describe an earlier brewing step and must not age the
-    // fermentation measurement grace before beer reaches the tank.
-    const startedAtMs = timestampToMillis(
-        (tank as Fermentor & { fermentationStartedAt?: unknown }).fermentationStartedAt
-    );
-    if (startedAtMs === null) return false;
-
-    const elapsedMs = nowMs - startedAtMs;
-    return elapsedMs >= 0 && elapsedMs < FERMENTATION_MEASUREMENT_GRACE_MS;
 }
 
 function activeRecommendations(
@@ -351,7 +302,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     const dailyActions: DailyCellarAction[] = [];
                     const tankDailyProgress: DailyActionProgress = { ...EMPTY_DAILY_ACTION_PROGRESS };
                     const hotTank = isHotTank(tank);
-                    const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
+                    const inGracePeriod = isInMeasurementGrace(tank, graceSnapshotTank);
                     const graceMeasurementExempt = graceLockedIds.includes(String(tank.id));
 
                     try {
@@ -931,7 +882,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const [celebrationOpen, setCelebrationOpen] = useState(false);
     const cellarStateTank = useMemo(
         () => brews.find((tank) => Number(tank.tankNumber) === 1) as
-            | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string })
+            | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string; cellarGraceExtensions?: Record<string, string> })
             | undefined,
         [brews]
     );
@@ -966,10 +917,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 cellarHealthIs100: desiredIs100,
                 ...(desiredIs100 ? {
                     cellarHealthCompletedDay: todayKey,
+                    cellarGraceExtensions: { ...(cellarStateTank.cellarGraceExtensions ?? {}), ...Object.fromEntries(Object.entries(graceExtensionsAtHundred(brews, new Date())).filter(([id]) => !cellarStateTank.cellarGraceExtensions?.[id])) },
                     cellarGraceTankIds: brews.filter((tank) =>
                         Number(tank.tankNumber) !== 1 &&
                         Number(tank.action) === 1 &&
-                        isInFermentationMeasurementGracePeriod(tank)
+                        isInMeasurementGrace(tank, cellarStateTank)
                     ).map((tank) => String(tank.id)),
                 } : {}),
             }).then(() => {

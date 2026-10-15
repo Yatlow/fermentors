@@ -8,12 +8,14 @@ export type DailyPlatoPHProps = {
   brews: Fermentor[],
   newReadings: Record<string, NewReading>,
   updateReading: Function,
+  dailyProgress: Record<string, { temp: boolean; pressure: boolean; plato: boolean; pH: boolean }>,
 }
 
 export default function DailyPlatoPH({
   brews,
   newReadings,
   updateReading,
+  dailyProgress,
 }: DailyPlatoPHProps) {
 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -42,6 +44,9 @@ export default function DailyPlatoPH({
                 </div>
 
 
+                {Number(fv.action) === 1 && <div role="status" style={{ fontSize: "0.78rem", padding: "3px 9px", color: dailyProgress[fv.id]?.plato && dailyProgress[fv.id]?.pH ? "#18743b" : "#866119" }}>
+                  {dailyProgress[fv.id]?.plato && dailyProgress[fv.id]?.pH ? "✓ הושלם היום" : dailyProgress[fv.id]?.plato || dailyProgress[fv.id]?.pH ? "◐ בוצע חלקית היום" : "○ טרם בוצע היום"}
+                </div>}
                 <div className="measurement-batch" style={Number(fv.action) === 1 ? { borderInlineStart: `4px solid ${beerStyleVisual(fv.beerStyle).border}`, paddingInlineStart: 8 } : undefined}>
                   {Number(fv.action) === 1 ? `אצווה #${fv.batchNumber ?? "-"}` : `מיכל ${fv.stage?.name}`}
                 </div>
