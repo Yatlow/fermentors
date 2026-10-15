@@ -20,6 +20,7 @@ try {
     "packaging-replan-actuals",
     "planning-dashboard-current-cycle",
     "shipment-reservation-week",
+    "planning-shipment-availability",
   ];
   const compile = spawnSync(
     process.execPath,
