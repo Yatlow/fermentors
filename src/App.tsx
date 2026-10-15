@@ -207,6 +207,7 @@ function App() {
     const [selectedView, setSelectedView] = useState<string>("דאשבורד");
     const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
     const [openCellarRecommendationCount, setOpenCellarRecommendationCount] = useState(0);
+    const [dashboardPendingMeasurementTanks, setDashboardPendingMeasurementTanks] = useState<string[]>([]);
     const [reportSuccess, setReportSuccess] = useState<{ tankNumber: string; tankNumbers?: string[]; label?: string; action: string } | null>(null);
     const [tankSearchOpen, setTankSearchOpen] = useState(false);
     const [tankSearchQuery, setTankSearchQuery] = useState("");
@@ -261,6 +262,13 @@ function App() {
         const p = cellarDailyProgress[t.id];
         return mode === "לחץ" ? !(p?.temp && p?.pressure) : !(p?.plato && p?.pH);
     }).length;
+    const uniquePendingMeasurementCount = selectedView === "דאשבורד"
+        ? dashboardPendingMeasurementTanks.length
+        : brews.filter(t => Number(t.tankNumber) !== 1 && Number(t.action) === 1 && !isInMeasurementGrace(t, cellarTankOne) && (() => {
+            const p = cellarDailyProgress[t.id];
+            const hot = Number(t.currentData?.temp) > 9 && t.stage?.name === "בתסיסה";
+            return !(p?.temp && p?.pressure) || (hot && !(p?.plato && p?.pH));
+        })()).length;
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
 
@@ -532,7 +540,7 @@ function App() {
                         <button type="button" className="mobile-area-trigger" aria-expanded={mobileMoreOpen} aria-controls="primary-area-navigation" onClick={() => setMobileMoreOpen((open) => !open)}><span className="mobile-area-current"><Menu size={22} aria-hidden="true" />{selectedView === "דאשבורד" ? <LayoutDashboard size={21}/> : selectedView === "רישום" ? <TestTubes size={21}/> : selectedView === "דוחות" ? <FileChartLine size={21}/> : selectedView === "ניהול" ? <PocketKnife size={21}/> : selectedView === "מקרר" ? <MapIcon size={21}/> : selectedView === "בישולים" ? <Beer size={21}/> : <CalendarCog size={21}/>}<span>{selectedView === "רישום" ? "פעולות סלרינג" : selectedView === "ניהול" ? "כלים" : selectedView === "מקרר" ? "מפת מקרר" : selectedView}</span></span>{!!zoneCounts?.pending && <span className="mobile-nav-pending-badge" aria-label={`${zoneCounts.pending} משטחים ממתינים לשיבוץ`}>{zoneCounts.pending}</span>}<ChevronDown className={`mobile-nav-chevron ${mobileMoreOpen ? "expanded" : ""}`} size={19} aria-hidden="true" /></button>
                         <nav className={`views-box ${mobileMoreOpen ? "mobile-more-open" : ""}`} id="primary-area-navigation" aria-label="ניווט ראשי">
                             <div className={`views-item ${selectedView === "דאשבורד" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דאשבורד"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><LayoutDashboard size={20} aria-hidden="true"/><span className="views-label">דאשבורד</span>{openCellarRecommendationCount > 0 && <span className="nav-badge" aria-label={`${openCellarRecommendationCount} המלצות סלרינג פתוחות`}>{openCellarRecommendationCount}</span>}</div>
-                            <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}><TestTubes size={20} aria-hidden="true"/><span className="views-label">סלרינג</span></div>
+                            <div className={`views-item ${selectedView === "רישום" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("רישום"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setNewReadings({}); }}><TestTubes size={20} aria-hidden="true"/><span className="views-label">סלרינג</span>{uniquePendingMeasurementCount > 0 && <span className="nav-badge" aria-label={`${uniquePendingMeasurementCount} מיכלים דורשים מדידה`}>{uniquePendingMeasurementCount}</span>}</div>
                             <div className={`views-item ${selectedView === "דוחות" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("דוחות"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><FileChartLine size={20} aria-hidden="true"/><span className="views-label">דוחות</span></div>
                             <div className={`views-item ${selectedView === "ניהול" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("ניהול"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><PocketKnife size={20} aria-hidden="true"/><span className="views-label">כלים</span></div>
                             <div className={`views-item ${selectedView === "מקרר" ? "active" : ""}`} onClick={() => { setMobileMoreOpen(false); setSelectedView("מקרר"); setSelectedStatuses(["הכל"]); setSelectedStyles(["הכל"]); setSelectedWrites("לחץ"); setSelectedReports("אריזה"); setSelectedAdminTools("calculator"); setNewReadings({}); }}><MapIcon size={20} aria-hidden="true"/><span className="views-label">מפת מקרר</span>{!!zoneCounts?.pending && <span className="nav-badge">{zoneCounts.pending}</span>}</div>
@@ -546,8 +554,8 @@ function App() {
                     {selectedView === "רישום" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedWrites === "לחץ" ? "active" : ""}`} onClick={() => { setSelectedWrites("לחץ"); setNewReadings({}); }}><span>סבב יומי- טמפ' ולחץ</span>{cellarPending("לחץ") > 0 && <span className="nav-badge">{cellarPending("לחץ")}</span>}</button>
                         <button type="button" className={`status-filter-button ${selectedWrites === "חם" ? "active" : ""}`} onClick={() => { setSelectedWrites("חם"); setNewReadings({}); }}><span>בדיקות סוכר וpH למיכלים חמים</span>{cellarPending("חם") > 0 && <span className="nav-badge">{cellarPending("חם")}</span>}</button>
-                        <button type="button" className={`status-filter-button ${selectedWrites === "פעולות" ? "active" : ""}`} onClick={() => { setSelectedWrites("פעולות"); setNewReadings({}); }}><span>דיווח פעולות סלרינג</span></button>
-                        <button type="button" className={`status-filter-button ${selectedWrites === "אריזה" ? "active" : ""}`} onClick={() => { setSelectedWrites("אריזה"); setNewReadings({}); }}><span>דיווח אריזה</span></button>
+                        <button type="button" hidden aria-hidden="true" className={`status-filter-button ${selectedWrites === "פעולות" ? "active" : ""}`} onClick={() => { setSelectedWrites("פעולות"); setNewReadings({}); }}><span>דיווח פעולות סלרינג</span></button>
+                        <button type="button" hidden aria-hidden="true" className={`status-filter-button ${selectedWrites === "אריזה" ? "active" : ""}`} onClick={() => { setSelectedWrites("אריזה"); setNewReadings({}); }}><span>דיווח אריזה</span></button>
                     </div>}
                     {selectedView === "דוחות" && <div className="status-filter">
                         <button type="button" className={`status-filter-button ${selectedReports === "אריזה" ? "active" : ""}`} onClick={() => setSelectedReports("אריזה")}><span>דוח אריזות</span></button>
@@ -571,7 +579,7 @@ function App() {
             </header>
 
             <Suspense fallback={<div className="dashboard-loading"><BeerLoader message="טוען תצוגה..." overlay={false} size="large" /></div>}>
-                {selectedView === "דאשבורד" && <Dashboard onlyWithCellarRecommendations={onlyWithCellarRecommendations} recommendedTankNumbers={recommendedTankNumbers} onRecommendedTanksChange={setRecommendedTankNumbers} onOpenRecommendationCountChange={setOpenCellarRecommendationCount} sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
+                {selectedView === "דאשבורד" && <Dashboard onlyWithCellarRecommendations={onlyWithCellarRecommendations} recommendedTankNumbers={recommendedTankNumbers} onRecommendedTanksChange={setRecommendedTankNumbers} onOpenRecommendationCountChange={setOpenCellarRecommendationCount} onPendingMeasurementTanksChange={setDashboardPendingMeasurementTanks} sortMode={sortByAge} healthBrews={brews} filteredBrews={sortedFilteredBrews} filteredTankCount={filteredTankCount} handleUpdatePasivation={handleUpdatePasivation} selectedStatuses={selectedStatuses} selectedStyles={selectedStyles} setSelectedStyles={setSelectedStyles} totalVolumes={totalVolumes} specs={specs} />}
                 {selectedView === "תכנון" && <PlanningView brews={brews} canEdit={plannerUser} tab={planningTab} onTabChange={setPlanningTab} onPendingDailyWorkChange={setPendingPlanningWork} onOpenCoolerMap={() => { setMobileMoreOpen(false); setSelectedView("מקרר"); }} />}
                 {selectedView === "רישום" && <>
                     <CellaringForecast brews={brews} specs={specs} />

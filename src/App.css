@@ -7162,3 +7162,13 @@ b {
     margin: 10px auto 16px !important;
   }
 }
+
+/* Unified main navigation tile appearance across wrapped rows. */
+@media (max-width: 768px) {
+  .dashboard-header .views-box .views-item,
+  .dashboard-header .views-box.mobile-more-open .views-item { background: #f8fafc !important; border-color: #dbe4ef !important; }
+  .dashboard-header .views-box .views-item.active,
+  .dashboard-header .views-box.mobile-more-open .views-item.active { background: #e8f1ff !important; border-color: #93c5fd !important; }
+}
+/* Keep the legacy reporting JSX mounted in source but out of the navigation. */
+.status-filter-button[hidden] { display: none !important; }

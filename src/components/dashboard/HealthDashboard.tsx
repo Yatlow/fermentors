@@ -216,7 +216,7 @@ const severityOrder: Record<Severity, number> = {
     info: 1,
 };
 
-export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange }: Props & { onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
+export default function HealthDashboard({ brews, specs, onRecommendedTanksChange, onOpenRecommendationCountChange, onPendingMeasurementTanksChange }: Props & { onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void; onRecommendedTanksChange?: (numbers: string[]) => void; onOpenRecommendationCountChange?: (count: number) => void }) {
     const [expanded, setExpanded] = useState(false);
     const [analysis, setAnalysis] = useState<CellarAnalysis>(EMPTY_ANALYSIS);
     const graceSnapshotTank = brews.find((tank) => Number(tank.tankNumber) === 1) as
@@ -856,6 +856,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         if (!analyzing) onOpenRecommendationCountChange?.(openRecommendationCount);
     }, [analyzing, openRecommendationCount, onOpenRecommendationCountChange]);
 
+    const pendingMeasurementTankKey = useMemo(() => [...new Set(analysis.alerts.filter((alert) => alert.recommendationKey === "measurementRound").map((alert) => String(alert.tankNumber)))].sort().join(","), [analysis.alerts]);
+    useEffect(() => {
+        if (!analyzing) onPendingMeasurementTanksChange?.(pendingMeasurementTankKey ? pendingMeasurementTankKey.split(",") : []);
+    }, [analyzing, pendingMeasurementTankKey, onPendingMeasurementTanksChange]);
+
     const pendingDailyScoreActionCount = useMemo(
         () => analysis.dailyActions.filter((action) => action.scoreEligible !== false).length,
         [analysis.dailyActions]
@@ -974,6 +979,29 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         );
     }, [analysis.dailyActions]);
 
+    // Presentation-only KPI groups; scoring and recommendation weights remain unchanged.
+    const actionKpis = useMemo(() => {
+        const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" => {
+            const name = `${key} ${title}`;
+            if (/pressureAdjustment|pressureChange|pressureClose|pressure-adjust|pressure-change|pressure-close|vent-adjust|שינוי לחץ|סגירת נשם|כיוון פורק/.test(name)) return "pressure";
+            if (/carb|Carbonation|גיזוז/.test(name)) return "carb";
+            if (/yeast|Yeast|שמרים/.test(name)) return "yeast";
+            return "other";
+        };
+        const pending = { pressure: 0, other: 0 };
+        const done = { pressure: 0, other: 0 };
+        analysis.alerts.forEach((alert) => {
+            if (!alert.recommendationKey || alert.recommendationKey === "measurementRound") return;
+            const category = classify(alert.scheduledActionType ?? alert.recommendationKey, alert.detail);
+            if (category === "pressure" || category === "other") pending[category]++;
+        });
+        analysis.completedActions.forEach((action) => {
+            const category = classify(action.id, action.title);
+            if (category === "pressure" || category === "other") done[category]++;
+        });
+        return { pending, done };
+    }, [analysis.alerts, analysis.completedActions]);
+
     const scoreStyle = {
         "--health-score": `${displayedHealthScore}%`,
     } as CSSProperties;
@@ -1047,6 +1075,10 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             פעולות היום: שמרים {analysis.dailyActionProgress.yeastCompleted}/{analysis.dailyActionProgress.yeastRequired}
                             {" · "}
                             גיזוזים {analysis.dailyActionProgress.carbCompleted}/{analysis.dailyActionProgress.carbRequired}
+                            {" · "}
+                            שינויי לחץ {actionKpis.done.pressure}/{actionKpis.done.pressure + actionKpis.pending.pressure}
+                            {" · "}
+                            פעולות אחרות {actionKpis.done.other}/{actionKpis.done.other + actionKpis.pending.other}
                         </span>
                     )}
                 </span>
