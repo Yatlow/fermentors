@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { defaultSettings, emptyWeek, type Product } from "../src/SERVICES/planning/planningEngine";
 import type { Pallet } from "../src/SERVICES/cooler/Pallettypes ";
-import { auditShipmentAvailability } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
+import { auditShipmentAvailability, newlyWorsenedShipmentShortage } from "../src/SERVICES/planning/shipmentAvailabilityAudit";
 
 const today = "2026-10-15";
 const p: Product = { id: "ipa-crates", sku: "ipa-crates", style: "IPA", type: "crates", monthly: 300, tempo: 0, tempoDate: today, leadDays: 1 };
@@ -50,4 +50,52 @@ test("without actual shipment confirmation, same-day commitment still consumes s
   const issues = auditShipmentAvailability(settings, [pallet("remaining")], [first, later], [], today);
   assert.equal(issues.length, 1);
   assert.equal(issues[0].date, "2026-10-19");
+});
+
+const laterShipment = () => ({
+  ...emptyWeek("2026-10-25"),
+  deliveries: [{ id: "week43", productId: p.id, quantity: 84, dispatchDate: "2026-10-26", arrivalDate: "2026-10-26" }],
+});
+const earlierShipment = () => ({
+  ...emptyWeek("2026-10-18"),
+  deliveries: [{ id: "week42", productId: p.id, quantity: 84, dispatchDate: "2026-10-19", arrivalDate: "2026-10-19" }],
+});
+
+test("saving earlier week after later week blocks if it invalidates later shipment", () => {
+  const before = auditShipmentAvailability(settings, [pallet("a25")], [laterShipment()], [], today);
+  const after = auditShipmentAvailability(settings, [pallet("a25")], [laterShipment(), earlierShipment()], [], today);
+  assert.equal(before.length, 0);
+  assert.equal(after.length, 1);
+  const worsened = newlyWorsenedShipmentShortage(before, after);
+  assert.equal(worsened?.week, "2026-10-25");
+  assert.equal(worsened?.missing, 1);
+});
+
+test("saving earlier week does not block when both shipments have physical coverage", () => {
+  const physical = [pallet("a25"), pallet("a26")];
+  const before = auditShipmentAvailability(settings, physical, [laterShipment()], [], today);
+  const after = auditShipmentAvailability(settings, physical, [laterShipment(), earlierShipment()], [], today);
+  assert.equal(newlyWorsenedShipmentShortage(before, after), undefined);
+});
+
+test("dated packaging between the earlier and later shipments can cover the later shipment", () => {
+  const later = {
+    ...laterShipment(),
+    packaging: [{ id: "week43-pack", productId: p.id, quantity: 84, date: "2026-10-22" }],
+  };
+  const before = auditShipmentAvailability(settings, [pallet("a25")], [later], [], today);
+  const after = auditShipmentAvailability(settings, [pallet("a25")], [later, earlierShipment()], [], today);
+  assert.equal(newlyWorsenedShipmentShortage(before, after), undefined);
+});
+
+test("editing earlier week without changing shipments cannot waive a newly worsened later shortage", () => {
+  const initial = {
+    ...earlierShipment(),
+    packaging: [{ id: "week42-pack", productId: p.id, quantity: 84, date: "2026-10-20" }],
+  };
+  const before = auditShipmentAvailability(settings, [pallet("a25")], [initial, laterShipment()], [], today);
+  const changed = { ...initial, packaging: [] };
+  const after = auditShipmentAvailability(settings, [pallet("a25")], [changed, laterShipment()], [], today);
+  assert.equal(before.length, 0);
+  assert.equal(newlyWorsenedShipmentShortage(before, after)?.week, "2026-10-25");
 });
