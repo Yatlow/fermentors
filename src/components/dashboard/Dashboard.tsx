@@ -16,6 +16,7 @@ export type DashboardProps = {
     recommendedTankNumbers?: string[];
     onRecommendedTanksChange?: (numbers: string[]) => void;
     onOpenRecommendationCountChange?: (count: number) => void;
+    onPendingMeasurementTanksChange?: (tankNumbers: string[]) => void;
     sortMode?: "tank" | "oldest" | "newest" | "packagingSoon" | "packagingLater";
     selectedStatuses: string[];
     filteredTankCount: number;
@@ -43,6 +44,7 @@ export default function Dashboard({
     recommendedTankNumbers = [],
     onRecommendedTanksChange,
     onOpenRecommendationCountChange,
+    onPendingMeasurementTanksChange,
     filteredTankCount,
     totalVolumes,
     selectedStyles,
@@ -173,7 +175,7 @@ export default function Dashboard({
 
     return (
         <div className="dashboard">
-            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} onRecommendedTanksChange={onRecommendedTanksChange} onOpenRecommendationCountChange={onOpenRecommendationCountChange} />
+            <HealthDashboard brews={healthBrews ?? filteredBrews} specs={specs} onRecommendedTanksChange={onRecommendedTanksChange} onOpenRecommendationCountChange={onOpenRecommendationCountChange} onPendingMeasurementTanksChange={onPendingMeasurementTanksChange} />
             <SheetSyncStatus />
 
             <div className="dashboard-filter-info">
