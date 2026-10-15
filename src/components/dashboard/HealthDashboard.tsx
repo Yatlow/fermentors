@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
+import { isInMeasurementGrace, graceExtensionsAtHundred } from "../../SERVICES/dashboard/cellarGrace";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -351,7 +352,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     const dailyActions: DailyCellarAction[] = [];
                     const tankDailyProgress: DailyActionProgress = { ...EMPTY_DAILY_ACTION_PROGRESS };
                     const hotTank = isHotTank(tank);
-                    const inGracePeriod = isInFermentationMeasurementGracePeriod(tank);
+                    const inGracePeriod = isInMeasurementGrace(tank, graceSnapshotTank);
                     const graceMeasurementExempt = graceLockedIds.includes(String(tank.id));
 
                     try {
@@ -931,7 +932,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const [celebrationOpen, setCelebrationOpen] = useState(false);
     const cellarStateTank = useMemo(
         () => brews.find((tank) => Number(tank.tankNumber) === 1) as
-            | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string })
+            | (Fermentor & { cellarHealthIs100?: boolean; cellarHealthCompletedDay?: string; cellarGraceExtensions?: Record<string, string> })
             | undefined,
         [brews]
     );
@@ -966,10 +967,11 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                 cellarHealthIs100: desiredIs100,
                 ...(desiredIs100 ? {
                     cellarHealthCompletedDay: todayKey,
+                    cellarGraceExtensions: { ...(cellarStateTank.cellarGraceExtensions ?? {}), ...graceExtensionsAtHundred(brews, new Date()) },
                     cellarGraceTankIds: brews.filter((tank) =>
                         Number(tank.tankNumber) !== 1 &&
                         Number(tank.action) === 1 &&
-                        isInFermentationMeasurementGracePeriod(tank)
+                        isInMeasurementGrace(tank, cellarStateTank)
                     ).map((tank) => String(tank.id)),
                 } : {}),
             }).then(() => {
