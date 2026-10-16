@@ -1,7 +1,7 @@
 export type ActionCategory = "pressure" | "other" | "carb" | "yeast";
 export type ActionRecord = {
     id: string;
-    tankNumber: string;
+    tankNumber?: string;
     batchNumber?: string;
     title?: string;
     detail?: string;
