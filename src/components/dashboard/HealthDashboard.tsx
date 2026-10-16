@@ -985,7 +985,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     const actionKpis = useMemo(() => {
         const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" => {
             const name = `${key} ${title}`;
-            if (/pressureAdjustment|pressureChange|pressureClose|pressure-adjust|pressure-change|pressure-close|vent-adjust|שינוי לחץ|סגירת נשם|כיוון פורק/.test(name)) return "pressure";
+            if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/.test(name)) return "pressure";
             if (/carb|Carbonation|גיזוז/.test(name)) return "carb";
             if (/yeast|Yeast|שמרים/.test(name)) return "yeast";
             return "other";
