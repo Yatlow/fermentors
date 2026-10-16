@@ -981,30 +981,42 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
     // Presentation-only KPI groups; scoring and recommendation weights remain unchanged.
     const actionKpis = useMemo(() => {
-        type Category = "pressure" | "other" | "carb" | "yeast";
-        const classify = (key: string, title = ""): Category => {
+        const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" => {
             const name = `${key} ${title}`;
             if (/pressureAdjustment|pressureChange|pressureClose|pressure-adjust|pressure-change|pressure-close|vent-adjust|שינוי לחץ|סגירת נשם|כיוון פורק/.test(name)) return "pressure";
             if (/carb|Carbonation|גיזוז/.test(name)) return "carb";
             if (/yeast|Yeast|שמרים/.test(name)) return "yeast";
             return "other";
         };
-        // A scheduled decision and the engine recommendation can describe the
-        // same physical action. Count each tank/category only once in this
-        // summary; never alter the underlying weighted health score.
+        // Deduplicate the same action, not the tank: two different actions in
+        // one tank must each contribute to the corresponding KPI.
         const required = { pressure: new Set<string>(), other: new Set<string>() };
         const completed = { pressure: new Set<string>(), other: new Set<string>() };
+        const actionType = (key: string, title = "") => {
+            const name = `${key} ${title}`;
+            if (/pressureAdjustment|pressure-adjust|pressureChange|pressure-change|שינוי לחץ/.test(name)) return "pressureAdjustment";
+            if (/pressureClose|pressure-close|סגירת נשם|סגירת מיכל/.test(name)) return "pressureClose";
+            if (/vent-adjust|כיוון פורק/.test(name)) return "ventAdjust";
+            if (/dryHop|דרייהופ/.test(name)) return "dryHop";
+            if (/coolDown|קירור/.test(name)) return "coolDown";
+            if (/diacetyl|דיאצטיל/.test(name)) return "diacetylRest";
+            return key.replace(/^scheduled-/, "");
+        };
         analysis.alerts.forEach((alert) => {
             if (!alert.recommendationKey || alert.recommendationKey === "measurementRound" || !alert.tankNumber) return;
             const category = classify(alert.scheduledActionType ?? alert.recommendationKey, alert.detail);
-            if (category === "pressure" || category === "other") required[category].add(String(alert.tankNumber));
+            if (category === "pressure" || category === "other") {
+                required[category].add(`${alert.tankNumber}:${actionType(alert.scheduledActionType ?? alert.recommendationKey, alert.detail)}`);
+            }
         });
         analysis.completedActions.forEach((action) => {
             const category = classify(action.id, action.title);
-            if (category === "pressure" || category === "other") completed[category].add(String(action.tankNumber));
+            if (category === "pressure" || category === "other") {
+                completed[category].add(`${action.tankNumber}:${actionType(action.id, action.title)}`);
+            }
         });
         const count = (category: "pressure" | "other") => {
-            const pending = [...required[category]].filter((tank) => !completed[category].has(tank)).length;
+            const pending = [...required[category]].filter((key) => !completed[category].has(key)).length;
             return { done: completed[category].size, total: completed[category].size + pending };
         };
         return { pressure: count("pressure"), other: count("other") };
