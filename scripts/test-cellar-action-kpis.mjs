@@ -43,3 +43,11 @@ test("multiple categories in one tank are independent", () => {
     assert.deepEqual(result.pressure, { done: 0, total: 1 });
     assert.deepEqual(result.other, { done: 0, total: 1 });
 });
+
+test("recommendation and ordinary dry hop report represent one action", () => {
+    assert.deepEqual(count([pending("dryHop")], [done("dryhop-8", "דרייהופ")]).other, { done: 1, total: 1 });
+});
+test("two distinct completed scheduled actions remain two actions", () => {
+    const result = count([], [done("scheduled-a", "כיוון פורק"), done("scheduled-b", "כיוון פורק")]);
+    assert.deepEqual(result.other, { done: 2, total: 2 });
+});
