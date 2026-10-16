@@ -983,12 +983,13 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
     // Presentation-only KPI groups; scoring and recommendation weights remain unchanged.
     const actionKpis = useMemo(() => {
-        const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" => {
+        const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" | null => {
             const name = `${key} ${title}`;
             if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/.test(name)) return "pressure";
             if (/carb|Carbonation|גיזוז/.test(name)) return "carb";
             if (/yeast|Yeast|שמרים/.test(name)) return "yeast";
-            return "other";
+            if (/pressureClose|pressure-close|vent-adjust|dryHop|dryhop|coolDown|cooling|diacetyl|neglectedStatus|bottomCarbonationFollowUp|סגירת נשם|סגירת מיכל|כיוון פורק|דרייהופ|כשות|קירור|דיאצטיל|פעולה אחרת|reported-other|scheduled-other/.test(name)) return "other";
+            return null;
         };
         // Deduplicate the same action, not the tank: two different actions in
         // one tank must each contribute to the corresponding KPI.
