@@ -981,25 +981,33 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
 
     // Presentation-only KPI groups; scoring and recommendation weights remain unchanged.
     const actionKpis = useMemo(() => {
-        const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" => {
+        type Category = "pressure" | "other" | "carb" | "yeast";
+        const classify = (key: string, title = ""): Category => {
             const name = `${key} ${title}`;
             if (/pressureAdjustment|pressureChange|pressureClose|pressure-adjust|pressure-change|pressure-close|vent-adjust|שינוי לחץ|סגירת נשם|כיוון פורק/.test(name)) return "pressure";
             if (/carb|Carbonation|גיזוז/.test(name)) return "carb";
             if (/yeast|Yeast|שמרים/.test(name)) return "yeast";
             return "other";
         };
-        const pending = { pressure: 0, other: 0 };
-        const done = { pressure: 0, other: 0 };
+        // A scheduled decision and the engine recommendation can describe the
+        // same physical action. Count each tank/category only once in this
+        // summary; never alter the underlying weighted health score.
+        const required = { pressure: new Set<string>(), other: new Set<string>() };
+        const completed = { pressure: new Set<string>(), other: new Set<string>() };
         analysis.alerts.forEach((alert) => {
-            if (!alert.recommendationKey || alert.recommendationKey === "measurementRound") return;
+            if (!alert.recommendationKey || alert.recommendationKey === "measurementRound" || !alert.tankNumber) return;
             const category = classify(alert.scheduledActionType ?? alert.recommendationKey, alert.detail);
-            if (category === "pressure" || category === "other") pending[category]++;
+            if (category === "pressure" || category === "other") required[category].add(String(alert.tankNumber));
         });
         analysis.completedActions.forEach((action) => {
             const category = classify(action.id, action.title);
-            if (category === "pressure" || category === "other") done[category]++;
+            if (category === "pressure" || category === "other") completed[category].add(String(action.tankNumber));
         });
-        return { pending, done };
+        const count = (category: "pressure" | "other") => {
+            const pending = [...required[category]].filter((tank) => !completed[category].has(tank)).length;
+            return { done: completed[category].size, total: completed[category].size + pending };
+        };
+        return { pressure: count("pressure"), other: count("other") };
     }, [analysis.alerts, analysis.completedActions]);
 
     const scoreStyle = {
@@ -1076,9 +1084,9 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             {" · "}
                             גיזוזים {analysis.dailyActionProgress.carbCompleted}/{analysis.dailyActionProgress.carbRequired}
                             {" · "}
-                            שינויי לחץ {actionKpis.done.pressure}/{actionKpis.done.pressure + actionKpis.pending.pressure}
+                            שינויי לחץ {actionKpis.pressure.done}/{actionKpis.pressure.total}
                             {" · "}
-                            אחר {actionKpis.done.other}/{actionKpis.done.other + actionKpis.pending.other}
+                            אחר {actionKpis.other.done}/{actionKpis.other.total}
                         </span>
                     )}
                 </span>
