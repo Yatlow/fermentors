@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { isInMeasurementGrace, graceExtensionsAtHundred } from "../../SERVICES/dashboard/cellarGrace";
+import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -982,54 +983,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     }, [analysis.dailyActions]);
 
     // Presentation-only KPI groups; scoring and recommendation weights remain unchanged.
-    const actionKpis = useMemo(() => {
-        const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" | null => {
-            const name = `${key} ${title}`;
-            if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/.test(name)) return "pressure";
-            if (/carb|Carbonation|גיזוז/.test(name)) return "carb";
-            if (/yeast|Yeast|שמרים/.test(name)) return "yeast";
-            if (/pressureClose|pressure-close|vent-adjust|dryHop|dryhop|coolDown|cooling|diacetyl|neglectedStatus|bottomCarbonationFollowUp|סגירת נשם|סגירת מיכל|כיוון פורק|דרייהופ|כשות|קירור|דיאצטיל|פעולה אחרת|reported-other|scheduled-other/.test(name)) return "other";
-            return null;
-        };
-        // Deduplicate the same action, not the tank: two different actions in
-        // one tank must each contribute to the corresponding KPI.
-        const required = { pressure: new Set<string>(), other: new Set<string>() };
-        const completed = { pressure: new Set<string>(), other: new Set<string>() };
-        const actionType = (key: string, title = "") => {
-            const name = `${key} ${title}`;
-            if (/pressureAdjustment|pressure-adjust|pressureChange|pressure-change|שינוי לחץ/.test(name)) return "pressureAdjustment";
-            if (/pressureClose|pressure-close|סגירת נשם|סגירת מיכל/.test(name)) return "pressureClose";
-            if (/vent-adjust|כיוון פורק/.test(name)) return "ventAdjust";
-            if (/dryHop|דרייהופ/.test(name)) return "dryHop";
-            if (/coolDown|קירור/.test(name)) return "coolDown";
-            if (/diacetyl|דיאצטיל/.test(name)) return "diacetylRest";
-            return key.replace(/^scheduled-/, "");
-        };
-        analysis.alerts.forEach((alert) => {
-            if (!alert.recommendationKey || alert.recommendationKey === "measurementRound" || !alert.tankNumber) return;
-            const category = classify(alert.scheduledActionType ?? alert.recommendationKey, alert.detail);
-            if (category === "pressure" || category === "other") {
-                const identity = alert.recommendationKey.startsWith("scheduled-")
-                    ? `scheduled:${alert.recommendationKey.slice(10)}`
-                    : actionType(alert.recommendationKey, alert.detail);
-                required[category].add(`${alert.batchNumber ?? alert.tankNumber}:${identity}`);
-            }
-        });
-        analysis.completedActions.forEach((action) => {
-            const category = classify(action.id, action.title);
-            if (category === "pressure" || category === "other") {
-                const identity = action.id.startsWith("scheduled-")
-                    ? `scheduled:${action.id.slice(10)}`
-                    : actionType(action.id, action.title);
-                completed[category].add(`${action.batchNumber ?? action.tankNumber}:${identity}`);
-            }
-        });
-        const count = (category: "pressure" | "other") => {
-            const pending = [...required[category]].filter((key) => !completed[category].has(key)).length;
-            return { done: completed[category].size, total: completed[category].size + pending };
-        };
-        return { pressure: count("pressure"), other: count("other") };
-    }, [analysis.alerts, analysis.completedActions]);
+    const actionKpis = useMemo(() => calculateActionKpis(analysis.alerts, analysis.completedActions), [analysis.alerts, analysis.completedActions]);
 
     const scoreStyle = {
         "--health-score": `${displayedHealthScore}%`,
