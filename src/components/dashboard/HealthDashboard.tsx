@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase";
 import { isInMeasurementGrace, graceExtensionsAtHundred } from "../../SERVICES/dashboard/cellarGrace";
+import { calculateActionKpis } from "../../SERVICES/dashboard/actionKpis";
 import { LightbulbOff, Undo2, UserShield, FlaskConical, Bubbles, ThermometerSnowflake, Gauge, Hop, ThermometerSun, Stethoscope, ClockPlus } from "lucide-react";
 import type { Fermentor } from "../../App";
 import {
@@ -77,6 +78,7 @@ type KeyedRecommendation = Recommendation & {
 
 type CompletedCellarAction = {
     id: string;
+    batchNumber?: string;
     tankNumber: string;
     title: string;
     detail?: string;
@@ -658,6 +660,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             completedActions.push({
                                 id,
                                 tankNumber: number,
+                                batchNumber: String(tank.batchNumber ?? ""),
                                 title,
                                 detail,
                                 importance,
@@ -980,27 +983,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
     }, [analysis.dailyActions]);
 
     // Presentation-only KPI groups; scoring and recommendation weights remain unchanged.
-    const actionKpis = useMemo(() => {
-        const classify = (key: string, title = ""): "pressure" | "other" | "carb" | "yeast" => {
-            const name = `${key} ${title}`;
-            if (/pressureAdjustment|pressureChange|pressureClose|pressure-adjust|pressure-change|pressure-close|vent-adjust|שינוי לחץ|סגירת נשם|כיוון פורק/.test(name)) return "pressure";
-            if (/carb|Carbonation|גיזוז/.test(name)) return "carb";
-            if (/yeast|Yeast|שמרים/.test(name)) return "yeast";
-            return "other";
-        };
-        const pending = { pressure: 0, other: 0 };
-        const done = { pressure: 0, other: 0 };
-        analysis.alerts.forEach((alert) => {
-            if (!alert.recommendationKey || alert.recommendationKey === "measurementRound") return;
-            const category = classify(alert.scheduledActionType ?? alert.recommendationKey, alert.detail);
-            if (category === "pressure" || category === "other") pending[category]++;
-        });
-        analysis.completedActions.forEach((action) => {
-            const category = classify(action.id, action.title);
-            if (category === "pressure" || category === "other") done[category]++;
-        });
-        return { pending, done };
-    }, [analysis.alerts, analysis.completedActions]);
+    const actionKpis = useMemo(() => calculateActionKpis(analysis.alerts, analysis.completedActions), [analysis.alerts, analysis.completedActions]);
 
     const scoreStyle = {
         "--health-score": `${displayedHealthScore}%`,
@@ -1072,13 +1055,13 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     )}
                     {!analyzing && (
                         <span className="health-measurement-progress">
-                            פעולות היום: שמרים {analysis.dailyActionProgress.yeastCompleted}/{analysis.dailyActionProgress.yeastRequired}
+                            היום: שמרים {analysis.dailyActionProgress.yeastCompleted}/{analysis.dailyActionProgress.yeastRequired}
                             {" · "}
                             גיזוזים {analysis.dailyActionProgress.carbCompleted}/{analysis.dailyActionProgress.carbRequired}
                             {" · "}
-                            שינויי לחץ {actionKpis.done.pressure}/{actionKpis.done.pressure + actionKpis.pending.pressure}
+                            שינויי לחץ {actionKpis.pressure.done}/{actionKpis.pressure.total}
                             {" · "}
-                            פעולות אחרות {actionKpis.done.other}/{actionKpis.done.other + actionKpis.pending.other}
+                            אחר {actionKpis.other.done}/{actionKpis.other.total}
                         </span>
                     )}
                 </span>
