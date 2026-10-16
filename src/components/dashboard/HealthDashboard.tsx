@@ -77,6 +77,7 @@ type KeyedRecommendation = Recommendation & {
 
 type CompletedCellarAction = {
     id: string;
+    batchNumber?: string;
     tankNumber: string;
     title: string;
     detail?: string;
@@ -658,6 +659,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                             completedActions.push({
                                 id,
                                 tankNumber: number,
+                                batchNumber: String(tank.batchNumber ?? ""),
                                 title,
                                 detail,
                                 importance,
@@ -1006,13 +1008,19 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
             if (!alert.recommendationKey || alert.recommendationKey === "measurementRound" || !alert.tankNumber) return;
             const category = classify(alert.scheduledActionType ?? alert.recommendationKey, alert.detail);
             if (category === "pressure" || category === "other") {
-                required[category].add(`${alert.tankNumber}:${actionType(alert.scheduledActionType ?? alert.recommendationKey, alert.detail)}`);
+                const identity = alert.recommendationKey.startsWith("scheduled-")
+                    ? `scheduled:${alert.recommendationKey.slice(10)}`
+                    : actionType(alert.recommendationKey, alert.detail);
+                required[category].add(`${alert.batchNumber ?? alert.tankNumber}:${identity}`);
             }
         });
         analysis.completedActions.forEach((action) => {
             const category = classify(action.id, action.title);
             if (category === "pressure" || category === "other") {
-                completed[category].add(`${action.tankNumber}:${actionType(action.id, action.title)}`);
+                const identity = action.id.startsWith("scheduled-")
+                    ? `scheduled:${action.id.slice(10)}`
+                    : actionType(action.id, action.title);
+                completed[category].add(`${action.batchNumber ?? action.tankNumber}:${identity}`);
             }
         });
         const count = (category: "pressure" | "other") => {
