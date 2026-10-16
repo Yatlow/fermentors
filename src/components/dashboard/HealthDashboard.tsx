@@ -1072,13 +1072,13 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                     )}
                     {!analyzing && (
                         <span className="health-measurement-progress">
-                            פעולות היום: שמרים {analysis.dailyActionProgress.yeastCompleted}/{analysis.dailyActionProgress.yeastRequired}
+                            היום: שמרים {analysis.dailyActionProgress.yeastCompleted}/{analysis.dailyActionProgress.yeastRequired}
                             {" · "}
                             גיזוזים {analysis.dailyActionProgress.carbCompleted}/{analysis.dailyActionProgress.carbRequired}
                             {" · "}
                             שינויי לחץ {actionKpis.done.pressure}/{actionKpis.done.pressure + actionKpis.pending.pressure}
                             {" · "}
-                            פעולות אחרות {actionKpis.done.other}/{actionKpis.done.other + actionKpis.pending.other}
+                            אחר {actionKpis.done.other}/{actionKpis.done.other + actionKpis.pending.other}
                         </span>
                     )}
                 </span>
