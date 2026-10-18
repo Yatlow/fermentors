@@ -851,10 +851,18 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         if (!analyzing) onRecommendedTanksChange?.(recommendedTankKey ? recommendedTankKey.split(",") : []);
     }, [analyzing, recommendedTankKey, onRecommendedTanksChange]);
 
-    // Count individual open, actionable recommendations, not distinct tanks or missing routine measurements.
-    const openRecommendationCount = useMemo(() => analysis.alerts.filter(
-        (alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound"
-    ).length, [analysis.alerts]);
+    // Count individual open actions, including standalone Sunday/Wednesday/Thursday
+    // routines. Weekly actions already represented by a natural or scheduled
+    // recommendation have scoreEligible=false and must not be counted twice.
+    const openRecommendationCount = useMemo(() => {
+        const recommendations = analysis.alerts.filter(
+            (alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound"
+        ).length;
+        const standaloneWeeklyActions = analysis.dailyActions.filter(
+            (action) => action.scoreEligible !== false
+        ).length;
+        return recommendations + standaloneWeeklyActions;
+    }, [analysis.alerts, analysis.dailyActions]);
     useEffect(() => {
         if (!analyzing) onOpenRecommendationCountChange?.(openRecommendationCount);
     }, [analyzing, openRecommendationCount, onOpenRecommendationCountChange]);
