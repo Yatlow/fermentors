@@ -851,10 +851,16 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         if (!analyzing) onRecommendedTanksChange?.(recommendedTankKey ? recommendedTankKey.split(",") : []);
     }, [analyzing, recommendedTankKey, onRecommendedTanksChange]);
 
-    // Count individual open, actionable recommendations, not distinct tanks or missing routine measurements.
-    const openRecommendationCount = useMemo(() => analysis.alerts.filter(
-        (alert) => alert.recommendationKey && alert.recommendationKey !== "measurementRound"
-    ).length, [analysis.alerts]);
+    // The navigation badge mirrors the four daily action KPIs (pending only).
+    // Carb and yeast progress already deduplicate weekly routines against
+    // natural/scheduled actions; pressure and other use action-level KPI keys.
+    const openRecommendationCount = useMemo(() => {
+        const actionCounts = calculateActionKpis(analysis.alerts, analysis.completedActions);
+        return Math.max(0, analysis.dailyActionProgress.carbRequired - analysis.dailyActionProgress.carbCompleted)
+            + Math.max(0, analysis.dailyActionProgress.yeastRequired - analysis.dailyActionProgress.yeastCompleted)
+            + Math.max(0, actionCounts.pressure.total - actionCounts.pressure.done)
+            + Math.max(0, actionCounts.other.total - actionCounts.other.done);
+    }, [analysis.alerts, analysis.completedActions, analysis.dailyActionProgress]);
     useEffect(() => {
         if (!analyzing) onOpenRecommendationCountChange?.(openRecommendationCount);
     }, [analyzing, openRecommendationCount, onOpenRecommendationCountChange]);
