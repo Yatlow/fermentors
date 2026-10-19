@@ -1,6 +1,6 @@
 import type { Measurement } from "./calculateCelleringRecomendations";
 
-const number = String.raw`(\\d+(?:[.,]\\d+)?)`;
+const number = String.raw`(\d+(?:[.,]\d+)?)`;
 const clean = (value: string) => value.replace(",", ".");
 
 /** Compact summaries of *recorded* actions, never the free-text note itself. */
