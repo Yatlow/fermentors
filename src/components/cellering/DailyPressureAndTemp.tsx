@@ -23,6 +23,7 @@ export default function DailyPressureAndTemp({
 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [yesterdayActions, setYesterdayActions] = useState<Record<string, string[]>>({});
+  const [expandedActionTanks, setExpandedActionTanks] = useState<Record<string, boolean>>({});
 
   // Reuse the existing measurement cache and its compact cellarState snapshot.
   const activeBatches = brews
@@ -119,6 +120,7 @@ export default function DailyPressureAndTemp({
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                       <History size={14} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
                       <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={`אתמול: ${yesterdayActions[fv.id].join(" · ")}`}>אתמול: {yesterdayActions[fv.id].join(" · ")}</span>
+                      {yesterdayActions[fv.id].length > 1 && <button type="button" aria-expanded={Boolean(expandedActionTanks[fv.id])} onClick={() => setExpandedActionTanks(prev => ({ ...prev, [fv.id]: !prev[fv.id] }))} style={{ fontSize: "0.72rem", border: "none", background: "transparent", color: "#245b87", cursor: "pointer", padding: "2px 3px", whiteSpace: "nowrap" }}>{expandedActionTanks[fv.id] ? "סגור" : "הכל"}</button>}
                     </span>
                   </div>
                 )}
@@ -172,6 +174,12 @@ export default function DailyPressureAndTemp({
                   </div>
 
                 </div>
+                {expandedActionTanks[fv.id] && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
+                  <div role="region" aria-label="כל הפעולות מאתמול" style={{ padding: "4px 10px", color: "#52687b", fontSize: "0.8rem", lineHeight: 1.6 }}>
+                    <strong>אתמול:</strong>
+                    {yesterdayActions[fv.id].map((action, index) => <div key={index}>• {action}</div>)}
+                  </div>
+                )}
                 <RecentMeasurements tank={fv} mode="pressure" />
 
                 {touched[`${fv.id}:temp`] || touched[`${fv.id}:pressure`] ? (() => {
