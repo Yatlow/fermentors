@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { History } from "lucide-react";
+import { ChevronDown, ChevronUp, History } from "lucide-react";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { yesterdayActionNotes } from "../../SERVICES/cellering/yesterdayActionNotes";
 import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasurementWarnings";
@@ -112,19 +112,31 @@ export default function DailyPressureAndTemp({
                 </div>
 
                 <div style={{ height: "3.2rem", display: "flex", alignItems: "center", overflow: "hidden" }}>
-                {Number(fv.action) === 1 && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
-                  <div role="note" aria-label="פעולות שבוצעו אתמול" style={{
-                    margin: "3px 9px", color: "#52687b", fontSize: "0.76rem",
-                    lineHeight: 1.35, overflowWrap: "anywhere",
-                  }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  {Number(fv.action) === 1 && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
+                    <button
+                      type="button"
+                      aria-label={`פעולות אתמול במיכל ${fv.tankNumber ?? fv.id}. לחץ לפתיחה או סגירה של הפירוט`}
+                      aria-expanded={Boolean(expandedActionTanks[fv.id])}
+                      onClick={() => setExpandedActionTanks(prev => ({ ...prev, [fv.id]: !prev[fv.id] }))}
+                      title={`אתמול: ${yesterdayActions[fv.id].join(" · ")}`}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6, width: "100%",
+                        margin: "3px 9px", padding: "2px 0", border: "none",
+                        background: "transparent", color: "#52687b", fontSize: "0.76rem",
+                        lineHeight: 1.35, textAlign: "right", cursor: "pointer",
+                      }}
+                    >
                       <History size={14} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
-                      <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={`אתמול: ${yesterdayActions[fv.id].join(" · ")}`}>אתמול: {yesterdayActions[fv.id].join(" · ")}</span>
-                      {yesterdayActions[fv.id].length > 1 && <button type="button" aria-expanded={Boolean(expandedActionTanks[fv.id])} onClick={() => setExpandedActionTanks(prev => ({ ...prev, [fv.id]: !prev[fv.id] }))} style={{ fontSize: "0.72rem", border: "none", background: "transparent", color: "#245b87", cursor: "pointer", padding: "2px 3px", whiteSpace: "nowrap" }}>{expandedActionTanks[fv.id] ? "סגור" : "הכל"}</button>}
-                    </span>
-                  </div>
-                )}
-
+                      <span style={{
+                        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                        overflow: "hidden", overflowWrap: "anywhere", flex: 1,
+                      }}>אתמול: {yesterdayActions[fv.id].join(" · ")}</span>
+                      <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0, fontSize: "0.7rem", color: "#356e9b" }}>
+                        {expandedActionTanks[fv.id] ? "סגור" : "פירוט"}
+                        {expandedActionTanks[fv.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="measurement-inputs">
@@ -175,7 +187,11 @@ export default function DailyPressureAndTemp({
 
                 </div>
                 {expandedActionTanks[fv.id] && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
-                  <div role="region" aria-label="כל הפעולות מאתמול" style={{ padding: "4px 10px", color: "#52687b", fontSize: "0.8rem", lineHeight: 1.6 }}>
+                  <div role="region" aria-label="כל הפעולות מאתמול" style={{
+                    padding: "6px 10px", margin: "4px 8px 6px", borderRadius: 6,
+                    background: "rgba(255,255,255,0.72)", color: "#52687b",
+                    fontSize: "0.8rem", lineHeight: 1.6,
+                  }}>
                     <strong>אתמול:</strong>
                     {yesterdayActions[fv.id].map((action, index) => <div key={index}>• {action}</div>)}
                   </div>
