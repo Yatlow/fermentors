@@ -6,6 +6,12 @@ type AssignmentTank = {
   tankNumber?: string | number | null;
 };
 
+/** A planned tank or a real batch is a saved decision, not a reorderable suggestion. */
+export function mayReorderInitialBrews(brews: BrewPlan[]): boolean {
+  return brews.every((brew) =>
+    !brew.tankId && !String(brew.batchNumber ?? "").replace("#", "").trim());
+}
+
 /**
  * Suggest a tank ONLY for brews that are genuinely unassigned.
  *
