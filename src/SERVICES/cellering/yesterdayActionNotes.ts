@@ -26,10 +26,10 @@ export function yesterdayActionNotes(rows: Measurement[], yesterdayKey: string):
         else if (target) add(`${direction} לחץ: ל־${clean(target[1])} bar`);
         else add(`${direction} לחץ`);
       }
+      if (/סגירת\s*נשם|נסגר\s*(?:ה)?נשם/u.test(note)) add("סגירת נשם: הנשם נסגר");
       const valve = note.match(/(?:כיוון|כוון)\s*(?:ה)?פורק\s*(?:ל|אל)?\s*[-־:]?\s*(\d+(?:[.,]\d+)?)/u);
       if (valve) add(`כיוון פורק: ל־${clean(valve[1])} bar`);
       else if (/כיוון\s*פורק|כוון\s*הפורק/u.test(note)) add("כיוון פורק");
-      if (/סגירת\s*נשם|נסגר\s*(?:ה)?נשם/u.test(note)) add("סגירת נשם: הנשם נסגר");
       if (/הורד(?:ת|ו)?\s*(?:(?:\d+(?:[.,]\d+)?)\s*)?(?:דליי?\s*)?שמרים|דליי?\s*שמרים|הוצאת\s*שמרים/u.test(note)) {
         const after = note.match(new RegExp(`לחץ\\s*(?:אחרי|לאחר)\\s*(?:(?:הורדת|הוצאת)\\s*)?(?:שמרים\\s*)?[:=]?\\s*${number}`, "u"));
         if (after) add(`הורדת שמרים: לחץ אחרי הורדת שמרים ${clean(after[1])} bar`);
