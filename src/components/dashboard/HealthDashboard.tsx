@@ -1191,7 +1191,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         pressureAdjustment: "לחץ",
                                     };
                                     const scheduledMapping: Record<string, string> = { carbTest: "גיזוז", yeastDrop: "שמרים", pressureChange: "לחץ" };
-                                    const noteType = alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : mapping[alert.recommendationKey];
+                                    const noteType = alert.scheduledActionType ? scheduledMapping[alert.scheduledActionType] : alert.recommendationKey === "pressureAdjustment" && alert.detail.includes("לכוון פורק") ? "פורק" : mapping[alert.recommendationKey];
                                     const tank = brews.find(t => String(t.tankNumber) === String(alert.tankNumber));
                                     const isWarm = tank && Number(tank.currentData?.temp) > 9 && tank.stage?.name === "בתסיסה";
                                     const warmOnly = ["סגירת מיכל", "דרייהופ", "דיאציטיל", "קירור"];
@@ -1205,6 +1205,7 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
                                         "דרייהופ": { label: "דווח דרייהופ", Icon: Hop },
                                         "קירור": { label: "דווח קירור", Icon: ThermometerSnowflake },
                                         "לחץ": { label: "דווח שינוי לחץ", Icon: ClockPlus },
+                                        "פורק": { label: "דווח כיוון פורק", Icon: Gauge },
                                         "סגירת מיכל": { label: "דווח סגירת מיכל", Icon: RobotVacuum },
                                         "דיאציטיל": { label: "דווח מנוחת דיאצטיל", Icon: ThermometerSun },
                                     };
