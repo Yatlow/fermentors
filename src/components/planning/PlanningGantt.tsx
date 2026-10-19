@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { withTentativeFiveWeekTanks } from "../../SERVICES/planning/tentativePackaging";
 import { CalendarDays, SquarePen, ClipboardList } from "lucide-react";
 import type { Fermentor } from "../../App";
 import type { Pallet } from "../../SERVICES/cooler/Pallettypes ";
@@ -630,18 +629,6 @@ export default function PlanningGantt(props: Props) {
     />
   ) : null;
 
-  const dailyEditorPlans = useMemo(
-    () => dailyTarget ? withTentativeFiveWeekTanks(editorPlans, tanks, settings).map((plan) => ({
-      ...plan,
-      brews: plan.brews.map((brew) => {
-        const tentativeTankId = (brew as typeof brew & { tentativeTankId?: string }).tentativeTankId;
-        return !brew.tankId && tentativeTankId
-          ? { ...brew, tankId: tentativeTankId, tankAssignmentStatus: "tentative" as const }
-          : brew;
-      }),
-    })) : editorPlans,
-    [dailyTarget, editorPlans, tanks, settings],
-  );
 
   const dailyEditor = dailyTarget && canEdit ? (
     <PlanningGanttDailyModal
@@ -649,7 +636,10 @@ export default function PlanningGantt(props: Props) {
       kind={dailyTarget.kind}
       onClose={() => setDailyTarget(null)}
       settings={settings}
-      plans={dailyEditorPlans}
+      // Daily editing must use persisted planning decisions, not display-only
+      // tank proposals. Otherwise phantom assignments from other weeks leak
+      // into cross-week validation and can block unrelated confirmed brews.
+      plans={editorPlans}
       tanks={tanks}
       sources={sources}
       pallets={pallets}
