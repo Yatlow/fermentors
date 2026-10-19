@@ -391,7 +391,7 @@ export default function PlanningBoard({
     if (production) throw new Error(production);
 
     const assignedOnly = forecastDateUndatedPackaging(all).map((w) => ({ ...w, brews: w.brews.filter((brew) => !!brew.tankId) }));
-    const dependency = validateBrewReleases(brews, tanks, assignedOnly, settings, actuals, today);
+    const dependency = validateBrewReleases(brews, tanks, assignedOnly, settings, actuals, today, confirmBrews ? effectiveNext.id : undefined);
     if (dependency) throw new Error(dependency);
 
     await saveWeek(effectiveNext);
