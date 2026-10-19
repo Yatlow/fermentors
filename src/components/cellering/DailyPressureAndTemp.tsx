@@ -111,12 +111,11 @@ export default function DailyPressureAndTemp({
 
                 {Number(fv.action) === 1 && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
                   <div role="note" aria-label="פעולות שבוצעו אתמול" style={{
-                    margin: "6px 8px", padding: "8px 10px", borderRadius: 8,
-                    background: "#eaf3ff", borderInlineStart: "3px solid #4387cd",
-                    color: "#214365", fontSize: "0.8rem", lineHeight: 1.55,
+                    margin: "3px 9px", color: "#52687b", fontSize: "0.76rem",
+                    lineHeight: 1.35, overflowWrap: "anywhere",
                   }}>
-                    <strong>ℹ️ אתמול בוצעו במיכל:</strong>
-                    {yesterdayActions[fv.id].map((action, index) => <div key={`${index}:${action}`}>{action}</div>)}
+                    <span aria-hidden="true">ℹ️ </span>
+                    {yesterdayActions[fv.id].join(" · ")}
                   </div>
                 )}
 
