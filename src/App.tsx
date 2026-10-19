@@ -24,7 +24,8 @@ import DashboardHeader from "./components/dashboard/DashboardHeader";
 import Dashboard from "./components/dashboard/Dashboard";
 import DailyPressureAndTemp from "./components/cellering/DailyPressureAndTemp";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "./SERVICES/getAndPost/gettAllDataByBatch";
-import { dailyMeasurementProgress } from "./SERVICES/dashboard/healthModel";
+import { cellarBadgeFieldsForDay, pendingCellarMeasurementTankNumbers, type CellarBadgeFields } from "./SERVICES/dashboard/cellarMeasurementBadge";
+import { subscribeIgnoredCellarRecommendationsToday, type IgnoredCellarRecommendation } from "./SERVICES/cellering/ignoredCellarRecommendations";
 import { isInMeasurementGrace } from "./SERVICES/dashboard/cellarGrace";
 import CellaringForecast from "./components/cellering/CellaringForecast";
 import SendMessurmentsHeader from "./components/cellering/SendMessurmentsHeader";
@@ -232,43 +233,90 @@ function App() {
     const [selectedReports, setSelectedReports] = useState<"אריזה" | "גרפים" | "משלוחים" | "מלאי_מקרר" | "חיבורי_משתמשים">("אריזה");
     const [selectedAdminTools, setSelectedAdminTools] = useState<"specs" | "calculator" | "changeBatchNumInFv" | "changeFvStatus" | "editEmails" | "packagingSheet" | "catalog">("calculator");
     const [newReadings, setNewReadings] = useState<Record<string, NewReading>>({});
-    const [cellarDailyProgress, setCellarDailyProgress] = useState<Record<string, { temp: boolean; pressure: boolean; plato: boolean; pH: boolean }>>({});
+    const [cellarDailyProgress, setCellarDailyProgress] = useState<Record<string, CellarBadgeFields>>({});
+    const [cellarDailyProgressReady, setCellarDailyProgressReady] = useState(false);
+    const [ignoredCellarBadgeRows, setIgnoredCellarBadgeRows] = useState<IgnoredCellarRecommendation[]>([]);
+    const [ignoredCellarBadgeReady, setIgnoredCellarBadgeReady] = useState(false);
     const cellarBatchKey = brews.filter(t => Number(t.action) === 1).map(t => String(t.id) + ":" + String(t.batchNumber ?? "")).sort().join("|");
+    const needsStandaloneCellarBadge = selectedView !== "דאשבורד";
+
     useEffect(() => {
-        if (selectedView !== "רישום") return;
+        // HealthDashboard owns the counter while mounted. When it unmounts,
+        // update the same daily progress from the shared measurement cache in
+        // ANY other view (not only when the user opens cellar reporting).
+        if (!needsStandaloneCellarBadge) return;
         let cancelled = false;
+        let latestRefresh = 0;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        setCellarDailyProgressReady(false);
+
         const refresh = async () => {
-            const tanks = brews.filter(t => Number(t.action) === 1 && Number(t.tankNumber) !== 1 && t.batchNumber);
+            const generation = ++latestRefresh;
+            const tanks = brews.filter(t => Number(t.action) === 1 && Number(t.tankNumber) !== 1);
             const entries = await Promise.all(tanks.map(async tank => {
                 try {
-                    const rows = await getMeasurementsByBatch(String(tank.batchNumber));
-                    const p = dailyMeasurementProgress(rows, true);
-                    return [tank.id, { temp: !p.missingFields.includes("temp"), pressure: !p.missingFields.includes("pressure"), plato: !p.missingFields.includes("plato"), pH: !p.missingFields.includes("pH") }] as const;
-                } catch { return null; }
+                    const measurements = tank.batchNumber
+                        ? await getMeasurementsByBatch(String(tank.batchNumber))
+                        : [];
+                    return [tank.id, cellarBadgeFieldsForDay(measurements)] as const;
+                } catch (error) {
+                    console.warn("Unable to refresh cellar badge measurements", tank.tankNumber, error);
+                    return null;
+                }
             }));
-            if (!cancelled) setCellarDailyProgress(Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
+            if (cancelled || generation !== latestRefresh) return;
+            // An unavailable history is unknown, NOT a reason to count the
+            // tank as unmeasured. This prevents a false badge of all tanks.
+            setCellarDailyProgress(Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
+            setCellarDailyProgressReady(true);
         };
+
+        const scheduleRefresh = () => {
+            if (timer !== null) clearTimeout(timer);
+            timer = setTimeout(() => { timer = null; void refresh(); }, 180);
+        };
+        const onVisible = () => { if (!document.hidden) scheduleRefresh(); };
         void refresh();
-        const update = () => { void refresh(); };
-        window.addEventListener(MEASUREMENTS_UPDATED_EVENT, update);
-        window.addEventListener("cellar-report-saved", update);
-        return () => { cancelled = true; window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, update); window.removeEventListener("cellar-report-saved", update); };
+        window.addEventListener(MEASUREMENTS_UPDATED_EVENT, scheduleRefresh);
+        window.addEventListener("cellar-report-saved", scheduleRefresh);
+        window.addEventListener("focus", scheduleRefresh);
+        document.addEventListener("visibilitychange", onVisible);
+        return () => {
+            cancelled = true;
+            if (timer !== null) clearTimeout(timer);
+            window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, scheduleRefresh);
+            window.removeEventListener("cellar-report-saved", scheduleRefresh);
+            window.removeEventListener("focus", scheduleRefresh);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    // The tank+batch identity controls cache invalidation; snapshots that only
+    // change a temperature must not cause another all-tank measurement scan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedView, cellarBatchKey]);
+    }, [needsStandaloneCellarBadge, cellarBatchKey]);
+
+    useEffect(() => {
+        if (!needsStandaloneCellarBadge) return;
+        setIgnoredCellarBadgeReady(false);
+        return subscribeIgnoredCellarRecommendationsToday(
+            (rows) => {
+                setIgnoredCellarBadgeRows(rows);
+                setIgnoredCellarBadgeReady(true);
+            },
+            (error) => console.warn("Unable to refresh ignored cellar badge rounds", error),
+        );
+    }, [needsStandaloneCellarBadge]);
+
     const cellarTankOne = brews.find(t => Number(t.tankNumber) === 1);
     const cellarPending = (mode: "לחץ" | "חם") => brews.filter(t => {
         if (Number(t.tankNumber) === 1 || Number(t.action) !== 1 || isInMeasurementGrace(t, cellarTankOne)) return false;
         if (mode === "חם" && !(Number(t.currentData?.temp) > 9 && t.stage?.name === "בתסיסה")) return false;
         const p = cellarDailyProgress[t.id];
-        return mode === "לחץ" ? !(p?.temp && p?.pressure) : !(p?.plato && p?.pH);
+        if (!p) return false;
+        return mode === "לחץ" ? !(p.temp && p.pressure) : !(p.plato && p.pH);
     }).length;
-    const uniquePendingMeasurementCount = selectedView === "דאשבורד"
-        ? dashboardPendingMeasurementTanks.length
-        : brews.filter(t => Number(t.tankNumber) !== 1 && Number(t.action) === 1 && !isInMeasurementGrace(t, cellarTankOne) && (() => {
-            const p = cellarDailyProgress[t.id];
-            const hot = Number(t.currentData?.temp) > 9 && t.stage?.name === "בתסיסה";
-            return !(p?.temp && p?.pressure) || (hot && !(p?.plato && p?.pH));
-        })()).length;
+    const uniquePendingMeasurementCount = needsStandaloneCellarBadge && cellarDailyProgressReady && ignoredCellarBadgeReady
+        ? pendingCellarMeasurementTankNumbers(brews, cellarDailyProgress, ignoredCellarBadgeRows).length
+        : dashboardPendingMeasurementTanks.length;
     const readingSourceIdentityRef = useRef<Record<string, string>>({});
     const [hasIncompleteNotes, setHasIncompleteNotes] = useState(false);
 

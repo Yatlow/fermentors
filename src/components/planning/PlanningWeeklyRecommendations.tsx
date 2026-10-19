@@ -1,3 +1,4 @@
+import { materializeWeeklyBrewDraft, weeklyBrewDraftCapacity } from "../../SERVICES/planning/weeklyBrewDraftCapacity";
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
@@ -37,7 +38,7 @@ import {
 import TransientNumberInput from "../general/TransientNumberInput";
 
 type Kind = "delivery" | "packaging" | "brew";
-type BrewDraft = { style: string; liters: number; allowUnavailable?: boolean };
+type BrewDraft = { id?: string; style: string; liters: number; allowUnavailable?: boolean };
 type ManualPackDraft = { id: string; tankId: string; productId: string; quantity: number };
 type ShipmentSelectionState = {
     selected: Pallet[];
@@ -368,7 +369,7 @@ export default function PlanningWeeklyRecommendations({
             setManualPacks([]);
             setCancelledPackagingKeys(new Set());
         } else {
-            setBrewDraft(current.brews.map((b) => ({ style: b.style, liters: b.liters })));
+            setBrewDraft(current.brews.map((b) => ({ id: b.id, style: b.style, liters: b.liters })));
         }
     }
 
@@ -756,12 +757,12 @@ export default function PlanningWeeklyRecommendations({
         setBusy(true);
         setMessage("");
         try {
-            const brews = brewDraft
-                .filter((b) => b.style && b.liters > 0)
-                .map((b) => ({ id: crypto.randomUUID(), style: b.style, liters: b.liters, tankId: "", date: addDays(week, 1) }));
+            const brews = materializeWeeklyBrewDraft(
+                current.brews, brewDraft, week, () => crypto.randomUUID(),
+            );
             await saveWeek({ ...current, brews, changeReason: "עדכון החלטת בישול שבועית" });
             setEditing(null);
-            setMessage(brews.length > model.brewTankCapacity || brewDraftExceedsSizeCapacity(brewDraft)
+            setMessage(brews.length > draftCapacity.total || brewDraftExceedsSizeCapacity(brewDraft)
                 ? "החלטת הבישול נשמרה, אך לפחות אחד מסוגי הבישול אינו תואם לקיבולת המיכלים הצפויה השבוע."
                 : "החלטת הבישול נשמרה.");
         } catch (e) {
@@ -804,8 +805,14 @@ export default function PlanningWeeklyRecommendations({
         }
     }
 
+    // brewTankOptions contains only still-free tanks, while brewDraft starts
+    // with already committed brews. Count both pools before limiting additions.
+    const draftCapacity = weeklyBrewDraftCapacity(
+        current.brews.map((brew) => brewSizeLabel(brew.liters)),
+        model.brewTankOptions.map((option) => option.sizeLabel),
+    );
     function brewSizeCapacity(size: BrewSizeLabel) {
-        return model.brewTankOptions.filter((option) => option.sizeLabel === size).length;
+        return draftCapacity.bySize(size);
     }
 
     function brewSizeCount(rows: BrewDraft[], size: BrewSizeLabel, excludeIndex = -1) {
@@ -874,7 +881,7 @@ export default function PlanningWeeklyRecommendations({
         if (!recommendations.length) return;
         setEditing("brew");
         setBrewDraft([
-            ...current.brews.map((b) => ({ style: b.style, liters: b.liters })),
+            ...current.brews.map((b) => ({ id: b.id, style: b.style, liters: b.liters })),
             ...recommendations.map((b) => ({ style: b.style, liters: b.liters })),
         ]);
     }
@@ -1164,8 +1171,8 @@ export default function PlanningWeeklyRecommendations({
                         </div>;
                     })}
                     {!brewDraft.length && <small>אין בישולים בטיוטה. הוסף בישול כדי להתחיל.</small>}
-                    <button type="button" disabled={!allowUnavailableBrewException && brewDraft.length >= model.brewTankCapacity} onClick={addBrew}>+ הוסף בישול</button>
-                    {!allowUnavailableBrewException && brewDraft.length >= model.brewTankCapacity && <button
+                    <button type="button" disabled={!allowUnavailableBrewException && brewDraft.length >= draftCapacity.total} onClick={addBrew}>+ הוסף בישול</button>
+                    {!allowUnavailableBrewException && brewDraft.length >= draftCapacity.total && <button
                         type="button"
                         className="bp-secondary-action"
                         onClick={() => setAllowUnavailableBrewException(true)}

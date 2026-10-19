@@ -10,6 +10,7 @@ try {
     "shipment-picking-regression",
     "planning-weekly-regression",
     "planning-brew-assignment-draft",
+    "planning-weekly-brew-draft-capacity",
     "planning-style-targets",
     "planning-macro-insights",
     "decision-change-review",
