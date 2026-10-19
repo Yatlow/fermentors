@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
+import { yesterdayActionNotes } from "../../SERVICES/cellering/yesterdayActionNotes";
 import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasurementWarnings";
 import type { Fermentor, NewReading } from "../../App";
 import RecentMeasurements from "./RecentMeasurements";
@@ -19,6 +21,44 @@ export default function DailyPressureAndTemp({
 }: DailyPressureAndTempProps) {
 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [yesterdayActions, setYesterdayActions] = useState<Record<string, string[]>>({});
+
+  // Reuse the existing measurement cache and its compact cellarState snapshot.
+  const activeBatches = brews
+    .filter(tank => Number(tank.action) === 1 && tank.batchNumber != null)
+    .map(tank => `${tank.id}:${String(tank.batchNumber).replace("#", "").trim()}`)
+    .join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+      const results = await Promise.all(
+        activeBatches.split("|").filter(Boolean).map(async entry => {
+          const separator = entry.indexOf(":");
+          const id = entry.slice(0, separator);
+          const batch = entry.slice(separator + 1);
+          try {
+            const rows = await getMeasurementsByBatch(batch);
+            return [id, yesterdayActionNotes(rows, dateKey)] as const;
+          } catch {
+            return [id, []] as const;
+          }
+        })
+      );
+      if (!cancelled) setYesterdayActions(Object.fromEntries(results));
+    }
+    void refresh();
+    const updated = () => { void refresh(); };
+    window.addEventListener(MEASUREMENTS_UPDATED_EVENT, updated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(MEASUREMENTS_UPDATED_EVENT, updated);
+    };
+  }, [activeBatches]);
+
   function normelizeInputValue(value: number, max: number, min: number) {
     if (value > max || value < min) return ""
     return value
@@ -68,6 +108,17 @@ export default function DailyPressureAndTemp({
                     </strong>
                   </span>
                 </div>
+
+                {Number(fv.action) === 1 && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
+                  <div role="note" aria-label="פעולות שבוצעו אתמול" style={{
+                    margin: "6px 8px", padding: "8px 10px", borderRadius: 8,
+                    background: "#eaf3ff", borderInlineStart: "3px solid #4387cd",
+                    color: "#214365", fontSize: "0.8rem", lineHeight: 1.55,
+                  }}>
+                    <strong>ℹ️ אתמול בוצעו במיכל:</strong>
+                    {yesterdayActions[fv.id].map((action, index) => <div key={`${index}:${action}`}>{action}</div>)}
+                  </div>
+                )}
 
                 <RecentMeasurements tank={fv} mode="pressure" />
 
