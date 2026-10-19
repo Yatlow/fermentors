@@ -118,7 +118,7 @@ export default function DailyPressureAndTemp({
                   }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                       <History size={14} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
-                      <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={yesterdayActions[fv.id].join(" · ")}>{yesterdayActions[fv.id].join(" · ")}</span>
+                      <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={`אתמול: ${yesterdayActions[fv.id].join(" · ")}`}>אתמול: {yesterdayActions[fv.id].join(" · ")}</span>
                     </span>
                   </div>
                 )}

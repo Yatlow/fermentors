@@ -14,13 +14,13 @@ test("shows only actions documented on the preceding calendar day", () => {
     { id: "2026-10-17_1100", notes: "העלאת לחץ ל-1.5" },
     { id: "2026-10-18_0900", notes: "העלאת לחץ מ-0.8 ל-1.5" },
     { id: "2026-10-19_0800", notes: "הורדת לחץ ל-1" },
-  ], "2026-10-18"), ["העלאת לחץ מ־0.8 ל־1.5"]);
+  ], "2026-10-18"), ["העלאת לחץ: מ־0.8 ל־1.5 bar"]);
 });
 test("supports multiple same-day actions and removes duplicates", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_0800", notes: "הפעלת קירור; כיוון פורק ל-1.4" },
     { id: "2026-10-18_1400", notes: "הפעלת קירור" },
-  ], "2026-10-18"), ["המיכל קורר", "פורק כוון ל־1.4"]);
+  ], "2026-10-18"), ["קירור: המיכל הועבר לקירור", "כיוון פורק: ל־1.4 bar"]);
 });
 test("does not mistake recommendations for executed actions", () => {
   assert.deepEqual(yesterdayActionNotes([
@@ -38,5 +38,16 @@ test("excludes rows with no action note", () => {
 test("summarizes pressure decrease, yeast pressure and diacetyl rest", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_1000", notes: "הורדת לחץ מ-1.7 ל-1; הורדת שמרים, לחץ אחרי שמרים 1.57; כיבוי קירור למנוחת דיאצטיל" },
-  ], "2026-10-18"), ["הורדת לחץ מ־1.7 ל־1", "לחץ אחרי שמרים 1.57", "המיכל נכנס למנוחת דיאציטיל"]);
+  ], "2026-10-18"), ["הורדת לחץ: מ־1.7 ל־1 bar", "הורדת שמרים: לחץ אחרי הורדת שמרים 1.57 bar", "מנוחת דיאצטיל: המיכל הועבר למנוחת דיאצטיל"]);
+});
+
+test("records completed pressure-relevant valve and vent adjustments", () => {
+  assert.deepEqual(yesterdayActionNotes([
+    { id: "2026-10-18_0800", notes: "כיוון פורק ל-1.6; נסגר נשם" },
+  ], "2026-10-18"), ["כיוון פורק: ל־1.6 bar", "סגירת נשם: הנשם נסגר"]);
+});
+test("recognizes resuming cooling after diacetyl rest", () => {
+  assert.deepEqual(yesterdayActionNotes([
+    { id: "2026-10-18_0800", notes: "סיום מנוחת דיאצטיל, חזרה לקירור" },
+  ], "2026-10-18"), ["חזרה לקירור: המיכל הוחזר לקירור"]);
 });
