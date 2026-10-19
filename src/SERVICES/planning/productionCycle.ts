@@ -13,7 +13,7 @@ import { actualDate, openRuns } from "./dailyPlanner";
 import type { Actual } from "./planningEngine";
 import { brewById, resolvePackagingBrewId, type PackagingPlan } from "./planIdentity";
 import { projectTankSchedules } from "./tankScheduleProjection";
-import { orderedTankSchedule, tankCanHostCycle } from "./tankSchedule";
+import { orderedTankSchedule, tankCanHostCycle, type TankScheduleCycle } from "./tankSchedule";
 
 export const weekday = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
 export const nextBrewingWeek = (emptied: string) => addDays(weekStart(emptied), 8);
@@ -485,6 +485,49 @@ export function validateProduction(
   return null;
 }
 
+/**
+ * A physical batch may have a different number from the forecast batch on its
+ * original planned brew (forecast numbers change as earlier plans change).
+ * Legacy packaging is deliberately NOT linked to that forecast cycle by tank
+ * alone. If the physical batch itself has an evidenced emptying date, however,
+ * its unique same-day, same-style planned cycle is already over. Reconcile that
+ * fact only for release validation, without rewriting the saved plan or linking
+ * any legacy packaging to a different future batch.
+ */
+function reconcilePhysicalCycleEmptying(
+  cycles: TankScheduleCycle[],
+  source: TankSource | undefined,
+  tank: Tank | undefined,
+  release: Release | undefined,
+  today: string,
+): TankScheduleCycle[] {
+  if (!source || !tank || !release?.emptyDate || isReadyForBrew(source)) return cycles;
+  // Only a proven physical/legacy packaging release can close a forecast cycle.
+  if (!release.reason.includes("legacy") && !release.reason.includes("המחזור הפיזי")) return cycles;
+  const physicalBatch = normalizedBatch(source.batchNumber);
+  const snapshotBatch = normalizedBatch(tank.batch);
+  if (!physicalBatch || (snapshotBatch && snapshotBatch !== physicalBatch)) return cycles;
+  const physicalDate = parseDate(source.brewDate) ?? tank.brewed;
+  const physicalStyle = String(source.beerStyle ?? tank.style);
+  if (!physicalDate || physicalDate > today || !physicalStyle ||
+      !sameStyle(physicalStyle, tank.style) || release.emptyDate < physicalDate) return cycles;
+  const matches = cycles.filter((cycle) =>
+    cycle.status !== "cancelled" && cycle.brewDate === physicalDate &&
+    sameStyle(cycle.style, physicalStyle));
+  if (matches.length !== 1 || matches[0].emptyDate) return cycles;
+  return cycles.map((cycle) => cycle.cycleId === matches[0].cycleId
+    ? { ...cycle, emptyDate: release.emptyDate! } : cycle);
+}
+
+function conflictingTankCycle(
+  cycles: TankScheduleCycle[], brewDate: string, readyDate: string, ignoreId: string,
+): TankScheduleCycle | undefined {
+  const other = orderedTankSchedule(cycles).filter((cycle) =>
+    cycle.status !== "cancelled" && cycle.cycleId !== ignoreId);
+  return other.find((cycle) =>
+    cycle.brewDate <= brewDate && (!cycle.emptyDate || brewDate <= cycle.emptyDate))
+    ?? other.find((cycle) => cycle.brewDate > brewDate && readyDate >= cycle.brewDate);
+}
 export function validateBrewReleases(
   sources: TankSource[],
   tanks: Tank[],
@@ -511,17 +554,26 @@ export function validateBrewReleases(
     if (b.liters > workLiters)
       return `מיכל ${source?.tankNumber ?? tank?.number ?? b.tankId}: תוכננו ${Math.round(b.liters)} ל׳, אבל נפח העבודה המחושב לבישול ${b.style} הוא ${Math.round(workLiters)} ל׳`;
 
-    const cycles = orderedTankSchedule(schedules.get(b.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled");
+    const release = releases.find((r) => r.tankId === b.tankId);
+    const cycles = reconcilePhysicalCycleEmptying(
+      orderedTankSchedule(schedules.get(b.tankId) ?? []).filter((cycle) => cycle.status !== "cancelled"),
+      source, tank, release, today,
+    );
     const cycle = cycles.find((item) => item.cycleId === b.id);
     const readyDate = cycle?.readyDate ?? addDays(b.date, Math.max(
       ...settings.products.filter((p) => sameStyle(p.style, b.style)).map((p) => p.leadDays),
       21,
     ));
-    if (!tankCanHostCycle(cycles, b.date, readyDate, b.id))
-      return `בישול ${b.style}: המיכל תפוס על ידי מחזור אחר בחלון הבישול המתוכנן`;
+    if (!tankCanHostCycle(cycles, b.date, readyDate, b.id)) {
+      const other = conflictingTankCycle(cycles, b.date, readyDate, b.id);
+      const otherBatch = other?.batchNumber ?? other?.plannedBatchNumber;
+      const otherLabel = other
+        ? `${other.style}${otherBatch ? ` (אצווה ${otherBatch})` : ""}, בישול ${other.brewDate}, ${other.emptyDate ? `ריקון ${other.emptyDate}` : "ללא ריקון משויך"}`
+        : "מחזור אחר";
+      return `מיכל ${String(source?.tankNumber ?? tank?.number ?? b.tankId)}: בישול ${b.style} (${b.date}) מתנגש עם ${otherLabel}. יש לאמת שהאריזה משויכת למחזור הנכון ושהמיכל מתרוקן לפני הבישול הבא.`;
+    }
 
     if (tank && tank.brewed === b.date && sameStyle(tank.style, b.style)) continue;
-    const release = releases.find((r) => r.tankId === b.tankId);
     const requiredReleaseDate = b.availabilityOverride && release?.emptyDate
       ? addDays(release.emptyDate, 1)
       : release?.date;
