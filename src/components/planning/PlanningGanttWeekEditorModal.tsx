@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { shortDate } from "../../SERVICES/planning/dailyPlanner";
@@ -54,33 +54,27 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
           if (list.querySelector("b")?.textContent?.trim() === "המלצת המערכת") list.style.display = "none";
         });
       }
-      const capacity = host.querySelectorAll(".bp-week-brew-card .bp-brew-tank-chip").length;
-      const draftCount = host.querySelectorAll(".bp-week-brew-card .bp-brew-edit-row").length;
-      const buttons = [...host.querySelectorAll<HTMLButtonElement>(".bp-week-brew-card button")];
-      const normalAdd = buttons.find((button) => button.textContent?.trim() === "+ הוסף בישול");
-      const nativeException = buttons.find((button) => button.textContent?.includes("מעבר למיכלים הזמינים כחריגה"));
-      if (!normalAdd || draftCount < capacity) return;
-
-      // Keep the real React one-shot exception control in the DOM. The focused
-      // modal supplies the confirmation UI, then delegates to that control so
-      // the underlying planner state is actually authorized for exactly one brew.
-      normalAdd.disabled = true;
-      if (nativeException) nativeException.style.display = "none";
-      const editList = normalAdd.closest<HTMLElement>(".bp-decided-list");
-      if (!editList || editList.querySelector("[data-brew-overflow-confirm]")) return;
-      const approve = document.createElement("button");
-      approve.type = "button";
-      approve.className = "bp-secondary-action";
-      approve.dataset.brewOverflowConfirm = "true";
-      approve.textContent = "הוסף בישול עם מיכל לא פנוי";
-      approve.onclick = () => setConfirmOverflow(true);
-      editList.appendChild(approve);
+      // Do not override the React-controlled "Add brew" disabled state here.
+      // The weekly editor calculates capacity from existing decisions plus
+      // remaining free tanks; the old DOM count used only the latter and
+      // incorrectly disabled this button while tanks 13/18 were available.
     };
     const frame = window.requestAnimationFrame(syncFocusedEditor);
     const observer = new MutationObserver(syncFocusedEditor);
     if (hostRef.current) observer.observe(hostRef.current, { childList: true, subtree: true, characterData: true });
     return () => { window.cancelAnimationFrame(frame); observer.disconnect(); };
   }, [kind, hasPackagingDecision, packagingDecisionCount, hasBrewDecision, plannerProps.disabled, replacementPackagingCount, week]);
+
+  const requestOverflowConfirmation = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (kind !== "brews" || !(event.target instanceof Element)) return;
+    const button = event.target.closest("button");
+    if (!button?.textContent?.includes("מעבר למיכלים הזמינים כחריגה")) return;
+    // Keep native React availability state authoritative and show the modal
+    // before the one-shot exception is created.
+    event.preventDefault();
+    event.stopPropagation();
+    setConfirmOverflow(true);
+  };
 
   const approveOverflowBrew = () => {
     window.dispatchEvent(new Event("bp-approve-brew-overflow"));
@@ -102,7 +96,7 @@ export default function PlanningGanttWeekEditorModal({ week, kind, onClose, ...p
           <div><b>{KIND_LABEL[kind]} · המלצה מול החלטה</b><small>שבוע שמתחיל ב־{shortDate(week)}</small></div>
           <button type="button" className="bp-gantt-editor-close" aria-label="סגירה" onClick={onClose}><X size={20} aria-hidden="true" /></button>
         </header>
-        <div className="bp-gantt-editor-body" ref={hostRef}>
+        <div className="bp-gantt-editor-body" ref={hostRef} onClickCapture={requestOverflowConfirmation}>
           <PlanningWeeklyRecommendationsEnhanced {...plannerProps} initialSelectedWeek={week} plans={savedPlans} historyPlans={savedPlans} />
         </div>
         {confirmOverflow && <div className="bp-inline-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmOverflow(false); }}>
