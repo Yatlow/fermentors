@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { History } from "lucide-react";
+import { ChevronDown, ChevronUp, History } from "lucide-react";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { yesterdayActionNotes } from "../../SERVICES/cellering/yesterdayActionNotes";
 import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasurementWarnings";
@@ -115,7 +115,7 @@ export default function DailyPressureAndTemp({
                   {Number(fv.action) === 1 && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
                     <button
                       type="button"
-                      aria-label={`פעולות אתמול במיכל ${fv.tankNumber ?? fv.id}. לחץ להצגת הפירוט`}
+                      aria-label={`פעולות אתמול במיכל ${fv.tankNumber ?? fv.id}. לחץ לפתיחה או סגירה של הפירוט`}
                       aria-expanded={Boolean(expandedActionTanks[fv.id])}
                       onClick={() => setExpandedActionTanks(prev => ({ ...prev, [fv.id]: !prev[fv.id] }))}
                       title={`אתמול: ${yesterdayActions[fv.id].join(" · ")}`}
@@ -131,6 +131,10 @@ export default function DailyPressureAndTemp({
                         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                         overflow: "hidden", overflowWrap: "anywhere", flex: 1,
                       }}>אתמול: {yesterdayActions[fv.id].join(" · ")}</span>
+                      <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0, fontSize: "0.7rem", color: "#356e9b" }}>
+                        {expandedActionTanks[fv.id] ? "סגור" : "פירוט"}
+                        {expandedActionTanks[fv.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </span>
                     </button>
                   )}
                 </div>
