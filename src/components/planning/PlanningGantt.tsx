@@ -630,15 +630,14 @@ export default function PlanningGantt(props: Props) {
   ) : null;
 
 
+  // Daily editing must use persisted planning decisions, not display-only
+  // tank proposals. Otherwise phantom assignments leak across weeks.
   const dailyEditor = dailyTarget && canEdit ? (
     <PlanningGanttDailyModal
       week={dailyTarget.week}
       kind={dailyTarget.kind}
       onClose={() => setDailyTarget(null)}
       settings={settings}
-      // Daily editing must use persisted planning decisions, not display-only
-      // tank proposals. Otherwise phantom assignments from other weeks leak
-      // into cross-week validation and can block unrelated confirmed brews.
       plans={editorPlans}
       tanks={tanks}
       sources={sources}
