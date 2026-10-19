@@ -492,11 +492,12 @@ export function validateBrewReleases(
   settings: Settings,
   actuals: Actual[],
   today: string,
+  editedWeekId?: string,
 ): string | null {
   const releases = tankReleases(sources, tanks, plans, settings, actuals, today);
   const schedules = projectTankSchedules(plans, settings);
 
-  for (const b of plans.flatMap((w) => w.brews).filter((b) => b.date >= today)) {
+  for (const b of plans.filter((w) => !editedWeekId || w.id === editedWeekId).flatMap((w) => w.brews).filter((b) => b.date >= today)) {
     if (!b.tankId) continue;
     const tank = tanks.find((t) => t.id === b.tankId);
     const source = sources.find((s) => s.id === b.tankId);
