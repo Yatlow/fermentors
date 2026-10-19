@@ -110,7 +110,7 @@ export default function DailyPressureAndTemp({
                   </span>
                 </div>
 
-                <div style={{ minHeight: "3.2rem", display: "flex", alignItems: "center" }}>
+                <div style={{ height: "3.2rem", display: "flex", alignItems: "center", overflow: "hidden" }}>
                 {Number(fv.action) === 1 && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
                   <div role="note" aria-label="פעולות שבוצעו אתמול" style={{
                     margin: "3px 9px", color: "#52687b", fontSize: "0.76rem",
@@ -118,14 +118,12 @@ export default function DailyPressureAndTemp({
                   }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                       <History size={14} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
-                      <span>{yesterdayActions[fv.id].join(" · ")}</span>
+                      <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={yesterdayActions[fv.id].join(" · ")}>{yesterdayActions[fv.id].join(" · ")}</span>
                     </span>
                   </div>
                 )}
 
                 </div>
-
-                <RecentMeasurements tank={fv} mode="pressure" />
 
                 <div className="measurement-inputs">
 
@@ -174,6 +172,8 @@ export default function DailyPressureAndTemp({
                   </div>
 
                 </div>
+                <RecentMeasurements tank={fv} mode="pressure" />
+
                 {touched[`${fv.id}:temp`] || touched[`${fv.id}:pressure`] ? (() => {
                   const warnings = cellarMeasurementWarnings(fv.tankNumber ?? fv.id, reading, fv.currentData ?? {}, { brewAge: 0 });
                   const relevant = warnings.filter((warning) => {
