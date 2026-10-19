@@ -1,3 +1,4 @@
+import { weeklyBrewDraftCapacity } from "../../SERVICES/planning/weeklyBrewDraftCapacity";
 import BeerLoader from "../general/Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Fermentor } from "../../App";
@@ -761,7 +762,7 @@ export default function PlanningWeeklyRecommendations({
                 .map((b) => ({ id: crypto.randomUUID(), style: b.style, liters: b.liters, tankId: "", date: addDays(week, 1) }));
             await saveWeek({ ...current, brews, changeReason: "עדכון החלטת בישול שבועית" });
             setEditing(null);
-            setMessage(brews.length > model.brewTankCapacity || brewDraftExceedsSizeCapacity(brewDraft)
+            setMessage(brews.length > draftCapacity.total || brewDraftExceedsSizeCapacity(brewDraft)
                 ? "החלטת הבישול נשמרה, אך לפחות אחד מסוגי הבישול אינו תואם לקיבולת המיכלים הצפויה השבוע."
                 : "החלטת הבישול נשמרה.");
         } catch (e) {
@@ -804,8 +805,14 @@ export default function PlanningWeeklyRecommendations({
         }
     }
 
+    // brewTankOptions contains only still-free tanks, while brewDraft starts
+    // with already committed brews. Count both pools before limiting additions.
+    const draftCapacity = weeklyBrewDraftCapacity(
+        current.brews.map((brew) => brewSizeLabel(brew.liters)),
+        model.brewTankOptions.map((option) => option.sizeLabel),
+    );
     function brewSizeCapacity(size: BrewSizeLabel) {
-        return model.brewTankOptions.filter((option) => option.sizeLabel === size).length;
+        return draftCapacity.bySize(size);
     }
 
     function brewSizeCount(rows: BrewDraft[], size: BrewSizeLabel, excludeIndex = -1) {
@@ -1164,8 +1171,8 @@ export default function PlanningWeeklyRecommendations({
                         </div>;
                     })}
                     {!brewDraft.length && <small>אין בישולים בטיוטה. הוסף בישול כדי להתחיל.</small>}
-                    <button type="button" disabled={!allowUnavailableBrewException && brewDraft.length >= model.brewTankCapacity} onClick={addBrew}>+ הוסף בישול</button>
-                    {!allowUnavailableBrewException && brewDraft.length >= model.brewTankCapacity && <button
+                    <button type="button" disabled={!allowUnavailableBrewException && brewDraft.length >= draftCapacity.total} onClick={addBrew}>+ הוסף בישול</button>
+                    {!allowUnavailableBrewException && brewDraft.length >= draftCapacity.total && <button
                         type="button"
                         className="bp-secondary-action"
                         onClick={() => setAllowUnavailableBrewException(true)}
