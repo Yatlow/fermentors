@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { History } from "lucide-react";
 import { getMeasurementsByBatch, MEASUREMENTS_UPDATED_EVENT } from "../../SERVICES/getAndPost/gettAllDataByBatch";
 import { yesterdayActionNotes } from "../../SERVICES/cellering/yesterdayActionNotes";
 import { cellarMeasurementWarnings } from "../../SERVICES/cellering/cellarMeasurementWarnings";
@@ -115,8 +116,10 @@ export default function DailyPressureAndTemp({
                     margin: "3px 9px", color: "#52687b", fontSize: "0.76rem",
                     lineHeight: 1.35, overflowWrap: "anywhere",
                   }}>
-                    <span aria-hidden="true">ℹ️ </span>
-                    {yesterdayActions[fv.id].join(" · ")}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <History size={14} strokeWidth={1.8} aria-hidden="true" style={{ flexShrink: 0 }} />
+                      <span>{yesterdayActions[fv.id].join(" · ")}</span>
+                    </span>
                   </div>
                 )}
 
