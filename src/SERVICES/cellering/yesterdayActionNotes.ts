@@ -16,28 +16,29 @@ export function yesterdayActionNotes(rows: Measurement[], yesterdayKey: string):
     for (const raw of notes.split(/\n|[;；]|\s+·\s+/u)) {
       const note = raw.trim();
       if (!note || /מומלץ|יש לבצע|מתוכנן|צפי|מחר|בעוד\s+\d+|לא בוצע/u.test(note)) continue;
-      const pressure = note.match(new RegExp(`(?:העלאת|הורדת|העלו|הורידו|הועלה|הורד)\\s*(?:ה)?לחץ[^\\n]*?מ\\s*[-־:=]?\\s*${number}\\s*(?:bar|באר)?\\s*(?:ל|אל|עד|->|→)\\s*[-־:]?\\s*${number}`, "u"));
-      if (pressure) {
-        const direction = /הורד/u.test(note) ? "הורדת" : "העלאת";
-        add(`${direction} לחץ: מ־${clean(pressure[1])} ל־${clean(pressure[2])} bar`);
-      } else if (/העלאת\s*לחץ|הועלה\s*הלחץ|הורדת\s*לחץ|הורד\s*הלחץ/u.test(note)) {
-        const direction = /הורד/u.test(note) ? "הורדת" : "העלאת";
-        add(`${direction} לחץ`);
+      // Reports usually store only the target; never invent a previous pressure.
+      const directionMatch = note.match(/(?:העלאת|הורדת|העלו|הורידו|הועלה|הורד)\s*(?:ה)?לחץ/u);
+      if (directionMatch) {
+        const direction = /הורד/u.test(directionMatch[0]) ? "הורדת" : "העלאת";
+        const explicitPair = note.match(new RegExp(`מ\\s*[-־:=]?\\s*${number}\\s*(?:bar|באר)?\\s*(?:ל|אל|עד|->|→)\\s*[-־:]?\\s*${number}`, "u"));
+        const target = note.match(new RegExp(`(?:ל|אל|עד)\\s*[-־:]?\\s*${number}`, "u"));
+        if (explicitPair) add(`${direction} לחץ: מ־${clean(explicitPair[1])} ל־${clean(explicitPair[2])} bar`);
+        else if (target) add(`${direction} לחץ: ל־${clean(target[1])} bar`);
+        else add(`${direction} לחץ`);
       }
-
+      if (/סגירת\s*נשם|נסגר\s*(?:ה)?נשם/u.test(note)) add("סגירת נשם: הנשם נסגר");
       const valve = note.match(/(?:כיוון|כוון)\s*(?:ה)?פורק\s*(?:ל|אל)?\s*[-־:]?\s*(\d+(?:[.,]\d+)?)/u);
       if (valve) add(`כיוון פורק: ל־${clean(valve[1])} bar`);
       else if (/כיוון\s*פורק|כוון\s*הפורק/u.test(note)) add("כיוון פורק");
-      if (/סגירת\s*נשם|נסגר\s*(?:ה)?נשם/u.test(note)) add("סגירת נשם: הנשם נסגר");
-      if (/דליי?\s*שמרים|הורדת\s*שמרים|הורדו\s*שמרים/u.test(note)) {
-        const after = note.match(new RegExp(`(?:לחץ\\s*(?:אחרי|לאחר)\\s*(?:הורדת\\s*)?שמרים|(?:אחרי|לאחר)\\s*(?:דליי?\\s*)?שמרים[^\\d]*?לחץ)\\s*[:=]?\\s*${number}`, "u"));
+      if (/הורד(?:ת|ו)?\s*(?:(?:\d+(?:[.,]\d+)?)\s*)?(?:דליי?\s*)?שמרים|דליי?\s*שמרים|הוצאת\s*שמרים/u.test(note)) {
+        const after = note.match(new RegExp(`לחץ\\s*(?:אחרי|לאחר)\\s*(?:(?:הורדת|הוצאת)\\s*)?(?:שמרים\\s*)?[:=]?\\s*${number}`, "u"));
         if (after) add(`הורדת שמרים: לחץ אחרי הורדת שמרים ${clean(after[1])} bar`);
         else add("הורדת שמרים");
       }
       if (/דיאצ(?:טיל|יטיל|יטל)/u.test(note) && /סיום\s*מנוחת|הסתיימה\s*מנוחת|חזר\s*לקירור/u.test(note)) add("חזרה לקירור: המיכל הוחזר לקירור");
       else if (/דיאצ(?:טיל|יטיל|יטל)/u.test(note)) add("מנוחת דיאצטיל: המיכל הועבר למנוחת דיאצטיל");
       else if (/חזר\s*לקירור|חזרה\s*לקירור|החזר(?:ת|ה)\s*לקירור/u.test(note)) add("חזרה לקירור: המיכל הוחזר לקירור");
-      else if (/(?:הפעלת|הופעל|תחילת|התחלת)\s*(?:ה)?קירור|קירור\s*הופעל/u.test(note)) add("קירור: המיכל הועבר לקירור");
+      else if (/(?:הפעלת|הופעל|תחילת|התחלת)\s*(?:ה)?קירור|קירור\s*(?:הופעל|מיכל)/u.test(note)) add("קירור: המיכל הועבר לקירור");
     }
   }
   return actions;

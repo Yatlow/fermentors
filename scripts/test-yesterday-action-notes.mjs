@@ -51,3 +51,27 @@ test("recognizes resuming cooling after diacetyl rest", () => {
     { id: "2026-10-18_0800", notes: "סיום מנוחת דיאצטיל, חזרה לקירור" },
   ], "2026-10-18"), ["חזרה לקירור: המיכל הוחזר לקירור"]);
 });
+
+test("parses actual dashboard action note formats with recorded pressure values", () => {
+  assert.deepEqual(yesterdayActionNotes([
+    { id: "2026-10-18_0800", notes: "הורדת לחץ ל: 1.5 bar; סגירת נשם, כיוון פורק ל 1.5; הורדת 2 דליי שמרים, לחץ אחרי 0.7 bar" },
+  ], "2026-10-18"), [
+    "הורדת לחץ: ל־1.5 bar",
+    "סגירת נשם: הנשם נסגר",
+    "כיוון פורק: ל־1.5 bar",
+    "הורדת שמרים: לחץ אחרי הורדת שמרים 0.7 bar",
+  ]);
+});
+test("parses actual quick-action cooling and diacetyl notes", () => {
+  assert.deepEqual(yesterdayActionNotes([
+    { id: "2026-10-18_0800", notes: "קירור מיכל ל0.3°; חימום מיכל ל14° למנוחת דיאציטיל" },
+  ], "2026-10-18"), [
+    "קירור: המיכל הועבר לקירור",
+    "מנוחת דיאצטיל: המיכל הועבר למנוחת דיאצטיל",
+  ]);
+});
+test("displays target when no starting pressure exists, not a guessed before-value", () => {
+  assert.deepEqual(yesterdayActionNotes([
+    { id: "2026-10-18_0800", notes: "העלאת לחץ ל: 1.6 bar" },
+  ], "2026-10-18"), ["העלאת לחץ: ל־1.6 bar"]);
+});
