@@ -109,6 +109,7 @@ export default function DailyPressureAndTemp({
                   </span>
                 </div>
 
+                <div style={{ minHeight: "3.2rem", display: "flex", alignItems: "center" }}>
                 {Number(fv.action) === 1 && (yesterdayActions[fv.id]?.length ?? 0) > 0 && (
                   <div role="note" aria-label="פעולות שבוצעו אתמול" style={{
                     margin: "3px 9px", color: "#52687b", fontSize: "0.76rem",
@@ -118,6 +119,8 @@ export default function DailyPressureAndTemp({
                     {yesterdayActions[fv.id].join(" · ")}
                   </div>
                 )}
+
+                </div>
 
                 <RecentMeasurements tank={fv} mode="pressure" />
 
