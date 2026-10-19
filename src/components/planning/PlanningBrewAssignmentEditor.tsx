@@ -6,6 +6,7 @@ import { getBrewsSummaryPage, type BrewSummary } from "../../SERVICES/getAndPost
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { brewLitersForSize, brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
+import { assignAvailableTanks, mayReorderInitialBrews } from "../../SERVICES/planning/brewAssignmentDraft";
 import BeerLoader from "../general/Loading";
 
 type BrewPlanWithMeta = BrewPlan;
@@ -48,28 +49,6 @@ function normalizeOrder(brews: BrewPlanWithMeta[], sources: Fermentor[], release
   return [...brews]
     .sort((a, b) => styleRank(a.style, promoteSmallSpecials) - styleRank(b.style, promoteSmallSpecials))
     .map((brew, index) => ({ ...brew, date: dates[index] ?? brew.date }));
-}
-
-function assignAvailableTanks(brews: BrewPlanWithMeta[], sources: Fermentor[], releases: Release[], weekEnd: string) {
-  const available = releases
-    .filter((release): release is Release & { date: string } => typeof release.date === "string" && release.date.length > 0 && release.date <= weekEnd)
-    .map((release) => ({ release, tank: sources.find((source) => source.id === release.tankId) }))
-    .filter((entry): entry is { release: Release & { date: string }; tank: Fermentor } => !!entry.tank && Number(entry.tank.tankNumber) !== 1)
-    .filter((entry, index, all) => all.findIndex((candidate) => candidate.tank.id === entry.tank.id) === index)
-    .sort((a, b) => a.release.date.localeCompare(b.release.date) || Number(a.tank.tankNumber) - Number(b.tank.tankNumber));
-  const used = new Set<string>();
-  return brews.map((brew) => {
-    const match = available.find(({ tank }) => !used.has(tank.id) && compatibleTankForBrew(brew, tank));
-    if (!match) return { ...brew, tankId: "" };
-    used.add(match.tank.id);
-    return {
-      ...brew,
-      tankId: match.tank.id,
-      date: match.release.date > brew.date ? match.release.date : brew.date,
-      tankAssignmentStatus: "tentative" as const,
-      availabilityOverride: false,
-    };
-  });
 }
 
 function maxBatch(values: unknown[]): number {
@@ -128,7 +107,11 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       (brew) => normalizedBatch(brew.batchNumber) !== "",
     );
     if (!hasSavedBatchIdentity) {
-      const ordered = normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
+      // Never reorder a saved tank assignment merely because its forecast
+      // batch number is missing. Suggest only genuinely unassigned slots.
+      const ordered = mayReorderInitialBrews(copy.brews)
+        ? normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases)
+        : copy.brews;
       copy.brews = assignAvailableTanks(ordered, brews, releases, weekEnd);
     }
     return copy;
