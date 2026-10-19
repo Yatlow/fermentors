@@ -16,7 +16,7 @@ export function yesterdayActionNotes(rows: Measurement[], yesterdayKey: string):
     for (const raw of notes.split(/\n|[;；]|\s+·\s+/u)) {
       const note = raw.trim();
       if (!note || /מומלץ|יש לבצע|מתוכנן|צפי|מחר|בעוד\s+\d+|לא בוצע/u.test(note)) continue;
-      const pressure = note.match(new RegExp(`(?:העלאת|הורדת|העלו|הורידו|הועלה|הורד)\\s*(?:ה)?לחץ[^\\n]*?מ\\s*[:=]?\\s*${number}\\s*(?:bar|באר)?\\s*(?:ל|אל|עד|->|→)\\s*[-־:]?\\s*${number}`, "u"));
+      const pressure = note.match(new RegExp(`(?:העלאת|הורדת|העלו|הורידו|הועלה|הורד)\\s*(?:ה)?לחץ[^\\n]*?מ\\s*[-־:=]?\\s*${number}\\s*(?:bar|באר)?\\s*(?:ל|אל|עד|->|→)\\s*[-־:]?\\s*${number}`, "u"));
       if (pressure) {
         const direction = /הורד/u.test(note) ? "הורדת" : "העלאת";
         add(`${direction} לחץ מ־${clean(pressure[1])} ל־${clean(pressure[2])}`);
@@ -30,7 +30,7 @@ export function yesterdayActionNotes(rows: Measurement[], yesterdayKey: string):
       else if (/כיוון\s*פורק|כוון\s*הפורק/u.test(note)) add("כוון פורק");
       if (/סגירת\s*נשם|נסגר\s*הנשם/u.test(note)) add("נסגר נשם");
       if (/דליי?\s*שמרים|הורדת\s*שמרים|הורדו\s*שמרים/u.test(note)) {
-        const after = note.match(new RegExp(`(?:לחץ\\s*אחרי|אחרי\\s*(?:דליי?\\s*)?שמרים[^\\d]*?לחץ)\\s*[:=]?\\s*${number}`, "u"));
+        const after = note.match(new RegExp(`(?:לחץ\\s*אחרי\\s*(?:הורדת\\s*)?שמרים|אחרי\\s*(?:דליי?\\s*)?שמרים[^\\d]*?לחץ)\\s*[:=]?\\s*${number}`, "u"));
         if (after) add(`לחץ אחרי שמרים ${clean(after[1])}`);
         else add("בוצעה הורדת שמרים");
       }
