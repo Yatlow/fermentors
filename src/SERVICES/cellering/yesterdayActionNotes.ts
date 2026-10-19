@@ -16,7 +16,7 @@ export function yesterdayActionNotes(rows: Measurement[], yesterdayKey: string):
     for (const raw of notes.split(/\n|[;；]|\s+·\s+/u)) {
       const note = raw.trim();
       if (!note || /מומלץ|יש לבצע|מתוכנן|צפי|מחר|בעוד\s+\d+|לא בוצע/u.test(note)) continue;
-      const pressure = note.match(new RegExp(`(?:העלאת|הורדת|העלו|הורידו|הועלה|הורד)\\s*(?:ה)?לחץ[^\\n]*?מ\\s*[:=]?\\s*${number}\\s*(?:bar|באר)?\\s*(?:ל|אל|עד|->|→)\\s*[-־:]?\\s*\\s*${number}`, "u"));
+      const pressure = note.match(new RegExp(`(?:העלאת|הורדת|העלו|הורידו|הועלה|הורד)\\s*(?:ה)?לחץ[^\\n]*?מ\\s*[:=]?\\s*${number}\\s*(?:bar|באר)?\\s*(?:ל|אל|עד|->|→)\\s*[-־:]?\\s*${number}`, "u"));
       if (pressure) {
         const direction = /הורד/u.test(note) ? "הורדת" : "העלאת";
         add(`${direction} לחץ מ־${clean(pressure[1])} ל־${clean(pressure[2])}`);
