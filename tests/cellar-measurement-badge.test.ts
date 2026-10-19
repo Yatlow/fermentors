@@ -54,7 +54,7 @@ test("ignored round matches tank and batch and does not suppress another batch",
 });
 
 test("fermentation grace and same-day grace snapshots suppress the badge", () => {
-  const tankOne: CellarBadgeTank = {
+  const tankOne = {
     id: "tank-1", tankNumber: 1, action: 0,
     cellarHealthCompletedDay: "2026-10-19",
     cellarGraceTankIds: ["tank-7"],
