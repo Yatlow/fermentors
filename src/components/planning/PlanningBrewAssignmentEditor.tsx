@@ -6,7 +6,7 @@ import { getBrewsSummaryPage, type BrewSummary } from "../../SERVICES/getAndPost
 import { addDays, type BrewPlan, type WeekPlan } from "../../SERVICES/planning/planningEngine";
 import { brewLitersForSize, brewSizeLabel, type Release } from "../../SERVICES/planning/productionCycle";
 import { displayStyle } from "../../SERVICES/planning/planningPresentation";
-import { assignAvailableTanks } from "../../SERVICES/planning/brewAssignmentDraft";
+import { assignAvailableTanks, mayReorderInitialBrews } from "../../SERVICES/planning/brewAssignmentDraft";
 import BeerLoader from "../general/Loading";
 
 type BrewPlanWithMeta = BrewPlan;
@@ -107,13 +107,11 @@ export default function PlanningBrewAssignmentEditor({ initial, allPlans, brews,
       (brew) => normalizedBatch(brew.batchNumber) !== "",
     );
     if (!hasSavedBatchIdentity) {
-      // Only an entirely unassigned week may be initially reordered.
-      // A stored tankId is authoritative even when batch numbers are forecasts;
-      // do not silently move/reassign saved brews on modal open.
-      const hasAssignedTank = copy.brews.some((brew) => !!brew.tankId);
-      const ordered = hasAssignedTank
-        ? copy.brews
-        : normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases);
+      // Never reorder a saved tank assignment merely because its forecast
+      // batch number is missing. Suggest only genuinely unassigned slots.
+      const ordered = mayReorderInitialBrews(copy.brews)
+        ? normalizeOrder(copy.brews as BrewPlanWithMeta[], brews, releases)
+        : copy.brews;
       copy.brews = assignAvailableTanks(ordered, brews, releases, weekEnd);
     }
     return copy;
