@@ -14,13 +14,13 @@ test("shows only actions documented on the preceding calendar day", () => {
     { id: "2026-10-17_1100", notes: "העלאת לחץ ל-1.5" },
     { id: "2026-10-18_0900", notes: "העלאת לחץ מ-0.8 ל-1.5" },
     { id: "2026-10-19_0800", notes: "הורדת לחץ ל-1" },
-  ], "2026-10-18"), ["העלאת לחץ מ-0.8 ל-1.5"]);
+  ], "2026-10-18"), ["העלאת לחץ מ־0.8 ל־1.5"]);
 });
 test("supports multiple same-day actions and removes duplicates", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_0800", notes: "הפעלת קירור; כיוון פורק ל-1.4" },
     { id: "2026-10-18_1400", notes: "הפעלת קירור" },
-  ], "2026-10-18"), ["הפעלת קירור", "כיוון פורק ל-1.4"]);
+  ], "2026-10-18"), ["המיכל קורר", "פורק כוון ל־1.4"]);
 });
 test("does not mistake recommendations for executed actions", () => {
   assert.deepEqual(yesterdayActionNotes([
@@ -33,4 +33,10 @@ test("excludes rows with no action note", () => {
   assert.deepEqual(yesterdayActionNotes([
     { id: "2026-10-18_0800", temp: 9, pressure: 0.8 },
   ], "2026-10-18"), []);
+});
+
+test("summarizes pressure decrease, yeast pressure and diacetyl rest", () => {
+  assert.deepEqual(yesterdayActionNotes([
+    { id: "2026-10-18_1000", notes: "הורדת לחץ מ-1.7 ל-1; הורדת שמרים, לחץ אחרי שמרים 1.57; כיבוי קירור למנוחת דיאצטיל" },
+  ], "2026-10-18"), ["הורדת לחץ מ־1.7 ל־1", "לחץ אחרי שמרים 1.57", "המיכל נכנס למנוחת דיאציטיל"]);
 });
