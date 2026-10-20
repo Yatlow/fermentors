@@ -13,7 +13,7 @@ import { auth, db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
 import { hasExplicitPressureChangeAction } from "../dashboard/actionKpis";
 
-export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange";
+export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange" | "bottomCarbonation";
 export type PressureChangeDirection = "raise" | "lower";
 export type ScheduledCellarRecommendation = {
   id: string;
@@ -122,6 +122,11 @@ function measurementCompletesScheduledAction(
   if (actionType === "yeastDrop") {
     return /שמרים|שמרי/.test(notes);
   }
+  if (actionType === "bottomCarbonation") {
+    // A planned bottom-carbonation action is fulfilled by starting the procedure,
+    // not by a carbonation test or merely closing a previous procedure.
+    return /תחילת\s+גיזוז\s+מלמטה/.test(notes);
+  }
   return hasExplicitPressureChangeAction(notes);
 }
 
@@ -153,6 +158,7 @@ export function scheduledRecommendationCompletionDate(
 export function scheduledActionLabel(action: ScheduledCellarActionType): string {
   if (action === "carbTest") return "בדיקת גיזוז";
   if (action === "yeastDrop") return "הורדת שמרים";
+  if (action === "bottomCarbonation") return "גיזוז מלמטה";
   return "שינוי לחץ";
 }
 
