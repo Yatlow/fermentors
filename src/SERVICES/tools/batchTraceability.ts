@@ -18,12 +18,30 @@ export type BatchStockRow = {
     zones: Record<string, number>;
 };
 
+/** Authoritative actual packaging row from packagingLog, not planned quantities. */
+export type PackagingActualRecord = {
+    id?: string;
+    operationId?: string | null;
+    batchNumber?: string | number | null;
+    beerStyle?: string | null;
+    packagingType?: string | null;
+    quantity?: number | string | null;
+    source?: string | null;
+};
+
+export type BatchReconciliationStatus = "matched" | "shortage" | "excess" | "unknown";
+
 export type BatchSkuSummary = {
     sku: string;
     description: string;
     itemType: PalletItemType | null;
     shipped: number;
     remaining: number;
+    /** Null means there are no authoritative packaging reports for this SKU. */
+    packaged: number | null;
+    /** Packaged minus shipped minus current physical inventory. */
+    variance: number | null;
+    reconciliationStatus: BatchReconciliationStatus;
 };
 
 export type BatchTraceability = {
@@ -33,6 +51,7 @@ export type BatchTraceability = {
     summaries: BatchSkuSummary[];
     missingHistoricalPallets: number;
     hasUnverifiedShipments: boolean;
+    invalidPackagingRecords: number;
 };
 
 const activeZones = new Set(["cooler", "pending", "bottleRoom", "loadingDock"]);
@@ -42,8 +61,22 @@ const quantityOf = (value: unknown) => {
     return Number.isFinite(n) && n > 0 ? n : 0;
 };
 
-function skuKey(sku: string, itemType: PalletItemType | null): string {
-    return JSON.stringify([sku, itemType]);
+function skuKey(sku: string, itemType: PalletItemType | null, description: string): string {
+    // Different unmapped products must not be silently merged as SKU "—".
+    return JSON.stringify([sku, itemType, sku === "—" ? description : ""]);
+}
+
+export function reconcileBatchQuantity(
+    packaged: number | null,
+    shipped: number,
+    remaining: number,
+): { variance: number | null; status: BatchReconciliationStatus } {
+    if (packaged === null) return { variance: null, status: "unknown" };
+    const variance = packaged - shipped - remaining;
+    return {
+        variance,
+        status: variance > 0 ? "shortage" : variance < 0 ? "excess" : "matched",
+    };
 }
 
 /** Includes lots still in stock and those present only in past shipment records. */
@@ -71,6 +104,8 @@ export function buildBatchTraceability(
     shipments: Shipment[],
     pallets: Pallet[],
     catalog: CatalogLookup,
+    /** Pass null if packaging history has not been loaded yet. [] means loaded but empty. */
+    packagingActuals: PackagingActualRecord[] | null = null,
 ): BatchTraceability {
     const selected = clean(batchNumber);
     const palletsById = new Map(pallets.map((p) => [p.id, p]));
@@ -79,10 +114,15 @@ export function buildBatchTraceability(
     const summary = new Map<string, BatchSkuSummary>();
     let missingHistoricalPallets = 0;
     let hasUnverifiedShipments = false;
+    let invalidPackagingRecords = 0;
+    const packagedBySku = new Map<string, number>();
 
     const addSummary = (sku: string, description: string, itemType: PalletItemType | null, key: "shipped" | "remaining", quantity: number) => {
-        const id = skuKey(sku, itemType);
-        const current = summary.get(id) ?? { sku, description, itemType, shipped: 0, remaining: 0 };
+        const id = skuKey(sku, itemType, description);
+        const current = summary.get(id) ?? {
+            sku, description, itemType, shipped: 0, remaining: 0,
+            packaged: null, variance: null, reconciliationStatus: "unknown" as const,
+        };
         current[key] += quantity;
         summary.set(id, current);
     };
@@ -126,6 +166,48 @@ export function buildBatchTraceability(
         addSummary(sku, description, pallet.itemType, "remaining", qty);
     }
 
+    // A single packagingLog document is one physical packaging operation.
+    // The same batch can be packaged multiple times; sum independent operations.
+    // Deduplicate repeated operation IDs to prevent inflating output on retries.
+    if (packagingActuals !== null) {
+        const seen = new Set<string>();
+        for (const actual of packagingActuals) {
+            if (clean(actual.batchNumber).replace(/^#/, "") !== selected ||
+                actual.source === "estimated") continue;
+            const opId = clean(actual.operationId);
+            const key = opId ? "operation:" + opId : actual.id ? "document:" + actual.id : "";
+            if (key && seen.has(key)) continue;
+            if (key) seen.add(key);
+
+            const itemType: PalletItemType | null = actual.packagingType === "kegs"
+                ? "kegs" : actual.packagingType === "bottles" || actual.packagingType === "crates" ? "crates" : null;
+            const beerStyle = clean(actual.beerStyle);
+            const qty = quantityOf(actual.quantity);
+            if (!itemType || !beerStyle || !qty) {
+                invalidPackagingRecords++;
+                continue;
+            }
+            const entry = catalog(beerStyle, itemType);
+            const sku = entry?.sku || "—";
+            const description = entry?.displayText || beerStyle;
+            const id = skuKey(sku, itemType, description);
+            packagedBySku.set(id, (packagedBySku.get(id) ?? 0) + qty);
+            if (!summary.has(id)) {
+                summary.set(id, {
+                    sku, description, itemType, shipped: 0, remaining: 0,
+                    packaged: null, variance: null, reconciliationStatus: "unknown",
+                });
+            }
+        }
+
+        for (const [id, item] of summary) {
+            const packaged = packagedBySku.get(id) ?? null;
+            const reconciliation = reconcileBatchQuantity(packaged, item.shipped, item.remaining);
+            summary.set(id, { ...item, packaged, variance: reconciliation.variance,
+                reconciliationStatus: reconciliation.status });
+        }
+    }
+
     return {
         batchNumber: selected,
         shipments: shippedRows.sort((a, b) =>
@@ -136,5 +218,6 @@ export function buildBatchTraceability(
         summaries: [...summary.values()].sort((a, b) => a.sku.localeCompare(b.sku)),
         missingHistoricalPallets,
         hasUnverifiedShipments,
+        invalidPackagingRecords,
     };
 }
