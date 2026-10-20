@@ -51,3 +51,25 @@ test("two distinct completed scheduled actions remain two actions", () => {
     const result = count([], [done("scheduled-a", "כיוון פורק"), done("scheduled-b", "כיוון פורק")]);
     assert.deepEqual(result.other, { done: 2, total: 2 });
 });
+
+
+test("carb recommendations mentioning pressure changes stay out of pressure KPI", () => {
+    const result = count([
+        pending("carbTest", "1607", "16", { detail: "לפני יומיים בוצע שינוי לחץ; מומלץ לבצע בדיקת גיזוז חוזרת" }),
+        pending("bottomCarbonationFollowUp", "1604", "17", { detail: "גיזוז מלמטה ומומלץ שינוי לחץ בעת הצורך" }),
+        pending("scheduled-carb-11", "1605", "11", { scheduledActionType: "carbTest", detail: "שינוי לחץ בעקבות בדיקת גיזוז" }),
+    ], [
+        done("bottom-carb-8", "גיזוז מלמטה", "1606", "8"),
+        done("carb-11", "בדיקת גיזוז", "1605", "11"),
+    ]);
+    assert.deepEqual(result.pressure, { done: 0, total: 0 });
+    assert.deepEqual(result.other, { done: 0, total: 0 });
+});
+
+test("natural vent recommendation counts as other, not pressure", () => {
+    const result = count([
+        pending("pressureAdjustment", "1601", "19", { scheduledActionType: "other", detail: "מומלץ לכוון פורק" }),
+    ], [done("reported-vent-adjust-19", "כיוון פורק", "1601", "19")]);
+    assert.deepEqual(result.pressure, { done: 0, total: 0 });
+    assert.deepEqual(result.other, { done: 1, total: 1 });
+});
