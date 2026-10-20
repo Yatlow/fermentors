@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
 import { recordGlobalServerRead } from "../globalReadDiagnostics";
+import { hasExplicitPressureChangeAction } from "../dashboard/actionKpis";
 
 export type ScheduledCellarActionType = "carbTest" | "yeastDrop" | "pressureChange";
 export type PressureChangeDirection = "raise" | "lower";
@@ -121,7 +122,7 @@ function measurementCompletesScheduledAction(
   if (actionType === "yeastDrop") {
     return /שמרים|שמרי/.test(notes);
   }
-  return /הורדת לחץ|העלאת לחץ|להוריד לחץ|להעלות לחץ|שינוי לחץ|גיזוז מלמטה/.test(notes);
+  return hasExplicitPressureChangeAction(notes);
 }
 
 /**
