@@ -107,7 +107,7 @@ export function buildBatchTraceability(
     /** Pass null if packaging history has not been loaded yet. [] means loaded but empty. */
     packagingActuals: PackagingActualRecord[] | null = null,
 ): BatchTraceability {
-    const selected = clean(batchNumber);
+    const selected = clean(batchNumber).replace(/^#/, "");
     const palletsById = new Map(pallets.map((p) => [p.id, p]));
     const shippedRows: BatchShipmentRow[] = [];
     const stockRows = new Map<string, BatchStockRow>();
@@ -131,7 +131,7 @@ export function buildBatchTraceability(
         const available = (shipment.palletIds ?? []).map((id) => palletsById.get(id)).filter((p): p is Pallet => Boolean(p));
         const detail = buildShipmentTraceability(shipment, available, catalog);
         missingHistoricalPallets += detail.missingPallets;
-        const matched = detail.rows.filter((row) => selected && clean(row.batchNumber) === selected);
+        const matched = detail.rows.filter((row) => selected && clean(row.batchNumber).replace(/^#/, "") === selected);
         if (matched.length === 0) continue;
         if (detail.hasUnverifiedData) hasUnverifiedShipments = true;
         for (const row of matched) {
@@ -148,7 +148,7 @@ export function buildBatchTraceability(
     }
 
     for (const pallet of pallets) {
-        if (!selected || clean(pallet.batchNumber) !== selected || !activeZones.has(pallet.zone)) continue;
+        if (!selected || clean(pallet.batchNumber).replace(/^#/, "") !== selected || !activeZones.has(pallet.zone)) continue;
         const qty = quantityOf(pallet.quantity);
         if (qty <= 0) continue;
         const entry = catalog(clean(pallet.beerStyle), pallet.itemType);
@@ -202,7 +202,11 @@ export function buildBatchTraceability(
 
         for (const [id, item] of summary) {
             const packaged = packagedBySku.get(id) ?? null;
-            const reconciliation = reconcileBatchQuantity(packaged, item.shipped, item.remaining);
+            // An unparseable packaging record may belong to any SKU in this
+            // batch. Never label any SKU "matched" while history is incomplete.
+            const reconciliation = invalidPackagingRecords > 0
+                ? { variance: null, status: "unknown" as const }
+                : reconcileBatchQuantity(packaged, item.shipped, item.remaining);
             summary.set(id, { ...item, packaged, variance: reconciliation.variance,
                 reconciliationStatus: reconciliation.status });
         }
