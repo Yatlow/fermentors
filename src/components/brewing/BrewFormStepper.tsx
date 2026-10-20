@@ -25,6 +25,7 @@ import {
 import BeerLoader from "../general/Loading";
 import { CalculatorIconButton, CalculatorModal } from "../tools/BrewingMeasurementCalculators";
 import { calculateWeightedStartingPlato } from "../../SERVICES/brewing/startingPlato";
+import { shouldRecalculateHopAmount } from "../../SERVICES/brewing/hopVolumeRecalculation";
 import { applyHydrometerResult, type HydrometerDestination, type HydrometerField } from "../../SERVICES/brewing/hydrometerResultTarget";
 import {
   activeLot,
@@ -2939,8 +2940,11 @@ export default function BrewFormStepper({
       calculatedHops.forEach(({ key: hopKey, grams, row }) => {
         if (grams === null) return;
         const existingAmount = num(fields[hopKey] || "");
-        if (!options.forceHopRecalc && !isInitialVolume &&
-            existingAmount !== null && existingAmount > 0) return;
+        if (!shouldRecalculateHopAmount(
+          isInitialVolume ? null : previousKettleVolume,
+          existingAmount,
+          Boolean(options.forceHopRecalc),
+        )) return;
         const gramsText = String(roundToFive(grams));
         replacements.push({ key: hopKey, value: gramsText });
         writes.push({ range: `'גיליון1'!A${row}`, value: Number(gramsText) });
