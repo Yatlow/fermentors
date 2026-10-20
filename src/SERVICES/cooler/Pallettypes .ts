@@ -57,12 +57,28 @@ export type ManualShipmentLine = {
     description: string;
     quantity: number;
     source: "catalog" | "manual";
+    /** Optional traceability fields for manually entered delivery notes. */
+    batchNumber?: string | null;
+    expiryDateStr?: string | null;
+};
+
+/** Immutable pallet details captured in the shipment transaction. */
+export type ShipmentPalletSnapshot = {
+    palletId: string;
+    beerStyle: string;
+    itemType: PalletItemType;
+    quantity: number;
+    batchNumber: string | null;
+    expiryDateStr: string | null;
+    sku: string | null;
+    description: string | null;
 };
 
 export type Shipment = {
     id: string;
     shipmentNumber: number;
     palletIds: string[];
+    palletSnapshot?: ShipmentPalletSnapshot[];
     totals: ShipmentTotal[];
     createdAt?: Timestamp | null;
     customerName?: string | null;
