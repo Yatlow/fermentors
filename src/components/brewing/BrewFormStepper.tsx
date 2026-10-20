@@ -2915,8 +2915,6 @@ export default function BrewFormStepper({
       key === "kettleVolume" &&
       kettleVolumeActuallyChanged &&
       !options.skipHopPrompt &&
-      // A: first entry from empty must never prompt; later real edits should.
-      // B/C: same rule naturally applies because previousKettleVolume must exist.
       boilHops.length > 0;
 
     if (shouldOfferHopRecalc) {
@@ -2928,38 +2926,37 @@ export default function BrewFormStepper({
     }
 
     if (key === "kettleVolume" && parsed !== null) {
-      committedKettleVolumeRef.current[blockKey] = parsed;
-      let nextExecution = setBrewingExecutionField(
-        execution,
-        currentBlock,
-        key,
-        value,
-      );
-
-      boilHops.forEach((hop, index) => {
-        const amountKey = `hop${index + 1}.amountGrams`;
-        const existingAmount = num(fields[amountKey] || "");
-        // New Sheets intentionally start raw-hop quantity at 0. Treat that
-        // placeholder as uncalculated so the first kettle-volume entry fills it.
-        if (!options.forceHopRecalc && existingAmount !== null && existingAmount > 0) return;
-
-        const dose = hopDose(hop, parsed);
-        if (dose.grams === null) return;
-
-        const grams = String(roundToFive(dose.grams));
-        nextExecution = setBrewingExecutionField(
-          nextExecution,
-          currentBlock,
-          amountKey,
-          grams,
-        );
-        writes.push({
-          range: `'גיליון1'!A${rawHopSheetRow(index)}`,
-          value: Number(grams),
-        });
+      // On the first valid volume entry, always calculate ALL recipe hop
+      // amounts. A copied Master may already contain stale positive amounts.
+      // Subsequent volume changes request confirmation before replacing them.
+      const isInitialVolume = previousKettleVolume === null;
+      const calculatedHops = boilHops.map((hop, index) => ({
+        key: `hop${index + 1}.amountGrams`,
+        grams: hopDose(hop, parsed).grams,
+        row: rawHopSheetRow(index),
+      }));
+      const replacements: Array<{ key: string; value: string }> = [];
+      calculatedHops.forEach(({ key: hopKey, grams, row }) => {
+        if (grams === null) return;
+        const existingAmount = num(fields[hopKey] || "");
+        if (!options.forceHopRecalc && !isInitialVolume &&
+            existingAmount !== null && existingAmount > 0) return;
+        const gramsText = String(roundToFive(grams));
+        replacements.push({ key: hopKey, value: gramsText });
+        writes.push({ range: `'גיליון1'!A${row}`, value: Number(gramsText) });
       });
 
-      setExecution(nextExecution);
+      latestLocalEditAt.current = Date.now();
+      // Merge atomically into the latest React execution instead of
+      // constructing several whole-execution snapshots from an old render.
+      setExecution((previous) => {
+        let next = setBrewingExecutionField(previous, blockKey, key, value);
+        replacements.forEach(({ key: hopKey, value: grams }) => {
+          next = setBrewingExecutionField(next, blockKey, hopKey, grams);
+        });
+        return next;
+      });
+      committedKettleVolumeRef.current[blockKey] = parsed;
       await writeSheet(key, writes);
       return;
     }
@@ -4890,6 +4887,12 @@ export default function BrewFormStepper({
                     type="number"
                     required
                   value={localValue("kettleVolume")}
+                    onFocus={() => {
+                      // Capture the pre-edit value before onChange changes
+                      // React state and Firestore/local cache.
+                      committedKettleVolumeRef.current[currentBlock] =
+                        num(fields.kettleVolume || "");
+                    }}
                     onChange={(e) => setLocal("kettleVolume", e.target.value)}
                     onBlur={(e) =>
                       void commitSugar("kettleVolume", e.target.value, 38, "C")
