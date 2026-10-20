@@ -544,7 +544,13 @@ export async function updatePallet(palletId: string, input: { itemType: PalletIt
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error("כמות חייבת להיות גדולה מ-0");
     const max = maxPerPalletFor(input.itemType);
     if (input.quantity > max) throw new Error(`משטח בודד יכול להכיל עד ${max} ${input.itemType === "kegs" ? "חביות" : "ארגזים"}`);
-    await updateDoc(doc(db, PALLETS_COLLECTION, palletId), { itemType: input.itemType, beerStyle: input.beerStyle.trim(), subLabel: input.subLabel?.trim() || null, quantity: Math.round(input.quantity), heightCm: calcHeightCm(input.itemType, Math.round(input.quantity)), expiryDateStr: input.expiryDateStr?.trim() || null, batchNumber: input.batchNumber?.trim() || null, updatedAt: serverTimestamp() });
+    const ref = doc(db, PALLETS_COLLECTION, palletId);
+    await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error("המשטח לא נמצא");
+        if (snap.data().zone === "shipped") throw new Error("לא ניתן לערוך משטח שכבר נשלח: נתוניו משמשים לעקיבות.");
+        tx.update(ref, { itemType: input.itemType, beerStyle: input.beerStyle.trim(), subLabel: input.subLabel?.trim() || null, quantity: Math.round(input.quantity), heightCm: calcHeightCm(input.itemType, Math.round(input.quantity)), expiryDateStr: input.expiryDateStr?.trim() || null, batchNumber: input.batchNumber?.trim() || null, updatedAt: serverTimestamp() });
+    });
 }
 
 export async function updatePalletQuantity(palletId: string, quantity: number) {
@@ -555,6 +561,7 @@ export async function updatePalletQuantity(palletId: string, quantity: number) {
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("המשטח לא נמצא");
         const pallet = snap.data() as Pallet;
+        if (pallet.zone === "shipped") throw new Error("לא ניתן לשנות כמות של משטח שכבר נשלח.");
         const max = maxPerPalletFor(pallet.itemType);
         if (nextQuantity > max) throw new Error(`משטח בודד יכול להכיל עד ${max} ${pallet.itemType === "kegs" ? "חביות" : "ארגזים"}`);
         tx.update(ref, { quantity: nextQuantity, heightCm: calcHeightCm(pallet.itemType, nextQuantity), updatedAt: serverTimestamp() });
@@ -563,7 +570,12 @@ export async function updatePalletQuantity(palletId: string, quantity: number) {
 
 export async function deletePallet(palletId: string): Promise<void> {
     const ref = doc(db, PALLETS_COLLECTION, palletId);
-    await runTransaction(db, async (tx) => { const snap = await tx.get(ref); if (!snap.exists()) throw new Error("המשטח כבר לא קיים"); tx.delete(ref); });
+    await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error("המשטח כבר לא קיים");
+        if (snap.data().zone === "shipped") throw new Error("לא ניתן למחוק משטח שכבר נשלח: הוא משמש לעקיבות.");
+        tx.delete(ref);
+    });
 }
 
 export async function splitPallet(palletId: string, splitQty: number, splitLabel: string | null) {
@@ -574,6 +586,7 @@ export async function splitPallet(palletId: string, splitQty: number, splitLabel
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("המשטח לא נמצא");
         const pallet = { id: snap.id, ...(snap.data() as Record<string, unknown>) } as Pallet;
+        if (pallet.zone === "shipped") throw new Error("לא ניתן לפצל משטח שכבר נשלח.");
         if (quantityToSplit <= 0 || quantityToSplit >= pallet.quantity) throw new Error("כמות הפיצול חייבת להיות בין 1 לכמות פחות 1");
         const remainingQty = pallet.quantity - quantityToSplit;
         tx.update(ref, { quantity: remainingQty, heightCm: calcHeightCm(pallet.itemType, remainingQty), updatedAt: serverTimestamp() });
