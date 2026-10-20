@@ -272,6 +272,32 @@ export default function HealthDashboard({ brews, specs, onRecommendedTanksChange
         };
     }, []);
 
+    // Recalculate only at a meaningful grace boundary (12h, 00:00 or 05:00),
+    // rather than re-reading every tank on every minute tick.
+    useEffect(() => {
+        const now = new Date();
+        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+        const nextFive = graceDayStart(now);
+        nextFive.setDate(nextFive.getDate() + 1);
+        const upcomingTwelveHourEnds = brews
+            .filter(tank => Number(tank.action) === 1)
+            .map(tank => fermentationGraceEnd(tank))
+            .filter((end): end is number => end !== null && end > now.getTime());
+        const next = Math.min(midnight, nextFive.getTime(), ...upcomingTwelveHourEnds);
+        const timer = window.setTimeout(() => {
+            setMeasurementRefresh(current => current + 1);
+        }, Math.max(1000, next - now.getTime() + 200));
+        const refreshOnFocus = () => setMeasurementRefresh(current => current + 1);
+        const refreshOnVisible = () => { if (!document.hidden) refreshOnFocus(); };
+        window.addEventListener("focus", refreshOnFocus);
+        document.addEventListener("visibilitychange", refreshOnVisible);
+        return () => {
+            window.clearTimeout(timer);
+            window.removeEventListener("focus", refreshOnFocus);
+            document.removeEventListener("visibilitychange", refreshOnVisible);
+        };
+    }, [brews, measurementRefresh]);
+
     useEffect(() => {
         let cancelled = false;
         const analysisTimer = setTimeout(() => { void analyzeCellar(); }, 120);
