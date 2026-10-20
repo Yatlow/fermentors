@@ -12,6 +12,7 @@ export type ActionCount = { done: number; total: number };
 
 const classify = (value: string): ActionCategory | null => {
     if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/i.test(value)) return "pressure";
+    if (/bottomCarbonation|bottom-carb|גיזוז מלמטה/i.test(value)) return "other";
     if (/carb|carbonation|גיזוז/i.test(value)) return "carb";
     if (/yeast|שמרים/i.test(value)) return "yeast";
     if (/^(?:other|ventAdjust)$/i.test(value)) return "other";
@@ -22,6 +23,8 @@ const classify = (value: string): ActionCategory | null => {
 const normalizeType = (value: string): string => {
     if (/pressureAdjustment|pressureChange|pressure-adjust|pressure-change|שינוי לחץ|העלאת לחץ|הורדת לחץ/i.test(value)) return "pressureAdjustment";
     if (/pressureClose|pressure-close|סגירת נשם|סגירת מיכל/i.test(value)) return "pressureClose";
+    if (/bottomCarbonationFollowUp|bottom-carb-close|סגירת גיזוז מלמטה/i.test(value)) return "bottomCarbonationFollowUp";
+    if (/bottomCarbonation|bottom-carb|גיזוז מלמטה/i.test(value)) return "bottomCarbonation";
     if (/vent-adjust|כיוון פורק/i.test(value)) return "ventAdjust";
     if (/dryHop|דרייהופ|כשות/i.test(value)) return "dryHop";
     if (/coolDown|cooling|קירור/i.test(value)) return "coolDown";
@@ -37,7 +40,9 @@ const identity = (record: ActionRecord, rawKey: string): string => {
     // pressureAdjustment is a legacy shared key for TWO different natural
     // recommendations. Use the explicit kind to match vent reports to vent
     // recommendations, instead of treating all of them as pressure changes.
-    const actionIdentity = rawKey === "pressureAdjustment" &&
+    const actionIdentity = rawKey === "bottomCarbonationFollowUp"
+        ? "bottom-carb-close"
+        : rawKey === "pressureAdjustment" &&
         (record.scheduledActionType === "ventAdjust" || record.scheduledActionType === "other")
         ? "vent-adjust"
         : rawKey + " " + (record.title || "");
