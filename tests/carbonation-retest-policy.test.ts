@@ -160,7 +160,7 @@ test("ordinary-pressure retest wording does not hardcode two days", () => {
 });
 
 
-test("repeat-test context shows latest today's and yesterday's pressure and rise", () => {
+test("repeat-test context uses the preceding pressure reading, even if both are from today", () => {
   const readings = [
     { id: "2026-10-20_0800", pressure: 1.2 },
     { id: "2026-10-19_0900", pressure: 0.88 },
@@ -200,7 +200,7 @@ test("repeat-test context does not invent missing readings", () => {
       [{ id: "2026-10-18_1000", pressure: 1.5 }, { id: "2026-10-20_1000", pressure: 1.2 }],
       "2026-10-20",
     ),
-    "לחץ היום: 1.2 bar",
+    "לחץ היום: 1.2 bar · לחץ קודם (18/10/2026): 1.5 bar · הפרש: ירידה של 0.30 bar",
   );
   assert.equal(
     carbonationRetestPressureContext(
