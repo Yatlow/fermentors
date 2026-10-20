@@ -207,7 +207,8 @@ export function carbonationRetestDueReason(
 /**
  * Pressure context for a repeat carbonation test. Only a real pressure reading
  * from today enables it; never substitute the current tank snapshot, a target
- * pressure or an older day's measurement. Prefer the last reading of each day.
+ * pressure or a target. Compare the latest pressure today against the previous
+ * recorded pressure, whether minutes or several days earlier.
  */
 export function carbonationRetestPressureContext(
   measurements: CarbonationRetestMeasurement[],
