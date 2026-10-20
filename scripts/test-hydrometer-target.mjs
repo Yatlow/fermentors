@@ -82,7 +82,7 @@ test("end-of-boil hydrometer result updates the correct weighted starting Plato 
     batchNumber: batch, blockIndex: 2, field: "endBoilPlato",
   }, 16.00, { sheetBacked: true, totalBlocks: 3 });
   assert.deepEqual(writes, [
-    { range: "'גיליון1'!B114", value: 16 },
+    { range: "'גיליון1'!B64", value: 16 },
     { range: "'גיליון1'!D156", value: 15.38 },
   ]);
 });
