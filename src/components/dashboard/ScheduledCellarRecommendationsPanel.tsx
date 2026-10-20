@@ -285,6 +285,7 @@ export default function ScheduledCellarRecommendationsPanel({
           >
             <option value="carbTest">בדיקת גיזוז</option>
             <option value="yeastDrop">הורדת שמרים</option>
+            <option value="bottomCarbonation">גיזוז מלמטה</option>
             <option value="pressureChange">שינוי לחץ</option>
           </select>
           <input type="date" min={todayDateKey()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
