@@ -11,6 +11,7 @@ import { getBrewAge } from "./TankCard";
 import type { SpecChart } from "../../SERVICES/getAndPost/getSpecsFromFb";
 import {
     dueScheduledForTank,
+    hasUpcomingBottomCarbonationDecision,
     scheduledActionLabel,
     setScheduledCellarRecommendationStatus,
     subscribeScheduledCellarRecommendations,
@@ -296,6 +297,16 @@ export default function FermentorInfoBox({
         (recomendations?.requiiersWedYeastDropOnThus?.req && recomendations?.requiiersWedYeastDropOnThus?.display)
     );
     const naturalFuture = naturalFutureRecommendations(recomendations);
+    const hasPlannedBottomCarbonation = hasUpcomingBottomCarbonationDecision(
+        scheduledRecommendations,
+        tank.tankNumber,
+        tank.batchNumber,
+    );
+    // Suppress only the cold-tank response to an invalid carbonation test;
+    // unrelated warm-tank vent tuning is not a bottom-carbonation treatment.
+    const suppressAutomaticCarbPressureAdvice =
+        hasPlannedBottomCarbonation &&
+        recomendations?.requiredPressureAdjustment?.actionType === "pressureChange";
 
     const dueManualRecommendations = dueScheduledForTank(
         scheduledRecommendations,
@@ -313,6 +324,7 @@ export default function FermentorInfoBox({
     const pressureDecisionCandidate =
         recomendations?.requiredPressureAdjustment?.req === true &&
         recomendations?.requiredPressureAdjustment?.display === true &&
+        !suppressAutomaticCarbPressureAdvice &&
         !recomendations?.pressureAdjustmentHandledToday?.completed
             ? { reason: String(recomendations.requiredPressureAdjustment.reason ?? "") }
             : undefined;
@@ -330,7 +342,9 @@ export default function FermentorInfoBox({
                 recomendations.requiersDiacytelRest,
                 recomendations.neglectedStatus,
                 recomendations.requiresToCoolDown,
-                ...(!hasActiveUserPressureDecision ? [recomendations.requiredPressureAdjustment] : []),
+                ...(!hasActiveUserPressureDecision && !suppressAutomaticCarbPressureAdvice
+                    ? [recomendations.requiredPressureAdjustment]
+                    : []),
                 recomendations.requiresWarmYeastDropCompletion,
                 recomendations.requiresColdYeastDropCompletion,
                 recomendations.requiiersWedYeastDropOnThus,
