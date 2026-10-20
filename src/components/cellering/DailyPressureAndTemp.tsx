@@ -13,6 +13,7 @@ export type DailyPressureAndTempProps = {
   newReadings: Record<string, NewReading>,
   updateReading: Function,
   dailyProgress: Record<string, { temp: boolean; pressure: boolean; plato: boolean; pH: boolean }>,
+  graceTankIds: ReadonlySet<string>,
 }
 
 export default function DailyPressureAndTemp({
@@ -20,11 +21,11 @@ export default function DailyPressureAndTemp({
   newReadings,
   updateReading,
   dailyProgress,
+  graceTankIds,
 }: DailyPressureAndTempProps) {
 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [now, setNow] = useState(() => new Date());
-  const graceStateTank = brews.find(tank => Number(tank.tankNumber) === 1);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -81,7 +82,7 @@ export default function DailyPressureAndTemp({
           .filter((fv) => Number(fv.tankNumber) !== 1)
           .map((fv) => {
             const reading = newReadings[fv.id] ?? {};
-            const graceLabel = graceElapsedLabel(fv, graceStateTank, now);
+            const graceLabel = graceElapsedLabel(fv, graceTankIds.has(String(fv.id)), now);
             const inGrace = graceLabel !== null;
             const stageClass = fv.stage?.className ?? "";
             return (
