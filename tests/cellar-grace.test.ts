@@ -150,3 +150,15 @@ test("voluntary complete grace round adds 1/1 bonus while missing or partial sta
   assert.equal(oneRequiredIncomplete.checkedTanks, 14);
   assert.equal(oneRequiredIncomplete.completeMeasurementTankNumbers.length, 13);
 });
+
+test("a grace extension does not compound after midnight, but a later batch may get its own", () => {
+  const first = { ...grace16, fermentationStartedAt: new Date(2026, 9, 15, 23).toISOString() };
+  const completed = completedRoundGraceExtensions([...fullRound, first], allComplete, root, new Date(2026, 9, 15, 23, 10));
+  assert.deepEqual(Object.keys(completed), ["tank16"]);
+  const saved = { ...root, cellarGraceExtensions: completed };
+  assert.deepEqual(completedRoundGraceExtensions([...fullRound, first], allComplete, saved, new Date(2026, 9, 16, 9)), {});
+
+  // A new batch starts after the previous grace already ended.
+  const second = { ...grace16, fermentationStartedAt: new Date(2026, 9, 18, 8).toISOString() };
+  assert.deepEqual(Object.keys(completedRoundGraceExtensions([...fullRound, second], allComplete, saved, new Date(2026, 9, 18, 10))), ["tank16"]);
+});
