@@ -690,19 +690,6 @@ function brewingSheetPrintPdf_(data) {
   const style = String(data.style || "").trim();
   const tankType = String(data.tankType || "single").trim();
   const brewDate = String(data.brewDate || "").trim();
-  // The optional substitutions apply to the disposable print workbook only.
-  // Never update the production Sheet or persist personal print variations.
-  const textReplacements = (Array.isArray(data.textReplacements) ? data.textReplacements : [])
-    .slice(0, 12)
-    .map(function (edit) {
-      return { from: String(edit && edit.from || "").trim(), to: String(edit && edit.to || "") };
-    })
-    .filter(function (edit) { return edit.from.length > 0 && edit.from.length <= 120 && edit.to.length <= 200; });
-  function printText(value) {
-    return textReplacements.reduce(function (result, edit) {
-      return result.split(edit.from).join(edit.to);
-    }, String(value));
-  }
   const blockCount = tankType === "triple" ? 3 : tankType === "double" ? 2 : 1;
   const mashRestCount = Number(data.mashRestCount || 2);
   // Master coordinates are intentionally not uniform: the third brew starts
@@ -739,15 +726,15 @@ function brewingSheetPrintPdf_(data) {
     cover.setRowHeights(10, 9, 30);
     cover.getRange("A1:H44").setFontFamily("Rubik").setHorizontalAlignment("center")
       .setTextDirection(SpreadsheetApp.TextDirection.RIGHT_TO_LEFT);
-    cover.getRange("A4:H5").merge().setValue(printText("מס מיכל: " + tankNumber)).setFontSize(22).setFontWeight("bold");
-    cover.getRange("A10:H18").merge().setValue(printText("#" + batchNumber)).setFontSize(68).setFontWeight("bold")
+    cover.getRange("A4:H5").merge().setValue("מס מיכל: " + tankNumber).setFontSize(22).setFontWeight("bold");
+    cover.getRange("A10:H18").merge().setValue("#" + batchNumber).setFontSize(68).setFontWeight("bold")
       .setVerticalAlignment("middle");
     const typeLabel = tankType === "single" ? "בודד" : tankType === "double" ? "כפול" : "משולש";
-    cover.getRange("A21:H25").merge().setValue(printText(style + " " + typeLabel)).setFontSize(30).setFontWeight("bold")
+    cover.getRange("A21:H25").merge().setValue(style + " " + typeLabel).setFontSize(30).setFontWeight("bold")
       .setVerticalAlignment("middle");
-    cover.getRange("A31:H33").merge().setValue(printText("תאריך בישול: " + (brewDate || "________________")))
+    cover.getRange("A31:H33").merge().setValue("תאריך בישול: " + (brewDate || "________________"))
       .setFontSize(17).setVerticalAlignment("middle");
-    cover.getRange("A38:H40").merge().setValue(printText("נפח וסוכר התחלתי: ________________ / ________________"))
+    cover.getRange("A38:H40").merge().setValue("נפח וסוכר התחלתי: ________________ / ________________")
       .setFontSize(17).setVerticalAlignment("middle");
     cover.getRange("A1:H44").setBorder(true, true, true, true, null, null);
 
@@ -901,13 +888,6 @@ function brewingSheetPrintPdf_(data) {
           }
         }
       });
-      if (textReplacements.length) {
-        display.forEach(function (row) {
-          row.forEach(function (cell, col) {
-            if (cell !== "" && cell != null) row[col] = printText(cell);
-          });
-        });
-      }
       printRange.setValues(display);
 
       // Fit all cells in memory and apply font sizes once.
