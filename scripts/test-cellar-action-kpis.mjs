@@ -6,6 +6,24 @@ import ts from "typescript";
 const source = readFileSync(new URL("../src/SERVICES/dashboard/actionKpis.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
 const { calculateActionKpis, hasExplicitPressureChangeAction } = await import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
+// Load the pure scheduled-evidence rules without Firebase imports; the tests
+// exercise real completion logic without any network or Firestore reads.
+const scheduledSource = readFileSync(new URL("../src/SERVICES/cellering/scheduledCellarRecommendations.ts", import.meta.url), "utf8");
+const scheduledJs = ts.transpileModule(scheduledSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+}).outputText.replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']+["'];/g, "");
+const { scheduledRecommendationCompletionDate, hasUpcomingBottomCarbonationDecision } = await import(
+    "data:text/javascript;base64," + Buffer.from(scheduledJs).toString("base64")
+);
+
+const retestSource = readFileSync(new URL("../src/SERVICES/cellering/carbonationRetestPolicy.ts", import.meta.url), "utf8");
+const retestJs = ts.transpileModule(retestSource, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
+}).outputText;
+const { carbonationRetestPolicy, carbonationRetestPressureContext } = await import(
+    "data:text/javascript;base64," + Buffer.from(retestJs).toString("base64")
+);
+
 const pending = (recommendationKey, batchNumber = "1601", tankNumber = "8", extra = {}) =>
     ({ id: recommendationKey, recommendationKey, batchNumber, tankNumber, ...extra });
 const done = (id, title, batchNumber = "1601", tankNumber = "8") =>
@@ -157,4 +175,102 @@ test("gas KPI is exclusively actual carbonation tests, not pressure corrections 
     assert.doesNotMatch(dashboard, /const carbCompletedToday = hasTodayCarbonation \|\|/);
     assert.doesNotMatch(dashboard, /"carbTest", "bottomCarbonationFollowUp"/);
     assert.match(dashboard, /addCompleted\(`bottom-carb-close-/);
+});
+
+
+test("scheduled bottom carbonation stays in Other KPI and matches its completion", () => {
+    const task = pending("scheduled-bottom-123", "1602", "8", { scheduledActionType: "bottomCarbonation" });
+    assert.deepEqual(count([task]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 0, total: 1 },
+    });
+    assert.deepEqual(count([task], [done("scheduled-bottom-123", "גיזוז מלמטה", "1602", "8")]), {
+        pressure: { done: 0, total: 0 },
+        other: { done: 1, total: 1 },
+    });
+});
+
+test("scheduled bottom carbonation requires actual start, not test, pressure or closure", () => {
+    const scheduled = {
+        id: "abc", tankNumber: "8", batchNumber: "1602",
+        actionType: "bottomCarbonation", dueDate: "2026-10-20", status: "active",
+    };
+    const history = [
+        { id: "2026-10-19_1200", notes: "תחילת גיזוז מלמטה" },
+        { id: "2026-10-20_0830", carbonation: 2.4 },
+        { id: "2026-10-20_0840", notes: "סגירת גיזוז מלמטה בשעה 08:40 על 1.5 bar" },
+        { id: "2026-10-20_0900", notes: "הורדת לחץ ל 1.3 bar" },
+    ];
+    assert.equal(scheduledRecommendationCompletionDate(scheduled, history), null);
+    assert.equal(
+        scheduledRecommendationCompletionDate(scheduled, [
+            ...history, { id: "2026-10-20_1000", notes: "תחילת גיזוז מלמטה בשעה 10:00" }
+        ]),
+        "2026-10-20",
+    );
+});
+
+test("today's pressure comparison uses actual daily measurements only", () => {
+    const history = [
+        { id: "2026-10-19_1000", pressure: 0.88 },
+        { id: "2026-10-20_0800", pressure: 1.2 },
+        { id: "2026-10-20_1045", pressure: 1.34 },
+    ];
+    assert.match(
+        carbonationRetestPressureContext(history, "2026-10-20") ?? "",
+        /לחץ היום: 1.34 bar.*לחץ במדידה הקודמת היום: 1.2 bar.*הפרש: עלייה של 0.14 bar/,
+    );
+    assert.equal(carbonationRetestPressureContext(history, "2026-10-21"), null);
+    const policy = carbonationRetestPolicy([
+        { id: "2026-10-18_1000", carbonation: 2.1 },
+        ...history,
+    ], "2026-10-20");
+    assert.equal(policy.due, true);
+    assert.equal(policy.waitReason, "cadence");
+});
+
+test("scheduled start is wired to the bottom-carbonation quick report", () => {
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    const panel = readFileSync(new URL("../src/components/dashboard/ScheduledCellarRecommendationsPanel.tsx", import.meta.url), "utf8");
+    assert.match(panel, /<option value="bottomCarbonation">גיזוז מלמטה<\/option>/);
+    assert.match(dashboard, /bottomCarbonation: "גיזוז מלמטה התחלה"/);
+    assert.match(dashboard, /!completedScheduledBottomCarbonation/);
+});
+
+
+test("pending bottom-carbonation replaces only its batch's automatic carbonation-pressure advice", () => {
+    const rows = [
+        { id: "future-bottom", tankNumber: "8", batchNumber: "1602", actionType: "bottomCarbonation", dueDate: "2026-10-22", status: "active" },
+        { id: "cancelled-bottom", tankNumber: "9", batchNumber: "1603", actionType: "bottomCarbonation", dueDate: "2026-10-22", status: "cancelled" },
+        { id: "past-bottom", tankNumber: "10", batchNumber: "1604", actionType: "bottomCarbonation", dueDate: "2026-10-18", status: "active" },
+        { id: "test-only", tankNumber: "11", batchNumber: "1605", actionType: "carbTest", dueDate: "2026-10-22", status: "active" },
+    ];
+    assert.equal(hasUpcomingBottomCarbonationDecision(rows, "8", "1602", "2026-10-20"), true);
+    assert.equal(hasUpcomingBottomCarbonationDecision(rows, "8", "#1602", "2026-10-22"), true);
+    assert.equal(hasUpcomingBottomCarbonationDecision(rows, "8", "1602", "2026-10-23"), false);
+    assert.equal(hasUpcomingBottomCarbonationDecision(rows, "8", "other-batch", "2026-10-20"), false);
+    for (const [tank, batch] of [["9", "1603"], ["10", "1604"], ["11", "1605"]]) {
+        assert.equal(hasUpcomingBottomCarbonationDecision(rows, tank, batch, "2026-10-20"), false);
+    }
+});
+
+test("both cellar views suppress out-of-spec pressure advice when bottom carbonation is planned", () => {
+    const dashboard = readFileSync(new URL("../src/components/dashboard/HealthDashboard.tsx", import.meta.url), "utf8");
+    const info = readFileSync(new URL("../src/components/dashboard/FermentorInfoBox.tsx", import.meta.url), "utf8");
+    assert.match(dashboard, /const hasPlannedBottomCarbonation = hasUpcomingBottomCarbonationDecision\(/);
+    assert.match(dashboard, /hasPlannedBottomCarbonation && recommendation\.actionType === "pressureChange"/);
+    assert.match(info, /const suppressAutomaticCarbPressureAdvice =/);
+    assert.match(info, /hasPlannedBottomCarbonation &&/);
+    assert.match(info, /!suppressAutomaticCarbPressureAdvice/);
+});
+
+test("no pressure comparison when today lacks pressure, even if yesterday has it", () => {
+    assert.equal(carbonationRetestPressureContext(
+        [{ id: "2026-10-19_0900", pressure: 1.4 }, { id: "2026-10-20_0900", carbonation: 2.2 }],
+        "2026-10-20"
+    ), null);
+    assert.equal(carbonationRetestPressureContext(
+        [{ id: "2026-10-20_0900", pressure: 1.4 }],
+        "2026-10-20"
+    ), "לחץ היום: 1.4 bar");
 });
