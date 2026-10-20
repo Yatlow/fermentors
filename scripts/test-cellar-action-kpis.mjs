@@ -184,7 +184,7 @@ test("scheduled bottom carbonation stays in Other KPI and matches its completion
         pressure: { done: 0, total: 0 },
         other: { done: 0, total: 1 },
     });
-    assert.deepEqual(count([task], [done("scheduled-bottom-123", "גיזוז מלמטה")]), {
+    assert.deepEqual(count([task], [done("scheduled-bottom-123", "גיזוז מלמטה", "1602", "8")]), {
         pressure: { done: 0, total: 0 },
         other: { done: 1, total: 1 },
     });
