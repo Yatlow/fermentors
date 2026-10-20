@@ -116,3 +116,102 @@ test("shipped pallet operations protect the traceability index", () => {
         assert.match(body, /zone === "shipped"/, functionName + " blocks post-shipment mutation");
     }
 });
+
+const packaged = (id, lot, type, qty, style = "IPA") => ({
+    id, operationId: id, batchNumber: lot, beerStyle: style,
+    packagingType: type, quantity: qty, source: "actual",
+});
+
+test("50 packaged, 35 shipped, 10 on hand produces a warning for 5 unaccounted kegs", () => {
+    const pallets = [
+        pallet("sent1", "1601", "kegs", 20, "shipped"),
+        pallet("sent2", "1601", "kegs", 15, "shipped"),
+        pallet("stock", "1601", "kegs", 10, "cooler"),
+    ];
+    const report = buildBatchTraceability("1601",
+        [note(2401, ["sent1", "sent2"], "2026-10-01", "Tempo")],
+        pallets, catalog, [packaged("pkg1", "1601", "kegs", 50)]);
+    assert.equal(report.summaries.length, 1);
+    const kegs = report.summaries[0];
+    assert.equal(kegs.packaged, 50);
+    assert.equal(kegs.shipped, 35);
+    assert.equal(kegs.remaining, 10);
+    assert.equal(kegs.variance, 5);
+    assert.equal(kegs.reconciliationStatus, "shortage");
+});
+
+test("multiple packaging operations of one SKU are summed but duplicated retries are ignored", () => {
+    const pallets = [
+        pallet("sent", "1601", "kegs", 30, "shipped"),
+        pallet("stock", "1601", "kegs", 20, "cooler"),
+    ];
+    const rows = [
+        packaged("first", "1601", "kegs", 15),
+        packaged("second", "1601", "kegs", 35),
+        { ...packaged("second-again", "1601", "kegs", 35), operationId: "second" },
+        packaged("other-batch", "1602", "kegs", 500),
+    ];
+    const result = buildBatchTraceability("1601", [note(2400, ["sent"], "2026-10-01", "Tempo")],
+        pallets, catalog, rows);
+    assert.deepEqual([result.summaries[0].packaged, result.summaries[0].variance,
+        result.summaries[0].reconciliationStatus], [50, 0, "matched"]);
+});
+
+test("extra shipments or inventory beyond reported packaging are flagged as excess", () => {
+    const pallets = [pallet("sent", "1700", "kegs", 20, "shipped"),
+        pallet("stock", "1700", "kegs", 15, "cooler")];
+    const result = buildBatchTraceability("1700", [note(2400, ["sent"], "2026-10-01", "Tempo")],
+        pallets, catalog, [packaged("pkg", "1700", "kegs", 30)]);
+    assert.equal(result.summaries[0].variance, -5);
+    assert.equal(result.summaries[0].reconciliationStatus, "excess");
+});
+
+test("kegs and bottles (counted as crates) reconcile independently with actual packaging", () => {
+    const pallets = [pallet("k", "1800", "kegs", 10, "shipped"),
+        pallet("c", "1800", "crates", 8, "cooler")];
+    const rows = [packaged("kegs", "1800", "kegs", 10),
+        packaged("crates", "1800", "bottles", 8)];
+    const result = buildBatchTraceability("1800", [note(2400, ["k"], "2026-10-01", "A")],
+        pallets, catalog, rows);
+    assert.deepEqual(result.summaries.map((x) => [x.sku, x.packaged, x.shipped, x.remaining, x.variance]),
+        [["IPA-crates", 8, 0, 8, 0], ["IPA-kegs", 10, 10, 0, 0]]);
+});
+
+test("missing historical packaging records are unknown, never treated as zero or balanced", () => {
+    const stock = [pallet("c", "1900", "kegs", 10, "cooler")];
+    for (const records of [[], null]) {
+        const result = buildBatchTraceability("1900", [], stock, catalog, records);
+        assert.equal(result.summaries[0].packaged, null);
+        assert.equal(result.summaries[0].variance, null);
+        assert.equal(result.summaries[0].reconciliationStatus, "unknown");
+    }
+});
+
+test("malformed actual report prevents a false green even if valid reports balance", () => {
+    const stock = [pallet("c", "2000", "kegs", 10, "cooler")];
+    const rows = [packaged("good", "2000", "kegs", 10), { ...packaged("bad", "2000", "bottles", 5), beerStyle: "" }];
+    const result = buildBatchTraceability("2000", [], stock, catalog, rows);
+    assert.equal(result.invalidPackagingRecords, 1);
+    assert.equal(result.summaries[0].packaged, 10);
+    assert.equal(result.summaries[0].variance, null);
+    assert.equal(result.summaries[0].reconciliationStatus, "unknown");
+});
+
+test("packaging-only lots still show up, even without surviving pallets or shipment references", () => {
+    const result = buildBatchTraceability("#2100", [], [], catalog,
+        [packaged("one", 2100, "kegs", 20)]);
+    assert.equal(result.summaries.length, 1);
+    assert.equal(result.summaries[0].packaged, 20);
+    assert.equal(result.summaries[0].shipped, 0);
+    assert.equal(result.summaries[0].remaining, 0);
+    assert.equal(result.summaries[0].variance, 20);
+});
+
+test("batch UI reads only selected packagingLog batch and labels missing records explicitly", () => {
+    const ui = readFileSync(new URL("../src/components/tools/ShipmentTraceabilityReport.tsx", import.meta.url), "utf8");
+    assert.match(ui, /collection\(db, "packagingLog"\)/);
+    assert.match(ui, /where\("batchNumber", "in", alternatives\)/);
+    assert.match(ui, /נארז בפועל/);
+    assert.match(ui, /חוסר בלתי מוסבר/);
+    assert.match(ui, /לא ניתן לאמת/);
+});
